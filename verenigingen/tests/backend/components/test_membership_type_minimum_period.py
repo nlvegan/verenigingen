@@ -41,13 +41,15 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
 
     def test_default_is_enforced(self):
         """Test that enforcement is enabled by default for new membership types"""
-        mt = frappe.get_doc(
+        # Use new_doc so framework field defaults are applied (mirrors real form
+        # creation); get_doc(dict) intentionally does not apply meta defaults.
+        mt = frappe.new_doc("Membership Type")
+        mt.update(
             {
-                "doctype": "Membership Type",
                 "membership_type_name": "Test Default Enforcement",
                 "amount": 100.0,
                 "currency": "EUR",
-                "subscription_period": "Monthly",
+                "billing_period": "Monthly",
                 "is_active": 1}
         )
         mt.insert()  # EnhancedTestCase handles permissions
@@ -154,7 +156,7 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
         membership1.insert()
 
         # Test with enforcement disabled
-        member2 = self.factory.create_test_members([self.chapter], count=1)[0]
+        member2 = self.create_test_member()
         mt_not_enforced = MembershipTestUtilities.create_membership_type_with_dues_schedule(
             name="Test Non-Enforced Annual", period="Annual", amount=100.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
@@ -194,7 +196,7 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
         self.assertEqual(getdate(membership1.renewal_date), expected_enforced)
 
         # Without enforcement
-        member2 = self.factory.create_test_members([self.chapter], count=1)[0]
+        member2 = self.create_test_member()
         mt_not_enforced = MembershipTestUtilities.create_membership_type_with_dues_schedule(
             name="Test Non-Enforced Lifetime", period="Lifetime", amount=1000.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
@@ -263,18 +265,18 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
         membership.insert()
         membership.submit()
 
-        # Try to cancel early as non-admin
-        frappe.set_user("test@example.com")
-
         # Use cancel_membership function
         from verenigingen.verenigingen.doctype.membership.membership import cancel_membership
 
-        with self.assertRaises(frappe.ValidationError) as cm:
-            cancel_membership(membership.name, add_months(today(), 3), "Early cancellation")
+        # Run as a non-admin role that passes the @critical_api guard (Treasurer
+        # holds CRITICAL) but is NOT System Manager, so the in-function admin
+        # bypass (Roles.SYSTEM_MANAGER check) does not apply and the 1-year
+        # minimum-period rule must throw.
+        with self.as_role("Verenigingen Treasurer"):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                cancel_membership(membership.name, add_months(today(), 3), "Early cancellation")
 
         self.assertIn("1 year", str(cm.exception))
-
-        # EnhancedTestCase tearDown handles user restoration
 
     def test_cancellation_allowed_without_enforcement(self):
         """Test that cancellation is allowed when enforcement is disabled"""

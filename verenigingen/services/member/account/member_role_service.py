@@ -101,8 +101,14 @@ class MemberRoleService(StatelessService):
             # - Consider adding a confirmation dialog in UI for re-purposing existing accounts
             user.roles = []
 
-            # Assign the role profile
-            user.role_profile_name = role_profile_name
+            # Assign the role profile. Frappe v16 moved role-profile assignment to
+            # the `role_profiles` child table; setting only the legacy
+            # `role_profile_name` Link is silently discarded by the User controller
+            # (move_role_profile_name_to_role_profiles() clears it when the
+            # role_profiles table is empty), leaving the member account with NO
+            # roles. Assign via the child table so the profile's roles are applied.
+            user.set("role_profiles", [])
+            user.append("role_profiles", {"role_profile": role_profile_name})
 
             # Ensure user is enabled
             if not user.enabled:

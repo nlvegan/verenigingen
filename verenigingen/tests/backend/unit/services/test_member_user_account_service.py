@@ -127,9 +127,10 @@ class TestMemberUserAccountService(EnhancedTestCase):
         self.assertTrue(result.success)
         self.assertIsInstance(result.data, str)
 
-        # Verify user was created
+        # Verify user was created. The factory may uniquify the email, so the
+        # created user mirrors the member's actual stored email.
         user = frappe.get_doc("User", result.data)
-        self.assertEqual(user.email, unique_email)
+        self.assertEqual(user.email, member.email)
 
     def test_service_never_throws_exceptions(self):
         """Test that service never throws exceptions - always returns OperationResult"""
@@ -155,11 +156,16 @@ class TestMemberUserAccountService(EnhancedTestCase):
         # OperationResult pattern
         self.assertTrue(result.success)
 
-        # Verify user properties
+        # Verify user properties. The user mirrors the member's stored names; the
+        # factory appends a uniqueness suffix to last_name, so compare against the
+        # member's actual stored last_name (prefix "Test"). The "Verenigingen
+        # Member" role profile grants desk-access roles, so Frappe keeps the user
+        # as "System User".
         user = frappe.get_doc("User", result.data)
-        self.assertEqual(user.email, unique_email)
+        self.assertEqual(user.email, member.email)
         self.assertEqual(user.first_name, "Props")
-        self.assertEqual(user.last_name, "Test")
+        self.assertEqual(user.last_name, member.last_name)
+        self.assertTrue(member.last_name.startswith("Test"))
         self.assertEqual(user.user_type, "System User")
         self.assertEqual(user.enabled, 1)
 

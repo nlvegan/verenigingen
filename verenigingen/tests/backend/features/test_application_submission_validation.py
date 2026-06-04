@@ -3,7 +3,6 @@ Comprehensive tests for membership application submission edge cases and validat
 """
 
 import frappe
-from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
@@ -13,11 +12,37 @@ import unittest
 class TestApplicationSubmissionValidation(EnhancedTestCase):
     """Test application submission validation and edge cases"""
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Seed masters so submit_application (which creates Member -> Customer and
+        # may run the creation_user-gated secure paths) succeeds in ISOLATION.
+        # before_tests is unreliable for single-module runs in this v16 setup.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
     def setUp(self):
         """Set up test environment"""
         super().setUp()
         # EnhancedTestCase handles permissions automatically
         self.test_cleanup_records = []
+
+        # The application form references a membership type by name. "Maandlid"
+        # is a production fixture that does not exist on a fresh test site, so
+        # the Link field validation fails. Create a real membership type here
+        # and use its name in the submitted application data.
+        from verenigingen.tests.backend.components.test_membership_utilities import (
+            MembershipTestUtilities,
+        )
+
+        self.membership_type = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="App Validation Monthly",
+            period="Monthly",
+            amount=10.0,
+            test_case=self,
+        )["membership_type"]
+        self.membership_type_name = self.membership_type.name
 
     def tearDown(self):
         """Clean up test records"""
@@ -46,7 +71,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "city": "Amsterdam",
             "postal_code": "1000AA",
             "country": "Netherlands",
-            "selected_membership_type": "Maandlid",
+            "selected_membership_type": self.membership_type_name,
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
@@ -60,7 +85,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         )
 
         if result.get("success"):
-            member_record = result.get("member_record")
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
             self.add_cleanup_record("Member", member_record)
 
             # Check volunteer was created with correct status
@@ -132,10 +157,14 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             # Verify correct status is used
             self.assertEqual(volunteer.status, "New", "create_volunteer_record should use 'New' status")
 
-            # Verify other fields are properly set
-            self.assertEqual(volunteer.email, member.email)
-            self.assertTrue(volunteer.available)
-            self.assertEqual(volunteer.date_joined, today())
+            # Verify the volunteer is linked back to the member and carries the
+            # member's display name. NOTE: the `email` field on Volunteer is the
+            # *organization* email, intentionally NOT set at creation (assigned
+            # later when a system account is provisioned), so it is expected to
+            # be empty here. start_date defaults to member_since or today().
+            self.assertEqual(volunteer.member, member.name)
+            self.assertIn(member.first_name, volunteer.volunteer_name)
+            self.assertTrue(volunteer.start_date, "Volunteer start_date should be set")
 
     def test_application_submission_edge_cases(self):
         """Test various edge cases in application submission"""
@@ -150,7 +179,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "city": "Amsterdam",
             "postal_code": "1000AA",
             "country": "Netherlands",
-            "selected_membership_type": "Maandlid",
+            "selected_membership_type": self.membership_type_name,
             "interested_in_volunteering": 0,  # No volunteer interest
             "payment_method": "Bank Transfer"}
 
@@ -160,7 +189,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         self.assertTrue(result.get("success"), "Application without volunteer interest should succeed")
 
         if result.get("success"):
-            member_record = result.get("member_record")
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
             self.add_cleanup_record("Member", member_record)
 
             # Should NOT create volunteer record
@@ -181,7 +210,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "city": "Amsterdam",
             "postal_code": "1000BB",
             "country": "Netherlands",
-            "selected_membership_type": "Maandlid",
+            "selected_membership_type": self.membership_type_name,
             "interested_in_volunteering": 1,  # With volunteer interest
             "payment_method": "Bank Transfer"}
 
@@ -189,7 +218,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         self.assertTrue(result.get("success"), "Application with volunteer interest should succeed")
 
         if result.get("success"):
-            member_record = result.get("member_record")
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
             self.add_cleanup_record("Member", member_record)
 
             # SHOULD create volunteer record
@@ -239,7 +268,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             "city": "Amsterdam",
             "postal_code": "1000CC",
             "country": "Netherlands",
-            "selected_membership_type": "Maandlid",
+            "selected_membership_type": self.membership_type_name,
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
@@ -249,7 +278,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
         self.assertTrue(result.get("success"), "Application with special characters should succeed")
 
         if result.get("success"):
-            member_record = result.get("member_record")
+            member_record = (result.get("data") or {}).get("member_record") or result.get("member_record")
             self.add_cleanup_record("Member", member_record)
 
             # Check volunteer was created correctly
@@ -266,9 +295,12 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
                 self.assertIn("José María", volunteer["volunteer_name"])
                 self.assertIn("García-López", volunteer["volunteer_name"])
 
-                # Get the full volunteer doc to check other fields if they exist
+                # Get the full volunteer doc to verify member linkage. The
+                # `email` field is the organization email (assigned later, not
+                # at creation), so it is intentionally empty here — do not
+                # assert it equals the applicant's personal email.
                 volunteer_doc = frappe.get_doc("Volunteer", volunteer["name"])
-                self.assertEqual(volunteer_doc.email, test_data["email"])
+                self.assertEqual(volunteer_doc.member, member_record)
 
             member = frappe.get_doc("Member", member_record)
             if member.primary_address:

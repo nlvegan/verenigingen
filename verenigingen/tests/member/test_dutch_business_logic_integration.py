@@ -269,16 +269,26 @@ class TestDutchNameHandling(EnhancedTestCase):
                     middle_name=middle_name,
                     last_name=last_name
                 )
-                
-                # Test real full name generation logic
-                # Dutch convention: tussenvoegsel stored lowercase
-                expected_with_lowercase = expected_full.replace(" Van ", " van ").replace(" De ", " de ").replace(" Der ", " der ")
+
+                # The factory appends a uniqueness suffix to last_name (Customer
+                # collision prevention), so the stored last_name is not the raw
+                # literal. Build the expected full name from the ACTUAL stored
+                # components — what we're verifying is the full_name COMPOSITION
+                # (first + lowercase tussenvoegsel + last), not the literal.
+                stored_last = member.last_name
+                stored_middle = (member.middle_name or "").lower()
+                if stored_middle:
+                    expected_with_lowercase = f"{first_name} {stored_middle} {stored_last}"
+                else:
+                    expected_with_lowercase = f"{first_name} {stored_last}"
                 self.assertEqual(member.full_name, expected_with_lowercase)
-                
+
                 # Test real name component storage
                 self.assertEqual(member.first_name, first_name)
-                self.assertEqual(member.middle_name or "", middle_name)
-                self.assertEqual(member.last_name, last_name)
+                # middle_name (tussenvoegsel) is stored lowercased by the controller
+                self.assertEqual((member.middle_name or "").lower(), middle_name.lower())
+                # Stored last_name starts with the supplied literal (+ uniq suffix)
+                self.assertTrue(stored_last.startswith(last_name))
     
     def test_sorting_name_generation_real_logic(self):
         """Test sorting name generation with real Dutch business logic"""
@@ -322,25 +332,27 @@ class TestDutchNameHandling(EnhancedTestCase):
                 last_name=last
             )
             created_members.append(member)
-        
-        # Test real search functionality
-        # Search by last name should find all Berg members
+
+        # Test real search functionality.
+        # The factory appends a uniqueness suffix to last_name, so an exact
+        # match on "Berg" finds nothing; the stored last_name is "Berg<suffix>".
+        # Search with a LIKE prefix to exercise real search over the actual data.
         berg_members = frappe.get_all(
             "Member",
-            filters={"last_name": "Berg"},
+            filters={"last_name": ["like", "Berg%"]},
             fields=["name", "full_name"]
         )
-        
+
         # Should find all 4 members (real search logic)
         self.assertGreaterEqual(len(berg_members), 4)
-        
+
         # Test search by full name components
         van_berg_members = frappe.get_all(
             "Member",
             filters={"full_name": ["like", "%van Berg%"]},
             fields=["name", "full_name"]
         )
-        
+
         # Should find members with "van Berg" (real search logic)
         self.assertGreater(len(van_berg_members), 0)
 
@@ -692,16 +704,18 @@ class TestDutchFinancialCompliance(EnhancedTestCase):
         self.assertIsNotNone(mandate.name)  # Mandate created successfully
         self.assertIsNotNone(mandate.mandate_id)  # Fixed: use correct field name
         
-        # Test recurring mandate rules (real SEPA compliance)
+        # A member legitimately gets a second Active mandate when switching banks
+        # — but only with a DIFFERENT IBAN. Two Active mandates sharing the same
+        # IBAN are rejected as a data-integrity duplicate
+        # (validate_no_duplicate_active_mandate), so use a different valid IBAN.
         recurring_mandate = frappe.new_doc("SEPA Mandate")
         recurring_mandate.member = member.name
         recurring_mandate.account_holder_name = member.full_name
-        recurring_mandate.iban = "NL91ABNA0417164300"  # Use valid IBAN without spaces
+        recurring_mandate.iban = "NL39RABO0300065264"  # Different valid IBAN (bank switch)
         recurring_mandate.status = "Active"
         recurring_mandate.sign_date = today()  # Fixed: use current date, not future date
-        # Remove sequence_type if it doesn't exist
-        
-        # Should allow recurring mandates (real business logic)
+
+        # Should allow a second mandate with a different IBAN (real business logic)
         recurring_mandate.save()
         self.assertIsNotNone(recurring_mandate.name)
     
@@ -752,11 +766,16 @@ class TestDutchFinancialCompliance(EnhancedTestCase):
         # Create active membership first. Submitting auto-creates the member's
         # single Active dues schedule (only one allowed per member), so reuse it
         # rather than inserting a colliding new one.
+        # The start date is backdated to Jan 1; without _is_csv_import the
+        # renewal date lands in the past and the membership resolves to "Expired"
+        # (so no active membership -> no dues schedule). _is_csv_import keeps a
+        # backdated membership Active (renewal computed from today).
         membership = frappe.new_doc("Membership")
         membership.member = member.name
         membership.membership_type = "Standard Member"
         membership.start_date = f"{current_year}-01-01"
         membership.status = "Active"
+        membership._is_csv_import = True
         membership.save()
         membership.submit()  # Make it active
 
@@ -940,9 +959,10 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
             last_name="Data",
             email="sensitive.data@test.com"
         )
-        
-        # Test that admin can access sensitive operations
-        member_count = frappe.db.count("Member", {"email": "sensitive.data@test.com"})
+
+        # The factory uniquifies the email, so query by the member's ACTUAL
+        # stored email rather than the literal passed in.
+        member_count = frappe.db.count("Member", {"email": member.email})
         self.assertEqual(member_count, 1)
         
         # Test with limited user
@@ -1621,15 +1641,17 @@ class TestPerformanceBenchmarkBaselines(EnhancedTestCase):
             )
             members.append(member)
         
-        # Baseline: Bulk member queries should be efficient
+        # Baseline: Bulk member queries should be efficient.
+        # The factory appends a uniqueness suffix to last_name, so match by
+        # prefix rather than the exact literal.
         with self.assertQueryCount(50):  # Realistic baseline for bulk queries
             bulk_results = frappe.get_all(
                 "Member",
-                filters={"last_name": "Performance"},
+                filters={"last_name": ["like", "Performance%"]},
                 fields=["name", "full_name", "email", "status"],
                 order_by="creation"
             )
-            
+
         self.assertEqual(len(bulk_results), 5)
         print(f"✅ Bulk query baseline: ≤5 queries for {len(bulk_results)} members")
     

@@ -127,10 +127,12 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         # Verify search results quality
         self.assertGreaterEqual(len(search_results), 3, "Should find at least 3 test members")
 
-        # Verify result structure (comprehensive data in single query)
+        # Verify result structure (comprehensive data in single query). The
+        # Member email field is "email" (not "email_address"), which is what the
+        # optimized query returns.
         if search_results:
             result = search_results[0]
-            required_fields = ["name", "full_name", "status", "email_address", "payment_count"]
+            required_fields = ["name", "full_name", "status", "email", "payment_count"]
             for field in required_fields:
                 self.assertIn(field, result, f"Result should contain {field}")
 

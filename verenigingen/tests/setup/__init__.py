@@ -204,6 +204,47 @@ def before_tests():
         frappe.logger().warning(f"Team Role seeding failed: {e}")
 
 
+def ensure_member_test_masters():
+    """Idempotently seed the master records member-domain tests depend on.
+
+    The app's ``before_tests`` hook seeds these for a full suite run, but it is
+    UNRELIABLE for single-module runs in the current erpnext-v16 setup (its
+    bootstrap raises an uncaught error), so any module run in ISOLATION must
+    seed its own masters. This helper bundles the individual idempotent seeders
+    so a test module only needs one call in ``setUpClass``.
+
+    Seeds:
+    - Verenigingen Settings.creation_user (a real, enabled non-Administrator
+      system user) — required by ``utils.secure_operations`` for the
+      customer<->donor link, application submission, etc.
+    - Payment modes (Bank Transfer, SEPA Direct Debit, ...) — Member.payment_method
+      and Donation.mode_of_payment link validation.
+    - Default Team Role masters.
+
+    Every called seeder is existence-checked / idempotent, so this is safe to
+    call from every module's ``setUpClass`` (it short-circuits when masters are
+    already present).
+    """
+    try:
+        _seed_verenigingen_test_system_user()
+    except Exception as e:
+        frappe.logger().warning(f"creation_user seeding failed: {e}")
+
+    try:
+        from verenigingen.services.member.approval.application_helpers import (
+            ensure_payment_modes_exist,
+        )
+
+        ensure_payment_modes_exist()
+    except Exception as e:
+        frappe.logger().warning(f"Payment mode seeding failed: {e}")
+
+    try:
+        _seed_default_team_roles()
+    except Exception as e:
+        frappe.logger().warning(f"Team Role seeding failed: {e}")
+
+
 def _seed_verenigingen_test_system_user():
     """Create a test system user and wire it into Verenigingen Settings.
 

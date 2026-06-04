@@ -246,16 +246,21 @@ class BaseRoleProfileManager(ABC):
         if validation_error:
             return validation_error
 
+        # Use a savepoint (not frappe.db.begin) so this nests safely inside the
+        # caller's request-level transaction. frappe.db.begin() issues START
+        # TRANSACTION, which raises ImplicitCommitError whenever the surrounding
+        # request already has pending writes (e.g. when invoked from a document hook
+        # or inside a test wrapper).
+        save_point = "assign_role_profile"
         transaction_started = False
         try:
-            # Start transaction for atomic operation
-            frappe.db.begin()
+            frappe.db.savepoint(save_point)
             transaction_started = True
 
             # Determine role profile
             role_profile = self.determine_role_profile_for_member(entity_name, role)
             if not role_profile:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 return self._create_response(
                     success=True,
                     message=f"No role profile configured for {self.config.entity_type} {entity_name} (role: {role or 'default'})",
@@ -264,7 +269,7 @@ class BaseRoleProfileManager(ABC):
 
             # Validate role profile exists
             if not frappe.db.exists("Role Profile", role_profile):
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 frappe.logger().warning(
                     f"Role Profile {role_profile} does not exist for {self.config.log_context}"
                 )
@@ -280,7 +285,7 @@ class BaseRoleProfileManager(ABC):
 
             # Additional validation
             if not user_doc.enabled:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 return self._create_response(
                     success=False,
                     error=f"Cannot assign role profile to disabled user {user}",
@@ -288,8 +293,16 @@ class BaseRoleProfileManager(ABC):
                 )
 
             # Assign the role profile if not already assigned
-            if user_doc.role_profile_name != role_profile:
-                previous_role_profile = user_doc.role_profile_name
+            current_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
+            if role_profile not in current_profiles:
+                previous_role_profile = user_doc.role_profile_name or (next(iter(current_profiles), None))
+
+                # Frappe v16 deprecated the single role_profile_name Link in favour of the
+                # role_profiles child table. Setting role_profile_name alone is a no-op when
+                # the child table is empty (User.move_role_profile_name_to_role_profiles
+                # discards it), so write to the child table directly. We keep this manager's
+                # single-profile semantics by replacing the table contents.
+                user_doc.set("role_profiles", [{"role_profile": role_profile}])
                 user_doc.role_profile_name = role_profile
 
                 # Save with proper permission validation
@@ -300,7 +313,7 @@ class BaseRoleProfileManager(ABC):
                     required_permissions=["User:write"],
                 )
                 if not result.success:
-                    frappe.db.rollback()
+                    frappe.db.rollback(save_point=save_point)
                     return self._create_response(
                         success=False,
                         error=f"Failed to assign role profile: {'; '.join(result.errors)}",
@@ -311,8 +324,8 @@ class BaseRoleProfileManager(ABC):
                 frappe.cache().delete_key(f"user_roles:{user}")
                 frappe.cache().delete_key(f"user_permissions:{user}")
 
-                # Commit transaction
-                frappe.db.commit()
+                # Release the savepoint; the write persists with the request-level commit.
+                frappe.db.release_savepoint(save_point)
 
                 # Log the assignment
                 self._log_role_assignment("assigned", role_profile, user, entity_name, role)
@@ -325,7 +338,7 @@ class BaseRoleProfileManager(ABC):
                     action="assigned",
                 )
             else:
-                frappe.db.commit()
+                frappe.db.release_savepoint(save_point)
                 return self._create_response(
                     success=True,
                     message=f"User already has role profile '{role_profile}'",
@@ -334,13 +347,13 @@ class BaseRoleProfileManager(ABC):
 
         except frappe.DoesNotExistError as e:
             if transaction_started:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
             return self._create_response(
                 success=False, error=f"Record not found: {str(e)}", error_code=ERROR_CODES["NOT_FOUND"]
             )
         except frappe.PermissionError as e:
             if transaction_started:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
             return self._create_response(
                 success=False,
                 error=f"Permission denied: {str(e)}",
@@ -348,7 +361,7 @@ class BaseRoleProfileManager(ABC):
             )
         except frappe.ValidationError as e:
             if transaction_started:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
             return self._create_response(
                 success=False,
                 error=f"Validation failed: {str(e)}",
@@ -356,7 +369,7 @@ class BaseRoleProfileManager(ABC):
             )
         except Exception as e:
             if transaction_started:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
             error_msg = f"Error assigning role profile for {self.config.entity_type} {entity_name}: {str(e)}"
             frappe.log_error(
                 title=f"{self.config.log_context} Assignment Error",
@@ -383,16 +396,18 @@ class BaseRoleProfileManager(ABC):
         if validation_error:
             return validation_error
 
+        # Use a savepoint instead of frappe.db.begin() so this nests inside the
+        # caller's request-level transaction (see assign_role_profile for rationale).
+        save_point = "remove_role_profile"
         transaction_started = False
         try:
-            # Start transaction for atomic operation
-            frappe.db.begin()
+            frappe.db.savepoint(save_point)
             transaction_started = True
 
             # Determine role profile
             role_profile = self.determine_role_profile_for_member(entity_name, role)
             if not role_profile:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 return self._create_response(
                     success=True,
                     message=f"No role profile configured for {self.config.entity_type} {entity_name} (role: {role or 'default'})",
@@ -407,7 +422,7 @@ class BaseRoleProfileManager(ABC):
             if other_entities_with_same_profile:
                 # Check if user is still in any of those entities
                 if self._user_still_in_other_entities(user, other_entities_with_same_profile):
-                    frappe.db.rollback()
+                    frappe.db.rollback(save_point=save_point)
                     return self._create_response(
                         success=True,
                         message=f"User still in other {self.config.entity_type}s requiring '{role_profile}', keeping role profile",
@@ -420,19 +435,25 @@ class BaseRoleProfileManager(ABC):
 
             # Additional validation
             if not user_doc.enabled:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 return self._create_response(
                     success=False,
                     error=f"Cannot modify role profile for disabled user {user}",
                     error_code=ERROR_CODES["VALIDATION_ERROR"],
                 )
 
-            # Remove role profile if currently assigned
-            if user_doc.role_profile_name == role_profile:
-                previous_role_profile = user_doc.role_profile_name
+            # Remove role profile if currently assigned. In Frappe v16 the assignment lives
+            # in the role_profiles child table (role_profile_name is deprecated/cleared on
+            # save), so check both for backwards compatibility.
+            current_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
+            if role_profile == user_doc.role_profile_name or role_profile in current_profiles:
+                previous_role_profile = role_profile
 
-                # Commit the transaction first (entity membership changes are already committed)
+                # Commit the transaction first (entity membership changes are already committed).
+                # This commit releases the savepoint, so clear the flag to keep the except
+                # handler from rolling back to a savepoint that no longer exists.
                 frappe.db.commit()
+                transaction_started = False
 
                 # Log the removal intent
                 self._log_role_assignment("removing", role_profile, user, entity_name, role)
@@ -457,10 +478,16 @@ class BaseRoleProfileManager(ABC):
                         action="recalculated",
                     )
                 else:
-                    # Sync failed, log the error but don't fail the operation
+                    # Sync could not compute a replacement profile (e.g. the user is no
+                    # longer a member). Previously this path claimed the profile was
+                    # "removed" while leaving it assigned. Explicitly strip the profile so
+                    # the reported state matches reality.
                     frappe.logger().warning(
                         f"Failed to recalculate role profile for {user}: {sync_result.get('error')}"
                     )
+                    self._strip_role_profile(user, role_profile)
+                    frappe.cache().delete_key(f"user_roles:{user}")
+                    frappe.cache().delete_key(f"user_permissions:{user}")
                     return self._create_response(
                         success=True,
                         message=f"Removed role profile '{role_profile}', recalculation pending",
@@ -468,7 +495,7 @@ class BaseRoleProfileManager(ABC):
                         action="removed_pending_recalc",
                     )
             else:
-                frappe.db.commit()
+                frappe.db.release_savepoint(save_point)
                 return self._create_response(
                     success=True,
                     message=f"User does not have role profile '{role_profile}'",
@@ -477,7 +504,7 @@ class BaseRoleProfileManager(ABC):
 
         except Exception as e:
             if transaction_started:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
             error_msg = f"Error removing role profile for {self.config.entity_type} {entity_name}: {str(e)}"
             frappe.log_error(
                 title=f"{self.config.log_context} Removal Error",
@@ -486,6 +513,24 @@ class BaseRoleProfileManager(ABC):
             return self._create_response(
                 success=False, error=error_msg, error_code=ERROR_CODES["SYSTEM_ERROR"]
             )
+
+    def _strip_role_profile(self, user: str, role_profile: str) -> None:
+        """Remove a single role profile from a user.
+
+        Handles both the Frappe v16 role_profiles child table (canonical) and the
+        deprecated role_profile_name Link field for v15 compatibility.
+        """
+        user_doc = frappe.get_doc("User", user)
+        remaining = [rp for rp in (user_doc.role_profiles or []) if rp.role_profile != role_profile]
+        user_doc.set("role_profiles", [{"role_profile": rp.role_profile} for rp in remaining])
+        if user_doc.role_profile_name == role_profile:
+            user_doc.role_profile_name = None
+        secure_document_operation(
+            operation="save",
+            doc=user_doc,
+            justification=f"Remove role profile '{role_profile}' from user {user} - role profile management for organizational access control",
+            required_permissions=["User:write"],
+        )
 
     def bulk_assign_role_profiles(self, entity_name: str) -> Dict[str, Any]:
         """
@@ -497,16 +542,18 @@ class BaseRoleProfileManager(ABC):
         Returns:
             dict: Standardized result with details of all operations
         """
+        # Use a savepoint instead of frappe.db.begin() so this nests inside the
+        # caller's request-level transaction (see assign_role_profile for rationale).
+        save_point = "bulk_assign_role_profiles"
         transaction_started = False
         try:
-            # Start transaction for atomic bulk operation
-            frappe.db.begin()
+            frappe.db.savepoint(save_point)
             transaction_started = True
 
             # Verify entity has role profile configuration
             config = self.get_entity_role_profile_config(entity_name)
             if not config["default_profile"] and not config["role_specific_profiles"]:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 return self._create_response(
                     success=False,
                     error=f"No role profile configuration found for {self.config.entity_type} {entity_name}",
@@ -536,13 +583,13 @@ class BaseRoleProfileManager(ABC):
                 else:
                     error_count += 1
 
-            # Commit or rollback based on results
+            # Release or roll back the savepoint based on results
             if error_count == 0 or success_count > error_count:
-                frappe.db.commit()
+                frappe.db.release_savepoint(save_point)
                 status_message = f"Processed {len(results)} {self.config.entity_type} members: {success_count} successful, {error_count} errors"
                 success = True
             else:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
                 status_message = f"Bulk operation failed: {error_count} errors out of {len(results)} members. Transaction rolled back."
                 success = False
 
@@ -550,7 +597,7 @@ class BaseRoleProfileManager(ABC):
 
         except Exception as e:
             if transaction_started:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=save_point)
             return self._create_response(success=False, error=str(e), error_code=ERROR_CODES["SYSTEM_ERROR"])
 
     def get_entities_requiring_role_profile(

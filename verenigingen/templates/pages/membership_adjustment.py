@@ -374,8 +374,15 @@ def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
     if not can_adjust:
         frappe.throw(error_msg)
 
-    # Get current fee
-    current_fee = member_doc.get_current_membership_fee()
+    # Get current fee. Call the fee-calculation service directly rather than the
+    # member_doc.get_current_membership_fee() method: that method is a whitelisted
+    # endpoint guarded by @standard_api (MEDIUM), and a plain member (LOW) calling
+    # it from inside this already-authorized self-service flow would be denied.
+    from verenigingen.services.member.financial.member_fee_calculation_service import (
+        get_member_fee_calculation_service,
+    )
+
+    current_fee = get_member_fee_calculation_service().get_current_membership_fee(member_doc)
     # Fallback to template suggested amount if no current fee
     template = load_template_for_membership_type(membership_type)
     current_amount = current_fee.get("amount", template.suggested_amount or 0)

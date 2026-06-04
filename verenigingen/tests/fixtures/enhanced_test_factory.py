@@ -1475,13 +1475,18 @@ class EnhancedTestDataFactory:
     
     def create_team_member(self, team_name: str, volunteer_name: str, team_role_name: str = "Team Member", **kwargs):
         """Create team member with new team_role field structure"""
-        # Ensure team role exists
-        team_role = self.ensure_team_role(team_role_name)
-        
+        # If an existing Team Role name was passed (e.g. a role the test already created),
+        # use it as-is. ensure_team_role() would otherwise uniquify the name again, miss it,
+        # and create a brand-new default ("Basic") role — losing the caller's role config.
+        if frappe.db.exists("Team Role", team_role_name):
+            team_role = frappe.get_doc("Team Role", team_role_name)
+        else:
+            team_role = self.ensure_team_role(team_role_name)
+
         # Validate fields
         for field in kwargs.keys():
             self.validate_field_exists("Team Member", field)
-            
+
         defaults = {
             "volunteer": volunteer_name,
             "team_role": team_role.name,  # Use new team_role field

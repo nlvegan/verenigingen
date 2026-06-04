@@ -320,11 +320,14 @@ class MemberPerformanceOptimizer:
             result["payment_status"] = self._determine_payment_status(result)
             result["dashboard_alerts"] = self._get_member_alerts(result)
 
-            # Cache for 5 minutes
-            frappe.cache().set_value(
-                cache_key, json.dumps(result, default=str), expires_in_sec=self.cache_timeout
-            )
-            return result
+            # Cache for 5 minutes. Serialize with default=str (dates -> ISO
+            # strings) and return the JSON-roundtripped form so the cache-miss
+            # path returns EXACTLY the same shape/types as the cache-hit path
+            # (json.loads); otherwise the first call returns datetime.date objects
+            # while subsequent cached calls return strings.
+            serialized = json.dumps(result, default=str)
+            frappe.cache().set_value(cache_key, serialized, expires_in_sec=self.cache_timeout)
+            return json.loads(serialized)
 
         return {}
 

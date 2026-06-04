@@ -68,11 +68,15 @@ class TestMemberDoctypeIntegration(EnhancedTestCase):
             birth_date="1985-03-15"
         )
         
-        # Validate real business rules were applied
+        # Validate real business rules were applied. The factory appends a
+        # uniqueness suffix to last_name, so the full_name composition is built
+        # from the actual stored last_name (the tussenvoegsel logic is what we
+        # verify here, not the literal surname).
         self.assertIsNotNone(member.name)
-        self.assertEqual(member.full_name, "Piet van der Berg")
+        self.assertEqual(member.full_name, f"Piet van der {member.last_name}")
+        self.assertTrue(member.last_name.startswith("Berg"))
         self.assertEqual(member.status, "Active")
-        
+
         # Postal code validation is done at Address level, not Member level
         # Test Dutch business logic - tussenvoegsel handling
         self.assertEqual(member.middle_name, "van der")  # Dutch tussenvoegsel preserved
@@ -278,21 +282,27 @@ class TestMemberDoctypeIntegration(EnhancedTestCase):
             )
             members.append(member)
         
-        # Test real search queries with performance monitoring
+        # Test real search queries with performance monitoring. The factory
+        # appends a uniqueness suffix to last_name, so match by prefix.
         with self.assertQueryCount(10):  # Reasonable limit for search
             search_results = frappe.get_all(
                 "Member",
-                filters={"last_name": "Performance"},
+                filters={"last_name": ["like", "Performance%"]},
                 fields=["name", "full_name", "email"]
             )
-        
+
         # Validate real search results
         self.assertEqual(len(search_results), 5)
         search_names = [r.full_name for r in search_results]
-        
+
+        # full_name carries the factory's last_name uniqueness suffix, so match
+        # on the prefix rather than the exact literal.
         for i in range(5):
-            expected_name = f"Search{i} Performance"
-            self.assertIn(expected_name, search_names)
+            expected_prefix = f"Search{i} Performance"
+            self.assertTrue(
+                any(name.startswith(expected_prefix) for name in search_names),
+                f"No member full_name starts with {expected_prefix!r}: {search_names}",
+            )
 
 
 class TestMemberBusinessLogicIntegration(EnhancedTestCase):
@@ -354,12 +364,14 @@ class TestMemberBusinessLogicIntegration(EnhancedTestCase):
                 last_name=last_name
             )
             
-            # Test real full name generation logic
+            # Test real full name generation logic. The factory appends a
+            # uniqueness suffix to last_name, so compose the expected full name
+            # from the actual stored last_name.
             if middle_name:
-                expected_full_name = f"{first_name} {middle_name} {last_name}"
+                expected_full_name = f"{first_name} {middle_name} {member.last_name}"
             else:
-                expected_full_name = f"{first_name} {last_name}"
-            
+                expected_full_name = f"{first_name} {member.last_name}"
+
             self.assertEqual(member.full_name, expected_full_name)
     
     def test_member_lifecycle_real_workflow(self):

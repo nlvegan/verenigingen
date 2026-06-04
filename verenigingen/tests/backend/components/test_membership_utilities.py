@@ -47,12 +47,13 @@ class MembershipTestUtilities:
                 "currency": "EUR",
                 "require_approval": require_approval,
                 "default_for_new_members": 0,
+                "billing_period": period,
                 "enforce_minimum_period": enforce_minimum_period}
         )
 
         # Handle custom period
         if period == "Custom":
-            membership_type.billing_frequency_in_months = random.choice([2, 4, 18, 24])
+            membership_type.billing_period_in_months = random.choice([2, 4, 18, 24])
 
         if test_case:
             membership_type.insert()

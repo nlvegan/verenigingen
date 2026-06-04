@@ -39,10 +39,26 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
     Real integration tests for Member DocType operations using correct field names
     """
     
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Seed masters this module depends on so it passes in ISOLATION.
+        # test_dues_schedule_relationship_real_logic hardcodes the "Standard
+        # Member" membership type (Membership.membership_type Link), which does
+        # not exist on a fresh test site, and Member inserts need creation_user /
+        # payment modes seeded. before_tests is unreliable for single-module runs.
+        from verenigingen.tests.setup import ensure_member_test_masters
+        from verenigingen.tests.fixtures.test_data_factory import (
+            ensure_membership_type_exists,
+        )
+
+        ensure_member_test_masters()
+        ensure_membership_type_exists("Standard Member")
+
     def setUp(self):
         """Set up test environment with real database operations"""
         super().setUp()
-        
+
         # Create realistic test data using Enhanced Test Factory
         self.test_chapter = self.factory.ensure_test_chapter("Member Test Chapter", {
             "short_name": "MTC",
@@ -61,12 +77,14 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
             birth_date="1985-03-15"
         )
         
-        # Validate real business rules were applied
+        # Validate real business rules were applied. The factory appends a
+        # uniqueness suffix to last_name and email, so assert against the stored
+        # values / prefixes rather than the raw literals.
         self.assertIsNotNone(member.name)
         self.assertEqual(member.first_name, "Integration")
-        self.assertEqual(member.last_name, "TestMember")
-        self.assertEqual(member.email, "integration@test.nl")
-        self.assertEqual(member.full_name, "Integration TestMember")
+        self.assertTrue(member.last_name.startswith("TestMember"))
+        self.assertTrue(member.email.startswith("integration") and member.email.endswith("@test.nl"))
+        self.assertEqual(member.full_name, f"Integration {member.last_name}")
         
         # Test real age calculation (no date mocking)
         self.assertIsNotNone(member.age)
@@ -91,14 +109,21 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
                     middle_name=middle_name or None,
                     last_name=last_name
                 )
-                
-                # Test real full name generation logic
+
+                # Test real full name generation logic. The factory appends a
+                # uniqueness suffix to last_name, so build the expected full name
+                # from the actual stored last_name (the tussenvoegsel composition
+                # is what we verify).
+                if middle_name:
+                    expected_full = f"{first_name} {middle_name} {member.last_name}"
+                else:
+                    expected_full = f"{first_name} {member.last_name}"
                 self.assertEqual(member.full_name, expected_full)
-                
+
                 # Test individual field storage
                 self.assertEqual(member.first_name, first_name)
                 self.assertEqual(member.middle_name or "", middle_name)
-                self.assertEqual(member.last_name, last_name)
+                self.assertTrue(member.last_name.startswith(last_name))
     
     def test_member_status_transitions_real_workflow(self):
         """Test member status transitions with real business workflow"""
@@ -216,37 +241,34 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
             last_name="ScheduleTest"
         )
         
-        # Create an active membership first (required by validation)
+        # Create an active membership. Submitting it auto-creates the member's
+        # active Membership Dues Schedule via the submit hook. The DocType
+        # enforces exactly one active schedule per member, so we must NOT create
+        # a second one — instead verify the relationship on the auto-created
+        # schedule (creating a duplicate active schedule is correctly rejected).
         membership = frappe.new_doc("Membership")
         membership.member = member.name
         membership.membership_type = "Standard Member"  # Use standard type
         membership.start_date = today()
         membership.status = "Active"
         membership.save()
-        membership.submit()  # Make it active
-        
-        # Create dues schedule with template validation skip (appropriate for test context)
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-        dues_schedule.schedule_name = f"Test Schedule for {member.name}"  # REQUIRED field
-        dues_schedule.member = member.name
-        dues_schedule.membership = membership.name  # Link to active membership
-        dues_schedule.dues_rate = 25.0  # Must meet minimum rate requirements
-        dues_schedule.frequency = "Monthly"  # Use frequency, not billing_frequency
-        dues_schedule.next_invoice_date = today()  # Required for scheduling
-        dues_schedule.status = "Active"
-        dues_schedule.is_active = 1  # Use is_active instead of auto_generate
-        
-        # Skip minimum validation for test context (this flag is designed for this purpose)
-        dues_schedule._skip_minimum_validation = True
-        
-        # Real validation and save
-        dues_schedule.save()
-        
+        membership.submit()  # Make it active (auto-creates the dues schedule)
+
+        # Locate the auto-created active dues schedule for this member
+        dues_schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0, "status": "Active"},
+            "name",
+        )
+        self.assertIsNotNone(
+            dues_schedule_name, "Submitting the membership should auto-create an active dues schedule"
+        )
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
+
         # Test real relationship
-        self.assertIsNotNone(dues_schedule.name)
         self.assertEqual(dues_schedule.member, member.name)
         self.assertEqual(dues_schedule.membership, membership.name)
-        
+
         # Verify database relationship exists
         schedule_exists = frappe.db.exists("Membership Dues Schedule", {
             "member": member.name,
@@ -305,11 +327,15 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
         # Validate real search results
         self.assertEqual(len(search_results), 3)
         
-        # Verify all our test members are found
+        # Verify all our test members are found. full_name carries the factory's
+        # last_name uniqueness suffix, so match on the prefix.
         found_names = [r.full_name for r in search_results]
         for i in range(3):
-            expected_name = f"SearchTest{i} Performance{base_timestamp}"
-            self.assertIn(expected_name, found_names)
+            expected_prefix = f"SearchTest{i} Performance{base_timestamp}"
+            self.assertTrue(
+                any(name.startswith(expected_prefix) for name in found_names),
+                f"No member full_name starts with {expected_prefix!r}: {found_names}",
+            )
     
     def test_membership_application_workflow_real_integration(self):
         """Test complete membership application workflow"""
@@ -355,7 +381,15 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
 
 class TestMemberBusinessRulesIntegration(EnhancedTestCase):
     """Test Member business rules without mocking internal logic"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Seed creation_user / payment modes so Member inserts succeed in ISOLATION.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
     def test_member_id_generation_real_logic(self):
         """Test member ID generation with real business logic"""
         

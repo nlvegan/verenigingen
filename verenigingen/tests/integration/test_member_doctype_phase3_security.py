@@ -35,10 +35,22 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
     secure context switching patterns.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Seed master records this module depends on so it passes in ISOLATION.
+        # The customer->donor link (test_customer_donor_integration_security)
+        # runs through utils.secure_operations, which throws ConfigurationError
+        # unless Verenigingen Settings.creation_user points at a real enabled
+        # system user. before_tests is unreliable for single-module runs here.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
     def setUp(self):
         """Set up test environment with proper security context"""
         super().setUp()
-        
+
         # Create unique test member for this test run
         import uuid
         unique_id = str(uuid.uuid4())[:8]
@@ -61,29 +73,36 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
         """Test that create_customer() method works securely without permission bypasses"""
         
         with self.as_user(self.admin_user.email):
-            # Ensure member has no customer initially
-            self.assertIsNone(self.test_member.customer)
-            
-            # Test secure customer creation
+            # Member.after_insert auto-creates a Customer when email is present,
+            # so the member already has a customer link here. create_customer()
+            # is idempotent and must return that existing customer.
             customer_id = self.test_member.create_customer()
-            
+
             self.assertIsNotNone(customer_id, "Customer creation should succeed with secure context")
-            
+
             # Verify customer was created with correct details
             customer_doc = frappe.get_doc("Customer", customer_id)
             self.assertEqual(customer_doc.customer_name, self.test_member.full_name)
             self.assertEqual(customer_doc.customer_type, "Individual")
             self.assertEqual(customer_doc.member, self.test_member.name)
-            self.assertEqual(customer_doc.email_id, self.test_member.email)
-            
-            # Verify member was updated with customer link
+            # The Customer.email_id is a read-only fetch_from field populated from
+            # the primary Contact; it is not set on the Customer at creation time
+            # (the canonical create path stores the email on the Contact's
+            # email_ids child table). Assert the email on the source-of-truth
+            # Contact instead of the lazily-fetched Customer field.
+            self.assertTrue(customer_doc.customer_primary_contact, "Customer should have a primary contact")
+            contact_doc = frappe.get_doc("Contact", customer_doc.customer_primary_contact)
+            contact_emails = [e.email_id for e in contact_doc.email_ids]
+            self.assertIn(self.test_member.email, contact_emails)
+
+            # Verify member is linked to the customer
             self.test_member.reload()
             self.assertEqual(self.test_member.customer, customer_id)
-            
+
             # Track for cleanup
-            self.track_doc("Customer", customer_id)
-            
-            # Test idempotency - calling again should return existing customer
+            self._track_test_document("Customer", customer_id)
+
+            # Test idempotency - calling again should return the same customer
             customer_id_second = self.test_member.create_customer()
             self.assertEqual(customer_id, customer_id_second)
 
@@ -94,17 +113,22 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             # Ensure member has no user initially
             self.assertIsNone(self.test_member.user)
             
-            # Test secure user creation
-            user_id = self.test_member.create_user()
-            
+            # create_user() delegates to MemberUserAccountService and returns a
+            # (username, action) tuple; action is "created_new" on first creation.
+            user_id, action = self.test_member.create_user()
+
             self.assertIsNotNone(user_id, "User creation should succeed with secure context")
             self.assertEqual(user_id, self.test_member.email)
+            self.assertEqual(action, "created_new")
             
             # Verify user was created with correct details
             user_doc = frappe.get_doc("User", user_id)
             self.assertEqual(user_doc.email, self.test_member.email)
             self.assertEqual(user_doc.first_name, self.test_member.first_name)
             self.assertEqual(user_doc.last_name, self.test_member.last_name)
+            # The "Verenigingen Member" role profile grants desk-access roles, so
+            # Frappe keeps the user as "System User" (it would only downgrade to
+            # "Website User" if all assigned roles had desk_access=0).
             self.assertEqual(user_doc.user_type, "System User")
             self.assertTrue(user_doc.enabled, "User should be enabled")
             
@@ -116,11 +140,12 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             self.assertEqual(self.test_member.owner, user_id)
             
             # Track for cleanup
-            self.track_doc("User", user_id)
+            self._track_test_document("User", user_id)
             
             # Test idempotency - calling again should return existing user
-            user_id_second = self.test_member.create_user()
+            user_id_second, action_second = self.test_member.create_user()
             self.assertEqual(user_id, user_id_second)
+            self.assertEqual(action_second, "already_exists")
 
     def test_create_donor_from_member_security(self):
         """Test that create_donor_from_member() function works securely"""
@@ -145,7 +170,7 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             self.assertEqual(donor_doc.member, self.test_member.name)
             
             # Track for cleanup
-            self.track_doc("Donor", donor_name)
+            self._track_test_document("Donor", donor_name)
             
             # Test idempotency - calling again should indicate donor exists
             result_second = create_donor_from_member(self.test_member.name)
@@ -175,39 +200,51 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
                 self.assertEqual(customer_doc.donor, donor_name)
             
             # Track for cleanup
-            self.track_doc("Customer", customer_id)
-            self.track_doc("Donor", donor_name)
+            self._track_test_document("Customer", customer_id)
+            self._track_test_document("Donor", donor_name)
 
     def test_security_validation_no_permission_bypasses(self):
-        """Meta-test: Verify no ignore_permissions=True in secured methods"""
-        
+        """Meta-test: Verify the secured Member methods contain no permission bypasses.
+
+        The Phase-3 security work moved the actual create logic into the service
+        layer (CustomerHandlingService, MemberUserAccountService) and the donor
+        path into the api/services layer. The Member methods are now thin
+        delegators, so the secure-context helper *names* no longer appear in the
+        Member method bodies — that was a pre-refactor implementation detail.
+
+        The durable security invariant is that none of these methods (nor the
+        service implementations they delegate to) re-introduce an
+        ``ignore_permissions=True`` bypass; operations must run under the real
+        caller's permissions (or an explicit secure context inside the service).
+        """
         import inspect
-        from verenigingen.verenigingen.doctype.member.member import Member, create_donor_from_member
-        
-        # Get source code of secured methods
+        from verenigingen.verenigingen.doctype.member.member import Member
+        from verenigingen.services.customer_handling_service import CustomerHandlingService
+        from verenigingen.services.member.account.member_user_account_service import (
+            MemberUserAccountService,
+        )
+        from verenigingen.services.member.donor.donor_management_service import (
+            DonorManagementService,
+        )
+
+        # The thin delegators on Member plus the service methods that hold the
+        # real implementation. None may contain a functional permission bypass.
         methods_to_check = [
             Member.create_customer,
             Member.create_user,
-            create_donor_from_member
+            CustomerHandlingService.create_customer_for_member,
+            MemberUserAccountService.create_user_for_member,
+            DonorManagementService.create_donor_from_member,
         ]
-        
+
+        bypass_pattern = "ignore_permissions=" + "True"  # Avoid false positive detection
         for method in methods_to_check:
             source = inspect.getsource(method)
-            
-            # Should not contain functional permission bypasses
-            bypass_pattern = "ignore_permissions=" + "True"  # Avoid false positive detection
-            self.assertNotIn(bypass_pattern, source, 
-                f"Method {method.__name__} still contains permission bypasses")
-            
-            # Should contain secure context manager usage
-            has_security_pattern = any(pattern in source for pattern in [
-                "secure_user_context",
-                "get_creation_user",
-                "ctx.log_operation"
-            ])
-            
-            self.assertTrue(has_security_pattern,
-                f"Method {method.__name__} lacks secure context manager pattern")
+            self.assertNotIn(
+                bypass_pattern,
+                source,
+                f"Method {method.__qualname__} still contains a permission bypass",
+            )
 
     def test_audit_trail_completeness(self):
         """Test that all secured operations create comprehensive audit trails"""
@@ -223,8 +260,8 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             
             self.assertIsNotNone(customer_id)
             
-            # Create user and verify audit trail  
-            user_id = self.test_member.create_user()
+            # Create user and verify audit trail (returns (username, action) tuple)
+            user_id, _action = self.test_member.create_user()
             self.assertIsNotNone(user_id)
             
             # Create donor and verify audit trail
@@ -233,27 +270,34 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             self.assertTrue(donor_result.get("success"))
             
             # Track for cleanup
-            self.track_doc("Customer", customer_id)
-            self.track_doc("User", user_id)
-            self.track_doc("Donor", donor_result["donor_name"])
+            self._track_test_document("Customer", customer_id)
+            self._track_test_document("User", user_id)
+            self._track_test_document("Donor", donor_result["donor_name"])
 
     def test_error_handling_with_secure_context(self):
         """Test that error handling works correctly with secure context switching"""
         
+        # The factory (and the Member controller) require a valid email, so
+        # create the member normally (its after_insert auto-creates a Customer,
+        # which needs Administrator-level Customer:create — hence creation
+        # happens outside the as_user block) and then blank the email in-memory
+        # to exercise create_user()'s missing-email error path. The service
+        # throws "Email is required to create a user" — the operation should
+        # fail cleanly, not via a permission bypass.
+        invalid_member = self.create_test_member(
+            first_name="Invalid",
+            last_name="Email",
+            status="Active",
+            birth_date=add_days(today(), -365 * 25)
+        )
+
         with self.as_user(self.admin_user.email):
-            # Test create_user with invalid email (should handle gracefully)
-            invalid_member = self.create_test_member(
-                first_name="Invalid",
-                last_name="Email",
-                email="",  # Invalid empty email
-                status="Active",
-                birth_date=add_days(today(), -365 * 25)
-            )
-            
+            invalid_member.email = ""
+
             # This should fail gracefully without permission bypass errors
             with self.assertRaises(Exception):
                 invalid_member.create_user()
-            
+
             # Verify the member still exists (no corruption from failed operation)
             invalid_member.reload()
             self.assertEqual(invalid_member.first_name, "Invalid")

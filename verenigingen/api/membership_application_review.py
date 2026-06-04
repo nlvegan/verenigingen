@@ -260,10 +260,12 @@ def _activate_volunteer_if_requested(member, activate_as_volunteer):
             age_result = AgeValidator.validate_age(
                 member.birth_date, context="volunteer", throw_on_error=False
             )
-            if not age_result.get("valid"):
+            # AgeValidator.validate_age returns an AgeValidationResult object
+            # (attributes is_valid/message), not a dict — use attribute access.
+            if not age_result.is_valid:
                 frappe.throw(
                     _("Cannot activate as volunteer: {0}").format(
-                        age_result.get("message", "Age requirement not met")
+                        age_result.message or "Age requirement not met"
                     )
                 )
 

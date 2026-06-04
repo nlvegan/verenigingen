@@ -84,11 +84,14 @@ class TestMemberController(VereningingenUnitTestCase):
         if not initial_customer:
             self.assertNotEqual(member.customer, initial_customer)
 
-        # Verify customer details
+        # Verify customer details. Customer.email_id/mobile_no are read-only
+        # fetch_from fields populated from the primary Contact, not set on the
+        # Customer at creation time. Verify the email on the source Contact.
         customer = frappe.get_doc("Customer", customer_name)
         self.assertEqual(customer.customer_name, member.full_name)
-        self.assertEqual(customer.email_id, member.email)
-        self.assertEqual(customer.mobile_no, member.contact_number)
+        self.assertTrue(customer.customer_primary_contact, "Customer should have a primary contact")
+        contact = frappe.get_doc("Contact", customer.customer_primary_contact)
+        self.assertIn(member.email, [e.email_id for e in contact.email_ids])
 
         # Test idempotency - calling again should return same customer
         customer_name_2 = member.create_customer()
@@ -104,14 +107,16 @@ class TestMemberController(VereningingenUnitTestCase):
         # Initially should have no user
         self.assertFalse(member.user)
 
-        # Call create_user method
-        user_name = member.create_user()
+        # Call create_user method. It delegates to MemberUserAccountService and
+        # returns a (username, action) tuple.
+        user_name, action = member.create_user()
 
         # Reload member
         member.reload()
 
         # Verify user was created and linked
         self.assertTrue(user_name)
+        self.assertEqual(action, "created_new")
         self.assertEqual(member.user, user_name)
 
         # Verify user details
@@ -488,13 +493,22 @@ class TestMemberController(VereningingenUnitTestCase):
         # Reload member to avoid timestamp mismatch
         member.reload()
 
-        # Update duration
-        member.update_membership_duration()
+        # Update duration. The service stores only the human-readable
+        # cumulative_membership_duration field (there is no stored
+        # total_membership_days column — the day count is calculated on demand).
+        result = member.update_membership_duration()
+        # Happy path returns an OperationResult (with a .success attr); the error
+        # path returns a {"success": ...} dict — accept either shape.
+        result_ok = getattr(result, "success", None)
+        if result_ok is None and isinstance(result, dict):
+            result_ok = result.get("success")
+        self.assertTrue(result_ok)
 
-        # Verify fields are updated
+        # Verify the stored duration field is populated, and the on-demand
+        # day-count calculation returns a positive value for a 1-year membership.
         member.reload()
-        self.assertIsNotNone(member.total_membership_days)
-        # Skip cumulative_membership_duration check as it's set but might not persist through reload
+        self.assertTrue(member.cumulative_membership_duration)
+        self.assertGreater(member.calculate_total_membership_days(), 0)
 
     def test_get_address_members_html(self):
         """Test HTML generation for address members"""

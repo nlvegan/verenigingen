@@ -128,8 +128,12 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
         membership_types = ["TEST_Standard", "TEST_Premium", "TEST_Student"]
 
         # Membership in v16 uses start_date (required); the old from_date/to_date
-        # fields no longer exist. Insert as Active drafts (analytics queries
-        # filter on status, not docstatus) to avoid the cost of submit hooks.
+        # fields no longer exist. The Membership controller's set_status() forces
+        # status="Draft" while docstatus==0, so a freshly-inserted (unsubmitted)
+        # membership is NOT "Active" no matter what status we pass — the analytics
+        # breakdown query filters on status="Active" and would see nothing. We
+        # therefore submit the memberships; with _is_csv_import keeping the
+        # renewal_date in the future, set_status() resolves to "Active".
         start_date = add_months(getdate(), -12)
         for i, member_name in enumerate(self.test_members):
             if member_name in self.terminate_members:
@@ -139,10 +143,10 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                 "member": member_name,
                 "membership_type": membership_types[i % 3],
                 "start_date": start_date,
-                "status": "Active",
             })
             membership._is_csv_import = True  # keep backdated membership Active
             membership.insert()
+            membership.submit()
             self.track_test_record("Membership", membership.name)
 
     def create_test_terminations(self):
@@ -284,9 +288,16 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
             self.assertIn("revenue", item)
             total_count += item["count"]
         
-        # Total should match active memberships
+        # The breakdown counts DISTINCT members per type, joined to Member with
+        # a date window (member_since <= year_end AND not ended before year start).
+        # That is a filtered subset of all Active Membership rows, so it must be
+        # positive and cannot exceed the raw global Active count (which, on a
+        # shared test DB, also includes memberships created by other tests). An
+        # exact equality would be wrong: it assumes one membership per member and
+        # an otherwise-empty DB.
         active_memberships = frappe.db.count("Membership", {"status": "Active"})
-        self.assertEqual(total_count, active_memberships)
+        self.assertGreater(total_count, 0)
+        self.assertLessEqual(total_count, active_memberships)
     
     def test_goal_functionality(self):
         """Test membership goal creation and tracking"""
@@ -515,10 +526,20 @@ class TestPredictiveAnalytics(BaseTestCase):
         # monthly buckets of member_since data, not hundreds of rows. Large
         # counts made this setUp take many minutes because each Membership
         # submit fires submit hooks.
+        #
+        # A purely time-monotonic growth pattern produces ZERO seasonal variance
+        # (every calendar month averages the same across years), so
+        # detect_seasonal_patterns() returns a flat 1.0 index for all months and
+        # test_seasonal_patterns can't find a peak above average. Add a
+        # calendar-month seasonal boost (spring months get extra joins) so the
+        # seasonal index actually varies and there is a real peak to detect.
         base_per_month = 2
+        # Extra joins by calendar month (1=Jan..12=Dec): spring enrolment bump.
+        seasonal_boost = {3: 3, 4: 4, 5: 3}
         for months_ago in range(36, 0, -1):
-            month_count = base_per_month + (36 - months_ago) // 12  # 2..4 per month
             join_date = add_months(getdate(), -months_ago)
+            month_count = base_per_month + (36 - months_ago) // 12  # 2..4 per month
+            month_count += seasonal_boost.get(getdate(join_date).month, 0)
 
             for i in range(month_count):
                 member = frappe.get_doc({
@@ -532,18 +553,21 @@ class TestPredictiveAnalytics(BaseTestCase):
                 member.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
                 self.track_test_record("Member", member.name)
 
-                # Create an Active membership directly (no submit) — the revenue
-                # forecast query filters on ms.status='Active', not docstatus, so
-                # a draft is sufficient and far cheaper than submitting each one.
+                # The Membership controller's set_status() forces status="Draft"
+                # while docstatus==0, so an unsubmitted membership is never
+                # "Active" regardless of the status we pass. The revenue/seasonal
+                # forecast queries filter on ms.status='Active', so we must submit
+                # (with _is_csv_import keeping renewal_date in the future, the
+                # submitted membership resolves to "Active").
                 membership = frappe.get_doc({
                     "doctype": "Membership",
                     "member": member.name,
                     "membership_type": "TEST_Standard",
                     "start_date": join_date,
-                    "status": "Active",
                 })
                 membership._is_csv_import = True  # keep backdated membership Active
                 membership.insert()
+                membership.submit()
                 self.track_test_record("Membership", membership.name)
     
     def test_member_growth_forecast(self):

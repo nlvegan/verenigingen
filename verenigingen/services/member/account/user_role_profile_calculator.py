@@ -776,9 +776,11 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
         if not frappe.db.exists("User", user):
             return {"success": False, "error": f"User {user} not found", "user": user}
 
-        # Get current profile
+        # Get current profile. role_profile_name is deprecated/cleared in v16, so read
+        # from the canonical store (role_profiles child table on v16, the Link on v15).
         user_doc = frappe.get_doc("User", user)
-        old_profile = user_doc.role_profile_name
+        existing_profiles = get_user_role_profiles(user)
+        old_profile = user_doc.role_profile_name or (existing_profiles[0] if existing_profiles else None)
 
         # Calculate correct profile
         new_profile = calculate_user_role_profile(user)
@@ -827,8 +829,15 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
                 # the entire profile sync.
                 user_doc.reload()
 
-            # Apply the changes
+            # Apply the changes.
+            # Frappe v16 deprecated the single role_profile_name Link: profiles live in
+            # the role_profiles child table and setting role_profile_name alone is a no-op
+            # (User.move_role_profile_name_to_role_profiles discards it when the child
+            # table is empty). Write the canonical store directly under multi-profile
+            # support; keep the legacy field for v15 sites.
             if role_changed:
+                if _has_multi_profile_support():
+                    user_doc.set("role_profiles", [{"role_profile": new_profile}])
                 user_doc.role_profile_name = new_profile
             if module_changed:
                 user_doc.module_profile = new_module_profile

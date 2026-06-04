@@ -130,14 +130,18 @@ class CoreTestDataFactory:
     def _generate_name(self, name_type: str = "first") -> str:
         """Deterministic name generation cycling through Dutch name pools.
 
-        Last names include test_run_id suffix to prevent Customer name collisions
-        across factory instances (Customer uses full_name as primary key).
+        Last names include the test_run_id suffix AND the per-call sequence number to
+        prevent Customer name collisions (Customer uses full_name as primary key). The
+        run_id alone is constant within a run, so once the first/last name pools cycle the
+        full_name would repeat — the sequence guarantees per-member uniqueness even for
+        large batches (e.g. a 50-member team).
         """
         names = _FIRST_NAMES if name_type == "first" else _LAST_NAMES
-        idx = self._get_next_sequence(f"name_{name_type}") - 1
+        seq = self._get_next_sequence(f"name_{name_type}")
+        idx = seq - 1
         base_name = names[idx % len(names)]
         if name_type == "last":
-            return f"{base_name}-{self.test_run_id[-5:]}"
+            return f"{base_name}-{self.test_run_id[-5:]}{seq}"
         return base_name
 
     def _generate_email(self, purpose: str = "member") -> str:

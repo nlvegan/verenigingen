@@ -781,12 +781,18 @@ class AccountCreationManager:
                     user_doc.append("roles", {"role": role_name})
                     roles_added.append(role_name)
 
-            # Assign role profile if specified
+            # Assign role profile if specified. Frappe v16 moved role-profile
+            # assignment to the `role_profiles` child table; setting only the
+            # legacy `role_profile_name` Link is silently discarded by the User
+            # controller (it clears role_profile_name when role_profiles is empty),
+            # so the profile's roles are never applied. Assign via the child table.
             if self.request.role_profile:
                 if not frappe.db.exists("Role Profile", self.request.role_profile):
                     raise frappe.ValidationError(f"Role profile does not exist: {self.request.role_profile}")
 
-                user_doc.role_profile_name = self.request.role_profile
+                existing_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
+                if self.request.role_profile not in existing_profiles:
+                    user_doc.append("role_profiles", {"role_profile": self.request.role_profile})
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
 
             # User write is restricted to System Manager at the doctype level,
