@@ -11,7 +11,6 @@ import unittest
 from unittest.mock import patch
 
 import frappe
-from frappe.test_runner import make_test_records
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -42,26 +41,35 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         self.volunteer_a = self.create_test_volunteer(self.member_a.name)
         self.volunteer_b = self.create_test_volunteer(self.member_b.name)
 
-        # Create test users linked to members
+        # The self-service guard resolves a user's member by matching
+        # Member.email to the session user. The factory uniquifies member emails,
+        # so the test users MUST be created with the members' actual emails (and
+        # linked back) - otherwise the guard raises "no member record found"
+        # instead of the tampering error these tests assert on.
+        self.user_a_email = self.member_a.email
+        self.user_b_email = self.member_b.email
+
         self.user_a = self.create_test_user(
-            email="alice@example.com",
+            email=self.user_a_email,
+            roles=["Verenigingen Member", "Verenigingen Volunteer"],
             first_name="Alice",
             last_name="Member",
-            member_name=self.member_a.name
         )
+        self.member_a.db_set("user", self.user_a.name)
 
         self.user_b = self.create_test_user(
-            email="bob@example.com",
+            email=self.user_b_email,
+            roles=["Verenigingen Member", "Verenigingen Volunteer"],
             first_name="Bob",
             last_name="Member",
-            member_name=self.member_b.name
         )
+        self.member_b.db_set("user", self.user_b.name)
 
     def test_volunteer_expense_toctou_protection(self):
         """Test TOCTOU protection in volunteer expense submission"""
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         # Attempt to submit expense with user B's volunteer ID (parameter tampering)
         tampered_expense_data = {
@@ -87,7 +95,7 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         """Test TOCTOU protection in personal details update"""
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         # Mock form data with tampering attempt
         tampered_form_data = {
@@ -117,7 +125,7 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         """Test TOCTOU protection in bank details update"""
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         # Setup session data with tampering attempt
         tampered_session_data = {
@@ -133,7 +141,6 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         # Set malicious session data directly - more realistic than mocking
         frappe.session.data["bank_details_update"] = tampered_session_data
         # Also try the alternative session storage method
-        import json
         frappe.session["bank_details_update"] = json.dumps(tampered_session_data)
 
         try:
@@ -159,7 +166,7 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         """Test that legitimate self-service operations still work after TOCTOU fixes"""
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         # Test legitimate personal details update (no member parameter)
         legitimate_form_data = {
@@ -185,7 +192,7 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         """Test that parameter tampering attempts are properly logged"""
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         # Attempt tampering in expense submission
         tampered_expense_data = {
@@ -213,7 +220,7 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         """Test that multiple types of parameter tampering are detected"""
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         tampering_scenarios = [
             {
@@ -260,7 +267,7 @@ class TestTOCTOUSecurityFixes(EnhancedTestCase):
         framework = APISecurityFramework()
 
         # Set session as user A
-        frappe.set_user("alice@example.com")
+        frappe.set_user(self.user_a_email)
 
         # Test framework-level validation with nested tampering
         tampered_kwargs = {
@@ -375,7 +382,6 @@ class TestTOCTOUPenetrationTesting(EnhancedTestCase):
         # Attempt session manipulation attack - set session data directly
         frappe.session.data["bank_details_update"] = malicious_session_data
         # Also try the alternative session storage method
-        import json
         frappe.session["bank_details_update"] = json.dumps(malicious_session_data)
 
         try:
@@ -401,8 +407,6 @@ class TestTOCTOUPenetrationTesting(EnhancedTestCase):
         # This test simulates an attacker trying to exploit the time gap
         # between security checks and data usage
 
-        import threading
-        import time
 
         member_a = self.create_test_member(
             first_name="Target",

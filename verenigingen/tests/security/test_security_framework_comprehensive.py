@@ -6,43 +6,27 @@ including all security levels, operation types, validation, monitoring, and
 integration with existing security components.
 """
 
-import json
 import time
-from unittest.mock import MagicMock, patch
 
-import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.security.api_classifier import (
-    APIClassifier,
-    ClassificationConfidence,
     get_api_classifier,
 )
 from verenigingen.utils.security.api_security_framework import (
-    APISecurityFramework,
     OperationType,
     SecurityLevel,
     api_security_framework,
     critical_api,
     get_security_framework,
     high_security_api,
-    public_api,
-    standard_api,
-    utility_api,
 )
 from verenigingen.utils.security.enhanced_validation import (
-    EnhancedValidator,
-    ValidationRule,
-    ValidationSchema,
-    ValidationSeverity,
-    ValidationType,
     get_enhanced_validator,
     validate_with_schema,
 )
 from verenigingen.utils.security.security_monitoring import (
     MonitoringMetric,
-    SecurityMonitor,
-    SecurityTester,
     ThreatLevel,
     get_security_monitor,
     get_security_tester,
@@ -95,19 +79,29 @@ class TestSecurityFrameworkCore(EnhancedTestCase):
             self.assertIsNotNone(security_level)
 
     def test_security_profile_configurations(self):
-        """Test security profile configurations are correct"""
+        """Test security profile configurations are correct.
+
+        Rate limiting moved out of SecurityProfile into the data-driven
+        RateLimitEngine, so SecurityProfile no longer carries a
+        rate_limit_config dict. Assert on the security properties the profile
+        still owns: a CRITICAL profile must be strictly tighter than PUBLIC.
+        """
         # Critical profile should have strictest settings
         critical_profile = self.framework.get_security_profile(SecurityLevel.CRITICAL)
         self.assertTrue(critical_profile.requires_audit)
         self.assertTrue(critical_profile.input_validation)
         self.assertTrue(critical_profile.ip_restrictions)
-        self.assertEqual(critical_profile.rate_limit_config["requests"], 10)
+        # Critical endpoints are POST-only (no GET) to reduce CSRF-via-URL risk
+        self.assertNotIn("GET", critical_profile.allowed_methods)
 
         # Public profile should have most permissive settings
         public_profile = self.framework.get_security_profile(SecurityLevel.PUBLIC)
         self.assertFalse(public_profile.requires_audit)
         self.assertFalse(public_profile.ip_restrictions)
-        self.assertEqual(public_profile.rate_limit_config["requests"], 1000)
+        # Public profile must be at least as permissive on request size
+        self.assertGreaterEqual(
+            public_profile.max_request_size, critical_profile.max_request_size
+        )
 
     def test_endpoint_classification(self):
         """Test automatic endpoint classification"""
@@ -416,10 +410,18 @@ class TestSecurityIntegration(EnhancedTestCase):
         """Test that all framework components are properly loaded"""
         framework = get_security_framework()
 
-        # Check core components
-        self.assertIsNotNone(framework.audit_logger)
-        self.assertIsNotNone(framework.auth_manager)
+        # Check core components. After the framework refactor the eagerly-loaded
+        # collaborators are auth_engine / rate_limiter / audit_emitter /
+        # input_validator / self_service_controller. The legacy audit_logger and
+        # auth_manager attributes are lazy (None until first use), so they are
+        # not asserted here.
+        self.assertIsNotNone(framework.auth_engine)
         self.assertIsNotNone(framework.rate_limiter)
+        self.assertIsNotNone(framework.audit_emitter)
+        self.assertIsNotNone(framework.input_validator)
+        self.assertIsNotNone(framework.self_service_controller)
+        # Lazy audit_logger must still resolve on demand
+        self.assertIsNotNone(framework._get_audit_logger())
         # Note: csrf_protection removed - using Frappe's native CSRF (auth.py)
 
     def test_validation_integration(self):

@@ -177,15 +177,29 @@ class TestSelfServiceAccessController(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Use existing test data if available, or use mock member names
-        cls.test_user_email = "Administrator"
-        cls.test_member_name = "TEST-MEMBER-001"  # Mock member name for tests
+        # SelfServiceAccessController.get_user_member() resolves a user's member
+        # by matching Member.email to the user, so we need a real member whose
+        # email is known and unique. Create one deterministically rather than
+        # depending on pre-existing data (which is absent on a fresh test site).
+        cls.test_user_email = f"selfservice.module.{frappe.generate_hash(length=8)}@example.com"
 
-        # Try to find an existing member for more realistic tests
-        existing_member = frappe.db.get_value("Member", {"email": ["like", "%@%"]}, ["name", "email"], as_dict=True)
-        if existing_member:
-            cls.test_member_name = existing_member.name
-            cls.test_user_email = existing_member.email or "Administrator"
+        member = frappe.get_doc({
+            "doctype": "Member",
+            "first_name": "SelfService",
+            "last_name": "ModuleTest",
+            "email": cls.test_user_email,
+            "birth_date": "1990-01-01",
+        })
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.test_member_name = member.name
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "test_member_name", None) and frappe.db.exists("Member", cls.test_member_name):
+            frappe.delete_doc("Member", cls.test_member_name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+        super().tearDownClass()
 
     def test_singleton_pattern(self):
         """Test that get_self_service_controller returns singleton."""
@@ -453,7 +467,6 @@ class TestSecurityModuleIntegration(FrappeTestCase):
         """Test that APISecurityFramework delegates to SelfServiceAccessController."""
         from verenigingen.utils.security import (
             get_security_framework,
-            get_self_service_controller,
         )
 
         framework = get_security_framework()
@@ -478,7 +491,6 @@ class TestSecurityModuleIntegration(FrappeTestCase):
         """Test that APISecurityFramework uses FrappeWhitelistAdapter."""
         from verenigingen.utils.security import (
             get_frappe_whitelist_adapter,
-            get_security_framework,
         )
 
         # The adapter should be importable and functional

@@ -39,15 +39,29 @@ class TestSecurityCore(VereningingenTestCase):
 
     def test_guest_user_restrictions(self):
         """Test that guest users cannot access restricted data"""
-        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
+        # Must actually run as Guest - the base class does NOT switch users for
+        # us. Running this as Administrator would bypass every DocPerm and make
+        # the assertions a fake pass.
+        with self.as_user("Guest"):
+            # Guest should not have read permission on member data. Note:
+            # frappe.get_doc() does NOT enforce read permission in this Frappe
+            # version - it just loads the row - so we assert against the real
+            # permission boundary (check_permission / has_permission).
+            self.assertFalse(
+                frappe.has_permission("Member", "read", doc=self.member1.name),
+                "Guest should not have read permission on Member",
+            )
+            with self.assertRaises(frappe.PermissionError):
+                frappe.get_doc("Member", self.member1.name).check_permission("read")
 
-        # Guest should not access member data
-        with self.assertRaises(frappe.PermissionError):
-            frappe.get_doc("Member", self.member1.name)
-
-        # Guest should not access membership data
-        members_list = frappe.get_all("Member", limit=1)
-        self.assertEqual(len(members_list), 0, "Guest can access member list")
+            # Guest should not access member list (get_list enforces
+            # permissions). Acceptable secure outcomes: an empty result or a
+            # PermissionError - both mean the data is not exposed.
+            try:
+                members_list = frappe.get_list("Member", limit=1)
+                self.assertEqual(len(members_list), 0, "Guest can access member list")
+            except frappe.PermissionError:
+                pass
 
     def test_admin_user_access(self):
         """Test that admin users have proper access to data"""
@@ -84,29 +98,35 @@ class TestSecurityCore(VereningingenTestCase):
         member_doc = frappe.get_doc("Member", self.member1.name)
         self.assertEqual(member_doc.name, self.member1.name)
 
-        # Switch to guest - should lose access
-        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
-        with self.assertRaises(frappe.PermissionError):
-            frappe.get_doc("Member", self.member1.name)
+        # Switch to guest - should lose access. Must run inside an as_user
+        # block; the base class does not switch users automatically.
+        # get_doc() alone does not enforce read permission, so assert against
+        # check_permission(), the real document-level permission boundary.
+        with self.as_user("Guest"):
+            with self.assertRaises(frappe.PermissionError):
+                frappe.get_doc("Member", self.member1.name).check_permission("read")
 
     def test_financial_data_protection(self):
         """Test financial data access restrictions"""
-        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
-
-        # Guest should not access financial doctypes
+        # Guest must not be able to read financial doctypes. Run as Guest and
+        # use get_list (which enforces permissions); get_all bypasses perms by
+        # design and would hide a real exposure.
+        # "Volunteer Expense" is not a doctype in this app - volunteer expenses
+        # are recorded as ERPNext Expense Claims - so test the real doctype.
         financial_doctypes = [
             "SEPA Mandate",
-            "Direct Debit Batch", 
-            "Volunteer Expense"
+            "Direct Debit Batch",
+            "Expense Claim",
         ]
 
-        for doctype in financial_doctypes:
-            try:
-                result = frappe.get_all(doctype, limit=1)
-                self.assertEqual(len(result), 0, f"Guest can access {doctype}")
-            except frappe.PermissionError:
-                # Expected behavior - permission denied
-                pass
+        with self.as_user("Guest"):
+            for doctype in financial_doctypes:
+                try:
+                    result = frappe.get_list(doctype, limit=1)
+                    self.assertEqual(len(result), 0, f"Guest can access {doctype}")
+                except frappe.PermissionError:
+                    # Expected behavior - permission denied
+                    pass
 
     # ===== INPUT VALIDATION TESTS =====
 

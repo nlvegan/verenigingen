@@ -24,7 +24,6 @@ Date: 2025-08-20
 Version: 1.0
 """
 
-import frappe
 import unittest
 from unittest.mock import patch, Mock
 from verenigingen.utils.security_wrappers import (
@@ -160,10 +159,7 @@ class SecurityFrameworkIntegrationTests(EnhancedTestCase):
         """
         # Create test member
         test_member = self.create_test_member("Portal", "Security", birth_date="1990-01-01")
-        
-        # Test portal access validation
-        from verenigingen.utils.member_portal_utils import get_member_context_safe
-        
+
         # Mock session with member user
         with patch('frappe.session') as mock_session:
             mock_session.user = test_member.user
@@ -243,7 +239,6 @@ class SecurityFrameworkIntegrationTests(EnhancedTestCase):
         Test error handling and security logging integration
         to ensure proper audit trails.
         """
-        import logging
         from unittest.mock import patch
         
         # Mock logger to capture security events
@@ -345,9 +340,18 @@ class SecurityFrameworkIntegrationTests(EnhancedTestCase):
             self.fail(f"Production scenario failed: {e}")
         
         # Scenario 3: Concurrent user creation/deletion
-        # This could result in temporary invalid user states
+        # This could result in temporary invalid user states. A well-formed but
+        # nonexistent user resolves to Frappe's base roles (["All", "Guest"]) -
+        # the security property that matters is that NO privileged role leaks,
+        # not that the list is strictly empty.
         roles = safe_get_roles("user_being_created@example.com")
-        self.assertEqual(roles, [])
+        self.assertIsInstance(roles, list)
+        privileged = {"System Manager", "Administrator", "Verenigingen Administrator"}
+        self.assertEqual(
+            set(roles) & privileged,
+            set(),
+            "Nonexistent user must not resolve to any privileged role",
+        )
     
     def tearDown(self):
         """Clean up test environment"""

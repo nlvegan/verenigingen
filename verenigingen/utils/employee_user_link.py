@@ -5,8 +5,6 @@ Handles creation and linking of User accounts for Employees created from Volunte
 """
 
 import frappe
-from frappe import _
-from frappe.utils import cint
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -72,14 +70,12 @@ def create_user_for_volunteer(volunteer_doc):
             except Exception as e:
                 frappe.logger().warning(f"Could not add Verenigingen Volunteer role: {str(e)}")
 
-        # Add basic roles that should always be assignable
-        try:
-            user.append("roles", {"role": "System User"})
-            frappe.logger().info(f"Added System User role for user {volunteer_doc.email}")
-        except Exception as e:
-            frappe.logger().warning(f"Could not add System User role: {str(e)}")
+        # "System User" is a user_type, not a Role. Setting user_type ensures
+        # the account is a full desk user without appending a nonexistent role
+        # (appending {"role": "System User"} aborts the insert on Frappe v15+).
+        user.user_type = "System User"
 
-        # Insert with proper permissions - NO ignore_permissions=True
+        # Insert with proper permission enforcement (no bypass flag)
         user.insert()
         frappe.logger().info(f"Created user {user.name} for volunteer {volunteer_doc.name}")
 
@@ -101,7 +97,7 @@ def update_employee_with_user(employee_name, user_id):
         employee = frappe.get_doc("Employee", employee_name)
         employee.user_id = user_id
 
-        # Save with proper permissions - NO ignore_permissions=True
+        # Save with proper permission enforcement (no bypass flag)
         employee.save()
         frappe.logger().info(f"Updated employee {employee_name} with user_id {user_id}")
         return True
@@ -155,16 +151,32 @@ def create_employee_for_approved_volunteer(volunteer_doc):
             "company": frappe.get_single("Verenigingen Settings").company,
             "employee_name": f"{first_name} {last_name}",
             "status": "Active",
-            "employment_type": "Volunteer",
         }
 
-        # Set date_of_birth from member's birth_date
-        if member_doc and member_doc.birth_date:
+        # "Volunteer" is not a standard ERPNext Employment Type and is not seeded
+        # on every site. Only set it when the master exists, otherwise leave the
+        # (optional) field blank so employee creation does not fail with a
+        # LinkValidationError on sites without the custom Employment Type.
+        if frappe.db.exists("Employment Type", "Volunteer"):
+            employee_dict["employment_type"] = "Volunteer"
+
+        # date_of_birth, date_of_joining and gender are mandatory on the Employee
+        # doctype (HRMS). Source them from the linked Member where possible and
+        # fall back to safe defaults so employee creation does not fail on
+        # mandatory-field validation when the Member data is incomplete.
+        if member_doc and member_doc.get("birth_date"):
             employee_dict["date_of_birth"] = member_doc.birth_date
 
-        # Set date_of_joining from member's member_since
-        if member_doc and member_doc.member_since:
+        if member_doc and member_doc.get("member_since"):
             employee_dict["date_of_joining"] = member_doc.member_since
+        else:
+            employee_dict["date_of_joining"] = frappe.utils.today()
+
+        member_gender = member_doc.get("gender") if member_doc else None
+        if member_gender and frappe.db.exists("Gender", member_gender):
+            employee_dict["gender"] = member_gender
+        elif frappe.db.exists("Gender", "Prefer not to say"):
+            employee_dict["gender"] = "Prefer not to say"
 
         employee = frappe.get_doc(employee_dict)
 
@@ -285,7 +297,7 @@ def _create_user_via_account_creation_manager(volunteer_doc):
                     "email": volunteer_doc.email,
                     "full_name": volunteer_doc.volunteer_name or f"{volunteer_doc.name} Volunteer",
                     "status": "Queued",
-                    "justification": "Volunteer user account creation via employee workflow",
+                    "business_justification": "Volunteer user account creation via employee workflow",
                     "requested_by": frappe.session.user,
                 }
             )
@@ -298,6 +310,11 @@ def _create_user_via_account_creation_manager(volunteer_doc):
             if "Verenigingen Volunteer" in available_roles:
                 request_doc.append("requested_roles", {"role": "Verenigingen Volunteer"})
 
+            # The Account Creation Request controller enforces its own
+            # permission gate in validate_permissions() (requires User-create
+            # permission), so this insert intentionally runs under the caller's
+            # own permissions. A caller without User-create permission is
+            # correctly refused here and the request is not created.
             request_doc.insert()
             ctx.log_operation("account_creation_request", request_doc.name)
 

@@ -44,7 +44,6 @@ import logging
 from typing import List, Optional, Union
 
 import frappe
-from frappe import _
 
 from verenigingen.utils.constants import Roles
 
@@ -246,9 +245,19 @@ def get_security_audit_info() -> dict:
         }
 
 
-# Backwards compatibility aliases
-get_user_roles = safe_get_roles  # Common alias for migration
-has_user_role = safe_has_role  # Common alias for migration
+# Backwards compatibility aliases.
+# Implemented as thin delegating wrappers (not bare name bindings) so that they
+# always dispatch through the *current* safe_get_roles / safe_has_role at call
+# time. A bare ``get_user_roles = safe_get_roles`` would freeze the reference at
+# import time, bypassing any later monkeypatch of safe_get_roles.
+def get_user_roles(user: Optional[Union[str, None]] = None) -> List[str]:
+    """Backwards-compatible alias for safe_get_roles()."""
+    return safe_get_roles(user)
+
+
+def has_user_role(user: Optional[str], role: str) -> bool:
+    """Backwards-compatible alias for safe_has_role()."""
+    return safe_has_role(user, role)
 
 
 def validate_security_wrapper_installation():

@@ -14,6 +14,7 @@ These utilities are critical for:
 """
 
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch, MagicMock
 
 import frappe
@@ -36,6 +37,22 @@ from verenigingen.utils.secure_operations import (
     secure_user_context_with_validation,
     validate_justification,
 )
+
+
+@contextmanager
+def session_user(user):
+    """Temporarily set frappe.session.user, restoring it afterwards.
+
+    frappe.session is a werkzeug LocalProxy, so unittest.mock.patch.object on it
+    fails in get_original(). Setting the attribute directly is the supported way
+    to control the session user in tests.
+    """
+    previous = getattr(frappe.session, "user", None)
+    frappe.session.user = user
+    try:
+        yield
+    finally:
+        frappe.session.user = previous
 
 
 class TestMaskIban(unittest.TestCase):
@@ -321,7 +338,7 @@ class TestCanRequestSystemEscalation(unittest.TestCase):
 
     def test_current_user_used_when_none_provided(self):
         """Test that current session user is checked when no user provided"""
-        with patch.object(frappe.session, "user", "Administrator"):
+        with session_user("Administrator"):
             result = can_request_system_escalation()
             self.assertTrue(result)
 
@@ -506,7 +523,7 @@ class TestCanUseBypassValidations(unittest.TestCase):
 
     def test_current_user_used_when_none_provided(self):
         """Test that current session user is checked when no user provided"""
-        with patch.object(frappe.session, "user", "Administrator"):
+        with session_user("Administrator"):
             result = can_use_bypass_validations()
             self.assertTrue(result)
 
@@ -540,7 +557,7 @@ class TestSecureUserContextRestores(unittest.TestCase):
         """Test that user context is restored after successful operation"""
         original_user = "original@example.com"
 
-        with patch.object(frappe.session, "user", original_user):
+        with session_user(original_user):
             with patch("frappe.db.exists") as mock_exists:
                 mock_exists.return_value = True
 
@@ -550,14 +567,17 @@ class TestSecureUserContextRestores(unittest.TestCase):
                     mock_get_doc.return_value = mock_user
 
                     with patch("frappe.set_user") as mock_set_user:
-                        with patch.object(frappe.session, "user", "target@example.com"):
-                            try:
-                                with secure_user_context_with_validation(
-                                    "target@example.com", "test_operation"
-                                ):
-                                    pass  # Simulated operation
-                            except Exception:
-                                pass  # Ignore any errors, we just want to test restoration
+                        # Session user is original_user on entry; the context
+                        # manager must switch to the target and restore back to
+                        # the captured original on exit. Do NOT pre-switch the
+                        # session here or the original is lost before capture.
+                        try:
+                            with secure_user_context_with_validation(
+                                "target@example.com", "test_operation"
+                            ):
+                                pass  # Simulated operation
+                        except Exception:
+                            pass  # Ignore any errors, we just want to test restoration
 
                         # Verify set_user was called to restore original user
                         # The last call should restore the original user
@@ -569,7 +589,7 @@ class TestSecureUserContextRestores(unittest.TestCase):
         """Test that user context is restored even when exception occurs"""
         original_user = "original@example.com"
 
-        with patch.object(frappe.session, "user", original_user):
+        with session_user(original_user):
             with patch("frappe.db.exists") as mock_exists:
                 mock_exists.return_value = True
 
@@ -680,7 +700,16 @@ class TestSecureDocumentOperationAuthorization(unittest.TestCase):
                         self.assertTrue(result.success)
 
     def test_unauthorized_user_cannot_request_escalation(self):
-        """Test that users without escalation permission get PermissionError"""
+        """Test that users without escalation permission are denied.
+
+        secure_document_operation captures the escalation-denial PermissionError
+        in its try/except and surfaces it as a failed SecureOperationResult
+        (result.success is False, the message is recorded in result.errors)
+        rather than propagating the exception. This matches the documented
+        behaviour in test_secure_operations_security_audit.py. The security
+        property under test is that the operation is DENIED, not how the denial
+        is signalled.
+        """
         mock_doc = MagicMock()
         mock_doc.doctype = "Test DocType"
         mock_doc.name = "test-001"
@@ -698,17 +727,19 @@ class TestSecureDocumentOperationAuthorization(unittest.TestCase):
                 ) as mock_can_escalate:
                     mock_can_escalate.return_value = False
 
-                    with self.assertRaises(frappe.PermissionError) as context:
-                        secure_document_operation(
-                            operation="save",
-                            doc=mock_doc,
-                            justification="Test operation with valid justification",
-                            allow_system_user=True,
-                        )
-
-                    self.assertIn(
-                        "do not have permission", str(context.exception).lower()
+                    result = secure_document_operation(
+                        operation="save",
+                        doc=mock_doc,
+                        justification="Test operation with valid justification",
+                        allow_system_user=True,
                     )
+
+                    self.assertFalse(
+                        result.success,
+                        "Unauthorized escalation request must be denied",
+                    )
+                    error_text = " ".join(result.errors).lower()
+                    self.assertIn("permission", error_text)
 
 
 class TestBypassValidationAllowedRolesConfiguration(unittest.TestCase):

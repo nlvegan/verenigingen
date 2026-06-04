@@ -73,7 +73,10 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_name_for_user
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    self_service_api,
+)
 from verenigingen.utils.security_wrappers import safe_get_roles
 
 # REMOVED: validate_session_before_request function (August 21, 2025)
@@ -212,12 +215,14 @@ def get_default_home_page(user=None):
     """
     Get the default home page for a user
     This can be called from other parts of the application
-    """
-    if not user:
-        user = frappe.session.user
 
-    # CRITICAL: Validate user parameter
-    if not user or not isinstance(user, str) or user in ["", "None", None]:
+    A falsy or invalid ``user`` (None, "", "None", non-string) is treated as
+    "no valid user" and routed to the public landing page rather than silently
+    falling back to the current session user, which could leak a privileged
+    home page to an unauthenticated context.
+    """
+    # CRITICAL: Validate user parameter before any fallback
+    if not user or not isinstance(user, str) or user in ["", "None"]:
         return "/web"
 
     if user == "Guest":
@@ -249,11 +254,17 @@ def get_default_home_page(user=None):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_member_home_page():
     """
     API method to get the home page for the current user
     Can be called from JavaScript to programmatically redirect
+
+    This is a self-service endpoint: it only ever resolves the *current
+    session user's* own home page, so it sits at the self-service (LOW) auth
+    tier. Requiring @standard_api (MEDIUM) here locked out plain
+    "Verenigingen Member" users, who only hold LOW access, breaking the member
+    portal redirect for exactly the users it is meant to serve.
     """
     return get_default_home_page(frappe.session.user)
 

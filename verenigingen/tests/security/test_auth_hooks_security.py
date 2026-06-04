@@ -29,18 +29,32 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         # Set Administrator for authentication security testing
         frappe.set_user("Administrator")
 
-        # Create test users with different roles (using factory's create_test_user)
-        # Use standard Frappe roles that always exist
-        self.test_member_user = self.create_test_user(
+        # Create the member first. The factory uniquifies the email for test
+        # isolation, so we read the resulting email back and build the member's
+        # User account with that SAME email - the self-service auth path resolves
+        # a user's member by matching Member.email to the user, so they must align.
+        self.test_member = self.create_test_member(
+            first_name="Test",
+            last_name="Member",
             email="test.member@example.com",
-            roles=["Guest"],  # Use standard Frappe role
+        )
+
+        # The member user must hold a real member role (not Guest) so it passes
+        # the self-service (LOW) auth tier; ownership is then enforced by email.
+        self.test_member_user = self.create_test_user(
+            email=self.test_member.email,
+            roles=["Verenigingen Member"],
             first_name="Test",
             last_name="Member"
         )
 
+        # Link the user back onto the member record.
+        self.test_member.db_set("user", self.test_member_user.name)
+        self.test_member.reload()
+
         self.test_volunteer_user = self.create_test_user(
             email="test.volunteer@example.com",
-            roles=["Guest"],  # Use standard Frappe role
+            roles=["Verenigingen Volunteer"],
             first_name="Test",
             last_name="Volunteer"
         )
@@ -50,14 +64,6 @@ class TestAuthHooksSecurity(EnhancedTestCase):
             roles=["System Manager"],  # Standard admin role
             first_name="Test",
             last_name="Admin"
-        )
-
-        # Create linked member record for member user
-        self.test_member = self.create_test_member(
-            first_name="Test",
-            last_name="Member",
-            email="test.member@example.com",
-            user=self.test_member_user.name
         )
 
     def tearDown(self):
@@ -120,37 +126,48 @@ class TestAuthHooksSecurity(EnhancedTestCase):
     # ===== RACE CONDITION TESTS =====
 
     def test_concurrent_session_creation(self):
-        """Test multiple simultaneous session creation attempts"""
+        """Test multiple simultaneous session creation attempts.
+
+        frappe.local (session, conf, message_log, ...) is per-thread
+        (werkzeug.local.Local), so each worker thread must call
+        frappe.init(site=..., force=True) and establish its own session before
+        touching any Frappe API. Without this the workers fail with a bare
+        'session' KeyError that has nothing to do with on_session_creation's
+        own thread-safety.
+        """
         import threading
-        import time
-        
+
         results = []
         errors = []
-        
+        results_lock = threading.Lock()
+        site = frappe.local.site
+        member_user = self.test_member_user.name
+
         def create_session():
             try:
-                frappe.set_user(self.test_member_user.name)
+                frappe.init(site=site, force=True)
+                frappe.connect()
+                frappe.set_user(member_user)
                 login_manager = MagicMock()
                 auth_hooks.on_session_creation(login_manager)
-                results.append("success")
+                with results_lock:
+                    results.append("success")
             except Exception as e:
-                errors.append(str(e))
-        
-        # Start multiple threads to simulate race condition
-        threads = []
-        for i in range(5):
-            t = threading.Thread(target=create_session)
-            threads.append(t)
-            t.start()
-        
-        # Wait for all threads to complete
+                with results_lock:
+                    errors.append(repr(e))
+            finally:
+                frappe.destroy()
+
+        threads = [threading.Thread(target=create_session) for _ in range(5)]
         for t in threads:
-            t.join(timeout=10)
-        
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+
         # Check no errors occurred
         if errors:
             self.fail(f"Race condition caused errors: {errors}")
-        
+
         self.assertEqual(len(results), 5, "Not all concurrent sessions completed")
 
     def test_user_role_check_race_condition(self):
@@ -281,33 +298,52 @@ class TestAuthHooksSecurity(EnhancedTestCase):
 
     # ===== BEFORE REQUEST HOOK TESTS =====
 
-    def test_before_request_with_none_user(self):
-        """Test before_request hook handles Guest user"""
-        frappe.set_user("Guest")
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.local.request') as mock_request:
-            mock_request.path = "/app/Member"
+    def _set_request_path(self, path):
+        """Set a minimal request object on frappe.local with the given path.
 
-            try:
-                auth_hooks.before_request()
-                self.assertTrue(True, "before_request handled Guest user")
-            except Exception as e:
-                self.fail(f"before_request should handle Guest user: {e}")
+        Returns the previous value so the caller can restore it. We set the
+        attribute directly rather than patching it, because frappe.local.request
+        is often unset in the test runner context and unittest.mock.patch then
+        fails in get_original().
+        """
+        previous = getattr(frappe.local, "request", None)
+
+        class _Req:
+            pass
+
+        req = _Req()
+        req.path = path
+        frappe.local.request = req
+        return previous
+
+    def test_before_request_with_none_user(self):
+        """The portal-access hook must handle the Guest user without raising."""
+        frappe.set_user("Guest")
+        previous = self._set_request_path("/app/Member")
+        try:
+            # enforce_member_portal_access is the real before-request hook
+            # (the old before_request/validate_session_before_request was removed).
+            auth_hooks.enforce_member_portal_access()
+            self.assertTrue(True, "enforce_member_portal_access handled Guest user")
+        except Exception as e:
+            self.fail(f"enforce_member_portal_access should handle Guest user: {e}")
+        finally:
+            frappe.local.request = previous
 
     def test_before_request_database_failure(self):
-        """Test before_request handles database failures"""
+        """The portal-access hook must swallow database failures, not crash the request."""
         frappe.set_user(self.test_member_user.name)
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.local.request') as mock_request:
-            mock_request.path = "/app/Member"
-            # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch('frappe.get_roles', side_effect=Exception("Database error")):
-
-                try:
-                    auth_hooks.before_request()
-                    self.assertTrue(True, "before_request handled database error")
-                except Exception as e:
-                    self.fail(f"before_request should handle database errors: {e}")
+        previous = self._set_request_path("/app/Member")
+        # Mock justified: Infrastructure - simulating a DB outage inside the hook,
+        # not the boundary under test (the hook's own resilience).
+        with patch('frappe.get_roles', side_effect=Exception("Database error")):
+            try:
+                auth_hooks.enforce_member_portal_access()
+                self.assertTrue(True, "enforce_member_portal_access handled database error")
+            except Exception as e:
+                self.fail(f"enforce_member_portal_access should handle database errors: {e}")
+            finally:
+                frappe.local.request = previous
 
     # ===== API SECURITY TESTS =====
 
