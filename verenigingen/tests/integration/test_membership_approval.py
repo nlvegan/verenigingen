@@ -259,15 +259,23 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         self.assertEqual(membership["membership_type"], self.membership_type.name)
         self.assertEqual(membership["status"], "Active")
         
-        # Stage 6: Validate invoice generation (if requested).
-        # Invoice creation requires a fully-configured ERPNext selling stack
-        # (price list currency / conversion rate against the company currency).
-        # The bare test site's company is INR while membership amounts are EUR,
-        # so the Sales Invoice mandatory price-list-currency fields can't be
-        # auto-resolved and the invoice is intentionally skipped by the service.
-        # When an invoice IS generated, assert it fully; otherwise validate the
-        # rest of the workflow (the sibling test_approval_workflow_invoice_generation
-        # uses the same environment-dependent guard).
+        # Stage 6: Validate invoice generation (create_invoice=True was requested).
+        #
+        # In a fully provisioned ERPNext selling stack the membership Sales Invoice
+        # is generated and we assert it fully (amount and member link). The bare
+        # test environment cannot auto-resolve the Sales Invoice mandatory
+        # price-list fields (selling_price_list / price_list_currency /
+        # plc_conversion_rate), so
+        # create_membership_invoice() raises; MembershipCreationService swallows that
+        # (logs to Error Log under "Membership Invoice Security", returns None) and
+        # approval still succeeds.
+        #
+        # Either branch makes a HARD assertion. The previous version silently passed
+        # whenever no invoice existed, which — combined with the service swallowing
+        # invoice-creation exceptions — meant a regression that breaks invoice
+        # generation would never be caught. The no-invoice branch now requires that
+        # the documented, guarded failure was actually logged, so a silent drop for
+        # any other reason (or a missing invoice that should have generated) fails.
         invoices = frappe.get_all(
             "Sales Invoice",
             filters={"customer": member.customer, "is_membership_invoice": 1},
@@ -278,9 +286,19 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             self.assertEqual(invoice["member"], member.name)
             self.assertEqual(invoice["grand_total"], self.membership_type.amount)
         else:
-            frappe.logger().info(
-                "No membership invoice generated - selling price-list/currency not "
-                "configured in the bare test environment; skipping invoice assertions"
+            # The ONLY acceptable reason for no invoice is the documented price-list
+            # failure that the service logs and swallows. Requiring that log turns
+            # the old vacuous branch into a real assertion: a silent drop for any
+            # OTHER reason (or a missing invoice that should have generated) fails.
+            logged_failure = frappe.get_all(
+                "Error Log",
+                filters={"error": ["like", "%Failed to create membership invoice%"]},
+                limit=1,
+            )
+            self.assertTrue(
+                logged_failure,
+                "No membership invoice was generated AND no documented invoice-creation "
+                "failure was logged — approval may be silently dropping invoices.",
             )
 
         # Stage 7: Validate chapter membership assignment
