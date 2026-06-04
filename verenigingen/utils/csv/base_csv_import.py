@@ -143,15 +143,16 @@ def mark_import_failed(doc: Document, error_message: str) -> None:
        the DB alongside the Failed state. This matches the pre-refactor
        behaviour but is easier to overlook now that the helper hides
        the commit.
-    3. `sanitize_error_for_audit` returns `None` for empty/whitespace
-       input; `doc.db_set("error_log", None)` silently writes SQL NULL,
-       leaving the UI with no diagnostic. Callers should pass a
-       non-empty `error_message` even if the underlying exception had an
-       empty message — `traceback.format_exc()` always has content.
+
+    A Failed import doc without any error_log is always a debugging
+    hole — `sanitize_error_for_audit("")` returns `None`, so naive
+    callers that pass `str(some_empty_exception)` would silently write
+    SQL NULL. We always write SOMETHING here.
     """
     doc.reload()
+    sanitized = sanitize_error_for_audit(error_message) or "Unknown error (no diagnostic available)"
     doc.db_set("import_status", "Failed")
-    doc.db_set("error_log", sanitize_error_for_audit(error_message))
+    doc.db_set("error_log", sanitized)
     frappe.db.commit()
 
 

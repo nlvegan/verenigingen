@@ -195,6 +195,42 @@ class TestOnSubmitBackgroundMethodGuard(unittest.TestCase):
 class TestMarkImportFailed(EnhancedTestCase):
     """mark_import_failed: reload + Failed status + sanitized error_log + commit."""
 
+    def _make_doc(self):
+        """Build a real Procurios Mandate Import in Validating state."""
+        doc = frappe.get_doc(
+            {
+                "doctype": "Procurios Mandate Import",
+                "import_date": frappe.utils.today(),
+                "encoding": "auto-detect",
+                "csv_delimiter": "Semicolon",
+                "import_status": "Validating",
+            }
+        )
+        doc.flags.ignore_permissions = True
+        doc.flags.ignore_mandatory = True
+        doc.insert()
+        return doc
+
+    def test_empty_string_writes_fallback_diagnostic_not_null(self):
+        # Regression guard for the skeptical reviewer's footgun #3 on PR #123:
+        # sanitize_error_for_audit("") returns None, and a naive
+        # db_set("error_log", None) would silently write SQL NULL — leaving
+        # a Failed import with no diagnostic. The helper now substitutes a
+        # fallback string.
+        from verenigingen.utils.csv.base_csv_import import mark_import_failed
+
+        doc = self._make_doc()
+        try:
+            mark_import_failed(doc, "")
+            doc.reload()
+            self.assertEqual(doc.import_status, "Failed")
+            self.assertIsNotNone(doc.error_log)
+            self.assertNotEqual((doc.error_log or "").strip(), "")
+        finally:
+            frappe.delete_doc(
+                "Procurios Mandate Import", doc.name, force=1, ignore_permissions=True
+            )
+
     def test_sets_failed_status_and_sanitized_log(self):
         from verenigingen.utils.csv.base_csv_import import mark_import_failed
 
