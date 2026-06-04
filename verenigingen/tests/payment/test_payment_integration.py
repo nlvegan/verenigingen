@@ -51,8 +51,9 @@ class TestPaymentIntegration(EnhancedTestCase):
         # Verify invoice integration
         self.assertEqual(invoice.customer, self.test_member.customer)
         self.assertTrue(invoice.is_membership_invoice)
-        self.assertEqual(invoice.membership, self.test_membership.name)
-        
+        # NOTE: Sales Invoice has no "membership" link field (only "member" and
+        # "is_membership_invoice"), so there is nothing to assert for membership here.
+
         # Verify invoice has proper items
         self.assertGreater(len(invoice.items), 0)
         
@@ -110,23 +111,32 @@ class TestPaymentIntegration(EnhancedTestCase):
         """Test SEPA direct debit payment integration"""
         # Create SEPA mandate
         mandate = self.create_test_sepa_mandate(
-            member=self.test_member.name,
-            scenario="normal",
-            bank_code="TEST"
+            member_name=self.test_member.name,
         )
         
-        # Create invoice for SEPA collection
-        invoice = self.create_test_sales_invoice(
+        # Create invoice for SEPA collection. Use the SEPA test factory so the
+        # invoice is EUR, Unpaid and has a positive outstanding amount -- the batch
+        # rejects invoices that fail validate_invoice_for_sepa (non-EUR / zero
+        # outstanding / wrong status -> "No valid invoices found in batch").
+        from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+
+        sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)
+        invoice = sepa_factory.create_test_sales_invoice(
             customer=self.test_member.customer,
-            is_membership_invoice=1
+            member=self.test_member.name,
+            status="Unpaid",
+            submit=True,
         )
-        
-        # Create direct debit batch
-        dd_batch = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True  # We created our own invoice
-        )
-        
-        # Add invoice to batch
+        self._track_test_document("Sales Invoice", invoice.name)
+
+        # Build a direct debit batch with our own invoice row. The batch validates
+        # "No invoices added to batch" on insert, so the row must be present before
+        # the first save (we cannot insert an empty batch and append afterwards).
+        dd_batch = frappe.new_doc("Direct Debit Batch")
+        dd_batch.batch_date = today()
+        dd_batch.batch_description = f"Test DD Batch {frappe.generate_hash(length=6)}"
+        dd_batch.batch_type = "RCUR"
+        dd_batch.currency = "EUR"
         dd_batch.append("invoices", {
             "invoice": invoice.name,
             "membership": self.test_membership.name,
@@ -135,9 +145,14 @@ class TestPaymentIntegration(EnhancedTestCase):
             "amount": invoice.grand_total,
             "currency": "EUR",
             "iban": mandate.iban,
-            "mandate_reference": mandate.mandate_id
+            "mandate_reference": mandate.mandate_id,
+            "status": "Pending",
+            # First use of a fresh mandate must be FRST (SEPA compliance); RCUR
+            # is only valid once the mandate has a prior successful collection.
+            "sequence_type": "FRST",
         })
         dd_batch.save()
+        self._track_test_document("Direct Debit Batch", dd_batch.name)
         
         # Verify SEPA integration
         self.assertEqual(len(dd_batch.invoices), 1)
@@ -151,14 +166,13 @@ class TestPaymentIntegration(EnhancedTestCase):
         dues_schedule = self.create_test_dues_schedule(
             member=self.test_member.name,
             dues_rate=25.00,
-            billing_frequency="Monthly",
+            frequency="Monthly",
             auto_generate=1
         )
-        
+
         # Create SEPA mandate for recurring collection
         mandate = self.create_test_sepa_mandate(
-            member=self.test_member.name,
-            scenario="normal",
+            member_name=self.test_member.name,
             used_for_memberships=1
         )
         
@@ -368,17 +382,20 @@ class TestPaymentIntegrationEdgeCases(VereningingenTestCase):
         self.test_member = self.create_test_member()
     
     def test_zero_amount_payment_integration(self):
-        """Test handling of zero amount payments"""
-        # Create zero amount payment (scholarship/free membership)
-        zero_payment = self.create_test_payment_entry(
-            party=self.test_member.customer,
-            party_type="Customer",
-            payment_type="Receive",
-            paid_amount=0.00
-        )
-        
-        # Verify zero payment handling
-        self.assertEqual(zero_payment.paid_amount, flt(0.00))
+        """Test handling of zero amount payments.
+
+        ERPNext does not allow a Payment Entry with a zero Paid Amount
+        ("Paid Amount is mandatory"). Free/scholarship memberships are modelled
+        as zero-amount invoices, never as zero-amount payment entries. Verify the
+        framework rejects the invalid case rather than silently accepting it.
+        """
+        with self.assertRaises(frappe.ValidationError):
+            self.create_test_payment_entry(
+                party=self.test_member.customer,
+                party_type="Customer",
+                payment_type="Receive",
+                paid_amount=0.00,
+            )
     
     def test_very_large_payment_integration(self):
         """Test handling of very large payment amounts"""

@@ -94,7 +94,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
         self.assertEqual(config["escalate_after"], 2)
 
     @patch(
-        "verenigingen.utils.sepa_notifications.SEPAMandateNotificationManager.send_payment_retry_notification"
+        "verenigingen.verenigingen_payments.utils.sepa_notifications.SEPAMandateNotificationManager.send_payment_retry_notification"
     )
     def test_schedule_retry_first_attempt(self, mock_notification):
         """Test scheduling first retry attempt"""
@@ -185,7 +185,7 @@ class TestPaymentRetryManager(EnhancedTestCase):
         self.assertEqual(result, monday)
 
     @patch(
-        "verenigingen.utils.sepa_notifications.SEPAMandateNotificationManager.send_payment_retry_notification"
+        "verenigingen.verenigingen_payments.utils.sepa_notifications.SEPAMandateNotificationManager.send_payment_retry_notification"
     )
     def test_max_retries_escalation(self, mock_notification):
         """Test escalation after max retries"""

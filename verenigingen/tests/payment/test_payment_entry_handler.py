@@ -21,12 +21,100 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 class TestPaymentEntryHandler(EnhancedTestCase):
     """Test enhanced payment entry handler functionality."""
     
+    # Ledger IDs used by the payment mutations in these tests.
+    BANK_LEDGER_ID = 10440  # Triodos-style bank ledger
+    UNMAPPED_LEDGER_ID = 88888  # deliberately has no mapping
+
     @classmethod
     def setUpClass(cls):
-        """Set up test data."""
+        """Set up test data.
+
+        These tests drive the e-Boekhouden PaymentEntryHandler, which resolves
+        a mutation's ledgerId to a Bank/Cash GL account via E-Boekhouden Ledger
+        Mapping and fails hard when no mapping exists. A fresh test site has none
+        of that infrastructure, so seed an EUR company with a Bank account and a
+        ledger mapping for the bank ledger the mutations use.
+        """
         super().setUpClass()
-        cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "Test Company"
-        
+
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        cls.company = get_eur_test_company()
+        cls.bank_account = cls._ensure_bank_account(cls.company)
+        cls._ensure_ledger_mapping(cls.BANK_LEDGER_ID, "TRIODOS-TEST", cls.bank_account)
+
+    @classmethod
+    def _ensure_bank_account(cls, company):
+        """Return a Bank-type GL account for the company, creating one if needed.
+
+        The handler also needs a Bank Account *master* (the doctype that links a
+        Bank to the GL account) to build the Payment Entry, so create that too.
+        """
+        gl_account = frappe.db.get_value(
+            "Account", {"account_type": "Bank", "company": company, "is_group": 0}, "name"
+        )
+        if not gl_account:
+            parent = frappe.db.get_value(
+                "Account",
+                {"company": company, "is_group": 1, "account_type": "Bank"},
+                "name",
+            ) or frappe.db.get_value(
+                "Account",
+                {"company": company, "is_group": 1, "root_type": "Asset"},
+                "name",
+            )
+            account = frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": "Test Bank Triodos",
+                    "parent_account": parent,
+                    "company": company,
+                    "account_type": "Bank",
+                    "is_group": 0,
+                }
+            )
+            account.insert(ignore_permissions=True)
+            gl_account = account.name
+
+        cls._ensure_bank_account_master(company, gl_account)
+        return gl_account
+
+    @classmethod
+    def _ensure_bank_account_master(cls, company, gl_account):
+        """Create a Bank Account master linking a Bank to the GL account."""
+        if frappe.db.exists("Bank Account", {"account": gl_account, "company": company}):
+            return
+        bank_name = "Test Bank (Triodos)"
+        if not frappe.db.exists("Bank", bank_name):
+            frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(ignore_permissions=True)
+        frappe.get_doc(
+            {
+                "doctype": "Bank Account",
+                "account_name": "Test Bank Triodos Account",
+                "bank": bank_name,
+                "account": gl_account,
+                "company": company,
+                "is_company_account": 1,
+            }
+        ).insert(ignore_permissions=True)
+
+    @classmethod
+    def _ensure_ledger_mapping(cls, ledger_id, ledger_code, erpnext_account):
+        """Create an E-Boekhouden Ledger Mapping linking ledger_id to a GL account."""
+        if frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": ledger_id}):
+            return
+        mapping = frappe.get_doc(
+            {
+                "doctype": "E-Boekhouden Ledger Mapping",
+                "ledger_id": ledger_id,
+                "ledger_code": ledger_code,
+                "ledger_name": f"Test Ledger {ledger_id}",
+                "erpnext_account": erpnext_account,
+            }
+        )
+        mapping.insert(ignore_permissions=True)
+
+
     def setUp(self):
         """Set up for each test."""
         super().setUp()
@@ -61,37 +149,25 @@ class TestPaymentEntryHandler(EnhancedTestCase):
     
     def test_bank_account_determination_with_ledger(self):
         """Test bank account determination from ledger mapping."""
-        # Create test ledger mapping
-        if not DocumentExistenceValidator.check_document_exists("E-Boekhouden Ledger Mapping", {"ledger_id": 99999}):
-            # First ensure we have a bank account
-            bank_account = frappe.db.get_value(
-                "Account",
-                {"account_type": "Bank", "company": self.company},
-                "name"
-            )
-            
-            if bank_account:
-                mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
-                mapping.ledger_id = 99999
-                mapping.ledger_code = "TEST-BANK"
-                mapping.ledger_name = "Test Bank Account"
-                mapping.erpnext_account = bank_account
-                mapping.save()
-        
+        # Seed a mapping for ledger 99999 -> the seeded Bank account.
+        self._ensure_ledger_mapping(99999, "TEST-BANK", self.bank_account)
+
         # Test determination
         result = self.handler._determine_bank_account(99999, "Receive")
         self.assertIsNotNone(result)
         self.assertNotIn("Kas", result)  # Should not be cash account
-        
+
         # Enhanced Test Factory handles cleanup automatically
-    
+
     def test_bank_account_fallback(self):
-        """Test bank account fallback when no ledger mapping exists."""
-        # Non-existent ledger
-        result = self.handler._determine_bank_account(88888, "Receive")
-        self.assertIsNotNone(result)
-        # Should return a valid account
-        self.assertTrue(DocumentExistenceValidator.check_document_exists("Account", {"name": result, "company": self.company}))
+        """An unmapped ledger fails hard (no silent fallback).
+
+        The handler deliberately raises when a ledgerId has no Bank/Cash mapping
+        and no description pattern to fall back on, rather than guessing an account
+        (which would post payments to the wrong ledger). Verify that contract.
+        """
+        with self.assertRaises(frappe.ValidationError):
+            self.handler._determine_bank_account(self.UNMAPPED_LEDGER_ID, "Receive")
     
     def test_single_invoice_payment(self):
         """Test payment creation for single invoice."""

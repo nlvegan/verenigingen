@@ -46,11 +46,17 @@ class TestInvoiceEdgeCases(VereningingenTestCase):
             membership=self.test_membership.name
         )
         
-        # Manually set zero amount items
+        # Manually set zero amount items. Also clear price_list_rate / margin and
+        # ignore pricing rules, otherwise calculate_taxes_and_totals() restores the
+        # item rate from the price list (standard_rate) and grand_total stays 25.
+        zero_invoice.ignore_pricing_rule = 1
         for item in zero_invoice.items:
+            item.price_list_rate = 0.00
+            item.margin_rate_or_amount = 0
+            item.discount_percentage = 0
             item.rate = 0.00
             item.amount = 0.00
-        
+
         zero_invoice.calculate_taxes_and_totals()
         zero_invoice.save()
         
@@ -84,16 +90,17 @@ class TestInvoiceEdgeCases(VereningingenTestCase):
             is_membership_invoice=1
         )
         
-        # Add additional items
+        # Add additional items (distinct item codes; ERPNext rejects duplicate
+        # items in multiple rows by default).
         multi_item_invoice.append("items", {
-            "item_code": self._get_or_create_test_item(),
+            "item_code": self._get_or_create_test_item(suffix="A"),
             "qty": 1,
             "rate": 50.00,
             "income_account": self._get_or_create_income_account(multi_item_invoice.company)
         })
-        
+
         multi_item_invoice.append("items", {
-            "item_code": self._get_or_create_test_item(),
+            "item_code": self._get_or_create_test_item(suffix="B"),
             "qty": 2,
             "rate": 25.00,
             "income_account": self._get_or_create_income_account(multi_item_invoice.company)
@@ -159,14 +166,12 @@ class TestInvoiceEdgeCases(VereningingenTestCase):
             is_membership_invoice=1
         )
         
-        # Add tax template if available
-        try:
-            # This would add sales taxes if configured
+        # Add tax template only if one actually exists; assigning a non-existent
+        # template name fails Link validation at save() (the try/except around the
+        # assignment never caught it because the error surfaces on save).
+        if frappe.db.exists("Sales Taxes and Charges Template", "Standard VAT"):
             tax_invoice.taxes_and_charges = "Standard VAT"
-        except:
-            # Skip if no tax template exists
-            pass
-        
+
         tax_invoice.calculate_taxes_and_totals()
         tax_invoice.save()
         
@@ -234,11 +239,14 @@ class TestInvoiceEdgeCases(VereningingenTestCase):
             customer=self.test_member.customer,
             is_membership_invoice=1
         )
-        
-        # Cancel invoice (change docstatus)
-        if invoice.docstatus == 1:
-            frappe.db.set_value("Sales Invoice", invoice.name, "docstatus", 2)
-        
+
+        # The base factory leaves the invoice in Draft; submit it so it can be
+        # cancelled through the proper lifecycle (cancel() sets docstatus 2 and runs
+        # the cancel hooks, unlike a raw db_set which bypasses ledger reversal).
+        if invoice.docstatus == 0:
+            invoice.submit()
+        invoice.cancel()
+
         # Verify cancellation
         cancelled_invoice = frappe.get_doc("Sales Invoice", invoice.name)
         self.assertEqual(cancelled_invoice.docstatus, 2)
@@ -409,10 +417,10 @@ class TestInvoicePerformanceEdgeCases(VereningingenTestCase):
             is_membership_invoice=1
         )
         
-        # Add multiple items with different rates
+        # Add multiple items with different rates (distinct item codes per row).
         for i in range(10):
             complex_invoice.append("items", {
-                "item_code": self._get_or_create_test_item(),
+                "item_code": self._get_or_create_test_item(suffix=f"PERF{i}"),
                 "qty": i + 1,
                 "rate": 10.00 + i,
                 "income_account": self._get_or_create_income_account(complex_invoice.company)

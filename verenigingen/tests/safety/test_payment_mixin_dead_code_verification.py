@@ -204,11 +204,28 @@ class TestPaymentMixinDeadCodeVerification(EnhancedTestCase):
         with open(dues_schedule_path, 'r') as f:
             content = f.read()
 
-        # Verify it creates sales invoices directly, not via payment_mixin
+        # Verify invoice generation goes through the dedicated generation pipeline
+        # (InvoiceGenerationOrchestrator -> invoice_generator), NOT the dead
+        # payment_mixin. The raw frappe.new_doc("Sales Invoice") call now lives in
+        # invoice_generator.py after the orchestrator extraction, so assert the
+        # controller delegates to the orchestrator and that the generator does the
+        # direct invoice creation.
+        self.assertIn(
+            "InvoiceGenerationOrchestrator",
+            content,
+            "MembershipDuesSchedule should generate invoices via InvoiceGenerationOrchestrator",
+        )
+
+        invoice_generator_path = os.path.join(
+            self.app_path,
+            "services/billing/invoice_generator.py",
+        )
+        with open(invoice_generator_path, "r") as f:
+            generator_content = f.read()
         self.assertIn(
             'frappe.new_doc("Sales Invoice")',
-            content,
-            "MembershipDuesSchedule should create invoices directly"
+            generator_content,
+            "invoice_generator should create Sales Invoices directly",
         )
 
         # Verify it doesn't import or use payment_mixin methods

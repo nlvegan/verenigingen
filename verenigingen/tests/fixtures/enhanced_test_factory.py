@@ -3842,8 +3842,10 @@ class EnhancedTestCase(FrappeTestCase):
             "price_list_currency": company_currency,
             "plc_conversion_rate": 1.0,
             "ignore_pricing_rule": 1,
-            "custom_is_membership_invoice": kwargs.get("is_membership_invoice", 0),
-            "custom_membership": kwargs.get("membership"),
+            # Real Sales Invoice fields are "is_membership_invoice" (Check) and the
+            # "member" Link -- there is no custom_is_membership_invoice/custom_membership
+            # field, so writing those silently dropped the values.
+            "is_membership_invoice": kwargs.get("is_membership_invoice", 0),
         }
         
         # Get proper income account for ERPNext validation
@@ -5576,6 +5578,19 @@ class EnhancedTestCase(FrappeTestCase):
             mandate.insert()
             self.factory.track_document("SEPA Mandate", mandate.name, priority=4)
             return mandate
+
+    def create_test_direct_debit_batch(self, skip_invoice_creation=False, **kwargs):
+        """Bridge to SEPA test factory for Direct Debit Batch creation.
+
+        skip_invoice_creation=True maps to invoice_count=0 so callers that build
+        their own invoice rows get an empty batch to populate.
+        """
+        from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+
+        sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)
+        if skip_invoice_creation:
+            kwargs.setdefault("invoice_count", 0)
+        return sepa_factory.create_test_direct_debit_batch(**kwargs)
 
     def create_test_dues_schedule(self, member, membership_type=None, amount=25.0, frequency="monthly", **kwargs):
         """Bridge method for dues schedule creation"""

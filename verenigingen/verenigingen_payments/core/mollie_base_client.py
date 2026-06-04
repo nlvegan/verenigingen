@@ -896,7 +896,14 @@ class MollieBaseClient:
             frappe.logger().error(error_msg)
             raise ResponseParsingError(error_msg, original_response=None)
 
-        # Handle empty response
+        # Handle empty list response: an empty collection is a valid result
+        # (e.g. a settlement with zero captures/refunds/chargebacks). Returning
+        # [] here avoids spuriously raising ResponseParsingError for legitimately
+        # empty collection endpoints.
+        if isinstance(response, list) and not response:
+            return []
+
+        # Handle other empty responses (empty dict, empty string, etc.)
         if not response:
             if allow_none:
                 return None

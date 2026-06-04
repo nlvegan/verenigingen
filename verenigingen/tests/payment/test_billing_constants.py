@@ -139,7 +139,10 @@ class TestBillingConstants(unittest.TestCase):
 
     def test_module_all_export(self):
         """Verify __all__ contains all expected exports."""
-        from verenigingen.utils import billing_constants
+        # __all__ is defined on the canonical module. verenigingen.utils.billing_constants
+        # is a deprecated re-export shim (from ... import *), which does NOT rebind
+        # __all__ into its own namespace, so check the canonical module here.
+        from verenigingen.services.billing import billing_constants
 
         # Test __all__ is defined
         self.assertTrue(hasattr(billing_constants, "__all__"))

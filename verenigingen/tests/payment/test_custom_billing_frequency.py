@@ -84,7 +84,9 @@ class TestCustomBillingFrequency(VereningingenTestCase):
         """Test custom frequency validation"""
         schedule = frappe.new_doc("Membership Dues Schedule")
         schedule.schedule_name = "Test-Custom-Validation"
-        schedule.is_template = 1
+        # validate_custom_frequency() intentionally skips templates, so this must be
+        # a non-template schedule for the validation to run.
+        schedule.is_template = 0
         schedule.membership_type = "Standard Member"
         schedule.billing_frequency = "Custom"
         schedule.dues_rate = 10.00

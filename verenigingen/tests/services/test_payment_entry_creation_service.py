@@ -215,10 +215,17 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         invoice = self._create_test_invoice(amount=Decimal("123.45"))
         invoice.submit()
 
+        # Pay the invoice's actual outstanding amount as a Decimal. The company's
+        # rounded_total settings can make outstanding differ slightly from the line
+        # rate; allocating more than outstanding raises "Allocated Amount cannot be
+        # greater than outstanding amount". The point of this test is Decimal->float
+        # conversion, so derive the Decimal from the real outstanding.
+        pay_amount = Decimal(str(invoice.outstanding_amount))
+
         # Act
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
-            amount=Decimal("123.45"),  # Decimal input
+            amount=pay_amount,  # Decimal input
             posting_date=date.today(),
             reference_no="TEST-REF-005",
             reference_date=date.today(),
@@ -227,7 +234,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
 
         # Assert - ERPNext stores as float
         self.assertIsInstance(payment_entry.paid_amount, (float, int))
-        self.assertAlmostEqual(float(payment_entry.paid_amount), 123.45, places=2)
+        self.assertAlmostEqual(float(payment_entry.paid_amount), float(pay_amount), places=2)
 
     @unittest.skip("Requires complex permission mocking with user/role setup")
     def test_graceful_degradation_creates_draft_on_permission_failure(self):

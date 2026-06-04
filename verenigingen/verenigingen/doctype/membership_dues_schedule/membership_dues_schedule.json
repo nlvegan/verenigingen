@@ -15,6 +15,7 @@
   "template_reference",
   "column_break_1",
   "status",
+  "payment_plan",
   "grace_period_until",
   "consecutive_failures",
   "billing_frequency",
@@ -142,8 +143,16 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Active\nPaused\nGrace Period\nSuspended\nCancelled\nTest",
+   "options": "Active\nPaused\nGrace Period\nSuspended\nCancelled\nPayment Plan Active\nTest",
    "reqd": 1
+  },
+  {
+   "fieldname": "payment_plan",
+   "fieldtype": "Link",
+   "label": "Payment Plan",
+   "options": "Payment Plan",
+   "read_only": 1,
+   "description": "Set when a Payment Plan pauses regular billing for this schedule."
   },
   {
    "fieldname": "grace_period_until",

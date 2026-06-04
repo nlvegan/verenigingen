@@ -1802,10 +1802,37 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             )
             # Continue anyway - partial payments are handled by ERPNext
 
-        # TRANSACTION SAFETY: Wrap payment processing in database transaction
-        # Use proper Frappe transaction handling for MariaDB
+        # TRANSACTION SAFETY: Wrap payment processing in database transaction.
+        # This uses the begin()+FOR UPDATE+commit pattern documented in CLAUDE.md
+        # (Pattern 5: FOR UPDATE Locks) — the explicit commit on the duplicate
+        # early-return is what releases the row lock, so this must NOT be converted
+        # to a savepoint (a savepoint release does not free row locks). The sole
+        # caller (mollie_subscription_webhook) performs only reads before this
+        # point (authenticate/parse, find member, load gateway), and this function
+        # only reads (fetch invoice, validate amount) before begin(), so begin()
+        # does not implicitly commit any prior uncommitted write work.
         frappe.db.begin()
         try:
+            # IDEMPOTENCY / RACE PROTECTION: concurrent webhooks for the same Mollie
+            # payment must not create duplicate Payment Entries. Serialise on the
+            # target invoice row (FOR UPDATE) so concurrent callers queue; the first
+            # creates the payment, the rest see it and return "duplicate".
+            frappe.db.sql(
+                "SELECT name FROM `tabSales Invoice` WHERE name = %s FOR UPDATE",
+                invoice["name"],
+            )
+            existing_payment = frappe.db.exists(
+                "Payment Entry", {"reference_no": payment_id, "docstatus": ["!=", 2]}
+            )
+            if existing_payment:
+                frappe.db.commit()  # release the lock
+                return {
+                    "status": "duplicate",
+                    "payment_entry": existing_payment,
+                    "payment_id": payment_id,
+                    "reason": "Payment already processed for this Mollie payment ID",
+                }
+
             # Create Payment Entry to mark invoice as paid
             payment_entry = frappe.new_doc("Payment Entry")
             payment_entry.payment_type = "Receive"
@@ -1818,14 +1845,24 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             payment_entry.reference_date = frappe.utils.today()
             payment_entry.mode_of_payment = "Mollie"
 
-            # Set currency
+            # Set currency. source/target exchange rates are mandatory on Payment
+            # Entry; Mollie settles in EUR (the company currency), so both rates are
+            # 1.0. Without these, insert() fails with "Source Exchange Rate is
+            # mandatory".
             payment_entry.paid_from_account_currency = invoice["currency"]
             payment_entry.paid_to_account_currency = invoice["currency"]
+            payment_entry.source_exchange_rate = 1.0
+            payment_entry.target_exchange_rate = 1.0
 
             # Get default accounts (this should be configured in Mollie Settings or Company)
             company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
                 "Global Defaults", "default_company"
             )
+
+            # company is a mandatory Payment Entry field; set it (it was previously
+            # only used for account lookups, leaving payment_entry.company unset ->
+            # "[Payment Entry]: company" MandatoryError).
+            payment_entry.company = company
 
             # Get appropriate Bank account for Mollie electronic payments (not Cash)
             paid_to_account = frappe.db.get_value(

@@ -227,7 +227,7 @@ class TestPaymentEntryFactoryIdempotency(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.factory = PaymentEntryFactory()
+        self.pe_factory = PaymentEntryFactory()
 
     def test_payment_entry_exists_returns_true_for_existing(self):
         """Test _payment_entry_exists returns True when PE exists."""
@@ -236,13 +236,13 @@ class TestPaymentEntryFactoryIdempotency(EnhancedTestCase):
             paid_amount=100.0, reference_no="tr_idempotency_test_001", submit=True
         )
 
-        result = self.factory._payment_entry_exists("tr_idempotency_test_001")
+        result = self.pe_factory._payment_entry_exists("tr_idempotency_test_001")
 
         self.assertTrue(result)
 
     def test_payment_entry_exists_returns_false_for_nonexistent(self):
         """Test _payment_entry_exists returns False when PE doesn't exist."""
-        result = self.factory._payment_entry_exists("tr_nonexistent_payment_id")
+        result = self.pe_factory._payment_entry_exists("tr_nonexistent_payment_id")
 
         self.assertFalse(result)
 
@@ -254,7 +254,7 @@ class TestPaymentEntryFactoryIdempotency(EnhancedTestCase):
         )
         pe.cancel()
 
-        result = self.factory._payment_entry_exists("tr_cancelled_test_001")
+        result = self.pe_factory._payment_entry_exists("tr_cancelled_test_001")
 
         self.assertFalse(result)
 
@@ -324,7 +324,7 @@ class TestPaymentEntryFactoryIntegration(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.factory = PaymentEntryFactory()
+        self.pe_factory = PaymentEntryFactory()
 
     def test_decimal_amount_roundtrip(self):
         """Test that Decimal amounts are correctly stored and retrieved."""

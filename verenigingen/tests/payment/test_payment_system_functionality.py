@@ -206,13 +206,17 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
 
     def test_payment_entry_creation(self):
         """Test payment entry creation and linking"""
-        # Create invoice first
+        # Create invoice first. A Payment Entry can only reference a *submitted*
+        # invoice ("Sales Invoice ... must be submitted"); the base factory leaves
+        # it in Draft, so submit it before linking.
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             posting_date=today(),
             is_membership_invoice=1
         )
-        
+        if invoice.docstatus == 0:
+            invoice.submit()
+
         # Create payment entry
         payment = self.create_test_payment_entry(
             party=self.test_member.customer,
@@ -220,7 +224,7 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
             paid_amount=invoice.grand_total,
             posting_date=today()
         )
-        
+
         # Link payment to invoice
         payment.append("references", {
             "reference_doctype": "Sales Invoice",
@@ -322,15 +326,20 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
 
     def test_data_consistency_after_operations(self):
         """Test data consistency after payment operations"""
-        # Create invoice and add to payment history
+        # Create invoice and add to payment history. Payment history only tracks
+        # submitted invoices, so submit it. add_invoice_to_payment_history() now
+        # *queues* a batched (10s) update, so it won't appear synchronously --
+        # rebuild the history directly via refresh_financial_history() instead.
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             posting_date=today(),
             is_membership_invoice=1
         )
-        
-        self.test_member.add_invoice_to_payment_history(invoice.name)
-        
+        if invoice.docstatus == 0:
+            invoice.submit()
+
+        self.test_member.refresh_financial_history()
+
         # Reload member and verify consistency
         self.test_member.reload()
         

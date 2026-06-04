@@ -348,30 +348,58 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
             frappe.logger().warning(f"Service integration test warning: {str(e)}")
 
     def _create_minimal_test_batch(self):
-        """Create minimal test batch for API testing"""
+        """Create minimal test batch for API testing.
+
+        The Direct Debit Batch validates its invoice/mandate Link fields on insert,
+        so the row must point at real records. Build a member + EUR Unpaid invoice +
+        active SEPA mandate via the SEPA test factory rather than hardcoded fake IDs.
+        """
+        from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+
+        sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)
+
+        member = sepa_factory.create_test_member(first_name="APIReg")
+        customer = sepa_factory.create_test_customer(customer_name=f"Customer {member.full_name}")
+        member.db_set("customer", customer.name)
+        membership = sepa_factory.create_test_membership(member=member.name)
+        mandate = sepa_factory.create_test_sepa_mandate(member=member.name)
+        invoice = sepa_factory.create_test_sales_invoice(
+            customer=customer.name,
+            member=member.name,
+            status="Unpaid",
+            submit=True,
+        )
+        self._track_test_document("Sales Invoice", invoice.name)
+        self._track_test_document("Member", member.name)
+        self._track_test_document("Customer", customer.name)
+        self._track_test_document("Membership", membership.name)
+        self._track_test_document("SEPA Mandate", mandate.name)
+
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = today()
         batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = "API Regression Test Batch"
-        batch_doc.batch_type = "RCUR"
+        batch_doc.batch_type = "FRST"  # first use of a fresh mandate -> FRST
         batch_doc.currency = "EUR"
 
-        # Add minimal test invoice
         batch_doc.append(
             "invoices",
             {
-                "invoice": "INV-API-TEST-001",
-                "customer": "CUST-API-TEST-001",
-                "member_name": "API Test Member",
-                "amount": 25.00,
+                "invoice": invoice.name,
+                "membership": membership.name,
+                "member": member.name,
+                "member_name": member.full_name,
+                "amount": invoice.outstanding_amount,
                 "currency": "EUR",
-                "iban": "NL91ABNA0417164300",
-                "mandate_reference": "MAND-API-001",
+                "iban": mandate.iban,
+                "mandate_reference": mandate.mandate_id,
                 "status": "Pending",
+                "sequence_type": "FRST",
             },
         )
 
         batch_doc.insert()
+        self._track_test_document("Direct Debit Batch", batch_doc.name)
         self.test_batch = batch_doc
         return batch_doc
 

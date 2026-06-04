@@ -42,11 +42,28 @@ class TestPaymentProcessingHTTPIntegration(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        
+
         # Get the site URL for HTTP testing - force HTTPS to avoid redirect POST->GET conversion
         base_url = frappe.utils.get_url()
         self.site_url = base_url.replace('http://', 'https://') if base_url.startswith('http://') else base_url
         self.api_base = f"{self.site_url}/api/method"
+
+        # These tests drive the API over a real HTTP request, which needs a running
+        # web server bound to the site URL. The unit-test harness (bench run-tests)
+        # starts no server, so the request raises ConnectionError. Skip when the
+        # server is unreachable rather than reporting a false failure.
+        self._skip_if_server_unreachable()
+
+    def _skip_if_server_unreachable(self):
+        import requests
+
+        try:
+            requests.get(self.site_url, timeout=2, verify=False)
+        except requests.exceptions.RequestException:
+            self.skipTest(
+                f"Live web server at {self.site_url} is not reachable; HTTP "
+                "integration tests require a running server (e.g. `bench serve`)."
+            )
         
         # Create API test user and get credentials
         self.api_key, self.api_secret = self._create_test_api_user()

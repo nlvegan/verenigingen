@@ -494,8 +494,11 @@ class SettlementsClient(MollieBaseClient):
                 if status_key in summary["by_status"]:
                     summary["by_status"][status_key] += 1
 
-            # Sum amounts using centralized extractor
-            summary["total_amount"] += extractor.extract_amount(
+            # Sum amounts using centralized extractor.
+            # Use the Decimal variant: total_amount is seeded as Decimal("0") and
+            # extract_amount() returns a float, so plain += raises a TypeError
+            # (Decimal + float is unsupported).
+            summary["total_amount"] += extractor.extract_amount_as_decimal(
                 settlement, source_type=MollieObjectType.SETTLEMENT, allow_zero=True
             )
 

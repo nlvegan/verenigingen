@@ -20,6 +20,14 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
     4. Member can't see their invoice in payment history
     """
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # "Daglid" is a production membership type absent on fresh test sites.
+        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+
+        ensure_membership_type_exists("Daglid", amount=2.0)
+
     def test_payment_history_sync_with_auto_generated_invoice(self):
         """
         Test that reproduces the exact failure scenario from 2025-07-22.
@@ -47,34 +55,39 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
             member.save()
             self.track_doc("Customer", customer.name)
         
-        # Create membership
+        # Create membership. This auto-creates an active dues schedule (and
+        # production allows only one active schedule per member), so reuse it
+        # instead of inserting a second one. generate_invoice() also requires the
+        # member to have an active membership, which the membership provides.
         membership = self.create_test_membership(
             member=member.name,
             membership_type="Daglid"
         )
-        
-        # Create dues schedule (like the one that generated ACC-SINV-2025-20221)
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-        dues_schedule.schedule_name = f"Regression Test Schedule {member.name}"
-        dues_schedule.member = member.name
-        dues_schedule.member_name = member.full_name
-        dues_schedule.membership_type = "Daglid"
-        dues_schedule.status = "Active"
+        if membership.docstatus == 0:
+            membership.submit()  # submit -> member has active membership + auto schedule
+
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0, "status": "Active"},
+            "name",
+        )
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         dues_schedule.billing_frequency = "Daily"
         dues_schedule.dues_rate = 2.0
         dues_schedule.next_invoice_date = today()
         dues_schedule.save()
-        self.track_doc("Membership Dues Schedule", dues_schedule.name)
         
         # Get initial payment history count
         initial_count = len(member.payment_history) if hasattr(member, 'payment_history') else 0
         
-        # Generate and submit invoice (this is what failed originally)
+        # Generate and submit invoice (this is what failed originally).
+        # generate_invoice() returns the Sales Invoice *document*, not its name.
         try:
-            invoice_name = dues_schedule.generate_invoice()
-            self.assertIsNotNone(invoice_name, "Invoice generation should succeed")
+            invoice_doc = dues_schedule.generate_invoice()
+            self.assertIsNotNone(invoice_doc, "Invoice generation should succeed")
+            invoice_name = invoice_doc.name if hasattr(invoice_doc, "name") else invoice_doc
             self.track_doc("Sales Invoice", invoice_name)
-            
+
             invoice = frappe.get_doc("Sales Invoice", invoice_name)
             
             # Verify invoice was created with proper due date (not in past)
@@ -134,21 +147,20 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
         member.save()
         self.track_doc("Customer", customer.name)
         
-        # Create an invoice (simulating one that was auto-generated)
-        invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = member.customer
-        invoice.posting_date = today()
-        invoice.due_date = add_days(today(), 30)  # Proper due date
-        
-        invoice.append("items", {
-            "item_code": "Membership Dues - Daily",
-            "qty": 1,
-            "rate": 2.0,
-            "description": f"Membership dues for {member.full_name} (Daglid) - Daily fee"
-        })
-        
-        invoice.insert()
-        invoice.submit()  # This should trigger payment history sync
+        # Create a submitted invoice (simulating one that was auto-generated).
+        # Use the SEPA test factory so the invoice has a company, debit_to, income
+        # account, cost center and v16-mandatory price-list fields set correctly --
+        # a bare frappe.new_doc("Sales Invoice") fails on "Please select a Company".
+        from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+
+        sepa_factory = SEPATestDataFactory()
+        invoice = sepa_factory.create_test_sales_invoice(
+            customer=member.customer,
+            member=member.name,
+            grand_total=2.0,
+            status="Unpaid",
+            submit=True,  # triggers payment history sync
+        )
         self.track_doc("Sales Invoice", invoice.name)
         
         # Now test manual refresh (the action that failed for the user)

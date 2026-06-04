@@ -1055,14 +1055,22 @@ class VereningingenTestCase(FrappeTestCase):
         return mandate
 
     def _get_test_iban(self, bank_code="TEST"):
-        """Generate a unique valid test IBAN for testing"""
+        """Generate a UNIQUE valid test IBAN for testing.
+
+        generate_test_iban() without an account number always returns the same
+        IBAN, so two mandates for the same member collided ("already has an
+        active SEPA mandate with this IBAN"). Use a per-call counter to mint a
+        unique 10-digit account number so each generated IBAN is distinct.
+        """
+        type(self)._iban_account_seq = getattr(type(self), "_iban_account_seq", 0) + 1
+        account_number = f"{type(self)._iban_account_seq:010d}"
         try:
             # Try to use the main generator when Frappe is available
             from verenigingen.utils.validation.iban_validator import generate_test_iban
-            return generate_test_iban(bank_code)
+            return generate_test_iban(bank_code, account_number=account_number)
         except (ImportError, ModuleNotFoundError):
             # Fallback to standalone IBAN generation when Frappe is not available
-            return self._generate_standalone_test_iban(bank_code)
+            return self._generate_standalone_test_iban(bank_code, account_number=account_number)
 
     def _generate_standalone_test_iban(self, bank_code="TEST", account_number=None):
         """Generate a valid test IBAN without Frappe dependencies"""
@@ -1215,6 +1223,12 @@ class VereningingenTestCase(FrappeTestCase):
         }
         defaults.update(kwargs)
 
+        # ERPNext resets posting_date to today during validate unless set_posting_time
+        # is enabled; without it a back/forward-dated posting_date is ignored and a
+        # custom due_date can end up "before" today's posting date.
+        if "posting_date" in kwargs:
+            defaults.setdefault("set_posting_time", 1)
+
         invoice = frappe.new_doc("Sales Invoice")
         for key, value in defaults.items():
             setattr(invoice, key, value)
@@ -1292,9 +1306,15 @@ class VereningingenTestCase(FrappeTestCase):
         self.track_doc("Account", account.name)
         return account.name
 
-    def _get_or_create_test_item(self):
-        """Get or create a test item for invoices"""
-        item_code = "TEST-MEMBERSHIP"
+    def _get_or_create_test_item(self, suffix=None):
+        """Get or create a test item for invoices.
+
+        Pass a distinct suffix to get distinct item codes -- ERPNext rejects the
+        same item appearing in multiple Sales Invoice rows unless "Allow Item to Be
+        Added Multiple Times" is enabled, so callers that build multi-row invoices
+        must use distinct items.
+        """
+        item_code = "TEST-MEMBERSHIP" if suffix is None else f"TEST-MEMBERSHIP-{suffix}"
 
         # Check if item already exists
         if frappe.db.exists("Item", item_code):
@@ -1303,7 +1323,7 @@ class VereningingenTestCase(FrappeTestCase):
         # Create new test item
         item = frappe.new_doc("Item")
         item.item_code = item_code
-        item.item_name = "Test Membership Item"
+        item.item_name = f"Test Membership Item {suffix}" if suffix is not None else "Test Membership Item"
         item.item_group = "Services"  # Common item group
         item.is_sales_item = 1
         item.is_service_item = 1
@@ -1562,10 +1582,23 @@ class VereningingenTestCase(FrappeTestCase):
             donor = self.create_test_donor()
             kwargs["donor"] = donor.name
 
+        # Map legacy/alias kwargs to the real Donation fieldnames. Callers (and the
+        # old factory defaults) used "date"/"payment_method", but the Donation
+        # doctype's mandatory fields are "donation_date" and "mode_of_payment".
+        if "date" in kwargs:
+            kwargs.setdefault("donation_date", kwargs.pop("date"))
+        if "payment_method" in kwargs:
+            kwargs.setdefault("mode_of_payment", kwargs.pop("payment_method"))
+
+        # mode_of_payment is a mandatory Link; ensure a usable Mode of Payment exists.
+        mode_of_payment = kwargs.get("mode_of_payment", "Bank Transfer")
+        if not frappe.db.exists("Mode of Payment", mode_of_payment):
+            mode_of_payment = frappe.db.get_value("Mode of Payment", {}, "name") or mode_of_payment
+
         defaults = {
-            "date": frappe.utils.today(),
+            "donation_date": frappe.utils.today(),
             "amount": 100.0,
-            "payment_method": "Bank Transfer",
+            "mode_of_payment": mode_of_payment,
             "donor_type": "Individual",
             "currency": "EUR",
             "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]

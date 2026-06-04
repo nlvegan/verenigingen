@@ -154,8 +154,12 @@ def _create_payment_history_alert(missing_count, repaired_count, error_count):
         if frappe.db.exists("DocType", "System Alert"):
             alert_doc = frappe.new_doc("System Alert")
             alert_doc.alert_type = "Warning"
-            alert_doc.subject = f"Payment History Sync Issues Detected ({missing_count} missing entries)"
+            # System Alert has no "subject" field -- only alert_type + message. Put the
+            # summary line at the top of message so it is actually persisted and
+            # searchable (previously written to a non-existent subject -> dropped).
             alert_doc.message = f"""
+Payment History Sync Issues Detected ({missing_count} missing entries)
+
 Payment History Validator found {missing_count} missing entries during scheduled validation.
 
 Repair Results:

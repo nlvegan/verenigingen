@@ -183,7 +183,11 @@ class TestPaymentHistoryService(EnhancedTestCase):
 
     def test_batch_fetch_with_chunking_empty_list(self):
         """Test batch fetch with empty name list"""
-        result = self.service._batch_fetch_with_chunking(
+        # batch_fetch_with_chunking was extracted from the service to a module-level
+        # utility in verenigingen.utils.
+        from verenigingen.utils import batch_fetch_with_chunking
+
+        result = batch_fetch_with_chunking(
             doctype="Payment Entry",
             name_list=[],
             fields=["name"],

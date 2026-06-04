@@ -4,7 +4,7 @@ Converted from script-style test to proper Enhanced Test Factory usage
 """
 
 import frappe
-from frappe.utils import add_months, flt, today
+from frappe.utils import add_months, flt, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -93,6 +93,6 @@ class TestPaymentPlanSystem(EnhancedTestCase):
         if hasattr(payment_plan, 'installments'):
             self.assertEqual(len(payment_plan.installments), 3)
             for i, installment in enumerate(payment_plan.installments):
-                expected_date = add_months(today(), i)
-                self.assertEqual(installment.due_date, expected_date)
+                expected_date = getdate(add_months(today(), i))
+                self.assertEqual(getdate(installment.due_date), expected_date)
                 self.assertEqual(installment.amount, expected_installment_amount)

@@ -430,11 +430,13 @@ class PaymentMixin:
 
         result = get_payment_history_service().refresh_financial_history(self)
 
-        # Convert OperationResult to dict for backward compatibility
+        # Convert OperationResult to dict for backward compatibility.
+        # OperationResult has no `message` attribute; the success message lives in
+        # metadata (set via OperationResult.ok(..., message=...)).
         if result.success:
             return {
                 "success": True,
-                "message": result.message,
+                "message": result.metadata.get("message"),
                 "payment_history_count": result.data.get("payment_history_count", 0),
                 "added_entries": result.data.get("added_entries", 0),
                 "removed_entries": result.data.get("removed_entries", 0),

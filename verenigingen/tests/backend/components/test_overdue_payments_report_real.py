@@ -192,11 +192,15 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
         self.assertIsInstance(summary, list)
         self.assertGreater(len(summary), 0)
         
-        # Verify total amounts calculation
+        # Verify total amounts calculation. Match the *amount* summary specifically:
+        # the summary now also includes a "Total Overdue Invoices" count card, so a
+        # loose "Total" substring match would pick the count instead of the amount.
         expected_total = 75.0 + 150.0  # Our two overdue members
-        total_summary = next((s for s in summary if "Total" in s.get("label", "")), None)
-        if total_summary:
-            self.assertEqual(total_summary["value"], expected_total)
+        total_summary = next(
+            (s for s in summary if "Total Overdue Amount" in s.get("label", "")), None
+        )
+        self.assertIsNotNone(total_summary, "Summary should include a Total Overdue Amount card")
+        self.assertEqual(total_summary["value"], expected_total)
 
     def test_chart_data_real_database(self):
         """Test chart data generation with real database operations"""
@@ -313,17 +317,23 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             self.assertEqual(limited_filter, [])
 
     def test_subscription_filtering_real_database_operations(self):
-        """Test subscription-based invoice filtering with real database queries"""
-        
-        # Create a non-subscription invoice to test filtering
+        """Test invoice inclusion for member overdue invoices.
+
+        The report was intentionally updated to use the dues-schedule system and to
+        NO LONGER filter by subscription/membership link (see get_data: "no longer
+        filtering by subscription"). It now surfaces every overdue invoice for a
+        member in the chapter, so a member's invoice appears regardless of whether
+        it is linked to a dues schedule.
+        """
+        # Create a member with an invoice that has no dues schedule link.
         non_subscription_member = self.create_test_member(
             first_name="NonSubscription",
-            last_name="Member", 
+            last_name="Member",
             email="nonsubscription@test.example.com",
             status="Active",
             chapter=self.test_chapter.name
         )
-        
+
         # Create invoice without dues schedule connection
         non_subscription_invoice = self.create_test_sales_invoice(
             customer=non_subscription_member.name,
@@ -334,17 +344,18 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             status="Overdue"
             # NOTE: No membership dues schedule link
         )
-        
-        # Execute report - should only include subscription-linked invoices
+
+        # Execute report
         filters = {"chapter": self.test_chapter.name}
         data = get_data(filters)
-        
-        # Non-subscription member should NOT appear in results
+
         member_names = [row["member_name"] for row in data]
-        self.assertNotIn(non_subscription_member.name, member_names,
-                        "Non-subscription invoices should be filtered out")
-        
-        # Subscription-linked members should appear
+
+        # The member's overdue invoice is included (no subscription filtering).
+        self.assertIn(non_subscription_member.name, member_names,
+                      "Member overdue invoices are included (subscription filtering removed)")
+
+        # Other overdue members should also appear
         self.assertIn(self.member_moderate_overdue.name, member_names)
         self.assertIn(self.member_critical_overdue.name, member_names)
 

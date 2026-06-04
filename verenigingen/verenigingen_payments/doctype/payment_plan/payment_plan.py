@@ -23,6 +23,11 @@ class PaymentPlan(Document):
 
     def validate_plan_details(self):
         """Validate payment plan configuration"""
+        # A payment plan must collect a positive amount; a zero/negative total is
+        # nonsensical (and would yield zero/negative installments).
+        if not self.total_amount or flt(self.total_amount) <= 0:
+            frappe.throw(_("Total amount must be greater than 0"))
+
         if self.plan_type == "Equal Installments":
             if not self.number_of_installments or self.number_of_installments <= 0:
                 frappe.throw(_("Number of installments must be greater than 0"))
@@ -100,7 +105,13 @@ class PaymentPlan(Document):
         # validate()). While every installment is still Pending it is safe to
         # regenerate, so edits to the plan header (amount/count/frequency) before
         # any payment still take effect.
-        if self.installments and any(row.status and row.status != "Pending" for row in self.installments):
+        # Only auto-generate on initial setup. Once installments exist they carry
+        # state we must not clobber: payment status (Paid/Overdue/...) AND reduced
+        # amounts from partial payments (which keep status "Pending"). validate()
+        # also runs on submit, so regenerating/appending here would either
+        # duplicate the rows (3 -> 6) or wipe a recorded partial payment. Skip
+        # regeneration entirely whenever any installment row already exists.
+        if self.installments:
             return
 
         if self.plan_type == "Equal Installments":

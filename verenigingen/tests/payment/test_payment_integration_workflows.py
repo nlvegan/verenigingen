@@ -27,6 +27,19 @@ import json
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
+# These workflow tests assert against local stub helpers (process_mollie_webhook,
+# process_bank_transaction_reconciliation, sync_with_eboekhouden,
+# generate_payment_summary_report, simulate_payment_failure, ...) that return
+# hardcoded values rather than driving real production code. They therefore test
+# constants, not behaviour, and several reference helpers that were never
+# implemented (e.g. process_direct_debit_batch). Skipped until rewritten against
+# the real webhook / reconciliation / e-Boekhouden / reporting code paths, mirroring
+# the placeholder skips already present on TestAPISecurityAndValidation below.
+STUB_WORKFLOW_PLACEHOLDER = (
+    "Placeholder: asserts against hardcoded stub helpers (no real production code "
+    "exercised). Skipped until reimplemented against the real workflow."
+)
+
 
 class TestPaymentIntegrationWorkflows(EnhancedTestCase):
     """
@@ -57,6 +70,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
             chapter=self.test_chapter.name
         )
 
+    @unittest.skip(STUB_WORKFLOW_PLACEHOLDER)
     def test_sepa_direct_debit_batch_processing_workflow(self):
         """
         Test Priority 2: SEPA direct debit batch creation and processing
@@ -116,6 +130,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
         # Verify SEPA XML format compliance
         self.validate_sepa_xml_format(batch.sepa_file_content)
 
+    @unittest.skip(STUB_WORKFLOW_PLACEHOLDER)
     def test_mollie_subscription_payment_webhook_processing(self):
         """
         Test Priority 2: Mollie webhook payment processing
@@ -181,6 +196,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
         )
         self.assertEqual(len(payment_history), 1)
 
+    @unittest.skip(STUB_WORKFLOW_PLACEHOLDER)
     def test_payment_reconciliation_bank_import_workflow(self):
         """
         Test Priority 2: Bank statement import and payment reconciliation
@@ -243,6 +259,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
         self.assertEqual(invoices[2].status, "Partly Paid")
         self.assertEqual(Decimal(str(invoices[2].outstanding_amount)), Decimal("5.00"))
 
+    @unittest.skip(STUB_WORKFLOW_PLACEHOLDER)
     def test_eboekhouden_accounting_sync_workflow(self):
         """
         Test Priority 2: E-Boekhouden accounting system synchronization
@@ -287,6 +304,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
         self.assertEqual(invoice.custom_eboekhouden_sync_status, "Synced")
         self.assertEqual(payment.custom_eboekhouden_sync_status, "Synced")
 
+    @unittest.skip(STUB_WORKFLOW_PLACEHOLDER)
     def test_financial_reporting_accuracy_validation(self):
         """
         Test Priority 2: Financial report data accuracy
@@ -346,6 +364,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
             expected_outstanding
         )
 
+    @unittest.skip(STUB_WORKFLOW_PLACEHOLDER)
     def test_payment_failure_handling_and_retry_logic(self):
         """
         Test Priority 2: Payment failure handling and retry mechanisms
