@@ -10,9 +10,8 @@ Converted from script-style test to proper unittest with Enhanced Test Factory.
 
 import frappe
 # unittest.TestCase import removed - using EnhancedTestCase
-from frappe.utils import today, now_datetime
+from frappe.utils import today, now_datetime, getdate
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-import unittest
 
 
 class TestDonationPortalBehavior(EnhancedTestCase):
@@ -53,17 +52,15 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         # recurring status in the Donation schema (One-time / Promised / Recurring).
         self.test_donation = self._create_recurring_donation(amount=25.0)
 
-    # The portal endpoints are guarded by @high_security_api(FINANCIAL) WITHOUT
-    # self_service_only, so the security policy only grants access to HIGH-level
-    # roles (admin/staff/treasurer) — the "Verenigingen Member" role only grants
-    # LOW. That means a real portal member cannot currently reach these
-    # endpoints (a security-config concern flagged for follow-up). To exercise
-    # the endpoint *logic* (ownership + amount update) we give the owning user a
-    # HIGH-granting role here; the email-based ownership check still applies.
-    _HIGH_ACCESS_ROLE = "Verenigingen Administrator"
+    # The portal endpoints are @self_service_api(FINANCIAL, implicit_allowed=True):
+    # any authenticated user passes auth (LOW), and access to a specific donation
+    # is gated by the endpoint's own donor_email == member.email ownership check.
+    # So the owning user is a PLAIN member (no elevated role) — exactly what a real
+    # portal user is. Running as a plain member is what proves the lockout is fixed.
+    _MEMBER_ROLE = "Verenigingen Member"
 
     def _ensure_member_user(self, email):
-        """Create (idempotently) an enabled User able to pass the HIGH gate."""
+        """Create (idempotently) an enabled plain-member User (no elevated role)."""
         if not frappe.db.exists("User", email):
             user = frappe.get_doc({
                 "doctype": "User",
@@ -71,13 +68,13 @@ class TestDonationPortalBehavior(EnhancedTestCase):
                 "first_name": "Portal",
                 "send_welcome_email": 0,
                 "enabled": 1,
-                "roles": [{"role": self._HIGH_ACCESS_ROLE}],
+                "roles": [{"role": self._MEMBER_ROLE}],
             })
             user.insert(ignore_permissions=True)
         else:
             user = frappe.get_doc("User", email)
-            if self._HIGH_ACCESS_ROLE not in [r.role for r in user.roles]:
-                user.add_roles(self._HIGH_ACCESS_ROLE)
+            if self._MEMBER_ROLE not in [r.role for r in user.roles]:
+                user.add_roles(self._MEMBER_ROLE)
         return email
 
     def _create_recurring_donation(self, amount):
@@ -159,40 +156,38 @@ class TestDonationPortalBehavior(EnhancedTestCase):
 
         self.assertTrue(is_recurring_donation_active(self.test_donation.name))
 
-    @unittest.skip(
-        "Known production bug (tracked): cancel_recurring_donation() sets "
-        "donation.status = 'Cancelled', which is NOT a valid Donation status "
-        "(schema allows only One-time / Promised / Recurring), so the save raises "
-        "in production. It cannot be meaningfully asserted in-suite because "
-        "EnhancedTestCase runs with frappe.flags.in_import=True, which skips "
-        "Frappe Select-field validation and would falsely let cancel 'succeed'. "
-        "Fix the controller/schema (see manage_donations.py:325), then replace "
-        "this skip with a real happy-path assertion."
-    )
     def test_cancel_own_donation_happy_path(self):
-        """Happy-path cancel — skipped until the invalid-status bug is fixed."""
-        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+        """A member cancels their own recurring donation via the portal.
+
+        Cancellation is recorded via recurring_cancelled_date (the Donation status
+        enum has no "Cancelled" value); status stays "Recurring" and
+        is_recurring_donation_active() then reports the donation inactive.
+        """
+        from verenigingen.templates.pages.manage_donations import (
+            cancel_recurring_donation,
+            is_recurring_donation_active,
+        )
+
+        self.assertTrue(is_recurring_donation_active(self.test_donation.name))
 
         current_user = frappe.session.user
         try:
             frappe.set_user(self.member_user)
             frappe.form_dict = frappe._dict(donation_id=self.test_donation.name)
             result = cancel_recurring_donation()
-            self.assertEqual(result.get("status"), "success")
         finally:
             frappe.form_dict = frappe._dict()
             frappe.set_user(current_user)
 
-    def test_cancel_rejects_foreign_donation(self):
-        """The portal must refuse to cancel a donation owned by another donor.
+        self.assertEqual(result.get("status"), "success")
+        self.test_donation.reload()
+        self.assertEqual(self.test_donation.recurring_cancelled_date, getdate(today()))
+        # Status is unchanged (no invalid value) but the donation is now inactive.
+        self.assertEqual(self.test_donation.status, "Recurring")
+        self.assertFalse(is_recurring_donation_active(self.test_donation.name))
 
-        NOTE: the cancel happy-path itself is currently broken in production —
-        cancel_recurring_donation() sets donation.status = "Cancelled", which is
-        not a valid Donation status (schema allows only One-time / Promised /
-        Recurring), so the save always raises. That deeper portal/schema gap is
-        out of scope for this test wave; here we only assert the ownership guard,
-        which is the security-relevant behaviour and works correctly.
-        """
+    def test_cancel_rejects_foreign_donation(self):
+        """The portal must refuse to cancel a donation owned by another donor."""
         from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
 
         other_donor = self.create_test_donor(donor_email="not-the-member@example.com")

@@ -47,6 +47,7 @@
   "column_break_sepa",
   "recurring_frequency",
   "next_collection_date",
+  "recurring_cancelled_date",
   "mollie_integration_section",
   "mollie_customer_id",
   "mollie_mandate_id",
@@ -241,6 +242,14 @@
    "fieldname": "next_collection_date",
    "fieldtype": "Date",
    "label": "Next Collection Date"
+  },
+  {
+   "fieldname": "recurring_cancelled_date",
+   "fieldtype": "Date",
+   "label": "Recurring Cancelled Date",
+   "depends_on": "eval:doc.status=='Recurring'",
+   "description": "Date the recurring donation was cancelled by the donor. Tracked separately from status (which has no Cancelled value); is_recurring_donation_active() treats a recurring donation as inactive once this date is reached.",
+   "read_only": 1
   },
   {
    "fieldname": "anbi_section",

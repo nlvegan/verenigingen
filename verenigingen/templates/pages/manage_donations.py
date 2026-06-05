@@ -18,7 +18,10 @@ from verenigingen.utils.member_utils import (
 )
 
 # Import security framework for proper API protection
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    self_service_api,
+)
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -266,7 +269,7 @@ def get_mollie_subscription_info(subscription_id):
 
 
 @frappe.whitelist(allow_guest=False)
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True, audit_level="detailed")
 def cancel_recurring_donation():
     """Cancel a recurring donation - with proper security framework"""
     try:
@@ -284,8 +287,10 @@ def cancel_recurring_donation():
         # Get and validate the donation
         donation = frappe.get_doc("Donation", donation_id)
 
-        # Verify ownership - donation must belong to this member
-        if donation.donor_email != member.email:
+        # Verify ownership - donation must belong to this member. Guard against
+        # empty values on BOTH sides: a member with a blank email must never match
+        # an anonymous / email-less donation ("" == "").
+        if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only cancel your own donations"))
 
         # Verify it's a recurring donation
@@ -321,17 +326,18 @@ def cancel_recurring_donation():
                 frappe.log_error(f"Error cancelling Mollie subscription: {str(e)}", "Manage Donations")
                 frappe.throw(_("Error cancelling Mollie subscription: {0}").format(str(e)))
 
-        # Update donation record to cancelled status
-        donation.status = "Cancelled"
-        if hasattr(donation, "recurring_cancelled_date"):
-            donation.recurring_cancelled_date = today()
+        # Mark the recurring donation cancelled. The Donation status enum has no
+        # "Cancelled" value; cancellation is tracked via recurring_cancelled_date,
+        # which is_recurring_donation_active() honours. Status stays "Recurring".
+        # Use db_set (not save) to write ONLY this field: ownership is already
+        # verified, db_set bypasses the Donation write DocPerm a plain member lacks,
+        # and it avoids persisting the whole in-memory document.
+        # Note: the active-check above reads the in-memory doc, so two concurrent
+        # portal sessions could both pass it; the db_set is idempotent (same date)
+        # but a Mollie donation could see a double cancel API call — acceptable for
+        # a low-frequency self-service action.
+        donation.db_set("recurring_cancelled_date", today())
         donation.add_comment("Comment", _("Recurring donation cancelled by donor via portal"))
-
-        # Validate permissions before saving
-        if not frappe.has_permission("Donation", "write", donation.name):
-            frappe.throw(_("Insufficient permissions to update donation"))
-
-        donation.save()
 
         return {
             "status": "success",
@@ -349,7 +355,7 @@ def cancel_recurring_donation():
 
 
 @frappe.whitelist(allow_guest=False)
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True, audit_level="detailed")
 def update_recurring_donation():
     """Update a recurring donation amount - with proper security framework"""
     try:
@@ -371,8 +377,10 @@ def update_recurring_donation():
         # Get and validate the donation
         donation = frappe.get_doc("Donation", donation_id)
 
-        # Verify ownership - donation must belong to this member
-        if donation.donor_email != member.email:
+        # Verify ownership - donation must belong to this member. Guard against
+        # empty values on BOTH sides: a member with a blank email must never match
+        # an anonymous / email-less donation ("" == "").
+        if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only update your own donations"))
 
         # Verify it's a recurring donation
@@ -411,20 +419,16 @@ def update_recurring_donation():
                 frappe.log_error(f"Error updating Mollie subscription: {str(e)}", "Manage Donations")
                 frappe.throw(_("Error updating Mollie subscription: {0}").format(str(e)))
 
-        # Update donation record
-        donation.amount = new_amount
+        # Update only the amount. Use db_set (not save): ownership is already
+        # verified, db_set bypasses the Donation write DocPerm a plain member lacks,
+        # and it avoids persisting the whole in-memory document.
+        donation.db_set("amount", new_amount)
         donation.add_comment(
             "Comment",
             _("Recurring donation amount updated by donor via portal: €{0} → €{1}").format(
                 old_amount, new_amount
             ),
         )
-
-        # Validate permissions before saving
-        if not frappe.has_permission("Donation", "write", donation.name):
-            frappe.throw(_("Insufficient permissions to update donation"))
-
-        donation.save()
 
         return {
             "status": "success",
@@ -444,9 +448,14 @@ def update_recurring_donation():
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True, audit_level="detailed")
 def get_donation_stats():
-    """Get donation statistics for logged-in member (for AJAX calls)"""
+    """Get donation statistics for the logged-in member (for AJAX calls).
+
+    Self-service: returns only the caller's own summary (member derived from the
+    session via get_current_user_member_name); plain members must be able to see
+    their own donation stats, same as the cancel/update endpoints below/above.
+    """
     try:
         if frappe.session.user == "Guest":
             return {"error": "Not logged in"}
