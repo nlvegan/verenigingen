@@ -89,9 +89,9 @@ class SEPAMandateTestDataFactory:
     TEST_IBANS = {
         "NL": [
             "NL91ABNA0417164300",  # ABN AMRO test IBAN
-            "NL27INGB0001234567",  # ING test IBAN
-            "NL13RABO0123456789",  # Rabobank test IBAN
-            "NL25TRIO0123456789",  # Triodos test IBAN
+            "NL20INGB0001234567",  # ING test IBAN (valid MOD-97 check digits)
+            "NL44RABO0123456789",  # Rabobank test IBAN (valid MOD-97 check digits)
+            "NL70TRIO0123456789",  # Triodos test IBAN (valid MOD-97 check digits)
         ],
         "DE": ["DE89370400440532013000", "DE12500105170648489890"],  # German test IBAN  # German test IBAN
         "FR": [
@@ -185,7 +185,8 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         super().setUpClass()
 
         # Ensure required DocTypes exist
-        make_test_records(["Member", "Customer", "SEPA Mandate"])
+        for _dt in ["Member", "Customer", "SEPA Mandate"]:
+            make_test_records(_dt)
 
         # Set up test configuration
         cls.test_factory = SEPAMandateTestDataFactory()
@@ -245,9 +246,19 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         Returns:
             SEPA Mandate document
         """
-        # Use test IBAN if none provided
+        # Use test IBAN if none provided. Generate a UNIQUE valid IBAN per call so
+        # that tests which create several mandates for the same member do not trip
+        # validate_no_duplicate_active_mandate (which keys on member + IBAN). A real
+        # Dutch bank code (INGB) is used so BIC derivation still resolves.
         if not iban:
-            iban = self.test_factory.get_valid_test_iban()
+            try:
+                from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+                type(self)._mandate_iban_seq = getattr(type(self), "_mandate_iban_seq", 0) + 1
+                account_number = str(1000000000 + type(self)._mandate_iban_seq)
+                iban = generate_test_iban("INGB", account_number)
+            except Exception:
+                iban = self.test_factory.get_valid_test_iban()
 
         # Get corresponding BIC
         bic = self.test_factory.get_bic_for_iban(iban)
@@ -588,30 +599,21 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
 
         self.assertFalse(has_active_sepa_mandate(self.member_name))
 
-    @patch("verenigingen.verenigingen_payments.mollie.utils.mollie_test_helpers.create_mollie_customer")
-    def test_mollie_integration_mandate_creation(self, mock_mollie_customer):
+    def test_mollie_integration_mandate_creation(self):
         """
-        Test SEPA mandate integration with Mollie payment gateway.
+        Test SEPA mandate creation in a Mollie-integration context.
 
-        Validates:
-        - Mollie customer creation
-        - SEPA mandate setup in Mollie
-        - Subscription linking
-
-        Note: This test uses mocking for external Mollie API calls.
+        Validates the mandate is created with Active status. (The former
+        @patch on verenigingen.verenigingen_payments.mollie.utils.
+        mollie_test_helpers.create_mollie_customer was removed: that helper
+        module no longer exists, and the mock was never exercised by this
+        placeholder test, so patching it only raised an import-time
+        AttributeError.)
         """
-        # Mock Mollie customer creation response
-        mock_mollie_customer.return_value = {
-            "id": "cst_test_123456",
-            "mode": "test",
-            "email": self.test_member.email,
-        }
-
         mandate = self._create_test_mandate(status="Active")
         mandate.insert()
 
-        # Test would integrate with Mollie customer creation
-        # This is a placeholder for actual Mollie integration testing
+        # Placeholder for actual Mollie integration testing
         self.assertEqual(mandate.status, "Active")
 
     # ==========================================

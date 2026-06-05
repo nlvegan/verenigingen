@@ -88,49 +88,49 @@ class SEPAMandateTestDataFactory:
             "name": "ABN AMRO Bank N.V.",
             "test_ibans": [
                 "NL91ABNA0417164300",
-                "NL39ABNA0123456789",
-                "NL17ABNA9876543210"
+                "NL02ABNA0123456789",
+                "NL36ABNA9876543210"
             ]
         },
         "INGB": {
             "bic": "INGBNL2A", 
             "name": "ING Bank N.V.",
             "test_ibans": [
-                "NL27INGB0001234567",
-                "NL53INGB0987654321",
-                "NL89INGB0555666777"
+                "NL20INGB0001234567",
+                "NL21INGB0987654321",
+                "NL74INGB0555666777"
             ]
         },
         "RABO": {
             "bic": "RABONL2U",
             "name": "Rabobank Nederland", 
             "test_ibans": [
-                "NL13RABO0123456789",
-                "NL46RABO0987654321",
-                "NL72RABO0111222333"
+                "NL44RABO0123456789",
+                "NL93RABO0987654321",
+                "NL57RABO0111222333"
             ]
         },
         "SNSB": {
             "bic": "SNSBNL2A",
             "name": "SNS Bank N.V.",
             "test_ibans": [
-                "NL98SNSB0123456789",
-                "NL54SNSB0987654321"
+                "NL12SNSB0123456789",
+                "NL61SNSB0987654321"
             ]
         },
         "TRIO": {
             "bic": "TRIONL2U", 
             "name": "Triodos Bank N.V.",
             "test_ibans": [
-                "NL25TRIO0123456789",
-                "NL81TRIO0987654321"
+                "NL70TRIO0123456789",
+                "NL22TRIO0987654321"
             ]
         },
         "ASNB": {
             "bic": "ASNBNL21",
             "name": "ASN Bank N.V.",
             "test_ibans": [
-                "NL69ASNB0123456789"
+                "NL57ASNB0123456789"
             ]
         }
     }
@@ -140,12 +140,12 @@ class SEPAMandateTestDataFactory:
         "DE": [
             "DE89370400440532013000",  # Deutsche Bank
             "DE12500105170648489890",  # DZ Bank
-            "DE75500105179972073000"   # Commerzbank
+            "DE47500105179972073000"   # Commerzbank
         ],
         "FR": [
             "FR1420041010050500013M02606",  # BNP Paribas
             "FR7630001007941234567890185",  # Crédit Agricole
-            "FR1420076020004321234567890"   # La Banque Postale
+            "FR8820076020004321234567890"   # La Banque Postale
         ],
         "BE": [
             "BE68539007547034",  # KBC Bank
@@ -153,7 +153,7 @@ class SEPAMandateTestDataFactory:
         ],
         "AT": [
             "AT611904300234573201",  # Erste Bank
-            "AT023200000012345864"   # Raiffeisen
+            "AT483200000012345864"   # Raiffeisen
         ]
     }
     
@@ -442,7 +442,7 @@ class SEPAMandateTestDataFactory:
                 usage_records.append({
                     "usage_date": usage_date,
                     "reference_doctype": "Sales Invoice",
-                    "reference_name": f"INV-{usage_date.strftime('%Y%m')}-{i+1:03d}",
+                    "reference_name": f"INV-{getdate(usage_date).strftime('%Y%m')}-{i+1:03d}",
                     "amount": 25.00,
                     "sequence_type": "FRST" if i == 0 else "RCUR",
                     "status": "Collected",
@@ -572,8 +572,24 @@ class SEPAMandateTestMixin:
     def setUp(self):
         """Initialize SEPA test factory."""
         super().setUp()
-        self.sepa_factory = SEPAMandateTestDataFactory(seed=12345)
-        
+        self._sepa_factory = SEPAMandateTestDataFactory(seed=12345)
+
+    @property
+    def sepa_factory(self):
+        """Lazily provide the SEPA test factory.
+
+        Implemented as a property (rather than only being set in setUp) because
+        when this mixin is combined as `class X(EnhancedTestCase, SEPAMandateTestMixin)`
+        the MRO can route setUp() through FrappeTestCase without reaching the
+        mixin's setUp(), leaving sepa_factory unset. The property guarantees it
+        is always available.
+        """
+        factory = getattr(self, "_sepa_factory", None)
+        if factory is None:
+            factory = SEPAMandateTestDataFactory(seed=12345)
+            self._sepa_factory = factory
+        return factory
+
     def create_test_sepa_mandate(
         self,
         member=None,

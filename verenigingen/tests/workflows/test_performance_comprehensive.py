@@ -36,15 +36,24 @@ class TestPerformanceComprehensive(VereningingenTestCase):
             "max_db_connections": 50       # Maximum database connections
         }
 
-        # Create baseline test data
-        self.baseline_chapter = self.factory.create_test_chapter(
-            chapter_name="Performance Baseline Chapter"
-        )
+        # Create baseline test data. These tests commit, so reuse the chapter if a
+        # prior run left it behind (fixed name -> DuplicateEntry otherwise).
+        if frappe.db.exists("Chapter", "Performance Baseline Chapter"):
+            self.baseline_chapter = frappe.get_doc("Chapter", "Performance Baseline Chapter")
+        else:
+            self.baseline_chapter = self.factory.create_test_chapter(
+                chapter_name="Performance Baseline Chapter"
+            )
 
-        self.baseline_membership_type = self.factory.create_test_membership_type(
-            membership_type_name="Performance Test Membership",
-            minimum_amount=25.00
-        )
+        if frappe.db.exists("Membership Type", "Performance Test Membership"):
+            self.baseline_membership_type = frappe.get_doc(
+                "Membership Type", "Performance Test Membership"
+            )
+        else:
+            self.baseline_membership_type = self.factory.create_test_membership_type(
+                membership_type_name="Performance Test Membership",
+                minimum_amount=25.00
+            )
 
         # Performance monitoring data
         self.performance_metrics = {
@@ -70,6 +79,11 @@ class TestPerformanceComprehensive(VereningingenTestCase):
             batch_end = min(batch_start + batch_size, total_records)
             batch_members = self._create_member_batch(batch_start, batch_end)
             created_members.extend(batch_members)
+
+            # Commit after each batch to reset Frappe's per-transaction write
+            # counter; otherwise creating a large dataset in a single transaction
+            # trips frappe.TooManyWritesError.
+            frappe.db.commit()
 
             # Log progress
             if batch_end % 200 == 0:
@@ -255,6 +269,11 @@ class TestPerformanceComprehensive(VereningingenTestCase):
                 email=f"temp.bulk{i}.{self.factory.test_run_id}@example.com"
             )
             temp_members.append(temp_member)
+            # Commit periodically to keep the per-transaction write count under
+            # frappe's TooManyWritesError threshold.
+            if (i + 1) % 20 == 0:
+                frappe.db.commit()
+        frappe.db.commit()
 
         # Bulk delete
         temp_member_names = [member.name for member in temp_members]

@@ -47,6 +47,12 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             introduction="Test chapter for payment failure testing",
         )
 
+        # Ensure a Membership Type exists (the hardcoded "Annual" type is not
+        # seeded on isolated test sites, which raised LinkValidationError).
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="Annual", amount=120.0
+        )
+
     def test_payment_failure_recovery_workflow(self):
         """Test the complete payment failure and recovery workflow"""
 
@@ -162,7 +168,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             {
                 "doctype": "Membership",
                 "member": member.name,
-                "membership_type": "Annual",
+                "membership_type": self.membership_type.name,
                 "start_date": today(),
                 "end_date": add_months(today(), 12),
                 "status": "Active"}

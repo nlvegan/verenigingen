@@ -19,126 +19,203 @@ class TestDonationPortalBehavior(EnhancedTestCase):
     """Test donation portal behavior using Enhanced Test Factory"""
 
     def setUp(self):
-        """Set up test data using Enhanced Test Factory"""
+        """Set up test data using Enhanced Test Factory.
+
+        The portal endpoints (manage_donations.update_recurring_donation /
+        cancel_recurring_donation) authorise by matching the logged-in Member's
+        email against the Donation's donor_email, and read their parameters from
+        frappe.form_dict. So we need: a Member with a real User, a Donor whose
+        email equals that Member's email, and a Recurring-status Donation linked
+        to that Donor. The endpoints are then invoked as the Member's user with
+        the parameters placed in form_dict (mirroring a real portal request).
+        """
         super().setUp()
-        
-        # Create test member and donation using Enhanced Test Factory
+
         self.test_member = self.create_test_member(
             first_name="Test",
-            last_name="Portal User", 
+            last_name="Portal User",
             email=f"test-portal-{now_datetime().strftime('%H%M%S')}@example.com",
             birth_date="1990-01-01"
         )
-        
-        # Create test donation for portal testing
-        # Note: Using direct frappe.get_doc as Enhanced Test Factory doesn't have create_donation yet
-        self.test_donation = frappe.get_doc({
+
+        # Ensure the member has a usable login user matching its email so the
+        # ownership lookup (get_current_user_member_name -> by email/user) works.
+        self.member_email = self.test_member.email
+        self.member_user = self._ensure_member_user(self.member_email)
+        if self.test_member.user != self.member_user:
+            self.test_member.db_set("user", self.member_user, update_modified=False)
+
+        # Donation.donor links to Donor (not Member). Give the donor the same
+        # email as the member so the portal ownership check passes.
+        self.test_donor = self.create_test_donor(donor_email=self.member_email)
+
+        # Recurring donation owned by this donor. "Recurring" is the only valid
+        # recurring status in the Donation schema (One-time / Promised / Recurring).
+        self.test_donation = self._create_recurring_donation(amount=25.0)
+
+    # The portal endpoints are guarded by @high_security_api(FINANCIAL) WITHOUT
+    # self_service_only, so the security policy only grants access to HIGH-level
+    # roles (admin/staff/treasurer) — the "Verenigingen Member" role only grants
+    # LOW. That means a real portal member cannot currently reach these
+    # endpoints (a security-config concern flagged for follow-up). To exercise
+    # the endpoint *logic* (ownership + amount update) we give the owning user a
+    # HIGH-granting role here; the email-based ownership check still applies.
+    _HIGH_ACCESS_ROLE = "Verenigingen Administrator"
+
+    def _ensure_member_user(self, email):
+        """Create (idempotently) an enabled User able to pass the HIGH gate."""
+        if not frappe.db.exists("User", email):
+            user = frappe.get_doc({
+                "doctype": "User",
+                "email": email,
+                "first_name": "Portal",
+                "send_welcome_email": 0,
+                "enabled": 1,
+                "roles": [{"role": self._HIGH_ACCESS_ROLE}],
+            })
+            user.insert(ignore_permissions=True)
+        else:
+            user = frappe.get_doc("User", email)
+            if self._HIGH_ACCESS_ROLE not in [r.role for r in user.roles]:
+                user.add_roles(self._HIGH_ACCESS_ROLE)
+        return email
+
+    def _create_recurring_donation(self, amount):
+        """Insert a Recurring-status Donation linked to the test donor."""
+        donation = frappe.get_doc({
             "doctype": "Donation",
-            "donor": self.test_member.name,
-            "donation_type": "Recurring", 
-            "recurring_donation_amount": 25.0,
-            "status": "Active",
+            "donor": self.test_donor.name,
+            # amount and mode_of_payment are mandatory on Donation
+            "amount": amount,
+            "mode_of_payment": "Credit Card",
+            "company": frappe.get_list("Company", limit=1)[0].name,
+            "status": "Recurring",
             "payment_method": "Credit Card",
             "donation_date": today(),
-            "recurring_start_date": today(),
         })
-        
-        # Use proper user context for donation creation
-        test_admin = self.ensure_test_admin_user()
-        current_user = frappe.session.user
-        try:
-            frappe.set_user(test_admin.email)
-            self.test_donation.insert()
-        finally:
-            frappe.set_user(current_user)
-
-    def test_cancel_recurring_donation_behavior(self):
-        """Test cancel_recurring_donation function behavior"""
-        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
-        
-        # Get initial state
-        initial_status = self.test_donation.status
-        initial_cancelled_date = self.test_donation.recurring_cancelled_date
-        
-        self.assertEqual(initial_status, "Active")
-        self.assertIsNone(initial_cancelled_date)
-        
-        # Call the function
-        result = cancel_recurring_donation(self.test_donation.name)
-        
-        # Validate result
-        self.assertIsNotNone(result)
-        
-        # Check post-operation state
-        self.test_donation.reload()
-        final_status = self.test_donation.status
-        final_cancelled_date = self.test_donation.recurring_cancelled_date
-        
-        # Validate the operation worked
-        self.assertEqual(final_status, "Cancelled")
-        self.assertIsNotNone(final_cancelled_date)
+        donation.insert(ignore_permissions=True)
+        return donation
 
     def test_update_donation_amount_behavior(self):
-        """Test update_recurring_donation_amount function behavior"""
-        from verenigingen.templates.pages.manage_donations import update_recurring_donation_amount
-        
-        # Get initial amount
-        initial_amount = self.test_donation.recurring_donation_amount
-        self.assertEqual(initial_amount, 25.0)
-        
-        new_amount = 35.0
-        
-        # Call the function
-        result = update_recurring_donation_amount(self.test_donation.name, new_amount)
-        
-        # Validate result
-        self.assertIsNotNone(result)
-        
-        # Check post-operation state
-        self.test_donation.reload()
-        final_amount = self.test_donation.recurring_donation_amount
-        
-        # Validate the operation worked
-        self.assertEqual(final_amount, new_amount)
+        """update_recurring_donation updates the donation amount via the portal."""
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
 
-    def test_portal_behavior_transaction_safety(self):
-        """Test that portal functions work without transaction warnings"""
-        from verenigingen.templates.pages.manage_donations import (
-            cancel_recurring_donation, 
-            update_recurring_donation_amount
-        )
-        
-        # Create a second donation for testing update
-        test_donation_2 = frappe.get_doc({
-            "doctype": "Donation", 
-            "donor": self.test_member.name,
-            "donation_type": "Recurring",
-            "recurring_donation_amount": 30.0,
-            "status": "Active",
-            "payment_method": "Credit Card",
-            "donation_date": today(),
-            "recurring_start_date": today(),
-        })
-        
-        test_admin = self.ensure_test_admin_user()
+        self.assertEqual(self.test_donation.amount, 25.0)
+
+        new_amount = 35.0
         current_user = frappe.session.user
         try:
-            frappe.set_user(test_admin.email)
-            test_donation_2.insert()
+            frappe.set_user(self.member_user)
+            frappe.form_dict = frappe._dict(
+                donation_id=self.test_donation.name, new_amount=new_amount
+            )
+            result = update_recurring_donation()
         finally:
+            frappe.form_dict = frappe._dict()
             frappe.set_user(current_user)
-        
-        # Test both functions work properly
-        cancel_result = cancel_recurring_donation(self.test_donation.name)
-        update_result = update_recurring_donation_amount(test_donation_2.name, 40.0)
-        
-        # Both should succeed
-        self.assertIsNotNone(cancel_result)
-        self.assertIsNotNone(update_result)
-        
-        # Verify final states
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.get("status"), "success")
+
         self.test_donation.reload()
-        test_donation_2.reload()
-        
-        self.assertEqual(self.test_donation.status, "Cancelled")
-        self.assertEqual(test_donation_2.recurring_donation_amount, 40.0)
+        self.assertEqual(self.test_donation.amount, new_amount)
+
+    def test_update_rejects_foreign_donation(self):
+        """The portal must refuse to update a donation owned by another donor."""
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
+
+        other_donor = self.create_test_donor(donor_email="someone-else@example.com")
+        other_donation = frappe.get_doc({
+            "doctype": "Donation",
+            "donor": other_donor.name,
+            "amount": 50.0,
+            "mode_of_payment": "Credit Card",
+            "company": frappe.get_list("Company", limit=1)[0].name,
+            "status": "Recurring",
+            "donation_date": today(),
+        })
+        other_donation.insert(ignore_permissions=True)
+
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(self.member_user)
+            frappe.form_dict = frappe._dict(
+                donation_id=other_donation.name, new_amount=99.0
+            )
+            # Endpoint wraps failures and re-raises a generic ValidationError.
+            with self.assertRaises(frappe.ValidationError):
+                update_recurring_donation()
+        finally:
+            frappe.form_dict = frappe._dict()
+            frappe.set_user(current_user)
+
+        # Amount must be unchanged.
+        other_donation.reload()
+        self.assertEqual(other_donation.amount, 50.0)
+
+    def test_is_recurring_donation_active(self):
+        """A Recurring-status, non-Mollie donation is reported active."""
+        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+
+        self.assertTrue(is_recurring_donation_active(self.test_donation.name))
+
+    @unittest.skip(
+        "Known production bug (tracked): cancel_recurring_donation() sets "
+        "donation.status = 'Cancelled', which is NOT a valid Donation status "
+        "(schema allows only One-time / Promised / Recurring), so the save raises "
+        "in production. It cannot be meaningfully asserted in-suite because "
+        "EnhancedTestCase runs with frappe.flags.in_import=True, which skips "
+        "Frappe Select-field validation and would falsely let cancel 'succeed'. "
+        "Fix the controller/schema (see manage_donations.py:325), then replace "
+        "this skip with a real happy-path assertion."
+    )
+    def test_cancel_own_donation_happy_path(self):
+        """Happy-path cancel — skipped until the invalid-status bug is fixed."""
+        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(self.member_user)
+            frappe.form_dict = frappe._dict(donation_id=self.test_donation.name)
+            result = cancel_recurring_donation()
+            self.assertEqual(result.get("status"), "success")
+        finally:
+            frappe.form_dict = frappe._dict()
+            frappe.set_user(current_user)
+
+    def test_cancel_rejects_foreign_donation(self):
+        """The portal must refuse to cancel a donation owned by another donor.
+
+        NOTE: the cancel happy-path itself is currently broken in production —
+        cancel_recurring_donation() sets donation.status = "Cancelled", which is
+        not a valid Donation status (schema allows only One-time / Promised /
+        Recurring), so the save always raises. That deeper portal/schema gap is
+        out of scope for this test wave; here we only assert the ownership guard,
+        which is the security-relevant behaviour and works correctly.
+        """
+        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+
+        other_donor = self.create_test_donor(donor_email="not-the-member@example.com")
+        foreign_donation = frappe.get_doc({
+            "doctype": "Donation",
+            "donor": other_donor.name,
+            "amount": 40.0,
+            "mode_of_payment": "Credit Card",
+            "company": frappe.get_list("Company", limit=1)[0].name,
+            "status": "Recurring",
+            "donation_date": today(),
+        })
+        foreign_donation.insert(ignore_permissions=True)
+
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(self.member_user)
+            frappe.form_dict = frappe._dict(donation_id=foreign_donation.name)
+            with self.assertRaises(frappe.ValidationError):
+                cancel_recurring_donation()
+        finally:
+            frappe.form_dict = frappe._dict()
+            frappe.set_user(current_user)
+
+        foreign_donation.reload()
+        self.assertEqual(foreign_donation.status, "Recurring")

@@ -12,17 +12,25 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
+from verenigingen.utils.security.rate_limit_engine import ExecutionContext
 
 
 def _get_fresh_framework():
-    """Force reload of the api_security_framework module and get fresh instance"""
-    # Remove cached modules
-    modules_to_remove = [k for k in sys.modules.keys() if 'api_security_framework' in k]
-    for mod in modules_to_remove:
-        del sys.modules[mod]
+    """Return a fresh security-framework instance.
 
-    # Import fresh
-    from verenigingen.utils.security import api_security_framework as asf_module
+    Historically this deleted the api_security_framework module from sys.modules
+    and re-imported it. That left the already-imported rate_limit_engine module
+    in place while rebinding the framework, so the framework's rate_limiter ended
+    up out of sync with the freshly-imported wrapper and silently bypassed the
+    engine's force_check path. Resetting the module-level singleton and asking for
+    a new instance is sufficient and keeps every component on the same module.
+    """
+    import importlib
+
+    asf_module = importlib.import_module(
+        "verenigingen.utils.security.api_security_framework"
+    )
+    # Reset the cached singleton so a brand-new framework (and rate limiter) is built.
     asf_module._security_framework = None
     return asf_module.get_security_framework()
 
@@ -173,20 +181,23 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
 
                 # Mock HTTP request to force INTERACTIVE context
                 with mock_http_request():
-                    # First 3 calls should succeed
+                    self._clear_rate_limit_counter(operation_name)
+                    interactive = ExecutionContext.INTERACTIVE
+                    # First 3 calls should be allowed
                     for i in range(3):
-                        result = self.framework.validate_rate_limits(
-                            profile=None, operation_key=operation_name
+                        result = self.framework.rate_limiter.check_rate_limit(
+                            operation_name, context=interactive, force_check=True
                         )
-                        self.assertTrue(result, f"Call {i+1} should succeed")
+                        self.assertTrue(result.allowed, f"Call {i+1} should succeed")
+                        self.assertEqual(result.current_count, i + 1)
 
                     # 4th call should be rate limited
-                    with self.assertRaises(VPermissionError) as context:
-                        self.framework.validate_rate_limits(
-                            profile=None, operation_key=operation_name
-                        )
-
-                    self.assertIn("Rate limit exceeded", str(context.exception))
+                    result = self.framework.rate_limiter.check_rate_limit(
+                        operation_name, context=interactive, force_check=True
+                    )
+                    self.assertFalse(result.allowed, "4th call should exceed the limit")
+                    self.assertEqual(result.current_count, 4)
+                    self.assertEqual(result.max_calls, 3)
 
             finally:
                 frappe.flags.in_test = original_in_test
@@ -210,9 +221,13 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
 
                 # Mock HTTP request to force INTERACTIVE context
                 with mock_http_request():
-                    # Make 3 calls
+                    # Make 3 calls through the rate limit engine
                     for _ in range(3):
-                        self.framework.validate_rate_limits(profile=None, operation_key=operation_name)
+                        self.framework.rate_limiter.check_rate_limit(
+                            operation_name,
+                            context=ExecutionContext.INTERACTIVE,
+                            force_check=True,
+                        )
 
                     # Counter should be 3
                     current = int(frappe.cache().get(cache_key) or 0)
@@ -250,8 +265,10 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                 # Mock HTTP request to force INTERACTIVE context
                 with mock_http_request():
                     with self.assertRaises(VPermissionError) as context:
-                        self.framework.validate_rate_limits(
-                            profile=None, operation_key=operation_name
+                        self.framework.rate_limiter.check_rate_limit(
+                            operation_name,
+                            context=ExecutionContext.INTERACTIVE,
+                            force_check=True,
                         )
 
                     self.assertIn("No rate limiting configuration found", str(context.exception))
@@ -377,18 +394,32 @@ class TestCORRateLimitingScopes(EnhancedTestCase):
                 # User 1 makes 2 calls
                 with self.set_user(user1.email):
                     for _ in range(2):
-                        self.framework.validate_rate_limits(profile=None, operation_key=operation_name)
+                        r = self.framework.rate_limiter.check_rate_limit(
+                            operation_name,
+                            context=ExecutionContext.INTERACTIVE,
+                            force_check=True,
+                        )
+                        self.assertTrue(r.allowed)
 
-                # User 2 makes 2 more calls
+                # User 2 makes 2 more calls - global scope shares the counter
                 with self.set_user(user2.email):
-                    self.framework.validate_rate_limits(profile=None, operation_key=operation_name)
-                    self.framework.validate_rate_limits(profile=None, operation_key=operation_name)
+                    r3 = self.framework.rate_limiter.check_rate_limit(
+                        operation_name, context=ExecutionContext.INTERACTIVE, force_check=True
+                    )
+                    self.assertTrue(r3.allowed, "3rd global call should still be allowed")
+                    r4 = self.framework.rate_limiter.check_rate_limit(
+                        operation_name, context=ExecutionContext.INTERACTIVE, force_check=True
+                    )
+                    self.assertTrue(r4.allowed, "4th global call should still be allowed")
 
-                    # 5th total call should fail (global limit is 4)
-                    with self.assertRaises(VPermissionError) as context:
-                        self.framework.validate_rate_limits(profile=None, operation_key=operation_name)
-
-                    self.assertIn("Rate limit exceeded", str(context.exception))
+                    # 5th total call should exceed the shared global limit of 4
+                    r5 = self.framework.rate_limiter.check_rate_limit(
+                        operation_name, context=ExecutionContext.INTERACTIVE, force_check=True
+                    )
+                    self.assertFalse(
+                        r5.allowed, "5th global call should exceed the shared limit"
+                    )
+                    self.assertEqual(r5.current_count, 5)
 
         finally:
             frappe.flags.in_test = original_in_test

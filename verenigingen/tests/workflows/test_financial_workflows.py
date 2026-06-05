@@ -164,7 +164,7 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
             )
 
             # Create SEPA mandate
-            mandate = self.factory.create_test_sepa_mandate(
+            mandate = self.create_test_sepa_mandate(
                 member=member.name,
                 status="Active"
             )
@@ -268,11 +268,11 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
 
     def test_multi_currency_donation_workflows(self):
         """Test donation handling across different currencies with proper conversion"""
-        # Step 1: Create donor member
-        donor = self.factory.create_test_member(
-            first_name="Multi",
-            last_name="Currency",
-            email=f"multi.currency.{self.factory.test_run_id}@example.com"
+        # Step 1: Create a Donor. The Donation.donor field links to the Donor
+        # DocType, not Member - using a Member name raises LinkValidationError.
+        donor = self.create_test_donor(
+            donor_name="Multi Currency",
+            donor_email=f"multi.currency.{self.factory.test_run_id}@example.com",
         )
 
         # Step 2: Create donations in different currencies
@@ -281,7 +281,7 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
         # EUR donation (base currency)
         donation_eur = frappe.new_doc("Donation")
         donation_eur.donor = donor.name
-        donation_eur.donor_name = f"{donor.first_name} {donor.last_name}"
+        donation_eur.donor_name = donor.donor_name
         donation_eur.amount = 100.00
         donation_eur.currency = "EUR"
         donation_eur.donation_date = today()
@@ -294,7 +294,7 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
         # USD donation (requires conversion)
         donation_usd = frappe.new_doc("Donation")
         donation_usd.donor = donor.name
-        donation_usd.donor_name = f"{donor.first_name} {donor.last_name}"
+        donation_usd.donor_name = donor.donor_name
         donation_usd.amount = 150.00
         donation_usd.currency = "USD"
         donation_usd.exchange_rate = 0.85  # 1 USD = 0.85 EUR
@@ -309,7 +309,7 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
         # GBP donation
         donation_gbp = frappe.new_doc("Donation")
         donation_gbp.donor = donor.name
-        donation_gbp.donor_name = f"{donor.first_name} {donor.last_name}"
+        donation_gbp.donor_name = donor.donor_name
         donation_gbp.amount = 80.00
         donation_gbp.currency = "GBP"
         donation_gbp.exchange_rate = 1.15  # 1 GBP = 1.15 EUR
@@ -327,7 +327,7 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
             customer_name = f"Donor-{donor.name}"
             if not frappe.db.exists("Customer", customer_name):
                 customer = frappe.new_doc("Customer")
-                customer.customer_name = f"{donor.first_name} {donor.last_name}"
+                customer.customer_name = donor.donor_name
                 customer.customer_type = "Individual"
                 customer.save()
                 self.track_doc("Customer", customer.name)
@@ -398,7 +398,7 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
             membership_type=self.monthly_membership.name
         )
 
-        self.factory.create_test_sepa_mandate(
+        self.create_test_sepa_mandate(
             member=member.name,
             status="Active"
         )

@@ -59,7 +59,8 @@ class SEPAMandateValidationTests(EnhancedTestCase, SEPAMandateTestMixin):
     def setUpClass(cls):
         """Set up test class with required records."""
         super().setUpClass()
-        make_test_records(["Member", "Customer", "SEPA Mandate"])
+        for _dt in ["Member", "Customer", "SEPA Mandate"]:
+            make_test_records(_dt)
         
     def test_enhanced_factory_sepa_mandate_creation(self):
         """
@@ -243,7 +244,8 @@ class SEPAMandateComplianceTests(EnhancedTestCase, SEPAMandateTestMixin):
     def setUpClass(cls):
         """Set up compliance testing environment."""
         super().setUpClass()
-        make_test_records(["Member", "Customer", "SEPA Mandate"])
+        for _dt in ["Member", "Customer", "SEPA Mandate"]:
+            make_test_records(_dt)
         
     def test_psd2_compliance_validation(self):
         """
@@ -371,7 +373,8 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
     def setUpClass(cls):
         """Set up integration testing environment."""
         super().setUpClass()
-        make_test_records(["Member", "Customer", "SEPA Mandate", "Sales Invoice"])
+        for _dt in ["Member", "Customer", "SEPA Mandate", "Sales Invoice"]:
+            make_test_records(_dt)
         
     def test_member_mandate_integration(self):
         """

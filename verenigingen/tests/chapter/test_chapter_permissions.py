@@ -45,6 +45,7 @@ class TestChapterPermissions(EnhancedTestCase):
             },
         )
         self.chapter1.save()
+        self._ensure_board_member_role(self.user1.name)
 
         # Create board member for chapter 2
         self.member2 = self.create_test_member(first_name="Board", last_name="Member2")
@@ -64,12 +65,32 @@ class TestChapterPermissions(EnhancedTestCase):
             },
         )
         self.chapter2.save()
+        self._ensure_board_member_role(self.user2.name)
 
         # Create regular member
         self.regular_member = self.create_test_member(first_name="Regular", last_name="Member")
         self.regular_user = self.create_test_user(self.regular_member.email, ["Verenigingen Member"])
         self.regular_member.user = self.regular_user.name
         self.regular_member.save()
+
+    def _ensure_board_member_role(self, user_name):
+        """Re-assert the Chapter Board Member role on a user.
+
+        Creating a Volunteer for the member triggers synchronous account
+        provisioning (member_role_service), which does `user.roles = []` and
+        reassigns only member/volunteer roles. In production the board role is
+        granted by the board-join workflow *after* provisioning; this helper
+        replicates that ordering so row-level board permissions apply.
+        """
+        frappe.set_user("Administrator")
+        user = frappe.get_doc("User", user_name)
+        if "Verenigingen Chapter Board Member" not in [r.role for r in user.roles]:
+            user.append("roles", {"role": "Verenigingen Chapter Board Member"})
+            user.save()
+            frappe.db.commit()
+        # Drop any cached role set for this user so subsequent permission checks
+        # (run under frappe.set_user(user_name)) see the freshly-added role.
+        frappe.clear_cache(user=user_name)
 
     def _get_test_chapter_role(self):
         """Get or create a test chapter role"""
@@ -94,10 +115,13 @@ class TestChapterPermissions(EnhancedTestCase):
         doc = frappe.get_doc("Chapter", self.chapter1.name)
         self.assertEqual(doc.name, self.chapter1.name)
 
-        # Should be able to modify it
-        doc.chapter_split_percentage = 15
+        # Should be able to modify a permlevel-0 field. (chapter_split_percentage
+        # is permlevel 1 - board members lack permlevel-1 write, so writes to it
+        # are silently dropped rather than persisted.)
+        doc.postal_codes = "1000-1099"
         doc.save()
-        self.assertEqual(doc.chapter_split_percentage, 15)
+        doc.reload()
+        self.assertEqual(doc.postal_codes, "1000-1099")
 
     def test_board_member_cannot_access_other_chapter(self):
         """Board members cannot access chapters they're not on the board of"""

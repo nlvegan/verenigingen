@@ -243,7 +243,14 @@ class TestMembershipTypeForCSVImport(FrappeTestCase):
         """Test that aspirant detection is case-insensitive"""
         mock_settings = self._create_mock_settings()
         mock_frappe.get_single.return_value = mock_settings
-        mock_frappe.db.exists.return_value = True
+
+        # db.exists should only report the configured Membership Type names as
+        # existing. Arbitrary CSV status strings like "aspirant-lid" are NOT
+        # Membership Type names, so they must fall through to pattern matching.
+        def _exists(doctype, name):
+            return name in {"Standard Member", "Aspirant Member"}
+
+        mock_frappe.db.exists.side_effect = _exists
 
         # Test various case combinations
         for membership_type in ["aspirant", "ASPIRANT", "Aspirant", "aspirant-lid"]:

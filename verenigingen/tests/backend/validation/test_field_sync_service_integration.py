@@ -87,28 +87,36 @@ class TestFieldSyncServiceIntegration(EnhancedTestCase):
         self.assertEqual(self.member.image, test_image,
                         "Member image should sync from User image")
 
-    def test_member_email_does_not_sync_to_user(self):
-        """Test that Member email does NOT sync to User (by design).
+    def test_member_email_does_not_sync_to_user_via_field_mapping(self):
+        """Member email is NOT copied to User via the generic field-sync mapping.
 
-        User.email is immutable as it's the username/primary key.
-        Email changes should be managed through User administration.
+        The Member -> User FIELD_SYNC_CONFIG deliberately excludes email
+        (User.name IS the email and can't be written to directly). Instead a
+        dedicated handler (member_user_email_sync) renames the linked User so
+        the login stays aligned. This test verifies the resulting behavior:
+        the linked User is renamed to the new email (no orphaned old User, no
+        second User created), and Member.user is realigned.
         """
         import time
         unique_suffix = str(int(time.time() * 1000))[-6:]
         new_email = f"new.email.{unique_suffix}@test.local"
 
-        # Store original user email
-        original_user_email = frappe.get_doc("User", self.member.user).email
+        original_user = self.member.user
 
         # Update member email
         self.member.email = new_email
         self.member.save()
         frappe.db.commit()
+        self.member.reload()
 
-        # Verify user email is NOT updated (by design)
-        user = frappe.get_doc("User", self.member.user)
-        self.assertEqual(user.email, original_user_email,
-                        "User email should NOT sync from Member email (immutable field)")
+        # The dedicated email-sync handler renames the User to the new email
+        self.assertEqual(self.member.user, new_email,
+                        "Member.user should be realigned to the renamed User")
+        self.assertTrue(frappe.db.exists("User", new_email),
+                        "User should be renamed to the new email")
+        if original_user.lower() != new_email.lower():
+            self.assertFalse(frappe.db.exists("User", original_user),
+                            "Old User name should no longer exist after rename")
 
     def test_member_name_syncs_to_user(self):
         """Test that updating Member name syncs to User."""

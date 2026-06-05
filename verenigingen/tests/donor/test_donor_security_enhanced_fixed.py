@@ -246,8 +246,11 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
         with self.subTest("Admin user unrestricted query"):
             admin_email = "realadmin@securitytest.invalid"
             query = get_donor_permission_query(admin_email)
-            
-            self.assertIsNone(query, "Admin should get unrestricted query (None)")
+
+            # Frappe permission_query_conditions return a SQL string; an empty
+            # string means "no restriction" (unrestricted). The function returns
+            # "" for admins, not None.
+            self.assertEqual(query, "", "Admin should get an unrestricted (empty) query")
             
         # Test 4c: Non-member gets restrictive query  
         with self.subTest("Non-member restrictive query"):

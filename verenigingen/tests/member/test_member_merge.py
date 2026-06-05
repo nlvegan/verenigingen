@@ -152,9 +152,28 @@ class TestMemberMerge(FrappeTestCase):
 
     def test_merge_conflict_warnings(self):
         """Test that warnings are generated for financial/volunteer conflicts."""
-        # Simulate active membership by setting the field directly
-        # (Avoid creating full Membership doc to avoid dependencies)
-        self.source.current_membership_plan = "TEST-MEMBERSHIP-001"
+        # current_membership_plan is a Link to Membership and is validated on
+        # save, so we need a real Membership rather than a fabricated name.
+        mt_name = "ZZ Merge Test Type"
+        if not frappe.db.exists("Membership Type", mt_name):
+            frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": mt_name,
+                "billing_period": "Annual",
+                "minimum_amount": 50.0,
+                "is_active": 1,
+            }).insert(ignore_permissions=True)
+
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": self.source.name,
+            "membership_type": mt_name,
+            "start_date": frappe.utils.today(),
+        })
+        membership.flags.skip_dues_schedule_creation = True
+        membership.insert(ignore_permissions=True)
+
+        self.source.current_membership_plan = membership.name
         self.source.save()
         frappe.db.commit()
 

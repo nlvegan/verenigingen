@@ -15,7 +15,7 @@ Author: Enhanced Test Development Phase 5.2
 """
 
 import frappe
-from frappe.utils import add_days, add_months, today, getdate, flt
+from frappe.utils import add_days, add_months, today, getdate, flt, now_datetime
 from decimal import Decimal
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -117,7 +117,10 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         # self.assertIsNotNone(pending_member.application_id)
         # Note: member_id may be auto-assigned even for pending members
         # self.assertIsNone(pending_member.member_id)
-        self.assertEqual(pending_member.full_name, "Jan van Test")
+        # full_name combines first + tussenvoegsel + (factory-uniquified) last_name
+        expected_full_name = f"Jan van {pending_member.last_name}"
+        self.assertEqual(pending_member.full_name, expected_full_name)
+        self.assertTrue(pending_member.full_name.startswith("Jan van Test"))
         
         # Phase 2: Application Review and Approval
         # Simulate review process with business validation
@@ -408,13 +411,16 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         suspended_member.suspension_reason = suspension_reason
         suspended_member.save()
         
-        # Create suspension audit entry
+        # Create suspension audit entry (API Audit Log schema: event_id/
+        # timestamp/event_type/severity are required)
         suspension_audit = frappe.get_doc({
             "doctype": "API Audit Log",  # Using available DocType for audit
-            "api_endpoint": "member_suspension",
-            "request_data": f"Member: {suspended_member.name}, Reason: {suspension_reason}",
-            "response_status": "Success",
-            "timestamp": suspension_date
+            "event_id": frappe.generate_hash(length=12),
+            "timestamp": now_datetime(),
+            "event_type": "data_modification",
+            "severity": "info",
+            "status": "Success",
+            "details": frappe.as_json({"member": suspended_member.name, "reason": suspension_reason}),
         })
         suspension_audit.insert()
         
@@ -555,7 +561,9 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
 
         for ds_name in dues_schedules:
             ds = frappe.get_doc("Membership Dues Schedule", ds_name.name)
-            ds.status = "Inactive"
+            # "Cancelled" is the terminal status (Membership Dues Schedule has no
+            # "Inactive" option) and correctly skips the active-membership check.
+            ds.status = "Cancelled"
             ds.end_date = termination_date
             ds.save()
         
@@ -625,7 +633,10 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             setattr(member_for_correction, field, new_value)
         member_for_correction.save()
 
-        # Update address fields
+        # Update address fields. Saving the member above can touch the linked
+        # Address (name/title sync), so reload before mutating to avoid a
+        # TimestampMismatchError.
+        original_address.reload()
         address_corrections = {
             "address_line1": "New Street 456",
             "pincode": "2000 BB",
@@ -638,10 +649,12 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         # Create correction audit entry
         correction_audit = frappe.get_doc({
             "doctype": "API Audit Log",
-            "api_endpoint": "member_data_correction",
-            "request_data": f"Member: {member_for_correction.name}, Changes: {corrections}",
-            "response_status": "Success",
-            "timestamp": today()
+            "event_id": frappe.generate_hash(length=12),
+            "timestamp": now_datetime(),
+            "event_type": "data_modification",
+            "severity": "info",
+            "status": "Success",
+            "details": frappe.as_json({"member": member_for_correction.name, "changes": corrections}),
         })
         correction_audit.insert()
         

@@ -42,25 +42,23 @@ class TestE2EWorkflowValidation(EnhancedTestCase):
         """Set up E2E test environment"""
         super().setUpClass()
         
-        # Create comprehensive test settings
-        if not DocumentExistenceValidator.check_document_exists("Mollie Settings", "E2E Test"):
-            settings = frappe.new_doc("Mollie Settings")
-            settings.gateway_name = "E2E Test"
-            settings.secret_key = "e2e_test_key_secure"
-            settings.profile_id = "pfl_e2e_test"
-            settings.enable_backend_api = True
-            settings.enable_audit_trail = True
-            settings.enable_encryption = True
-            settings.webhook_secret = "e2e_webhook_secret"
-            settings.auto_reconcile = True
-            settings.reconciliation_hour = 2
-            settings.insert()  # VereningingenTestCase handles permissions
-            frappe.db.commit()
+        # Configure the Mollie Settings Single for E2E testing. Mollie Settings is
+        # a Single DocType; test mode requires test_secret_key + profile_id.
+        settings = frappe.get_single("Mollie Settings")
+        settings.test_mode = 1
+        settings.test_secret_key = "test_e2e_key_secure_xxxxxxxxxxxxxx"
+        settings.profile_id = "pfl_e2e_test"
+        settings.enable_backend_api = 1
+        settings.backend_webhook_secret = "e2e_webhook_secret"
+        settings.flags.ignore_validate = True
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
     
     def setUp(self):
         """Set up test case"""
         super().setUp()
-        self.settings_name = "E2E Test"
+        # Mollie Settings is a Single; its document name is "Mollie Settings".
+        self.settings_name = "Mollie Settings"
         self.test_data = {}
     
     def test_complete_member_subscription_lifecycle(self):

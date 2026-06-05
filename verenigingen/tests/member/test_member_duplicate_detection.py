@@ -214,9 +214,12 @@ class TestFuzzyNameMatching(EnhancedTestCase):
             birth_date="1990-01-01"  # Same birthdate
         )
 
+        # The test factory uniquifies last_name (e.g. "de Vries<suffix>"), so query
+        # with member2's actual stored surname. The fuzzy match still exercises the
+        # first-name similarity (Jan vs Johannes) with an exact surname/birthdate match.
         matches = fuzzy_match_name_birthdate(
             first_name="Jan",
-            last_name="de Vries",
+            last_name=member2.last_name,
             tussenvoegsel=None,
             birth_date="1990-01-01",
             exclude_member=member1.name,
@@ -310,6 +313,9 @@ class TestAddressDuplicateDetection(EnhancedTestCase):
         # Create address - test user already has System Manager role from setUp()
         address = frappe.get_doc({
             "doctype": "Address",
+            # address_type set explicitly: EnhancedTestCase runs with
+            # frappe.flags.in_import, which suppresses DocType field defaults.
+            "address_type": "Personal",
             "address_title": f"Test Address {unique_suffix}",
             "address_line1": "Teststraat 1",
             "city": "Amsterdam",
@@ -403,6 +409,9 @@ class TestComprehensiveDuplicateDetection(EnhancedTestCase):
         # Create address for low-confidence match - test user already has System Manager role
         address = frappe.get_doc({
             "doctype": "Address",
+            # address_type set explicitly: EnhancedTestCase runs with
+            # frappe.flags.in_import, which suppresses DocType field defaults.
+            "address_type": "Personal",
             "address_title": f"Test Address {unique_suffix}",
             "address_line1": "Teststraat 1",
             "city": "Amsterdam",

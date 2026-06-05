@@ -169,17 +169,21 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         # Verify both members are in the chapter
         self.assertEqual(len(self.chapter.members), 2, "Chapter should have 2 members")
 
-        # Remove first member
+        # Remove first member. The default remove is a SOFT removal: the row is
+        # retained for history but disabled (enabled=0) rather than deleted.
         result = self.chapter.remove_member(self.test_member1.name)
 
         # Reload chapter
         self.chapter.reload()
 
-        # Verify first member is removed and second is still there
-        self.assertEqual(len(self.chapter.members), 1, "Chapter should now have 1 member")
-        self.assertEqual(
-            self.chapter.members[0].member, self.test_member2.name, "Second member should still be in chapter"
-        )
+        # Row is kept (soft-disable) so the count is unchanged.
+        self.assertEqual(len(self.chapter.members), 2, "Soft remove keeps the member row for history")
+        removed_row = next((m for m in self.chapter.members if m.member == self.test_member1.name), None)
+        self.assertIsNotNone(removed_row, "First member row should be retained")
+        self.assertFalse(removed_row.enabled, "First member should be disabled after removal")
+        second_row = next((m for m in self.chapter.members if m.member == self.test_member2.name), None)
+        self.assertIsNotNone(second_row, "Second member should still be in chapter")
+        self.assertTrue(second_row.enabled, "Second member should remain enabled")
         self.assertTrue(result, "remove_member method should return True for success")
 
         # Try to remove a member that's not in the chapter

@@ -4613,6 +4613,16 @@ class EnhancedTestCase(FrappeTestCase):
 
         return user_context()
 
+    def track_doc(self, doctype, name, depends_on=None):
+        """Track a document for automatic cleanup.
+
+        Compatibility alias for the underlying factory's track_document(), matching
+        the VereningingenTestCase.track_doc() signature so tests can use either
+        base class interchangeably. `depends_on` is accepted for signature
+        compatibility (cleanup ordering is handled by the factory's priorities).
+        """
+        return self.factory.track_document(doctype, name)
+
     def as_role(self, role_or_roles, *, email=None):
         """Run a block as a scratch user holding the given role(s) or role profile.
 
@@ -5558,11 +5568,33 @@ class EnhancedTestCase(FrappeTestCase):
         return bank_account.name
 
     # Bridge methods to specialized factories
-    def create_test_sepa_mandate(self, member_name, iban=None, **kwargs):
-        """Bridge to SEPA test factory for mandate creation"""
+    def create_test_sepa_mandate(self, member_name=None, iban=None, **kwargs):
+        """Bridge to SEPA test factory for mandate creation.
+
+        Accepts member_name positionally or `member=` as a kwarg, and either a
+        Member document or its name string, for backward compatibility with the
+        SEPA mandate test suites.
+        """
+        if member_name is None and "member" in kwargs:
+            member_name = kwargs.pop("member")
+        # Accept a Member document as well as its name string.
+        if member_name is not None and hasattr(member_name, "name"):
+            member_name = member_name.name
+        if member_name is None:
+            raise TypeError("create_test_sepa_mandate requires member_name (or member=)")
         try:
             from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
-            sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)
+            # Reuse a single SEPATestDataFactory per test instance so its internal
+            # sequence (used to generate UNIQUE IBANs/mandate ids) advances across
+            # calls. Recreating it each call reset the sequence, producing the same
+            # IBAN repeatedly and tripping the duplicate-active-mandate validation
+            # when several mandates are created for the same member.
+            sepa_factory = getattr(self, "_bridge_sepa_factory", None)
+            if sepa_factory is None:
+                sepa_factory = SEPATestDataFactory(
+                    seed=self.factory.seed, use_faker=self.factory.use_faker
+                )
+                self._bridge_sepa_factory = sepa_factory
             return sepa_factory.create_test_sepa_mandate(member=member_name, iban=iban, **kwargs)
         except ImportError:
             # Fallback implementation

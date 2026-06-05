@@ -235,7 +235,7 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
         print(f"Looking for volunteers with member names: {member_names}")
         
         all_volunteers = frappe.get_all(
-            "Verenigingen Volunteer",
+            "Volunteer",
             filters={"member": ["in", member_names]},
             fields=["name", "member", "volunteer_name"],
             limit=10

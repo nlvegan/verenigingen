@@ -59,8 +59,12 @@ class TestMemberLifecycleMockEliminationFixed(EnhancedTestCase):
         # Production Issue Fixed: Direct postal_code → Address DocType relationship
         test_address = frappe.get_doc({
             "doctype": "Address",
+            # address_type/title set explicitly: DocType defaults aren't applied
+            # under frappe.flags.in_import (EnhancedTestCase).
+            "address_type": "Personal",
+            "address_title": "Kalverstraat Test Address",
             "address_line1": "Kalverstraat 123",
-            "city": "Amsterdam", 
+            "city": "Amsterdam",
             "country": "Netherlands",
             "pincode": "1012AB"
         })

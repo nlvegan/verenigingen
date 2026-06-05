@@ -71,12 +71,39 @@ class TestEmployeeUserLinkSecurityFixed(EnhancedTestCase):
             email=f"admin.employee.{unique_id}@example.com",
             roles=["System Manager", "HR Manager", "Verenigingen Administrator"]
         )
-        
+
         # Create limited user without employee permissions
         self.limited_user = self.create_test_user_with_roles(
-            email=f"limited.employee.{unique_id}@example.com", 
+            email=f"limited.employee.{unique_id}@example.com",
             roles=["Verenigingen Member"]
         )
+
+        # Drop any cached (empty) role sets for these freshly-created users so the
+        # permission checks under as_user() observe their assigned roles.
+        frappe.db.commit()
+        frappe.clear_cache(user=self.admin_user.email)
+        frappe.clear_cache(user=self.limited_user.email)
+
+        # Ensure HR Manager can create Employee. The app's custom_docperm fixture
+        # grants HR Manager/HR User create on Employee, but that fixture is not
+        # fully synced on the isolated test site (only the restrictive rows are
+        # present), so admin_user (HR Manager) would otherwise be denied and
+        # create_employee_for_approved_volunteer() would return None.
+        self._ensure_employee_create_permission()
+
+    @staticmethod
+    def _ensure_employee_create_permission():
+        from frappe.permissions import add_permission, update_permission_property
+
+        for role in ("HR Manager", "HR User"):
+            if not frappe.db.exists(
+                "Custom DocPerm", {"parent": "Employee", "role": role, "permlevel": 0}
+            ):
+                add_permission("Employee", role, 0)
+            update_permission_property("Employee", role, 0, "create", 1)
+            update_permission_property("Employee", role, 0, "write", 1)
+            update_permission_property("Employee", role, 0, "read", 1)
+        frappe.clear_cache(doctype="Employee")
 
     def test_create_user_for_volunteer_with_admin_permissions(self):
         """Test secure user creation with proper admin permissions"""

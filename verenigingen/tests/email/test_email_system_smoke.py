@@ -39,9 +39,12 @@ class TestEmailSystemSmoke(EnhancedTestCase):
         # Create a test member
         self.test_member = self.create_test_member(
             first_name="Smoke",
-            last_name="TestMember", 
+            last_name="TestMember",
             email="smoke.member@test.invalid",
-            birth_date="1990-01-01"
+            birth_date="1990-01-01",
+            # v16 skips the JSON default (1); set explicitly so the member is an
+            # eligible recipient for the "all" segment.
+            accepts_optional_communications=1,
         )
         
         # Add member to chapter
@@ -126,17 +129,20 @@ class TestEmailSystemSmoke(EnhancedTestCase):
         )
         self.assertEqual(initial_result["recipients_count"], 1)
         
-        # Opt out member
-        self.test_member.opt_out_optional_emails = 1
+        # Opt out member (accepts_optional_communications = 0)
+        self.test_member.accepts_optional_communications = 0
         self.test_member.save()
         
-        # Should now exclude member
+        # Should now exclude the member. With zero eligible recipients the manager
+        # reports success=False / "No eligible recipients found" (and omits
+        # recipients_count), so assert on that rather than a 0 count.
         after_optout = manager.send_to_chapter_segment(
             chapter_name=self.test_chapter.name,
             segment="all",
             test_mode=True
         )
-        self.assertEqual(after_optout["recipients_count"], 0)
+        self.assertEqual(after_optout.get("recipients_count", 0), 0)
+        self.assertFalse(after_optout.get("success"))
         
     def test_field_validation_basic(self):
         """Test that field validation works"""

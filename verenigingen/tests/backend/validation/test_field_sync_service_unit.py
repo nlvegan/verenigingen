@@ -157,12 +157,14 @@ class TestFieldSyncServiceUnit(FrappeTestCase):
 
         result = _get_changed_fields(doc, field_mappings)
 
-        self.assertEqual(len(result), 2)
-        self.assertIn("field1", result)
-        self.assertIn("field2", result)
-        self.assertNotIn("field3", result)
-        self.assertEqual(result["field1"], "target1")
-        self.assertEqual(result["field2"], "target2")
+        # _get_changed_fields returns {"mappings": {...}, "transforms": {...}}
+        mappings = result.get("mappings", {})
+        self.assertEqual(len(mappings), 2)
+        self.assertIn("field1", mappings)
+        self.assertIn("field2", mappings)
+        self.assertNotIn("field3", mappings)
+        self.assertEqual(mappings["field1"], "target1")
+        self.assertEqual(mappings["field2"], "target2")
 
     def test_get_changed_fields_handles_missing_fields(self):
         """Test that missing fields on document are skipped."""
@@ -178,9 +180,10 @@ class TestFieldSyncServiceUnit(FrappeTestCase):
 
         result = _get_changed_fields(doc, field_mappings)
 
-        # Only field1 should be in result
-        self.assertEqual(len(result), 1)
-        self.assertIn("field1", result)
+        # Only field1 should be in the mappings subset
+        mappings = result.get("mappings", {})
+        self.assertEqual(len(mappings), 1)
+        self.assertIn("field1", mappings)
 
     def test_get_changed_fields_returns_empty_when_no_changes(self):
         """Test that empty dict is returned when no fields changed."""
@@ -205,15 +208,15 @@ class TestSyncFlagsAndLoopPrevention(VereningingenTestCase):
         """Test that sync flag prevents recursive synchronization."""
         from verenigingen.services.field_sync_service import _sync_to_target
 
-        # Create real member with user
+        # Create real member with a linked user account
         member = self.create_test_member(
             first_name="SyncFlag",
             last_name="Test",
             email="syncflag.test@example.com"
         )
-
-        # Get the user that was auto-created
-        user = frappe.get_doc("User", member.email)
+        user = self.create_test_user(member.email)
+        member.user = user.name
+        member.save(ignore_permissions=True)
         original_user_image = user.user_image
 
         # Update member image (this would normally trigger sync)
@@ -332,13 +335,14 @@ class TestErrorHandling(FrappeTestCase):
         with patch("verenigingen.services.field_sync_service._sync_to_target") as mock_sync:
             mock_sync.side_effect = Exception("Test sync error")
 
-            with patch("frappe.log_error") as mock_log_error:
+            # sync_fields logs via the module logger, not frappe.log_error
+            with patch("verenigingen.services.field_sync_service.logger") as mock_logger:
                 # Call sync_fields - should catch exception and log
                 sync_fields(doc)
 
                 # Verify error was logged
-                mock_log_error.assert_called_once()
-                call_args = mock_log_error.call_args
+                mock_logger.error.assert_called_once()
+                call_args = mock_logger.error.call_args
                 self.assertIn("Test sync error", call_args[0][0])
 
     def test_find_target_handles_database_errors_gracefully(self):
@@ -366,16 +370,17 @@ class TestPerformanceOptimizations(VereningingenTestCase):
         """Test that sync is skipped when no configured fields changed."""
         from verenigingen.services.field_sync_service import _sync_to_target
 
-        # Create member with user
+        # Create member with a linked user account
         member = self.create_test_member(
             first_name="NoChange",
             last_name="Test",
             email="nochange.test@example.com"
         )
-
-        # Get user and record its modified time
-        user = frappe.get_doc("User", member.email)
-        original_modified = user.modified
+        user = self.create_test_user(member.email)
+        member.user = user.name
+        member.save(ignore_permissions=True)
+        # Read modified directly from DB to compare against a post-reload value
+        original_modified = frappe.db.get_value("User", user.name, "modified")
 
         # Don't change the synced field (image)
         # Just save member without changes to trigger potential sync
@@ -389,8 +394,8 @@ class TestPerformanceOptimizations(VereningingenTestCase):
         _sync_to_target(member, "User", config)
 
         # Verify user was not updated (modified time unchanged)
-        user.reload()
-        self.assertEqual(user.modified, original_modified,
+        current_modified = frappe.db.get_value("User", user.name, "modified")
+        self.assertEqual(current_modified, original_modified,
                        "User should not be updated when no fields changed")
 
     def test_sync_exits_early_when_no_target_found(self):

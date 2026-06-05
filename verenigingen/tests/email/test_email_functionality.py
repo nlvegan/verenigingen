@@ -52,13 +52,18 @@ class TestEmailFunctionality(EnhancedTestCase):
         """Test getting preview of chapter segment recipients"""
         from verenigingen.email.simplified_email_manager import SimplifiedEmailManager
         
-        # Create test members
+        # Create test members. The JSON default for accepts_optional_communications
+        # is 1, but Frappe v16 does not apply field defaults on raw get_doc().insert()
+        # (only at the form layer), so the factory-created member persists 0 and the
+        # "all" segment query (which excludes accepts==0) would find no recipients.
+        # Set it explicitly to reflect the intended opted-in default.
         member1 = self.create_test_member(
             first_name="Email",
             last_name="Test1",
-            email="test1@example.com"
+            email="test1@example.com",
+            accepts_optional_communications=1,
         )
-        
+
         # Add to chapter
         if not frappe.db.exists("Chapter Member", {
             "parent": self.test_chapter.name,
@@ -85,24 +90,28 @@ class TestEmailFunctionality(EnhancedTestCase):
         self.assertGreaterEqual(result.get("recipients_count", 0), 0)
     
     def test_member_opt_out_field(self):
-        """Test that member opt-out field exists"""
+        """Test that the member optional-communications field exists.
+
+        The opt-out is now modelled positively as `accepts_optional_communications`
+        (1 = accepts, 0 = opted out), replacing the old `opt_out_optional_emails`.
+        """
         # Create a test member
         member = self.create_test_member(
             first_name="OptOut",
             last_name="Test",
             email="optout@example.com"
         )
-        
+
         # Check that the field exists (even if it's None)
-        self.assertTrue(hasattr(member, 'opt_out_optional_emails'))
-        
-        # Test setting the field
-        member.opt_out_optional_emails = 1
+        self.assertTrue(hasattr(member, 'accepts_optional_communications'))
+
+        # Test opting out (accepts = 0)
+        member.accepts_optional_communications = 0
         member.save()
-        
+
         # Reload and verify
         member.reload()
-        self.assertEqual(member.opt_out_optional_emails, 1)
+        self.assertEqual(member.accepts_optional_communications, 0)
     
     def test_email_group_creation(self):
         """Test creating initial email groups"""

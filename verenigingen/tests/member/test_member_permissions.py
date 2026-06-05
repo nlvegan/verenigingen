@@ -185,13 +185,19 @@ class TestMemberPermissions(EnhancedTestCase):
 
         This was the root cause of showing only 147/660 members.
         """
-        frappe.set_user(self.staff_user.name)
-
-        # Create an Employee
+        # Test fixtures (Employee, member link, User Permission) are created as
+        # Administrator; Verenigingen Staff has no create permission on Employee
+        # and that is not what this test exercises. The assertion below targets
+        # the permission-query builder for the staff user explicitly.
         employee = frappe.get_doc({
             "doctype": "Employee",
             "first_name": "Test",
             "last_name": "Employee",
+            # status/gender/date defaults are not auto-applied under in_import.
+            "status": "Active",
+            "gender": "Other",
+            "date_of_birth": "1990-01-01",
+            "date_of_joining": frappe.utils.today(),
             "company": frappe.get_value("Verenigingen Settings", None, "company")
         })
         employee.insert()

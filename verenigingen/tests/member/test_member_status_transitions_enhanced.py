@@ -489,7 +489,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                 status="Active",
             )
         
-        self.assertIn("Members must be 16+ years old", str(cm.exception))
+        self.assertIn("at least 16 years old", str(cm.exception))
         
         # Create valid aged member
         valid_member = self.create_test_member(

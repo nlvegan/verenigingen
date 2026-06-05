@@ -346,7 +346,7 @@ class TestRelationMigrationService(EnhancedTestCase):
                 "doctype": "Customer",
                 "customer_name": customer_name,
                 "customer_type": "Company",
-                "customer_group": "All Customer Groups",
+                "customer_group": "Individual",
                 "territory": "Netherlands",
             }
         )

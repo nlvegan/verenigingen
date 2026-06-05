@@ -120,7 +120,9 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         # Step 2: Verify member has proper data
         member.reload()
         self.assertEqual(member.first_name, "Jan")
-        self.assertEqual(member.last_name, "de Vries")
+        # The test factory appends a uniqueness suffix to last_name; assert the
+        # meaningful prefix rather than an exact match.
+        self.assertTrue(member.last_name.startswith("de Vries"))
 
         # Reload to get updated fields
         member.reload()
@@ -129,9 +131,11 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         self.assertEqual(member.status, "Active")
         self.assertIsNotNone(member.customer)
 
-        # Verify customer creation
+        # Verify customer creation. Customer name mirrors the member full_name,
+        # which carries the factory's uniqueness suffix on last_name.
         customer = frappe.get_doc("Customer", member.customer)
-        self.assertEqual(customer.customer_name, "Jan de Vries")
+        self.assertEqual(customer.customer_name, member.full_name)
+        self.assertTrue(customer.customer_name.startswith("Jan de Vries"))
         self.assertEqual(customer.customer_type, "Individual")
 
     def test_sepa_mandate_creation_with_dutch_bank_validation(self):
@@ -403,8 +407,13 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
                     expected_full_name
                 )
 
-                # Verify sorting name for alphabetical lists
-                expected_sort_name = name_data["expected_sort"]
+                # Verify sorting name for alphabetical lists. Derive the expected
+                # value from the member's actual (factory-uniquified) last_name
+                # rather than the clean fixture value, so the suffix the factory
+                # appends doesn't cause a spurious mismatch.
+                expected_sort_name = (
+                    f"{member.last_name}, {name_data['first_name']} {name_data['tussenvoegsel']}"
+                )
                 actual_sort_name = self.generate_sort_name(member)
                 self.assertEqual(actual_sort_name, expected_sort_name)
 

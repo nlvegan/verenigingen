@@ -91,6 +91,13 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
             user.user_type = "System User"
 
             for role in roles:
+                # Ensure the Role master exists. Some roles referenced here (e.g.
+                # "Volunteer Coordinator") are not seeded on isolated test sites,
+                # which would otherwise raise LinkValidationError on save.
+                if not frappe.db.exists("Role", role):
+                    frappe.get_doc(
+                        {"doctype": "Role", "role_name": role, "desk_access": 1}
+                    ).insert(ignore_permissions=True)
                 user.append("roles", {"role": role})
 
             user.save(ignore_permissions=True)
@@ -244,7 +251,7 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
 
         # Create associated data for GDPR testing
         self.factory.create_test_membership(member=gdpr_member.name)
-        self.factory.create_test_sepa_mandate(member=gdpr_member.name)
+        self.create_test_sepa_mandate(member=gdpr_member.name)
 
         # Test 1: Data Export (Right to Data Portability)
         gdpr_export = self._create_gdpr_data_export(gdpr_member.name)
@@ -262,10 +269,11 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
         # Verify financial data is included but anonymized/secured
         financial_data = gdpr_export["financial_data"]
         if financial_data:
-            # IBAN should be masked
+            # IBAN should be masked. _create_gdpr_data_export masks the middle as
+            # NL91****<last4>, keeping only the first/last 4 chars visible.
             for mandate_data in financial_data.get("sepa_mandates", []):
-                if "iban" in mandate_data:
-                    self.assertTrue(mandate_data["iban"].endswith("****"),
+                if mandate_data.get("iban"):
+                    self.assertIn("****", mandate_data["iban"],
                                   "IBAN should be masked in export")
 
         # Test 2: Data Deletion (Right to be Forgotten)
@@ -342,12 +350,15 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
         # Get financial data (with privacy protection)
         sepa_mandates = frappe.get_all("SEPA Mandate",
                                      filters={"member": member_name},
-                                     fields=["name", "mandate_id", "status", "sign_date"])
+                                     fields=["name", "mandate_id", "status", "sign_date", "iban"])
 
-        # Mask sensitive financial information
+        # Mask sensitive financial information. frappe._dict returns None (not a
+        # KeyError) for a missing attribute, so hasattr() is always truthy here;
+        # guard on the actual value instead and index safely.
         for mandate in sepa_mandates:
-            if hasattr(mandate, 'iban'):
-                mandate['iban'] = mandate['iban'][:4] + "****" + mandate['iban'][-4:]
+            iban = mandate.get("iban")
+            if iban:
+                mandate["iban"] = iban[:4] + "****" + iban[-4:]
 
         return {
             "export_date": now_datetime(),

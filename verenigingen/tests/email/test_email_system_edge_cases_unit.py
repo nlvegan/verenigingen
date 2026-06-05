@@ -31,6 +31,39 @@ from verenigingen.services.communication.compatibility import (
 import unittest
 
 
+def _ensure_default_outgoing_email_account():
+    """Idempotently ensure a default outgoing Email Account exists.
+
+    The email service refuses to queue mail ("No active email account
+    configured") when no outgoing account is set up. Isolated test sites do not
+    seed one, so create a minimal default-outgoing account for these tests.
+    Actual SMTP delivery is mocked (frappe.sendmail) in the tests that send.
+    """
+    import frappe
+
+    existing = frappe.db.exists(
+        "Email Account", {"enable_outgoing": 1, "default_outgoing": 1}
+    )
+    if existing:
+        return
+    account = frappe.get_doc(
+        {
+            "doctype": "Email Account",
+            "email_account_name": "Test Outgoing",
+            "email_id": "test-outgoing@test.invalid",
+            "enable_outgoing": 1,
+            "default_outgoing": 1,
+            "smtp_server": "localhost",
+            "smtp_port": 25,
+            "login_id_is_different": 0,
+        }
+    )
+    account.flags.ignore_validate = True
+    account.flags.ignore_mandatory = True
+    account.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+
 class TestEmailSystemEdgeCases(EnhancedTestCase):
     """Edge case tests for email system"""
 
@@ -38,6 +71,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
         """Set up test environment"""
         super().setUp()
         self.email_service = get_email_service()
+        _ensure_default_outgoing_email_account()
 
         self.test_member = self.create_test_member(
             first_name="EdgeCase",
@@ -131,7 +165,11 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
 
     def test_template_rendering_failures(self):
         """Test handling of template rendering failures"""
-        # Create template with invalid syntax
+        # Create template that fails at RENDER time (not at insert time). Frappe v16
+        # validates Jinja syntax when an Email Template is saved, so a syntactically
+        # broken subject can no longer be inserted normally. Insert with
+        # ignore_validate so the broken template persists and the render path is
+        # exercised; the body calls a missing method, which fails during rendering.
         if not frappe.db.exists("Email Template", "broken_template"):
             template_doc = frappe.get_doc({
                 "doctype": "Email Template",
@@ -141,7 +179,8 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                 "use_html": 1,
                 "enabled": 1
             })
-            template_doc.insert()
+            template_doc.flags.ignore_validate = True
+            template_doc.insert(ignore_permissions=True)
 
         result = self.email_service.send_templated_email(
             template_name="broken_template",
@@ -230,7 +269,12 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                 )
 
             # Should still succeed even if Communication creation fails
-            self.assertTrue(result.success)
+            self.assertTrue(
+                result.success,
+                f"result.success={getattr(result, 'success', None)} "
+                f"error={getattr(result, 'error', None)} "
+                f"errors={getattr(result, 'errors', None)}",
+            )
 
     def test_cache_memory_pressure(self):
         """Test cache behavior under memory pressure"""

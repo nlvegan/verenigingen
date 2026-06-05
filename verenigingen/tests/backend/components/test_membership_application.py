@@ -121,12 +121,11 @@ class TestMembershipApplication(VereningingenTestCase):
         
         self.test_email = f"test_{frappe.generate_hash(length=8)}@example.com"
         
-        # Create test membership type using factory if available
-        membership_types = frappe.get_all("Membership Type", limit=1)
-        if membership_types:
-            self.test_membership_type = membership_types[0]["name"]
-        else:
-            # Create a basic membership type
+        # Use the dedicated "Test Membership" type (minimum_amount=15, created in
+        # setUpClass). Picking an arbitrary existing type via get_all(limit=1) is
+        # unsafe on the shared test site — other types have a €50 minimum that
+        # conflicts with the €15 default dues template, breaking invoice creation.
+        if not frappe.db.exists("Membership Type", "Test Membership"):
             membership_type = frappe.get_doc({
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Membership",
@@ -135,7 +134,7 @@ class TestMembershipApplication(VereningingenTestCase):
             })
             membership_type.insert()
             self.track_doc("Membership Type", membership_type.name)
-            self.test_membership_type = membership_type.name
+        self.test_membership_type = "Test Membership"
         
         # Create test chapter using factory method
         self.test_chapter = self.create_test_chapter(

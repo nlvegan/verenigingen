@@ -59,19 +59,27 @@ class TestMemberLifecycleMockElimination(EnhancedTestCase):
     def test_real_member_id_generation_workflow(self):
         """Test member ID generation with REAL business logic (NO MOCKS)"""
         
-        # Create member with Application Pending status (should not get member ID)
+        # Create a real *application* member: should_have_member_id() only
+        # suppresses the member ID when the record carries an application_id
+        # (is_application_member) and is not yet Approved. member_id=None clears
+        # the factory's auto-assignment so the real business logic runs.
         pending_member = self.create_test_member(
             first_name="Pending",
-            last_name="Application", 
+            last_name="Application",
             email="pending.app@test.example.com",
-            status="Application Pending"
+            status="Application Pending",
+            application_status="Pending",
+            application_id="APP-LIFECYCLE-TEST-0001",
+            member_id=None,
         )
-        
+
         # Verify application pending members don't get member IDs
         self.assertIsNone(pending_member.member_id, "Pending applications should not have member ID")
         self.assertIsNotNone(pending_member.application_id, "Should have application ID")
-        
-        # Activate the member (REAL status transition)
+
+        # Approve and activate the member (REAL status transition). Member ID is
+        # only granted once the application is Approved.
+        pending_member.application_status = "Approved"
         pending_member.status = "Active"
         pending_member.save()
         
@@ -348,14 +356,25 @@ class TestMemberLifecycleMockElimination(EnhancedTestCase):
         ]
         
         for case in address_test_cases:
-            # Create member with real Dutch address
+            # Member has no direct address fields — addresses live in the Address
+            # DocType linked via primary_address. Create a real Address and link it.
+            address = frappe.get_doc({
+                "doctype": "Address",
+                # Defaults not applied under in_import — set explicitly.
+                "address_type": "Personal",
+                "address_title": f"{case['city']} {case['postal_code']}",
+                "address_line1": case["address_line_1"],
+                "city": case["city"],
+                "country": "Netherlands",
+                "pincode": case["postal_code"],
+            })
+            address.insert(ignore_permissions=True)
+
             member = self.create_test_member(
                 first_name="Address",
                 last_name="Test",
                 email=f"address.{case['postal_code'][:4]}@test.example.com",
-                address_line_1=case["address_line_1"],
-                postal_code=case["postal_code"], 
-                city=case["city"]
+                primary_address=address.name,
             )
             
             # Test REAL address normalization (if implemented)

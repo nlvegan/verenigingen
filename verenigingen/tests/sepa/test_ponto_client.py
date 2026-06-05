@@ -47,6 +47,10 @@ class TestPontoClient(FrappeTestCase):
         settings.ibanity_client_id = "test_client_id"
         # Password fields are set directly in Single DocTypes
         settings.ibanity_client_secret = "test_client_secret"
+        # validate_credentials_configured() requires the sandbox_* fields when
+        # sandbox_mode is enabled (get_active_client_id() reads sandbox_client_id)
+        settings.sandbox_client_id = "test_client_id"
+        settings.sandbox_client_secret = "test_client_secret"
         settings.sandbox_mode = 1
         settings.use_ibanity_mtls = 0
         settings.save(ignore_permissions=True)
@@ -81,11 +85,17 @@ class TestPontoClient(FrappeTestCase):
             update_modified=False,
         )
 
-        # Also cache it
+        # Also cache it under the keys PontoTokenManager actually reads for the
+        # MyPonto client_credentials flow (mTLS disabled in tests). The token
+        # manager checks TOKEN_CACHE_KEY/EXPIRY_CACHE_KEY before any HTTP call.
+        from verenigingen.verenigingen_payments.ponto.utils.token_manager import PontoTokenManager
+
         cache = frappe.cache()
-        cache.set_value("ponto_ibanity_access_token", "test_access_token_valid", expires_in_sec=3600)
         cache.set_value(
-            "ponto_ibanity_token_expiry",
+            PontoTokenManager.TOKEN_CACHE_KEY, "test_access_token_valid", expires_in_sec=3600
+        )
+        cache.set_value(
+            PontoTokenManager.EXPIRY_CACHE_KEY,
             (datetime.now() + timedelta(hours=1)).isoformat(),
             expires_in_sec=3600,
         )
@@ -475,16 +485,19 @@ class TestPontoClient(FrappeTestCase):
 
             return mock_response
 
+        # On a 401 the client invalidates the cached token and raises; the
+        # @with_retry decorator then re-invokes delete(), and _get_headers() calls
+        # get_valid_token() to obtain a fresh token. Patch get_valid_token so the
+        # retry obtains a token without a real HTTP fetch (which would 401 in
+        # tests). The second delete attempt returns 204 and succeeds.
         with patch.object(client._session, "delete", side_effect=mock_delete_side_effect):
-            with patch.object(client._token_manager, "refresh_token") as mock_refresh:
-                mock_refresh.return_value = "new_access_token"
-
-                # Should not raise
+            with patch.object(
+                client._token_manager, "get_valid_token", return_value="new_access_token"
+            ):
+                # Should not raise - retry after token refresh succeeds
                 client.delete("/payment-initiation-requests/pir-123")
 
-                # Should have called refresh
-                mock_refresh.assert_called_once()
-                # Should have retried the request
+                # Should have retried the request (1st 401, 2nd success)
                 self.assertEqual(call_count, 2)
 
     def test_delete_request_429_raises_rate_limit_error(self):
@@ -758,16 +771,23 @@ class TestPontoClient(FrappeTestCase):
     # -------------------------------------------------------------------------
 
     def test_client_cleanup_on_deletion(self):
-        """Test that temporary files are cleaned up on client deletion."""
+        """Test that temporary cert files are cleaned up on client deletion.
+
+        Certificate files are managed by SecureCertManager; PontoClient.__del__
+        delegates cleanup to its _cert_manager._cleanup(), which secure-deletes
+        the temp cert/key files it created.
+        """
         import os
         import tempfile
 
         from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+        from verenigingen.verenigingen_payments.ponto.utils.secure_cert_manager import (
+            SecureCertManager,
+        )
 
-        # Create a client with mock temp files
         client = PontoClient()
 
-        # Simulate temp files being created
+        # Simulate cert files created by SecureCertManager
         cert_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
         cert_file.write(b"test cert")
         cert_file.close()
@@ -776,15 +796,18 @@ class TestPontoClient(FrappeTestCase):
         key_file.write(b"test key")
         key_file.close()
 
-        client._temp_cert_file = cert_file.name
-        client._temp_key_file = key_file.name
+        cert_manager = SecureCertManager()
+        cert_manager._cert_path = cert_file.name
+        cert_manager._key_path = key_file.name
+        cert_manager._is_setup = True
+        client._cert_manager = cert_manager
         client._cert_files = (cert_file.name, key_file.name)
 
         # Verify files exist
         self.assertTrue(os.path.exists(cert_file.name))
         self.assertTrue(os.path.exists(key_file.name))
 
-        # Delete client
+        # Delete client - __del__ delegates to _cert_manager._cleanup()
         del client
 
         # Files should be cleaned up

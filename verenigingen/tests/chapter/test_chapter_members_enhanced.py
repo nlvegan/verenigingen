@@ -231,22 +231,28 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         initial_count = len(self.chapter.members)
         self.assertGreaterEqual(initial_count, 2, "Chapter should have at least 2 members")
         
-        # Remove first member
+        # Remove first member. The default remove is a SOFT removal: the row is
+        # kept for history but disabled (enabled=0), rather than physically
+        # deleted. So the row count is unchanged; the row is marked disabled.
         result = self.chapter.remove_member(self.test_member1.name)
-        
+
         # Reload chapter
         self.chapter.reload()
-        
-        # Verify first member is removed
-        self.assertEqual(len(self.chapter.members), initial_count - 1, "Member count should decrease by 1")
-        self.assertFalse(
-            any(m.member == self.test_member1.name for m in self.chapter.members),
-            "First member should be removed"
+
+        # The row is retained (soft-disable), so the count stays the same.
+        self.assertEqual(
+            len(self.chapter.members), initial_count, "Soft remove keeps the member row for history"
         )
-        self.assertTrue(
-            any(m.member == self.test_member2.name for m in self.chapter.members),
-            "Second member should still be in chapter"
+        removed_row = next(
+            (m for m in self.chapter.members if m.member == self.test_member1.name), None
         )
+        self.assertIsNotNone(removed_row, "First member row should be retained")
+        self.assertFalse(removed_row.enabled, "First member should be disabled after removal")
+        second_row = next(
+            (m for m in self.chapter.members if m.member == self.test_member2.name), None
+        )
+        self.assertIsNotNone(second_row, "Second member should still be in chapter")
+        self.assertTrue(second_row.enabled, "Second member should remain enabled")
         self.assertTrue(result, "remove_member method should return True for success")
         
         # Try to remove a member that's not in the chapter

@@ -51,9 +51,33 @@ class TestPontoOAuth2Service(FrappeTestCase):
         settings.ibanity_client_id = "test_client_id_12345"
         # Password fields are set directly in Single DocTypes
         settings.ibanity_client_secret = "test_client_secret_67890"
+        # validate_credentials_configured() requires sandbox_* when sandbox_mode is
+        # on, and production_* when it is off. Provide both so tests that flip
+        # sandbox_mode (e.g. test_live_authorization_url_when_not_sandbox) can save.
+        settings.sandbox_client_id = "test_client_id_12345"
+        settings.sandbox_client_secret = "test_client_secret_67890"
+        settings.production_client_id = "test_prod_client_id"
+        settings.production_client_secret = "test_prod_client_secret"
         settings.sandbox_mode = 1
         settings.use_ibanity_mtls = 0
         settings.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _clear_db_access_token(self):
+        """Remove any DB-stored Ibanity access token + expiry.
+
+        get_access_token() falls back to the DB-stored ibanity_access_token after
+        the cache; a leftover valid token (e.g. set by the PontoClient tests) would
+        otherwise be returned instead of triggering a refresh.
+        """
+        from frappe.utils.password import set_encrypted_password
+
+        set_encrypted_password(
+            "Ponto Settings", "Ponto Settings", "", fieldname="ibanity_access_token"
+        )
+        frappe.db.set_value(
+            "Ponto Settings", "Ponto Settings", "access_token_expiry", None, update_modified=False
+        )
         frappe.db.commit()
 
     def setUp(self):
@@ -448,6 +472,11 @@ class TestPontoOAuth2Service(FrappeTestCase):
 
         service = PontoOAuth2Service()
 
+        # Clear any DB-stored access token/expiry (get_access_token falls back to
+        # the DB-stored ibanity_access_token after the cache, and a leftover valid
+        # token from another test would be returned instead of refreshing).
+        self._clear_db_access_token()
+
         # Store expired token
         cache = frappe.cache()
         cache.set_value("ponto_ibanity_access_token", "expired_token")
@@ -494,6 +523,10 @@ class TestPontoOAuth2Service(FrappeTestCase):
         )
 
         service = PontoOAuth2Service()
+
+        # Clear any DB-stored access token so the cache-expiry path is exercised
+        # instead of falling back to a leftover valid DB token from another test.
+        self._clear_db_access_token()
 
         # Store token that expires in 4 minutes (within 5-minute buffer)
         cache = frappe.cache()

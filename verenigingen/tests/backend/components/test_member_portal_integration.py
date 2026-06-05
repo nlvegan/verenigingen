@@ -121,7 +121,11 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         
         # Create dues schedule for testing
         dues_schedule = self.create_test_dues_schedule_for_member(member)
-        
+
+        # Creating the membership/dues schedule touches the member record, so
+        # reload before mutating to avoid TimestampMismatchError.
+        member.reload()
+
         # Test Active member payment features
         member.status = "Active"
         member.save()
@@ -214,10 +218,12 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         # Member with grace period membership - can register with warning
         member.status = "Active"
         member.save()
-        # Use db_set to bypass UpdateAfterSubmitError
+        # Create a real active membership and put it in Grace Period. db_set
+        # bypasses UpdateAfterSubmitError on the submitted Membership.
+        membership = self.create_test_membership(member=member.name)
         membership.db_set("grace_period_status", "Grace Period", update_modified=False)
         membership.reload()
-        
+
         registration_result = self.attempt_event_registration(member, event)
         self.assertTrue(registration_result.get("success"))
         self.assertIn("grace_period_warning", registration_result.get("warnings", []))
@@ -428,8 +434,12 @@ class TestMemberPortalIntegration(EnhancedTestCase):
     # Helper Methods
     
     def check_portal_access(self, member):
-        """Check if member has basic portal access"""
-        if member.status in ["Quit", "Quit", "Expelled", "Deceased"]:
+        """Check if member has basic portal access.
+
+        Active and Suspended members retain access; terminal/inactive statuses
+        (Quit, Expired, Banned, Expelled, Deceased) lose portal access.
+        """
+        if member.status in ["Quit", "Expired", "Banned", "Expelled", "Deceased"]:
             return False
         return True
         
@@ -636,7 +646,13 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         return self.simulate_portal_session_start(member)
         
     def create_test_dues_schedule_for_member(self, member):
-        """Create test dues schedule for member using factory method"""
+        """Create test dues schedule for member using factory method.
+
+        A dues schedule requires the member to have an active membership, so
+        ensure one exists first.
+        """
+        if not frappe.db.exists("Membership", {"member": member.name, "status": "Active"}):
+            self.create_test_membership(member=member.name)
         return self.create_test_dues_schedule(
             member=member.name,
             frequency="monthly",  # Fixed: use 'frequency' parameter, not 'billing_frequency'
@@ -647,9 +663,33 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         
     def create_test_invoice_data_for_member(self, member):
         """Create test invoice data for member"""
+        # Ensure the membership item exists (not seeded under test isolation)
+        if not frappe.db.exists("Item", "MEMBERSHIP-MONTHLY"):
+            frappe.get_doc({
+                "doctype": "Item",
+                "item_code": "MEMBERSHIP-MONTHLY",
+                "item_name": "Monthly Membership",
+                "item_group": "Services" if frappe.db.exists("Item Group", "Services")
+                              else frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
+                "stock_uom": "Nos",
+                "is_stock_item": 0,
+                "is_sales_item": 1,
+            }).insert(ignore_permissions=True)
+        # Ensure the member has a Customer to invoice
+        member.reload()
+        if not member.customer:
+            from verenigingen.services.customer_handling_service import CustomerHandlingService
+            CustomerHandlingService().create_customer_for_member(member)
+            member.reload()
+
+        company = frappe.db.get_single_value("Verenigingen Settings", "company") or frappe.db.get_value(
+            "Company", {}, "name"
+        )
+
         # Manual creation since no factory method exists yet for Sales Invoice
         invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = member.customer if hasattr(member, 'customer') and member.customer else "Test Customer"
+        invoice.company = company
+        invoice.customer = member.customer
         invoice.member = member.name
         invoice.posting_date = today()
         invoice.is_membership_invoice = 1

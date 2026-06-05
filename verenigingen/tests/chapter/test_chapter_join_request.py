@@ -237,10 +237,15 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         self.assertTrue(callable(join_chapter), "join_chapter should be callable")
         self.assertTrue(callable(get_chapter_join_context), "get_chapter_join_context should be callable")
 
-        # Test context function with valid chapter
+        # Test context function with valid chapter. The endpoint wraps its
+        # payload in the standard {success, data, meta} envelope, so the chapter
+        # info lives under "data".
         context = get_chapter_join_context(self.active_chapter.name)
         self.assertTrue(context.get("success"), "Context should return successfully")
-        self.assertIn("chapter", context, "Context should include chapter information")
+        self.assertIn("data", context, "Context should include a data payload")
+        self.assertIn(
+            "chapter", context["data"], "Context data should include chapter information"
+        )
 
     def test_edge_cases(self):
         """Test edge cases and error conditions"""

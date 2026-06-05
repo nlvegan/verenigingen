@@ -788,7 +788,11 @@ class TestScopedRateLimiting(VereningingenTestCase):
             "enabled": 1,
             "rate_limit_calls": 5,
             "rate_limit_period_seconds": 3600,
-            "batch_rate_limit_calls": 0  # Explicitly disable batch limits
+            # Leave batch limits unset (None) to disable them. The COR controller
+            # now rejects batch_rate_limit_calls < 1, so 0 is no longer a valid way
+            # to express "no batch limits"; an unset value is treated as disabled
+            # by the engine (falsy batch_calls).
+            "batch_rate_limit_calls": None
         })
         cor.insert()
         frappe.db.commit()
@@ -830,8 +834,12 @@ class TestScopedRateLimiting(VereningingenTestCase):
             frappe.delete_doc("Critical Operation Rule", "test_high_security_no_batch_limits", force=True, ignore_permissions=True)
             frappe.db.commit()
 
-        # Create a COR with batch limits explicitly set to 0 - use HIGH security level
-        # Note: DocType has default of 5000, so we must explicitly set to 0 to test inheritance
+        # Create a COR representing "no batch limits configured" - HIGH security.
+        # The COR controller rejects batch_rate_limit_calls < 1, AND the DocType
+        # applies a default of 5000 when the field is left unset, so we cannot
+        # express "unconfigured" at insert time. Insert with a valid batch value,
+        # then clear it directly in the DB (bypassing the default + validation) so
+        # the engine sees no batch limit and must inherit the interactive limit.
         cor = frappe.get_doc({
             "doctype": "Critical Operation Rule",
             "operation_name": "test_high_security_no_batch_limits",
@@ -840,9 +848,17 @@ class TestScopedRateLimiting(VereningingenTestCase):
             "enabled": 1,
             "rate_limit_calls": 3,  # Low limit to test enforcement
             "rate_limit_period_seconds": 3600,
-            "batch_rate_limit_calls": 0  # Explicitly disable - should inherit interactive limits
+            "batch_rate_limit_calls": 5000,
         })
         cor.insert()
+        # Set the batch limit to 0 directly (bypassing the controller's >=1
+        # validation and the field's 5000 default). The engine treats a falsy
+        # batch_rate_limit_calls as "no batch limits configured", which is the
+        # scenario under test. The column is NOT NULL, so 0 (not None) is used.
+        frappe.db.set_value(
+            "Critical Operation Rule", cor.name, "batch_rate_limit_calls", 0, update_modified=False
+        )
+        frappe.cache().delete_value(f"critical_operation_rule:{cor.operation_name}")
         frappe.db.commit()
 
         try:

@@ -110,7 +110,12 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         # Verify real member document changes
         member.reload()  # Get fresh data from database
         self.assertEqual(member.status, "Suspended")
-        self.assertEqual(member.pre_suspension_status, "Active")
+        # Pre-suspension status is not a Member field; it is recorded in notes and
+        # surfaced via get_member_suspension_status().
+        self.assertIn("Pre-suspension status: Active", member.notes)
+        self.assertEqual(
+            get_member_suspension_status(self.test_member.name)["pre_suspension_status"], "Active"
+        )
         self.assertIn(self.suspension_reason, member.notes)
         
         # Verify real user account suspension
@@ -118,10 +123,14 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         self.assertEqual(user.enabled, 0)
         self.assertIn(self.suspension_reason, user.bio or "")
         
-        # Verify actions taken list contains expected entries
+        # Verify actions taken list contains expected entries. The user-account
+        # action includes the email in parentheses, so match by prefix.
         actions = result["actions_taken"]
         self.assertIn("Member status changed from Active to Suspended", actions)
-        self.assertIn("User account suspended", actions)
+        self.assertTrue(
+            any(a.startswith("User account suspended") for a in actions),
+            f"Expected a 'User account suspended' action, got {actions}",
+        )
 
     def test_suspend_member_safe_already_suspended_real(self):
         """Test suspension of already suspended member with real database state"""
@@ -165,8 +174,10 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         # Verify suspended state in real database
         member = frappe.get_doc("Member", self.test_member.name)
         self.assertEqual(member.status, "Suspended")
-        self.assertEqual(member.pre_suspension_status, "Active")
-        
+        self.assertEqual(
+            get_member_suspension_status(self.test_member.name)["pre_suspension_status"], "Active"
+        )
+
         user = frappe.get_doc("User", self.test_user.email)
         self.assertEqual(user.enabled, 0)
         
@@ -174,7 +185,6 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         unsuspend_result = unsuspend_member_safe(
             self.test_member.name,
             self.unsuspension_reason,
-            unsuspend_user=True
         )
         
         # Verify unsuspension results
@@ -190,10 +200,17 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         user.reload()
         self.assertEqual(user.enabled, 1)  # User re-enabled
         
-        # Verify actions taken
+        # Verify actions taken. Current messages: "Member status restored to
+        # Active" and "User account reactivated (<email>)".
         actions = unsuspend_result["actions_taken"]
-        self.assertIn("Member status changed from Suspended to Active", actions)
-        self.assertIn("User account unsuspended", actions)
+        self.assertTrue(
+            any("status restored to Active" in a for a in actions),
+            f"Expected a member-status-restored action, got {actions}",
+        )
+        self.assertTrue(
+            any(a.startswith("User account reactivated") for a in actions),
+            f"Expected a 'User account reactivated' action, got {actions}",
+        )
 
     def test_get_member_suspension_status_real_database(self):
         """Test suspension status retrieval with real database queries"""
@@ -233,25 +250,28 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         self.assertIn("error", result)
         # The actual error message will come from real database operation failure
         
-        # Test unsuspension of non-suspended member
+        # Test unsuspension of non-suspended member. Unsuspending an Active member
+        # is an invalid operation, so the service reports success=False with a
+        # clear "not suspended" error rather than silently no-opping.
         unsuspend_result = unsuspend_member_safe(
             self.test_member.name,  # This member is Active, not Suspended
             "Test reason"
         )
-        
-        # Should handle gracefully - member not suspended
-        self.assertTrue(unsuspend_result["success"])
-        self.assertFalse(unsuspend_result["member_unsuspended"])  # No action taken
+
+        self.assertFalse(unsuspend_result["success"])
+        self.assertIn("not suspended", unsuspend_result.get("error", "").lower())
 
     def test_suspension_with_real_team_integration(self):
         """Test suspension with real team membership operations"""
         
-        # Verify team membership exists in real database
+        # Verify team membership exists in real database. Team Member is a child
+        # table of Team, so the team is the `parent` (there is no `team` column).
         team_memberships = frappe.get_all(
             "Team Member",
             filters={
                 "volunteer": self.test_volunteer.name,
-                "team": self.test_team.name
+                "parent": self.test_team.name,
+                "parenttype": "Team",
             }
         )
         self.assertGreater(len(team_memberships), 0)
@@ -298,7 +318,6 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
         unsuspend_result = unsuspend_member_safe(
             self.test_member.name,
             self.unsuspension_reason,
-            unsuspend_user=True
         )
         
         self.assertTrue(unsuspend_result["success"])

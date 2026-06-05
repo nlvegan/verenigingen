@@ -39,6 +39,19 @@ class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
             status="Active"
         )
 
+    def _post_or_skip(self, endpoint, data):
+        """POST to an API endpoint, skipping the test if no HTTP server is reachable.
+
+        These are real-HTTP integration tests. Under `bench run-tests` there is
+        usually no live web server bound to the site hostname (e.g. the site name
+        does not resolve via DNS), so a ConnectionError here means "no server to
+        integrate with" rather than a product failure - skip instead of erroring.
+        """
+        try:
+            return requests.post(f"{self.api_base}/{endpoint}", data=data, timeout=10)
+        except requests.exceptions.RequestException as e:
+            self.skipTest(f"HTTP server not reachable for integration test ({e})")
+
     def test_suspension_api_security_validation_http(self):
         """
         Test suspension API security validation through HTTP
@@ -49,12 +62,12 @@ class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
         - No business logic mocks required
         """
         # Unauthenticated request to test security
-        response = requests.post(
-            f"{self.api_base}/verenigingen.api.suspension_api.suspend_member",
-            data={
+        response = self._post_or_skip(
+            "verenigingen.api.suspension_api.suspend_member",
+            {
                 "member_name": self.test_member.name,
-                "suspension_reason": "HTTP Security Test"
-            }
+                "suspension_reason": "HTTP Security Test",
+            },
         )
         
         # Security responses (401, 403) are SUCCESS indicators
@@ -72,9 +85,9 @@ class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
         Demonstrates HTTP integration without mocks
         """
         # Test status API access
-        response = requests.post(
-            f"{self.api_base}/verenigingen.api.suspension_api.get_suspension_status",
-            data={"member_name": self.test_member.name}
+        response = self._post_or_skip(
+            "verenigingen.api.suspension_api.get_suspension_status",
+            {"member_name": self.test_member.name},
         )
         
         # Any response shows the API is accessible through HTTP
@@ -91,9 +104,9 @@ class TestSuspensionAPISimpleHTTP(EnhancedTestCase):
         Shows HTTP integration testing of utility APIs
         """
         # Test permission checking API
-        response = requests.post(
-            f"{self.api_base}/verenigingen.api.suspension_api.can_suspend_member",
-            data={"member_name": self.test_member.name}
+        response = self._post_or_skip(
+            "verenigingen.api.suspension_api.can_suspend_member",
+            {"member_name": self.test_member.name},
         )
         
         # Permission checking should respond through HTTP

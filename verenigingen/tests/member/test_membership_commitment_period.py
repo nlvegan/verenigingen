@@ -35,6 +35,10 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
                 "is_active": 1,
+                # Set explicitly: EnhancedTestCase runs with frappe.flags.in_import,
+                # which suppresses DocType field defaults (enforce_minimum_period
+                # would otherwise default to 1).
+                "enforce_minimum_period": 1,
             }
         ).insert()
 
@@ -180,6 +184,8 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
                 "is_active": 1,
+                # Set explicitly: in_import suppresses DocType field defaults.
+                "enforce_minimum_period": 1,
             }
         ).insert()
 

@@ -90,8 +90,10 @@ class TestUserMemberImageSync(EnhancedTestCase):
         """Test that sync flag prevents infinite loops."""
         test_image = "/files/loop_test.jpg"
 
-        # Set the sync flag manually
-        frappe.flags.syncing_user_member_image = True
+        # Image sync runs through the generic field_sync_service, which guards
+        # against recursion with the "syncing_member_user_fields" flag. Setting
+        # it here must suppress the Member -> User image sync.
+        frappe.flags.syncing_member_user_fields = True
 
         try:
             # Update member image - should not sync due to flag
@@ -105,7 +107,7 @@ class TestUserMemberImageSync(EnhancedTestCase):
                               "Sync should be prevented when flag is set")
         finally:
             # Clean up flag
-            frappe.flags.syncing_user_member_image = False
+            frappe.flags.syncing_member_user_fields = False
 
     def test_sync_handles_missing_user(self):
         """Test that sync gracefully handles members without users."""

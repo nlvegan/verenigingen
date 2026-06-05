@@ -46,26 +46,29 @@ class TestSecurityPenetration(EnhancedTestCase):
         """Set up security test environment"""
         super().setUpClass()
         
-        # Create test settings with security features enabled
-        if not DocumentExistenceValidator.check_document_exists("Mollie Settings", "Security Test"):
-            settings = frappe.new_doc("Mollie Settings")
-            settings.gateway_name = "Security Test"
-            settings.secret_key = "sec_test_key_" + "x" * 32
-            settings.profile_id = "pfl_sec_test"
-            settings.enable_backend_api = True
-            settings.enable_encryption = True
-            settings.enable_audit_trail = True
-            settings.webhook_secret = "webhook_secret_123"
-            settings.insert()
-            frappe.db.commit()
-    
+        # Mollie Settings is a Single DocType. Configure it for testing: test mode
+        # requires test_secret_key + profile_id (validate_mollie_credentials).
+        settings = frappe.get_single("Mollie Settings")
+        settings.test_mode = 1
+        settings.test_secret_key = "test_sec_key_" + "x" * 32
+        settings.profile_id = "pfl_sec_test"
+        settings.enable_backend_api = 1
+        settings.backend_webhook_secret = "webhook_secret_123"
+        settings.flags.ignore_validate = True
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+
     def setUp(self):
         """Set up test case"""
         super().setUp()
-        self.settings_name = "Security Test"
-        self.security_manager = MollieSecurityManager(self.settings_name)
+        # Mollie Settings is a Single; its doc name is "Mollie Settings".
+        self.settings_name = "Mollie Settings"
+        self.settings_doc = frappe.get_single("Mollie Settings")
+        # MollieSecurityManager takes a settings doc; WebhookValidator takes the
+        # security manager.
+        self.security_manager = MollieSecurityManager(self.settings_doc)
         self.encryption_handler = EncryptionHandler()
-        self.webhook_validator = WebhookValidator(self.settings_name)
+        self.webhook_validator = WebhookValidator(self.security_manager)
     
     def test_sql_injection_attempts(self):
         """Test protection against SQL injection attacks"""
@@ -85,7 +88,7 @@ class TestSecurityPenetration(EnhancedTestCase):
             ReconciliationEngine
         )
         
-        engine = ReconciliationEngine(self.settings_name)
+        engine = ReconciliationEngine()
         
         for payload in sql_payloads:
             # Try to inject via various input points

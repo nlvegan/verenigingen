@@ -65,6 +65,17 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
 
         print("\n=== MEMBER CREATION PERFORMANCE COMPARISON ===")
 
+        # Warm DocType meta / schema caches so the counted block measures the
+        # steady-state query cost, not one-time cold-cache meta loading
+        # (information_schema + tabDocType/tabDocField introspection), which on
+        # a cold first-test run dwarfs the actual creation queries.
+        self.create_test_member(
+            first_name="Warmup", last_name="Standard", birth_date="1985-01-01", postal_code="1234 AB"
+        )
+        self.create_test_member_optimized(
+            first_name="Warmup", last_name="Optimized", birth_date="1985-01-01"
+        )
+
         # Test 1: Standard member creation (baseline)
         print("\n1. Testing Standard Member Creation:")
         with self._count_queries(1000) as standard_context:
@@ -79,7 +90,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         print("\n2. Testing Optimized Member Creation:")
         with self._count_queries(150) as optimized_context:
             optimized_member = self.create_test_member_optimized(
-                first_name="Optimized", last_name="Creation", birth_date="1985-01-01", postal_code="1234 AB"
+                first_name="Optimized", last_name="Creation", birth_date="1985-01-01"
             )
 
         optimized_queries = len(optimized_context.queries)

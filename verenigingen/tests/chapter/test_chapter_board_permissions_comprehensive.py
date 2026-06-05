@@ -181,18 +181,23 @@ class ChapterBoardTestFactory:
             volunteer_name=f"{member.first_name} {member.last_name}",
             email=member.email
         )
-        
+        # Guarantee the volunteer is linked to THIS persona's member. The factory
+        # can otherwise leave volunteer.member pointing at a different (auto-
+        # created) member, which breaks user->member->board-chapter resolution in
+        # the permission checks.
+        self._link_volunteer_to_member(volunteer, member.name)
+
         # Create user for the member
         user = self.create_test_user(
             email=member.email,
             first_name=member.first_name,
             last_name=member.last_name
         )
-        
+
         # Link user to member
         member.user = user.name
         member.save()
-        
+
         # Create board member position
         board_member = self.create_chapter_board_member(
             chapter_name=chapter_name,
@@ -236,18 +241,19 @@ class ChapterBoardTestFactory:
             volunteer_name=f"{member.first_name} {member.last_name}",
             email=member.email
         )
-        
+        self._link_volunteer_to_member(volunteer, member.name)
+
         # Create user
         user = self.create_test_user(
             email=member.email,
             first_name=member.first_name,
             last_name=member.last_name
         )
-        
+
         # Link user to member
         member.user = user.name
         member.save()
-        
+
         # Create board member position
         board_member = self.create_chapter_board_member(
             chapter_name=chapter_name,
@@ -279,14 +285,15 @@ class ChapterBoardTestFactory:
             volunteer_name=f"{member.first_name} {member.last_name}",
             email=member.email
         )
-        
+        self._link_volunteer_to_member(volunteer, member.name)
+
         # Create user
         user = self.create_test_user(
             email=member.email,
             first_name=member.first_name,
             last_name=member.last_name
         )
-        
+
         # Link user to member
         member.user = user.name
         member.save()
@@ -316,11 +323,58 @@ class ChapterBoardTestFactory:
         chapter = frappe.get_doc("Chapter", chapter_name)
         chapter.append("board_members", defaults)
         chapter.save()
-        
+
+        # Saving the chapter assigns the "Verenigingen Chapter Board Member" role
+        # to the volunteer's user (BoardManager.handle_board_member_additions).
+        # However, that same save also runs _sync_role_profile_for_volunteer ->
+        # auto_sync_on_role_change, which reloads the User (creating an Employee
+        # and triggering ERPNext's validate_employee_role) and can drop the
+        # just-granted board role. Re-assert it here so permission tests have a
+        # deterministic board-member user, then clear the cached role set.
+        member_name = frappe.db.get_value("Volunteer", volunteer_name, "member")
+        if member_name:
+            user = frappe.db.get_value("Member", member_name, "user")
+            if user:
+                if not frappe.db.exists(
+                    "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
+                ):
+                    user_doc = frappe.get_doc("User", user)
+                    user_doc.append("roles", {"role": "Verenigingen Chapter Board Member"})
+                    user_doc.save(ignore_permissions=True)
+                frappe.clear_cache(user=user)
+
         # Return the board member record
         board_member_record = chapter.board_members[-1]
         return board_member_record
-    
+
+    def _link_volunteer_to_member(self, volunteer, member_name):
+        """Ensure a volunteer's member field points at the given member.
+
+        The permission chain resolves acting user -> Member -> Volunteer ->
+        active board Chapter. If the factory leaves volunteer.member pointing at
+        a different member than the one whose User is the acting user, board
+        chapters resolve empty and access is wrongly denied.
+        """
+        if frappe.db.get_value("Volunteer", volunteer.name, "member") != member_name:
+            frappe.db.set_value("Volunteer", volunteer.name, "member", member_name)
+            volunteer.member = member_name
+
+    def ensure_board_role(self, user):
+        """Idempotently ensure a user holds the Chapter Board Member role.
+
+        The role-profile sync triggered by Chapter saves can transiently drop the
+        ad-hoc "Verenigingen Chapter Board Member" role when no chapter-specific
+        board role profile is configured. Tests use this to pin the intended
+        board-member state before exercising row-level permission checks.
+        """
+        if not frappe.db.exists(
+            "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
+        ):
+            user_doc = frappe.get_doc("User", user)
+            user_doc.append("roles", {"role": "Verenigingen Chapter Board Member"})
+            user_doc.save(ignore_permissions=True)
+        frappe.clear_cache(user=user)
+
     def add_member_to_chapter(self, member_name, chapter_name):
         """Add member to chapter members table"""
         chapter = frappe.get_doc("Chapter", chapter_name)
@@ -691,12 +745,19 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             member_name=self.regular_member_a["member"].name,
             termination_reason="Test termination workflow"
         )
-        
+
+        # Ensure the treasurer still holds the board role. Building the other
+        # personas / adding members re-saves the shared chapter, and the role
+        # profile sync that runs on those saves can transiently drop the board
+        # role from this user (it is re-derived from board membership). Re-assert
+        # the intended state so the permission assertion is deterministic.
+        self.board_factory.ensure_board_role(self.treasurer_a["user"].name)
+
         # Board member should be able to access and process termination request
         with self.as_user(self.treasurer_a["user"].email):
             try:
                 retrieved_request = frappe.get_doc("Membership Termination Request", termination_request.name)
-                
+
                 # Process the termination
                 retrieved_request.status = "Approved"
                 retrieved_request.processed_by = self.treasurer_a["user"].email
@@ -710,10 +771,20 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             except frappe.PermissionError:
                 self.fail("Board member should have access to termination requests in their chapter")
         
-        # Board member from other chapter should not access
+        # Board member from another chapter must not have access. frappe.get_doc()
+        # does not enforce read permission on its own, so assert the permission
+        # check directly (and that an explicit check_permission raises).
         with self.as_user(self.treasurer_b["user"].email):
-            with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
-                frappe.get_doc("Membership Termination Request", termination_request.name)
+            self.assertFalse(
+                frappe.has_permission(
+                    "Membership Termination Request", "read", doc=termination_request.name
+                ),
+                "Board member of another chapter should not have read access",
+            )
+            with self.assertRaises(frappe.PermissionError):
+                frappe.get_doc(
+                    "Membership Termination Request", termination_request.name
+                ).check_permission("read")
     
     @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_workflow_edge_cases(self):
@@ -759,20 +830,28 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
     def test_orphaned_board_member_handling(self):
         """Test behavior with orphaned board member records"""
         # Create board member with volunteer that will be deleted
-        temp_member = self.test_case.create_test_member(
+        temp_member = self.create_test_member(
             first_name="Temp",
             last_name="Member",
             email=f"temp.{frappe.generate_hash(length=6)}@test.invalid"
         )
-        temp_volunteer = self.test_case.create_test_volunteer(
+        temp_volunteer = self.create_test_volunteer(
             member_name=temp_member.name
         )
         
-        # Create board position
+        # Create board position with a FRESH role. The treasurer role from
+        # setUp is is_unique=1 and already held by treasurer_a's board member,
+        # so reusing it would fail "Unique role assigned to multiple active
+        # board members" validation.
+        orphan_role = self.board_factory.create_test_chapter_role(
+            f"TestOrphan_{frappe.generate_hash(length=6)}",
+            permissions_level="Basic",
+            is_unique=0,
+        )
         board_position = self.board_factory.create_chapter_board_member(
             chapter_name=self.chapter_a.name,
             volunteer_name=temp_volunteer.name,
-            chapter_role_name=self.treasurer_a["treasurer_role"].name
+            chapter_role_name=orphan_role.name
         )
         
         # Delete the volunteer (simulating data corruption)

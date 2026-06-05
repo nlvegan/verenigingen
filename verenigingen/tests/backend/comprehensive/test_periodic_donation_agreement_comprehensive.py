@@ -35,6 +35,11 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
             donor_type="Individual"
         )
         donor.db_set("bsn_citizen_service_number", generate_valid_bsn(), update_modified=False)
+        # ANBI-eligible agreements require the donor to have recorded ANBI consent
+        # (fail-closed validation in anbi_validation_service). Most tests in this
+        # suite create ANBI-eligible agreements, so seed consent on the donor.
+        donor.db_set("anbi_consent", 1, update_modified=False)
+        donor.db_set("anbi_consent_date", frappe.utils.now(), update_modified=False)
         return donor.name
     
     # Basic Functionality Tests
@@ -387,6 +392,10 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         donor.donor_email = "test@example.com"
         donor.donor_type = "Individual"
         donor.bsn_citizen_service_number = generate_valid_bsn()
+        # ANBI-eligible agreement (default duration is the 5-year ANBI minimum)
+        # requires recorded donor ANBI consent (fail-closed validation).
+        donor.anbi_consent = 1
+        donor.anbi_consent_date = frappe.utils.now()
         donor.insert()
         self.track_doc("Donor", donor.name)
         
@@ -536,12 +545,17 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.donor = self.test_donor
         agreement.start_date = today()
         agreement.agreement_duration_years = "1 Year (Pledge - No ANBI benefits)"
+        # anbi_eligible defaults to 1 on the DocType. Server-side validate_dates()
+        # (5-year ANBI minimum) runs before update_anbi_eligibility(), so any
+        # non-Desk caller building a sub-5-year agreement must set anbi_eligible=0
+        # explicitly the way the form JS does (see test_anbi_clarity_lifecycle).
+        agreement.anbi_eligible = 0
         agreement.annual_amount = 1000
         agreement.payment_frequency = "Annually"
         agreement.payment_method = "Bank Transfer"
         agreement.insert()
         self.track_doc("Periodic Donation Agreement", agreement.name)
-        
+
         self.assertEqual(agreement.anbi_eligible, 0)
         self.assertEqual(agreement.commitment_type, "Donation Pledge (No ANBI Tax Benefits)")
         

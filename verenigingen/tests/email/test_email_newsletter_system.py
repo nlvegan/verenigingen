@@ -80,7 +80,10 @@ class TestEmailNewsletterSystemSecurity(EnhancedTestCase):
             last_name="TestUser",
             email=f"security-test-{uuid.uuid4().hex[:8]}@test.invalid",
             birth_date="1990-01-01",
-            status="Active"
+            status="Active",
+            # Frappe v16 skips the JSON default (1) on raw inserts, so set the
+            # opted-in flag explicitly or the member is excluded from segments.
+            accepts_optional_communications=1,
         )
         
         # Create Chapter Member relationship
@@ -357,7 +360,8 @@ class TestEmailNewsletterSystemIntegration(EnhancedTestCase):
                 last_name="Integration",
                 email=f"member-int-{i}-{uuid.uuid4().hex[:8]}@test.invalid",
                 birth_date="1990-01-01",
-                status="Active"
+                status="Active",
+                accepts_optional_communications=1,
             )
             self.test_members.append(member)
             
@@ -712,7 +716,8 @@ class TestEmailNewsletterSystemPerformance(EnhancedTestCase):
                 first_name=f"PerfMember{i}",
                 last_name="Test",
                 email=f"perf{i}@test.invalid",
-                birth_date="1990-01-01"
+                birth_date="1990-01-01",
+                accepts_optional_communications=1,
             )
             members_created.append(member)
             

@@ -56,33 +56,44 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         """Set up test data for permission testing"""
         super().setUp()
 
-        # Create test chapters
-        self.chapter_1 = self.create_chapter(chapter_name="Test Chapter 1", region=_ensure_test_region())
+        # These tests commit (frappe.db.commit() below) so per-test rollback does
+        # NOT clean them up. Use a unique token per test to avoid DuplicateEntry
+        # collisions on chapter names / role names / emails across the module run.
+        import time
 
-        self.chapter_2 = self.create_chapter(chapter_name="Test Chapter 2", region=_ensure_test_region())
+        token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
+
+        # Create test chapters
+        self.chapter_1 = self.create_chapter(
+            chapter_name=f"Test Chapter 1 {token}", region=_ensure_test_region()
+        )
+
+        self.chapter_2 = self.create_chapter(
+            chapter_name=f"Test Chapter 2 {token}", region=_ensure_test_region()
+        )
 
         # Create test members and volunteers. The permission functions resolve
         # the acting user -> Member -> Volunteer -> board Chapter, so the board
         # members must be backed by real User accounts.
-        board_user_1 = self.create_test_user(email="board1@test.com", roles=["Verenigingen Member"])
-        board_user_2 = self.create_test_user(email="board2@test.com", roles=["Verenigingen Member"])
+        board_user_1 = self.create_test_user(email=f"board1-{token}@test.com", roles=["Verenigingen Member"])
+        board_user_2 = self.create_test_user(email=f"board2-{token}@test.com", roles=["Verenigingen Member"])
 
         self.board_member_1 = self.create_test_member(
             first_name="Board",
             last_name="Member1",
-            email="board1@test.com",
+            email=f"board1-{token}@test.com",
             user=board_user_1.name,
         )
 
         self.board_member_2 = self.create_test_member(
             first_name="Board",
             last_name="Member2",
-            email="board2@test.com",
+            email=f"board2-{token}@test.com",
             user=board_user_2.name,
         )
 
         self.regular_member = self.create_test_member(
-            first_name="Regular", last_name="Member", email="regular@test.com"
+            first_name="Regular", last_name="Member", email=f"regular-{token}@test.com"
         )
 
         # Create volunteers for board members
@@ -93,7 +104,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         self.treasurer_role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
-                "role_name": "Treasurer",
+                "role_name": f"Treasurer {token}",
                 "permissions_level": "Financial",
                 "is_unique": 1,
                 "is_active": 1,
@@ -104,7 +115,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         self.secretary_role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
-                "role_name": "Secretary",
+                "role_name": f"Secretary {token}",
                 "permissions_level": "Basic",
                 "is_unique": 1,
                 "is_active": 1,
@@ -454,19 +465,28 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         """Set up test data for role management testing"""
         super().setUp()
 
-        self.test_user = self.create_test_user("testboard@example.com")
+        import time
+
+        token = f"{int(time.time() * 1000)}{frappe.generate_hash(length=4)}"
+
+        self.test_user = self.create_test_user(f"testboard-{token}@example.com")
         self.test_member = self.create_test_member(
-            first_name="Test", last_name="Board", email="testboard@example.com", user=self.test_user.name
+            first_name="Test",
+            last_name="Board",
+            email=f"testboard-{token}@example.com",
+            user=self.test_user.name,
         )
 
-        self.test_chapter = self.create_chapter(chapter_name="Test Chapter", region=_ensure_test_region())
+        self.test_chapter = self.create_chapter(
+            chapter_name=f"Test Chapter {token}", region=_ensure_test_region()
+        )
 
         self.test_volunteer = self.create_test_volunteer(self.test_member.name)
 
         self.test_role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
-                "role_name": "Test Board Role",
+                "role_name": f"Test Board Role {token}",
                 "permissions_level": "Basic",
                 "is_active": 1,
             }

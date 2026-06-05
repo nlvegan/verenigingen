@@ -352,7 +352,10 @@ class TestCreateProvisionalParty(unittest.TestCase):
 
         mock_frappe.new_doc.assert_called_once_with("Customer")
         self.assertEqual(mock_doc.customer_name, "E-Boekhouden Customer 123")
-        self.assertEqual(mock_doc.customer_group, "All Customer Groups")
+        # customer_group is resolved via resolve_non_group_customer_group() (not
+        # the broken group-node "All Customer Groups"); on the test site it
+        # resolves to the leaf "Individual" group.
+        self.assertEqual(mock_doc.customer_group, "Individual")
         self.assertEqual(mock_doc.territory, "All Territories")
         self.assertEqual(mock_doc.eboekhouden_relation_code, "123")
         mock_doc.insert.assert_called_once()
