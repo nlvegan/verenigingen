@@ -55,9 +55,12 @@ def persist_full_error_log(
             truncated_log = error_log
             truncation_note = ""
 
-        # Generate timestamped filename with consistent format
+        # Generate timestamped filename with a random suffix. The timestamp
+        # has second resolution, so two error logs persisted in the same
+        # second would collide without the random suffix.
         timestamp = now_datetime().strftime("%Y%m%d_%H%M%S")
-        filename = f"import_errors_{timestamp}.txt"
+        unique_suffix = frappe.generate_hash(length=6)
+        filename = f"import_errors_{timestamp}_{unique_suffix}.txt"
 
         # Build file content with header
         content_lines = [

@@ -260,23 +260,32 @@ class ImmutableAuditTrail:
 
         try:
             for entry in self.buffer:
-                # Create Mollie Audit Log document
+                # Create Mollie Audit Log document. Populate the CANONICAL fields
+                # (event_type / severity / description / event_data) that current
+                # queries read; the legacy action/status/details fields are kept
+                # in sync for backward compatibility. (Previously only the legacy
+                # fields were written, leaving event_type/severity/description
+                # empty so every event_type-filtered query returned nothing.)
                 audit_log = frappe.new_doc("Mollie Audit Log")
-                audit_log.action = entry["event_type"]
-                audit_log.status = self._map_severity_to_status(entry["severity"])
-                audit_log.details = json.dumps(
+                audit_log.event_type = entry["event_type"]
+                audit_log.severity = entry["severity"]
+                audit_log.description = entry["description"]
+                audit_log.event_data = json.dumps(
                     {
-                        "description": entry["description"],
                         "details": entry["details"],
                         "entity_type": entry["entity_type"],
                         "entity_id": entry["entity_id"],
                         "context": entry["context"],
+                        "sequence": entry["sequence"],
+                        "previous_hash": entry["previous_hash"],
                     }
                 )
+                # Legacy fields (kept in sync for backward compatibility)
+                audit_log.action = entry["event_type"]
+                audit_log.status = self._map_severity_to_status(entry["severity"])
+                audit_log.details = audit_log.event_data
                 audit_log.user = entry["user"]
                 audit_log.timestamp = entry["timestamp"]
-                audit_log.sequence = str(entry["sequence"])
-                audit_log.previous_hash = entry["previous_hash"]
                 audit_log.integrity_hash = entry["hash"]
 
                 # Save audit log - use system user context for audit operations

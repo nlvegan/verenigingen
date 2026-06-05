@@ -122,7 +122,14 @@ class EmailConfigurationService:
         if not config:
             return {}
 
-        return config.get_notification_config(notification_key)
+        # Resilience: a misconfigured/corrupted config (e.g. a missing
+        # notification_types child table) must not break callers. Return an
+        # empty config so the notification falls back to default behaviour.
+        try:
+            return config.get_notification_config(notification_key)
+        except Exception as e:
+            frappe.logger().warning(f"Failed to read notification config for '{notification_key}': {e}")
+            return {}
 
     def check_cooldown(self, notification_key: str, recipient: str) -> bool:
         """Check if notification can be sent (not in cooldown).
@@ -144,7 +151,13 @@ class EmailConfigurationService:
             return True
 
         cache_key = self._get_cooldown_cache_key(notification_key, recipient)
-        last_sent = frappe.cache().get_value(cache_key)
+        # Resilience: a cache (Redis) outage must not block legitimate sends.
+        # On any cache read error, allow the send (fail open).
+        try:
+            last_sent = frappe.cache().get_value(cache_key)
+        except Exception as e:
+            frappe.logger().warning(f"Cooldown cache read failed for '{cache_key}': {e}")
+            return True
 
         if not last_sent:
             return True
@@ -168,7 +181,12 @@ class EmailConfigurationService:
         cooldown_seconds = max(cooldown_minutes * 60, 60)  # Minimum 1 minute
 
         cache_key = self._get_cooldown_cache_key(notification_key, recipient)
-        frappe.cache().set_value(cache_key, str(time.time()), expires_in_sec=cooldown_seconds)
+        # Resilience: a cache (Redis) write failure must not break email
+        # sending. Cooldown tracking is best-effort; log and continue.
+        try:
+            frappe.cache().set_value(cache_key, str(time.time()), expires_in_sec=cooldown_seconds)
+        except Exception as e:
+            frappe.logger().warning(f"Cooldown cache write failed for '{cache_key}': {e}")
 
     def _get_cooldown_cache_key(self, notification_key: str, recipient: str) -> str:
         """Generate cache key for cooldown tracking.
@@ -501,7 +519,11 @@ class EmailConfigurationService:
             recipient: Email address.
         """
         cache_key = self._get_cooldown_cache_key(notification_key, recipient)
-        frappe.cache().delete_value(cache_key)
+        # Resilience: a cache (Redis) delete failure must not propagate.
+        try:
+            frappe.cache().delete_value(cache_key)
+        except Exception as e:
+            frappe.logger().warning(f"Cooldown cache delete failed for '{cache_key}': {e}")
 
 
 # Singleton instance

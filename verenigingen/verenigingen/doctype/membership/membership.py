@@ -30,10 +30,15 @@ class Membership(Document):
         self.set_status()
 
     def _get_membership_type_doc(self):
-        """Get cached Membership Type doc for current validate cycle (avoids 4 redundant DB fetches)."""
-        if self._membership_type_doc is None and self.membership_type:
+        """Get cached Membership Type doc for current validate cycle (avoids 4 redundant DB fetches).
+
+        Uses getattr so callers that invoke validate_dates()/set_renewal_date()
+        directly (outside the full validate() cycle that initialises the cache)
+        do not hit an AttributeError.
+        """
+        if getattr(self, "_membership_type_doc", None) is None and self.membership_type:
             self._membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
-        return self._membership_type_doc
+        return getattr(self, "_membership_type_doc", None)
 
     def on_submit(self) -> None:
         """Create or update dues schedule when membership is submitted"""
@@ -414,7 +419,9 @@ class Membership(Document):
                 months = self.get_months_from_period(billing_period, billing_period_in_months)
 
                 # Check if minimum period enforcement is enabled for this membership type
-                enforce_minimum = membership_type.get("enforce_minimum_period", True)
+                enforce_minimum = (
+                    membership_type.get("enforce_minimum_period", True) if membership_type else True
+                )
 
                 # Ensure minimum 1-year membership period if enabled
                 if months and months < 12 and enforce_minimum:
@@ -459,7 +466,9 @@ class Membership(Document):
                         self.renewal_date = add_to_date(self.start_date, days=1)
             else:
                 # Check if minimum period enforcement is enabled for this membership type
-                enforce_minimum = membership_type.get("enforce_minimum_period", True)
+                enforce_minimum = (
+                    membership_type.get("enforce_minimum_period", True) if membership_type else True
+                )
 
                 if enforce_minimum:
                     # For lifetime memberships, still set a minimum 1-year initial period

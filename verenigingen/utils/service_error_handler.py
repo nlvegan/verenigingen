@@ -58,10 +58,14 @@ def handle_service_error(error, service_name, operation, context=None, raise_err
     else:
         frappe.logger().info(full_message)
 
-    # Create standardized error result
+    # Create standardized error result. ``errors`` (a list) mirrors the shape of
+    # the success envelope produced by ``BaseService.create_result`` so callers
+    # can read a uniform ``errors`` field regardless of outcome; ``error`` is
+    # kept for backward compatibility.
     error_result = {
         "success": False,
         "error": error_message,
+        "errors": [error_message],
         "service": service_name,
         "operation": operation,
         "context": context,

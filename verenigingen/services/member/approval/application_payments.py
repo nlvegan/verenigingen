@@ -182,8 +182,25 @@ def create_customer_for_member(member):
         if not contact:
             frappe.throw(_("Failed to create Contact for Customer"))
 
-        # Set primary contact - ERPNext will automatically populate email_id/mobile_no via fetch_from
-        customer.db_set("customer_primary_contact", contact.name, update_modified=False)
+        # Set primary contact. The email_id/mobile_no fields use fetch_from on
+        # customer_primary_contact, but fetch_from only runs during a full
+        # document save - not on db_set - so we populate them explicitly here to
+        # keep the Customer's denormalised contact fields in sync with the
+        # primary Contact.
+        primary_email = next((e.email_id for e in contact.email_ids if e.is_primary), None) or (
+            contact.email_ids[0].email_id if contact.email_ids else None
+        )
+        primary_mobile = next((p.phone for p in contact.phone_nos if p.is_primary_mobile_no), None) or (
+            contact.phone_nos[0].phone if contact.phone_nos else None
+        )
+        # Only set fields we actually resolved, so a contact without email/phone
+        # doesn't null out a Customer's existing email_id/mobile_no.
+        customer_fields = {"customer_primary_contact": contact.name}
+        if primary_email:
+            customer_fields["email_id"] = primary_email
+        if primary_mobile:
+            customer_fields["mobile_no"] = primary_mobile
+        customer.db_set(customer_fields, update_modified=False)
     except Exception as e:
         frappe.db.rollback(save_point=savepoint_name)
         # frappe.log_error signature is (title, message, ...). A positional

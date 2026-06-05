@@ -81,11 +81,8 @@ class ServiceMetrics:
             self._operation_access_times[operation_name] = current_time
 
             # Initialize operation metrics if not exists
-            if operation_name not in self.operation_metrics:
-                # Check if we need to cleanup old operations
-                if len(self.operation_metrics) >= self.max_operations:
-                    self._cleanup_old_operations()
-
+            new_operation = operation_name not in self.operation_metrics
+            if new_operation:
                 self.operation_metrics[operation_name] = {
                     "count": 0,
                     "errors": 0,
@@ -103,6 +100,12 @@ class ServiceMetrics:
 
             if not success:
                 op_metrics["errors"] += 1
+
+            # Enforce the operation-tracking cap after recording, so the tracked
+            # set never grows past the configured maximum even when many distinct
+            # operation names arrive in quick succession.
+            if new_operation and len(self.operation_metrics) > self.max_operations:
+                self._cleanup_old_operations()
 
             # Periodic cleanup to prevent memory leaks
             if current_time - self._last_cleanup > 3600:  # Cleanup every hour
@@ -188,9 +191,13 @@ class ServiceMetrics:
             self._last_cleanup = time.time()
 
     def _cleanup_old_operations(self):
-        """Clean up old, unused operation metrics to prevent memory leaks.
+        """Clean up operation metrics to prevent memory leaks.
 
-        Removes operations that haven't been accessed in the last 24 hours.
+        Removes operations that haven't been accessed in the last 24 hours, and
+        additionally enforces the ``max_operations`` cap by evicting the
+        least-recently-used operations when the tracked set still exceeds the
+        cap (e.g. when many distinct operation names are recorded in a short
+        window, so the 24h idle rule never matches).
         """
         current_time = time.time()
         cleanup_threshold = 24 * 3600  # 24 hours
@@ -204,6 +211,19 @@ class ServiceMetrics:
         for op_name in operations_to_remove:
             self.operation_metrics.pop(op_name, None)
             self._operation_access_times.pop(op_name, None)
+
+        # Enforce the cap via LRU eviction. This keeps the tracked operation set
+        # bounded regardless of access recency. We evict down to 80% of the cap
+        # so the collector stays "memory efficient" with headroom for new
+        # operations rather than thrashing right at the limit.
+        target = max(1, int(self.max_operations * 0.8))
+        if len(self.operation_metrics) > target:
+            lru_order = sorted(self._operation_access_times.items(), key=lambda item: item[1])
+            excess = len(self.operation_metrics) - target
+            for op_name, _ in lru_order[:excess]:
+                self.operation_metrics.pop(op_name, None)
+                self._operation_access_times.pop(op_name, None)
+                operations_to_remove.append(op_name)
 
         if operations_to_remove:
             import logging

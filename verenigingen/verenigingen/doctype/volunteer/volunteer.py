@@ -200,15 +200,24 @@ class Volunteer(Document):
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""
-        # Skip automatic account creation during bulk operations (CSV imports, etc.)
-        if getattr(frappe.flags, "bulk_member_operations", False):
+        # Skip automatic account creation during bulk operations (CSV imports, etc.).
+        # Callers may set the flag either globally (frappe.flags) when wrapping a
+        # whole import, or per-document (self.flags) when creating a single
+        # volunteer in a bulk context (e.g. VIP import's _create_volunteer). Honor
+        # both: queue_secure_account_creation commits the transaction, which would
+        # otherwise bust any open savepoint used for atomic row processing.
+        if getattr(frappe.flags, "bulk_member_operations", False) or self.flags.get(
+            "bulk_member_operations", False
+        ):
             frappe.logger().info(
                 f"Skipping automatic account creation for volunteer {self.name} due to bulk operations flag"
             )
             return
 
-        # Skip automatic account creation during tests if flag is set
-        if frappe.flags.get("skip_volunteer_account_creation", False):
+        # Skip automatic account creation during tests if flag is set (global or per-doc)
+        if frappe.flags.get("skip_volunteer_account_creation", False) or self.flags.get(
+            "skip_volunteer_account_creation", False
+        ):
             frappe.logger().info(
                 f"Skipping automatic account creation for volunteer {self.name} due to test flag"
             )
@@ -299,8 +308,12 @@ class Volunteer(Document):
             )
             return
 
-        # Skip during bulk operations
-        if getattr(frappe.flags, "bulk_member_operations", False):
+        # Skip during bulk operations. Honor BOTH the global flag and the per-doc
+        # flag (VIP import sets it per-document), so the on_update path doesn't
+        # enqueue account creation — which would COMMIT and destroy open savepoints.
+        if getattr(frappe.flags, "bulk_member_operations", False) or self.flags.get(
+            "bulk_member_operations", False
+        ):
             return
 
         # Check if ACR already exists for this member (prevent duplicates)

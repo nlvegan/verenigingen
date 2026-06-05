@@ -572,7 +572,9 @@ class PaymentReconciliationManager:
         """Mark transaction as unreconciled with reason for failure"""
         try:
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
-            bank_trans.status = "Unmatched"
+            # "Unreconciled" is the valid Bank Transaction status; "Unmatched" is not
+            # a permitted Select option and would raise on save.
+            bank_trans.status = "Unreconciled"
             bank_trans.add_comment("Comment", f"Reconciliation failed: {reason}")
             bank_trans.save()
             frappe.logger().info(f"Transaction {transaction['name']} marked as unreconciled: {reason}")
@@ -1148,7 +1150,7 @@ def get_reconciliation_summary(from_date=None, to_date=None):
         "total_transactions": frappe.db.count("Bank Transaction", filters),
         "reconciled": frappe.db.count("Bank Transaction", {**filters, "status": "Reconciled"}),
         "pending": frappe.db.count("Bank Transaction", {**filters, "status": "Pending"}),
-        "unmatched": frappe.db.count("Bank Transaction", {**filters, "status": "Unmatched"}),
+        "unmatched": frappe.db.count("Bank Transaction", {**filters, "status": "Unreconciled"}),
     }
 
     summary["reconciliation_rate"] = (

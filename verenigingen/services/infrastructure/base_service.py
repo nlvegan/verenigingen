@@ -228,6 +228,7 @@ class StatefulService(BaseService):
         super().__init__(service_name)
         self._state = {}
         self._transaction_active = False
+        self._savepoint_name = None
 
     def validate_configuration(self) -> bool:
         """Validate configuration including database connectivity."""
@@ -239,21 +240,45 @@ class StatefulService(BaseService):
             raise ServiceError(f"Database connectivity check failed: {str(e)}")
 
     def begin_transaction(self):
-        """Begin a database transaction."""
+        """Begin a nested transaction using a savepoint.
+
+        Frappe runs every request inside an always-open transaction, so calling
+        ``frappe.db.begin()`` (which emits ``START TRANSACTION``) over the top of
+        it triggers MariaDB's implicit-commit guard whenever there are pending
+        writes. A savepoint composes correctly as a nested transaction both in
+        production requests and under the test runner.
+        """
         if not self._transaction_active:
-            frappe.db.begin()
+            self._savepoint_name = f"svc_{self.service_name}_{id(self)}".replace("-", "_")
+            frappe.db.savepoint(self._savepoint_name)
             self._transaction_active = True
 
     def commit_transaction(self):
-        """Commit the current transaction."""
+        """Release the current savepoint (commit the nested transaction).
+
+        The outer request-level transaction is left intact and committed by
+        Frappe at request end.
+        """
         if self._transaction_active:
-            frappe.db.commit()
+            if self._savepoint_name:
+                frappe.db.release_savepoint(self._savepoint_name)
+            else:
+                frappe.logger().error(
+                    f"{self.service_name}: commit_transaction with no savepoint name (inconsistent state)"
+                )
+            self._savepoint_name = None
             self._transaction_active = False
 
     def rollback_transaction(self):
-        """Rollback the current transaction."""
+        """Roll back to the savepoint, undoing only this nested transaction."""
         if self._transaction_active:
-            frappe.db.rollback()
+            if self._savepoint_name:
+                frappe.db.rollback(save_point=self._savepoint_name)
+            else:
+                frappe.logger().error(
+                    f"{self.service_name}: rollback_transaction with no savepoint name (inconsistent state)"
+                )
+            self._savepoint_name = None
             self._transaction_active = False
 
     def execute_with_transaction(self, operation_func, *args, **kwargs) -> Any:
