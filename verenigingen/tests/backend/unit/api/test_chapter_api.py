@@ -184,9 +184,13 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
                 "introduction": f"Test member {i}"
             })
 
-        # Bulk add members
+        # Bulk add members. The whitelisted Chapter.bulk_add_members is
+        # annotated member_data_list: str, so Frappe's type coercion rejects a
+        # raw list — pass the JSON string the HTTP boundary would receive.
+        import json
+
         result = chapter.bulk_add_members(
-            member_data_list=member_data_list,
+            member_data_list=json.dumps(member_data_list),
         )
 
         # Verify the API call succeeded

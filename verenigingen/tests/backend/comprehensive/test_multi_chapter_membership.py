@@ -324,9 +324,11 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         """Assign member to chapter.
 
         Chapter Member is a child of Chapter; 'is_primary' has no schema field.
-        is_primary is modelled by giving the row the earliest join date.
+        Production's get_member_primary_chapter() resolves the primary chapter as
+        the one with the LATEST chapter_join_date (ORDER BY chapter_join_date
+        DESC), so model is_primary by giving the row the most recent join date.
         """
-        join_date = add_days(today(), -1) if is_primary else today()
+        join_date = today() if is_primary else add_days(today(), -1)
         chapter = frappe.get_doc("Chapter", chapter_name)
         for row in chapter.members:
             if row.member == member_name:
@@ -344,18 +346,22 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         return chapter.members[-1].name
 
     def set_primary_chapter(self, member_name, chapter_name):
-        """Set primary chapter (give target row the earliest join date)."""
+        """Set primary chapter (give target row the LATEST join date).
+
+        Production resolves the primary chapter as the one with the most recent
+        chapter_join_date, so push the target one day past the current latest.
+        """
         rows = frappe.get_all(
             "Chapter Member",
             filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
             fields=["chapter_join_date"],
-            order_by="chapter_join_date asc, creation asc",
+            order_by="chapter_join_date desc, creation desc",
         )
-        earliest = rows[0]["chapter_join_date"] if rows else today()
+        latest = rows[0]["chapter_join_date"] if rows else today()
         chapter = frappe.get_doc("Chapter", chapter_name)
         for row in chapter.members:
             if row.member == member_name and row.enabled:
-                row.chapter_join_date = add_days(earliest, -1)
+                row.chapter_join_date = add_days(latest, 1)
         chapter.save()
 
     def create_dues_invoice(self, member):
@@ -366,20 +372,36 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
 
         customer = member.customer or self._create_customer_for_member(member)
 
+        # Resolve the member's primary-chapter cost center the same way the
+        # production dues InvoiceGenerator does, so the invoice is actually
+        # allocated to the primary chapter rather than left unset.
+        from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
+
+        primary_chapter = get_member_primary_chapter(member.name)
+        chapter_cost_center = (
+            frappe.db.get_value("Chapter", primary_chapter, "cost_center")
+            if primary_chapter
+            else None
+        )
+        if chapter_cost_center and not frappe.db.exists("Cost Center", chapter_cost_center):
+            chapter_cost_center = None
+
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer
         # Company is mandatory and needs an active Fiscal Year for the posting
         # date; _Test Company is the standard fixture configured for that.
         invoice.company = "_Test Company"
         invoice.posting_date = today()
-        invoice.append(
-            "items",
-            {
-                "item_code": item,
-                "qty": 1,
-                "rate": 25.00,
-            },
-        )
+        if chapter_cost_center:
+            invoice.cost_center = chapter_cost_center
+        item_row = {
+            "item_code": item,
+            "qty": 1,
+            "rate": 25.00,
+        }
+        if chapter_cost_center:
+            item_row["cost_center"] = chapter_cost_center
+        invoice.append("items", item_row)
         invoice.save()
         self.track_doc("Sales Invoice", invoice.name)
         return invoice

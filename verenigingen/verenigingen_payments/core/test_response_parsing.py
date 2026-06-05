@@ -166,17 +166,21 @@ class TestResponseParsing(unittest.TestCase):
         self.assertEqual(result[0].id, "test_1")
 
     def test_parse_list_response_empty(self):
-        """Test parsing empty list"""
+        """Test parsing empty list.
+
+        An empty list is a valid result for collection endpoints (e.g. a
+        settlement with zero captures/refunds/chargebacks), so _parse_response
+        returns [] rather than raising, regardless of allow_none.
+        """
         response = []
 
-        # Empty list with allow_none=False should raise
-        with self.assertRaises(ResponseParsingError) as context:
-            self.client._parse_response(response, TestModel, allow_none=False)
-        self.assertIn("Empty response", str(context.exception))
+        # Empty list with allow_none=False returns an empty list (valid collection)
+        result = self.client._parse_response(response, TestModel, allow_none=False)
+        self.assertEqual(result, [])
 
-        # Empty list with allow_none=True should return None
+        # Empty list with allow_none=True also returns an empty list
         result = self.client._parse_response(response, TestModel, allow_none=True)
-        self.assertIsNone(result)
+        self.assertEqual(result, [])
 
     # ====================
     # Optional Response (allow_none)

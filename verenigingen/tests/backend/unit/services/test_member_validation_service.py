@@ -46,13 +46,15 @@ class TestMemberValidationServiceExecute(unittest.TestCase):
                     with patch.object(self.service, "_sync_status_fields_if_needed", return_value={"success": True}):
                         result = self.service.execute_validation(mock_member)
 
-        # All validations should be in the result
-        self.assertIn("core_fields", result["validations"])
-        self.assertIn("duration", result["validations"])
-        self.assertIn("payment", result["validations"])
-        self.assertIn("member_id", result["validations"])
-        self.assertIn("status_sync", result["validations"])
-        self.assertIn("application_status", result["validations"])
+        # All validations should be in the result. execute_validation returns an
+        # OperationResult whose .data holds the per-validation results dict.
+        validations = result.data
+        self.assertIn("core_fields", validations)
+        self.assertIn("duration", validations)
+        self.assertIn("payment", validations)
+        self.assertIn("member_id", validations)
+        self.assertIn("status_sync", validations)
+        self.assertIn("application_status", validations)
 
 
 class TestMemberValidationServiceDuration(unittest.TestCase):

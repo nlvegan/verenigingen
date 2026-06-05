@@ -116,9 +116,14 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         self.test_counter = getattr(self, "_test_counter", 0) + 1
         setattr(self, "_test_counter", self.test_counter)
 
-        # Create test member
-        self.test_member_name = f"TEST-MEMBER-{self.test_counter:03d}"
-        self.test_email = f"chapter_edge_test_{self.test_counter}@example.com"
+        # Create test member. Use a per-run unique token so the derived
+        # Customer name (built from full_name) does not collide with stale
+        # Customer records left on the shared test site by prior runs — the
+        # deterministic "Test Member1" name previously triggered a
+        # DuplicateEntryError during customer creation on re-run.
+        run_token = frappe.generate_hash(length=6)
+        self.test_member_name = f"TEST-MEMBER-{run_token}-{self.test_counter:03d}"
+        self.test_email = f"chapter_edge_test_{run_token}_{self.test_counter}@example.com"
 
         if not frappe.db.exists("Member", self.test_member_name):
             member = frappe.get_doc(
@@ -126,8 +131,8 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
                     "doctype": "Member",
                     "name": self.test_member_name,
                     "first_name": "Test",
-                    "last_name": f"Member{self.test_counter}",
-                    "full_name": f"Test Member{self.test_counter}",
+                    "last_name": f"Member{run_token}{self.test_counter}",
+                    "full_name": f"Test Member{run_token}{self.test_counter}",
                     "email": self.test_email,
                     "status": "Active",
                     "birth_date": "1990-01-01",
@@ -398,36 +403,45 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         print(f"✅ Concurrent assignments handled: {len(successful_results)}/{len(results)} succeeded")
 
     def test_roster_corruption_recovery(self):
-        """Test recovery from corrupted chapter roster data"""
-        print("\n🧪 Testing roster corruption recovery...")
+        """The Chapter controller prevents roster corruption (duplicate members).
+
+        Previously the roster allowed duplicate active member rows and the test
+        checked after-the-fact cleanup. The Chapter controller now actively
+        REJECTS a second active row for the same member at save time, so the
+        corruption can no longer be introduced — which is the stronger,
+        correct behavior we assert here.
+        """
+        print("\n🧪 Testing roster corruption prevention...")
 
         # Assign member normally
         result = assign_member_to_chapter(self.test_member_name, "Test Chapter Alpha")
         self.assertTrue(result["success"])
 
-        # Simulate roster corruption by adding duplicate entries
+        # Attempt to introduce a duplicate active roster row — must be rejected.
         chapter = frappe.get_doc("Chapter", "Test Chapter Alpha")
         chapter.append(
             "members",
             {"member": self.test_member_name, "member_name": f"Test Member{self.test_counter}", "enabled": 1},
         )
-        chapter.save()
+        with self.assertRaises(frappe.ValidationError):
+            chapter.save()
 
-        # Count duplicates
-        member_count_before = sum(1 for m in chapter.members if m.member == self.test_member_name)
-        self.assertGreater(member_count_before, 1, "Should have duplicate entries")
-
-        # Re-assign should clean up duplicates.
-        # add_member_to_chapter_roster(member_name, new_chapter) takes two args.
-        add_member_to_chapter_roster(self.test_member_name, "Test Chapter Alpha")
-
-        # Verify cleanup (this is an edge case - the function might not clean duplicates)
+        # Roster integrity is preserved: exactly one active row for the member.
         chapter.reload()
-        member_count_after = sum(1 for m in chapter.members if m.member == self.test_member_name)
-        # Note: The current implementation doesn't remove duplicates, just ensures member exists
-        self.assertGreaterEqual(member_count_after, 1, "Member should still be in roster")
+        active_rows = sum(
+            1 for m in chapter.members if m.member == self.test_member_name and m.enabled
+        )
+        self.assertEqual(active_rows, 1, "Member should appear exactly once in active roster")
 
-        print(f"✅ Roster corruption handled: {member_count_before} → {member_count_after} entries")
+        # The idempotent roster helper should not create a duplicate either.
+        add_member_to_chapter_roster(self.test_member_name, "Test Chapter Alpha")
+        chapter.reload()
+        active_rows_after = sum(
+            1 for m in chapter.members if m.member == self.test_member_name and m.enabled
+        )
+        self.assertEqual(active_rows_after, 1, "Roster helper must remain idempotent")
+
+        print("✅ Roster corruption prevented; integrity preserved")
 
     def test_chapter_with_special_characters(self):
         """Test that chapter names with invalid special characters are rejected.

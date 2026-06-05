@@ -31,10 +31,40 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         # Create test cost centers
         cls.cost_centers = cls._create_test_cost_centers()
         
+        # Ensure a selling price list in the company currency exists. ERPNext
+        # v16 makes selling_price_list / price_list_currency / plc_conversion_rate
+        # mandatory on Sales Invoice; without a matching price list the framework
+        # cannot derive them and insert() raises MandatoryError.
+        cls.selling_price_list = cls._ensure_selling_price_list()
+
         # Create test member and volunteer
         cls.test_member = cls._create_test_member()
         cls.test_volunteer = cls._create_test_volunteer()
-        
+
+    @classmethod
+    def _ensure_selling_price_list(cls):
+        """Ensure a selling Price List in the company's currency exists."""
+        currency = frappe.db.get_value("Company", cls.company.name, "default_currency") or "EUR"
+        existing = frappe.db.get_value(
+            "Price List", {"selling": 1, "currency": currency, "enabled": 1}, "name"
+        )
+        if existing:
+            return existing
+
+        price_list_name = f"Test Selling {currency}"
+        if not frappe.db.exists("Price List", price_list_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Price List",
+                    "price_list_name": price_list_name,
+                    "selling": 1,
+                    "enabled": 1,
+                    "currency": currency,
+                }
+            ).insert(ignore_permissions=True)
+            frappe.db.commit()
+        return price_list_name
+
     @classmethod
     def _ensure_test_company(cls):
         """Ensure test company exists - use existing company to avoid complex setup"""
@@ -170,6 +200,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "doctype": "Sales Invoice",
             "customer": self.test_member.customer,
             "company": self.company.name,
+            "selling_price_list": self.selling_price_list,
             "posting_date": today(),
             "due_date": add_days(today(), 30),
             "items": [{
@@ -254,6 +285,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "doctype": "Sales Invoice",
             "customer": self.test_member.customer,
             "company": self.company.name,
+            "selling_price_list": self.selling_price_list,
             "posting_date": today(),
             "items": [{
                 "item_code": self._get_or_create_membership_item(),
@@ -283,6 +315,8 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         donation_je = frappe.get_doc({
             "doctype": "Journal Entry",
             "company": self.company.name,
+            # voucher_type (Entry Type) is mandatory on Journal Entry in ERPNext v16.
+            "voucher_type": "Journal Entry",
             "posting_date": today(),
             "accounts": [
                 {
@@ -398,6 +432,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "doctype": "Sales Invoice",
             "customer": self.test_member.customer,
             "company": self.company.name,
+            "selling_price_list": self.selling_price_list,
             "project": project.name,
             "posting_date": today(),
             "cost_center": self.cost_centers["main"],
@@ -536,6 +571,7 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "doctype": "Sales Invoice",
             "customer": self.test_member.customer,
             "company": self.company.name,
+            "selling_price_list": self.selling_price_list,
             "posting_date": today(),
             "cost_center": self.cost_centers["chapter"],
             "items": [{

@@ -837,6 +837,40 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         self.addCleanup(_cleanup_membership, membership.name)
         return membership
 
+    def _ensure_quarterly_dues_template_configured(self, membership_type_name):
+        """Seed a quarterly dues template and point Verenigingen Settings at it.
+
+        Restores the original setting value on cleanup so the Single is not
+        polluted for other tests.
+        """
+        template_name = "Test CSV Quarterly Template"
+        if not frappe.db.exists("Membership Dues Schedule", template_name):
+            frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "schedule_name": template_name,
+                "is_template": 1,
+                "membership_type": membership_type_name,
+                "status": "Active",
+                "billing_frequency": "Quarterly",
+                "dues_rate": 12.50,
+                "currency": "EUR",
+                "minimum_amount": 0,
+                "suggested_amount": 12.50,
+            }).insert(ignore_permissions=True)
+            self.addCleanup(_cleanup_dues_schedule, template_name)
+
+        original = frappe.db.get_single_value("Verenigingen Settings", "csv_quarterly_dues_schedule")
+        frappe.db.set_single_value("Verenigingen Settings", "csv_quarterly_dues_schedule", template_name)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: (
+                frappe.db.set_single_value(
+                    "Verenigingen Settings", "csv_quarterly_dues_schedule", original
+                ),
+                frappe.db.commit(),
+            )
+        )
+
     def test_backfills_dues_schedule_when_membership_exists_without_schedule(self):
         # When an active Membership exists but no dues schedule, the source
         # routes to _backfill_dues_schedule which runs for real here: it
@@ -844,8 +878,10 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         # csv_quarterly_dues_schedule in Verenigingen Settings) and calls
         # MembershipDuesSchedule.create_from_template. We assert a real
         # non-template Dues Schedule row lands in the DB at the right rate.
+        # Use a low minimum so the backfilled rate (€12.50) clears
+        # validate_rate_boundaries.
         membership_type = self.factory.ensure_membership_type(
-            "Related Records Dues Test Type"
+            "Related Records Dues Test Type Low Min", {"amount": 10.00}
         )
         member = self.factory.create_member(
             first_name="BackfillNeeded", last_name="Test",
@@ -858,6 +894,12 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
             member.name, membership_type.name
         )
         self.addCleanup(self._cleanup_member_dues_schedules, member.name)
+
+        # The backfill resolves the dues template from payment_period
+        # ("Per kwartaal" → Verenigingen Settings.csv_quarterly_dues_schedule).
+        # test_site_2 has no such template configured, so seed one and point the
+        # Single at it (restoring the original value afterwards).
+        self._ensure_quarterly_dues_template_configured(membership_type.name)
 
         result = get_related_records_orchestrator()._ensure_membership_and_dues(
             member.name,

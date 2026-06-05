@@ -19,8 +19,12 @@ class TestValidationRegression(EnhancedTestCase):
     # Enhanced Test Factory handles setup and cleanup automatically
 
     def add_cleanup(self, doctype, name):
-        """Add record to cleanup list"""
-        self.cleanup_records.append((doctype, name))
+        """Register a record for automatic teardown cleanup.
+
+        EnhancedTestCase tracks created docs via track_doc(); there is no
+        cleanup_records list on this base class.
+        """
+        self.track_doc(doctype, name)
 
     def test_critical_doctype_select_fields(self):
         """Test that critical select fields have proper validation"""
@@ -58,6 +62,12 @@ class TestValidationRegression(EnhancedTestCase):
                 # Test invalid values
                 for invalid_value in validation_data["invalid"]:
                     with self.subTest(doctype=doctype_name, field=field_name, value=invalid_value):
+                        # EnhancedTestCase runs with frappe.flags.in_import=True,
+                        # which SUPPRESSES Frappe's Select-field validation. Clear
+                        # it for this insert so an invalid Select option actually
+                        # raises, otherwise this regression check is a false green.
+                        prev_in_import = frappe.flags.in_import
+                        frappe.flags.in_import = False
                         try:
                             doc_data = self._get_minimal_doc_data(doctype_name)
                             doc_data[field_name] = invalid_value
@@ -73,6 +83,8 @@ class TestValidationRegression(EnhancedTestCase):
                         except Exception:
                             # Other exceptions are also acceptable for invalid values
                             pass
+                        finally:
+                            frappe.flags.in_import = prev_in_import
 
     def _get_minimal_doc_data(self, doctype_name):
         """Get minimal data required to create a document"""
@@ -87,7 +99,6 @@ class TestValidationRegression(EnhancedTestCase):
                     "email": f"test.volunteer.{frappe.utils.random_string(5).lower()}@example.com",
                     "first_name": "Test",
                     "last_name": "Volunteer",
-                    "available": 1,
                     "date_joined": today()}
             )
         elif doctype_name == "Member":
@@ -103,6 +114,10 @@ class TestValidationRegression(EnhancedTestCase):
     def test_application_flow_volunteer_status_regression(self):
         """Regression test for the volunteer status bug that was fixed"""
 
+        # Self-seed a membership type rather than assuming a site-specific one
+        # ("Maandlid") exists — in isolation that master is absent.
+        membership_type = self.create_test_membership_type()
+
         # This test specifically checks that the bug we fixed doesn't regress
         test_data = {
             "first_name": "Regression",
@@ -113,7 +128,7 @@ class TestValidationRegression(EnhancedTestCase):
             "city": "Amsterdam",
             "postal_code": "1000AA",
             "country": "Netherlands",
-            "selected_membership_type": "Maandlid",
+            "selected_membership_type": membership_type.name,
             "interested_in_volunteering": 1,
             "payment_method": "Bank Transfer"}
 
@@ -128,7 +143,10 @@ class TestValidationRegression(EnhancedTestCase):
         )
 
         if result.get("success"):
-            member_record = result.get("member_record")
+            # submit_application returns the nested-envelope schema; the member
+            # record id lives under data.member_record (not at the top level).
+            member_record = (result.get("data") or {}).get("member_record")
+            self.assertIsNotNone(member_record, f"member_record missing in result: {result}")
             self.add_cleanup("Member", member_record)
 
             # Verify volunteer was created with correct status
@@ -206,17 +224,15 @@ class TestValidationRegression(EnhancedTestCase):
         if volunteer:
             self.add_cleanup("Volunteer", volunteer.name)
 
-            # Check that all fields use valid values
+            # Check that all fields use valid values. (The legacy "available"
+            # field was removed from the Volunteer doctype, so it is no longer
+            # asserted on here.)
             self.assertIn(
                 volunteer.status,
                 ["New", "Onboarding", "Active", "Inactive", "Retired"],
                 "create_volunteer_record should use valid status values",
             )
-            self.assertTrue(
-                isinstance(volunteer.available, int) and volunteer.available in [0, 1],
-                "available field should be 0 or 1",
-            )
-            self.assertEqual(volunteer.date_joined, today(), "date_joined should be today")
+            self.assertEqual(str(volunteer.start_date), today(), "start_date should be today")
 
     def test_api_error_handling(self):
         """Test that API functions handle validation errors gracefully"""

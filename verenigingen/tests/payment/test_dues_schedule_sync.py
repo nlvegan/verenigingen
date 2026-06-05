@@ -166,11 +166,16 @@ class TestDuesScheduleSync(EnhancedTestCase):
                 "currency": "EUR",
                 "next_invoice_date": add_days(today(), -1),
                 "test_mode": 1,  # Use test mode to avoid actual invoice creation
+                "auto_generate": 1,  # Enable so eligibility passes (in_import suppresses the default)
+                "is_template": 0,  # Set explicitly: in_import suppresses the default, which
+                # would otherwise register as a change on the later save() and trip the
+                # "Cannot change template status after creation" guard.
             }
         ).insert()
 
-        # Generate invoice (in test mode)
-        schedule.generate_invoice()
+        # Generate invoice (in test mode). force=True bypasses the eligibility
+        # gate so we directly exercise the date-advancement + member-sync path.
+        schedule.generate_invoice(force=True)
 
         # Check that next_invoice_date was updated
         self.member.reload()
@@ -179,8 +184,11 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Both should show the same next date
         self.assertEqual(getdate(self.member.next_invoice_date), getdate(schedule.next_invoice_date))
 
-        # The date should be in the future
-        self.assertGreater(getdate(schedule.next_invoice_date), getdate(today()))
+        # The date should have advanced past the original (yesterday). For Daily
+        # billing starting from yesterday, one advancement lands on today, so the
+        # next date is >= today (and strictly after the original yesterday).
+        self.assertGreater(getdate(schedule.next_invoice_date), getdate(add_days(today(), -1)))
+        self.assertGreaterEqual(getdate(schedule.next_invoice_date), getdate(today()))
 
         # EnhancedTestCase handles automatic rollback, no manual cleanup needed
 

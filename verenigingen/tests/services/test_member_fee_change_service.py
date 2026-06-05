@@ -184,7 +184,7 @@ class TestMemberFeeChangeService(FrappeTestCase):
         mock_msgprint.assert_called_once()
 
     def test_record_fee_change_uses_history_manager(self):
-        """Test that record_fee_change delegates to history manager"""
+        """Test that record_fee_change delegates to the FeeChangeRecordingService."""
         member_doc = Mock()
         member_doc.name = "Test-Member-006"
 
@@ -197,16 +197,25 @@ class TestMemberFeeChangeService(FrappeTestCase):
             "billing_frequency": "Monthly",
         }
 
-        # Mock the history manager
-        with patch("verenigingen.utils.member_financial_history_manager.get_fee_change_history_manager") as mock_get_manager:
-            mock_manager = Mock()
-            mock_manager.add_or_update_entry = Mock(return_value={"success": True})
-            mock_get_manager.return_value = mock_manager
+        # record_fee_change now delegates to
+        # FeeChangeRecordingService.record() (imported lazily inside the method).
+        with patch(
+            "verenigingen.services.member.financial.fee_change_recording_service"
+            ".get_fee_change_recording_service"
+        ) as mock_get_service:
+            mock_service = Mock()
+            mock_service.record = Mock(return_value={"success": True})
+            mock_get_service.return_value = mock_service
 
             result = get_member_fee_change_service().record_fee_change(member_doc, change_data)
 
-        # Verify manager was called
-        mock_manager.add_or_update_entry.assert_called_once()
+        # Verify the recording service was invoked with the mapped arguments.
+        mock_service.record.assert_called_once()
+        call_kwargs = mock_service.record.call_args.kwargs
+        self.assertEqual(call_kwargs["member"], member_doc)
+        self.assertEqual(call_kwargs["old_amount"], 50.0)
+        self.assertEqual(call_kwargs["new_amount"], 75.0)
+        self.assertEqual(call_kwargs["billing_frequency"], "Monthly")
 
         # Verify return value
         self.assertEqual(result, {"success": True})

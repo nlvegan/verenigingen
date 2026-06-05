@@ -144,7 +144,9 @@ class TestChapterEdgeCases(EnhancedTestCase):
         self.assertEqual(len(chapter.members), 50, "Should handle large member roster")
         print("✅ Large roster (50 members) handled")
 
-        # Test duplicate member prevention
+        # Test duplicate member prevention. The Chapter controller now REJECTS
+        # a second active roster row for the same member at save time, so the
+        # save must raise and the roster size must stay unchanged.
         duplicate_member = members[0]
         initial_count = len(chapter.members)
 
@@ -153,12 +155,14 @@ class TestChapterEdgeCases(EnhancedTestCase):
             "members",
             {"member": duplicate_member.name, "member_name": duplicate_member.full_name, "enabled": 1},
         )
-        chapter.save()
-        chapter.reload()
+        with self.assertRaises(frappe.ValidationError):
+            chapter.save()
 
-        # Should now have duplicate (current implementation doesn't prevent this automatically)
-        self.assertGreater(len(chapter.members), initial_count, "Duplicate member was added")
-        print("✅ Duplicate member handling tested")
+        chapter.reload()
+        self.assertEqual(
+            len(chapter.members), initial_count, "Duplicate active member must be rejected"
+        )
+        print("✅ Duplicate member rejected by controller")
 
         # Test member with special characters in name
         special_member = self.create_test_member(

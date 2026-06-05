@@ -551,11 +551,14 @@ class TestVIPImportRobustness(FrappeTestCase):
 
     def test_import_status_reflects_acr_failures(self):
         """Test that import status shows warning when ACR queuing fails."""
-        # Create a VIP Import document
+        # Create a VIP Import document. csv_file is a mandatory Attach field, so
+        # provide a placeholder path (no file processing happens in this test, we
+        # only exercise _set_final_import_status afterwards).
         import_doc = frappe.get_doc(
             {
                 "doctype": "VIP Import",
                 "import_date": today(),
+                "csv_file": "/files/test_vip_placeholder.csv",
             }
         )
         import_doc.insert(ignore_permissions=True)
@@ -836,8 +839,10 @@ class TestVIPImportRobustness(FrappeTestCase):
                 created=1,
             )
 
+            # _create_volunteers_batch imports get_bulk_volunteer_creation_service
+            # lazily from the service module, so patch it at its source module.
             with patch(
-                "verenigingen.verenigingen.doctype.vip_import.vip_import.get_bulk_volunteer_creation_service"
+                "verenigingen.services.volunteer.bulk_volunteer_creation_service.get_bulk_volunteer_creation_service"
             ) as mock_get_service:
                 mock_service = MagicMock()
                 mock_service.create_volunteers_for_members.return_value = mock_summary

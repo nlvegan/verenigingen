@@ -156,14 +156,18 @@ class TestMemberDurationServiceUpdate(unittest.TestCase):
     @patch("verenigingen.services.member.utils.member_duration_service.update_member_duration_fields")
     def test_update_duration_saves_on_success(self, mock_update_fields):
         """Test that update saves document when calculation succeeds"""
+        from verenigingen.utils.operation_result import OperationResult
+
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
         mock_member.flags = MagicMock()
-        mock_update_fields.return_value = {"success": True, "data": {"total_days": 365}}
+        # update_member_duration_fields returns an OperationResult, so the mock
+        # must mirror that contract (the service reads result.success).
+        mock_update_fields.return_value = OperationResult.ok({"total_days": 365})
 
         result = self.service.update_duration(mock_member)
 
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
         self.assertTrue(mock_member.flags.ignore_version)
         mock_member.save.assert_called_once()
 

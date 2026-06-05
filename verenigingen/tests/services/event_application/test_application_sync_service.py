@@ -831,6 +831,58 @@ class TestApprovedEventEndToEnd(EnhancedTestCase):
         self._customer_patcher.start()
         self.addCleanup(self._customer_patcher.stop)
 
+        # The approved-event flow creates a Membership + Dues Schedule, resolving
+        # the dues template from contribution_period (2 = Jaarlijks/Annual →
+        # Verenigingen Settings.csv_annual_dues_schedule). test_site_2 has no such
+        # template configured; seed one and point the Single at it (restored on
+        # cleanup).
+        self._ensure_annual_dues_template_configured()
+
+    def _ensure_annual_dues_template_configured(self):
+        """Seed an annual dues template + default membership type and configure
+        Verenigingen Settings.
+
+        The approved-event flow (create_membership_from_csv) resolves:
+          - the membership type from Verenigingen Settings.default_membership_type
+            (the "lid" status maps to the default type), and
+          - the dues template from payment_period (Jaarlijks →
+            csv_annual_dues_schedule).
+        test_site_2 has neither configured; seed both and restore on cleanup.
+        """
+        membership_type = self.factory.ensure_membership_type("E2E Annual Type", {"amount": 5.00})
+        template_name = "Test CSV Annual Template"
+        if not frappe.db.exists("Membership Dues Schedule", template_name):
+            frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "schedule_name": template_name,
+                "is_template": 1,
+                "membership_type": membership_type.name,
+                "status": "Active",
+                "billing_frequency": "Annual",
+                "dues_rate": 5.00,
+                "currency": "EUR",
+                "minimum_amount": 0,
+                "suggested_amount": 5.00,
+            }).insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        self._set_single_with_restore("csv_annual_dues_schedule", template_name)
+        self._set_single_with_restore("default_membership_type", membership_type.name)
+
+    def _set_single_with_restore(self, fieldname, value):
+        """Set a Verenigingen Settings field, restoring the original on cleanup."""
+        original = frappe.db.get_single_value("Verenigingen Settings", fieldname)
+        if original == value:
+            return
+        frappe.db.set_single_value("Verenigingen Settings", fieldname, value)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: (
+                frappe.db.set_single_value("Verenigingen Settings", fieldname, original),
+                frappe.db.commit(),
+            )
+        )
+
     def _create_pending_member(self, email, application_id):
         """Factory helper: Pending Member as _apply_new_membership_application creates it.
 

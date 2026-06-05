@@ -39,35 +39,30 @@ class TestMemberBulkOptimization(EnhancedTestCase):
         # Validate we got data for all members
         self.assertEqual(len(bulk_data), len(member_names))
         
-        # Validate data structure for each member
+        # Validate data structure for each member. The optimizer now returns
+        # member_data plus a child_table_stats dict of COUNTS (sepa_mandates,
+        # payment_history) — the N+1 elimination tracks counts rather than
+        # returning the full relationship lists.
         for member_name in member_names:
             self.assertIn(member_name, bulk_data)
             member_data = bulk_data[member_name]
-            
-            # Check all expected relationship data structures are present
-            expected_keys = [
-                "member_data", "sepa_mandates", "payment_history", 
-                "iban_history", "fee_history", "chapter_history", 
-                "volunteer_assignments"
-            ]
-            
-            for key in expected_keys:
-                self.assertIn(key, member_data, f"Missing {key} in bulk data for {member_name}")
-                
+
+            self.assertIn("member_data", member_data, f"Missing member_data for {member_name}")
+            self.assertIn(
+                "child_table_stats", member_data, f"Missing child_table_stats for {member_name}"
+            )
+
             # Validate member_data contains essential fields
             member_base = member_data["member_data"]
             self.assertIn("name", member_base)
             self.assertIn("full_name", member_base)
             self.assertIn("status", member_base)
-            
-            # Validate relationship data are lists (may be empty for new test members)
-            for relationship_key in ["sepa_mandates", "payment_history", "iban_history", 
-                                   "fee_history", "chapter_history", "volunteer_assignments"]:
-                self.assertIsInstance(
-                    member_data[relationship_key], 
-                    list, 
-                    f"{relationship_key} must be a list"
-                )
+
+            # Validate child table stats expose integer counts
+            stats = member_data["child_table_stats"]
+            for stat_key in ["sepa_mandates", "payment_history"]:
+                self.assertIn(stat_key, stats, f"{stat_key} count missing for {member_name}")
+                self.assertIsInstance(stats[stat_key], int, f"{stat_key} count must be an int")
 
     def test_bulk_loading_vs_individual_performance_comparison(self):
         """Compare performance of bulk loading vs individual member loading"""
@@ -134,22 +129,26 @@ class TestMemberBulkOptimization(EnhancedTestCase):
 
     def test_bulk_loading_with_sepa_mandate_creation(self):
         """Test bulk loading works correctly when members have SEPA mandates"""
-        # Create SEPA mandates for some test members
+        # Create SEPA mandates for some test members. Use a checksum-valid test
+        # IBAN — the previous hand-built "NL91 ABNA 0417 164{i}" values failed
+        # IBAN checksum validation.
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
         for i in range(2):  # Create mandates for first 2 members
             member = self.test_members[i]
-            
+
             # Create SEPA mandate for this member
             sepa_mandate = frappe.new_doc("SEPA Mandate")
             sepa_mandate.member = member.name
             sepa_mandate.member_name = member.full_name
             sepa_mandate.mandate_id = f"TEST-MANDATE-{i:03d}"
-            sepa_mandate.iban = f"NL91 ABNA 0417 164{i:03d}"
-            sepa_mandate.bic = "ABNANL2A"
+            sepa_mandate.iban = generate_test_iban("TEST")
+            sepa_mandate.bic = "TESTNL2A"
             sepa_mandate.status = "Active"
             sepa_mandate.account_holder_name = member.full_name
             sepa_mandate.sign_date = frappe.utils.today()
             sepa_mandate.save()
-            
+
             self.track_doc("SEPA Mandate", sepa_mandate.name)
             
         member_names = [member.name for member in self.test_members]
@@ -158,18 +157,15 @@ class TestMemberBulkOptimization(EnhancedTestCase):
         with self.assertQueryCount(15):
             bulk_data = self.optimizer.get_members_with_all_relationships_bulk(member_names)
         
-        # Verify members with mandates have mandate link data
+        # The optimizer exposes SEPA mandate presence via child_table_stats
+        # counts rather than the full mandate-link list.
         members_with_mandates = 0
         for member_name, data in bulk_data.items():
-            if data["sepa_mandates"]:
+            if data["child_table_stats"].get("sepa_mandates", 0) > 0:
                 members_with_mandates += 1
-                # Validate mandate link structure
-                mandate_link = data["sepa_mandates"][0]  # Should have at least one
-                self.assertIn("sepa_mandate", mandate_link)
-                self.assertIn("mandate_reference", mandate_link)
-        
+
         self.assertGreaterEqual(
-            members_with_mandates, 
-            2, 
+            members_with_mandates,
+            2,
             "Should find at least 2 members with SEPA mandates"
         )

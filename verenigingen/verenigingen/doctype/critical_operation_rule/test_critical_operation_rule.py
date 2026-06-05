@@ -95,20 +95,36 @@ class TestCriticalOperationRule(FrappeTestCase):
         # Test validates current behavior: alert_on_execution without notification_recipients
         # is allowed (gets auto-populated from settings)
 
-        rule = frappe.get_doc(
-            {
-                "doctype": "Critical Operation Rule",
-                "operation_name": "test_alert_auto_recipients",
-                "operation_type": "admin",
-                "security_level": "high",
-                "alert_on_execution": 1,
-                # Missing notification_recipients - will be auto-populated
-                "enabled": 1,
-            }
-        )
-        rule.insert()  # Should succeed - auto-populates recipients from settings
-        # Verify it was inserted successfully
-        self.assertTrue(rule.name)
+        # Auto-population reads the contact email from Verenigingen Settings.
+        # Seed one so the auto-populate path can succeed (the test site may not
+        # have it configured).
+        settings = frappe.get_single("Verenigingen Settings")
+        original_contact = settings.get("contact_email")
+        if not (settings.get("contact_email") or settings.get("member_contact_email")):
+            settings.db_set("contact_email", "cor-test@example.com", update_modified=False)
+            frappe.db.commit()
+
+        try:
+            rule = frappe.get_doc(
+                {
+                    "doctype": "Critical Operation Rule",
+                    "operation_name": "test_alert_auto_recipients",
+                    "operation_type": "admin",
+                    "security_level": "high",
+                    "alert_on_execution": 1,
+                    # Missing notification_recipients - will be auto-populated
+                    "enabled": 1,
+                }
+            )
+            rule.insert()  # Should succeed - auto-populates recipients from settings
+            # Verify it was inserted successfully
+            self.assertTrue(rule.name)
+            # Verify recipients were auto-populated from settings
+            self.assertTrue(rule.notification_recipients)
+        finally:
+            if not original_contact:
+                settings.db_set("contact_email", original_contact, update_modified=False)
+                frappe.db.commit()
 
     def test_rule_config_retrieval(self):
         """Test getting rule configuration"""

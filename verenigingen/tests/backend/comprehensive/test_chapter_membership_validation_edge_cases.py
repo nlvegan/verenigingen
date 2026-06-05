@@ -38,11 +38,17 @@ def _ensure_user(email: str, first_name: str, last_name: str,
     `Verenigingen Volunteer` profile grants MEDIUM (for self_service_only
     operations) + LOW.
     """
+    def _apply_role_profile(user_doc):
+        # In Frappe v16 setting role_profile_name alone does NOT assign the
+        # profile's roles — the profile must be present in the role_profiles
+        # child table, which then syncs Has Role records on save.
+        existing = {rp.role_profile for rp in user_doc.get("role_profiles", [])}
+        if role_profile not in existing:
+            user_doc.append("role_profiles", {"role_profile": role_profile})
+            user_doc.save(ignore_permissions=True)
+
     if frappe.db.exists("User", email):
-        # Backfill role_profile_name if missing (older Users may have been
-        # created without it; the role profile gate fails silently otherwise).
-        if not frappe.db.get_value("User", email, "role_profile_name"):
-            frappe.db.set_value("User", email, "role_profile_name", role_profile)
+        _apply_role_profile(frappe.get_doc("User", email))
         return
     user = frappe.get_doc({
         "doctype": "User",
@@ -52,7 +58,7 @@ def _ensure_user(email: str, first_name: str, last_name: str,
         "enabled": 1,
         "user_type": "System User",
         "send_welcome_email": 0,
-        "role_profile_name": role_profile,
+        "role_profiles": [{"role_profile": role_profile}],
     })
     user.insert(ignore_permissions=True)
 
@@ -62,6 +68,12 @@ def _ensure_region(region_name: str, region_code: str) -> str:
     existing = frappe.db.get_value("Region", {"region_name": region_name}, "name")
     if existing:
         return existing
+    # The Region controller rejects a duplicate region_code with a ValidationError
+    # (not DuplicateEntryError). On the shared test site a prior run may already
+    # own this code, so reuse that Region instead of failing.
+    existing_by_code = frappe.db.get_value("Region", {"region_code": region_code}, "name")
+    if existing_by_code:
+        return existing_by_code
     try:
         doc = frappe.get_doc({
             "doctype": "Region",
@@ -69,15 +81,45 @@ def _ensure_region(region_name: str, region_code: str) -> str:
             "region_code": region_code,
         }).insert(ignore_permissions=True)
         return doc.name
-    except frappe.DuplicateEntryError:
-        # Pre-existing Region row with the same scrubbed name but mismatched
-        # region_name field (e.g., NULL). Return the scrubbed name directly.
-        return frappe.db.get_value("Region", {"region_name": region_name}, "name") \
+    except (frappe.DuplicateEntryError, frappe.ValidationError):
+        # Pre-existing Region row colliding on scrubbed name or region_code.
+        return (
+            frappe.db.get_value("Region", {"region_name": region_name}, "name")
+            or frappe.db.get_value("Region", {"region_code": region_code}, "name")
             or region_name.lower().replace(" ", "-")
+        )
 
 
 class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
     """Test edge cases in chapter membership validation"""
+
+    @classmethod
+    def _ensure_employee_for_volunteer(cls, volunteer_doc, first_name, last_name):
+        """Create + link an Employee for a volunteer (as Administrator).
+
+        Done in setUpClass to avoid the self-service expense path having to
+        auto-create the Employee under the limited volunteer user.
+        """
+        if volunteer_doc.employee_id and frappe.db.exists("Employee", volunteer_doc.employee_id):
+            return
+        if not getattr(cls, "_company", None):
+            return
+        employee = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": first_name,
+                "last_name": last_name,
+                "employee_name": f"{first_name} {last_name}",
+                "personal_email": volunteer_doc.email,
+                "company": cls._company,
+                "status": "Active",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": today(),
+                "gender": "Other",
+            }
+        )
+        employee.insert(ignore_permissions=True)
+        volunteer_doc.db_set("employee_id", employee.name)
 
     @classmethod
     def setUpClass(cls):
@@ -148,6 +190,22 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         )
         cls.test_data["volunteer_2"].insert()
 
+        # The self-service expense submission auto-creates an Employee for the
+        # volunteer, which needs Verenigingen Settings.company set AND runs under
+        # the (limited) volunteer user who lacks Employee-create permission on an
+        # isolated site. Pre-create the Employee records as Administrator and link
+        # them so the expense flow finds an existing employee and skips creation.
+        cls._company = (
+            frappe.db.get_single_value("Verenigingen Settings", "company")
+            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
+            or frappe.db.get_value("Company", {}, "name")
+        )
+        if cls._company and not frappe.db.get_single_value("Verenigingen Settings", "company"):
+            frappe.db.set_single_value("Verenigingen Settings", "company", cls._company)
+
+        cls._ensure_employee_for_volunteer(cls.test_data["volunteer_1"], "Edge", "Case One")
+        cls._ensure_employee_for_volunteer(cls.test_data["volunteer_2"], "Edge", "Case Two")
+
         # Scenario 3: Member without volunteer link
         cls.test_data["member_3"] = frappe.get_doc(
             {
@@ -191,11 +249,22 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         cls.category_name = "Edge Case Category"
         if not frappe.db.exists("Expense Category", cls.category_name):
             default_company = frappe.db.get_single_value("Global Defaults", "default_company")
-            expense_account = frappe.db.get_value(
-                "Account",
-                {"company": default_company, "is_group": 0, "account_type": "Expense Account"},
-                "name",
-            )
+            expense_account = None
+            if default_company:
+                expense_account = frappe.db.get_value(
+                    "Account",
+                    {"company": default_company, "is_group": 0, "account_type": "Expense Account"},
+                    "name",
+                )
+            # On the isolated test site Global Defaults may have no default_company
+            # (or that company has no expense account); fall back to any expense
+            # account so the mandatory field is populated.
+            if not expense_account:
+                expense_account = frappe.db.get_value(
+                    "Account",
+                    {"is_group": 0, "account_type": "Expense Account"},
+                    "name",
+                )
             cls.test_data["category"] = frappe.get_doc(
                 {
                     "doctype": "Expense Category",

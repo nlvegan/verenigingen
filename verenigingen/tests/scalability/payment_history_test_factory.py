@@ -466,6 +466,11 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
             "doctype": "Sales Invoice",
             "customer": member.customer,
             "posting_date": invoice_date,
+            # Honor the back-dated posting_date. Without set_posting_time,
+            # ERPNext's validate_posting_time() resets posting_date to "now",
+            # which would land after the (back-dated) due_date and trip the
+            # "Due Date cannot be before Posting Date" validation.
+            "set_posting_time": 1,
             "due_date": add_days(invoice_date, 30),
             "company": company,
             # The test company and its receivable account are EUR; pin the

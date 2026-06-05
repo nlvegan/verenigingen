@@ -44,8 +44,15 @@ class TestPerformanceScenarios(EnhancedTestCase):
         if not frappe.db.exists("Mollie Settings", "Performance Test"):
             settings = frappe.new_doc("Mollie Settings")
             settings.gateway_name = "Performance Test"
-            settings.secret_key = "perf_test_key"
-            settings.profile_id = "pfl_perf_test"
+            # Mollie Settings validates that test_secret_key is present when
+            # test_mode is enabled (test_mode defaults to 1); the legacy
+            # `secret_key` field is not what the controller checks. The real
+            # Mollie API call during validation is caught/logged, not raised.
+            settings.test_mode = 1
+            settings.test_secret_key = "test_perf_test_key"
+            # Intentionally omit profile_id: validate_mollie_credentials()
+            # returns early without a profile_id, avoiding a real Mollie API
+            # call (which raises on fake test keys).
             settings.enable_backend_api = True
             settings.rate_limit_requests_per_second = 100
             settings.circuit_breaker_failure_threshold = 10

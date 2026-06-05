@@ -74,26 +74,30 @@ class TestMemberUserAccountService(EnhancedTestCase):
     def test_create_member_user_account_link_existing_user(self):
         """Test linking member to existing user account"""
         import time
-        unique_email = f"link.test.{int(time.time())}.{random_string(6).lower()}@example.com"
+        seed_email = f"link.test.{int(time.time())}.{random_string(6).lower()}@example.com"
 
-        # Create a user first (or get existing one)
-        if frappe.db.exists("User", unique_email):
-            user = frappe.get_doc("User", unique_email)
+        # Create the member first. EnhancedTestDataFactory uniquifies the email,
+        # so we must read the member's *actual* email and create the User with
+        # that value — otherwise the existing-user lookup (keyed on the member's
+        # email) won't match and the service would create a new user.
+        member = self.create_test_member(
+            first_name="Link",
+            last_name="Test",
+            email=seed_email
+        )
+        member_email = member.email
+
+        # Create a user with the member's actual email (or get existing one)
+        if frappe.db.exists("User", member_email):
+            user = frappe.get_doc("User", member_email)
         else:
             user = frappe.new_doc("User")
-            user.email = unique_email
+            user.email = member_email
             user.first_name = "Link"
             user.last_name = "Test"
             user.send_welcome_email = 0
             user.user_type = "System User"
             user.insert(ignore_permissions=True)
-
-        # Create member with same email
-        member = self.create_test_member(
-            first_name="Link",
-            last_name="Test",
-            email=unique_email
-        )
 
         # Should link to existing user
         result = self.service.create_member_user_account(member.name)

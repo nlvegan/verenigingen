@@ -45,14 +45,24 @@ class TestMemberMembershipService(unittest.TestCase):
         self.assertIsNone(result)
         mock_get_active.assert_called_once()
 
+    @patch("frappe.log_error")
     @patch("verenigingen.services.member.core.member_membership_service.get_active_membership_for_member")
     @patch("frappe.get_doc")
-    def test_get_active_membership_error(self, mock_get_doc, mock_get_active):
+    def test_get_active_membership_error(self, mock_get_doc, mock_get_active, mock_log_error):
         # Setup
         member_name = "MEM-001"
         membership_name = "MEM-SHIP-001"
         mock_get_active.return_value = {"name": membership_name}
-        mock_get_doc.side_effect = Exception("Database error")
+
+        # Only raise for the Membership fetch. frappe.log_error is patched out so
+        # the service's error-handling path (which would otherwise persist an
+        # Error Log) does not interfere with the mocked get_doc.
+        def _get_doc(doctype, *args, **kwargs):
+            if doctype == "Membership":
+                raise Exception("Database error")
+            return MagicMock()
+
+        mock_get_doc.side_effect = _get_doc
 
         # Execute
         result = self.service.get_active_membership(member_name)

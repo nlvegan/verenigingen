@@ -43,13 +43,15 @@ class TestMemberBeforeSaveServiceExecute(unittest.TestCase):
             with patch.object(self.service, "_set_application_status_defaults", return_value={"success": True}):
                 result = self.service.execute_before_save(mock_member)
 
-        # All operations should be in the result
-        self.assertIn("optimization", result["operations"])
-        self.assertIn("id_generation", result["operations"])
-        self.assertIn("chapter_display", result["operations"])
-        self.assertIn("address_fields", result["operations"])
-        self.assertIn("counter_reset", result["operations"])
-        self.assertIn("status_defaults", result["operations"])
+        # All operations should be in the result. execute_before_save returns an
+        # OperationResult whose .data holds the per-operation results dict.
+        operations = result.data
+        self.assertIn("optimization", operations)
+        self.assertIn("id_generation", operations)
+        self.assertIn("chapter_display", operations)
+        self.assertIn("address_fields", operations)
+        self.assertIn("counter_reset", operations)
+        self.assertIn("status_defaults", operations)
 
     def test_collects_errors(self):
         """Test that errors are collected from failed operations"""
@@ -65,8 +67,8 @@ class TestMemberBeforeSaveServiceExecute(unittest.TestCase):
                 with patch("verenigingen.services.member.lifecycle.member_before_save_service.frappe"):
                     result = self.service.execute_before_save(mock_member)
 
-        self.assertFalse(result["success"])
-        self.assertTrue(len(result["errors"]) > 0)
+        self.assertFalse(result.success)
+        self.assertTrue(len(result.errors) > 0)
 
 
 class TestMemberBeforeSaveServiceOptimization(unittest.TestCase):

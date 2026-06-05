@@ -27,12 +27,13 @@ class TestAPIAuditLog(unittest.TestCase):
 
     def test_create_basic_audit_entry(self):
         """Test creating a basic audit entry"""
+        # `user` is a Link to User; use a real, existing user so link validation passes.
         audit_data = {
             "event_id": "test_basic_001",
             "timestamp": now(),
             "event_type": "api_call_success",
             "severity": "info",
-            "user": "test@example.com",
+            "user": "Administrator",
             "ip_address": "127.0.0.1",
             "details": {"endpoint": "/api/test", "method": "GET"},
         }
@@ -46,7 +47,7 @@ class TestAPIAuditLog(unittest.TestCase):
         self.assertEqual(saved_doc.event_id, "test_basic_001")
         self.assertEqual(saved_doc.event_type, "api_call_success")
         self.assertEqual(saved_doc.severity, "info")
-        self.assertEqual(saved_doc.user, "test@example.com")
+        self.assertEqual(saved_doc.user, "Administrator")
 
     def test_create_audit_entry_static_method(self):
         """Test creating audit entry using static method"""
@@ -55,7 +56,7 @@ class TestAPIAuditLog(unittest.TestCase):
             "timestamp": now(),
             "event_type": "csrf_validation_failed",
             "severity": "warning",
-            "user": "guest@example.com",
+            "user": "Administrator",
             "ip_address": "192.168.1.1",
             "user_agent": "TestAgent/1.0",
             "details": {"csrf_token": "invalid", "endpoint": "/api/secure"},
@@ -71,13 +72,22 @@ class TestAPIAuditLog(unittest.TestCase):
         self.assertEqual(saved_doc.severity, "warning")
 
     def test_required_field_validation(self):
-        """Test validation of required fields"""
-        # Test missing event_id
+        """Test validation of required fields.
+
+        Note: `event_id` is auto-generated in before_insert, and `event_type`
+        / `severity` are reqd Select fields that Frappe auto-fills with their
+        first option. So an insert with those fields omitted does NOT raise.
+        The controller's validate() guards remain meaningful only when a value
+        is explicitly blanked out. Here we verify the explicit-blank path of the
+        controller validate() for `event_type`.
+        """
+        audit_doc = frappe.new_doc("API Audit Log")
+        audit_doc.event_id = "test_reqd_001"
+        audit_doc.timestamp = now()
+        audit_doc.severity = "info"
+        # Explicitly blank event_type to exercise the controller's validate() guard.
+        audit_doc.event_type = ""
         with self.assertRaises(frappe.ValidationError):
-            audit_doc = frappe.new_doc("API Audit Log")
-            audit_doc.timestamp = now()
-            audit_doc.severity = "info"
-            # Missing event_id and event_type
             audit_doc.insert()
 
     def test_auto_event_id_generation(self):
@@ -85,7 +95,7 @@ class TestAPIAuditLog(unittest.TestCase):
         audit_doc = frappe.new_doc("API Audit Log")
         audit_doc.event_type = "system_error"
         audit_doc.severity = "error"
-        audit_doc.user = "system@example.com"
+        audit_doc.user = "Administrator"
 
         # Don't set event_id - should be auto-generated
         audit_doc.insert()
@@ -116,7 +126,7 @@ class TestAPIAuditLog(unittest.TestCase):
         old_audit.timestamp = old_date
         old_audit.event_type = "api_call_success"
         old_audit.severity = "info"
-        old_audit.user = "old@example.com"
+        old_audit.user = "Administrator"
         old_audit.insert()
 
         # Create recent entry
@@ -125,7 +135,7 @@ class TestAPIAuditLog(unittest.TestCase):
         recent_audit.timestamp = now()
         recent_audit.event_type = "api_call_success"
         recent_audit.severity = "info"
-        recent_audit.user = "recent@example.com"
+        recent_audit.user = "Administrator"
         recent_audit.insert()
 
         # Run cleanup with 90-day retention
@@ -154,7 +164,7 @@ class TestAPIAuditLog(unittest.TestCase):
                 "timestamp": now(),
                 "event_type": event_type,
                 "severity": severity,
-                "user": "security_test@example.com",
+                "user": "Administrator",
                 "ip_address": "10.0.0.1",
                 "details": {"test_event": True, "source": "unit_test"},
             }
@@ -188,11 +198,18 @@ class TestAPIAuditLog(unittest.TestCase):
         result = APIAuditLog.create_audit_entry(invalid_data)
         self.assertIsNone(result)
 
-        # Verify error was logged
-        mock_log_error.assert_called_once()
-        call_args = mock_log_error.call_args[0]
-        self.assertIn("Failed to create API audit entry", call_args[0])
-        self.assertEqual(call_args[1], "API Audit Error")
+        # Verify error was logged. The secure_document_operation layer logs its
+        # own "Secure Operation Failed" entry, then create_audit_entry logs an
+        # "API Audit Error" entry, so log_error is called more than once. We only
+        # assert that the controller's audit-error log was emitted.
+        self.assertTrue(mock_log_error.called)
+        audit_error_logged = any(
+            len(c.args) >= 2 and c.args[1] == "API Audit Error" for c in mock_log_error.call_args_list
+        )
+        self.assertTrue(
+            audit_error_logged,
+            f"Expected an 'API Audit Error' log; got calls: {mock_log_error.call_args_list}",
+        )
 
 
 if __name__ == "__main__":

@@ -238,6 +238,12 @@ class TestRunSyncCallsCorrelator(EnhancedTestCase):
         mock_frappe.get_single.return_value = settings
         mock_frappe.db.count.return_value = 0
 
+        # run_sync now guards with acquire_sync_lock(), which reads
+        # frappe.cache().get_value(); the mocked frappe would otherwise return a
+        # truthy MagicMock and make run_sync short-circuit as "lock_held". Force
+        # the lock to be free so the real sync body (and correlator) runs.
+        mock_frappe.cache.return_value.get_value.return_value = None
+
         # Log + client stubs
         log_doc = MagicMock()
         mock_frappe.new_doc.return_value = log_doc

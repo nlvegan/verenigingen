@@ -151,8 +151,10 @@ class TestErrorRecovery(VereningingenTestCase):
         can_proceed = limiter.acquire(tokens=1, wait=False)
         self.assertFalse(can_proceed)
 
-        # Wait for recovery (one refill period should add more tokens)
-        time.sleep(0.2)  # Wait a bit for refill
+        # Wait for recovery. Refills are quantized to whole refill_periods
+        # (refill_count = int(elapsed / refill_period)), so a sub-period sleep
+        # adds zero tokens — wait slightly more than one full period (1.0s).
+        time.sleep(1.1)
 
         # Should allow more requests after recovery
         can_proceed = limiter.acquire(tokens=1, wait=False)
@@ -443,12 +445,19 @@ class TestErrorRecovery(VereningingenTestCase):
     def test_audit_trail_during_failures(self):
         """Test audit trail maintains integrity during failures"""
 
+        # Use valid AuditEventType members (there is no RECONCILIATION_STARTED
+        # in the enum). SETTLEMENT_PROCESSED stands in for the "start" event.
+        # A unique marker in the description scopes the query to THIS test's
+        # events (other tests in the module also emit these event types).
+        start_event = AuditEventType.SETTLEMENT_PROCESSED
+        marker = f"AUDITTEST-{frappe.generate_hash(length=8)}"
+
         # Test audit logging doesn't fail even when main operation fails
         def failing_operation():
             try:
                 # Log start
                 self.audit_trail.log_event(
-                    AuditEventType.RECONCILIATION_STARTED, AuditSeverity.INFO, "Starting operation"
+                    start_event, AuditSeverity.INFO, f"{marker} Starting operation"
                 )
 
                 # Operation fails
@@ -457,7 +466,7 @@ class TestErrorRecovery(VereningingenTestCase):
             except Exception as e:
                 # Log failure
                 self.audit_trail.log_event(
-                    AuditEventType.ERROR_OCCURRED, AuditSeverity.ERROR, f"Operation failed: {str(e)}"
+                    AuditEventType.ERROR_OCCURRED, AuditSeverity.ERROR, f"{marker} Operation failed: {str(e)}"
                 )
                 raise
 
@@ -465,13 +474,16 @@ class TestErrorRecovery(VereningingenTestCase):
         with self.assertRaises(Exception):
             failing_operation()
 
-        # Verify audit trail captured both events
-        # Note: Mollie Audit Log uses 'description' not 'message' field
+        # Events are buffered until the buffer fills (or is flushed), so flush to
+        # persist them to Mollie Audit Log before querying.
+        self.audit_trail._flush_buffer()
+        frappe.db.commit()
+
+        # The stored event_type is the enum VALUE (lowercase), not its NAME.
         logs = frappe.get_all(
             "Mollie Audit Log",
             filters={
-                "event_type": ["in", ["RECONCILIATION_STARTED", "ERROR_OCCURRED"]],
-                "creation": [">", datetime.now() - timedelta(minutes=1)],
+                "description": ["like", f"{marker}%"],
             },
             fields=["event_type", "severity", "description"],
         )
@@ -479,8 +491,10 @@ class TestErrorRecovery(VereningingenTestCase):
         self.assertEqual(len(logs), 2)
 
         # Verify order and content
-        start_log = next((l for l in logs if l["event_type"] == "RECONCILIATION_STARTED"), None)
-        error_log = next((l for l in logs if l["event_type"] == "ERROR_OCCURRED"), None)
+        start_log = next((l for l in logs if l["event_type"] == start_event.value), None)
+        error_log = next(
+            (l for l in logs if l["event_type"] == AuditEventType.ERROR_OCCURRED.value), None
+        )
 
         self.assertIsNotNone(start_log)
         self.assertIsNotNone(error_log)

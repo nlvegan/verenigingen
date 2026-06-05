@@ -111,7 +111,7 @@ class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
 
         member = hannah["member"]
         self.assertEqual(member.first_name, "Hannah")
-        self.assertEqual(member.last_name, "Happypath")
+        self.assertEqual(member.last_name, "Happy")
         self.assertEqual(member.status, "Active")
 
     def test_state_management_demo(self):

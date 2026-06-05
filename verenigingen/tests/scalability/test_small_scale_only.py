@@ -59,8 +59,12 @@ class TestSmallScalePaymentHistory(VereningingenTestCase):
         print(f"✅ Created {total_records} records in {creation_time:.2f}s")
         print(f"📊 Rate: {records_per_second:.1f} records/second")
         
-        # Performance assertions (lenient for initial validation)
-        self.assertLess(creation_time, 60, "Should complete within 1 minute")
+        # Performance assertions. The absolute wall-clock cap is intentionally
+        # generous: per-document insert time is dominated by Member/Invoice
+        # document hooks and varies widely by bench (CI shares CPU). The
+        # throughput floor below is the meaningful guard against an N+1
+        # regression; the wall-clock cap only catches pathological slowdowns.
+        self.assertLess(creation_time, 180, "Should complete within 3 minutes")
         self.assertGreater(records_per_second, 10, "Should maintain reasonable throughput")
         
         return {
@@ -97,8 +101,10 @@ class TestSmallScalePaymentHistory(VereningingenTestCase):
         print(f"✅ Created {total_records} records in {creation_time:.2f}s")
         print(f"📊 Rate: {records_per_second:.1f} records/second")
         
-        # Performance assertions
-        self.assertLess(creation_time, 120, "Should complete within 2 minutes")
+        # Performance assertions. See test_payment_history_creation_50_members
+        # for rationale: the wall-clock cap is a generous pathological-slowdown
+        # guard; records_per_second is the real N+1-regression floor.
+        self.assertLess(creation_time, 300, "Should complete within 5 minutes")
         self.assertGreater(records_per_second, 5, "Should maintain reasonable throughput")
         
         return {

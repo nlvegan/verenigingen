@@ -94,6 +94,10 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         )
         cls._created_volunteers.append(cls.volunteer_board.name)
 
+        # Ensure the "Chair" Chapter Role exists (board_members.chapter_role is a
+        # Link to Chapter Role). test_site_2 does not seed it.
+        cls._ensure_chapter_role("Chair")
+
         # Create board membership for Amsterdam
         cls._create_board_membership_class(
             cls.chapter_amsterdam.name,
@@ -210,6 +214,19 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Add implicit roles
         roles.extend(["All", "Guest"])
         return roles
+
+    @classmethod
+    def _ensure_chapter_role(cls, role_name):
+        """Ensure a Chapter Role exists (used as board_members.chapter_role)."""
+        if not frappe.db.exists("Chapter Role", role_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Role",
+                    "role_name": role_name,
+                    "is_active": 1,
+                }
+            ).insert(ignore_permissions=True)
+            frappe.db.commit()
 
     @classmethod
     def _create_board_membership_class(cls, chapter_name, volunteer_name, role):

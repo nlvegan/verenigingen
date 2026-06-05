@@ -455,10 +455,19 @@ class TestTerminationExecutionService(EnhancedTestCase):
         with self.assertRaises(Exception):
             TerminationExecutionService().execute(draft_request)
 
-    def test_validation_requires_submitted_document(self):
-        """Test that validation requires submitted document"""
-        # Create approved but not submitted request
-        unsubmitted_request = frappe.get_doc({
+    def test_validation_keys_off_status_not_docstatus(self):
+        """Validation gates on the `status` field, not docstatus.
+
+        The service was refactored so _validate_preconditions enables retry
+        after partial failure by checking only that the member exists and that
+        status == "Approved" — it deliberately does NOT require the document to
+        be submitted. This test pins that contract: an Approved request passes
+        precondition validation regardless of submit state, while a non-Approved
+        one is rejected (covered separately by
+        test_validation_prevents_draft_execution).
+        """
+        # Approved (but unsubmitted) request — preconditions must NOT raise.
+        approved_request = frappe.get_doc({
             "doctype": "Membership Termination Request",
             "member": self.test_member.name,
             "termination_type": "Voluntary",
@@ -468,12 +477,15 @@ class TestTerminationExecutionService(EnhancedTestCase):
             "request_date": today(),
             "status": "Approved"
         })
-        unsubmitted_request.insert()
-        # Don't submit
+        approved_request.insert()
 
-        # Execution should fail validation
+        # Should not raise — Approved status is the only precondition gate.
+        TerminationExecutionService()._validate_preconditions(approved_request)
+
+        # A non-Approved request must fail precondition validation.
+        approved_request.status = "Pending"
         with self.assertRaises(Exception):
-            TerminationExecutionService().execute(unsubmitted_request)
+            TerminationExecutionService()._validate_preconditions(approved_request)
 
     # ========================================================================
     # Savepoint regression tests (TERM-REQ-26-04-6256)

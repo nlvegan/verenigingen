@@ -93,12 +93,16 @@ class TestBatchChunkingFunctionality(EnhancedTestCase):
         draft_invoices = []
         submitted_invoices = []
 
+        # create_test_sales_invoice auto-submits unless status="Draft" is
+        # passed, so request drafts explicitly for the odd-indexed ones.
         for i in range(10):
-            inv = self.create_test_sales_invoice(customer=member.customer)
             if i % 2 == 0:
-                inv.submit()
+                inv = self.create_test_sales_invoice(customer=member.customer)
                 submitted_invoices.append(inv.name)
             else:
+                inv = self.create_test_sales_invoice(
+                    customer=member.customer, status="Draft"
+                )
                 draft_invoices.append(inv.name)
 
         all_invoices = draft_invoices + submitted_invoices
@@ -205,15 +209,18 @@ class TestPaymentHistoryBatchedOptimization(EnhancedTestCase):
             birth_date="1990-01-01"
         )
 
-        # Create invoice with payment
+        # Create invoice with a SUBMITTED payment so the invoice becomes Paid.
+        # create_test_payment_entry only submits when submit=True is passed.
         invoice = self.create_test_sales_invoice(customer=member.customer)
         payment = self.create_test_payment_entry(
             party=member.customer,
+            paid_amount=invoice.grand_total,
             references=[{
                 "reference_doctype": "Sales Invoice",
                 "reference_name": invoice.name,
                 "allocated_amount": invoice.grand_total
-            }]
+            }],
+            submit=True,
         )
 
         member._load_payment_history_batched()
@@ -260,34 +267,40 @@ class TestFallbackMechanism(EnhancedTestCase):
     """Test fallback to original N+1 implementation"""
 
     def test_payment_history_falls_back_on_batch_failure(self):
-        """Fallback should work when batched version fails"""
+        """load_payment_history() falls back to the original loader on batch failure.
+
+        The optimized path lives in load_payment_history(): if
+        refresh_member_financial_history_optimized() raises/returns "failed",
+        it falls back to _load_payment_history_original(). (The lower-level
+        _load_payment_history_without_save() intentionally has NO fallback so
+        errors surface for debugging.)
+        """
+        from unittest.mock import patch
+
         member = self.create_test_member(
             first_name="Fallback",
             last_name="Test",
             birth_date="1990-01-01"
         )
 
-        # Create invoices
+        # Create invoices so the fallback loader has data to populate.
         for i in range(3):
             self.create_test_sales_invoice(customer=member.customer)
 
-        # Force batched version to fail by temporarily breaking it
-        original_method = member._load_payment_history_batched
+        # Force the optimized refresh to fail so the fallback path runs.
+        with patch(
+            "verenigingen.utils.background_jobs"
+            ".refresh_member_financial_history_optimized",
+            side_effect=Exception("Simulated batch failure"),
+        ):
+            # Should fall back without raising.
+            result = member.load_payment_history()
 
-        def failing_batch(*args, **kwargs):
-            raise Exception("Simulated batch failure")
+        self.assertTrue(result)
 
-        member._load_payment_history_batched = failing_batch
-
-        try:
-            # Should fall back without raising error
-            member._load_payment_history_without_save()
-
-            # Should still have payment history (from fallback)
-            self.assertGreater(len(member.payment_history), 0)
-
-        finally:
-            member._load_payment_history_batched = original_method
+        # Fallback should have populated payment history.
+        member.reload()
+        self.assertGreater(len(member.payment_history), 0)
 
 class TestDataIntegrity(EnhancedTestCase):
     """Verify batched and original implementations produce identical results"""

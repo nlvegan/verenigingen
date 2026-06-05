@@ -85,7 +85,8 @@ class TestDetectCategoryFromFolderPath(unittest.TestCase):
     # --- No match ---
 
     def test_no_keywords(self):
-        result = detect_category_from_folder_path("Financien / 2024", "Other")
+        # Use a path with no recognizable keyword in any category.
+        result = detect_category_from_folder_path("Random Stuff / 2024", "Other")
         assert result == "Other"
 
     def test_empty_path(self):
@@ -94,7 +95,7 @@ class TestDetectCategoryFromFolderPath(unittest.TestCase):
 
     def test_none_category_no_match(self):
         # None current_category is falsy → triggers keyword matching
-        result = detect_category_from_folder_path("Financien / 2024", None)
+        result = detect_category_from_folder_path("Random Stuff / 2024", None)
         assert result is None  # no keyword match, returns current_category
 
     # --- Case insensitivity ---

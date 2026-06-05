@@ -102,9 +102,14 @@ class TestApplicationSubmission(VereningingenTestCase):
             application_status="Active"
         )
 
-        # Verify initial state
+        # Verify initial state. application_custom_fee is a Currency field, so
+        # an unset value reads back as 0.0 (not None).
         initial_application_custom_fee = existing_member.application_custom_fee
-        self.assertIsNone(initial_application_custom_fee, "Initial application custom fee should be None")
+        self.assertIn(
+            initial_application_custom_fee,
+            (None, 0, 0.0),
+            "Initial application custom fee should be unset",
+        )
 
         # Reload to get latest version before making changes (avoid timestamp mismatch from hooks)
         existing_member.reload()

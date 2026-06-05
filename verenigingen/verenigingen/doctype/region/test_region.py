@@ -36,7 +36,15 @@ class TestRegion(EnhancedTestCase):
                 "country": "Netherlands",
             }
         )
-        region.save()
+        # EnhancedTestCase runs with frappe.flags.in_import=True, which suppresses
+        # JSON field defaults (so is_active would be None). Temporarily clear the
+        # flag for this insert to verify the real production default (is_active=1).
+        prev_in_import = frappe.flags.in_import
+        frappe.flags.in_import = False
+        try:
+            region.save()
+        finally:
+            frappe.flags.in_import = prev_in_import
 
         # Verify region was created
         self.assertIsNotNone(region.name)

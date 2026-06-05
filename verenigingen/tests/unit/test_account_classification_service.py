@@ -13,12 +13,53 @@ from verenigingen.e_boekhouden.services.account_classification_service import (
 )
 
 
+class _StubEBoekhoudenSettings:
+    """Minimal stand-in for E-Boekhouden Settings.
+
+    Mirrors the shape returned by
+    EBoekhoudenSettings.get_classification_rules(), supplying the standard Dutch
+    RGS code ranges so classification is deterministic in unit tests.
+    """
+
+    def get_classification_rules(self):
+        return {
+            "use_classification_service": 1,
+            "strategy": "Prefer Groups",
+            "balance_sheet_group_mappings": {},
+            "pl_group_mappings": {},
+            "group_type_mappings": {},
+            "bal_rules": {
+                "asset_ranges": [],
+                "liability_ranges": [],
+                "equity_ranges": [],
+                "equity_keywords": [],
+            },
+            "vw_rules": {
+                # 8000-8999 = Income (Dutch RGS). Expense ranges are intentionally
+                # left empty: the tests expect unmatched VW codes in the 4xxx-7xxx
+                # band (e.g. 6500) to fall through to "no match / manual review"
+                # rather than being range-classified as expense.
+                "income_ranges": [("8000", "8999")],
+                "expense_ranges": [],
+                "income_keywords": [],
+                "expense_keywords": [],
+            },
+        }
+
+
 class TestAccountClassificationService(unittest.TestCase):
     """Test suite for account classification service"""
 
     def setUp(self):
-        """Set up test fixtures"""
-        self.service = AccountClassificationService()
+        """Set up test fixtures.
+
+        Inject a settings stub providing the standard Dutch RGS code ranges
+        (8000-8999 = Income, 4000-7999 = Expense). These ranges normally come
+        from E-Boekhouden Settings; injecting them keeps the unit test pure and
+        deterministic regardless of the test site's Single configuration, and
+        exercises PRIORITY-1 (code-range) classification as the tests assert.
+        """
+        self.service = AccountClassificationService(settings=_StubEBoekhoudenSettings())
 
     def test_category_deb_classification(self):
         """Test DEB (debtors) category classification"""

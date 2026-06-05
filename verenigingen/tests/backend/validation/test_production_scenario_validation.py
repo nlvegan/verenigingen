@@ -43,11 +43,11 @@ class TestProductionScenarios(VereningingenTestCase):
         self.assertTrue(DocumentExistenceValidator.check_document_exists("Volunteer", vol1.name))
         self.assertTrue(DocumentExistenceValidator.check_document_exists("Volunteer", vol2.name))
         
-        # Test the new autoname format
-        self.assertTrue(vol1.name.startswith("VOL-"), 
-                       f"Volunteer name should start with VOL-, got: {vol1.name}")
-        self.assertTrue(vol2.name.startswith("VOL-"), 
-                       f"Volunteer name should start with VOL-, got: {vol2.name}")
+        # Test the autoname format (Assoc-Vol-{YYYY}-{MM}-{###})
+        self.assertTrue(vol1.name.startswith("Assoc-Vol-"),
+                       f"Volunteer name should start with Assoc-Vol-, got: {vol1.name}")
+        self.assertTrue(vol2.name.startswith("Assoc-Vol-"),
+                       f"Volunteer name should start with Assoc-Vol-, got: {vol2.name}")
 
     def test_membership_dues_template_field_access(self):
         """Test that membership type code doesn't access non-existent template fields"""
@@ -130,7 +130,7 @@ class TestProductionScenarios(VereningingenTestCase):
                 
                 # Verify volunteer was created
                 self.assertTrue(DocumentExistenceValidator.check_document_exists("Volunteer", volunteer.name))
-                self.assertTrue(volunteer.name.startswith("VOL-"))
+                self.assertTrue(volunteer.name.startswith("Assoc-Vol-"))
 
     def test_template_field_completeness(self):
         """Test that all template fields referenced in code actually exist"""
@@ -187,8 +187,8 @@ class TestProductionScenarios(VereningingenTestCase):
             
             if volunteer:
                 self.track_doc("Volunteer", volunteer.name)
-                # Verify volunteer uses new naming convention
-                self.assertTrue(volunteer.name.startswith("VOL-"))
+                # Verify volunteer uses the Assoc-Vol- naming convention
+                self.assertTrue(volunteer.name.startswith("Assoc-Vol-"))
                 
     def test_system_health_check(self):
         """Monitor system health and check for recent error patterns"""

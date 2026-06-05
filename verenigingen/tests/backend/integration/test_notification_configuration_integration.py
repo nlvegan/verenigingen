@@ -399,6 +399,44 @@ class TestVolunteerEmailIntegration(EnhancedTestCase):
 class TestEmailServiceCacheIntegration(EnhancedTestCase):
     """Integration tests for EmailService template caching."""
 
+    def setUp(self):
+        super().setUp()
+        self._ensure_active_email_account()
+
+    def _ensure_active_email_account(self):
+        """Ensure a default outgoing Email Account exists.
+
+        EmailService.send_templated_email() short-circuits with a failure when
+        no active outgoing account is configured. test_site_2 has none seeded, so
+        we create one here. We set the outgoing flags via db.set_value to avoid
+        EmailService/SMTP connectivity validation during save (the test mocks
+        frappe.sendmail; it does not exercise real delivery).
+        """
+        existing = frappe.db.get_value(
+            "Email Account", {"enable_outgoing": 1, "default_outgoing": 1}, "name"
+        )
+        if existing:
+            return
+
+        account_name = "Test Outgoing Account"
+        if not frappe.db.exists("Email Account", account_name):
+            account = frappe.new_doc("Email Account")
+            account.email_account_name = account_name
+            account.email_id = "test-outgoing@test.invalid"
+            account.smtp_server = "smtp.test.invalid"
+            account.flags.ignore_validate = True
+            account.insert(ignore_permissions=True)
+        else:
+            account = frappe.get_doc("Email Account", account_name)
+
+        frappe.db.set_value(
+            "Email Account",
+            account.name,
+            {"enable_outgoing": 1, "default_outgoing": 1},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
     def test_template_cache_works_across_requests(self):
         """Test template cache persists and improves performance."""
         from verenigingen.services.communication.email_service import get_email_service
@@ -456,9 +494,10 @@ class TestEmailServiceCacheIntegration(EnhancedTestCase):
             f"Template '{template_name}' should be cached after use"
         )
 
-        # Verify cached content is valid
+        # Verify cached content is valid. EmailService._get_template stores the
+        # rendered body under the "content" key (not "response").
         self.assertIn("subject", cached_template, "Cached template should have subject")
-        self.assertIn("response", cached_template, "Cached template should have response body")
+        self.assertIn("content", cached_template, "Cached template should have content body")
 
 
 if __name__ == "__main__":

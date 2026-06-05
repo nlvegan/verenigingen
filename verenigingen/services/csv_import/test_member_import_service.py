@@ -18,14 +18,19 @@ class TestMemberImportService(FrappeTestCase):
     def setUpClass(cls):
         """Set up test fixtures."""
         super().setUpClass()
-        # Ensure test membership type exists
+        # Ensure test membership type exists.
+        # Membership Type reqd fields: membership_type_name (autoname=field:),
+        # minimum_amount, role_profile.
         if not frappe.db.exists("Membership Type", "Regular"):
+            role_profile = frappe.db.get_value(
+                "Role Profile", {"name": "Verenigingen Staff"}, "name"
+            ) or frappe.db.get_value("Role Profile", {}, "name")
             frappe.get_doc(
                 {
                     "doctype": "Membership Type",
-                    "name": "Regular",
-                    "membership_type": "Regular",
+                    "membership_type_name": "Regular",
                     "minimum_amount": 60.0,
+                    "role_profile": role_profile,
                 }
             ).insert(ignore_permissions=True)
             frappe.db.commit()

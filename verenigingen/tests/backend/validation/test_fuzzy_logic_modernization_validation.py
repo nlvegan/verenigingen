@@ -216,14 +216,34 @@ class TestFuzzyLogicModernizationValidation(VereningingenTestCase):
         self.assertNotEqual(member1.name, member2.name)
     
     def test_negative_permission_escalation(self):
-        """Test that permission checks are explicit"""
-        
-        # Test that restricted operations require explicit permissions
-        # This should be checked in actual permission code, not bypassed
-        with self.set_user("test@example.com"):  # Non-admin user
+        """Test that permission checks are explicit.
+
+        A low-privilege member (no System Manager / Settings write perm) must
+        not be able to save Verenigingen Settings. NOTE: the shared
+        "test@example.com" fixture user carries System Manager on this site, so
+        a dedicated low-privilege scratch user is used instead — otherwise the
+        save would (correctly) succeed and the test would be a false negative.
+        """
+        low_priv_email = "fuzzy.lowpriv.regression@test.invalid"
+        if not frappe.db.exists("User", low_priv_email):
+            user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": low_priv_email,
+                    "first_name": "Low",
+                    "last_name": "Priv",
+                    "send_welcome_email": 0,
+                    "roles": [{"role": "Verenigingen Member"}],
+                }
+            )
+            user.insert(ignore_permissions=True)
+        self.track_doc("User", low_priv_email)
+
+        with self.as_user(low_priv_email):
             with self.assertRaises(frappe.PermissionError):
                 settings = frappe.get_doc("Verenigingen Settings")
-                settings.some_admin_only_field = "changed"
+                # Touch a real field so save() actually attempts a write.
+                settings.company = settings.company
                 settings.save()
     
     def test_api_response_consistency(self):

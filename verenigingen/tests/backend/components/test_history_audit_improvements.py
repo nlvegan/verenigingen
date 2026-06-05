@@ -43,10 +43,14 @@ class TestOperationResultErrorCodes(FrappeTestCase):
             error_code="CLEANUP_001",
         )
 
-        result_dict = result.to_dict()
+        # Legacy flat schema exposes error_code at top level; the default
+        # nested schema places it under error["code"]. Verify both contracts.
+        flat_dict = result.to_dict(nested=False)
+        self.assertIn("error_code", flat_dict)
+        self.assertEqual(flat_dict["error_code"], "CLEANUP_001")
 
-        self.assertIn("error_code", result_dict)
-        self.assertEqual(result_dict["error_code"], "CLEANUP_001")
+        nested_dict = result.to_dict()
+        self.assertEqual(nested_dict["error"]["code"], "CLEANUP_001")
 
     def test_operation_result_chain_preserves_error_code(self):
         """Verify chain() preserves error_code from original result"""

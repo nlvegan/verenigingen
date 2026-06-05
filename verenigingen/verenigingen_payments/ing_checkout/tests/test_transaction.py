@@ -62,21 +62,55 @@ class TestGetOrCreateTransaction(FrappeTestCase):
         """Generate a unique transaction ID for test isolation."""
         return f"EX-TEST-{frappe.generate_hash(length=8)}{suffix}"
 
+    def _create_reference_invoice(self):
+        """Create a real draft Sales Invoice so the transaction's reference
+        Dynamic Link passes link validation (v16 validates Dynamic Links).
+
+        Creates its own dedicated Customer so it doesn't pick a polluted one
+        whose linked Member was rolled back by another test (which would trip a
+        Sales Invoice validation hook on the missing Member link).
+        """
+        company = frappe.get_all("Company", limit=1, pluck="name")[0]
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+        customer_name = "ING-Recon-Test-Customer"
+        if not frappe.db.exists("Customer", customer_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": customer_name,
+                    "customer_type": "Individual",
+                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+                }
+            ).insert(ignore_permissions=True)
+        item = frappe.get_all("Item", limit=1, pluck="name")[0]
+        si = frappe.get_doc(
+            {
+                "doctype": "Sales Invoice",
+                "company": company,
+                "customer": customer_name,
+                "currency": company_currency,
+                "items": [{"item_code": item, "qty": 1, "rate": 25.00}],
+            }
+        )
+        si.insert(ignore_permissions=True)
+        return si.name
+
     def test_create_new_transaction(self):
         """Test creating a new transaction."""
         txn_id = self._unique_txn_id()
+        invoice_name = self._create_reference_invoice()
 
         result = get_or_create_transaction(
             transaction_id=txn_id,
             reference_doctype="Sales Invoice",
-            reference_name="INV-001",
+            reference_name=invoice_name,
             amount=25.00,
             payment_method="iDEAL",
         )
 
         self.assertEqual(result.transaction_id, txn_id)
         self.assertEqual(result.reference_doctype, "Sales Invoice")
-        self.assertEqual(result.reference_name, "INV-001")
+        self.assertEqual(result.reference_name, invoice_name)
         self.assertEqual(flt(result.amount), 25.00)
         self.assertEqual(result.payment_method, "iDEAL")
         self.assertEqual(result.status, "Pending")

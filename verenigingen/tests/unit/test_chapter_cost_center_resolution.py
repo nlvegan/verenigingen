@@ -50,9 +50,9 @@ class TestGetChapterCostCenter(unittest.TestCase):
     @patch("verenigingen.services.billing.invoice_generator.frappe")
     def test_returns_chapter_cost_center_when_exists(self, mock_frappe):
         """Chapter with a valid cost center should be returned."""
-        # Import the actual module to patch correctly
+        # Patch where InvoiceGenerator imports it from (services.chapter.chapter_utils).
         with patch(
-            "verenigingen.utils.chapter_utils.get_member_primary_chapter",
+            "verenigingen.services.chapter.chapter_utils.get_member_primary_chapter",
             return_value="Chapter-Amsterdam",
         ):
             mock_frappe.db.get_value.return_value = "Amsterdam - NVV"
@@ -66,7 +66,7 @@ class TestGetChapterCostCenter(unittest.TestCase):
     def test_returns_none_when_no_chapter(self, mock_frappe):
         """Member with no active chapter should return None."""
         with patch(
-            "verenigingen.utils.chapter_utils.get_member_primary_chapter",
+            "verenigingen.services.chapter.chapter_utils.get_member_primary_chapter",
             return_value=None,
         ):
             result = self.generator._get_chapter_cost_center("TEST-MEM-001")
@@ -77,7 +77,7 @@ class TestGetChapterCostCenter(unittest.TestCase):
     def test_returns_none_when_chapter_has_no_cost_center(self, mock_frappe):
         """Chapter without cost_center field set should return None."""
         with patch(
-            "verenigingen.utils.chapter_utils.get_member_primary_chapter",
+            "verenigingen.services.chapter.chapter_utils.get_member_primary_chapter",
             return_value="Chapter-Empty",
         ):
             mock_frappe.db.get_value.return_value = None
@@ -90,7 +90,7 @@ class TestGetChapterCostCenter(unittest.TestCase):
     def test_returns_none_when_cost_center_doesnt_exist(self, mock_frappe):
         """Chapter referencing a deleted/nonexistent cost center should return None."""
         with patch(
-            "verenigingen.utils.chapter_utils.get_member_primary_chapter",
+            "verenigingen.services.chapter.chapter_utils.get_member_primary_chapter",
             return_value="Chapter-Stale",
         ):
             mock_frappe.db.get_value.return_value = "Deleted-CC"

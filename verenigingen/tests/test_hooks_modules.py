@@ -1026,7 +1026,9 @@ class TestWorkflowActionHandlers(unittest.TestCase):
     def test_workflow_handlers_exist(self):
         """All workflow_action_handlers should be importable and callable."""
         hooks = importlib.import_module("verenigingen.hooks")
-        workflow_handlers = hooks.workflow_action_handlers
+        # workflow_action_handlers is an optional hook; the app does not
+        # currently register any. Tolerate its absence rather than erroring.
+        workflow_handlers = getattr(hooks, "workflow_action_handlers", {})
 
         errors = []
         for workflow_name, actions in workflow_handlers.items():

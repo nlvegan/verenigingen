@@ -12,26 +12,25 @@ class TestCustomerHandlingService(unittest.TestCase):
     def setUp(self):
         self.service = CustomerHandlingService()
 
-    @patch("verenigingen.services.customer_handling_service.secure_document_operation")
-    @patch("frappe.new_doc")
+    # CustomerHandlingService.create_customer_for_member delegates the actual
+    # Customer + Contact creation to the canonical
+    # verenigingen.utils.application_payments.create_customer_for_member, which
+    # the service imports lazily. Patch that delegate.
+    @patch("verenigingen.utils.application_payments.create_customer_for_member")
     @patch("frappe.db.get_value")
-    def test_create_customer_for_member_success(self, mock_get_value, mock_new_doc, mock_secure_op):
+    def test_create_customer_for_member_success(self, mock_get_value, mock_create_customer):
         # Setup
         member_doc = MagicMock()
         member_doc.name = "MEM-001"
         member_doc.full_name = "John Doe"
         member_doc.email = "john@example.com"
         member_doc.customer = None
-        
-        mock_get_value.return_value = None # No existing customer
-        
+
+        mock_get_value.return_value = None  # No existing customer
+
         mock_customer = MagicMock()
         mock_customer.name = "CUST-001"
-        mock_new_doc.return_value = mock_customer
-        
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_secure_op.return_value = mock_result
+        mock_create_customer.return_value = mock_customer
 
         # Mock check_similar_customers to return empty
         with patch.object(self.service, 'check_similar_customers', return_value=[]):
@@ -40,8 +39,7 @@ class TestCustomerHandlingService(unittest.TestCase):
 
             # Verify
             self.assertEqual(result, "CUST-001")
-            mock_secure_op.assert_called_once()
-            self.assertEqual(mock_customer.member, "MEM-001")
+            mock_create_customer.assert_called_once_with(member_doc)
 
     @patch("frappe.get_all")
     def test_check_similar_customers(self, mock_get_all):

@@ -9,26 +9,31 @@ import tempfile
 from pathlib import Path
 from verenigingen.tests.utils.base import VereningingenTestCase
 
+# Derive the app root from this file's location so the tests work regardless of
+# the bench's absolute path (this file lives at
+# <app_root>/verenigingen/tests/backend/validation/...).
+APP_ROOT = Path(__file__).resolve().parents[4]
+IMPORT_PATH_VALIDATOR = APP_ROOT / "scripts" / "validation" / "import_path_validator.py"
+DEPRECATED_CHECKER = APP_ROOT / "scripts" / "validation" / "archived" / "codanna_deprecated_checker.py"
+
 
 class TestImportValidationIntegration(VereningingenTestCase):
     """Test import validation tools integration"""
 
     def test_import_path_validator_exists(self):
         """Test that import path validator script exists and is executable"""
-        validator_path = Path("/home/frappe/frappe-bench/apps/verenigingen/scripts/validation/import_path_validator.py")
-        self.assertTrue(validator_path.exists(), "Import path validator script should exist")
+        self.assertTrue(IMPORT_PATH_VALIDATOR.exists(), "Import path validator script should exist")
 
     def test_deprecated_checker_exists(self):
         """Test that deprecated function checker exists"""
-        checker_path = Path("/home/frappe/frappe-bench/apps/verenigingen/scripts/validation/codanna_deprecated_checker.py")
-        self.assertTrue(checker_path.exists(), "Deprecated function checker should exist")
+        self.assertTrue(DEPRECATED_CHECKER.exists(), "Deprecated function checker should exist")
 
     def test_import_validator_quick_mode(self):
         """Test that import validator works in quick mode"""
         try:
             result = subprocess.run([
                 "python",
-                "/home/frappe/frappe-bench/apps/verenigingen/scripts/validation/import_path_validator.py",
+                str(IMPORT_PATH_VALIDATOR),
                 "--quick",
                 "--verbose"
             ], capture_output=True, text=True, timeout=30)
@@ -61,7 +66,7 @@ def test_function():
         try:
             result = subprocess.run([
                 "python",
-                "/home/frappe/frappe-bench/apps/verenigingen/scripts/validation/import_path_validator.py",
+                str(IMPORT_PATH_VALIDATOR),
                 "--file", temp_file,
                 "--verbose"
             ], capture_output=True, text=True, timeout=30)
@@ -112,7 +117,7 @@ def test_function():
         try:
             result = subprocess.run([
                 "grep", "-r", "from verenigingen.utils.secure_context_manager",
-                "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/"
+                str(APP_ROOT / "verenigingen")
             ], capture_output=True, text=True)
 
             # Should find no matches (exit code 1 means no matches found)
@@ -127,7 +132,7 @@ def test_function():
 
     def test_pre_commit_hooks_include_import_validation(self):
         """Test that pre-commit hooks include our import validation"""
-        pre_commit_config = Path("/home/frappe/frappe-bench/apps/verenigingen/.pre-commit-config.yaml")
+        pre_commit_config = APP_ROOT / ".pre-commit-config.yaml"
 
         if pre_commit_config.exists():
             content = pre_commit_config.read_text()

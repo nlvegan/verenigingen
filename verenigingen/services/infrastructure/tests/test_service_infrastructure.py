@@ -131,14 +131,17 @@ class ServiceInfrastructureEnhancedTests(EnhancedTestCase):
         search_result = service.search_members("DataService")
         self.assert_service_result(search_result, success=True, has_data=True)
 
-        # Verify search found our test members
+        # Verify search found our test members. EnhancedTestDataFactory
+        # uniquifies last_name (appends digits), so full_name is a prefix match
+        # rather than an exact match.
         found_members = search_result["data"]["members"]
         found_names = [m.get("full_name", "") for m in found_members]
-        expected_names = [f"TestMember{i:02d} DataService" for i in range(3)]
+        expected_prefixes = [f"TestMember{i:02d} DataService" for i in range(3)]
 
-        for expected_name in expected_names:
-            self.assertIn(
-                expected_name, found_names, f"Expected member {expected_name} not found in search results"
+        for expected_prefix in expected_prefixes:
+            self.assertTrue(
+                any(name.startswith(expected_prefix) for name in found_names),
+                f"Expected member {expected_prefix} not found in search results: {found_names}",
             )
 
     def test_api_service_security_integration(self):
@@ -294,10 +297,14 @@ class ServiceInfrastructureEnhancedTests(EnhancedTestCase):
         search_result = search_members_api("API Test")
         self.assert_service_result(search_result, success=True, has_data=True)
 
-        # Verify search found our test member
+        # Verify search found our test member. EnhancedTestDataFactory
+        # uniquifies last_name (appends digits), so match on the name prefix.
         members = search_result["data"]["members"]
         member_names = [m.get("full_name", "") for m in members]
-        self.assertIn("API Test", member_names)
+        self.assertTrue(
+            any(name.startswith("API Test") for name in member_names),
+            f"Expected member 'API Test' not found in search results: {member_names}",
+        )
 
     def test_error_handling_integration(self):
         """Test error handling across service infrastructure."""

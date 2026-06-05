@@ -376,16 +376,24 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
                     member_data["tussenvoegsel"] = name_data["tussenvoegsel"]
 
                 member = self.create_test_member(**member_data)
-                
-                # Verify full name construction
-                if hasattr(member, 'full_name') and member.full_name:
-                    self.assertEqual(member.full_name, name_data["expected_full_name"])
 
-                # Test SEPA mandate with tussenvoegsel names
+                # Verify full name construction. EnhancedTestDataFactory
+                # uniquifies last_name (appends digits), so the tussenvoegsel
+                # placement is verified via a prefix match on full_name.
+                if hasattr(member, 'full_name') and member.full_name:
+                    self.assertTrue(
+                        member.full_name.startswith(name_data["expected_full_name"]),
+                        f"full_name {member.full_name!r} should start with "
+                        f"{name_data['expected_full_name']!r}",
+                    )
+
+                # Test SEPA mandate with tussenvoegsel names. Use the member's
+                # actual (uniquified) full_name as the account holder name.
+                account_holder_name = member.full_name or name_data["expected_full_name"]
                 mandate_data = {
                     "member": member.name,
                     "iban": "NL91ABNA0417164300",
-                    "account_holder_name": name_data["expected_full_name"],
+                    "account_holder_name": account_holder_name,
                     "mandate_id": f"TUSSENVOEGSEL-{member.name[-4:]}",
                     "sign_date": getdate(),
                     "status": "Active",
@@ -404,7 +412,7 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
 
                 self.assertTrue(result.success)
                 mandate = frappe.get_doc("SEPA Mandate", result.doc_name) if result.doc_name else mandate_doc
-                self.assertEqual(mandate.account_holder_name, name_data["expected_full_name"])
+                self.assertEqual(mandate.account_holder_name, account_holder_name)
 
     def test_age_requirement_business_rules_integration(self):
         """
@@ -413,13 +421,20 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
         Validates 16+ requirement for volunteers and other age-related
         business rules using real date calculations.
         """
-        # Test member creation with various ages
+        # Test member creation with various ages. Birth dates are computed
+        # relative to today (membership rule: min_age=16, max_age=120) so the
+        # test does not rot as the calendar advances.
+        from frappe.utils import add_years, add_days as _add_days
+
+        def _birth_date_for_age(years, extra_days=0):
+            return _add_days(add_years(getdate(), -years), extra_days)
+
         test_ages = [
-            {"birth_date": "2010-01-01", "expected_valid": False, "reason": "Too young (under 16)"},
-            {"birth_date": "2008-01-01", "expected_valid": True, "reason": "Just old enough (16+)"},
-            {"birth_date": "1990-01-01", "expected_valid": True, "reason": "Adult member"},
-            {"birth_date": "1950-01-01", "expected_valid": True, "reason": "Senior member"},
-            {"birth_date": "1900-01-01", "expected_valid": False, "reason": "Too old (over 120)"}
+            {"birth_date": _birth_date_for_age(10), "expected_valid": False, "reason": "Too young (under 16)"},
+            {"birth_date": _birth_date_for_age(18), "expected_valid": True, "reason": "Just old enough (16+)"},
+            {"birth_date": _birth_date_for_age(36), "expected_valid": True, "reason": "Adult member"},
+            {"birth_date": _birth_date_for_age(76), "expected_valid": True, "reason": "Senior member"},
+            {"birth_date": _birth_date_for_age(130), "expected_valid": False, "reason": "Too old (over 120)"}
         ]
 
         for test_case in test_ages:
@@ -465,44 +480,48 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
             birth_date="1985-01-01"
         )
 
-        # Create a template dues schedule first (using existing member for template)
+        # Create the membership type first (needed by the template dues schedule,
+        # which requires a membership_type link).
+        membership_type_data = {
+            "membership_type_name": "Associate Member",
+            "amount": 25.0,
+            "billing_period": "Monthly"
+        }
+        membership_type = self.factory.ensure_membership_type("Associate Member", membership_type_data)
+
+        # Create a template dues schedule. Templates are flagged via is_template=1
+        # (not a "Template" status, which is not a valid status option) and skip
+        # the active-membership requirement. A template has no member.
         template_schedule_data = {
             "schedule_name": "Monthly Dues Template",
-            "member": member.name,  # Use the member we just created
-            "billing_frequency": "Monthly", 
+            "membership_type": membership_type.name,
+            "billing_frequency": "Monthly",
             "dues_rate": 25.00,
-            "next_invoice_date": add_days(getdate(), 30),
-            "status": "Template",  # Mark as template
-            "is_active": 0,  # Template, not active schedule
+            "currency": "EUR",
+            "is_template": 1,
+            "status": "Active",
         }
-        
+
         template_schedule_doc = frappe.new_doc("Membership Dues Schedule")
         template_schedule_doc.update(template_schedule_data)
-        
+
         template_result = secure_document_operation(
             operation="insert",
             doc=template_schedule_doc,
             justification="Create template dues schedule for membership type testing",
             required_permissions=["Membership Dues Schedule:create"]
         )
-        
+
         if not template_result.success:
-            # Template creation failed - this is expected for integration tests without full setup
-            # Create a simple minimal template instead
             self.fail(f"Template dues schedule creation failed, cannot proceed with financial workflow test: {template_result.errors}")
-        else:
-            template_name = template_result.doc_name
-        
-        # Create membership type - template is optional for integration testing
-        membership_type_data = {
-            "membership_type_name": "Associate Member",
-            "amount": 25.0,
-            "billing_period": "Monthly"
-        }
+        template_name = template_result.doc_name
+
+        # Link the template back to the membership type.
         if template_name:
-            membership_type_data["dues_schedule_template"] = template_name
-            
-        membership_type = self.factory.ensure_membership_type("Associate Member", membership_type_data)
+            frappe.db.set_value(
+                "Membership Type", membership_type.name, "dues_schedule_template", template_name
+            )
+            membership_type.reload()
         
         # Create active membership (required for dues schedule)
         membership_data = {
@@ -525,6 +544,13 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
         if not membership_result.success:
             self.fail(f"Membership creation failed: {membership_result.errors}")
         membership = frappe.get_doc("Membership", membership_result.doc_name) if membership_result.doc_name else membership_doc
+
+        # Membership is submittable; the active-membership check used by the
+        # dues schedule requires docstatus=1. Submit it (skipping automatic dues
+        # schedule creation so we can create the schedule explicitly below).
+        if membership.docstatus == 0:
+            membership.flags.skip_dues_schedule_creation = True
+            membership.submit()
 
         # Create SEPA mandate for financial testing
         mandate_data = {
@@ -554,7 +580,8 @@ class TestDutchBusinessRulesPhase3Integration(EnhancedTestCase):
         dues_schedule_data = {
             "schedule_name": f"Monthly dues schedule for {member.full_name}",  # Required field
             "member": member.name,
-            "billing_frequency": "Monthly", 
+            "membership_type": membership_type.name,  # Required field
+            "billing_frequency": "Monthly",
             "dues_rate": 25.00,
             "next_invoice_date": add_days(getdate(), 30),
             "status": "Active",

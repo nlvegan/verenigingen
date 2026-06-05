@@ -328,6 +328,11 @@ class TestDataBuilder:
         if not membership_type:
             # Create a default membership type
             membership_type = self._create_default_membership_type()
+        elif not frappe.db.exists("Membership Type", membership_type):
+            # Self-seed a named membership type that does not yet exist on the
+            # (possibly isolated) test site, so personas/builders referencing a
+            # specific type name do not fail with LinkValidationError.
+            self._create_named_membership_type(membership_type)
 
         membership_data = {
             "doctype": "Membership",
@@ -540,6 +545,26 @@ class TestDataBuilder:
     def cleanup(self):
         """Clean up all created test data"""
         return self._cleanup_manager.cleanup()
+
+    def _create_named_membership_type(self, name):
+        """Create a membership type with a specific name for testing.
+
+        Used when a persona/builder references a named type (e.g.
+        "Annual Membership") that is not present on the test site.
+        """
+        if not DocumentExistenceValidator.check_document_exists("Membership Type", name):
+            membership_type = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": name,
+                    "amount": 100,
+                    "currency": "EUR",
+                    "billing_period": "Annual",
+                }
+            )
+            membership_type.insert()
+            self._cleanup_manager.register("Membership Type", membership_type.name)
+        return name
 
     def _create_default_membership_type(self):
         """Create a default membership type for testing"""

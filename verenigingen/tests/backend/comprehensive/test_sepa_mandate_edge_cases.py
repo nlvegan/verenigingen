@@ -217,6 +217,10 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
 
         See SEPAMandate.validate_no_duplicate_active_mandate().
         """
+        # _get_test_iban() mints a UNIQUE IBAN per call, so capture it once and
+        # reuse it to actually construct a same-IBAN duplicate.
+        shared_iban = self._get_test_iban()
+
         # Create first active mandate
         mandate1 = frappe.get_doc(
             {
@@ -224,7 +228,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "member": self.member.name,
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
-                "iban": self._get_test_iban(),
+                "iban": shared_iban,
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -238,7 +242,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     "member": self.member.name,
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
-                    "iban": self._get_test_iban(),  # same IBAN as mandate1
+                    "iban": shared_iban,  # same IBAN as mandate1
                     "status": "Active",
                     "mandate_date": today()}
             )

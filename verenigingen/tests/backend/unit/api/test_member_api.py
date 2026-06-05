@@ -32,19 +32,12 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         from verenigingen.tests.utils.factories import TestDataBuilder
         self.builder = TestDataBuilder()
 
-        # Get or create membership type
-        existing_types = frappe.get_all("Membership Type", limit=1)
-        if existing_types:
-            self.membership_type = existing_types[0].name
-        else:
-            mt = frappe.get_doc({
-                "doctype": "Membership Type",
-                "membership_type_name": "Test API Membership",
-                "amount": 50.0
-            })
-            mt.insert()
-            self.track_doc("Membership Type", mt.name)
-            self.membership_type = mt.name
+        # Create a dedicated membership type. Do NOT reuse an arbitrary existing
+        # type: some on the shared site have a dues-schedule template whose
+        # minimum (e.g. €200) exceeds the €15 default rate, which breaks the
+        # auto dues-schedule creation on membership submit. create_test_membership_type
+        # creates a type whose after_insert auto-creates an aligned template.
+        self.membership_type = self.create_test_membership_type().name
     
     def tearDown(self):
         """Clean up test data including builder cleanup"""
@@ -406,8 +399,42 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         member = test_data["member"]
         membership = test_data["membership"]
 
-        # Submit membership
-        membership.submit()
+        # Submit membership if not already submitted by the builder.
+        if membership.docstatus == 0:
+            membership.submit()
+
+        # Ensure an active dues schedule exists. Submitting a membership only
+        # creates one when the membership type has a dues_schedule_template; the
+        # arbitrary type picked in setUp may not, so create the schedule directly
+        # rather than relying on auto-creation (or on stale data from prior runs).
+        if not frappe.db.exists(
+            "Membership Dues Schedule",
+            {"member": member.name, "status": "Active", "is_template": 0},
+        ):
+            mt = self._get_test_membership_type()
+            # The schedule's dues_rate must be >= the membership type's effective
+            # minimum, which is enforced from its dues-schedule template. Source
+            # the minimum from the template (falling back to the type) so the
+            # schedule validates regardless of which type setUp picked.
+            template = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"is_template": 1, "membership_type": mt},
+                ["minimum_amount", "suggested_amount", "dues_rate"],
+                as_dict=True,
+            )
+            min_amount = 0.0
+            if template:
+                min_amount = float(
+                    template.suggested_amount or template.dues_rate or template.minimum_amount or 0
+                )
+            min_amount = max(
+                min_amount, float(frappe.db.get_value("Membership Type", mt, "minimum_amount") or 0)
+            )
+            self.create_test_dues_schedule(
+                member=member.name,
+                membership_type=mt,
+                dues_rate=max(15.00, min_amount),
+            )
 
         # Test getting current dues schedule details: signature takes `member` (name).
         # Returned dict surfaces schedule metadata (dues_rate / billing_frequency /
