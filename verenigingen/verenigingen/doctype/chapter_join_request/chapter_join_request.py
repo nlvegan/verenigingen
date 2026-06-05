@@ -28,6 +28,14 @@ class ChapterJoinRequest(Document):
         if not self.status:
             self.status = "Pending"
 
+        # Materialize the "Today" default for request_date here for the same
+        # reason as status above: Frappe v16 applies field defaults only at the
+        # form layer, not for frappe.get_doc({...}).insert(). request_date is NOT
+        # allow_on_submit, so if it stays empty until a post-submit save the
+        # default is applied then (None -> today) and raises UpdateAfterSubmitError.
+        if not self.request_date:
+            self.request_date = today()
+
         self.validate_field_references()
         self.validate_member_exists()
         self.validate_chapter_exists()

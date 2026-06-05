@@ -1268,35 +1268,34 @@ def can_terminate_member(member_name, user=None):
         frappe.logger().debug(f"User {user} is not a member")
         return False
 
-    # Check if user is a board member of the member's chapter
-    # Security-critical query for permission evaluation
+    # Check if user is a board member of any of the member's chapters.
+    # This is an INTERNAL permission-evaluation lookup: we must read the member's
+    # chapter memberships to decide whether the requesting user may terminate
+    # them, independent of the requesting user's own read rights on Chapter
+    # Member. (The previous secure_document_operation wrapper passed a plain dict
+    # as the "doc" and gated the lookup behind the requesting user's escalation
+    # rights, so board members were wrongly denied — the lookup raised/returned
+    # empty and can_terminate_member fell through to False.)
     try:
-        # Secure permission evaluation query - use controlled database access for permission checking
-        result = secure_document_operation(
-            operation="query",
-            doc={"doctype": "Chapter Member", "filters": {"member": member_doc.name, "enabled": 1}},
-            justification=f"Permission evaluation query to check termination access for member {member_doc.name} by user {user} - security-critical permission determination",
-            required_permissions=["Chapter Member:read"],
+        # Check ALL chapters the member belongs to, not just the most recent.
+        # A board member of ANY of the member's chapters may terminate them;
+        # restricting to the single most-recently-joined chapter wrongly denied
+        # board members of the member's other chapters.
+        member_chapters = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_doc.name, "enabled": 1},
+            fields=["parent"],
+            order_by="chapter_join_date desc",
         )
-        if result.success:
-            member_chapters = frappe.get_all(
-                "Chapter Member",
-                filters={"member": member_doc.name, "enabled": 1},
-                fields=["parent"],
-                order_by="chapter_join_date desc",
-                limit=1,
-            )
-        else:
-            member_chapters = []
     except Exception as e:
         frappe.logger().error(f"Permission evaluation query failed for member {member_doc.name}: {str(e)}")
         return False
-    if member_chapters:
+    for member_chapter in member_chapters:
         try:
-            chapter_doc = frappe.get_doc("Chapter", member_chapters[0].parent)
+            chapter_doc = frappe.get_doc("Chapter", member_chapter.parent)
             if chapter_doc.is_board_member(member_name=requesting_member):
                 frappe.logger().debug(
-                    f"User {user} has board access in member's chapter {member_chapters[0].parent}"
+                    f"User {user} has board access in member's chapter {member_chapter.parent}"
                 )
                 return True
         except Exception as e:

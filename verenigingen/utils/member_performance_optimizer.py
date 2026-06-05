@@ -71,9 +71,17 @@ class MemberPerformanceOptimizer:
             Created member name
         """
 
-        # Start transaction for atomicity
-        frappe.db.begin()
-
+        # Use a SAVEPOINT for atomicity. A bare frappe.db.begin()/commit() would
+        # issue START TRANSACTION / COMMIT, which (a) prematurely commits the
+        # surrounding request transaction in production and (b) raises
+        # ImplicitCommitError under the test transaction. A savepoint nests safely
+        # in both contexts and lets us roll back only this unit of work on failure
+        # while still propagating the exception to the caller.
+        # Unique per call so nested/looped invocations don't collide on the same
+        # savepoint name (a reused name would let an inner rollback/release affect
+        # an outer unit of work).
+        savepoint = f"create_member_optimized_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
         try:
             # 1. Pre-validate data (1 query)
             validation_result = self._validate_member_data_bulk(member_data)
@@ -104,13 +112,11 @@ class MemberPerformanceOptimizer:
                 timeout=300,
             )
 
-            # 5. Commit transaction
-            frappe.db.commit()
-
+            frappe.db.release_savepoint(savepoint)
             return member.name
 
         except Exception as e:
-            frappe.db.rollback()
+            frappe.db.rollback(save_point=savepoint)
             frappe.log_error(f"Optimized member creation failed: {str(e)}")
             raise
 

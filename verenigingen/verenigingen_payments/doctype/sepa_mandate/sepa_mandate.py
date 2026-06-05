@@ -30,6 +30,7 @@ class SEPAMandate(Document):
     def validate(self):
         self.set_scheme_default()
         self.auto_generate_mandate_id()
+        self.enforce_terminal_status()
         self.validate_dates()
         self.validate_iban()
         self.set_status_based_on_dates()
@@ -40,6 +41,29 @@ class SEPAMandate(Document):
         # Run last: relies on the normalized IBAN (set by validate_iban) and the
         # final status (set by set_status_based_on_dates / sync_status_is_active).
         self.validate_no_duplicate_active_mandate()
+
+    def enforce_terminal_status(self):
+        """Prevent reactivating a mandate that is in a terminal state.
+
+        Cancelled and Expired are terminal SEPA mandate states: a cancelled or
+        expired mandate must not be reverted to Active/Suspended. The correct
+        workflow is to create a NEW mandate. Without this guard the status field
+        could be flipped back to Active on a later save, silently resurrecting a
+        revoked authorization. (set_value already treats these states specially.)
+        """
+        if self.is_new():
+            return
+        previous_status = frappe.db.get_value("SEPA Mandate", self.name, "status")
+        if previous_status in ("Cancelled", "Expired") and self.status != previous_status:
+            # Keep the terminal status; do not allow resurrection. We restore
+            # silently (rather than throw) so unrelated saves of a terminal mandate
+            # still succeed, but log a warning so the rejected transition is visible.
+            frappe.logger().warning(
+                f"SEPA Mandate {self.name}: blocked status change "
+                f"{previous_status} -> {self.status}; keeping {previous_status}."
+            )
+            self.status = previous_status
+            self.is_active = 0
 
     def validate_no_duplicate_active_mandate(self):
         """Reject a second Active mandate that duplicates an existing one (same IBAN).

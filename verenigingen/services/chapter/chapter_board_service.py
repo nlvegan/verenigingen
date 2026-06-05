@@ -81,38 +81,37 @@ class ChapterBoardService(StatelessService):
             >>> ChapterBoardService.update_chapter_head(chapter_doc)
             True  # Chair found and chapter_head updated
         """
+        # NOTE: This method only mutates chapter_doc.chapter_head IN MEMORY;
+        # persisting is the caller's responsibility (e.g. update_chapters_with_role
+        # saves the doc). It must NOT manage transactions itself: a previous
+        # implementation wrapped this in frappe.db.begin() and returned on the
+        # success path without committing, which orphaned the surrounding
+        # transaction and silently discarded the caller's chapter_head save
+        # (chapter_head reverted to None until the next request-level commit).
         try:
-            # Use atomic transaction to prevent race conditions
-            frappe.db.begin()
-            try:
-                old_head = chapter_doc.chapter_head
+            old_head = chapter_doc.chapter_head
 
-                if not chapter_doc.board_members:
-                    chapter_doc.chapter_head = None
-                    return False
+            if not chapter_doc.board_members:
+                chapter_doc.chapter_head = None
+                return False
 
-                # Use single optimized query to get chair member
-                chair_member = self.get_chapter_chair_optimized(chapter_doc)
+            # Use single optimized query to get chair member
+            chair_member = self.get_chapter_chair_optimized(chapter_doc)
 
-                if chair_member:
-                    chapter_doc.chapter_head = chair_member
-                    chair_found = True
-                else:
-                    chapter_doc.chapter_head = None
-                    chair_found = False
+            if chair_member:
+                chapter_doc.chapter_head = chair_member
+                chair_found = True
+            else:
+                chapter_doc.chapter_head = None
+                chair_found = False
 
-                # Log change if head changed
-                if old_head != chapter_doc.chapter_head:
-                    self.logger.info(
-                        f"Chapter head updated for {chapter_doc.name}: {old_head} -> {chapter_doc.chapter_head}"
-                    )
+            # Log change if head changed
+            if old_head != chapter_doc.chapter_head:
+                self.logger.info(
+                    f"Chapter head updated for {chapter_doc.name}: {old_head} -> {chapter_doc.chapter_head}"
+                )
 
-                return chair_found
-
-            except Exception as transaction_error:
-                # Rollback the transaction on error
-                frappe.db.rollback()
-                raise transaction_error
+            return chair_found
 
         except Exception as e:
             self.logger.error(f"Error updating chapter head for {chapter_doc.name}: {str(e)}")

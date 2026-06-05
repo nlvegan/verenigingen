@@ -111,11 +111,31 @@ class MembershipType(Document):
         if existing_item:
             return existing_item
 
+        # Ensure the "Memberships" Item Group exists before creating the item.
+        # Previously this was only a comment ("Create this item group if it
+        # doesn't exist") with no implementation, so item creation failed with a
+        # LinkValidationError whenever the group was absent (e.g. fresh sites or
+        # test isolation), surfacing as "Unable to create membership item".
+        if not frappe.db.exists("Item Group", "Memberships"):
+            memberships_group = frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": "Memberships",
+                    "parent_item_group": "All Item Groups",
+                    "is_group": 0,
+                }
+            )
+            # Security: idempotent creation of a fixed master Item Group for
+            # membership-item provisioning; runs in approval/background/service
+            # flows where the acting user may lack Item Group create rights. The
+            # group name is static (no user input), so bypassing perms is safe.
+            memberships_group.insert(ignore_permissions=True)
+
         # Create a new item for membership
         item = frappe.new_doc("Item")
         item.item_name = f"{self.membership_type_name} Membership"
         item.item_code = f"MEM-{self.membership_type_name}".upper().replace(" ", "-")
-        item.item_group = "Memberships"  # Create this item group if it doesn't exist
+        item.item_group = "Memberships"
         item.is_stock_item = 0
         item.include_item_in_manufacturing = 0
         item.is_service_item = 1

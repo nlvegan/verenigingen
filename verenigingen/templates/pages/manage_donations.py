@@ -271,7 +271,7 @@ def cancel_recurring_donation():
     """Cancel a recurring donation - with proper security framework"""
     try:
         # Get request data
-        data = frappe.get_request_data()
+        data = frappe.form_dict
         donation_id = data.get("donation_id")
 
         if not donation_id:
@@ -354,7 +354,7 @@ def update_recurring_donation():
     """Update a recurring donation amount - with proper security framework"""
     try:
         # Get request data
-        data = frappe.get_request_data()
+        data = frappe.form_dict
         donation_id = data.get("donation_id")
         new_amount = flt(data.get("new_amount"))
 

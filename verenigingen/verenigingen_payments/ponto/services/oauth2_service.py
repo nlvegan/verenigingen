@@ -486,6 +486,30 @@ class PontoOAuth2Service:
 
         frappe.logger().debug(f"Ponto tokens stored, access token expires at {expiry_time.isoformat()}")
 
+    def _get_valid_cached_token(self, now: "datetime") -> Optional[str]:
+        """Return the cached access token only if it is still valid (with buffer).
+
+        Used by the in-lock double-check in get_access_token(): another process may
+        have refreshed the token while we waited for the lock, but a stale (expired)
+        cached token must NOT be returned — otherwise an expired token short-circuits
+        the refresh.
+        """
+        cache = frappe.cache()
+        cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
+        cached_expiry = cache.get_value(self.TOKEN_EXPIRY_CACHE_KEY)
+        if isinstance(cached_token, bytes):
+            cached_token = cached_token.decode("utf-8")
+        if isinstance(cached_expiry, bytes):
+            cached_expiry = cached_expiry.decode("utf-8")
+        if cached_token and cached_expiry:
+            try:
+                expiry_time = datetime.fromisoformat(cached_expiry)
+                if now < expiry_time - timedelta(seconds=self.TOKEN_EXPIRY_BUFFER):
+                    return cached_token
+            except (ValueError, TypeError):
+                pass
+        return None
+
     def get_access_token(self) -> str:
         """
         Get a valid access token, refreshing if necessary.
@@ -583,24 +607,24 @@ class PontoOAuth2Service:
 
             try:
                 with filelock(self.TOKEN_REFRESH_LOCK_NAME, timeout=self.TOKEN_REFRESH_LOCK_TIMEOUT):
-                    # Double-check cache inside lock - another process may have refreshed
-                    cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
-                    if isinstance(cached_token, bytes):
-                        cached_token = cached_token.decode("utf-8")
-                    if cached_token:
+                    # Double-check cache inside lock - another process may have refreshed.
+                    # Must validate EXPIRY, not just existence: we only reached Step 3
+                    # because the cached token was already determined expired, so a bare
+                    # existence check would return that same stale token and skip the
+                    # refresh entirely.
+                    fresh_token = self._get_valid_cached_token(now)
+                    if fresh_token:
                         frappe.logger().debug("Token refreshed by another process, using cached token")
-                        return cached_token
+                        return fresh_token
 
                     # Proceed with refresh
                     return self._refresh_access_token(refresh_token)
             except LockTimeoutError:
-                # Lock held by another process - check if they refreshed
-                cached_token = cache.get_value(self.ACCESS_TOKEN_CACHE_KEY)
-                if isinstance(cached_token, bytes):
-                    cached_token = cached_token.decode("utf-8")
-                if cached_token:
+                # Lock held by another process - check if they refreshed (valid token only)
+                fresh_token = self._get_valid_cached_token(now)
+                if fresh_token:
                     frappe.logger().debug("Token refreshed by another process, using cached token")
-                    return cached_token
+                    return fresh_token
                 raise PontoAuthenticationError(
                     "Token refresh in progress by another process. Please retry.",
                     details={"action": "retry_after_seconds", "retry_after": 2},

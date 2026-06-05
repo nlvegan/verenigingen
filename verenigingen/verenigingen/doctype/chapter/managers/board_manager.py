@@ -933,8 +933,18 @@ class BoardManager(BaseManager):
                         "error",
                     )
 
-                # Sync role profile (separate from the Frappe role above)
-                self._sync_role_profile_for_volunteer(board_member.volunteer)
+                # Defer role-profile sync until after the Chapter (and its
+                # board_members child rows) are persisted. handle_board_member_additions
+                # runs during validate/before_save, so the new Chapter Board Member row
+                # is NOT yet in the database. get_board_member_profiles() queries
+                # `tabChapter Board Member`, so running the sync now would compute a
+                # non-board profile and overwrite the "Verenigingen Chapter Board Member"
+                # role that assign_board_member_role() just added — silently dropping it.
+                # Chapter.after_save() drains this list once the rows are committed.
+                if not hasattr(self.chapter_doc, "_pending_board_profile_syncs"):
+                    self.chapter_doc._pending_board_profile_syncs = []
+                if board_member.volunteer not in self.chapter_doc._pending_board_profile_syncs:
+                    self.chapter_doc._pending_board_profile_syncs.append(board_member.volunteer)
 
                 # Add to chapter members if they have an associated member
                 try:
@@ -1107,6 +1117,21 @@ class BoardManager(BaseManager):
             return role.is_chair and role.is_active
         except frappe.DoesNotExistError:
             return False
+
+    def flush_pending_board_profile_syncs(self):
+        """Run deferred role-profile syncs for board members added during this save.
+
+        Called from Chapter.after_save() once the Chapter Board Member child rows
+        are persisted, so get_board_member_profiles() can see them and compute the
+        correct (board-inclusive) role profile.
+        """
+        pending = getattr(self.chapter_doc, "_pending_board_profile_syncs", None)
+        if not pending:
+            return
+        # Clear first so a re-entrant save doesn't double-process.
+        self.chapter_doc._pending_board_profile_syncs = []
+        for volunteer_name in pending:
+            self._sync_role_profile_for_volunteer(volunteer_name)
 
     def _sync_role_profile_for_volunteer(self, volunteer_name: str):
         """Recalculate and apply the correct role profile for a volunteer's user account.

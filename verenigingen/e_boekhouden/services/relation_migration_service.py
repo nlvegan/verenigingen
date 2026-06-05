@@ -280,12 +280,24 @@ class RelationMigrationService:
             # Get currency for party
             currency = self._get_migration_currency()
 
+            # Resolve the party group up front: a non-group leaf is mandatory, and
+            # _get_default_party_group returns None when no leaf group exists.
+            # Guard explicitly so we fail with a clear log instead of a cryptic
+            # mandatory-field error deep in document validation.
+            party_group = self._get_default_party_group(party_type)
+            if not party_group:
+                frappe.log_error(
+                    f"No non-group {party_type} Group available; cannot create party '{display_name}'",
+                    "eBoekhouden Party Migration",
+                )
+                return False
+
             # Build party document
             party_doc_data = {
                 "doctype": party_type,
                 name_field: display_name,
                 f"{party_type.lower()}_type": "Company" if is_company else "Individual",
-                f"{party_type.lower()}_group": f"All {party_type} Groups",
+                f"{party_type.lower()}_group": party_group,
                 "default_currency": currency,
                 "disabled": 0,
             }
@@ -391,6 +403,10 @@ class RelationMigrationService:
                 {
                     "doctype": "Address",
                     "address_title": f"{party_name} Address",
+                    # address_type is a mandatory field on Address with no DB default;
+                    # a server-side insert that omits it fails with a MandatoryError,
+                    # so set it explicitly here.
+                    "address_type": "Billing",
                     "address_line1": address_line1,
                     "city": city,
                     "pincode": postal_code,
@@ -404,6 +420,41 @@ class RelationMigrationService:
 
         except Exception as e:
             self._log_error(f"Failed to create address for {party_type.lower()} {party_name}: {str(e)}")
+
+    def _get_default_party_group(self, party_type):
+        """
+        Resolve a non-group Customer/Supplier Group for new parties.
+
+        ERPNext rejects a Group-type group (e.g. the root "All Customer Groups"
+        node) on Customer/Supplier validation, so we must never assign one.
+        Customers reuse the shared ``resolve_non_group_customer_group`` helper;
+        Suppliers mirror the same logic against Buying Settings.
+
+        Args:
+            party_type (str): "Customer" or "Supplier"
+
+        Returns:
+            str: Name of a non-group group, or None if none exist
+        """
+        if party_type == "Customer":
+            from verenigingen.services.customer_group_resolver import (
+                resolve_non_group_customer_group,
+            )
+
+            return resolve_non_group_customer_group()
+
+        configured = frappe.db.get_single_value("Buying Settings", "supplier_group")
+        if configured and not frappe.db.get_value("Supplier Group", configured, "is_group"):
+            return configured
+
+        leaf = frappe.get_all(
+            "Supplier Group",
+            filters={"is_group": 0},
+            fields=["name"],
+            order_by="name",
+            limit=1,
+        )
+        return leaf[0].name if leaf else None
 
     def _get_proper_territory(self, party_data):
         """

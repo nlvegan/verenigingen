@@ -150,14 +150,13 @@ class Chapter(Document):
         # Auto-populate uploaded_by and upload_date for board documents
         self._populate_board_document_fields()
 
-        old_doc = self.get_doc_before_save()
-        if old_doc:
-            self._safe_manager_operation(
-                "board_member_changes", lambda: self.board_manager.handle_board_member_changes(old_doc)
-            )
-            self._safe_manager_operation(
-                "board_member_additions", lambda: self.board_manager.handle_board_member_additions(old_doc)
-            )
+        # NOTE: board member change/addition handling is performed exactly once,
+        # in validate() via _handle_document_changes(). It must NOT be repeated
+        # here: handle_board_member_additions() reloads the volunteer's User and
+        # rewrites its roles child table, so a second invocation in the same save
+        # reloads a stale User (missing the role the first pass just appended) and
+        # clobbers it — silently dropping the "Verenigingen Chapter Board Member"
+        # role assignment. See get_member_permission_query() which depends on it.
 
     def after_insert(self):
         """After insert hook"""
@@ -178,6 +177,14 @@ class Chapter(Document):
         # NOTE: Volunteer sync removed from here (2025-11-18)
         # Now handled exclusively via event-driven architecture in on_update()
         # This prevents duplicate processing and race conditions
+
+        # Role-profile sync for newly-added board members is deferred to here so it
+        # runs AFTER the Chapter Board Member child rows are persisted (the profile
+        # calculator reads them from the database). See board_manager.handle_board_member_additions.
+        self._safe_manager_operation(
+            "board_profile_sync",
+            lambda: self.board_manager.flush_pending_board_profile_syncs(),
+        )
 
     def _safe_manager_operation(self, operation_name: str, operation_func):
         """Execute manager operation safely with proper error handling"""
