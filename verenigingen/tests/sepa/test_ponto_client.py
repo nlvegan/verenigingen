@@ -224,14 +224,15 @@ class TestPontoClient(FrappeTestCase):
             return mock_response
 
         with patch.object(client._session, "get", side_effect=mock_get_side_effect):
-            with patch.object(client._token_manager, "refresh_token") as mock_refresh:
-                mock_refresh.return_value = "new_access_token"
-
+            # Production handles 401 via invalidate_token() + @with_retry re-invoke;
+            # the retry's _get_headers() calls get_valid_token(). Patch that so the
+            # retry obtains a token without a real HTTP fetch (which would 401).
+            with patch.object(
+                client._token_manager, "get_valid_token", return_value="new_access_token"
+            ):
                 result = client.get("/accounts")
 
-                # Should have called refresh
-                mock_refresh.assert_called_once()
-                # Should have retried the request
+                # Should have retried the request (1st 401, 2nd success)
                 self.assertEqual(call_count, 2)
                 self.assertEqual(result, {"data": []})
 
@@ -364,14 +365,15 @@ class TestPontoClient(FrappeTestCase):
             return mock_response
 
         with patch.object(client._session, "post", side_effect=mock_post_side_effect):
-            with patch.object(client._token_manager, "refresh_token") as mock_refresh:
-                mock_refresh.return_value = "new_access_token"
-
+            # Production handles 401 via invalidate_token() + @with_retry re-invoke;
+            # the retry's _get_headers() calls get_valid_token(). Patch that so the
+            # retry obtains a token without a real HTTP fetch (which would 401).
+            with patch.object(
+                client._token_manager, "get_valid_token", return_value="new_access_token"
+            ):
                 result = client.post("/payment-initiation-requests", data={"data": {}})
 
-                # Should have called refresh
-                mock_refresh.assert_called_once()
-                # Should have retried the request
+                # Should have retried the request (1st 401, 2nd success)
                 self.assertEqual(call_count, 2)
                 self.assertEqual(result["data"]["id"], "new-payment")
 
@@ -602,13 +604,18 @@ class TestPontoClient(FrappeTestCase):
             self.assertEqual(len(result), 3)
             self.assertEqual(call_count, 2)
 
-    def test_get_paginated_respects_limit(self):
-        """Test that pagination respects the limit parameter."""
+    def test_get_paginated_stops_on_non_advancing_cursor(self):
+        """A non-advancing pagination cursor must terminate, not loop forever.
+
+        If the API keeps returning the SAME links.next, get_paginated must stop
+        rather than follow it unboundedly (which would accumulate pages until
+        memory is exhausted). Note: 'limit' is the per-page size, not a total cap.
+        """
         from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
 
         client = PontoClient()
 
-        # Create 5 accounts
+        # Every page returns the same data and the SAME next cursor (stuck cursor).
         accounts = [PontoTestDataFactory.create_account() for _ in range(5)]
 
         with patch.object(client._session, "get") as mock_get:
@@ -624,11 +631,14 @@ class TestPontoClient(FrappeTestCase):
             }
             mock_get.return_value = mock_response
 
-            # Request with limit of 3
             result = client.get_paginated("/accounts", limit=3)
 
-            # Should only return 3 even though page has 5
-            self.assertEqual(len(result), 3)
+            # It terminates (the repeated cursor is detected) with a bounded number
+            # of calls — an infinite loop would be in the thousands / OOM.
+            self.assertLess(
+                mock_get.call_count, 10, "pagination must stop on a repeated cursor, not loop"
+            )
+            self.assertGreater(len(result), 0)
 
     # -------------------------------------------------------------------------
     # Error Handling Tests

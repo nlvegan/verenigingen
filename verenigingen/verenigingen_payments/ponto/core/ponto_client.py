@@ -437,11 +437,23 @@ class PontoClient:
         current_params = params.copy() if params else {}
         current_params["limit"] = limit
         page_count = 0
+        seen_urls = set()
 
         while current_url:
             if max_pages and page_count >= max_pages:
                 frappe.logger().debug(f"Reached max pages ({max_pages}) for {endpoint}")
                 break
+
+            # Guard against a non-advancing cursor: a malformed API response that
+            # keeps returning the same links.next would otherwise loop forever and
+            # grow `results` without bound, exhausting memory. Stop if a URL repeats.
+            if current_url in seen_urls:
+                frappe.logger().warning(
+                    f"Ponto pagination cursor did not advance for {endpoint} "
+                    f"(repeated URL after {page_count} pages); stopping."
+                )
+                break
+            seen_urls.add(current_url)
 
             # First request uses params, subsequent use full URL from links.next
             if page_count == 0:
