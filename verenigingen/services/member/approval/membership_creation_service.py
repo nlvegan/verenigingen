@@ -571,7 +571,11 @@ class MembershipCreationService(StatelessService):
             )
             return invoice
         except Exception as e:
-            self.logger.error(f"MembershipCreationService: Failed to create invoice: {str(e)}")
+            import traceback as _tb
+
+            self.logger.error(
+                f"MembershipCreationService: Failed to create invoice: {str(e)}\n{_tb.format_exc()}"
+            )
             frappe.msgprint(
                 _("Warning: Invoice creation failed: {0}").format(str(e)), alert=True, indicator="orange"
             )
