@@ -221,6 +221,10 @@ doc_events = {
     "Donor": {
         # Note: on_update fires after after_save, so we only register once
         "on_update": "verenigingen.services.member.donor.donor_customer_sync.sync_donor_to_customer",
+        # Clear the Customer.donor back-reference on delete so no Customer is
+        # left pointing at a non-existent Donor (which would mis-link a future
+        # donor via get_or_create_customer's {"donor": name} lookup).
+        "on_trash": "verenigingen.services.member.donor.donor_customer_sync.clear_customer_link_on_donor_delete",
     },
     # =========================================================================
     # CUSTOMER INTEGRATION

@@ -231,6 +231,24 @@ def sync_customer_to_donor(doc, method=None):
         )
 
 
+def clear_customer_link_on_donor_delete(doc, method=None):
+    """
+    Clear the Customer back-reference when a Donor is deleted.
+
+    Customer.donor is a Link field pointing back to Donor. Frappe does not
+    automatically null a Link field when its target document is deleted, so
+    without this hook the Customer keeps a dangling reference to a Donor that
+    no longer exists. That matters because Donor.get_or_create_customer()
+    resolves an existing customer via ``{"donor": donor_name}`` — a dangling
+    link there would wrongly attach a freshly-created Donor (whose naming-series
+    number can be reused on a recycled/test database) to the orphaned Customer.
+    Clearing the link on delete keeps the relationship referentially clean and
+    lets the donor be removed without tripping Frappe's link-existence check.
+    """
+    for customer_name in frappe.get_all("Customer", filters={"donor": doc.name}, pluck="name"):
+        frappe.db.set_value("Customer", customer_name, "donor", None, update_modified=False)
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
 def bulk_sync_donors_to_customers(filters=None):
