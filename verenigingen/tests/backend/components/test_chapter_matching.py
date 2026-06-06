@@ -19,22 +19,29 @@ class TestChapterMatching(VereningingenTestCase):
         self.test_address = self.create_test_address()
 
     def create_test_chapters(self):
-        """Create test chapters with different postal code patterns"""
+        """Create test chapters with different postal code patterns.
+
+        suggest_chapters_for_member only considers chapters with published=1,
+        so these fixtures must be published to be suggestable (the shared
+        factory defaults published to 0).
+        """
         self.test_chapters = []
 
         # Use the base class chapter factory method
         # Amsterdam chapter (1000-1099)
         amsterdam = self.create_test_chapter(
             chapter_name="Test Amsterdam",
-            postal_codes="1000-1099"
+            postal_codes="1000-1099",
+            published=1
         )
         self.test_chapters.append(amsterdam.name)
         self.amsterdam_chapter_name = amsterdam.name
 
         # Rotterdam chapter (3000-3099)
         rotterdam = self.create_test_chapter(
-            chapter_name="Test Rotterdam", 
-            postal_codes="3000-3099"
+            chapter_name="Test Rotterdam",
+            postal_codes="3000-3099",
+            published=1
         )
         self.test_chapters.append(rotterdam.name)
         self.rotterdam_chapter_name = rotterdam.name
@@ -42,7 +49,8 @@ class TestChapterMatching(VereningingenTestCase):
         # Utrecht chapter (specific postal code)
         utrecht = self.create_test_chapter(
             chapter_name="Test Utrecht",
-            postal_codes="3500"
+            postal_codes="3500",
+            published=1
         )
         self.test_chapters.append(utrecht.name)
         self.utrecht_chapter_name = utrecht.name
@@ -50,7 +58,8 @@ class TestChapterMatching(VereningingenTestCase):
         # Eindhoven chapter (wildcard pattern)
         eindhoven = self.create_test_chapter(
             chapter_name="Test Eindhoven",
-            postal_codes="56*"
+            postal_codes="56*",
+            published=1
         )
         self.test_chapters.append(eindhoven.name)
         self.eindhoven_chapter_name = eindhoven.name

@@ -225,6 +225,15 @@ def ensure_member_test_masters():
     call from every module's ``setUpClass`` (it short-circuits when masters are
     already present).
     """
+    # ERPNext base masters (Company, Territory tree, Customer Groups, ...) must
+    # exist before any of the seeders/tests below that create Customers, Members
+    # or Donations — otherwise customer creation fails with
+    # "Could not find Territory: All Territories".
+    try:
+        ensure_erpnext_base_masters()
+    except Exception as e:
+        frappe.logger().warning(f"ERPNext base master seeding failed: {e}")
+
     try:
         _seed_verenigingen_test_system_user()
     except Exception as e:
@@ -243,6 +252,38 @@ def ensure_member_test_masters():
         _seed_default_team_roles()
     except Exception as e:
         frappe.logger().warning(f"Team Role seeding failed: {e}")
+
+
+def ensure_erpnext_base_masters():
+    """Idempotently ensure ERPNext's base test masters exist for isolated runs.
+
+    The ``before_tests`` hook seeds the ERPNext base masters (Company, the
+    Territory tree incl. "All Territories", Customer Groups, Chart of Accounts,
+    Modes of Payment, ...) via ``_erpnext_before_tests_v16`` for full-suite runs.
+    A single-module ``run-tests --module`` run does NOT execute ``before_tests``,
+    so on a fresh/snapshot site those masters are absent and any Customer/Member/
+    Donation creation fails with "Could not find Territory: All Territories".
+
+    Importing ``erpnext.tests.utils`` runs its module-level ``BootStrapTestData()``
+    once per process (the import is cached), which creates all of the above. We
+    only trigger it when the root Territory is missing, so this is a cheap no-op
+    once seeded.
+    """
+    if frappe.db.exists("Territory", "All Territories"):
+        return
+
+    import erpnext.tests.utils  # noqa: F401  (module-level BootStrapTestData() runs on import)
+
+    # set_defaults_for_tests wires the global default Company / fiscal year etc.
+    try:
+        from erpnext.setup.utils import enable_all_roles_and_domains, set_defaults_for_tests
+
+        enable_all_roles_and_domains()
+        set_defaults_for_tests()
+    except Exception as e:  # pragma: no cover - defensive
+        frappe.logger().warning(f"erpnext test defaults setup failed: {e}")
+
+    frappe.db.commit()
 
 
 def _seed_verenigingen_test_system_user():

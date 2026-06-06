@@ -38,14 +38,20 @@ class TestCanonicalApprovalChapterActivation(EnhancedTestCase):
         self.test_chapter.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        if not frappe.db.exists("Membership Type", "Standard Member"):
-            membership_type = frappe.get_doc({
-                "doctype": "Membership Type",
-                "membership_type_name": "Standard Member",
-                "amount": 25.0,
-            })
-            membership_type.insert(ignore_permissions=True)
-            frappe.db.commit()
+        # Get-or-create the shared "Standard Member" type and guarantee it is
+        # ACTIVE. A bare `if not exists` insert leaves the type untouched when a
+        # prior test module deactivated it on the same DB, surfacing as
+        # "Membership Type Standard Member is inactive" during approval. The
+        # canonical helper both creates (active, with an aligned dues template)
+        # and re-activates an existing inactive row.
+        from verenigingen.tests.fixtures.test_data_factory import (
+            ensure_membership_type_exists,
+        )
+
+        ensure_membership_type_exists("Standard Member", amount=25.0)
+        if not frappe.db.get_value("Membership Type", "Standard Member", "is_active"):
+            frappe.db.set_value("Membership Type", "Standard Member", "is_active", 1)
+        frappe.db.commit()
 
     def test_canonical_approval_activates_pending_chapter_membership(self):
         """When a member application has a pending Chapter Member row (created

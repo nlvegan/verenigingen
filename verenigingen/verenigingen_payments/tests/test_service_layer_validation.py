@@ -51,6 +51,13 @@ class TestServiceLayerValidation(unittest.TestCase):
         except Exception as e:
             print(f"Warning: Could not set up SEPA config: {str(e)}")
 
+        # The SEPA configuration service is a module-level singleton with an
+        # in-process settings cache. A prior test module may have populated that
+        # cache with a different company (e.g. "_Test Company"). Invalidate it
+        # here so this class's tests see the configuration we just wrote and
+        # don't fail on stale cross-module state.
+        sepa_config_service.refresh_settings_cache()
+
     def test_sepa_configuration_service_basic_functionality(self):
         """Test basic SEPA Configuration Service functionality"""
         # Test settings retrieval

@@ -12,7 +12,19 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 
 class TestDonorCustomerIntegration(VereningingenTestCase):
     """Test suite for Donor-Customer integration functionality"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # run-tests --module does not run before_tests, so the base ERPNext
+        # masters (Company, "All Territories", Customer Groups) and the
+        # Verenigingen creation_user are absent on a fresh/snapshot site.
+        # Donor->Customer sync creates a Customer (territory "All Territories")
+        # via secure_operations (needs creation_user), so seed both here.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
     def setUp(self):
         """Set up test data"""
         super().setUp()

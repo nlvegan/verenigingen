@@ -500,10 +500,10 @@ class TestMembershipController(EnhancedTestCase):
 
     @unittest.skip(
         "Membership.renew_membership() instance method was removed; renewal is "
-        "now handled by the billing / dues-schedule system. NOTE: the surviving "
-        "module-level renew_membership(name) in membership.py still calls the "
-        "removed instance method and would raise AttributeError — flagged as a "
-        "latent production bug. Test skipped pending that cleanup."
+        "now handled by the billing / dues-schedule system. The latent broken "
+        "module-level renew_membership(name) endpoint that called it has now been "
+        "deleted. Un-skip path: rewrite this to assert renewal via the dues-schedule "
+        "system if/when an instance-level renewal API is reintroduced."
     )
     def test_renew_membership_method(self):
         """Test the renew_membership method"""

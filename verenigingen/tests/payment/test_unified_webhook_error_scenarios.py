@@ -29,6 +29,10 @@ class TestUnifiedWebhookErrorScenarios(FrappeTestCase):
         """Set up test fixtures."""
         frappe.set_user("Administrator")
         self.test_payment_id = "tr_test_error_scenarios"
+        # Reset response state so http_status_code from a prior test in the
+        # same worker process cannot bleed into this test's assertions.
+        frappe.local.response.http_status_code = 200
+        frappe.local.response.pop("Retry-After", None)
 
     def tearDown(self):
         """Clean up after tests."""

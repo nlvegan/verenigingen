@@ -21,7 +21,17 @@ from verenigingen.utils.donor_customer_sync import (
 
 class TestDonorCustomerAPI(VereningingenTestCase):
     """Test suite for Donor-Customer API functionality"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # run-tests --module skips before_tests, so seed the ERPNext base
+        # masters (Company, "All Territories") + Verenigingen creation_user
+        # that donor->customer sync depends on.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
     def setUp(self):
         """Set up test data"""
         super().setUp()
