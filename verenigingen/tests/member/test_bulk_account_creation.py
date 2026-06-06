@@ -133,6 +133,18 @@ class TestBulkAccountCreationScale(EnhancedTestCase):
 class TestBulkAccountCreationErrorHandling(EnhancedTestCase):
     """Test error handling and retry mechanisms in bulk account creation."""
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The bulk-account-creation queue path depends on
+        # Verenigingen Settings.creation_user (the system user used for
+        # privileged Account Creation Request inserts). `run-tests --module`
+        # does not reliably run before_tests on a fresh/snapshot site, so seed
+        # the member-domain masters here; otherwise the queue call fails with
+        # "Unable to queue bulk account creation. Please contact support".
+        from verenigingen.tests.setup import ensure_member_test_masters
+        ensure_member_test_masters()
+
     def test_validation_errors(self):
         """Test handling of validation errors (missing emails, non-existent members)."""
         members_with_issues = []

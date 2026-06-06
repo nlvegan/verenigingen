@@ -248,6 +248,15 @@ def ensure_member_test_masters():
     except Exception as e:
         frappe.logger().warning(f"Payment mode seeding failed: {e}")
 
+    # A leaf Customer Group WITH a default selling Price List is required for the
+    # membership-application invoice path (Sales Invoice.selling_price_list is a
+    # reqd field resolved from the Customer Group). Without this, isolated module
+    # runs fail invoice creation. Idempotent / existence-checked internally.
+    try:
+        _seed_default_leaf_customer_group()
+    except Exception as e:
+        frappe.logger().warning(f"Customer Group default seeding failed: {e}")
+
     try:
         _seed_default_team_roles()
     except Exception as e:
@@ -345,6 +354,44 @@ def _seed_verenigingen_test_system_user():
         )
         frappe.db.commit()
 
+    # Seed Verenigingen Settings.company. The membership-application invoice path
+    # (services/member/approval/application_payments.create_membership_invoice_with_amount)
+    # stamps Sales Invoice.company from this Single; on a fresh/snapshot site it
+    # is empty, so the invoice insert fails and approval returns invoice=None.
+    # Full-suite/production runs configure this via setup; an isolated --module
+    # run does not, so seed it here. Prefer a EUR company (SEPA/currency-clean),
+    # matching the canonical pattern in the chapter edge-case test.
+    if not frappe.db.get_single_value("Verenigingen Settings", "company"):
+        company = (
+            frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
+            or frappe.db.get_value("Company", {}, "name")
+        )
+        if company:
+            frappe.db.set_single_value("Verenigingen Settings", "company", company)
+            frappe.db.commit()
+
+    # Clear a stale global ``default_warehouse`` default that belongs to a
+    # company OTHER than Verenigingen Settings.company. ERPNext auto-fills the
+    # ItemDefault.default_warehouse Link field from this global default when it
+    # is left empty; if that warehouse belongs to a different company, the
+    # membership Item insert (a non-stock service item that needs no warehouse)
+    # fails with "Warehouse <x> doesn't belong to Company <y>", which surfaces
+    # as "Unable to create membership item" and breaks the whole
+    # approval -> invoice path. A snapshot/CI site can carry a leftover default
+    # from an unrelated company's tests (e.g. "Stores - TQC" from "Test Quality
+    # Company"). Production sites set this default to a warehouse of their own
+    # company, so this only bites isolated test runs.
+    try:
+        ver_company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        global_wh = frappe.defaults.get_global_default("default_warehouse")
+        if global_wh:
+            wh_company = frappe.db.get_value("Warehouse", global_wh, "company")
+            if wh_company and ver_company and wh_company != ver_company:
+                frappe.defaults.clear_default("default_warehouse")
+                frappe.db.commit()
+    except Exception as e:  # pragma: no cover - defensive
+        frappe.logger().warning(f"default_warehouse default cleanup failed: {e}")
+
 
 def _seed_default_leaf_customer_group():
     """Ensure Selling Settings.customer_group and the user default both
@@ -396,6 +443,38 @@ def _seed_default_leaf_customer_group():
         needs_commit = True
     if needs_commit:
         frappe.db.commit()
+
+    # Give the leaf Customer Group a default selling Price List. ERPNext resolves
+    # Sales Invoice.selling_price_list (a reqd field) from the Customer's, then
+    # the Customer Group's, default_price_list — NOT from Selling Settings (see
+    # erpnext.accounts.party.set_price_list / get_default_price_list). On a fresh
+    # CI/snapshot site the seeded "Individual" group has none, so the membership
+    # invoice insert fails with a MandatoryError on selling_price_list /
+    # price_list_currency / plc_conversion_rate, which surfaces as the swallowed
+    # "Failed to create membership invoice". Prefer a selling Price List whose
+    # currency matches the company configured in Verenigingen Settings so the
+    # conversion rate resolves to 1.0.
+    if not frappe.db.get_value("Customer Group", leaf, "default_price_list"):
+        company_currency = None
+        ver_company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        if ver_company:
+            company_currency = frappe.db.get_value("Company", ver_company, "default_currency")
+        price_list = None
+        if company_currency:
+            price_list = frappe.db.get_value(
+                "Price List",
+                {"selling": 1, "enabled": 1, "currency": company_currency},
+                "name",
+                order_by="name asc",
+            )
+        price_list = price_list or frappe.db.get_value(
+            "Price List", {"selling": 1, "enabled": 1}, "name", order_by="name asc"
+        )
+        if price_list:
+            frappe.db.set_value(
+                "Customer Group", leaf, "default_price_list", price_list, update_modified=False
+            )
+            frappe.db.commit()
 
 
 def _seed_mijnrood_sync_settings_dummy_credentials():

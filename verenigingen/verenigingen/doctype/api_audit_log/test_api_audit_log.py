@@ -109,7 +109,9 @@ class TestAPIAuditLog(unittest.TestCase):
         audit_doc.event_id = "test_immutable_001"
         audit_doc.event_type = "api_call_success"
         audit_doc.severity = "info"
-        audit_doc.user = "test@example.com"
+        # `user` is a Link to User; use an existing user so link validation passes
+        # on a fresh site (test@example.com is not seeded).
+        audit_doc.user = "Administrator"
         audit_doc.insert()
 
         # Try to modify the document

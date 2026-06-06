@@ -324,12 +324,23 @@ class TestErrorHandling(FrappeTestCase):
     """Test error handling and logging."""
 
     def test_sync_logs_error_on_exception(self):
-        """Test that errors are logged but don't block source document save."""
-        from verenigingen.services.field_sync_service import sync_fields
+        """Test that errors are logged but don't block source document save.
+
+        sync_fields iterates over every target DocType configured for the
+        source (Member has multiple: User, Volunteer, Customer, Donor, ...),
+        and logs one error per failing target so a single broken relationship
+        doesn't silently swallow the others. We therefore assert that each
+        configured target produced an error log carrying the exception text,
+        rather than asserting a single call.
+        """
+        from verenigingen.services.field_sync_service import FIELD_SYNC_CONFIG, sync_fields
 
         doc = Mock()
         doc.doctype = "Member"
         doc.name = "TEST-001"
+
+        expected_targets = list(FIELD_SYNC_CONFIG["Member"].keys())
+        self.assertGreater(len(expected_targets), 0, "Member should have sync targets configured")
 
         # Mock _sync_to_target to raise exception
         with patch("verenigingen.services.field_sync_service._sync_to_target") as mock_sync:
@@ -340,10 +351,18 @@ class TestErrorHandling(FrappeTestCase):
                 # Call sync_fields - should catch exception and log
                 sync_fields(doc)
 
-                # Verify error was logged
-                mock_logger.error.assert_called_once()
-                call_args = mock_logger.error.call_args
-                self.assertIn("Test sync error", call_args[0][0])
+                # One error per configured target, each carrying the exception text.
+                self.assertEqual(mock_logger.error.call_count, len(expected_targets))
+                logged_messages = [c.args[0] for c in mock_logger.error.call_args_list]
+                for target in expected_targets:
+                    self.assertTrue(
+                        any(
+                            f"Member -> {target}" in msg and "Test sync error" in msg
+                            for msg in logged_messages
+                        ),
+                        f"Expected an error log for Member -> {target} with the exception text; "
+                        f"got: {logged_messages}",
+                    )
 
     def test_find_target_handles_database_errors_gracefully(self):
         """Test that database errors in lookup don't crash sync."""

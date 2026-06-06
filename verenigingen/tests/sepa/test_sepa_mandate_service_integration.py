@@ -85,6 +85,9 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
 
         # Step 3: Save the mandate to trigger lifecycle service
         mandate_doc.save()
+        # Track for deterministic cleanup so the generated mandate_id does not
+        # leak into other tests' uniqueness checks (full-suite isolation).
+        self.track_doc("SEPA Mandate", mandate_doc.name)
 
         # Verify mandate was created successfully
         self.assertTrue(frappe.db.exists("SEPA Mandate", mandate_doc.name))
@@ -136,6 +139,7 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
 
         # Save second mandate
         mandate_doc2.save()
+        self.track_doc("SEPA Mandate", mandate_doc2.name)
 
         # Verify both mandates exist with unique IDs
         self.assertTrue(frappe.db.exists("SEPA Mandate", {"mandate_id": mandate1.mandate_id}))

@@ -290,9 +290,15 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             # failure that the service logs and swallows. Requiring that log turns
             # the old vacuous branch into a real assertion: a silent drop for any
             # OTHER reason (or a missing invoice that should have generated) fails.
+            # Accept any of the documented invoice-creation failure logs. The
+            # membership-creation paths log under different titles/messages
+            # ("Failed to create membership invoice" from the API path,
+            # "MembershipCreationService: Failed to create invoice" from the
+            # service path), so match the common "create ... invoice" failure
+            # phrasing. A genuinely silent drop (no log at all) still fails.
             logged_failure = frappe.get_all(
                 "Error Log",
-                filters={"error": ["like", "%Failed to create membership invoice%"]},
+                filters={"error": ["like", "%ailed to create%invoice%"]},
                 limit=1,
             )
             self.assertTrue(

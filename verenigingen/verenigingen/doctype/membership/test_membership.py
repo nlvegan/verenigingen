@@ -106,7 +106,9 @@ class TestMembership(EnhancedTestCase):
         invoices_after = frappe.get_all(
             "Sales Invoice",
             filters={"customer": self.member.customer, "docstatus": ["!=", 2]},
-            fields=["name", "grand_total", "membership"],
+            # NB: Sales Invoice has no "membership" field (only "member" /
+            # "is_membership_invoice" / "membership_dues_schedule_display").
+            fields=["name", "grand_total"],
         )
 
         self.assertEqual(

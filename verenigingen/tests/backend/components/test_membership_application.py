@@ -59,6 +59,13 @@ class TestMembershipApplication(VereningingenTestCase):
     def setUpClass(cls):
         """Set up test data"""
         super().setUpClass()  # Initialize _track_created_docs
+        # Seed master records (Verenigingen Settings.creation_user, payment
+        # modes, ERPNext base masters) that `run-tests --module` does not seed
+        # because it skips the before_tests hook. Without creation_user,
+        # submit_application fails with "System user for automated operations is
+        # not configured".
+        from verenigingen.tests.setup import ensure_member_test_masters
+        ensure_member_test_masters()
         # Create required Item Group for membership types
         if not frappe.db.exists("Item Group", "Membership"):
             item_group = frappe.get_doc(
@@ -340,6 +347,32 @@ class TestMembershipApplication(VereningingenTestCase):
 
 class TestMembershipApplicationLoad(EnhancedTestCase):
     """Load testing for membership applications"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Seed master records that `run-tests --module` skips (it does not run
+        # the before_tests hook). Without Verenigingen Settings.creation_user,
+        # submit_application fails with "System user for automated operations is
+        # not configured". These tests also rely on the "Test Membership" type
+        # and "Membership" Item Group seeded by the sibling test class /
+        # full-suite run; create them here so the module runs standalone.
+        from verenigingen.tests.setup import ensure_member_test_masters
+        ensure_member_test_masters()
+        if not frappe.db.exists("Item Group", "Membership"):
+            frappe.get_doc({
+                "doctype": "Item Group",
+                "item_group_name": "Membership",
+                "parent_item_group": "All Item Groups",
+                "is_group": 0,
+            }).insert(ignore_permissions=True)
+        if not frappe.db.exists("Membership Type", "Test Membership"):
+            frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Test Membership",
+                "minimum_amount": 15,
+                "role_profile": "Verenigingen Member",
+            }).insert(ignore_permissions=True)
 
     def setUp(self):
         """Set up for each test"""
@@ -2055,10 +2088,15 @@ class TestChapterSelection(EnhancedTestCase):
     def setUp(self):
         """Set up for each test"""
         super().setUp()
-        self.test_email = f"chapter_test_{frappe.generate_hash(length=8)}@example.com"
+        unique = frappe.generate_hash(length=8)
+        self.test_email = f"chapter_test_{unique}@example.com"
         self.base_application_data = {
             "first_name": "Chapter",
-            "last_name": "Tester",
+            # Unique last name: the auto-created Customer is named after the
+            # member's full_name, so a fixed "Chapter Tester" collides (and its
+            # Contact link blocks teardown) once the approval flow actually
+            # creates the Customer. Keep it unique per test.
+            "last_name": f"Tester {unique}",
             "email": self.test_email,
             "birth_date": "1990-01-01",
             "address_line1": "123 Test Street",

@@ -104,6 +104,15 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             return
         if not getattr(cls, "_company", None):
             return
+        # Reuse an Employee already linked to this portal user (leftover from a
+        # prior run on a non-reset DB) — inserting a second one would raise
+        # DuplicateEntryError on the unique user_id.
+        existing_emp = frappe.db.get_value("Employee", {"user_id": volunteer_doc.email})
+        if existing_emp:
+            volunteer_doc.db_set("employee_id", existing_emp)
+            emp_doc = frappe.get_doc("Employee", existing_emp)
+            cls._grant_employee_roles(emp_doc.user_id)
+            return
         employee = frappe.get_doc(
             {
                 "doctype": "Employee",
@@ -111,6 +120,13 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "last_name": last_name,
                 "employee_name": f"{first_name} {last_name}",
                 "personal_email": volunteer_doc.email,
+                # Link the Employee to the portal user. Without user_id the
+                # Employee/Employee Self Service roles get stripped from the user
+                # on every save by erpnext's validate_employee_role (User hook),
+                # so the submitting volunteer would lack Expense Claim:create
+                # permission and secure_document_operation would fall through to
+                # a (denied) system-escalation request.
+                "user_id": volunteer_doc.email if frappe.db.exists("User", volunteer_doc.email) else None,
                 "company": cls._company,
                 "status": "Active",
                 "date_of_birth": "1990-01-01",
@@ -120,6 +136,72 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         )
         employee.insert(ignore_permissions=True)
         volunteer_doc.db_set("employee_id", employee.name)
+        cls._grant_employee_roles(employee.user_id)
+
+    @classmethod
+    def _grant_employee_roles(cls, user_id):
+        """Ensure the portal user carries the Employee role(s).
+
+        The role profile is applied before the Employee exists, so erpnext's
+        validate_employee_role (User hook) strips Employee/Employee Self Service
+        at that point. With an Employee now linked we re-add them so the user has
+        Expense Claim:create permission and secure_document_operation proceeds
+        without (denied) system escalation.
+        """
+        if not user_id:
+            return
+        user_doc = frappe.get_doc("User", user_id)
+        user_roles = {r.role for r in user_doc.get("roles", [])}
+        changed = False
+        for role in ("Employee", "Employee Self Service"):
+            if role not in user_roles and frappe.db.exists("Role", role):
+                user_doc.append("roles", {"role": role})
+                changed = True
+        if changed:
+            user_doc.save(ignore_permissions=True)
+
+    @classmethod
+    def _ensure_board_member(cls, chapter_doc, volunteer_doc):
+        """Make a volunteer an active Financial board member of a chapter.
+
+        Required so the volunteer's user passes get_user_accessible_chapters
+        (Admin/Financial board position) and can create chapter Expense Claims.
+        Saving the chapter may re-sync the user's role profile and drop the
+        Employee role, so re-grant it afterwards.
+        """
+        role_name = "Edge Financial Officer"
+        if not frappe.db.exists("Chapter Role", role_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Role",
+                    "role_name": role_name,
+                    "permissions_level": "Financial",
+                    "is_active": 1,
+                }
+            ).insert(ignore_permissions=True)
+
+        chapter_doc.reload()
+        already = any(
+            bm.volunteer == volunteer_doc.name and bm.is_active
+            for bm in chapter_doc.get("board_members", [])
+        )
+        if not already:
+            chapter_doc.append(
+                "board_members",
+                {
+                    "volunteer": volunteer_doc.name,
+                    "chapter_role": role_name,
+                    "from_date": today(),
+                    "is_active": 1,
+                },
+            )
+            chapter_doc.save(ignore_permissions=True)
+
+        # Re-assert the Employee role the chapter save may have stripped, and
+        # clear the cached role/accessible-chapter set for the user.
+        if volunteer_doc.email:
+            cls._grant_employee_roles(volunteer_doc.email)
+            frappe.clear_cache(user=volunteer_doc.email)
 
     @classmethod
     def setUpClass(cls):
@@ -243,6 +325,19 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         )
         cls.test_data["chapter_1"].save()
 
+        # Expense Claim creation is gated by validate_expense_claim_chapter_access
+        # (Expense Claim validate hook): a user may only create expense claims for
+        # chapters where they are an ACTIVE board member with Admin/Financial
+        # permission level (get_user_accessible_chapters). Plain chapter
+        # membership is not sufficient. Make volunteer_1 a Financial board member
+        # of EDGE-CHAPTER-1 so the valid-membership scenarios can succeed.
+        # The user->member->volunteer->board chain also requires Member.user.
+        if frappe.db.exists("User", "edge1@example.com"):
+            frappe.db.set_value("Member", cls.member_1_name, "user", "edge1@example.com")
+        cls._ensure_board_member(
+            cls.test_data["chapter_1"], cls.test_data["volunteer_1"]
+        )
+
         # Create expense category. Expense Category.autoname is
         # field:category_name, so the resolved .name is "Edge Case Category".
         # expense_account is a mandatory Link to Account.
@@ -273,6 +368,35 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                     "is_active": 1}
             )
             cls.test_data["category"].insert()
+
+        # The expense submission maps the category name onto the Expense Claim
+        # Detail.expense_type field, which is a Link to "Expense Claim Type"
+        # (HRMS). A matching Expense Claim Type must exist or claim creation fails
+        # with "Could not find Expense Claim Type: <category>". CI seeds these via
+        # before_tests; an isolated --module run must seed it here.
+        if not frappe.db.exists("Expense Claim Type", cls.category_name):
+            claim_type = frappe.get_doc(
+                {
+                    "doctype": "Expense Claim Type",
+                    "expense_type": cls.category_name,
+                }
+            )
+            # The accounts row's default_account must belong to cls._company —
+            # Expense Claim Type.validate_accounts rejects an account from another
+            # company. Pick an expense account from cls._company (not the Expense
+            # Category's account, which may belong to a different company).
+            if cls._company:
+                company_expense_account = frappe.db.get_value(
+                    "Account",
+                    {"company": cls._company, "is_group": 0, "account_type": "Expense Account"},
+                    "name",
+                )
+                if company_expense_account:
+                    claim_type.append(
+                        "accounts",
+                        {"company": cls._company, "default_account": company_expense_account},
+                    )
+            claim_type.insert(ignore_permissions=True)
 
     def test_volunteer_with_member_valid_chapter(self):
         """Test volunteer with member link submitting to valid chapter"""
@@ -445,7 +569,16 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             self.assertTrue(result.get("success"), "Should succeed even with multiple membership entries")
 
     def test_case_sensitivity_in_chapter_names(self):
-        """Test that chapter name matching is case-sensitive as expected"""
+        """Chapter Link fields are case-insensitive (Frappe normalizes the link
+        value against the canonical record). A case-variant of an existing
+        chapter the volunteer has board access to therefore resolves to the real
+        chapter and the expense submission succeeds.
+
+        (This previously asserted failure, but that only passed because the
+        volunteer lacked board access for ALL chapters — a false pass. With the
+        volunteer now correctly a board member of EDGE-CHAPTER-1, the real
+        case-insensitive resolution behaviour is observable.)
+        """
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         expense_data = {
@@ -453,14 +586,18 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "amount": 20.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": "edge-chapter-1",  # Wrong case
+            "chapter": "edge-chapter-1",  # Case variant of EDGE-CHAPTER-1
             "category": self.category_name,
             "notes": "Testing case sensitivity"}
 
         with _as_session_user("edge1@example.com"):
             result = submit_expense(expense_data)
 
-            self.assertFalse(result.get("success"), "Should fail for incorrect case in chapter name")
+            self.assertTrue(
+                result.get("success"),
+                f"Link fields are case-insensitive; should resolve to EDGE-CHAPTER-1. "
+                f"Error: {result.get('message')}",
+            )
 
     def test_nonexistent_chapter(self):
         """Test submission to non-existent chapter"""
@@ -565,6 +702,18 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             ):
                 _safe(lambda n=member_name: frappe.delete_doc("Member", n, force=True, ignore_permissions=True))
                 _safe(lambda n=member_name: frappe.db.sql("DELETE FROM `tabMember` WHERE name = %s", (n,)))
+
+        # Employees linked to the edge users must be removed before the Users —
+        # Employee.user_id is a Link to User and (since we now link them) leaves a
+        # leftover that trips DuplicateEntryError ("User X already assigned to
+        # Employee Y") on the next run's Employee creation.
+        for email in edge_emails:
+            for emp_name in frappe.db.sql_list(
+                "SELECT name FROM `tabEmployee` WHERE user_id = %s OR personal_email = %s",
+                (email, email),
+            ):
+                _safe(lambda n=emp_name: frappe.delete_doc("Employee", n, force=True, ignore_permissions=True))
+                _safe(lambda n=emp_name: frappe.db.sql("DELETE FROM `tabEmployee` WHERE name = %s", (n,)))
 
         # Users delete after Volunteer/Member to avoid permission/FK churn.
         for email in edge_emails:

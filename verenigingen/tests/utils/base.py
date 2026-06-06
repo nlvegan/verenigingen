@@ -2346,6 +2346,15 @@ class VereningingenIntegrationTestCase(VereningingenTestCase):
 
     def _ensure_erpnext_setup(self):
         """Ensure ERPNext is properly set up for testing"""
+        # Seed ERPNext base masters (Territory tree, Warehouse Types incl.
+        # "Transit", Customer Groups, Chart of Accounts, ...) before creating a
+        # Company. A `run-tests --module` run skips before_tests, so on a fresh
+        # site company creation otherwise fails in create_default_warehouses with
+        # "Could not find Warehouse Type: Transit".
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
         # Ensure default company
         if not frappe.db.exists("Company", "Test Company"):
             company = frappe.get_doc(

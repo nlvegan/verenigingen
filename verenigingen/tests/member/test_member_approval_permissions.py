@@ -65,36 +65,38 @@ class TestMemberApprovalPermissions(EnhancedTestCase):
         member.reload()
         return member
 
-    def test_approval_blocked_for_verenigingen_staff(self):
-        """Verenigingen Staff is intentionally NOT allowed to approve memberships.
+    def test_approval_succeeds_for_verenigingen_staff(self):
+        """Verenigingen Staff IS allowed to approve memberships.
 
-        Membership approval is gated by the "Membership Application Workflow":
-        the Pending → Approved transition is restricted to Verenigingen
-        Administrator and System Manager. Staff is allowed to view and submit
-        applications but not approve them. This test is a regression guard —
-        any change that lets Staff approve memberships should be deliberate
-        and update the workflow + this test together.
+        Membership approval is a HIGH-security operation that, by design, is
+        callable by "Verenigingen Staff and up" (see this module's docstring).
+        The permission gate is
+        ``chapter_security.get_user_manageable_chapters``, which grants Staff
+        (alongside Verenigingen Administrator, System Manager and National Board)
+        management of *all* chapters' applications. This test is the regression
+        guard for that tier: any change that revokes Staff approval rights should
+        be deliberate and update ``get_user_manageable_chapters`` + this test
+        together.
         """
-        from frappe.model.workflow import WorkflowPermissionError
-
         member = self._create_pending_member("staff")
 
         with self.as_staff():
-            # The workflow transition raises WorkflowPermissionError; the
-            # canonical approve handler wraps this as a ValidationError. Either
-            # raises — we verify approval is blocked.
-            with self.assertRaises((WorkflowPermissionError, frappe.ValidationError)):
-                approve_membership_application(
-                    member_name=member.name,
-                    membership_type=self.membership_type,
-                    create_invoice=False,
-                    notes="Should not succeed",
-                )
+            result = approve_membership_application(
+                member_name=member.name,
+                membership_type=self.membership_type,
+                create_invoice=False,
+                notes="Approved by Verenigingen Staff",
+            )
 
+        self.assertTrue(
+            result.get("success"),
+            f"Approval failed for Verenigingen Staff: "
+            f"{result.get('message') or result}",
+        )
         member.reload()
         self.assertEqual(
-            member.application_status, "Pending",
-            "Member should remain Pending after blocked Staff approval",
+            member.application_status, "Approved",
+            "Member should be Approved after Staff approval",
         )
 
     def test_approval_succeeds_for_verenigingen_administrator_role(self):

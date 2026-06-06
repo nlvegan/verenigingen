@@ -16,6 +16,21 @@ from frappe.utils import random_string, today
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
+def _ensure_volunteer_interest_category(category_name):
+    """Create a Volunteer Interest Category if it does not exist yet.
+
+    A fresh `run-tests --module` site does not seed these masters, so
+    referencing them from a volunteer's interests child table would raise
+    LinkValidationError. Idempotent: returns the existing name if present.
+    """
+    if frappe.db.exists("Volunteer Interest Category", category_name):
+        return category_name
+    frappe.get_doc(
+        {"doctype": "Volunteer Interest Category", "category_name": category_name}
+    ).insert(ignore_permissions=True)
+    return category_name
+
+
 class TestUserFactory:
     """Factory for creating test users with specific roles and permissions"""
 
@@ -375,6 +390,12 @@ class TestDataBuilder:
 
         # Convert interests list to proper child table format
         if interests:
+            # Volunteer Interest Area.interest_area is a Link to Volunteer Interest
+            # Category. Ensure each referenced category exists (a fresh --module site
+            # does not seed these masters) before assigning it.
+            for item in interests:
+                if isinstance(item, str):
+                    _ensure_volunteer_interest_category(item)
             volunteer_data["interests"] = [
                 {"interest_area": item} if isinstance(item, str) else item
                 for item in interests
