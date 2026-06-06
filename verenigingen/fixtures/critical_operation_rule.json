@@ -26925,22 +26925,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "renew_membership",
-  "operation_name": "renew_membership",
-  "operation_type": "admin",
-  "description": "Execute renew membership operation",
-  "enabled": 1,
-  "security_level": "medium",
-  "business_context": "Member data management and lifecycle operations",
-  "required_roles": "System Manager\nVerenigingen Staff",
-  "rate_limit_calls": 100,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "standard",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "revert_to_standard_amount",
   "operation_name": "revert_to_standard_amount",
   "operation_type": "admin",

@@ -316,6 +316,26 @@ def get_user_volunteer_record_optimized(user_email: str) -> Optional[Dict[str, A
         if volunteer_data:
             return volunteer_data[0]
 
+        # Fallback: a Volunteer may exist without a linked Member (or with an
+        # empty member field), in which case the member JOIN above matches
+        # nothing. Match the Volunteer directly by its own email — this mirrors
+        # the documented contract in templates/pages/volunteer/dashboard.py
+        # (member-linked first, then volunteer-by-email). Without this fallback,
+        # unlinked volunteers are invisible to the expense portal.
+        volunteer_by_email = frappe.db.sql(
+            """
+            SELECT v.name, v.volunteer_name, v.member, v.commitment_level
+            FROM `tabVolunteer` v
+            WHERE v.email = %s
+            LIMIT 1
+        """,
+            [user_email],
+            as_dict=True,
+        )
+
+        if volunteer_by_email:
+            return volunteer_by_email[0]
+
         return None
 
     except Exception as e:

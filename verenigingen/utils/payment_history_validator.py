@@ -207,12 +207,17 @@ def get_payment_history_validation_stats():
             (cutoff_date,),
         )[0][0]
 
-        # Get payment history entries created in the same period
+        # Get member-linked invoices that have at least one payment history entry
+        # in the same period. We count DISTINCT invoices (not raw payment history
+        # rows) and require the invoice's customer to map to a Member, so this
+        # value is directly comparable to invoices_with_members and the resulting
+        # sync_rate can never exceed 100%.
         payment_history_entries = frappe.db.sql(
             """
-            SELECT COUNT(*) as count
+            SELECT COUNT(DISTINCT si.name) as count
             FROM `tabMember Payment History` mph
-            LEFT JOIN `tabSales Invoice` si ON mph.invoice = si.name
+            INNER JOIN `tabSales Invoice` si ON mph.invoice = si.name
+            INNER JOIN `tabMember` m ON si.customer = m.customer
             WHERE si.creation >= %s
             AND si.docstatus = 1
         """,

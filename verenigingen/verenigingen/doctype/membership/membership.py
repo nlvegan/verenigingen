@@ -938,14 +938,6 @@ def show_payment_history(membership_name: str):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def renew_membership(membership_name: str):
-    """Renew a membership and return the new membership doc"""
-    membership = frappe.get_doc("Membership", membership_name)
-    return membership.renew_membership()
-
-
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def process_membership_statuses():
     """
