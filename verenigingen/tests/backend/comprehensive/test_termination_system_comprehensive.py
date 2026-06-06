@@ -40,7 +40,13 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
     @classmethod
     def cleanup_test_data(cls):
         """Clean up test data"""
-        for doctype in ["Member", "User", "Employee", "Volunteer", "Membership Termination Request"]:
+        # Delete dependents before their targets: Employee.user_id and
+        # Volunteer.member reference User/Member, so deleting User/Member first
+        # leaves their delete silently blocked (the except below swallows it),
+        # and the next create_test_member() then hits a DuplicateEntryError on
+        # the fixed User email. Order: termination requests -> volunteer ->
+        # employee -> member -> user.
+        for doctype in ["Membership Termination Request", "Volunteer", "Employee", "Member", "User"]:
             try:
                 if doctype == "Member":
                     if frappe.db.exists("Member", cls.test_member_name):
