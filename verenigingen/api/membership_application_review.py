@@ -650,8 +650,12 @@ def reject_membership_application(
 
     member = frappe.get_doc("Member", member_name)
 
-    # Validate application can be rejected
-    if member.application_status not in ["Pending", "Payment Failed", "Payment Cancelled", "Approved"]:
+    # Validate application can be rejected. Approval is final: once an application
+    # is "Approved" it cannot be rejected (that would strand the membership/invoice
+    # created on approval). This matches the deprecated
+    # api.membership_application.reject_membership_application, which never allowed
+    # rejecting an approved application.
+    if member.application_status not in ["Pending", "Payment Failed", "Payment Cancelled"]:
         frappe.throw(_("This application cannot be rejected in its current state"))
 
     # Check chapter-based permissions
