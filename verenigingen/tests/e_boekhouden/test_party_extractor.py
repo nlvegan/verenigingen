@@ -29,9 +29,12 @@ class TestEBoekhoudenPartyExtractor(unittest.TestCase):
 			company.insert(ignore_permissions=True)
 			frappe.db.commit()
 
-		# Configure E-Boekhouden Settings with test company
+		# Configure E-Boekhouden Settings with test company. The extractor only
+		# reads default_company; api_token is a mandatory field we don't need
+		# here, so bypass mandatory validation rather than persist a fake token.
 		settings = frappe.get_single("E-Boekhouden Settings")
 		settings.default_company = "Test Company"
+		settings.flags.ignore_mandatory = True
 		settings.save(ignore_permissions=True)
 		frappe.db.commit()
 
