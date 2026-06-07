@@ -418,7 +418,24 @@ def _seed_verenigingen_test_system_user():
     # Full-suite/production runs configure this via setup; an isolated --module
     # run does not, so seed it here. Prefer a EUR company (SEPA/currency-clean),
     # matching the canonical pattern in the chapter edge-case test.
-    if not frappe.db.get_single_value("Verenigingen Settings", "company"):
+    #
+    # Self-heal a STALE value too (not just an empty one): a co-located test can
+    # delete the company this Single points at, after which the chapter
+    # cost-center resolver's frappe.db.exists() check fails and it falls through
+    # to the ambiguous "Multiple active companies found" branch and returns None
+    # (with ERPNext's 20 test companies present, the single-company shortcut never
+    # fires). Re-seed whenever the configured company is missing or gone.
+    #
+    # NB: deliberately do NOT also seed Global Defaults.default_company. The
+    # resolver's FIRST source (Verenigingen Settings.company) is enough, and
+    # seeding the framework-wide default company has side effects on unrelated
+    # code that reads it -- e.g.
+    # services.volunteer.volunteer_expense_setup.get_organization_cost_center,
+    # which then takes its create-cost-center branch and flips tests that assert
+    # "no default company configured" into a different (and currently buggy)
+    # path. Keep the heal scoped to the field the chapter resolver prefers.
+    configured_company = frappe.db.get_single_value("Verenigingen Settings", "company")
+    if not configured_company or not frappe.db.exists("Company", configured_company):
         company = (
             frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
             or frappe.db.get_value("Company", {}, "name")
