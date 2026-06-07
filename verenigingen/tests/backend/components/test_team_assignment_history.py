@@ -11,29 +11,14 @@ class TestTeamAssignmentHistory(EnhancedTestCase):
     def setUp(self):
         """Set up test data"""
         super().setUp()
-        # Get or create a test volunteer
-        volunteers = frappe.get_all("Volunteer", limit=1)
-        if volunteers:
-            self.volunteer_id = volunteers[0].name
-        else:
-            # Create a test volunteer if none exist
-            member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "first_name": "Test",
-                    "last_name": "Verenigingen Volunteer",
-                    "email": "test.volunteer@example.com"}
-            ).insert()
-
-            volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "volunteer_name": "Test Volunteer",
-                    "member": member.name,
-                    "email": "test.volunteer@example.com"}
-            ).insert()
-
-            self.volunteer_id = volunteer.name
+        # Create a dedicated, uniquely-named volunteer for this test. The old code
+        # reused an arbitrary existing volunteer via get_all("Volunteer", limit=1),
+        # which made the test depend on what preceding files in the shard left in the
+        # DB (order-dependence), and its fallback hard-coded "Test Verenigingen
+        # Volunteer" -- an identity ~47 other test files share, so the auto-created
+        # Customer collided on its name PK. The factory uniquifies name + email and
+        # tracks the records for cleanup, making this setup order-independent.
+        self.volunteer_id = self.factory.create_volunteer().name
 
     def test_assignment_history_manager(self):
         """Test the assignment history manager functions"""
