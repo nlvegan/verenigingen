@@ -13,6 +13,7 @@ import frappe
 from frappe.utils import add_days, now_datetime, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.financial_history_batch_processor import FinancialHistoryBatchProcessor
 from verenigingen.utils.payment_history_validator import (
     get_payment_history_validation_stats,
     validate_and_repair_payment_history,
@@ -67,9 +68,12 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
         # Get initial payment history count
         initial_count = len(self.test_member.payment_history or [])
         
-        # Add invoice to payment history
+        # Add invoice to payment history. add_invoice_to_payment_history() only
+        # queues the operation; the batch processor persists it. Flush the batch
+        # before observing the result (mirrors test_payment_history_race_condition).
         self.test_member.add_invoice_to_payment_history(invoice.name)
-        
+        FinancialHistoryBatchProcessor.force_process_all()
+
         # Reload member to get latest data
         self.test_member.reload()
         

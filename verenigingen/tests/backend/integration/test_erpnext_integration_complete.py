@@ -215,9 +215,12 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
 
         invoice.insert()
 
-        # Verify invoice creation (draft mode)
+        # Verify invoice creation (draft mode). Assert on net_total (pre-tax line
+        # total) rather than grand_total: the seeded test company may carry a
+        # default sales-tax template, inflating grand_total environment-
+        # dependently. net_total reflects the qty*rate the test controls.
         self.assertEqual(invoice.docstatus, 0)  # Draft
-        self.assertEqual(invoice.grand_total, 100.00)
+        self.assertEqual(invoice.net_total, 100.00)
         self.assertIsNotNone(invoice.name)
             
     def _get_or_create_membership_item(self):
