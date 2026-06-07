@@ -19,7 +19,6 @@ test-quality-enforcer: exempt-thread-context-setup
 
 import threading
 import time
-import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
@@ -28,6 +27,7 @@ import frappe
 # repointed to the canonical api.membership_application_review path.
 from verenigingen.services.member.identification.member_id_service import MemberIDService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.setup import ensure_member_test_masters
 
 
 def _create_thread_context(site: str):
@@ -64,6 +64,11 @@ class TestMemberIDConcurrency(EnhancedTestCase):
     def setUp(self):
         """Set up test fixtures."""
         super().setUp()
+        # Seed ERPNext + Verenigingen base masters (Company, CoA, Territory,
+        # Verenigingen Settings.company/creation_user). CI's before_tests seeds
+        # these; a single-module run does not, so on a clean snapshot member
+        # creation and the approval invoice path fail. Idempotent / cheap no-op.
+        ensure_member_test_masters()
         self.uid = str(int(time.time() * 1000))[-6:]
         self.created_members = []
         # Capture site name for threads
@@ -225,6 +230,10 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
     def setUp(self):
         """Set up test fixtures."""
         super().setUp()
+        # Seed base masters so the approval path (which creates a membership
+        # invoice and reads Verenigingen Settings.company) works under an
+        # isolated single-module run on a clean snapshot. Idempotent.
+        ensure_member_test_masters()
         self.uid = str(int(time.time() * 1000))[-6:]
         self.created_members = []
         # Capture site name for threads
@@ -255,16 +264,6 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
         frappe.db.commit()
         return member.name
 
-    @unittest.skip(
-        "Genuinely thread-unsafe under the test runner: the canonical approval "
-        "path's idempotency guard re-reads application_status, but the membership "
-        "creation service issues intermediate frappe.db.commit() calls that release "
-        "any row-level (FOR UPDATE) lock mid-operation. Concurrent threads therefore "
-        "each create a Membership before the loser observes the Approved status. "
-        "Enforcing 'at most one Membership' would require restructuring the membership "
-        "creation service's transaction boundaries (or an advisory lock) — explicitly "
-        "scoped out per the docstring below. Skipped rather than asserting a false green."
-    )
     def test_concurrent_approval_idempotent_no_duplicate_memberships(self):
         """Concurrent approvals of the same member must not create duplicate
         Memberships or invoices.
