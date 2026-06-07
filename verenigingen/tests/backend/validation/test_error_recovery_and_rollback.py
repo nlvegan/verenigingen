@@ -22,17 +22,14 @@ state with proper rollback of partial changes.
 import time
 import random
 import unittest
-from unittest.mock import patch, MagicMock, Mock
-from contextlib import contextmanager
+from unittest.mock import patch, Mock
 
 import frappe
-from frappe.utils import flt, today, add_days, now_datetime
+from frappe.utils import today, now_datetime
 from frappe import ValidationError
 
 from verenigingen.tests.fixtures.transaction_boundary_test_framework import (
-    TransactionBoundaryTestCase,
-    TransactionBoundaryError,
-    ConcurrencyTestError
+    TransactionBoundaryTestCase
 )
 
 
@@ -200,10 +197,15 @@ class TestExternalAPIFailureRecovery(TransactionBoundaryTestCase):
         # 'donor' link plus donation_date and mode_of_payment. The concurrent
         # workers run on separate DB connections, so commit the donors first to
         # make them visible to those connections.
+        # Uniquify donor name/email: these donors are committed (for concurrent-
+        # worker visibility) and therefore survive the class-level rollback, so
+        # fixed identities would accumulate/collide with a re-run or a co-located
+        # test in the shared shard DB.
+        donor_uid = frappe.generate_hash(length=8)
         donor_names = [
             self.create_test_donor(
-                donor_name=f"TestAPI Donor {i}",
-                donor_email=f"testapi{i}@test.invalid",
+                donor_name=f"TestAPI Donor {donor_uid} {i}",
+                donor_email=f"testapi.{donor_uid}.{i}@test.invalid",
             ).name
             for i in range(3)
         ]
@@ -283,13 +285,17 @@ class TestDatabaseConstraintViolationRecovery(TransactionBoundaryTestCase):
             email="testunique@test.invalid"
         )
         
+        # Use factory-generated IBANs rather than hardcoded literals: the rule
+        # under test is member-scoped (one active mandate per member), so the IBAN
+        # value is irrelevant, and a hardcoded IBAN risks colliding with a mandate
+        # left committed by a co-located test in the shared shard DB.
         # Create first SEPA mandate (should succeed)
         mandate1 = self.data_generator.factory.create_sepa_mandate(
             member=member.name,
-            iban="NL91ABNA0417164300",
+            iban=self.factory.create_test_iban(),
             status="Active"
         )
-        
+
         def attempt_duplicate_active_mandate():
             """Attempt to create duplicate active mandate (should fail)"""
             try:
@@ -297,7 +303,7 @@ class TestDatabaseConstraintViolationRecovery(TransactionBoundaryTestCase):
                     # This should fail due to business rule: only one active mandate per member
                     mandate2 = self.data_generator.factory.create_sepa_mandate(
                         member=member.name,
-                        iban="NL20INGB0001234567",  # Different IBAN
+                        iban=self.factory.create_test_iban(),  # Different (unique) IBAN
                         status="Active"  # But same active status - should violate constraint
                     )
                     
