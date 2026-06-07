@@ -175,7 +175,15 @@ def _handle_idempotent_approval(member_name):
 
     Returns dict with existing membership/invoice data if already approved, None otherwise.
     """
-    member_status = frappe.db.get_value("Member", member_name, ["application_status", "status"], as_dict=True)
+    # for_update performs a locking "current read" that returns the latest
+    # COMMITTED application_status rather than this transaction's REPEATABLE READ
+    # snapshot. This is what lets a concurrent approval (running under the
+    # per-member advisory lock acquired by the caller) observe a racing winner's
+    # committed Approved status and short-circuit, without committing the caller's
+    # own transaction. Harmless for the direct unit-test callers (brief row lock).
+    member_status = frappe.db.get_value(
+        "Member", member_name, ["application_status", "status"], as_dict=True, for_update=True
+    )
     if member_status and member_status.application_status == "Approved":
         frappe.logger().info(
             f"Member {member_name} already approved (application_status=Approved), returning existing approval"
@@ -489,6 +497,35 @@ def approve_membership_application(
     chapter = sanitized["chapter"]
     notes = sanitized["notes"]
 
+    # Serialize concurrent approvals of the SAME member with a per-member advisory
+    # lock. Without it, concurrent approvals each pass the idempotency guard while
+    # the member is still Pending and create duplicate Memberships/invoices,
+    # because the membership creation service issues intermediate commits that
+    # release any FOR UPDATE row lock mid-operation. A MySQL advisory lock
+    # (GET_LOCK) is NOT released by commit, so it holds for the whole approval.
+    from verenigingen.utils.db_advisory_lock import advisory_lock
+
+    with advisory_lock(f"approve_membership:{member_name}", timeout=30):
+        # NB: the idempotency guard inside the locked helper reads
+        # application_status with for_update=True. Under MySQL REPEATABLE READ a
+        # plain read would return this transaction's snapshot (taken at the first
+        # read above, before a racing winner committed); a locking "current read"
+        # returns the latest committed value instead. This avoids an
+        # isolation-breaking commit/rollback of the caller's transaction.
+        return _approve_membership_application_locked(
+            member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+        )
+
+
+def _approve_membership_application_locked(
+    member_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+):
+    """Core approval logic, executed while holding the per-member advisory lock.
+
+    Split out of approve_membership_application so the whole critical section
+    (idempotency re-check through membership creation) runs under the lock. See
+    the caller for why the lock + snapshot refresh are required.
+    """
     # Idempotency check - if already approved, return success
     idempotent_result = _handle_idempotent_approval(member_name)
     if idempotent_result:
@@ -533,7 +570,14 @@ def approve_membership_application(
     create_member_iban_history(member)
 
     approval_fields = _prepare_approval_fields(member, membership_type, notes)
-    membership = member.create_membership_on_approval(create_invoice=True, approval_fields=approval_fields)
+    # Honor the caller's create_invoice flag. Historically this was hardcoded to
+    # True, silently ignoring create_invoice=False (e.g. historic CSV imports or
+    # approvals where billing is handled separately). The bug was masked while
+    # invoice creation failed silently; thread the parameter through so the
+    # documented flag actually takes effect.
+    membership = member.create_membership_on_approval(
+        create_invoice=create_invoice, approval_fields=approval_fields
+    )
 
     # Activate any pre-existing pending Chapter Member rows. The application
     # form creates a Chapter Member row in status "Pending" when the applicant

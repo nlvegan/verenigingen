@@ -84,6 +84,13 @@ def create_membership_invoice_with_amount(member, membership, amount):
         "customer": member.customer,
         "member": member.name,
         "membership": membership.name,
+        # Flag as a membership invoice, consistent with the other membership
+        # invoice creation paths (services/billing/invoice_generator.py and the
+        # Mollie dues processor). Without this, invoices created during
+        # application approval are invisible to strict is_membership_invoice=1
+        # queries used by reconciliation (invoice_matcher) and reporting
+        # (background_jobs), even though they set the `member` link.
+        "is_membership_invoice": 1,
         "posting_date": today(),
         "due_date": add_days(today(), 14),
         "custom_coverage_start_date": period_start,  # Set coverage period start
@@ -131,7 +138,29 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
     # Get the created invoice document using the doc_name from SecureOperationResult
     invoice = frappe.get_doc("Sales Invoice", result.doc_name)
-    invoice.submit()
+
+    # Submit through the SAME secure-operation escalation used for the insert.
+    # The approver (e.g. Verenigingen Administrator) is not expected to hold
+    # Sales Invoice permissions — that is precisely why the insert escalates to
+    # the system user. Calling invoice.submit() directly here would run under the
+    # approver's session and raise PermissionError whenever they lack
+    # "Sales Invoice:submit" (which the app ships to no role), silently dropping
+    # the invoice. Escalate the submit the same way the insert is escalated.
+    submit_result = secure_document_operation(
+        operation="submit",
+        doc=invoice,
+        justification=f"Submit membership invoice {invoice.name} for member {member.name} - financial processing for membership application",
+        required_permissions=["Sales Invoice:submit"],
+    )
+
+    if not submit_result.success:
+        frappe.log_error(
+            message=f"Failed to submit membership invoice {invoice.name}: {'; '.join(submit_result.errors)}",
+            title="Membership Invoice Security",
+        )
+        frappe.throw(_("Failed to submit membership invoice. Please contact support."))
+
+    invoice.reload()
 
     return invoice
 

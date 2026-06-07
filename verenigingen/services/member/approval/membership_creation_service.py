@@ -573,8 +573,16 @@ class MembershipCreationService(StatelessService):
         except Exception as e:
             import traceback as _tb
 
-            self.logger.error(
-                f"MembershipCreationService: Failed to create invoice: {str(e)}\n{_tb.format_exc()}"
+            _trace = _tb.format_exc()
+            self.logger.error(f"MembershipCreationService: Failed to create invoice: {str(e)}\n{_trace}")
+            # Persist to the Error Log so a swallowed invoice failure is never
+            # invisible. Approval returns success even when invoice creation
+            # fails (by design — membership activation must not be blocked), so
+            # without a durable record a dropped invoice is silent. Monitoring
+            # and the approval integration test both rely on this Error Log row.
+            frappe.log_error(
+                message=f"MembershipCreationService: Failed to create invoice for {member_doc.name}: {str(e)}\n\n{_trace}",
+                title="Membership Invoice Creation Failed",
             )
             frappe.msgprint(
                 _("Warning: Invoice creation failed: {0}").format(str(e)), alert=True, indicator="orange"
