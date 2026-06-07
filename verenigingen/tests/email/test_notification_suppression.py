@@ -21,6 +21,52 @@ from verenigingen.utils.notification_suppression import (
 class TestNotificationSuppression(FrappeTestCase):
     """Test bulk operation notification suppression context managers."""
 
+    def setUp(self):
+        """Capture ambient Single/flag state this test depends on.
+
+        Order-dependence guard: these tests read the *current* value of the
+        Verenigingen Settings Single (send_chapter_assignment_notifications) as
+        their baseline and assert it is unchanged after suppression. They also
+        assert the suppression flags start cleared. A co-located test that
+        mutated the Single or left a suppress_* flag set would otherwise bleed
+        into this test's baseline. Snapshot here, restore in tearDown so the
+        test neither inherits nor leaks ambient state.
+        """
+        super().setUp()
+        self._original_chapter_setting = frappe.db.get_single_value(
+            "Verenigingen Settings", "send_chapter_assignment_notifications"
+        )
+        self._original_flags = {
+            "suppress_notifications": getattr(frappe.flags, "suppress_notifications", False),
+            "suppress_chapter_notifications": getattr(
+                frappe.flags, "suppress_chapter_notifications", False
+            ),
+        }
+        # Clear suppression flags so each test starts from a known-inactive state
+        # regardless of what a neighbouring test left behind.
+        frappe.flags.suppress_notifications = False
+        frappe.flags.suppress_chapter_notifications = False
+
+    def tearDown(self):
+        """Restore Single value and flags so neighbours see the original state."""
+        try:
+            # Restore the Single field to its captured value (in DB), in case any
+            # test body (e.g. test_settings_save_blocked) managed to persist it.
+            current = frappe.db.get_single_value(
+                "Verenigingen Settings", "send_chapter_assignment_notifications"
+            )
+            if current != self._original_chapter_setting:
+                frappe.db.set_single_value(
+                    "Verenigingen Settings",
+                    "send_chapter_assignment_notifications",
+                    self._original_chapter_setting,
+                )
+            # Restore flags
+            for flag_name, original_value in self._original_flags.items():
+                setattr(frappe.flags, flag_name, original_value)
+        finally:
+            super().tearDown()
+
     def test_basic_chapter_suppression(self):
         """Test basic chapter notification suppression."""
         # Ensure clean initial state

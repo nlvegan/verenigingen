@@ -7,7 +7,6 @@ members from quitting before their welcome gift commitment period ends.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, today, getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -30,7 +29,10 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test Annual",
+                # Uniquify name: Membership Type autonames on membership_type_name
+                # (PK). A hardcoded name collides with a co-located test that left a
+                # same-named Membership Type committed in the shared shard DB.
+                "membership_type_name": f"Test Annual {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -68,7 +70,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test Historic",
+                "membership_type_name": f"Test Historic {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -104,7 +106,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test No Minimum",
+                "membership_type_name": f"Test No Minimum {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -137,7 +139,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test Keep",
+                "membership_type_name": f"Test Keep {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -179,7 +181,10 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test Block Early",
+                # Uniquify name: Membership Type autonames on membership_type_name
+                # (PK). A hardcoded name collides with a co-located test that left a
+                # same-named Membership Type committed in the shared shard DB.
+                "membership_type_name": f"Test Block Early {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -234,7 +239,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test Allow After",
+                "membership_type_name": f"Test Allow After {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -284,7 +289,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test Disciplinary Bypass",
+                "membership_type_name": f"Test Disciplinary Bypass {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
@@ -336,7 +341,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type_name": "Test No Commitment",
+                "membership_type_name": f"Test No Commitment {frappe.generate_hash(length=8)}",
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",

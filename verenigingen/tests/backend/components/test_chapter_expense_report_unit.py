@@ -133,25 +133,38 @@ class TestChapterExpenseReport(VereningingenTestCase):
                 "cost_center": None}
         ]
 
-        mock_volunteer_record = {"name": "VOL-001", "volunteer_name": "John Volunteer"}
+        # ORDER-DEPENDENCE FIX: previously this used hardcoded identities
+        # (first/last name "John Volunteer", email "john.volunteer@test.com",
+        # volunteer_name "John Volunteer") created via raw frappe.get_doc().insert().
+        # A Member insert auto-creates a Customer named by the full name, and
+        # frappe.flags.in_import=True disables ERPNext's "- N" dedup, so a fixed
+        # "John Volunteer" full name collided hard on the Customer PK with any other
+        # file/run. The docs were also never tracked for cleanup, so they leaked.
+        # Uniquify the identity per-run and track everything for teardown.
+        unique = frappe.generate_hash(length=8)
+        member_last = f"Volunteer{unique}"
+        volunteer_label = f"John Volunteer {unique}"
+        mock_volunteer_record = {"name": "VOL-001", "volunteer_name": volunteer_label}
 
-        # Create a test volunteer using direct Frappe document creation 
+        # Create a test volunteer using direct Frappe document creation
         test_member = frappe.get_doc({
             "doctype": "Member",
             "first_name": "John",
-            "last_name": "Volunteer", 
-            "email": "john.volunteer@test.com",
+            "last_name": member_last,
+            "email": f"john.volunteer.{unique}@test.com",
             "status": "Active"
         })
         test_member.insert()
-        
+        self.track_doc("Member", test_member.name)
+
         test_volunteer = frappe.get_doc({
             "doctype": "Volunteer",
-            "volunteer_name": "John Volunteer",
+            "volunteer_name": volunteer_label,
             "member": test_member.name,
             "status": "Active"
         })
         test_volunteer.insert()
+        self.track_doc("Volunteer", test_volunteer.name)
 
         # Modify mock to use the actual test volunteer name for lookup
         mock_expense_claims[0]["employee"] = test_volunteer.name
@@ -162,7 +175,7 @@ class TestChapterExpenseReport(VereningingenTestCase):
 
             self.assertEqual(len(result), 1)
             # Volunteer name comes from the volunteer record or falls back to employee_name
-            self.assertIn(result[0]["volunteer_name"], ["John Volunteer", "Employee Name"])
+            self.assertIn(result[0]["volunteer_name"], [volunteer_label, "Employee Name"])
             self.assertEqual(result[0]["status"], "Reimbursed")  # Paid -> Reimbursed
 
     def test_get_user_accessible_chapters_admin_user(self):
@@ -178,8 +191,10 @@ class TestChapterExpenseReport(VereningingenTestCase):
 
     def test_get_user_accessible_chapters_regular_user(self):
         """Test that a non-board user has no chapter access (empty list)."""
+        # ORDER-DEPENDENCE FIX: a hardcoded User email persists and collides across
+        # files/runs (create_test_user would reuse a foreign User or fail). Uniquify.
         regular_user = self.create_test_user(
-            email="report.regular.user@example.com",
+            email=f"report.regular.user.{frappe.generate_hash(length=8)}@example.com",
             roles=["Verenigingen Member"],
         )
         original_user = frappe.session.user

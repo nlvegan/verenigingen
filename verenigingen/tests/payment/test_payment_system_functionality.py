@@ -8,7 +8,6 @@ Focuses on realistic data generation and business logic validation.
 """
 
 import time
-from datetime import datetime
 
 import frappe
 from frappe.utils import add_days, now_datetime, today
@@ -19,8 +18,6 @@ from verenigingen.utils.payment_history_validator import (
     validate_and_repair_payment_history,
 )
 from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    SecurityLevel,
     standard_api,
     utility_api,
 )
@@ -33,11 +30,18 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
         super().setUp()
         self.test_start_time = now_datetime()
         
-        # Create test member with customer
+        # Create test member with customer.
+        # ORDER-DEPENDENCE FIX: a Member insert auto-creates a Customer named by the
+        # member's FULL NAME, and EnhancedTestCase sets frappe.flags.in_import=True
+        # which disables ERPNext's "- N" dedup. The Core factory used by
+        # VereningingenTestCase does NOT uniquify explicitly-passed first/last name,
+        # so a fixed "PaymentSystem TestUser" collided on the Customer PK with any
+        # neighbour file (or prior run) using the same name. Uniquify per-run.
+        unique = frappe.generate_hash(length=8)
         self.test_member = self.create_test_member(
             first_name="PaymentSystem",
-            last_name="TestUser",
-            email="payment.system.test@example.com"
+            last_name=f"TestUser{unique}",
+            email=f"payment.system.test.{unique}@example.com"
         )
         
         # Ensure customer exists
@@ -153,9 +157,12 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
         self.assertTrue(hasattr(test_utility_function, '_security_protected'))
         self.assertTrue(hasattr(test_standard_function, '_security_protected'))
         
-        # Create test user with appropriate permissions
+        # Create test user with appropriate permissions.
+        # ORDER-DEPENDENCE FIX: a hardcoded User email collides across files/runs
+        # (the User record persists), so a neighbour creating the same user makes
+        # this create_test_user fail or reuse foreign state. Uniquify per-run.
         test_user = self.create_test_user(
-            "functional.test@example.com",
+            f"functional.test.{frappe.generate_hash(length=8)}@example.com",
             roles=["Verenigingen Staff", "Verenigingen Staff"]
         )
         

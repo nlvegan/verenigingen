@@ -15,8 +15,6 @@ This approach isolates the business logic from the database integration concerns
 """
 
 import unittest
-from datetime import datetime, timezone
-from typing import Dict, List, Any
 import time
 
 import frappe
@@ -557,12 +555,17 @@ class TestMollieBulkTransactionCoreFunctionality(EnhancedTestCase):
         """Create test members for matching algorithm tests"""
         members = []
         
+        # IBAN must be unique per test run: a hardcoded IBAN collides with the
+        # SEPA mandate a co-located test (e.g. the integration QA suite) leaves
+        # in the shared shard DB, and _find_member_by_payment_details matches the
+        # FIRST active mandate for that IBAN -> wrong member, flaky assertEqual.
+        # Tests read test_sepa.iban back, so the literal value is irrelevant.
         test_member_data = [
-            {"first_name": "TestJan", "last_name": "van der Berg", "iban": "NL91ABNA0417164300"},
-            {"first_name": "TestMaria", "last_name": "de Jong", "iban": "NL20INGB0001234567"}, 
-            {"first_name": "TestPieter", "last_name": "van den Heuvel", "iban": "NL44RABO0123456789"}
+            {"first_name": "TestJan", "last_name": "van der Berg"},
+            {"first_name": "TestMaria", "last_name": "de Jong"},
+            {"first_name": "TestPieter", "last_name": "van den Heuvel"}
         ]
-        
+
         for i, data in enumerate(test_member_data):
             member = self.create_test_member(
                 first_name=data["first_name"],
@@ -570,9 +573,9 @@ class TestMollieBulkTransactionCoreFunctionality(EnhancedTestCase):
                 email=self.factory.generate_test_email(f"sepa_member_{i}")
             )
             members.append(member)
-            
-            # Create SEPA mandate for member matching tests
-            self._create_test_sepa_mandate(member.name, iban=data["iban"])
+
+            # Create SEPA mandate with a unique, factory-generated IBAN
+            self._create_test_sepa_mandate(member.name, iban=self.factory.create_test_iban())
         
         return members
     

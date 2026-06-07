@@ -5,7 +5,6 @@ Migrated from test_volunteer_skills_api.py to use EnhancedTestCase
 
 import json
 import frappe
-from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.volunteer.volunteer import (
     search_volunteers_by_skill,
@@ -30,25 +29,25 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
     def setUp(self):
         """Set up test data using enhanced factory"""
         super().setUp()
-        
-        # Clean up any existing test data first
-        self.cleanup_test_data()
-        
-        # Create test volunteers with skills
+
+        # Create test volunteers with skills. All records are created through the
+        # factory, which tracks them for per-test cleanup in tearDown — so we do
+        # NOT need (and must not run) a broad cross-file purge here.
         self.test_volunteers = []
         self.create_test_volunteer_data()
-    
+
     def tearDown(self):
-        """Clean up test data"""
-        self.cleanup_test_data()
+        """Clean up test data.
+
+        Rely on the factory's per-test tracked cleanup (run by super().tearDown())
+        rather than a blanket DELETE. The previous implementation ran
+        ``DELETE FROM tabVolunteer/tabMember WHERE email LIKE 'TEST_%@test.invalid'``,
+        which matches the factory email pattern used by EVERY test file. That wiped
+        records belonging to NEIGHBOURING files sharing the same shard process,
+        making co-located tests order-dependent (a neighbour's data could vanish
+        mid-run). The factory only deletes what THIS test created.
+        """
         super().tearDown()
-    
-    def cleanup_test_data(self):
-        """Remove test data to prevent conflicts"""
-        # Clean up test volunteers created by enhanced factory
-        frappe.db.sql("DELETE FROM `tabVolunteer` WHERE email LIKE 'TEST_%@test.invalid'")
-        frappe.db.sql("DELETE FROM `tabMember` WHERE email LIKE 'TEST_%@test.invalid'")
-        frappe.db.commit()
 
     def create_test_volunteer_data(self):
         """Create test volunteers with skills using enhanced factory"""

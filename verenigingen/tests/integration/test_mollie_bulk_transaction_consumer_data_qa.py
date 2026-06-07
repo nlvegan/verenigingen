@@ -25,16 +25,13 @@ Architecture:
 
 import unittest
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any
-import json
 import time
 
 import frappe
-from frappe.utils import getdate, add_days, now_datetime, random_string
+from frappe.utils import getdate, random_string
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.clients.bulk_transaction_importer import BulkTransactionImporter
-from verenigingen.verenigingen_payments.core.compliance.audit_trail import ImmutableAuditTrail
 
 
 class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
@@ -1278,12 +1275,18 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         """Create test members with SEPA mandates for matching tests"""
         members = []
         
+        # IBAN must be unique per test run: a hardcoded IBAN collides with the
+        # SEPA mandate a co-located test (e.g. the core-functionality suite, which
+        # used the same three literals) leaves in the shared shard DB, and
+        # _find_member_by_payment_details matches the FIRST active mandate for that
+        # IBAN -> wrong member, flaky assertEqual. Tests read sepa.iban back, so
+        # the literal value is irrelevant.
         test_member_data = [
-            {"first_name": "TestJan", "last_name": "van der Berg", "iban": "NL91ABNA0417164300"},
-            {"first_name": "TestMaria", "last_name": "de Jong", "iban": "NL20INGB0001234567"}, 
-            {"first_name": "TestPieter", "last_name": "van den Heuvel", "iban": "NL44RABO0123456789"}
+            {"first_name": "TestJan", "last_name": "van der Berg"},
+            {"first_name": "TestMaria", "last_name": "de Jong"},
+            {"first_name": "TestPieter", "last_name": "van den Heuvel"}
         ]
-        
+
         for i, data in enumerate(test_member_data):
             member = self.create_test_member(
                 first_name=data["first_name"],
@@ -1292,9 +1295,9 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             )
             members.append(member)
             self.test_documents.append(("Member", member.name))
-            
-            # Create SEPA mandate
-            sepa = self._create_test_sepa_mandate(member.name, iban=data["iban"])
+
+            # Create SEPA mandate with a unique, factory-generated IBAN
+            sepa = self._create_test_sepa_mandate(member.name, iban=self.factory.create_test_iban())
             self.test_documents.append(("SEPA Mandate", sepa.name))
         
         return members

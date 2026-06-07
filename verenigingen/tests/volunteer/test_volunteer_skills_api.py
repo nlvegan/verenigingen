@@ -4,7 +4,7 @@ Unit tests for volunteer skills API functions
 
 import json
 import frappe
-from frappe.utils import today, now_datetime
+from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.volunteer.volunteer import (
     search_volunteers_by_skill,
@@ -113,6 +113,12 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
                 skill_row.experience_years = skill_data["years"]
 
             volunteer.insert()
+            # These volunteers are built via raw frappe.get_doc().insert() rather
+            # than the factory, so they are NOT auto-tracked. Track them explicitly
+            # so tearDown deletes them; otherwise they leak into the shared shard DB
+            # and make NEIGHBOURING test files order-dependent (their global skill
+            # searches would pick up this test's leftover volunteers).
+            self.factory.track_document("Volunteer", volunteer.name, priority=4)
             self.test_volunteers.append(volunteer.name)
 
         # Add some development goals for testing
@@ -127,14 +133,24 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
         """Test searching volunteers by skill name"""
         # Search for Python skills
         results = search_volunteers_by_skill("Python")
-        
+
         self.assertGreater(len(results), 0)
-        
-        # Verify all results have Python skill
+
+        # Every match must be a Python match. We do NOT assert that every result
+        # carries this test's "Test Volunteer Skills API" prefix: the search
+        # returns ALL active volunteers with the skill across the DB, so a
+        # neighbouring test file's Python-skilled volunteer (left over in the same
+        # shard process) would otherwise break this — an order-dependence bug.
         for result in results:
             self.assertEqual(result.matched_skill, "Python")
-            self.assertIn("Test Volunteer Skills API", result.volunteer_name)
-        
+
+        # The volunteers this test created with Python should be present.
+        result_ids = {r.name for r in results}
+        self.assertTrue(
+            any(v in result_ids for v in self.test_volunteers),
+            "This test's Python-skilled volunteers should appear in the results",
+        )
+
         # Search for non-existent skill
         no_results = search_volunteers_by_skill("NonExistentSkill")
         self.assertEqual(len(no_results), 0)

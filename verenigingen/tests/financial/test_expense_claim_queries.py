@@ -21,7 +21,6 @@ Production Issues Caught:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -50,9 +49,13 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         self.chapter1 = self.create_test_chapter()
         self.chapter2 = self.create_test_chapter()
 
-        # Create staff user
+        # Create staff user. Uniquify the email per run: create_test_user() reuses
+        # any existing User with the same address (and v16 role-profile sync can
+        # leave a foreign role profile on a reused user), so a fixed
+        # "expense_staff@test.com" left behind by another file in the shard would
+        # make these role-sensitive assertions order-dependent.
         self.staff_user = self.create_test_user(
-            email="expense_staff@test.com",
+            email=f"expense_staff_{self.uid}@test.com",
             roles=["Verenigingen Staff"]
         )
 
@@ -63,8 +66,10 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
             birth_date="1990-01-01"
         )
 
+        # Uniquify per run (see staff_user note). Keep the "expense_board" prefix:
+        # test_approver_query_with_search_text searches by that substring.
         self.board_user = self.create_test_user(
-            email="expense_board@test.com",
+            email=f"expense_board_{self.uid}@test.com",
             roles=["Verenigingen Chapter Board Member"]
         )
 
@@ -209,8 +214,9 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
             birth_date="1990-01-01"
         )
 
+        # Uniquify per run (see staff_user note in setUp).
         non_financial_user = self.create_test_user(
-            email="non_financial@test.com",
+            email=f"non_financial_{self.uid}@test.com",
             roles=["Verenigingen Chapter Board Member", "Expense Approver"]
         )
 
@@ -394,8 +400,10 @@ class TestExpenseQueryAPIIntegration(EnhancedTestCase):
         # Create test setup
         chapter = self.create_test_chapter()
 
+        # Uniquify per run: create_test_user() reuses an existing same-email User,
+        # so a fixed address shared with another shard file would bleed roles.
         staff_user = self.create_test_user(
-            email="integration_staff@test.com",
+            email=f"integration_staff_{self.uid}@test.com",
             roles=["Verenigingen Staff", "Expense Approver"]
         )
 
