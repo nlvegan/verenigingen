@@ -488,15 +488,51 @@ class DonorAutoCreationTestPersona:
 
         # If we need a different account, exclude the specified one
         if different_from:
-            accounts = frappe.db.get_all("Account", filters=filters, fields=["name"], limit=2)
+            accounts = frappe.db.get_all("Account", filters=filters, fields=["name"], limit=5)
             for account in accounts:
                 if account.name != different_from:
                     return account.name
-            # Fallback to first available if all are the same
-            return accounts[0].name if accounts else None
+            # Only the excluded account exists for this company (e.g. the test
+            # company's Standard CoA has a single Income leaf). Returning it
+            # anyway would silently hand the caller the very account it asked to
+            # avoid -- which made test_non_donations_account_ignored pay into the
+            # donations account and (correctly) create a donor, failing the test.
+            # Create a genuinely distinct sibling instead.
+            return self._create_sibling_account(different_from, resolved_account_type, company, company_currency)
         else:
             account = frappe.db.get_value("Account", filters, "name")
             return account
+
+    def _create_sibling_account(self, sibling_of, account_type, company, currency):
+        """Create a leaf Account of ``account_type`` distinct from ``sibling_of``.
+
+        Used when a company's chart of accounts has only one leaf account of the
+        requested type but a test needs a second, different one. The new account
+        is created under the same parent group as ``sibling_of``.
+        """
+        parent_account = frappe.db.get_value("Account", sibling_of, "parent_account")
+        account_name = "Test Other Income"
+        doc = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": account_name,
+                "parent_account": parent_account,
+                "company": company,
+                "account_type": account_type,
+                "is_group": 0,
+            }
+        )
+        if currency:
+            doc.account_currency = currency
+        # ERPNext names accounts "<account_name> - <abbr>"; reuse if a prior test
+        # already created it on this (persistent) site.
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        expected_name = f"{account_name} - {abbr}" if abbr else account_name
+        if frappe.db.exists("Account", expected_name):
+            return expected_name
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return doc.name
     
     def get_parent_account(self, account_type, company):
         """Get appropriate parent account for account type"""
