@@ -247,7 +247,13 @@ class _LegacyPaymentEntryFactory:
 
             # Security: Customer creation during authenticated Mollie webhook - system creates customer for payment processing
             customer_doc.flags.ignore_permissions = True
-            customer_doc.insert()
+            # Retry on duplicate-name PK collision (two same-named members race on
+            # the Customer name). See application_payments.insert_customer_with_duplicate_retry.
+            from verenigingen.services.member.approval.application_payments import (
+                insert_customer_with_duplicate_retry,
+            )
+
+            insert_customer_with_duplicate_retry(customer_doc)
 
             # Security: Link customer to member during webhook - required for payment flow integrity
             member_doc.customer = customer_doc.name

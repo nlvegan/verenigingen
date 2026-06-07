@@ -175,7 +175,7 @@ def create_customer_for_member(member):
                 "member": member.name,  # Direct link to member record
             }
         )
-        customer.insert()
+        insert_customer_with_duplicate_retry(customer)
 
         # Create Contact record using existing Dutch name utilities
         contact = create_contact_for_customer(customer, member)
@@ -219,6 +219,41 @@ def create_customer_for_member(member):
         f"Created Customer {customer.name} with Contact {contact.name} for Member {member.name}"
     )
     return customer
+
+
+def insert_customer_with_duplicate_retry(customer_doc, max_attempts=3):
+    """Insert a Customer, retrying on a duplicate-name primary-key collision.
+
+    With Selling Settings ``cust_master_name = "Customer Name"`` a Customer's
+    ``name`` IS its ``customer_name`` (here, the member's full name). ERPNext's
+    ``get_customer_name`` de-duplicates by check-then-suffix (``Name - 1``,
+    ``Name - 2`` ...), but that check and the subsequent insert are not atomic:
+    two members who share a full name -- or a delete-then-recreate, which is what
+    co-located tests trigger -- can both derive the same name and one insert
+    collides on the PK. Previously that ``DuplicateEntryError`` aborted Customer
+    creation for the losing member entirely (its approval / invoice failed).
+
+    Retrying re-runs autoname; the now-present sibling makes ``get_customer_name``
+    append the next free suffix, so the retry lands on a unique name. Each attempt
+    is isolated by its own savepoint so a failed insert never poisons the caller's
+    transaction, and the loop is bounded so a genuine (non-collision) error still
+    surfaces. See docs/plans/2026-06-07-customer-naming-fragility-proposal.md.
+    """
+    for attempt in range(1, max_attempts + 1):
+        savepoint = f"cust_insert_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            customer_doc.insert()
+            frappe.db.release_savepoint(savepoint)
+            return customer_doc
+        except frappe.exceptions.DuplicateEntryError:
+            frappe.db.rollback(save_point=savepoint)
+            if attempt == max_attempts:
+                raise
+            # Clear the assigned name + naming flag so the next insert re-derives
+            # the ' - N' suffix via autoname instead of reusing the collided name.
+            customer_doc.name = None
+            customer_doc.flags.name_set = False
 
 
 def get_membership_item(membership_type):
