@@ -7,7 +7,7 @@ Following CLAUDE.md requirements for Frappe ORM compliance and proper test patte
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
-from frappe.utils import flt, now, add_days, getdate
+from frappe.utils import flt
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -41,12 +41,15 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up after each test"""
-        # The persona and individual tests save Verenigingen Settings, so the
-        # cached handle is stale; reload before restoring to avoid a conflict.
-        self.settings.reload()
+        # Restore ONLY the fields this test changed, via set_single_value, instead
+        # of a full self.settings.save(). A full save re-validates every link on the
+        # Verenigingen Settings Single -- including fields this test never touched,
+        # such as national_board_chapter, which a co-located test can leave pointing
+        # at a since-removed Chapter. That made tearDown raise LinkValidationError
+        # ("Could not find National Board Chapter: ...") and error all donor tests.
+        # set_single_value writes each field directly and skips link validation.
         for key, value in self.original_settings.items():
-            setattr(self.settings, key, value)
-        self.settings.save()
+            frappe.db.set_single_value("Verenigingen Settings", key, value)
 
         super().tearDown()
 
