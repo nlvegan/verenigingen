@@ -72,6 +72,14 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         self.dues_schedule.save()
         self.track_doc("Membership Dues Schedule", self.dues_schedule.name)
 
+        # The tests below build Sales Invoices that reference the frequency-based
+        # membership dues item ("Membership Dues - Daily"). Production creates
+        # this item lazily during invoice generation; seed it here via the same
+        # method so the manually-built invoices pass link validation. The item is
+        # a reusable master, so it is intentionally left untracked (like other
+        # shared masters).
+        self.dues_schedule.ensure_membership_dues_item_exists()
+
     def test_payment_status_field_allows_draft(self):
         """
         Test that the Member Payment History doctype allows 'Draft' as a valid payment status.

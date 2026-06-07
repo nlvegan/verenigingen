@@ -230,6 +230,18 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         with _with_user("Administrator"):
             settings = frappe.get_single("Verenigingen Settings")
 
+            # Capture the pre-test values of every field we mutate so tearDown can
+            # restore the Single. Verenigingen Settings is a Single that persists
+            # across the shard; without restoration national_board_chapter is left
+            # pointing at this test's chapter (which tearDown deletes), bleeding a
+            # dangling reference into later modules (e.g. donor auto-creation
+            # failed in co-location for exactly this reason).
+            self._orig_ver_settings = {
+                "national_board_chapter": settings.get("national_board_chapter"),
+                "company": settings.get("company"),
+                "creation_user": settings.get("creation_user"),
+            }
+
             # Configure national board chapter
             test_chapter_name = (
                 self.test_chapter.name if hasattr(self.test_chapter, "name") else self.test_chapter
@@ -522,6 +534,16 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up after each test"""
+        # Restore the Verenigingen Settings Single to its pre-test state. Use
+        # set_single_value (not doc.save) to avoid re-running the Single's
+        # mandatory-field validation, and so the restore can't itself fail and
+        # leave bled state behind. This prevents the dangling national_board_chapter
+        # (and company/creation_user drift) from leaking into other modules.
+        if hasattr(self, "_orig_ver_settings"):
+            for key, value in self._orig_ver_settings.items():
+                frappe.db.set_single_value("Verenigingen Settings", key, value)
+            frappe.db.commit()
+
         # EnhancedTestCase tearDown handles user restoration
         # Clean up test expense claims - guard against setUp failure
         employee_names = []

@@ -23,6 +23,15 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # Seed ERPNext + Verenigingen base masters (Company, CoA, Territory tree,
+        # Customer Groups, Verenigingen Settings.company/creation_user). CI's
+        # before_tests seeds these for full-suite runs, but it is unreliable for a
+        # single-module `run-tests --module` run, so without this the test fails
+        # with "Could not find Territory: All Territories" when creating a Customer.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+
         # "Daglid" is a production membership type absent on fresh test sites.
         from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 

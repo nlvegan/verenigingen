@@ -71,6 +71,17 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                 template.db_set(
                     "dues_rate", self.membership_type.minimum_amount, update_modified=False
                 )
+            # get_current_membership_fee() reads suggested_amount FIRST (falling
+            # back to dues_rate), but the factory leaves suggested_amount at the
+            # doctype default (€15) while setting dues_rate to the configured
+            # amount. Without aligning them the approval bills €15 instead of the
+            # configured fee. Align suggested_amount to the effective dues_rate so
+            # the billed invoice matches the membership type's configured amount.
+            effective_rate = max(
+                float(template.dues_rate or 0), float(self.membership_type.minimum_amount or 0)
+            )
+            if float(template.suggested_amount or 0) != effective_rate:
+                template.db_set("suggested_amount", effective_rate, update_modified=False)
 
         # Clean up orphaned test templates that could interfere with approval validation
         orphans = frappe.get_all(
@@ -284,7 +295,10 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         if invoices:
             invoice = invoices[0]
             self.assertEqual(invoice["member"], member.name)
-            self.assertEqual(invoice["grand_total"], self.membership_type.amount)
+            # MembershipType has no "amount" field; the configured fee is
+            # minimum_amount (the factory maps the test's amount=25 to it and
+            # aligns the dues template's rate to match).
+            self.assertEqual(invoice["grand_total"], self.membership_type.minimum_amount)
         else:
             # The ONLY acceptable reason for no invoice is the documented price-list
             # failure that the service logs and swallows. Requiring that log turns
@@ -534,7 +548,9 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         
         self.assertGreater(len(invoices), 0)
         invoice = invoices[0]
-        self.assertEqual(float(invoice["grand_total"]), float(self.membership_type.amount))
+        # MembershipType has no "amount" field; the configured fee is
+        # minimum_amount (see setUp factory configuration).
+        self.assertEqual(float(invoice["grand_total"]), float(self.membership_type.minimum_amount))
         self.assertEqual(invoice["member"], member.name)
         # Note: membership field links to Membership record, not MembershipType
         

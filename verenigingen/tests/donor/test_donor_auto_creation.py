@@ -7,16 +7,27 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
 from frappe.utils import flt
+from verenigingen.tests.setup import ensure_member_test_masters
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestDonorAutoCreation(VereningingenTestCase):
     """Test automatic donor creation from payments allocated to donations GL account"""
-    
+
     def setUp(self):
         """Set up test data and configuration"""
         super().setUp()
-        
+
+        # Seed the master records this module depends on. CI's run-parallel-tests
+        # seeds these via before_tests, but a single-module `run-tests --module`
+        # run does not, so on a fresh/snapshot site the setUp below fails:
+        # get_default_company() -> IndexError (no Company), and settings.save()
+        # -> MandatoryError (Verenigingen Settings.company/creation_user unset).
+        # ensure_member_test_masters() seeds ERPNext base masters (Company, CoA,
+        # Territory, Customer Groups, Modes of Payment) AND Verenigingen Settings
+        # .company + .creation_user. Idempotent / a cheap no-op once seeded.
+        ensure_member_test_masters()
+
         # Enable auto-creation in settings
         self.settings = frappe.get_single("Verenigingen Settings")
         self.original_settings = {
