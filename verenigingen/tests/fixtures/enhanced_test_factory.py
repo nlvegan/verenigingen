@@ -1760,6 +1760,20 @@ class EnhancedTestCase(FrappeTestCase):
             self._cleanup_orphaned_dynamic_links()
             frappe.flags._orphan_dynamic_link_cleanup_done = True
 
+        # CURRENT-YEAR FISCAL YEAR: ensure the FY covering today() applies to ALL
+        # companies, once per test session. erpnext's global test setup
+        # (make_test_records("Company") in before_test_setup, which runs AFTER our
+        # before_tests hook) restricts the current FY to _Test Company, so any test
+        # posting a dated document against another company (e.g. _Test Company 2)
+        # fails with "Date <today> is not in any active Fiscal Year". That global
+        # setup runs once, so one committed clear here (after it) sticks for the
+        # session. Date-driven -> self-heals every new calendar year, no recurrence
+        # in 2027+.
+        if not getattr(frappe.flags, '_test_fiscal_year_ensured', False):
+            from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
+            ensure_test_fiscal_year_for_all_companies()
+            frappe.flags._test_fiscal_year_ensured = True
+
         # FIXTURE VALIDATION: Check required fixtures are loaded
         # Only run once per test class to avoid overhead
         if not hasattr(self.__class__, '_fixtures_validated'):

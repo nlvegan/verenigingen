@@ -120,6 +120,13 @@ def before_tests():
     except Exception as e:
         frappe.logger().warning(f"Company test record creation failed: {e}")
 
+    # NOTE: the current-year Fiscal Year company-restriction fix is applied from
+    # EnhancedTestCase.setUp (once per session), NOT here. before_tests runs too
+    # early: frappe's before_test_setup runs make_test_records(global_test_dependencies)
+    # -- including "Company", which triggers erpnext's set_defaults_for_tests and
+    # RE-restricts the current FY -- AFTER this hook returns. See
+    # ensure_test_fiscal_year_for_all_companies() docstring.
+
     # Ensure Customer test records exist (needed by Item Price and other ERPNext fixtures)
     try:
         from frappe.test_runner import make_test_records
@@ -293,6 +300,56 @@ def ensure_erpnext_base_masters():
         frappe.logger().warning(f"erpnext test defaults setup failed: {e}")
 
     frappe.db.commit()
+
+    # set_defaults_for_tests restricts the current-year Fiscal Year to the default
+    # company; undo that here too so --module self-seeding matches before_tests.
+    ensure_test_fiscal_year_for_all_companies()
+
+
+def ensure_test_fiscal_year_for_all_companies():
+    """Guarantee a Fiscal Year covers today() and applies to EVERY company.
+
+    Two date-driven failure modes this prevents -- both recur every new calendar
+    year, which is why there is deliberately NO hardcoded year here:
+
+    1. Company-restricted current FY. erpnext's ``set_defaults_for_tests`` links
+       the current calendar year's Fiscal Year to the default company
+       (``_Test Company``) via the FY ``companies`` child table, which RESTRICTS
+       the FY to that one company. Any test that posts a dated document against a
+       different company (e.g. ``_Test Company 2``) then fails with
+       "Date <today> is not in any active Fiscal Year for <company>". Clearing the
+       child table makes the FY apply to all companies (erpnext treats an empty
+       ``companies`` table as "all companies").
+    2. Missing FY. On a fresh site, or once the wall clock passes the bootstrap's
+       pre-seeded range, no Fiscal Year covers today(). The production helper
+       ``ensure_fiscal_year_exists`` creates the calendar-year FY for today().
+
+    Idempotent and date-driven, so it self-heals every January with zero edits --
+    no recurrence in 2027 and beyond.
+    """
+    try:
+        from frappe.utils import today
+
+        from verenigingen.e_boekhouden.utils.consolidated.date_utils import (
+            ensure_fiscal_year_exists,
+        )
+
+        company = frappe.defaults.get_global_default("company") or frappe.db.get_value(
+            "Company", {}, "name"
+        )
+        fy_name = ensure_fiscal_year_exists(today(), company)
+        # Drop any single-company restriction so the current FY covers every
+        # company the tests use (multi-company tests post against _Test Company 2).
+        cleared = 0
+        if fy_name and frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
+            cleared = frappe.db.count("Fiscal Year Company", {"parent": fy_name})
+            frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
+        frappe.db.commit()
+        frappe.logger().info(
+            f"ensure_test_fiscal_year_for_all_companies: fy={fy_name} cleared_company_restrictions={cleared}"
+        )
+    except Exception as e:
+        frappe.logger().warning(f"Test fiscal-year seeding failed: {e}")
 
 
 def _seed_verenigingen_test_system_user():

@@ -111,6 +111,10 @@ def run_scenario(app, site, modules, lightmode=False):
     runner.run_tests()
 
     res = runner.test_result
+    # Dump failure/error tracebacks to stderr so the run log explains WHY a test
+    # failed (the base runner's print_result, which we skip, would do this).
+    for tc, tb in list(res.failures) + list(res.errors):
+        print(f"\n===== TRACEBACK {_testcase_id(tc)} =====\n{tb}", file=sys.stderr)
     failures = sorted(_testcase_id(tc) for tc, _ in res.failures)
     errors = sorted(_testcase_id(tc) for tc, _ in res.errors)
     skipped = sorted(_testcase_id(tc) for tc, _ in res.skipped)
