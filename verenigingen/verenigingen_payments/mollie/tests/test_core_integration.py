@@ -232,71 +232,10 @@ class TestMollieCoreIntegration(EnhancedTestCase):
 
         print("✅ Mollie subscription lifecycle integration test passed")
 
-    @unittest.skip(
-        "Requires a live HTTP server reachable at frappe.utils.get_url() (e.g. "
-        "http://test_site_3/api/method). Under `bench run-tests` no web server is "
-        "bound to the site hostname, so session.post() raises ConnectionError. "
-        "UN-SKIP: run via the HTTP/UI integration harness (bench serve / nginx) "
-        "where the site URL resolves, or convert to an in-process frappe.call() "
-        "against the whitelisted endpoint instead of a real socket request."
-    )
-    def test_mollie_http_api_security_validation(self):
-        """
-        Test Mollie API endpoints through complete security framework.
-
-        Following Week 3 HTTP integration breakthrough pattern:
-        - Tests complete HTTP request lifecycle
-        - Validates CSRF, authentication, RBAC
-        - Treats security responses (401/403) as success indicators
-        - Only mocks external Mollie API calls
-        """
-        session = self._authenticate_session()
-
-        # Test Mollie payment creation API with security validation
-        payment_api_data = {
-            "amount": 75.0,
-            "description": "HTTP Security Test Payment",
-            "donor_email": "security.test@example.com",
-        }
-
-        # Mock only external Mollie API (legitimate mock)
-        from unittest.mock import patch
-
-        with patch("mollie.api.client.Client") as mock_mollie_client:
-            # Configure realistic Mollie API response
-            mock_client_instance = mock_mollie_client.return_value
-            mock_client_instance.payments.create.return_value.id = "test_security_12345"
-            mock_client_instance.payments.create.return_value.status = "open"
-
-            # Test API call through complete HTTP stack
-            response = session.post(
-                f"{self.api_base}/verenigingen.api.mollie_payment.create_payment", json=payment_api_data
-            )
-
-            # Validate security framework responses (Week 3 pattern)
-            if response.status_code == 200:
-                # Business logic executed successfully
-                result = response.json()
-                print("✅ HTTP API security validation: Business execution successful")
-                self.assertIn("message", result)
-
-            elif response.status_code in [401, 403]:
-                # Security framework working correctly - this is SUCCESS
-                print(f"✅ HTTP API security validation: Security enforced ({response.status_code})")
-                # This validates that RBAC/authentication is properly configured
-
-            elif response.status_code == 417:
-                # Method or expectation issues - investigate request format
-                print("⚠️ HTTP API request format needs investigation")
-                print(f"Response: {response.text[:200]}")
-
-            else:
-                # Log for investigation but don't fail - security might be working
-                print(f"ℹ️ Unexpected response code: {response.status_code}")
-                print(f"Response: {response.text[:200]}")
-
-        session.close()
-        print("✅ Mollie HTTP API security validation completed")
+    # Removed test_mollie_http_api_security_validation: it was a permanently-skipped
+    # HTTP-harness smoke test whose only subject was the
+    # api.mollie_payment.create_payment endpoint, which has been deleted (no
+    # production caller). Webhook/security coverage remains in the tests below.
 
     def test_mollie_webhook_security_validation(self):
         """

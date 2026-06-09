@@ -285,81 +285,18 @@ class MollieDebugService(StatelessService):
         return result
 
     def admin_cancel_subscription(self, customer_id, subscription_id, reason="Administrative cancellation"):
-        """Admin function to cancel any subscription"""
-        if not customer_id or not subscription_id:
-            raise ValueError(_("Customer ID and Subscription ID are required"))
+        """Cancel a subscription with audit trail.
 
-        if not reason:
-            raise ValueError(_("Cancellation reason is required"))
+        Implementation relocated to the production SubscriptionService; this
+        delegator is retained so the debug-page callers keep working.
+        """
+        from verenigingen.verenigingen_payments.mollie.services.subscription_service import (
+            SubscriptionService,
+        )
 
-        try:
-            # Route through the standardised MollieClient wrapper rather than
-            # the raw SDK, so this admin path cannot drift from the contract.
-            # cancel_subscription raises MolliePaymentError on failure; the
-            # except block below inspects its message for "already cancelled".
-            self.mollie_client.cancel_subscription(customer_id, subscription_id)
-
-            # Structured audit trail logging
-            self.audit_trail.log_event(
-                AuditEventType.CONFIGURATION_CHANGED,
-                AuditSeverity.WARNING,
-                f"Admin cancelled subscription {subscription_id} for customer {customer_id}",
-                details={
-                    "action": "subscription_cancellation",
-                    "subscription_id": subscription_id,
-                    "customer_id": customer_id,
-                    "reason": reason,
-                    "cancelled_by": frappe.session.user,
-                },
-                entity_type="Mollie Subscription",
-                entity_id=subscription_id,
-            )
-
-            # Also keep standard logger for operational visibility
-            self.logger.info(
-                f"ADMIN CANCELLATION: User {frappe.session.user} cancelled subscription {subscription_id} for customer {customer_id}. Reason: {reason}"
-            )
-
-            return create_success_response(
-                "Subscription cancelled successfully",
-                {
-                    "subscription_id": subscription_id,
-                    "customer_id": customer_id,
-                    "cancelled_by": frappe.session.user,
-                    "reason": reason,
-                    "timestamp": frappe.utils.now(),
-                },
-            )
-
-        except Exception as api_error:
-            error_message = str(api_error)
-            # Handle various "already cancelled" scenarios
-            if any(
-                phrase in error_message.lower()
-                for phrase in [
-                    "not found",
-                    "does not exist",
-                    "has been cancelled",
-                    "already cancelled",
-                    "cannot be cancelled",
-                ]
-            ):
-                self.logger.info(
-                    f"ADMIN CANCELLATION ATTEMPT: User {frappe.session.user} attempted to cancel already-cancelled subscription {subscription_id} for customer {customer_id}. Reason: {reason}"
-                )
-
-                return {
-                    "status": "warning",
-                    "message": _("Subscription is already cancelled or cannot be cancelled"),
-                    "subscription_id": subscription_id,
-                    "customer_id": customer_id,
-                    "attempted_by": frappe.session.user,
-                    "reason": reason,
-                    "timestamp": frappe.utils.now(),
-                    "error_detail": error_message,
-                }
-            else:
-                raise api_error
+        return SubscriptionService(self.mollie_client).admin_cancel_subscription(
+            customer_id, subscription_id, reason=reason
+        )
 
     def update_subscription_webhook(
         self, customer_id, subscription_id, webhook_url, reason="Webhook URL update"
@@ -457,64 +394,13 @@ class MollieDebugService(StatelessService):
         Returns:
             Dict with success/error status (via create_success_response)
         """
-        if not customer_id or not subscription_id:
-            raise ValueError(_("Customer ID and Subscription ID are required"))
+        from verenigingen.verenigingen_payments.mollie.services.subscription_service import (
+            SubscriptionService,
+        )
 
-        if not new_mandate_id:
-            raise ValueError(_("New Mandate ID is required"))
-
-        try:
-            client = self.mollie_client.sdk_client
-            customer_obj = client.customers.get(customer_id)
-
-            # Verify subscription exists and capture old mandate ID
-            current_subscription = customer_obj.subscriptions.get(subscription_id)
-            old_mandate_id = getattr(current_subscription, "mandateId", None)
-
-            # PATCH the subscription with the new mandate
-            customer_obj.subscriptions.update(subscription_id, {"mandateId": new_mandate_id})
-
-            self.audit_trail.log_event(
-                AuditEventType.CONFIGURATION_CHANGED,
-                AuditSeverity.INFO,
-                f"Updated mandate for subscription {subscription_id}",
-                details={
-                    "action": "subscription_mandate_update",
-                    "subscription_id": subscription_id,
-                    "customer_id": customer_id,
-                    "old_mandate_id": old_mandate_id,
-                    "new_mandate_id": new_mandate_id,
-                    "reason": reason,
-                    "updated_by": frappe.session.user,
-                },
-                entity_type="Mollie Subscription",
-                entity_id=subscription_id,
-            )
-
-            self.logger.info(
-                f"MANDATE UPDATE: User {frappe.session.user} updated mandate for subscription "
-                f"{subscription_id} (customer {customer_id}). Old: {old_mandate_id}, New: {new_mandate_id}"
-            )
-
-            return create_success_response(
-                "Subscription mandate updated successfully",
-                {
-                    "subscription_id": subscription_id,
-                    "customer_id": customer_id,
-                    "old_mandate_id": old_mandate_id,
-                    "new_mandate_id": new_mandate_id,
-                    "updated_by": frappe.session.user,
-                    "timestamp": frappe.utils.now(),
-                },
-            )
-
-        except Exception as api_error:
-            error_message = str(api_error)
-            self.logger.error(
-                f"MANDATE UPDATE FAILED: User {frappe.session.user} failed to update mandate for "
-                f"subscription {subscription_id} (customer {customer_id}): {error_message}"
-            )
-            raise api_error
+        return SubscriptionService(self.mollie_client).update_subscription_mandate(
+            customer_id, subscription_id, new_mandate_id, reason=reason
+        )
 
     def admin_revoke_mandate(self, customer_id, mandate_id, reason="Administrative revocation"):
         """
@@ -1917,98 +1803,13 @@ class MollieDebugService(StatelessService):
             Filtering by active_only happens client-side after fetching from Mollie API,
             as the Mollie subscriptions.list() endpoint doesn't support status filtering.
         """
-        if not customer_id:
-            raise ValueError(_("Customer ID is required"))
+        from verenigingen.verenigingen_payments.mollie.services.subscription_service import (
+            SubscriptionService,
+        )
 
-        # Validate and sanitize limit
-        try:
-            limit = int(limit)
-            if not 1 <= limit <= 250:
-                limit = 50
-        except (ValueError, TypeError):
-            limit = 50
-
-        result = {
-            "test_mode": self.mollie_client.is_test_mode(),
-            "timestamp": frappe.utils.now(),
-            "customer_id": customer_id,
-            "active_only": active_only,
-            "limit": limit,
-            "subscriptions": [],
-            "total_found": 0,
-            "error": None,
-        }
-
-        try:
-            client = self.mollie_client.sdk_client
-
-            # List subscriptions for specific customer
-            customer = client.customers.get(customer_id)
-            subscriptions = customer.subscriptions.list(limit=limit)
-
-            # Process and filter subscriptions
-            for sub in subscriptions:
-                # Filter by status if active_only
-                if active_only and sub.status != "active":
-                    continue
-
-                # Use helper method for consistent amount formatting
-                amount_str = format_mollie_response_amount(sub.amount)
-
-                result["subscriptions"].append(
-                    {
-                        "id": sub.id,
-                        "customer_id": (
-                            getattr(sub, "_links", {}).get("customer", {}).get("href", "").split("/")[-1]
-                            if hasattr(sub, "_links")
-                            else customer_id
-                        ),
-                        "status": sub.status,
-                        "amount": amount_str,
-                        "interval": sub.interval,
-                        "description": sub.description,
-                        "created_at": str(sub.created_at),
-                        "next_payment_date": (
-                            str(getattr(sub, "next_payment_date", None))
-                            if getattr(sub, "next_payment_date", None)
-                            else None
-                        ),
-                        "canceled_at": (
-                            str(getattr(sub, "canceled_at", None))
-                            if getattr(sub, "canceled_at", None)
-                            else None
-                        ),
-                    }
-                )
-
-                # Respect limit
-                if len(result["subscriptions"]) >= limit:
-                    break
-
-            result["total_found"] = len(result["subscriptions"])
-
-        except Exception as e:
-            error_msg = str(e)
-
-            # Provide helpful context for "customer not found" errors
-            if "No customer exists" in error_msg:
-                current_mode = "test" if self.mollie_client.is_test_mode() else "live"
-                sanitized_error = (
-                    f"Customer {customer_id} not found in {current_mode} mode. "
-                    f"This may indicate: 1) Customer ID from different Mollie account, "
-                    f"2) Customer deleted in Mollie dashboard, or 3) Wrong API credentials configured."
-                )
-            else:
-                sanitized_error = self._sanitize_error_message(error_msg)
-
-            result["error"] = sanitized_error
-            self.logger.error(
-                f"Mollie list subscriptions error for customer {customer_id}: {error_msg}. "
-                f"Mode: {self.mollie_client.is_test_mode()}"
-                "Mollie Customer Error",
-            )
-
-        return result
+        return SubscriptionService(self.mollie_client).list_subscriptions(
+            customer_id, limit=limit, active_only=active_only
+        )
 
     def retrieve_customer_payments_for_processing(self, customer_id: str, limit: int = 250):
         """
