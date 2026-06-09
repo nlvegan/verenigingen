@@ -313,7 +313,7 @@ function create_mandate_with_values(frm, values, dialog) {
 	// Get server-side validation data
 	frappe.call({
 		method:
-      'verenigingen.verenigingen.doctype.member.member.validate_mandate_creation',
+      'verenigingen.api.member.sepa_api.validate_mandate_creation',
 		args: {
 			member: frm.doc.name,
 			iban: values.iban,
@@ -338,7 +338,7 @@ function create_mandate_with_values(frm, values, dialog) {
 
 			frappe.call({
 				method:
-          'verenigingen.verenigingen.doctype.member.member.create_and_link_mandate_enhanced',
+          'verenigingen.api.member.sepa_api.create_and_link_mandate_enhanced',
 				args: {
 					member: frm.doc.name,
 					mandate_id: values.mandate_id,
@@ -437,7 +437,7 @@ function check_sepa_mandate_status(frm) {
 
 		frappe.call({
 			method:
-        'verenigingen.verenigingen.doctype.member.member.get_active_sepa_mandate',
+        'verenigingen.api.member.sepa_api.get_active_sepa_mandate',
 			args: {
 				member: frm.doc.name,
 				iban: frm.doc.iban

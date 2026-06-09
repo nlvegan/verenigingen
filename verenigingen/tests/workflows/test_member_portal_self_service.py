@@ -11,9 +11,10 @@ enforced by SelfServiceAccessController, matching the donation/fee portal.
 
 Endpoints exercised (inventory: docs/plans/2026-06-09-member-portal-self-service-lockout-inventory.md):
 - templates/pages/address_change.py:        get_current_address, update_member_address
-- templates/pages/my_dues_schedule.py:      export_schedule, get_payment_details, update_notification_settings
+- templates/pages/my_dues_schedule.py:      export_schedule, get_payment_details
 - templates/pages/membership_adjustment.py: get_fee_calculation_info, get_available_membership_types
 - templates/pages/contact_request.py:       submit_contact_request
+- api/member/sepa_api.py:                    setup_sepa_direct_debit (payment dashboard)
 
 The decorator's security check runs on direct in-process calls (the wrapper is
 applied at import time), so calling the endpoint as a logged-in member is a
@@ -22,6 +23,7 @@ faithful reproduction of the portal HTTP path's auth gate.
 
 import frappe
 
+from verenigingen.api.member import sepa_api
 from verenigingen.templates.pages import (
     address_change,
     contact_request,
@@ -29,6 +31,7 @@ from verenigingen.templates.pages import (
     my_dues_schedule,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 
 class TestMemberPortalSelfService(EnhancedTestCase):
@@ -143,6 +146,67 @@ class TestMemberPortalSelfService(EnhancedTestCase):
         with self._as_user(user.name):
             with self.assertRaises(frappe.DoesNotExistError):
                 my_dues_schedule.get_payment_details("2099-01-01")
+
+    # --- api/member/sepa_api.py (payment dashboard) --------------------------
+
+    def test_member_can_set_up_own_sepa_direct_debit(self):
+        """setup_sepa_direct_debit (member payment dashboard) writes the calling
+        member's bank details and creates an active SEPA mandate.
+
+        Exercises the financial second-layer fix: the Member record write is
+        if_owner-gated (members don't own their record), so a plain member.save()
+        is denied and secure_document_operation can't help (it escalates to a
+        system user a member may not request) — the write uses
+        member.save(ignore_permissions=True) after ownership is verified. The
+        SEPA Mandate create runs under the member's own (non-if_owner) perms.
+        """
+        member, user = self._member_with_membership()
+        iban = generate_test_iban("TEST")
+
+        with self._as_user(user.name):
+            result = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder")
+
+        self.assertTrue(result.get("success"), msg=result)
+        # An active mandate exists for this member (IBAN is persisted space-formatted,
+        # so compare on the normalized value rather than filtering on the raw input).
+        mandate = frappe.db.get_value(
+            "SEPA Mandate",
+            {"member": member.name, "status": "Active", "is_active": 1},
+            ["name", "iban"],
+            as_dict=True,
+        )
+        self.assertIsNotNone(mandate)
+        self.assertEqual(mandate.iban.replace(" ", ""), iban)
+        member.reload()
+        self.assertEqual(member.iban.replace(" ", ""), iban)
+        self.assertEqual(member.payment_method, "SEPA Direct Debit")
+
+    def test_member_sepa_iban_change_replaces_old_mandate(self):
+        """Changing IBAN cancels the previous mandate and leaves exactly one active.
+
+        Guards the deactivate-then-create branch: a member setting up a new IBAN
+        must not accumulate multiple active mandates.
+        """
+        member, user = self._member_with_membership()
+        first_iban = generate_test_iban("TEST")
+        second_iban = generate_test_iban("MOCK")
+        self.assertNotEqual(first_iban, second_iban)
+
+        with self._as_user(user.name):
+            sepa_api.setup_sepa_direct_debit(iban=first_iban, account_holder_name="Test Holder")
+            result = sepa_api.setup_sepa_direct_debit(iban=second_iban, account_holder_name="Test Holder")
+
+        self.assertTrue(result.get("success"), msg=result)
+
+        active = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member.name, "status": "Active", "is_active": 1},
+            fields=["name", "iban"],
+        )
+        self.assertEqual(len(active), 1, msg=active)
+        self.assertEqual(active[0].iban.replace(" ", ""), second_iban)
+        # The first mandate was cancelled, not left dangling.
+        self.assertTrue(frappe.db.exists("SEPA Mandate", {"member": member.name, "status": "Cancelled"}))
 
     # --- cross-tenant scoping (ownership invariant) --------------------------
 

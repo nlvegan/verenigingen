@@ -24,6 +24,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
+    self_service_api,
 )
 
 
@@ -281,7 +282,7 @@ def validate_mandate_creation(member, iban, mandate_id):
 
 
 @frappe.whitelist(allow_guest=False)
-@critical_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
     """
     Set up SEPA Direct Debit for the current member.
@@ -334,12 +335,22 @@ def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
     bic = derive_bic_from_iban(iban) or ""
 
     try:
-        # Update member bank details
+        # Update member bank details with ignore_permissions: the Member write
+        # DocPerm for plain members is if_owner-gated, but member records are owned
+        # by the staff who created them, so a self-service member can never satisfy
+        # the framework write check on their OWN record (and secure_document_operation
+        # can't help — it escalates to a system user, which plain members may not
+        # request). Ownership was already verified via validate_member_ownership
+        # above, and Member.validate() (IBAN history, etc.) still runs under
+        # ignore_permissions — only the mis-fitting if_owner perm check is skipped.
         member.iban = iban
         member.bic = bic
         member.bank_account_name = account_holder_name
         member.payment_method = "SEPA Direct Debit"
-        member.save()
+        # Security: self-service caller verified as the record owner via
+        # validate_member_ownership above; ignore_permissions only skips the
+        # mis-fitting if_owner DocPerm, Member.validate() still runs.
+        member.save(ignore_permissions=True)
 
         # Check for existing active mandate with same IBAN
         existing_mandate = frappe.get_all(
