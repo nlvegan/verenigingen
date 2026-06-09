@@ -177,18 +177,17 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
 
             self.assertGreater(len(results), 0)
 
-            # Every match must be a Python match. (We do not assert on volunteer names:
-            # the factory generates names from a Dutch name pool, and the search returns
-            # ALL active volunteers with the skill — not just this test's.)
-            for result in results:
-                self.assertEqual(result.matched_skill, "Python")
-
-            # The volunteers this test created with Python should be present
-            result_ids = {r.name for r in results}
+            # The search is a SUBSTRING match (`volunteer_skill LIKE %Python%`) over ALL
+            # active volunteers, so co-located tests' "Python Programming" skills also come
+            # back with matched_skill="Python Programming". Only assert exactness on THIS
+            # test's own volunteers, which were given the exact skill "Python".
+            own_results = [r for r in results if r.name in self.test_volunteers]
             self.assertTrue(
-                any(v in result_ids for v in self.test_volunteers),
+                own_results,
                 "This test's Python-skilled volunteers should appear in the results",
             )
+            for result in own_results:
+                self.assertEqual(result.matched_skill, "Python")
 
         # Search for non-existent skill
         no_results = search_volunteers_by_skill("NonExistentSkill")
@@ -197,10 +196,14 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
     def test_search_volunteers_by_skill_with_category(self):
         """Test searching volunteers by skill with category filter"""
         results = search_volunteers_by_skill("Python", category="Technical")
-        
+
         self.assertGreater(len(results), 0)
-        
-        for result in results:
+
+        # Substring search returns co-located tests' "Python Programming" rows too;
+        # scope the exactness assertion to this test's own volunteers.
+        own_results = [r for r in results if r.name in self.test_volunteers]
+        self.assertTrue(own_results, "This test's Technical/Python volunteers should appear")
+        for result in own_results:
             self.assertEqual(result.matched_skill, "Python")
             self.assertEqual(result.skill_category, "Technical")
 

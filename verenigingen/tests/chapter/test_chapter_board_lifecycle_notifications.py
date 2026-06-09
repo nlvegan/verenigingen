@@ -11,6 +11,15 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # Snapshot the original so tearDown can restore it. This class mutates the
+        # Verenigingen Settings Single (forced to 1 here, to 0 in
+        # test_setting_disabled_blocks_notification) via set_single_value, which
+        # persists to the shared shard DB. Without restoration the leak bleeds into
+        # co-located tests that assert on this field's ambient value (e.g.
+        # test_notification_suppression.test_settings_restoration).
+        self._orig_send_chapter_setting = frappe.db.get_single_value(
+            "Verenigingen Settings", "send_chapter_assignment_notifications"
+        )
         # Ensure the feature setting is on for tests
         frappe.db.set_single_value(
             "Verenigingen Settings", "send_chapter_assignment_notifications", 1
@@ -33,6 +42,12 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
 
     def tearDown(self):
         frappe.flags.chapter_transfer = None
+        # Restore the Single this class mutated so neighbours see the original value.
+        frappe.db.set_single_value(
+            "Verenigingen Settings",
+            "send_chapter_assignment_notifications",
+            self._orig_send_chapter_setting,
+        )
         super().tearDown()
 
     def test_transfer_sets_and_clears_flag(self):

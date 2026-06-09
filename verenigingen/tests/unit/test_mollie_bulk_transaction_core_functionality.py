@@ -554,11 +554,8 @@ class TestMollieBulkTransactionCoreFunctionality(EnhancedTestCase):
     def _create_test_members_for_matching(self):
         """Create test members for matching algorithm tests"""
         members = []
-        
-        # IBAN must be unique per test run: a hardcoded IBAN collides with the
-        # SEPA mandate a co-located test (e.g. the integration QA suite) leaves
-        # in the shared shard DB, and _find_member_by_payment_details matches the
-        # FIRST active mandate for that IBAN -> wrong member, flaky assertEqual.
+
+        # IBANs are made run-unique by _create_test_sepa_mandate (see _unique_test_iban).
         # Tests read test_sepa.iban back, so the literal value is irrelevant.
         test_member_data = [
             {"first_name": "TestJan", "last_name": "van der Berg"},
@@ -574,15 +571,33 @@ class TestMollieBulkTransactionCoreFunctionality(EnhancedTestCase):
             )
             members.append(member)
 
-            # Create SEPA mandate with a unique, factory-generated IBAN
-            self._create_test_sepa_mandate(member.name, iban=self.factory.create_test_iban())
-        
+            self._create_test_sepa_mandate(member.name)
+
         return members
-    
+
+    def _unique_test_iban(self):
+        """Build a run-unique, MOD-97-valid test IBAN.
+
+        ``factory.create_test_iban()`` is deterministic AND resets its account
+        sequence every test (a fresh factory is built in setUp), so the first
+        IBAN it yields is the SAME value (e.g. ``NL..MOCK0000000001``) in every
+        test. That value collides with the first SEPA mandate any co-located
+        shard test leaves behind, and ``_find_member_by_payment_details`` returns
+        the FIRST active mandate for an IBAN (no ORDER BY) -> wrong member, flaky
+        assertEqual. Embed this test's microsecond ``uid`` into the 10-digit
+        account number so every mandate here is globally distinct. The fake bank
+        code ``MOCK`` is accepted by the validator (only the checksum is enforced).
+        """
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+        self._iban_seq = getattr(self, "_iban_seq", 0) + 1
+        account_number = f"{int(self.uid):06d}{self._iban_seq:04d}"
+        return generate_test_iban("MOCK", account_number)
+
     def _create_test_sepa_mandate(self, member_name, iban=None, status="Active"):
         """Create test SEPA mandate for member"""
         if not iban:
-            iban = self.factory.create_test_iban()
+            iban = self._unique_test_iban()
         
         # Get member to extract account holder name
         member = frappe.get_doc("Member", member_name)

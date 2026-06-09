@@ -150,10 +150,16 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
 
         from verenigingen.api.expense_claim_queries import get_user_accessible_chapters_for_expenses
 
-        # Call the API
+        # The staff/admin branch returns ALL active chapters with LIMIT page_len.
+        # In a full parallel shard, leftover chapters from co-located tests can fill
+        # the first page and push this run's chapters off it (ORDER BY name). Filter
+        # by this run's id (shared by chapter1 & chapter2 — same factory) so the
+        # assertion is independent of leftover rows. This mirrors how the Link query
+        # is actually used (user types text to narrow the list).
+        run_id = self.chapter1.name.rsplit(" - ", 1)[-1]
         result = get_user_accessible_chapters_for_expenses(
             doctype="Chapter",
-            txt="",
+            txt=run_id,
             searchfield="name",
             start=0,
             page_len=20,
@@ -412,9 +418,12 @@ class TestExpenseQueryAPIIntegration(EnhancedTestCase):
         # Simulate getting chapters for expense claim
         from verenigingen.api.expense_claim_queries import get_user_accessible_chapters_for_expenses
 
+        # Filter by this run's id so leftover chapters from co-located tests can't
+        # fill the LIMIT page and hide this chapter (see staff-sees-all test).
+        run_id = chapter.name.rsplit(" - ", 1)[-1]
         chapters = get_user_accessible_chapters_for_expenses(
             doctype="Chapter",
-            txt="",
+            txt=run_id,
             searchfield="name",
             start=0,
             page_len=20,
