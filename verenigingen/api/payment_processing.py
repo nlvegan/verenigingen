@@ -603,8 +603,11 @@ def send_payment_reminder_email(
             notification_key=notification_key,
         )
 
-        # If template not found, send with fallback content
-        if not result.success and "not found" in str(result.errors):
+        # If the template is missing, send with fallback HTML content. Detect this
+        # via the structured error_code (NOT a substring of the message) so an
+        # unrelated failure can't wrongly trigger the fallback — the fallback path
+        # passes no notification_key and so bypasses cooldown/opt-out enforcement.
+        if not result.success and result.error_code == "TEMPLATE_NOT_FOUND":
             fallback_content = generate_payment_reminder_html(
                 member, payment_info, reminder_type, custom_message
             )

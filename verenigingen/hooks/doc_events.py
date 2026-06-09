@@ -36,6 +36,15 @@ Other events:
 
 doc_events = {
     # =========================================================================
+    # COMMUNICATION / EMAIL
+    # =========================================================================
+    "Email Template": {
+        # Invalidate the in-process EmailService template cache so edits and
+        # deletions take effect immediately instead of being masked until the TTL.
+        "on_update": "verenigingen.services.communication.email_service.on_email_template_change",
+        "on_trash": "verenigingen.services.communication.email_service.on_email_template_change",
+    },
+    # =========================================================================
     # CORE MEMBERSHIP SYSTEM
     # =========================================================================
     "Membership": {

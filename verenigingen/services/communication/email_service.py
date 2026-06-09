@@ -67,6 +67,10 @@ class BoundedLRUCache:
         self._cache.pop(key, None)
         self._timestamps.pop(key, None)
 
+    def evict(self, key: str) -> None:
+        """Public single-key invalidation (no-op if absent)."""
+        self._evict(key)
+
     def clear(self) -> None:
         """Clear all cached items."""
         self._cache.clear()
@@ -143,7 +147,11 @@ class EmailService(StatelessService):
             # Load and validate template
             template = self._get_template(template_name)
             if not template:
-                return OperationResult.fail(f"Email template '{template_name}' not found")
+                # Structured code so callers can detect a missing template without
+                # substring-matching this (translatable) message.
+                return OperationResult.fail(
+                    f"Email template '{template_name}' not found", error_code="TEMPLATE_NOT_FOUND"
+                )
 
             # Prepare context with validation
             if context is None:
@@ -861,3 +869,21 @@ def get_email_service() -> EmailService:
     if _email_service_instance is None:
         _email_service_instance = EmailService()
     return _email_service_instance
+
+
+def invalidate_template_cache(template_name: str) -> None:
+    """Evict a single template from the EmailService singleton's cache.
+
+    The cache is in-process, so this only invalidates the current worker's copy;
+    other workers' caches still expire via the TTL. That is acceptable because
+    Email Templates change rarely, but it means an edit takes effect immediately
+    only on the worker that performed it.
+    """
+    if _email_service_instance is not None:
+        _email_service_instance.template_cache.evict(template_name)
+
+
+def on_email_template_change(doc, method=None) -> None:
+    """doc_event handler: invalidate the cached copy when an Email Template is
+    saved or deleted, so edits/deletions are not masked by the process cache."""
+    invalidate_template_cache(doc.name)

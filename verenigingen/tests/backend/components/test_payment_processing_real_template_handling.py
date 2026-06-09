@@ -377,6 +377,90 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
                     payment_info=self.sample_payment_info,
                 )
 
+    def test_email_template_change_invalidates_service_cache(self):
+        """Editing or deleting an Email Template must invalidate the EmailService
+        process-singleton cache, or stale content is served until the TTL expires
+        (and the missing-template fallback is silently skipped)."""
+        from verenigingen.services.communication.email_service import get_email_service
+
+        name = "payment_reminder_friendly"  # created in setUp
+        svc = get_email_service()
+
+        cached = svc._get_template(name)
+        self.assertIsNotNone(cached, "template should load")
+        self.assertNotIn("UPDATED", cached["content"])
+
+        # An edit must be reflected on the next read, not masked by the cache.
+        doc = frappe.get_doc("Email Template", name)
+        doc.response_html = "<p>UPDATED {{ member.first_name }}</p>"
+        doc.save()
+        refreshed = svc._get_template(name)
+        self.assertIn("UPDATED", refreshed["content"])
+
+        # A delete must make the template genuinely absent on the next read.
+        frappe.delete_doc("Email Template", name, force=True)
+        self.assertIsNone(svc._get_template(name))
+
+    @patch("frappe.sendmail")  # KEEP: External service mock
+    def test_missing_template_falls_back_despite_stale_cache(self, mock_sendmail):
+        """Cross-file flake regression: a stale singleton-cached template must not
+        suppress the missing-template HTML fallback once the DB row is gone."""
+        from verenigingen.services.communication.email_service import get_email_service
+
+        # Simulate a co-located test having cached a DIFFERENT
+        # 'payment_reminder_friendly' (content without the days-overdue value)
+        # in the process singleton — exactly the cross-shard pollution we hit.
+        svc = get_email_service()
+        svc.template_cache.set(
+            "payment_reminder_friendly",
+            {"subject": "stale", "content": "<p>stale body, no days</p>", "doc": None},
+        )
+
+        # Remove the real template so the only remaining "source" is the stale cache.
+        if frappe.db.exists("Email Template", "payment_reminder_friendly"):
+            frappe.delete_doc("Email Template", "payment_reminder_friendly", force=True)
+
+        result = send_payment_reminder_email(
+            member_name=self.test_member.name,
+            reminder_type="Friendly Reminder",
+            payment_info=self.sample_payment_info,
+        )
+
+        self.assertTrue(result, "missing template must fall back, not silently fail")
+        mock_sendmail.assert_called_once()
+        html = mock_sendmail.call_args[1].get("message", "")
+        self.assertIn(self.test_member.first_name, html)
+        self.assertIn("30", html)  # fallback HTML includes days overdue
+
+    def test_send_templated_email_signals_missing_template_structurally(self):
+        """The missing-template failure must be identifiable via a structured
+        error_code, not by substring-matching a human-readable (translatable)
+        message — otherwise an unrelated failure whose message contains
+        'not found' would wrongly trigger the HTML fallback, which bypasses the
+        cooldown/opt-out enforcement that the templated path honours."""
+        from verenigingen.services.communication.email_service import get_email_service
+
+        svc = get_email_service()
+
+        # Genuinely-missing template → must carry TEMPLATE_NOT_FOUND.
+        missing = "definitely_missing_template_xyz"
+        svc.template_cache.evict(missing)
+        if frappe.db.exists("Email Template", missing):
+            frappe.delete_doc("Email Template", missing, force=True)
+        result = svc.send_templated_email(template_name=missing, recipients=["x@example.com"], context={})
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "TEMPLATE_NOT_FOUND")
+
+        # A DIFFERENT outcome on an existing template (here: no recipients →
+        # all-opted-out skip) must NOT be tagged as a missing template, so the
+        # caller never wrongly falls back for a non-template result.
+        result2 = svc.send_templated_email(
+            template_name="payment_reminder_friendly",  # exists (setUp)
+            recipients=[],
+            context={"member": self.test_member, "payment_info": self.sample_payment_info},
+        )
+        self.assertNotEqual(result2.error_code, "TEMPLATE_NOT_FOUND")
+
     def tearDown(self):
         """Clean up test email templates"""
         try:
