@@ -14,14 +14,14 @@ from frappe.utils import add_months, flt, getdate, today
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def request_payment_plan(
-    member: str,
+    member: str | None,
     total_amount: float,
     preferred_installments: int | None = None,
     preferred_frequency: str | None = None,
@@ -31,6 +31,13 @@ def request_payment_plan(
     Submit a payment plan request from member portal
     """
     try:
+        # The member portal (payment_plans.html) submits member=null and expects
+        # the member to be resolved from the session, mirroring get_member_payment_plans.
+        if not member:
+            member = get_current_user_member_name()
+            if not member:
+                return OperationResult.fail(message=_("No member record found for current user"))
+
         # Validate member access
         if frappe.session.user != "Administrator":
             member_email = frappe.db.get_value("Member", member, "email")
@@ -95,7 +102,7 @@ def request_payment_plan(
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def get_member_payment_plans(member: str | None = None) -> OperationResult[Dict[str, Any]]:
     """
     Get payment plans for a member
@@ -231,7 +238,7 @@ def send_payment_plan_request_notification(payment_plan):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def calculate_payment_plan_preview(total_amount, installments, frequency) -> OperationResult[Dict[str, Any]]:
     """
     Calculate payment plan preview for display

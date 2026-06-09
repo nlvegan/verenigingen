@@ -34,14 +34,13 @@ from verenigingen.utils.operation_result import OperationResult
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
-    high_security_api,
+    self_service_api,
     standard_api,
 )
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_chapter_join_context(chapter_name) -> OperationResult[Dict[str, Any]]:
     """Get context for chapter join page.
 
@@ -143,7 +142,7 @@ def get_chapter_join_context(chapter_name) -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist(allow_guest=False)
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def join_chapter(chapter_name, introduction) -> OperationResult[Dict[str, Any]]:
     """Create a chapter join request.
 

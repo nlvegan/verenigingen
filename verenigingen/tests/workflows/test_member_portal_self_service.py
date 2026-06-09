@@ -23,6 +23,7 @@ faithful reproduction of the portal HTTP path's auth gate.
 
 import frappe
 
+from verenigingen.api import chapter_join, payment_plan_management
 from verenigingen.api.member import sepa_api
 from verenigingen.templates.pages import (
     address_change,
@@ -208,7 +209,88 @@ class TestMemberPortalSelfService(EnhancedTestCase):
         # The first mandate was cancelled, not left dangling.
         self.assertTrue(frappe.db.exists("SEPA Mandate", {"member": member.name, "status": "Cancelled"}))
 
+    # --- api/payment_plan_management.py (payment plans portal) ---------------
+
+    def test_member_can_request_own_payment_plan(self):
+        """request_payment_plan creates a Draft plan for the calling member.
+
+        The portal (payment_plans.html) passes member=null, so the endpoint must
+        resolve the member from the session — exercises both the tier swap and the
+        session-derivation that the live frontend depends on.
+        """
+        member, user = self._member_with_membership()
+        with self._as_user(user.name):
+            result = payment_plan_management.request_payment_plan(
+                member=None, total_amount=300, preferred_installments=3, preferred_frequency="Monthly"
+            )
+        self.assertTrue(result["success"], msg=result)
+        self.assertTrue(frappe.db.exists("Payment Plan", {"member": member.name, "status": "Draft"}))
+
+    def test_member_can_list_own_payment_plans(self):
+        """get_member_payment_plans returns the calling member's plans."""
+        _, user = self._member_with_membership()
+        with self._as_user(user.name):
+            payment_plan_management.request_payment_plan(
+                member=None, total_amount=300, preferred_installments=3, preferred_frequency="Monthly"
+            )
+            result = payment_plan_management.get_member_payment_plans()
+        self.assertTrue(result["success"], msg=result)
+        self.assertGreaterEqual(len(result["data"]["payment_plans"]), 1)
+
+    def test_member_can_preview_payment_plan(self):
+        """calculate_payment_plan_preview is reachable by a plain member."""
+        _, user = self._member_with_membership()
+        with self._as_user(user.name):
+            result = payment_plan_management.calculate_payment_plan_preview(
+                total_amount=300, installments=3, frequency="Monthly"
+            )
+        self.assertTrue(result["success"], msg=result)
+
+    # --- api/chapter_join.py (chapter join page) -----------------------------
+
+    def test_member_can_join_chapter(self):
+        """join_chapter files a Chapter Join Request for the calling member."""
+        member, user = self._member_with_membership()
+        chapter = self.create_test_chapter()
+        with self._as_user(user.name):
+            result = chapter_join.join_chapter(
+                chapter_name=chapter.name, introduction="Hello, I would like to join."
+            )
+        self.assertTrue(result["success"], msg=result)
+        self.assertTrue(
+            frappe.db.exists("Chapter Join Request", {"member": member.name, "chapter": chapter.name})
+        )
+
+    def test_member_can_read_chapter_join_context(self):
+        """get_chapter_join_context returns the member's join status for a chapter."""
+        member, user = self._member_with_membership()
+        chapter = self.create_test_chapter()
+        with self._as_user(user.name):
+            result = chapter_join.get_chapter_join_context(chapter_name=chapter.name)
+        self.assertTrue(result["success"], msg=result)
+        self.assertEqual(result["data"]["member"], member.name)
+        self.assertFalse(result["data"]["already_member"])
+
     # --- cross-tenant scoping (ownership invariant) --------------------------
+
+    def test_payment_plan_endpoints_reject_other_members(self):
+        """A member cannot read or request payment plans for ANOTHER member by
+        passing an explicit member id — @self_service_api enforces ownership of
+        the `member` argument (these endpoints, unlike the address ones, accept
+        a caller-supplied member, so this is the key ownership invariant).
+        """
+        owner = self.create_test_member(birth_date="1990-01-01")
+        self.create_test_membership(member_name=owner.name)
+        intruder = self.create_test_member(birth_date="1991-02-02")
+        intruder_user = self._link_member_to_user(intruder)
+
+        with self._as_user(intruder_user.name):
+            with self.assertRaises(frappe.PermissionError):
+                payment_plan_management.get_member_payment_plans(member=owner.name)
+            with self.assertRaises(frappe.PermissionError):
+                payment_plan_management.request_payment_plan(
+                    member=owner.name, total_amount=300, preferred_installments=3
+                )
 
     def test_address_endpoints_are_scoped_to_session_member(self):
         """A member only ever reaches their OWN address.
