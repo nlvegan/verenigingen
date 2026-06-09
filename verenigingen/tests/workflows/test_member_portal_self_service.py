@@ -15,6 +15,9 @@ Endpoints exercised (inventory: docs/plans/2026-06-09-member-portal-self-service
 - templates/pages/membership_adjustment.py: get_fee_calculation_info, get_available_membership_types
 - templates/pages/contact_request.py:       submit_contact_request
 - api/member/sepa_api.py:                    setup_sepa_direct_debit (payment dashboard)
+- api/mollie_payment.py (batch 4):           get_subscription_details,
+                                             cancel_specific_subscription,
+                                             update_mollie_bank_account (payment dashboard)
 
 The decorator's security check runs on direct in-process calls (the wrapper is
 applied at import time), so calling the endpoint as a logged-in member is a
@@ -23,7 +26,7 @@ faithful reproduction of the portal HTTP path's auth gate.
 
 import frappe
 
-from verenigingen.api import chapter_join, payment_plan_management
+from verenigingen.api import chapter_join, mollie_payment, payment_plan_management
 from verenigingen.api.member import sepa_api
 from verenigingen.templates.pages import (
     address_change,
@@ -465,3 +468,70 @@ class TestMemberPortalSelfService(EnhancedTestCase):
         self.assertTrue(
             frappe.db.exists("Member Contact Request", {"member": member.name})
         )
+
+    # --- api/mollie_payment.py (batch 4) -------------------------------------
+    #
+    # These three endpoints back the Mollie panel of the member payment
+    # dashboard (templates/pages/payment_dashboard.html). They were gated at
+    # @high_security_api / @critical_api, locking the plain Verenigingen Member
+    # out of viewing/cancelling their own subscription and changing their own
+    # bank account. The swap to @self_service_api(implicit_allowed=True) matches
+    # the rest of the portal: each function already resolves the member from the
+    # session (get_current_user_member_name_required + validate_member_ownership)
+    # and writes via db_set, so no second-layer permission fix is needed.
+    #
+    # Each function reaches the live Mollie API only AFTER an early-return guard
+    # (no customer id / unauthorized customer id / no subscription). These tests
+    # drive those guarded paths, so the assertion that a plain member reaches the
+    # body at all — rather than being rejected by the tier gate — is a faithful
+    # check of the decorator swap without depending on a Mollie sandbox.
+
+    def test_member_can_query_own_subscription_details(self):
+        """get_subscription_details passes the self-service gate for a plain
+        member. With no Mollie customer id on the record it returns the
+        'no_subscription' early result (before any Mollie API call) — proving
+        the member cleared the auth tier rather than hitting PermissionError.
+        """
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
+
+        with self._as_user(user.name):
+            result = mollie_payment.get_subscription_details()
+
+        self.assertEqual(result["status"], "no_subscription")
+
+    def test_member_cancel_subscription_enforces_customer_ownership(self):
+        """cancel_specific_subscription passes the gate, then refuses to cancel a
+        customer id the member does not own (in-body ownership check, before any
+        Mollie call). The member owns cst_aaaaaaaaaa and asks to cancel a
+        different customer's subscription → 'not authorized' error, not a tier
+        PermissionError.
+        """
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
+        frappe.db.set_value("Member", member.name, "mollie_customer_id", "cst_aaaaaaaaaa")
+
+        with self._as_user(user.name):
+            result = mollie_payment.cancel_specific_subscription(
+                customer_id="cst_bbbbbbbbbb", subscription_id="sub_test01"
+            )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("not authorized", result["message"].lower())
+
+    def test_member_update_bank_account_passes_gate(self):
+        """update_mollie_bank_account passes the self-service gate for a plain
+        member. With no active Mollie subscription on the record it returns the
+        'no active subscription' guard result (before any Mollie API call) —
+        again proving the member cleared the tier gate.
+        """
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
+
+        with self._as_user(user.name):
+            result = mollie_payment.update_mollie_bank_account(
+                iban=generate_test_iban(), account_holder_name="Test Member"
+            )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("no active mollie subscription", result["message"].lower())

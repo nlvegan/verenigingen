@@ -17,7 +17,7 @@ from verenigingen.utils.member_utils import (
 from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, self_service_api
 
 
 @frappe.whitelist()
@@ -102,7 +102,7 @@ def get_payment_status(payment_id: str) -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist(allow_guest=False)
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_subscription_details():
     """
     Get real-time subscription details from Mollie for the current user.
@@ -303,7 +303,7 @@ def get_subscription_details():
 
 
 @frappe.whitelist(allow_guest=False)
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def cancel_specific_subscription(customer_id: str = None, subscription_id: str = None):
     """
     Cancel a specific Mollie subscription by customer ID and subscription ID.
@@ -391,7 +391,7 @@ def cancel_specific_subscription(customer_id: str = None, subscription_id: str =
 
 
 @frappe.whitelist(allow_guest=False)
-@critical_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def update_mollie_bank_account(iban: str = None, account_holder_name: str = None):
     """
     Update the bank account (mandate) on the member's active Mollie subscription.
