@@ -581,256 +581,162 @@ def has_membership_permission(doc, user=None, permission_type=None):
     return None
 
 
-def has_donor_permission(doc, user=None, permission_type=None):
-    """Direct permission check for Donor doctype
+def _make_member_linked_permission(doctype, member_field="member"):
+    """Build the (has_permission, permission_query) pair for a doctype that links to
+    Member via a direct ``member`` Link field and must be member-scoped.
 
-    Grants access to:
-    - Admins (System Manager, Verenigingen Staff, Verenigingen Administrator)
-    - Service accounts (Webhooks) - Defer to standard DocPerm
-    - Chapter Board Members (for donors linked to members in their chapters)
-    - Members (for their own donor records)
+    The access policy is identical across such doctypes: admins/staff and service
+    accounts pass through, a chapter board member reaches records for members in
+    their chapters, and a regular member reaches only their own records. Donor and
+    SEPA Mandate share this exact shape byte-for-byte, so both pairs are generated
+    here instead of being maintained as copies.
+
+    (Donation is excluded: it links two hops via Donor, not a direct ``member``
+    field. Address is excluded: it links via Dynamic Link. Member is the base record
+    itself. Those keep their own bespoke functions.)
+
+    Args:
+        doctype: The DocType name (e.g. "Donor", "SEPA Mandate").
+        member_field: The Link-to-Member fieldname on the doctype (default "member").
+
+    Returns:
+        (has_permission, permission_query) — a has_permission(doc, user, permission_type)
+        callable and a permission_query(user) callable, named after the doctype.
     """
-    if not user:
-        user = frappe.session.user
+    # doctype + member_field are interpolated into SQL (table name + column). They are
+    # always hardcoded DocType/field literals today; guard the contract so this reusable
+    # access-control primitive cannot be handed an injection vector by a future caller.
+    if "`" in doctype:
+        raise ValueError(f"Invalid doctype for permission factory: {doctype!r}")
+    if not member_field.isidentifier():
+        raise ValueError(f"member_field must be a valid identifier, got {member_field!r}")
 
-    # Defense-in-depth: never grant donor access to a disabled user account.
-    # Frappe normally blocks disabled users at login, but a disabled user that
-    # still holds roles would otherwise pass the role/ownership checks below.
-    # Administrator is always treated as enabled. Single query: get_value returns
-    # None for a non-existent user (service accounts etc.), which is NOT == 0, so
-    # only an explicitly-disabled real User is denied here.
-    if user not in ("Administrator", "Guest"):
-        if frappe.db.get_value("User", user, "enabled") == 0:
-            frappe.logger().debug(f"User {user} is disabled; denying donor access")
-            return False
+    table = f"`tab{doctype}`"
+    slug = doctype.lower().replace(" ", "_")
 
-    user_roles = frappe.get_roles(user)
+    def has_permission(doc, user=None, permission_type=None):
+        if not user:
+            user = frappe.session.user
 
-    # Log for debugging
-    frappe.logger().debug(f"Checking Donor permissions for user {user} with roles {user_roles}")
-
-    # Admin roles always have access (org-wide)
-    if _has_admin_access(user_roles):
-        return True
-
-    # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
-    service_result = _check_service_account_permission(user, "Donor", permission_type)
-    if service_result is not None:
-        return service_result
-
-    # Get donor member link
-    if isinstance(doc, str):
-        # doc is just the name, need to get the member field
-        if not DocumentExistenceValidator.check_document_exists("Donor", doc):
-            frappe.logger().debug(f"Donor record {doc} does not exist")
-            return False
-        donor_member = frappe.db.get_value("Donor", doc, "member")
-    else:
-        # doc is the document object
-        donor_member = getattr(doc, "member", None)
-
-    if not donor_member:
-        frappe.logger().debug("Donor record has no linked member")
-        return False
-
-    # Verify the linked member still exists and is active
-    if not DocumentExistenceValidator.check_document_exists("Member", donor_member):
-        frappe.logger().debug(f"Linked member {donor_member} no longer exists")
-        return False
-
-    # Chapter Board Members can access donors for members in their chapters
-    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
-        try:
-            if _check_chapter_board_access(user, donor_member):
-                frappe.logger().debug(
-                    f"Chapter board member {user} has access to donor for member {donor_member}"
-                )
-                return True
-        except Exception as e:
-            frappe.logger().error(f"Error checking chapter board member donor permission: {str(e)}")
-
-    # For regular members, check if they are linked to this donor record
-    if Roles.VERENIGINGEN_MEMBER in user_roles:
-        try:
-            user_member = get_member_name_for_user(user)
-            if not user_member:
-                frappe.logger().debug(f"User {user} has Verenigingen Member role but no member record found")
+        # Defense-in-depth: never grant access to a disabled user account that still
+        # holds roles. Frappe normally blocks disabled users at login, but a disabled
+        # user retaining roles would otherwise pass the checks below. Administrator is
+        # always treated as enabled; get_value returns None for service accounts (NOT
+        # == 0), so only an explicitly-disabled real User is denied here.
+        if user not in ("Administrator", "Guest"):
+            if frappe.db.get_value("User", user, "enabled") == 0:
+                frappe.logger().debug(f"User {user} is disabled; denying {doctype} access")
                 return False
 
-            is_linked = donor_member == user_member
-            frappe.logger().debug(
-                f"User member: {user_member}, Donor member: {donor_member}, Access granted: {is_linked}"
-            )
-            return is_linked
+        user_roles = frappe.get_roles(user)
 
-        except Exception as e:
-            frappe.logger().error(f"Error checking donor permission for user {user}, doc {doc}: {str(e)}")
+        # Admin / staff roles always have access (org-wide)
+        if _has_admin_access(user_roles):
+            return True
+
+        # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
+        service_result = _check_service_account_permission(user, doctype, permission_type)
+        if service_result is not None:
+            return service_result
+
+        # Resolve the record's linked member
+        if isinstance(doc, str):
+            if not DocumentExistenceValidator.check_document_exists(doctype, doc):
+                frappe.logger().debug(f"{doctype} record {doc} does not exist")
+                return False
+            linked_member = frappe.db.get_value(doctype, doc, member_field)
+        else:
+            linked_member = getattr(doc, member_field, None)
+
+        if not linked_member:
+            frappe.logger().debug(f"{doctype} record has no linked member")
             return False
 
-    # Return False for users without proper roles
-    frappe.logger().debug(f"User {user} does not have appropriate roles for donor access")
-    return False
+        # A dangling member link (member deleted) is denied for non-admins.
+        if not DocumentExistenceValidator.check_document_exists("Member", linked_member):
+            frappe.logger().debug(f"Linked member {linked_member} no longer exists")
+            return False
 
+        # Chapter board members can access records for members in their chapters
+        if Roles.CHAPTER_BOARD_MEMBER in user_roles:
+            try:
+                if _check_chapter_board_access(user, linked_member):
+                    return True
+            except Exception as e:
+                frappe.logger().error(f"Error checking chapter board {doctype} permission: {str(e)}")
 
-def get_donor_permission_query(user):
-    """Permission query for Donor doctype - limits records to those the user can access
-
-    Filters for:
-    - Admins: All records (no filter)
-    - Chapter Board Members: Donors for members in their chapters
-    - Members: Only their own donor records
-    """
-    if not user:
-        user = frappe.session.user
-
-    user_roles = frappe.get_roles(user)
-
-    # Admin roles get access to all records (org-wide)
-    if _has_admin_access(user_roles):
-        return ""  # No filter needed
-
-    conditions = []
-
-    # Chapter Board Members can see donors for members in their chapters
-    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
-        if user_member:
-            board_chapters = _get_board_chapters_for_member(user_member)
-            if board_chapters:
-                chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
-                conditions.append(
-                    f"""
-                    `tabDonor`.member IN (
-                        SELECT cm.member
-                        FROM `tabChapter Member` cm
-                        WHERE cm.parent IN ({','.join(chapter_names)})
-                          AND cm.status = 'Active'
+        # For regular members, grant only their own records
+        if Roles.VERENIGINGEN_MEMBER in user_roles:
+            try:
+                user_member = get_member_name_for_user(user)
+                if not user_member:
+                    frappe.logger().debug(
+                        f"User {user} has Verenigingen Member role but no member record found"
                     )
-                """
-                )
+                    return False
+                return linked_member == user_member
+            except Exception as e:
+                frappe.logger().error(f"Error checking {doctype} permission for user {user}: {str(e)}")
+                return False
 
-    # For regular members, limit to donor records linked to their member record
-    if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
-        if user_member:
-            conditions.append(f"`tabDonor`.member = {frappe.db.escape(user_member)}")
-
-    if conditions:
-        return f"({' OR '.join(conditions)})"
-
-    # Users without proper roles see no records
-    return "1=0"
-
-
-def has_sepa_mandate_permission(doc, user=None, permission_type=None):
-    """Direct permission check for SEPA Mandate doctype.
-
-    SEPA mandates carry sensitive bank details (IBAN). The default DocPerm grants
-    Verenigingen Member read/write/create with NO per-member scoping, which would
-    let any member reach another member's mandate (and IBAN) via the generic
-    frappe.client API. This hook (mirroring has_donor_permission) confines members
-    to their own mandates while preserving admin / staff / service-account /
-    chapter-board access.
-    """
-    if not user:
-        user = frappe.session.user
-
-    # Defense-in-depth: never grant mandate (IBAN) access to a disabled user
-    # account that still holds roles (mirrors has_donor_permission). Administrator
-    # is always treated as enabled; get_value returns None for service accounts,
-    # which is NOT == 0, so only an explicitly-disabled real User is denied here.
-    if user not in ("Administrator", "Guest"):
-        if frappe.db.get_value("User", user, "enabled") == 0:
-            frappe.logger().debug(f"User {user} is disabled; denying SEPA mandate access")
-            return False
-
-    user_roles = frappe.get_roles(user)
-
-    # Admin / staff roles always have access (org-wide)
-    if _has_admin_access(user_roles):
-        return True
-
-    # Service accounts (webhooks, background jobs, SEPA batch) defer to DocPerm
-    service_result = _check_service_account_permission(user, "SEPA Mandate", permission_type)
-    if service_result is not None:
-        return service_result
-
-    # Resolve the mandate's linked member
-    if isinstance(doc, str):
-        if not DocumentExistenceValidator.check_document_exists("SEPA Mandate", doc):
-            return False
-        mandate_member = frappe.db.get_value("SEPA Mandate", doc, "member")
-    else:
-        mandate_member = getattr(doc, "member", None)
-
-    if not mandate_member:
-        # A mandate with no member link is administrative — deny non-admins.
+        # Users without proper roles see nothing
         return False
 
-    # Chapter Board Members can access mandates for members in their chapters
-    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
-        try:
-            if _check_chapter_board_access(user, mandate_member):
-                return True
-        except Exception as e:
-            frappe.logger().error(f"Error checking chapter board SEPA mandate permission: {str(e)}")
+    def permission_query(user):
+        if not user:
+            user = frappe.session.user
 
-    # Regular members: only their own mandates
-    if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
-        if not user_member:
-            return False
-        return mandate_member == user_member
+        user_roles = frappe.get_roles(user)
 
-    return False
+        # Admin / staff roles get access to all records (org-wide)
+        if _has_admin_access(user_roles):
+            return ""  # No filter needed
 
+        conditions = []
 
-def get_sepa_mandate_permission_query(user):
-    """Permission query for SEPA Mandate - confine members to their own mandates.
-
-    Mirrors get_donor_permission_query: admins/staff see all, chapter board members
-    see mandates for members in their chapters, regular members see only their own.
-    """
-    if not user:
-        user = frappe.session.user
-
-    user_roles = frappe.get_roles(user)
-
-    # Admin / staff roles get access to all records (org-wide)
-    if _has_admin_access(user_roles):
-        return ""
-
-    conditions = []
-
-    # Chapter Board Members can see mandates for members in their chapters
-    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
-        if user_member:
-            board_chapters = _get_board_chapters_for_member(user_member)
-            if board_chapters:
-                chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
-                conditions.append(
-                    f"""
-                    `tabSEPA Mandate`.member IN (
+        # Chapter board members can see records for members in their chapters
+        if Roles.CHAPTER_BOARD_MEMBER in user_roles:
+            user_member = get_member_name_for_user(user)
+            if user_member:
+                board_chapters = _get_board_chapters_for_member(user_member)
+                if board_chapters:
+                    chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+                    conditions.append(
+                        f"""
+                    {table}.{member_field} IN (
                         SELECT cm.member
                         FROM `tabChapter Member` cm
                         WHERE cm.parent IN ({','.join(chapter_names)})
                           AND cm.status = 'Active'
                     )
                 """
-                )
+                    )
 
-    # For regular members, limit to mandates linked to their own member record
-    if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
-        if user_member:
-            conditions.append(f"`tabSEPA Mandate`.member = {frappe.db.escape(user_member)}")
+        # For regular members, limit to records linked to their own member record
+        if Roles.VERENIGINGEN_MEMBER in user_roles:
+            user_member = get_member_name_for_user(user)
+            if user_member:
+                conditions.append(f"{table}.{member_field} = {frappe.db.escape(user_member)}")
 
-    if conditions:
-        return f"({' OR '.join(conditions)})"
+        if conditions:
+            return f"({' OR '.join(conditions)})"
 
-    # Users without proper roles see no records
-    return "1=0"
+        # Users without proper roles see no records
+        return "1=0"
+
+    has_permission.__name__ = has_permission.__qualname__ = f"has_{slug}_permission"
+    permission_query.__name__ = permission_query.__qualname__ = f"get_{slug}_permission_query"
+    return has_permission, permission_query
+
+
+# Donor and SEPA Mandate share the identical member-scoped policy; generate both pairs
+# from the factory rather than maintaining byte-identical copies. The module-level names
+# remain importable (e.g. `from verenigingen.permissions import has_donor_permission`) and
+# resolvable by the hooks in hooks/permissions.py.
+has_donor_permission, get_donor_permission_query = _make_member_linked_permission("Donor")
+has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_linked_permission(
+    "SEPA Mandate"
+)
 
 
 def has_donation_permission(doc, user=None, permission_type=None):
