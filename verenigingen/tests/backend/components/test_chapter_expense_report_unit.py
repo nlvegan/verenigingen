@@ -302,7 +302,11 @@ class TestChapterExpenseReport(VereningingenTestCase):
 
         self.assertIn("orange", row["status_indicator"])
         self.assertIn("Overdue", row["status_indicator"])
-        self.assertEqual(row["days_to_approval"], 10)
+        # build_expense_row computes days_to_approval against frappe.utils.today();
+        # if the test crosses midnight between capturing old_date above and that
+        # internal call, the difference is 11 rather than 10. Tolerate the ±1
+        # midnight boundary so the assertion is date-independent.
+        self.assertIn(row["days_to_approval"], (10, 11))
 
     def test_get_summary_with_data(self):
         """Test summary statistics generation"""

@@ -213,17 +213,36 @@ class TestExternalAPIFailureRecovery(TransactionBoundaryTestCase):
 
         mode_of_payment = frappe.db.get_value("Mode of Payment", {"enabled": 1}, "name") or "Cash"
 
+        def _save_donation_with_naming_retry(donor_name):
+            """Save a Donation, retrying transient concurrent-naming collisions.
+
+            Donation autonames via a naming_series; parallel inserts on separate
+            connections race the shared tabSeries counter and one thread can hit
+            a DuplicateEntryError/deadlock. That is a harness artifact, not the
+            failure-isolation behaviour under test, so retry it here. The
+            *simulated* API failure below is deliberately NOT retried.
+            """
+            last_err = None
+            for _ in range(8):
+                try:
+                    donation = frappe.get_doc({
+                        'doctype': 'Donation',
+                        'donor': donor_name,
+                        'donation_date': today(),
+                        'amount': 30.0,
+                        'mode_of_payment': mode_of_payment,
+                    })
+                    donation.save()
+                    return donation
+                except (frappe.DuplicateEntryError, frappe.QueryDeadlockError) as e:
+                    last_err = e
+                    frappe.db.rollback()
+            raise last_err
+
         def attempt_payment_with_conditional_failure(donor_name, should_fail=False):
             """Create a donation that may fail based on conditions"""
             try:
-                donation = frappe.get_doc({
-                    'doctype': 'Donation',
-                    'donor': donor_name,
-                    'donation_date': today(),
-                    'amount': 30.0,
-                    'mode_of_payment': mode_of_payment,
-                })
-                donation.save()
+                donation = _save_donation_with_naming_retry(donor_name)
 
                 if should_fail:
                     # Simulate API failure for this specific operation
@@ -242,7 +261,7 @@ class TestExternalAPIFailureRecovery(TransactionBoundaryTestCase):
         ]
 
         results = self.execute_concurrent_operations_with_validation(operations)
-        
+
         # Validate isolation: successful operations completed, failed ones rolled back
         success_count = sum(1 for r in results if r['success'])
         failure_count = len(results) - success_count

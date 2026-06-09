@@ -513,11 +513,15 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
         with patch.object(self.service, '_update_member_mandate_status') as mock_update:
 
+            # Bracket the call with the service's own date source so a midnight
+            # rollover between the service's frappe.utils.today() and the assertion
+            # can't make a same-day comparison spuriously fail (date returns a
+            # yyyy-mm-dd string; normalize via getdate before comparing).
+            before = getdate(frappe.utils.today())
             self.service._handle_cancellation(mandate, result)
+            after = getdate(frappe.utils.today())
 
-            # The service sets cancellation_date via frappe.utils.today(), which
-            # returns a yyyy-mm-dd string; normalize before comparing to a date.
-            self.assertEqual(getdate(mandate.cancellation_date), date.today())
+            self.assertIn(getdate(mandate.cancellation_date), (before, after))
             mock_update.assert_called_once_with(mandate, 'Cancelled')
 
     def test_handle_expiration_workflow(self):
@@ -585,15 +589,25 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
     def test_edge_case_same_day_expiry(self):
         """Test mandate expiring on the same day"""
-        today = date.today()
+        import verenigingen.verenigingen_payments.services.sepa_mandate_lifecycle_service as svc_mod
+
+        # Use a FIXED date instead of the real clock so the same-day boundary is
+        # deterministic (a real date.today() can roll over midnight mid-test and
+        # turn "expires today" into "expired yesterday").
+        fixed_today = date(2026, 6, 15)
 
         mandate = self._create_mock_mandate(
-            sign_date=today - timedelta(days=30),
-            expiry_date=today,  # Expires today
+            sign_date=fixed_today - timedelta(days=30),
+            expiry_date=fixed_today,  # Expires today
             status='Active'
         )
 
-        with patch('frappe.utils.getdate', side_effect=lambda x: x if x else today):
+        # set_status_based_on_dates() calls module-level getdate() (no arg) for
+        # "today"; patch THAT reference (patching frappe.utils.getdate would not
+        # affect the already-imported binding). Pass explicit dates straight
+        # through to the real getdate for normalization.
+        real_getdate = svc_mod.getdate
+        with patch.object(svc_mod, 'getdate', side_effect=lambda x=None: real_getdate(x) if x else fixed_today):
             status = self.service.set_status_based_on_dates(mandate)
 
             # Should still be active on expiry date (expires at end of day)

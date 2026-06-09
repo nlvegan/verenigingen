@@ -37,11 +37,26 @@ class TestSEPAInputValidation(VereningingenTestCase):
         # a Customer record on a fresh site.
         self.invoice = self.create_test_sales_invoice(member=self.member.name, amount=25.00, status="Unpaid")
 
+    @staticmethod
+    def _valid_weekday_collection_date(min_offset=5):
+        """A collection date ``min_offset`` days out, rolled to the next weekday.
+
+        The validator rejects weekend collection dates (and dates outside
+        [today+1, today+30]). A hardcoded ``add_days(today(), 5)`` fails on the
+        ~2-in-7 run-days where today+5 is a Sat/Sun (e.g. 2026-06-14 is a
+        Sunday). Rolling forward to Mon-Fri keeps the date inside the valid
+        window (+5..+7) and makes these tests date-independent.
+        """
+        d = getdate(add_days(today(), min_offset))
+        while d.weekday() >= 5:  # Saturday=5, Sunday=6
+            d = getdate(add_days(d, 1))
+        return d
+
     def test_validate_collection_date_valid(self):
         """Test valid collection date validation"""
 
-        # Test with valid future date
-        future_date = add_days(today(), 5)
+        # Test with valid future date (weekday — validator rejects weekends)
+        future_date = self._valid_weekday_collection_date()
         result = SEPAInputValidator.validate_collection_date(future_date)
 
         self.assertTrue(result["valid"])
@@ -379,7 +394,7 @@ class TestSEPAInputValidation(VereningingenTestCase):
         """Test valid batch creation parameters"""
 
         valid_params = {
-            "batch_date": add_days(today(), 5),
+            "batch_date": self._valid_weekday_collection_date(),
             "batch_type": "CORE",
             "invoice_list": [
                 {
@@ -426,7 +441,7 @@ class TestSEPAInputValidation(VereningingenTestCase):
 
         # Test with valid parameters
         valid_params = {
-            "batch_date": str(add_days(today(), 5)),
+            "batch_date": str(self._valid_weekday_collection_date()),
             "batch_type": "CORE",
             "invoice_list": [
                 {
