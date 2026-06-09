@@ -67,15 +67,23 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             })
             self.student_membership_type.insert()
 
-        # Now create dues schedule templates with membership types
-        self.regular_template = self.ensure_dues_schedule_template("Regular Template", {
+        # Now create dues schedule templates with membership types.
+        # Use run-unique template names: a co-located test that creates a Membership
+        # Type literally named "Regular"/"Student" (e.g. ensure_membership_type_exists
+        # ("Regular")) makes Membership Type.after_insert auto-create a "Regular Template"
+        # / "Student Template" at the €15 framework default. ensure_dues_schedule_template
+        # then REUSES that stale €15 template as-is (it ignores attributes for existing
+        # docs), and create_from_template fails "Template dues rate (€15) cannot be less
+        # than membership type minimum (€60)". A unique name can't collide with the
+        # "{type} Template" auto-name, so the template is created fresh at the right rate.
+        self.regular_template = self.ensure_dues_schedule_template(f"Regular Lifecycle Template {self.uid}", {
             "membership_type": self.regular_membership_type.name,
             "billing_frequency": "Annual",
             "dues_rate": 60.0,
             "currency": "EUR"
         })
 
-        self.student_template = self.ensure_dues_schedule_template("Student Template", {
+        self.student_template = self.ensure_dues_schedule_template(f"Student Lifecycle Template {self.uid}", {
             "membership_type": self.student_membership_type.name,
             "billing_frequency": "Annual",
             "dues_rate": 30.0,

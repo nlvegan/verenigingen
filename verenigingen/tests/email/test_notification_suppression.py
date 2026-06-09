@@ -95,26 +95,40 @@ class TestNotificationSuppression(FrappeTestCase):
         self.assertFalse(is_bulk_operation_active())
 
     def test_settings_restoration(self):
-        """Test settings are properly restored after context."""
+        """Suppression context activates the flag and leaves the setting unchanged.
+
+        Note: frappe.get_single() returns a FRESH document each call — it does NOT
+        return the same object the context manager mutates in memory — so the CM's
+        in-memory `send_chapter_assignment_notifications = 0` is not observable from
+        here (and a previous assertion on it only passed when the persisted value
+        happened to be 0). The observable, meaningful contract is the suppression
+        FLAG (which EmailConfigurationService._is_suppressed checks) plus the
+        persisted setting being unchanged once the context exits.
+        """
         settings = frappe.get_single("Verenigingen Settings")
-        original_value = settings.send_chapter_assignment_notifications
+        settings.reload()
+        baseline = settings.send_chapter_assignment_notifications
 
         with suppress_chapter_notifications():
-            # Verify in-memory change
-            self.assertEqual(settings.send_chapter_assignment_notifications, 0)
+            self.assertTrue(frappe.flags.suppress_chapter_notifications)
 
-        # Reload and verify restoration
+        self.assertFalse(getattr(frappe.flags, "suppress_chapter_notifications", False))
         settings.reload()
-        self.assertEqual(settings.send_chapter_assignment_notifications, original_value)
+        self.assertEqual(settings.send_chapter_assignment_notifications, baseline)
 
     def test_settings_save_blocked(self):
-        """Test that settings cannot be accidentally saved during context."""
+        """A save during the suppression context must not corrupt the persisted setting.
+
+        See test_settings_restoration: get_single() does not return the context
+        manager's object, so we assert on the persisted value (unchanged) and the
+        suppression flag rather than the unobservable in-memory value.
+        """
         settings = frappe.get_single("Verenigingen Settings")
-        original_value = settings.send_chapter_assignment_notifications
+        settings.reload()
+        baseline = settings.send_chapter_assignment_notifications
 
         with suppress_chapter_notifications():
-            # Settings have been modified in memory
-            self.assertEqual(settings.send_chapter_assignment_notifications, 0)
+            self.assertTrue(frappe.flags.suppress_chapter_notifications)
 
             # Try to save - should be blocked by ignore_save flag
             try:
@@ -123,9 +137,9 @@ class TestNotificationSuppression(FrappeTestCase):
                 # If save raises exception due to ignore_save, that's acceptable
                 pass
 
-        # Reload and verify original value was preserved (save was blocked)
+        # Reload and verify the persisted value was preserved (save did not corrupt it)
         settings.reload()
-        self.assertEqual(settings.send_chapter_assignment_notifications, original_value)
+        self.assertEqual(settings.send_chapter_assignment_notifications, baseline)
 
     def test_all_notifications_suppression(self):
         """Test aggressive all-notifications suppression."""
