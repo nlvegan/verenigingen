@@ -21661,22 +21661,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "update_notification_settings",
-  "operation_name": "update_notification_settings",
-  "operation_type": "admin",
-  "description": "Update notification settings information",
-  "enabled": 1,
-  "security_level": "low",
-  "business_context": "System operations for verenigingen.templates.pages.my_dues_schedule module functionality",
-  "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-  "rate_limit_calls": 180,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "test_payment_creation",
   "operation_name": "test_payment_creation",
   "operation_type": "reporting",

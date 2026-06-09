@@ -304,7 +304,14 @@ def create_contact_request(
     urgency="Normal",
     preferred_time=None,
 ):
-    """API method to create a contact request from the member portal"""
+    """Create a contact request for an arbitrary member (staff/elevated API).
+
+    Member-portal self-service does NOT call this endpoint — a plain member
+    (LOW) cannot pass the @high_security_api (HIGH) gate. The portal route
+    (templates/pages/contact_request.py:submit_contact_request) instead calls
+    _create_member_contact_request directly, having derived `member` from the
+    session.
+    """
 
     # Validate member access
     if not frappe.session.user or frappe.session.user == "Guest":
@@ -314,11 +321,45 @@ def create_contact_request(
     if not frappe.db.exists("Member", member):
         frappe.throw(_("Member {0} does not exist").format(member))
 
-    # Check if user has access to this member
-    if not frappe.has_permission("Member", "read", member):
+    # Check if user has access to this member. Use the app's row-level policy
+    # rather than frappe.has_permission: the "Verenigingen Member" Member DocPerm
+    # is if_owner-gated and member records are owned by staff, so frappe.has_permission
+    # denies a member access to their OWN record. has_member_permission grants
+    # own-record (and admin/board) access while still rejecting other members'.
+    from verenigingen.permissions import has_member_permission
+
+    if not has_member_permission(member, frappe.session.user, "read"):
         frappe.throw(_("You don't have permission to create contact requests for this member"))
 
-    # Create contact request
+    return _create_member_contact_request(
+        member=member,
+        subject=subject,
+        message=message,
+        request_type=request_type,
+        preferred_contact_method=preferred_contact_method,
+        urgency=urgency,
+        preferred_time=preferred_time,
+    )
+
+
+def _create_member_contact_request(
+    member,
+    subject,
+    message,
+    request_type="General Inquiry",
+    preferred_contact_method="Email",
+    urgency="Normal",
+    preferred_time=None,
+):
+    """Build and securely insert a Member Contact Request for ``member``.
+
+    Internal helper with NO auth decorator: every caller is responsible for
+    authorizing access to ``member`` first. Callers:
+      - create_contact_request (HIGH API) — checks has_member_permission.
+      - submit_contact_request portal endpoint (@self_service_api) — derives
+        ``member`` from the session, so it only ever acts on the caller's own
+        record.
+    """
     contact_request = frappe.get_doc(
         {
             "doctype": "Member Contact Request",

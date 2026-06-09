@@ -4,10 +4,11 @@ import frappe
 from frappe import _
 from frappe.utils import validate_email_address
 
+from verenigingen.permissions import has_address_permission, has_member_permission
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
 
 
 def get_context(context):
@@ -129,7 +130,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def update_member_address(address_data):
     """Update member's address with the provided data"""
     # Get member record using standardized utility
@@ -177,7 +178,13 @@ def update_member_address(address_data):
 
     # Now safely get member document with proper security context
     member_doc = frappe.get_doc("Member", member_name)
-    if not frappe.has_permission("Member", "read", member_doc):
+    # Use the app's row-level policy (has_member_permission) rather than
+    # frappe.has_permission: the "Verenigingen Member" DocPerm is if_owner-gated,
+    # but member records are owned by the staff who created them, so the standard
+    # check always denies a member access to their OWN record. has_member_permission
+    # grants own-record access (and still rejects other members'); ownership of this
+    # record was already verified against the session user above.
+    if not has_member_permission(member_doc, frappe.session.user, "read"):
         frappe.throw(_("Access denied to member record"), frappe.PermissionError)
 
     try:
@@ -200,7 +207,7 @@ def update_member_address(address_data):
                 )
 
             address_doc = frappe.get_doc("Address", member_doc.primary_address)
-            if not frappe.has_permission("Address", "read", address_doc):
+            if not has_address_permission(address_doc, frappe.session.user, "read"):
                 frappe.throw(_("Access denied to address record"), frappe.PermissionError)
             # old_address = {
             #     "address_line1": address_doc.address_line1,
@@ -315,7 +322,7 @@ def update_member_address(address_data):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_current_address():
     """Get current address for the logged-in member"""
     # Get member record using standardized utility
@@ -333,7 +340,13 @@ def get_current_address():
 
     # Now safely get member document with proper security context
     member_doc = frappe.get_doc("Member", member_name)
-    if not frappe.has_permission("Member", "read", member_doc):
+    # Use the app's row-level policy (has_member_permission) rather than
+    # frappe.has_permission: the "Verenigingen Member" DocPerm is if_owner-gated,
+    # but member records are owned by the staff who created them, so the standard
+    # check always denies a member access to their OWN record. has_member_permission
+    # grants own-record access (and still rejects other members'); ownership of this
+    # record was already verified against the session user above.
+    if not has_member_permission(member_doc, frappe.session.user, "read"):
         frappe.throw(_("Access denied to member record"), frappe.PermissionError)
 
     if not member_doc.primary_address:
@@ -356,7 +369,7 @@ def get_current_address():
             )
 
         address_doc = frappe.get_doc("Address", member_doc.primary_address)
-        if not frappe.has_permission("Address", "read", address_doc):
+        if not has_address_permission(address_doc, frappe.session.user, "read"):
             frappe.throw(_("Access denied to address record"), frappe.PermissionError)
 
         return {

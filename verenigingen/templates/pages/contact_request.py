@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_current_user_member_name, require_login
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
 
 
 def get_context(context):
@@ -89,7 +89,7 @@ def get_recent_contact_requests(member_name, limit=5):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def submit_contact_request():
     """Handle contact request form submission"""
     # Get form data
@@ -107,12 +107,15 @@ def submit_contact_request():
             frappe.throw(_("Field '{0}' is required").format(_(field.replace("_", " ").title())))
 
     try:
-        # Create contact request using the API method from the module
+        # Call the internal helper directly (NOT the @high_security_api
+        # create_contact_request endpoint): this page endpoint runs at LOW via
+        # @self_service_api, and `member` is the caller's own session-derived
+        # record, so re-checking at HIGH would needlessly lock the member out.
         from verenigingen.verenigingen.doctype.member_contact_request.member_contact_request import (
-            create_contact_request,
+            _create_member_contact_request,
         )
 
-        result = create_contact_request(
+        result = _create_member_contact_request(
             member=member,
             subject=data.get("subject"),
             message=data.get("message"),

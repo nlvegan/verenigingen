@@ -14,7 +14,6 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     self_service_api,
-    standard_api,
 )
 from verenigingen.utils.settings_utils import populate_income_calculator_context
 
@@ -548,7 +547,7 @@ def create_new_dues_schedule(member, new_amount, reason):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_fee_calculation_info():
     """Get fee calculation information for member"""
     # Get member using standardized utility
@@ -687,7 +686,7 @@ def get_member_fee_history(member_name):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_available_membership_types():
     """Get available membership types for the member to switch to"""
     # Get member using standardized utility

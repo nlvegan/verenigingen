@@ -119,11 +119,8 @@ class TestPortalFunctionalityIntegration(EnhancedTestCase):
             with self.assertRaises(frappe.PermissionError):
                 validate_member_ownership(owner.name)
 
-    # NOTE: address-change portal coverage (get_current_address /
-    # update_member_address) is intentionally omitted here: those endpoints are
-    # decorated @standard_api (MEDIUM), which a plain "Verenigingen Member"
-    # (LOW) cannot pass, so a real member is locked out of the portal
-    # address-change page. That looks like the same self-service mis-decoration
-    # bug already fixed for the donation portal (should be @self_service_api).
-    # Tracked as a follow-up; testing it now would either assert a bug as
-    # correct or require a non-member role profile that hides the breakage.
+    # Member-as-self coverage of the address-change endpoints (get_current_address
+    # / update_member_address) and the other batch-1 portal self-service endpoints
+    # now lives in test_member_portal_self_service.py — the @standard_api (MEDIUM)
+    # decorations that previously locked out plain members were swapped to
+    # @self_service_api (LOW), so those endpoints are now directly testable.

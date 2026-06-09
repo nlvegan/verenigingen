@@ -10,7 +10,7 @@ from frappe.utils import add_months, flt, format_date, getdate, today
 
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name_required
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -279,7 +279,7 @@ def get_next_payment(member):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def export_schedule():
     """Export dues schedule as CSV via Frappe response download."""
     # Get current user's member record
@@ -303,7 +303,7 @@ def export_schedule():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_payment_details(date):
     """Get payment details for a specific date"""
     # Get current user's member record
@@ -319,32 +319,3 @@ def get_payment_details(date):
         return payment
     else:
         frappe.throw(_("No payment found for the specified date"), frappe.DoesNotExistError)
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def update_notification_settings(email_notifications: str = None, auto_renewal: str = None):
-    """Update notification settings for current user's dues schedule"""
-    # Get current user's member record
-    member = get_current_user_member_name_required()
-
-    # Get current dues schedule
-    schedule_name = frappe.db.get_value(
-        "Membership Dues Schedule", {"member": member, "status": "Active"}, "name"
-    )
-
-    if not schedule_name:
-        frappe.throw(_("No active dues schedule found"), frappe.DoesNotExistError)
-
-    # Update settings
-    schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-
-    if email_notifications is not None:
-        schedule.email_notifications = int(email_notifications)
-
-    if auto_renewal is not None:
-        schedule.auto_renewal = int(auto_renewal)
-
-    schedule.save()
-
-    return {"success": True, "message": _("Settings updated successfully")}
