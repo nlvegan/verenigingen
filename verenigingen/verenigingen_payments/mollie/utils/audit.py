@@ -371,6 +371,10 @@ class MollieAuditLogger:
                     "event_type": event_type,
                     "event_category": event_category,
                     "description": description,
+                    # NOTE: Mollie Audit Log is a shared sink. ImmutableAuditTrail
+                    # reserves top-level event_data keys "sequence" and "previous_hash"
+                    # to mark its cryptographic-chain entries; do not let caller `data`
+                    # use those keys, or chain verification could misclassify this row.
                     "event_data": json.dumps(data, default=str),
                     "severity": severity,
                     "timestamp": now_datetime(),

@@ -163,6 +163,51 @@ class ImmutableAuditTrail:
 
         return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
+    def _parse_chain_metadata(self, event_data: Optional[str]) -> Optional[Dict[str, Any]]:
+        """
+        Extract this trail's chain metadata from an entry's event_data.
+
+        The Mollie Audit Log table is a shared sink — other writers add
+        standalone entries that carry no chain linkage. An entry belongs to
+        this trail's chain only if its event_data JSON contains BOTH the
+        ``sequence`` and ``previous_hash`` keys written by ``_flush_buffer``.
+
+        Returns:
+            Dict with ``sequence`` and ``previous_hash`` for chain entries,
+            or None for non-chain entries.
+        """
+        if not event_data:
+            return None
+        try:
+            data = json.loads(event_data)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(data, dict) or "sequence" not in data or "previous_hash" not in data:
+            return None
+        return {"sequence": data["sequence"], "previous_hash": data["previous_hash"]}
+
+    def _recompute_entry_hash(self, entry: Dict[str, Any]) -> str:
+        """
+        Recompute a stored entry's chain hash exactly as ``_calculate_entry_hash``
+        produced it at write time, for tamper detection.
+
+        The original hashed ``now_datetime().isoformat()`` (a 'T'-separated
+        string); the timestamp column is ``datetime(6)``, so reconstructing via
+        ``get_datetime(...).isoformat()`` reproduces that string at microsecond
+        precision whether the DB layer returns a datetime or a string.
+        """
+        return self._calculate_entry_hash(
+            {
+                "event_type": entry["event_type"],
+                "severity": entry["severity"],
+                "description": entry["description"],
+                "timestamp": get_datetime(entry["timestamp"]).isoformat(),
+                "sequence": entry["sequence"],
+                "previous_hash": entry["previous_hash"],
+                "user": entry["user"],
+            }
+        )
+
     def _get_system_context(self) -> Dict[str, Any]:
         """
         Get system context for audit entry
@@ -216,23 +261,32 @@ class ImmutableAuditTrail:
 
     def _get_last_hash(self) -> Optional[str]:
         """
-        Get hash of last audit entry
+        Get hash of the most recent entry that belongs to THIS trail's chain.
+
+        The table is shared with other audit writers, so we must skip their
+        standalone entries (which carry no ``previous_hash`` marker) — otherwise
+        the next chained entry would link to an unrelated hash and break
+        verification. The JSON_CONTAINS_PATH filter requires BOTH chain markers
+        so ``LIMIT 1`` lands directly on the most recent genuine chain entry,
+        regardless of how many unrelated rows were inserted after it.
 
         Returns:
-            str: Last entry hash or None
+            str: Last chain entry hash or None
         """
-        last_entry = frappe.db.sql(
+        candidates = frappe.db.sql(
             """
-            SELECT integrity_hash
+            SELECT integrity_hash, event_data
             FROM `tabMollie Audit Log`
+            WHERE JSON_VALID(event_data)
+              AND JSON_CONTAINS_PATH(event_data, 'all', '$.sequence', '$.previous_hash')
             ORDER BY creation DESC
             LIMIT 1
         """,
             as_dict=True,
         )
 
-        if last_entry:
-            return last_entry[0]["integrity_hash"]
+        if candidates and self._parse_chain_metadata(candidates[0].get("event_data")) is not None:
+            return candidates[0]["integrity_hash"]
         return None
 
     def _map_severity_to_status(self, severity: str) -> str:
@@ -326,30 +380,60 @@ class ImmutableAuditTrail:
             else:
                 filters["timestamp"] = ["<=", end_date]
 
-        entries = frappe.get_all(
+        # Read the real columns. `previous_hash` and `sequence` are NOT columns —
+        # they live inside the event_data JSON — so they are parsed out below.
+        rows = frappe.get_all(
             "Mollie Audit Log",
             filters=filters,
-            fields=["name", "integrity_hash", "previous_hash", "sequence", "details", "timestamp"],
-            order_by="sequence asc",
+            fields=[
+                "name",
+                "integrity_hash",
+                "event_type",
+                "severity",
+                "description",
+                "user",
+                "timestamp",
+                "event_data",
+                "creation",
+            ],
+            order_by="creation asc",
         )
 
-        if not entries:
+        # Keep only entries that belong to THIS trail's chain; the table is a
+        # shared sink for other audit writers whose standalone entries carry no
+        # linkage and must be ignored here.
+        chain = []
+        for row in rows:
+            meta = self._parse_chain_metadata(row.get("event_data"))
+            if meta is None:
+                continue
+            row["sequence"] = meta["sequence"]
+            row["previous_hash"] = meta["previous_hash"]
+            chain.append(row)
+
+        if not chain:
             return True, []
 
+        # Order by the trail's own monotonic sequence, not DB creation —
+        # interleaved non-chain rows must not distort the relative ordering.
+        # `sequence` is wall-clock milliseconds and can collide within a single
+        # flush, so tie-break on `creation` (DB insert order == hash-link order)
+        # to keep the linkage check correct even when two entries share an ms.
+        chain.sort(key=lambda r: (r["sequence"], r["creation"]))
+
         # Verify chain integrity
-        for i, entry in enumerate(entries):
-            # Verify hash linkage
+        for i, entry in enumerate(chain):
+            # Verify hash linkage to the previous chain entry
             if i > 0:
-                expected_previous = entries[i - 1]["integrity_hash"]
+                expected_previous = chain[i - 1]["integrity_hash"]
                 if entry["previous_hash"] != expected_previous:
                     errors.append(
                         f"Chain broken at sequence {entry['sequence']}: "
                         f"expected previous hash {expected_previous}, got {entry['previous_hash']}"
                     )
 
-            # Verify individual entry integrity
-            doc = frappe.get_doc("Mollie Audit Log", entry["name"])
-            if not doc.verify_integrity():
+            # Verify the entry's own content against its stored chain hash
+            if self._recompute_entry_hash(entry) != entry["integrity_hash"]:
                 errors.append(f"Integrity check failed for entry {entry['name']}")
 
         return len(errors) == 0, errors
