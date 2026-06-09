@@ -258,6 +258,40 @@ def get_test_helper() -> MollieTestHelper:
     return MollieTestHelper()
 
 
+def ensure_mollie_test_credentials() -> bool:
+    """Populate this site's Mollie Settings from the test credentials in site config,
+    so integration tests can hit Mollie's real test API.
+
+    The credentials live in common_site_config.json under ``mollie_test_secret_key``
+    and ``mollie_test_profile_id`` (copied from a configured site; never committed).
+    When they are absent — e.g. CI without the key — this returns False and callers
+    should skip the live integration tests.
+
+    Returns:
+        True if a test key is configured and Mollie Settings is ready; False otherwise.
+    """
+    secret_key = frappe.conf.get("mollie_test_secret_key")
+    profile_id = frappe.conf.get("mollie_test_profile_id")
+    if not secret_key or not secret_key.startswith("test_"):
+        return False
+
+    settings = frappe.get_single("Mollie Settings")
+    settings.test_mode = 1
+    settings.enable_subscriptions = 1
+    if profile_id:
+        settings.profile_id = profile_id
+    settings.test_secret_key = secret_key
+    # Skip the controller validate(): its webhook-URL domain whitelist rejects the
+    # test-site hostname, and we only need the API key set for read/cancel/mandate ops.
+    settings.flags.ignore_validate = True
+    settings.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Ensure a freshly built MollieClient reads the new key, not a cached single doc.
+    frappe.clear_document_cache("Mollie Settings", "Mollie Settings")
+    return True
+
+
 def ensure_mollie_reversal_accounts() -> None:
     """
     Ensure the master data the unified payment-entry creator needs to build refund/
