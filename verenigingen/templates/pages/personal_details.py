@@ -12,7 +12,6 @@ from frappe.utils import cint, today
 
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
-from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def get_context(context):
@@ -359,21 +358,14 @@ def apply_personal_details_changes(member, changes):
             last_name=member.last_name,
         )
 
-    # Save the member document
-    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-    result = secure_document_operation(
-        operation="save",
-        doc=member,
-        justification=f"Member {member.name} self-service personal details update via portal - member data management for {frappe.session.user}",
-        required_permissions=["Member:write"],
-    )
-
-    if not result.success:
-        frappe.log_error(
-            f"Failed to update member personal details: {'; '.join(result.errors)}",
-            "Personal Details Security",
-        )
-        frappe.throw(_("Unable to save your changes. Please contact support if this issue persists."))
+    # The Verenigingen Member write DocPerm is if_owner-gated while member records
+    # are owned by staff, so the framework write check (and secure_document_operation,
+    # which escalates to a system user a plain member may not request) would deny a
+    # member editing their own details.
+    # Security: the only caller (update_personal_details) resolved the member from the
+    # session and rejected member-parameter tampering, so this writes only the caller's
+    # OWN record; ignore_permissions skips just the if_owner check, Member.validate() runs.
+    member.save(ignore_permissions=True)
 
     # Log the changes for audit
     log_personal_details_changes(member.name, changes)

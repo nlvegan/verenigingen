@@ -30,6 +30,7 @@ from verenigingen.templates.pages import (
     contact_request,
     membership_adjustment,
     my_dues_schedule,
+    personal_details,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.validation.iban_validator import generate_test_iban
@@ -182,6 +183,31 @@ class TestMemberPortalSelfService(EnhancedTestCase):
         self.assertEqual(member.iban.replace(" ", ""), iban)
         self.assertEqual(member.payment_method, "SEPA Direct Debit")
 
+    def test_member_cannot_access_other_members_sepa_mandate(self):
+        """A member must not see or read another member's SEPA mandate (IBANs are
+        sensitive PII). The SEPA Mandate DocPerm grants members read/write with no
+        per-member scoping by default, so a permission_query + has_permission hook
+        is required to confine members to their own mandates.
+        """
+        owner, owner_user = self._member_with_membership()
+        with self._as_user(owner_user.name):
+            sepa_api.setup_sepa_direct_debit(
+                iban=generate_test_iban("TEST"), account_holder_name="Owner"
+            )
+        mandate = frappe.db.get_value(
+            "SEPA Mandate", {"member": owner.name, "status": "Active"}, "name"
+        )
+        self.assertIsNotNone(mandate)
+
+        intruder = self.create_test_member(birth_date="1992-03-03")
+        intruder_user = self._link_member_to_user(intruder)
+        with self._as_user(intruder_user.name):
+            # Not present in the intruder's permission-filtered list.
+            visible = frappe.get_list("SEPA Mandate", pluck="name", limit_page_length=0)
+            self.assertNotIn(mandate, visible)
+            # And a direct permission check on the owner's mandate is denied.
+            self.assertFalse(frappe.has_permission("SEPA Mandate", "read", mandate))
+
     def test_member_sepa_iban_change_replaces_old_mandate(self):
         """Changing IBAN cancels the previous mandate and leaves exactly one active.
 
@@ -208,6 +234,71 @@ class TestMemberPortalSelfService(EnhancedTestCase):
         self.assertEqual(active[0].iban.replace(" ", ""), second_iban)
         # The first mandate was cancelled, not left dangling.
         self.assertTrue(frappe.db.exists("SEPA Mandate", {"member": member.name, "status": "Cancelled"}))
+
+    # --- SelfServiceAccessController member resolution ------------------------
+
+    def test_self_service_resolves_caller_by_user_link_not_only_email(self):
+        """A member linked via Member.user (login) but whose Member.email differs
+        is still recognized as the owner by the @self_service_api framework gate.
+
+        The endpoint bodies resolve the caller user-first (get_current_user_member_name),
+        but SelfServiceAccessController used to resolve email-only — so a member
+        whose Member.user != Member.email (legacy data; the Member controller now
+        auto-syncs user=email, but old records can still diverge) was wrongly locked
+        out of the implicit (no-arg) self-service endpoints. This pins the aligned
+        resolution.
+
+        The divergent state is written directly (the Member save hook would
+        re-sync user=email), which faithfully reproduces the resolver's input.
+        """
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self.factory.create_user_with_roles(
+            email=f"login-{member.name}-{self.uid}@example.com",
+            roles=["Verenigingen Member"],
+        )
+        user.reload()
+        user.set("role_profiles", [{"role_profile": "Verenigingen Member"}])
+        user.save(ignore_permissions=True)
+        # user-linked but email-divergent (bypass the user=email sync hook).
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"user": user.name, "email": f"different-{self.uid}@example.org"},
+            update_modified=False,
+        )
+
+        with self._as_user(user.name):
+            # get_current_address takes no member arg → framework implicit branch,
+            # which calls get_user_member to confirm the caller has a member.
+            result = address_change.get_current_address()
+        self.assertIn("address", result)
+
+    # --- templates/pages/personal_details.py ---------------------------------
+
+    def test_member_can_update_own_personal_details(self):
+        """update_personal_details persists the calling member's name change.
+
+        The Member record write is if_owner-gated (members don't own their
+        record), so the endpoint must persist via an ownership-verified path that
+        works for a plain member — same financial/data second-layer as SEPA.
+        """
+        member, user = self._member_with_membership()
+
+        with self._as_user(user.name):
+            frappe.local.form_dict = frappe._dict(
+                {
+                    "first_name": "Renamed",
+                    "last_name": "Tester",
+                }
+            )
+            try:
+                personal_details.update_personal_details()
+            finally:
+                frappe.local.form_dict = frappe._dict()
+
+        member.reload()
+        self.assertEqual(member.first_name, "Renamed")
+        self.assertEqual(member.last_name, "Tester")
 
     # --- api/payment_plan_management.py (payment plans portal) ---------------
 

@@ -722,6 +722,117 @@ def get_donor_permission_query(user):
     return "1=0"
 
 
+def has_sepa_mandate_permission(doc, user=None, permission_type=None):
+    """Direct permission check for SEPA Mandate doctype.
+
+    SEPA mandates carry sensitive bank details (IBAN). The default DocPerm grants
+    Verenigingen Member read/write/create with NO per-member scoping, which would
+    let any member reach another member's mandate (and IBAN) via the generic
+    frappe.client API. This hook (mirroring has_donor_permission) confines members
+    to their own mandates while preserving admin / staff / service-account /
+    chapter-board access.
+    """
+    if not user:
+        user = frappe.session.user
+
+    # Defense-in-depth: never grant mandate (IBAN) access to a disabled user
+    # account that still holds roles (mirrors has_donor_permission). Administrator
+    # is always treated as enabled; get_value returns None for service accounts,
+    # which is NOT == 0, so only an explicitly-disabled real User is denied here.
+    if user not in ("Administrator", "Guest"):
+        if frappe.db.get_value("User", user, "enabled") == 0:
+            frappe.logger().debug(f"User {user} is disabled; denying SEPA mandate access")
+            return False
+
+    user_roles = frappe.get_roles(user)
+
+    # Admin / staff roles always have access (org-wide)
+    if _has_admin_access(user_roles):
+        return True
+
+    # Service accounts (webhooks, background jobs, SEPA batch) defer to DocPerm
+    service_result = _check_service_account_permission(user, "SEPA Mandate", permission_type)
+    if service_result is not None:
+        return service_result
+
+    # Resolve the mandate's linked member
+    if isinstance(doc, str):
+        if not DocumentExistenceValidator.check_document_exists("SEPA Mandate", doc):
+            return False
+        mandate_member = frappe.db.get_value("SEPA Mandate", doc, "member")
+    else:
+        mandate_member = getattr(doc, "member", None)
+
+    if not mandate_member:
+        # A mandate with no member link is administrative — deny non-admins.
+        return False
+
+    # Chapter Board Members can access mandates for members in their chapters
+    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
+        try:
+            if _check_chapter_board_access(user, mandate_member):
+                return True
+        except Exception as e:
+            frappe.logger().error(f"Error checking chapter board SEPA mandate permission: {str(e)}")
+
+    # Regular members: only their own mandates
+    if Roles.VERENIGINGEN_MEMBER in user_roles:
+        user_member = get_member_name_for_user(user)
+        if not user_member:
+            return False
+        return mandate_member == user_member
+
+    return False
+
+
+def get_sepa_mandate_permission_query(user):
+    """Permission query for SEPA Mandate - confine members to their own mandates.
+
+    Mirrors get_donor_permission_query: admins/staff see all, chapter board members
+    see mandates for members in their chapters, regular members see only their own.
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+
+    # Admin / staff roles get access to all records (org-wide)
+    if _has_admin_access(user_roles):
+        return ""
+
+    conditions = []
+
+    # Chapter Board Members can see mandates for members in their chapters
+    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
+        user_member = get_member_name_for_user(user)
+        if user_member:
+            board_chapters = _get_board_chapters_for_member(user_member)
+            if board_chapters:
+                chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+                conditions.append(
+                    f"""
+                    `tabSEPA Mandate`.member IN (
+                        SELECT cm.member
+                        FROM `tabChapter Member` cm
+                        WHERE cm.parent IN ({','.join(chapter_names)})
+                          AND cm.status = 'Active'
+                    )
+                """
+                )
+
+    # For regular members, limit to mandates linked to their own member record
+    if Roles.VERENIGINGEN_MEMBER in user_roles:
+        user_member = get_member_name_for_user(user)
+        if user_member:
+            conditions.append(f"`tabSEPA Mandate`.member = {frappe.db.escape(user_member)}")
+
+    if conditions:
+        return f"({' OR '.join(conditions)})"
+
+    # Users without proper roles see no records
+    return "1=0"
+
+
 def has_donation_permission(doc, user=None, permission_type=None):
     """Direct permission check for Donation doctype
 

@@ -86,7 +86,14 @@ class SelfServiceAccessController:
             user = frappe.session.user
 
         try:
-            return frappe.db.get_value("Member", {"email": user}, "name")
+            # Use the canonical resolver (Member.user first, Member.email fallback)
+            # so the framework's ownership gate matches what the endpoint bodies
+            # resolve via get_current_user_member_name. Resolving email-only here
+            # wrongly locked out members linked via Member.user whose Member.email
+            # differs from their login.
+            from verenigingen.utils.member_utils import get_member_name_for_user
+
+            return get_member_name_for_user(user)
         except Exception:
             return None
 
