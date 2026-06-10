@@ -237,6 +237,31 @@ def create_membership_application_workflow():
             {"state": "Pending", "action": "Reject", "next_state": "Rejected", "allowed": "System Manager"},
         )
 
+        # Verenigingen Staff approval-path transitions.
+        # Membership approval is authorised at the API layer by
+        # chapter_security.get_user_manageable_chapters, which grants
+        # Verenigingen Staff management of *all* chapters' applications (Staff is
+        # in Roles.ADMIN_ROLES). The workflow's role gate must agree, otherwise
+        # approve_membership_application — already past its chapter-permission
+        # check — is blocked at the Pending -> Approved transition for Staff.
+        # Staff drives the review/approval lifecycle (Start Review, Approve);
+        # post-approval financial steps (Request Payment, Activate, Confirm
+        # Payment) and rejection remain with Administrators / System Manager.
+        for _state, _action, _next_state in (
+            ("Pending", "Start Review", "Under Review"),
+            ("Pending", "Approve", "Approved"),
+            ("Under Review", "Approve", "Approved"),
+        ):
+            workflow_doc.append(
+                "transitions",
+                {
+                    "state": _state,
+                    "action": _action,
+                    "next_state": _next_state,
+                    "allowed": Roles.VERENIGINGEN_STAFF,
+                },
+            )
+
         # Save the workflow
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         result = secure_document_operation(

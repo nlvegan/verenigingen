@@ -51,3 +51,4 @@ verenigingen.patches.v2_2.clean_overloaded_upload_date
 verenigingen.patches.v2_2.backfill_belastingdienst_reportable
 verenigingen.patches.v2_2.drop_volunteer_expense_archived_doctype
 verenigingen.patches.v2_2.drop_orphan_volunteer_doctype_rows
+verenigingen.patches.v2_2.add_staff_to_membership_workflow
