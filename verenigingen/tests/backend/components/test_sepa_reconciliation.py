@@ -1,9 +1,13 @@
+import unittest
+
 import frappe
 from frappe.utils import today
 
-from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import PaymentReconciliationManager
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
-import unittest
+from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+    PaymentReconciliationManager,
+)
 
 
 class TestSEPAReconciliation(VereningingenTestCase):
@@ -68,6 +72,15 @@ class TestSEPAReconciliation(VereningingenTestCase):
         if not bank_name:
             bank_name = frappe.get_doc({"doctype": "Bank", "bank_name": "Test Recon Bank"}).insert().name
 
+        # Scope the GL account to the EUR test company. A Bank account picked from an
+        # arbitrary company could be non-EUR under parallel load, which would then
+        # clash with the EUR Bank Transactions the tests create ("Transaction currency
+        # cannot be different from Bank Account currency").
+        eur_company = get_eur_test_company()
+        bank_gl_account = frappe.db.get_value(
+            "Account", {"account_type": "Bank", "is_group": 0, "company": eur_company}, "name"
+        ) or frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "name")
+
         # Create test bank account
         if not frappe.db.exists("Bank Account", "TEST-RECON-BANK"):
             cls.test_bank_account = frappe.get_doc(
@@ -75,9 +88,7 @@ class TestSEPAReconciliation(VereningingenTestCase):
                     "doctype": "Bank Account",
                     "account_name": "Test Recon Bank Account",
                     "bank": bank_name,
-                    "account": frappe.db.get_value(
-                        "Account", {"account_type": "Bank", "is_group": 0}, "name"
-                    )}
+                    "account": bank_gl_account}
             ).insert()
         else:
             cls.test_bank_account = frappe.get_doc("Bank Account", "TEST-RECON-BANK")
@@ -106,11 +117,13 @@ class TestSEPAReconciliation(VereningingenTestCase):
         """Set up for each test"""
         self.reconciliation_engine = PaymentReconciliationManager()
 
-        # Resolve a Company explicitly (no global default may be configured on the
-        # test site, which would otherwise make Sales Invoice throw "Please select a Company").
-        company = frappe.defaults.get_global_default("company") or frappe.db.get_value(
-            "Company", {}, "name"
-        )
+        # Resolve a EUR company that also has a Fiscal Year covering today. Picking an
+        # arbitrary company (global default / get_value({})) is unsafe under parallel
+        # load: the shared site DB accumulates stray companies (e.g. INR "Test Quality
+        # Company") with no current Fiscal Year, so the invoice .submit() below raises
+        # FiscalYearError. EUR is also mandatory — the Direct Debit Batch's SEPA
+        # validation rejects any non-EUR invoice ("No valid invoices found in batch").
+        company = get_eur_test_company()
         company_currency = frappe.db.get_value("Company", company, "default_currency")
 
         # Create test invoice first. Set currency to the company's default to avoid
@@ -201,21 +214,29 @@ class TestSEPAReconciliation(VereningingenTestCase):
 
     def create_test_transaction(self, amount, description, reference_number=None, is_deposit=True):
         """Helper to create test bank transaction"""
+        # Bank Transaction.currency defaults to the system default (often INR) and
+        # must match the linked Bank Account's account currency, else save raises
+        # "Transaction currency cannot be different from Bank Account currency".
+        bank_gl_account = frappe.db.get_value(
+            "Bank Account", self.test_bank_account.name, "account"
+        )
+        account_currency = frappe.db.get_value("Account", bank_gl_account, "account_currency")
         transaction_data = {
             "doctype": "Bank Transaction",
             "date": today(),
             "description": description,
             "bank_account": self.test_bank_account.name,
+            "currency": account_currency,
             "status": "Pending",
             "reference_number": reference_number or "REF123"
         }
-        
+
         # Use deposit for incoming (positive) amounts, withdrawal for outgoing (negative)
         if is_deposit:
             transaction_data["deposit"] = amount
         else:
             transaction_data["withdrawal"] = abs(amount)
-            
+
         return frappe.get_doc(transaction_data).insert()
 
     def test_match_by_batch_reference(self):
@@ -251,8 +272,8 @@ class TestSEPAReconciliation(VereningingenTestCase):
         """Test matching by amount and reference number"""
         # Create transaction with invoice reference
         transaction = self.create_test_transaction(
-            100, 
-            "Payment from Test Recon Member", 
+            100,
+            "Payment from Test Recon Member",
             reference_number=self.test_invoice.name
         )
 
@@ -311,7 +332,7 @@ class TestSEPAReconciliation(VereningingenTestCase):
     def test_fuzzy_name_matching(self):
         """Test fuzzy matching of names using SequenceMatcher"""
         from difflib import SequenceMatcher
-        
+
         # Test similar names
         test_cases = [
             ("Test Recon Member", "Test Recon Member", 1.0),
@@ -343,7 +364,7 @@ class TestSEPAReconciliation(VereningingenTestCase):
             "bank_account": transaction.bank_account,
             "reference_number": transaction.reference_number,
         }
-        
+
         # Skip this test as create_payment_entry is now part of create_reconciliation
         # and requires more complex setup
         self.skipTest("Payment entry creation is now integrated into reconciliation process")
@@ -414,7 +435,7 @@ class TestSEPAReconciliation(VereningingenTestCase):
         # Good match
         transactions.append(self.create_test_transaction(100, f"SEPA DD {self.test_batch.name}"))
 
-        # No match  
+        # No match
         transactions.append(self.create_test_transaction(200, "Random payment", reference_number="RANDOM"))
 
         # Run reconciliation
