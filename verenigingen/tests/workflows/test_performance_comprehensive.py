@@ -4,21 +4,34 @@ Comprehensive performance testing including large dataset validation,
 concurrent user simulation, query optimization, and resource monitoring
 """
 
+import gc
+import os
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 
 import frappe
-from frappe.utils import today, add_days, now_datetime, flt
+import psutil
+from frappe.utils import add_days, flt, now_datetime, today
+
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
-import time
-import threading
-from datetime import datetime, timedelta
-import psutil
-import gc
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import unittest
+
+# Every method here asserts a hard wall-clock / throughput / query-time threshold
+# (e.g. "< 0.1s average member creation"). Those thresholds assume an idle machine;
+# under run-parallel-tests the 3 shards contend for CPU and the background-job queue
+# saturates, so the timings blow past the caps and the suite produces nondeterministic
+# baseline noise rather than a real regression signal. Gate it off by default; run with
+# RUN_HEAVY_SCALABILITY=1 (mirrors test_medium_scale_only.py) to measure perf in isolation.
+RUN_HEAVY_SCALABILITY = bool(os.environ.get("RUN_HEAVY_SCALABILITY"))
 
 
+@unittest.skipUnless(
+    RUN_HEAVY_SCALABILITY,
+    "perf-timing benchmark; flaky under parallel load — set RUN_HEAVY_SCALABILITY=1 to run",
+)
 class TestPerformanceComprehensive(VereningingenTestCase):
     """Comprehensive performance and load testing"""
 
