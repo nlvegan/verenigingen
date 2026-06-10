@@ -77,7 +77,7 @@ class TestMollieSubscriptionRealAPI(EnhancedTestCase):
             first_name="Real",
             last_name="API Test",
             birth_date="1990-01-01",
-            email_address="real.api.test@verenigingen-test.com",
+            email="real.api.test@verenigingen-test.com",
         )
 
         # Track created resources for cleanup
