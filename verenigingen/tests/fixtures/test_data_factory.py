@@ -1193,7 +1193,24 @@ def ensure_membership_type_exists(name, *, amount=100.0):
     membership_type.minimum_amount = amount
     membership_type.billing_period = "Annual"
     membership_type.role_profile = _ensure_member_role_profile()
-    membership_type.insert(ignore_permissions=True)
+
+    # Get-or-create race (TOCTOU): under run-parallel-tests, multiple worker
+    # processes share one site DB, so two tests can both pass the exists() check
+    # above and both reach this insert() for the same stable-named shared master.
+    # membership_type_name is the autoname/primary key, so only one insert can
+    # win; the loser raises DuplicateEntryError. Wrap it in a savepoint so the
+    # failed insert rolls back cleanly (no poisoned surrounding transaction),
+    # then reuse the row the winner committed. Because only the winner gets past
+    # this point, the template alignment below has a single writer and cannot
+    # race.
+    sp = "ensure_membership_type"
+    frappe.db.savepoint(sp)
+    try:
+        membership_type.insert(ignore_permissions=True)
+    except (frappe.exceptions.DuplicateEntryError, frappe.exceptions.UniqueValidationError):
+        frappe.db.rollback(save_point=sp)
+        return name
+    frappe.db.release_savepoint(sp)
 
     # Membership Type.after_insert auto-creates a dues schedule template with a
     # default €15 rate. That is below our minimum_amount, so create_from_template
