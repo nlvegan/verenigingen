@@ -18,28 +18,34 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
         # Create test data using Enhanced Test Factory (secure, no permission bypasses)
         self.test_members = []
         self.test_chapters = []
-        
-        # Create chapters first using enhanced factory methods  
+
+        # Create chapters first using enhanced factory methods
         # Get an existing region to avoid link validation errors
         existing_regions = frappe.get_all("Region", limit=1, pluck="name")
         region_name = existing_regions[0] if existing_regions else None
-        
+
         if not region_name:
             # Create a region if none exist
             region = frappe.get_doc({
-                "doctype": "Region", 
+                "doctype": "Region",
                 "region_name": "TEST-Region-Performance"
             })
             region.insert()
             region_name = region.name
-        
+
+        # Append a per-run unique suffix to the chapter name. A Chapter's route is
+        # auto-slugged from its name, and a bare "TEST-Chapter-1" collides on the
+        # unique route ("chapters/test_chapter_1") with leftover/concurrent chapters
+        # under parallel load. Every other test that makes a "Test Chapter 1" appends
+        # a random token for exactly this reason.
+        suffix = frappe.generate_hash(length=6)
         for i in range(3):
             chapter = self.ensure_test_chapter(
-                chapter_name=f"TEST-Chapter-{i+1}",
+                chapter_name=f"TEST-Chapter-{i+1}-{suffix}",
                 attributes={"region": region_name}
             )
             self.test_chapters.append(chapter)
-        
+
         # Create members with chapter relationships
         for i in range(10):
             member = self.create_test_member(
@@ -48,14 +54,14 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
                 birth_date="1990-01-01"
             )
             self.test_members.append(member)
-            
+
             # Assign to chapter using secure method
             from verenigingen.api.member_management import assign_member_to_chapter
             assign_member_to_chapter(member.name, self.test_chapters[i % 3].name)
 
     def test_n_plus_1_prevention_query_count(self):
         """Test that member listing uses optimized queries instead of N+1 pattern"""
-        
+
         # The optimizer itself uses 3 data queries (asserted via metadata below).
         # The @standard_api decorator adds a few fixed-cost queries (rate-limit
         # rule lookup + schema introspection), so the total is bounded but not 3.
@@ -80,7 +86,7 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
                 self.assertIn("name", member)
                 self.assertIn("full_name", member)
                 self.assertIn("chapters", member)
-                
+
                 # Members should have chapter info (many-to-many relationship)
                 if member["chapters"]:
                     chapter = member["chapters"][0]
@@ -89,16 +95,16 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
 
     def test_permission_filtering_maintained(self):
         """Verify that query optimization doesn't bypass security"""
-        
+
         # Create test user with limited permissions
         limited_user = self.create_test_user_with_roles(
             email="limited@test.invalid",
             roles=["Verenigingen Member"]  # Limited role that should be denied
         )
-        
+
         # Test with restricted permissions - should fail
         # EnhancedTestCase handles permissions automatically
-        
+
         from verenigingen.api.member_management import get_members_with_chapter_info
         from verenigingen.utils.error_handling import PermissionError as VPermissionError
 
@@ -111,9 +117,9 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
 
     def test_large_batch_security_limits(self):
         """Test that optimization respects security limits for large requests"""
-        
+
         from verenigingen.api.member_management import get_members_with_chapter_info
-        
+
         # Request more than allowed limit
         result = get_members_with_chapter_info(limit=1000)
 
@@ -123,18 +129,18 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
 
     def test_filter_sanitization(self):
         """Test that input filters are properly sanitized"""
-        
+
         from verenigingen.api.member_management import get_members_with_chapter_info
-        
+
         # Try to pass potentially dangerous filters
         malicious_filters = {
             "status": "Active",  # Allowed
             "docstatus": 2,      # Should be filtered out
             "sql_injection": "'; DROP TABLE tabMember; --"  # Should be ignored
         }
-        
+
         result = get_members_with_chapter_info(filters=malicious_filters, limit=5)
-        
+
         # Should succeed with sanitized filters
         self.assertTrue(result["success"])
         # Should not crash or cause security issues
