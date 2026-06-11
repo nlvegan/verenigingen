@@ -7,6 +7,8 @@ account on the active subscription. All three resolve the member from the sessio
 and delegate Mollie operations to the production SubscriptionService.
 """
 
+from datetime import datetime, timezone
+
 import frappe
 from frappe import _
 
@@ -397,7 +399,11 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
             "method": "directdebit",
             "consumerName": account_holder_name,
             "consumerAccount": iban,
-            "signatureDate": frappe.utils.today(),
+            # UTC calendar date, not site-local today(): Mollie rejects a signature
+            # date in the future (relative to its own clock), so a site configured
+            # east of Mollie's timezone would 422 near local midnight. UTC is never
+            # ahead of Mollie's clock and a past signature date is always accepted.
+            "signatureDate": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         }
         if bic:
             mandate_data["consumerBic"] = bic

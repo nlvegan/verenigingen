@@ -16,7 +16,7 @@ cancelled, customers deleted) best-effort in tearDown, so the test account does 
 accumulate state.
 """
 
-import frappe
+from datetime import datetime, timezone
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
@@ -76,7 +76,9 @@ class TestSubscriptionServiceLive(EnhancedTestCase):
                 "method": "directdebit",
                 "consumerName": consumer_name,
                 "consumerAccount": _TEST_IBAN,
-                "signatureDate": frappe.utils.today(),
+                # UTC date: site-local today() can be a day ahead of Mollie's clock
+                # (e.g. on an Asia/Kolkata test site) and Mollie 422s a future date.
+                "signatureDate": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             }
         )
         return mandate.id
