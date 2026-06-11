@@ -22,9 +22,10 @@
  * - Reporting: Multiple output formats for different audiences
  *
  * Test Coverage Strategy:
- * - Minimum 70% coverage across all metrics
- * - Includes public JavaScript files and templates
- * - Excludes test files, node_modules, and vendor code
+ * - Enforced directory-level coverage floor on the instrumentable JS layer
+ *   (public/js utils + services); ratcheted up as unit tests are added
+ * - Excludes vm-loaded doctype controllers (uninstrumentable), test files,
+ *   node_modules, and vendor code
  * - Supports branch, function, line, and statement coverage
  *
  * Usage:
@@ -88,11 +89,18 @@ module.exports = {
     "**/tests/unit/doctype/test_*_real_controller.js",
   ],
 
-  /** @type {Array<string>} Files to include in coverage collection - utilities and controllers */
+  // Coverage is collected only from the *instrumentable* JS layer: source modules
+  // that the unit suites `require()` directly. The doctype controllers under
+  // `verenigingen/**/doctype/*/*.js` are deliberately EXCLUDED — their 13 test
+  // suites load them through a vm sandbox (the doctype controller-loader), which
+  // Istanbul cannot instrument, so they always report 0% regardless of how
+  // thoroughly they are tested. Including them only produced a misleading ~0.5%
+  // global and ~50 permanent-0% rows. They are tested, just not measurable here;
+  // making them instrumentable is a separate, larger refactor.
+  /** @type {Array<string>} Files to include in coverage collection - directly-imported source layer */
   collectCoverageFrom: [
     "verenigingen/public/js/utils/**/*.js",
     "verenigingen/public/js/services/**/*.js",
-    "verenigingen/**/doctype/*/*.js",
     "!**/*frappe*/**", // Exclude Frappe-dependent files
     "!**/node_modules/**",
     "!**/vendor/**",
@@ -100,12 +108,36 @@ module.exports = {
     "!**/fixtures/**",
   ],
 
-  // NOTE: A global 70% coverageThreshold was previously configured here but never
-  // functioned — the jest --coverage run crashed (test-exclude@6 vs glob@10) so it
-  // was never evaluated, and the JS unit tests in fact cover only ~7-11% of the
-  // collectCoverageFrom file set (which spans ~50 untested Frappe doctype
-  // controllers). Coverage is generated for reporting (coverageReporters below);
-  // reinstate a realistic, scoped threshold once JS unit-test coverage is built up.
+  // Real, enforced coverage gate (the --coverage run exits non-zero if coverage
+  // regresses below the floors below — verified by raising a floor and watching
+  // it fail). Two tiers:
+  //   1. A DIRECTORY floor over the whole instrumentable layer (`public/js`),
+  //      guarding against overall regression. Set just below measured reality
+  //      (stmts 7.6 / branch 7.2 / func 6.4 / lines 7.9).
+  //   2. A PER-FILE ratchet on each module that has real direct unit tests, set
+  //      just below its measured coverage. Today that is iban-validator.js
+  //      (measured 91.3/77.8/100/91.3). As services/utils gain direct unit tests,
+  //      add a per-file key at its measured floor and raise existing floors.
+  //
+  // NOTE: per-file (and glob) threshold keys require @jest/reporters to use glob@7
+  // — jest 29's threshold checker calls `glob.default.sync()`, which the default
+  // glob@10 (exports `globSync`, no `.default.sync`) throws on. That's pinned via
+  // the `@jest/reporters > glob` nested override in package.json; without it, only
+  // the single directory key works and per-file keys crash the coverage run.
+  coverageThreshold: {
+    "./verenigingen/public/js": {
+      statements: 7,
+      branches: 7,
+      functions: 6,
+      lines: 7,
+    },
+    "./verenigingen/public/js/utils/iban-validator.js": {
+      statements: 90,
+      branches: 75,
+      functions: 90,
+      lines: 90,
+    },
+  },
 
   /** @type {Object} Module path resolution for assets and styles */
   moduleNameMapper: {
