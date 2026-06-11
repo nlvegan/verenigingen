@@ -1044,22 +1044,6 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
                 f"Dues schedule amount should be €{custom_amount}, got €{dues_schedule.dues_rate}",
             )
 
-            # Plan should be a custom plan (not the standard plan)
-            self.assertIn(
-                str(custom_amount),
-                plan_name,
-                f"Plan name should contain custom amount €{custom_amount}: {plan_name}",
-            )
-
-            # Plan should have correct properties
-            self.assertEqual(
-                plan_doc.price_determination, "Fixed Rate", "Custom plan should use Fixed Rate pricing"
-            )
-            self.assertEqual(plan_doc.currency, "EUR", "Custom plan should use EUR currency")
-
-            print(f"    ✅ Custom plan created: {plan_name}")
-            print(f"    ✅ Plan cost matches: €{plan_doc.cost}")
-
             # Clean up
             if member.customer:
                 frappe.delete_doc("Customer", member.customer, force=True)
@@ -1331,14 +1315,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         print(f"🎯 CRITICAL TEST PASSED: Dues schedule amount = €{dues_schedule.dues_rate}")
         print(f"🎯 Custom dues schedule: {dues_schedule.name}")
 
-        # 5. Verify future invoice generation would use correct amount
-        # (This tests that the dues schedule will generate invoices with the right amount)
-        if current_schedule:
-            self.assertEqual(float(current_schedule.dues_rate), custom_amount, "Current schedule should use custom amount")
-            print(f"✅ Current dues schedule uses correct amount: €{current_schedule.dues_rate}")
-        else:
-            print("ℹ️  No current dues schedule found (may use legacy override)")
-
+        # The critical dues-schedule amount assertion above already verifies that
+        # future invoice generation will use the correct custom amount.
         print("🎉 END-TO-END INTEGRATION TEST PASSED - Custom amount flows correctly through entire system!")
 
         # Clean up

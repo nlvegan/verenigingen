@@ -675,7 +675,7 @@ def run_edge_case_tests():
 
     # Run subscription cost field edge cases
     print("\n🧪 Running Subscription Cost Field Edge Case Tests...")
-    cost_suite = unittest.TestLoader().loadTestsFromTestCase(TestSubscriptionPlanCostFieldEdgeCases)
+    cost_suite = unittest.TestLoader().loadTestsFromTestCase(ObsoleteSubscriptionPlanTests)
     cost_runner = unittest.TextTestRunner(verbosity=2)
     cost_result = cost_runner.run(cost_suite)
 

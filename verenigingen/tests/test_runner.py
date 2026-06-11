@@ -11,7 +11,7 @@ if scripts_path not in sys.path:
     sys.path.insert(0, scripts_path)
 
 try:
-    from enhanced_test_runner import *
+    from enhanced_test_runner import *  # pyright: ignore[reportMissingImports]  # optional dynamic-path import; ImportError handled below
 except ImportError:
     # Fallback for basic test functionality
     import unittest

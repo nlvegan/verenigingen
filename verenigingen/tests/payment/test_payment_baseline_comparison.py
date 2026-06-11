@@ -6,14 +6,22 @@ Payment Processing Performance Baseline Comparison
 Compares original N+1 pattern vs optimized bulk queries using identical data
 """
 
-import frappe
 import time
+import unittest
+
+import frappe
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestPaymentBaselineComparison(EnhancedTestCase):
     """Compare original vs optimized payment processing performance"""
 
+    @unittest.skip(
+        "PaymentMixinOptimized was merged into the production PaymentMixin; the "
+        "separate optimized variant no longer exists, so this baseline-vs-optimized "
+        "comparison is obsolete."
+    )
     def test_baseline_comparison(self):
         """Run side-by-side comparison of original vs optimized payment loading"""
         print("📊 Payment Processing Baseline Comparison")
@@ -165,7 +173,7 @@ class TestPaymentBaselineComparison(EnhancedTestCase):
         print(f"\n🚀 Testing OPTIMIZED Bulk Pattern...")
         
         # Apply the optimized mixin to member
-        from verenigingen.verenigingen.doctype.member.mixins.payment_mixin_optimized import PaymentMixinOptimized
+        from verenigingen.verenigingen.doctype.member.mixins.payment_mixin_optimized import PaymentMixinOptimized  # pyright: ignore[reportMissingImports]  # module merged into payment_mixin; test skipped above
         
         # Add mixin methods dynamically
         for method_name in dir(PaymentMixinOptimized):

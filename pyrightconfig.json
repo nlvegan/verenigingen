@@ -16,7 +16,8 @@
 		"/home/frappeuser/frappe-bench/apps/payments",
 		"/home/frappeuser/frappe-bench/apps/gameplan",
 		"/home/frappeuser/frappe-bench/apps/builder",
-		"/home/frappeuser/frappe-bench/apps/owl_theme"
+		"/home/frappeuser/frappe-bench/apps/owl_theme",
+		"scripts/validation"
 	],
 	"venvPath": "/home/frappeuser/frappe-bench",
 	"venv": "env",

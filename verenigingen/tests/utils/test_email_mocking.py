@@ -82,7 +82,7 @@ class TestEmailMocking(EnhancedTestCase):
         
         # Test 2: Try email queue method (if available)
         try:
-            from frappe.utils.email_lib import sendmail_to_system_managers
+            from frappe.utils.email_lib import sendmail_to_system_managers  # pyright: ignore[reportMissingImports]  # legacy frappe module; try/except handles absence
             sendmail_to_system_managers(
                 subject="System Manager Test",
                 content="This tests system manager email capture"

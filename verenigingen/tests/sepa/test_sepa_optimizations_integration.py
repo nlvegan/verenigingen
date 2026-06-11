@@ -125,7 +125,7 @@ class TestSEPAOptimizations(EnhancedTestCase):
     )
     def test_database_indexes_presence(self):
         """Test that database indexes were created successfully"""
-        from verenigingen.fixtures.add_sepa_database_indexes import verify_sepa_indexes
+        from verenigingen.fixtures.add_sepa_database_indexes import verify_sepa_indexes  # pyright: ignore[reportMissingImports]  # module removed; test skipped above
 
         verification_results = verify_sepa_indexes()
         self.assertIsInstance(verification_results, list)

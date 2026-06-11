@@ -537,7 +537,7 @@ class SEPAXMLValidator:
         try:
             # Try to import xmlschema for validation
             try:
-                import xmlschema
+                import xmlschema  # pyright: ignore[reportMissingImports]  # optional dep; handled below
             except ImportError:
                 frappe.logger().info("xmlschema not available - skipping XML schema validation")
                 return {"valid": True, "warnings": ["Schema validation skipped - xmlschema not installed"]}

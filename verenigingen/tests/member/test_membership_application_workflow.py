@@ -206,9 +206,8 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         }
 
         # Test that we can call the member creation function without import errors
-        # Note: membership_application.py was archived, use enhanced_membership_application instead
         try:
-            from verenigingen.api.enhanced_membership_application import submit_enhanced_application
+            from verenigingen.api.membership_application import submit_application  # noqa: F401
             # We don't actually submit but test the import path works
             print("✅ Member creation API imports working correctly")
         except ImportError as e:
