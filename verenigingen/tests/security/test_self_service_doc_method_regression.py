@@ -31,6 +31,7 @@ Administrator (which bypasses self-service) which is why they slipped through.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.utils.security.api_security_framework import (
     self_service_api,
@@ -72,22 +73,14 @@ def _build_member_tier_implicit_method():
     return fake_session_method
 
 
-class TestSelfServiceDocMethodRegression(EnhancedTestCase):
+class TestSelfServiceDocMethodRegression(PortalSelfServiceTestMixin, EnhancedTestCase):
     """Verify self_service_only=True works for Document instance methods."""
 
     def _link_member_to_user(self, member, roles):
-        """Create a User with the given roles and link to member.
-
-        Member.email is the lookup field used by SelfServiceAccessController
-        (see frappe.db.get_value("Member", {"email": user}, "name")).
-        """
-        user = self.factory.create_user_with_roles(
-            email=f"selfservice-{member.name}-{self.uid}@example.com",
-            roles=roles,
-        )
-        member.email = user.name
-        member.save(ignore_permissions=True)
-        return user
+        """Email-only link (the field SelfServiceAccessController looks up) with the
+        given roles and no Member role profile. Delegates the body to
+        PortalSelfServiceTestMixin."""
+        return super()._link_member_to_user(member, roles=roles, role_profile=None, link_user=False)
 
     # --- @standard_api (MEDIUM) doc-method extraction -----------------------
 

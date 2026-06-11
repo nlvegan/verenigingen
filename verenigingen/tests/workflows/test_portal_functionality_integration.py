@@ -17,47 +17,16 @@ import frappe
 
 from verenigingen.templates.pages import member_portal
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.member_utils import get_current_user_member_name, validate_member_ownership
 
 
-class TestPortalFunctionalityIntegration(EnhancedTestCase):
-    """Logged-in member portal access + ownership isolation."""
+class TestPortalFunctionalityIntegration(PortalSelfServiceTestMixin, EnhancedTestCase):
+    """Logged-in member portal access + ownership isolation.
 
-    def _link_member_to_user(self, member, roles=("Verenigingen Member",)):
-        """Create a User and link it to the member.
-
-        get_member_name_for_user() resolves Member.user first, then Member.email,
-        so linking on Member.email is sufficient for the portal lookup.
-        """
-        user = self.factory.create_user_with_roles(
-            email=f"portal-{member.name}-{self.uid}@example.com",
-            roles=list(roles),
-        )
-        # Assign the member role profile (v16 canonical store is the role_profiles
-        # child table) so the @standard_api(MEMBER_DATA) security level is satisfied
-        # — the same profile real members carry.
-        user.reload()
-        user.set("role_profiles", [{"role_profile": "Verenigingen Member"}])
-        user.save(ignore_permissions=True)
-
-        # reload: after_insert (customer) and any membership creation may have
-        # bumped the member's modified timestamp since the caller fetched it.
-        member.reload()
-        member.email = user.name
-        member.save(ignore_permissions=True)
-        return user
-
-    def _as_user(self, user_name):
-        class _Switcher:
-            def __enter__(self):
-                self.original = frappe.session.user
-                frappe.set_user(user_name)
-                return self
-
-            def __exit__(self, *_):
-                frappe.set_user(self.original)
-
-        return _Switcher()
+    Uses PortalSelfServiceTestMixin's canonical _link_member_to_user (Member role
+    profile + Member.user/email); the portal lookup resolves either field.
+    """
 
     # --- login guard ---------------------------------------------------------
 

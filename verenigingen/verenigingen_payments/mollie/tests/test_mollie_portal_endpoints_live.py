@@ -35,6 +35,7 @@ import frappe
 
 from verenigingen.api import mollie_payment
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import ensure_mollie_test_credentials
 
@@ -44,7 +45,7 @@ from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import e
 _TEST_IBAN = "NL39RABO0300065264"
 
 
-class TestMolliePortalEndpointsLive(EnhancedTestCase):
+class TestMolliePortalEndpointsLive(PortalSelfServiceTestMixin, EnhancedTestCase):
     """The payment-dashboard Mollie endpoints, end-to-end against Mollie's test API."""
 
     @classmethod
@@ -129,37 +130,6 @@ class TestMolliePortalEndpointsLive(EnhancedTestCase):
             frappe.db.set_value("Member", member.name, values)
         member.reload()
         return member, user
-
-    # --- session / user helpers (mirror test_member_portal_self_service.py) ---
-
-    def _link_member_to_user(self, member, roles=("Verenigingen Member",)):
-        """Create a User carrying ONLY the Verenigingen Member role profile (LOW tier,
-        what real members carry) and link it to the member via BOTH user and email."""
-        user = self.factory.create_user_with_roles(
-            email=f"mollie-portal-{member.name}-{self.uid}@example.com",
-            roles=list(roles),
-        )
-        user.reload()
-        user.set("role_profiles", [{"role_profile": "Verenigingen Member"}])
-        user.save(ignore_permissions=True)
-
-        member.reload()
-        member.user = user.name
-        member.email = user.name
-        member.save(ignore_permissions=True)
-        return user
-
-    def _as_user(self, user_name):
-        class _Switcher:
-            def __enter__(self):
-                self.original = frappe.session.user
-                frappe.set_user(user_name)
-                return self
-
-            def __exit__(self, *_):
-                frappe.set_user(self.original)
-
-        return _Switcher()
 
     # --- tests: get_subscription_details -------------------------------------
 

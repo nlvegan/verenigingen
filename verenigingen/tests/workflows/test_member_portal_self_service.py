@@ -36,53 +36,17 @@ from verenigingen.templates.pages import (
     personal_details,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 
-class TestMemberPortalSelfService(EnhancedTestCase):
-    """A plain member can invoke their own portal self-service endpoints."""
+class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
+    """A plain member can invoke their own portal self-service endpoints.
 
-    def _link_member_to_user(self, member, roles=("Verenigingen Member",)):
-        """Create a User carrying ONLY the Verenigingen Member role profile and
-        link it to the member.
-
-        Sets BOTH Member.user and Member.email, as production account creation
-        does. Member.user is required by paths that resolve ownership strictly via
-        the user link (e.g. the dues-schedule member-self-edit policy in
-        DuesSchedulePermissionService.can_user_edit_schedule), not just the
-        email fallback used by get_member_name_for_user.
-
-        The role_profiles child table is the v16 canonical store and gives the
-        user the exact LOW-tier profile real members carry — so these tests fail
-        if an endpoint demands more than LOW.
-        """
-        user = self.factory.create_user_with_roles(
-            email=f"selfsvc-{member.name}-{self.uid}@example.com",
-            roles=list(roles),
-        )
-        user.reload()
-        user.set("role_profiles", [{"role_profile": "Verenigingen Member"}])
-        user.save(ignore_permissions=True)
-
-        # reload: after_insert (customer) / membership creation may have bumped
-        # the member's modified timestamp since the caller fetched it.
-        member.reload()
-        member.user = user.name
-        member.email = user.name
-        member.save(ignore_permissions=True)
-        return user
-
-    def _as_user(self, user_name):
-        class _Switcher:
-            def __enter__(self):
-                self.original = frappe.session.user
-                frappe.set_user(user_name)
-                return self
-
-            def __exit__(self, *_):
-                frappe.set_user(self.original)
-
-        return _Switcher()
+    Uses PortalSelfServiceTestMixin's canonical _link_member_to_user (sets both
+    Member.user and Member.email, assigns the LOW-tier Verenigingen Member role
+    profile real members carry).
+    """
 
     def _member_with_membership(self):
         """Member + submitted Active membership (auto-creates an active dues

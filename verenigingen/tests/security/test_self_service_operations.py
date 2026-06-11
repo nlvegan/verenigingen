@@ -14,9 +14,8 @@ legacy `target_member=...`. Member→User linkage is via Member.email ==
 User.email (NOT Member.user).
 """
 
-import frappe
-
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.utils.security.api_security_framework import (
     APISecurityFramework,
@@ -27,7 +26,7 @@ from verenigingen.utils.security.authorization_policy import AuthorizationPolicy
 from verenigingen.utils.security.types import OperationType, SecurityLevel
 
 
-class TestSelfServiceOperations(EnhancedTestCase):
+class TestSelfServiceOperations(PortalSelfServiceTestMixin, EnhancedTestCase):
     """Unit tests for SelfServiceAccessController via APISecurityFramework."""
 
     def setUp(self):
@@ -35,37 +34,10 @@ class TestSelfServiceOperations(EnhancedTestCase):
         self.framework = APISecurityFramework()
 
     def _link_member_to_user(self, member, roles=("Verenigingen Volunteer",)):
-        """Create a User and link to member via Member.email == User.email.
-
-        SelfServiceAccessController.get_user_member() does:
-            frappe.db.get_value("Member", {"email": user}, "name")
-        so the link field is Member.email, not Member.user.
-        """
-        user = self.factory.create_user_with_roles(
-            email=f"selfservice-{member.name}-{self.uid}@example.com",
-            roles=list(roles),
-        )
-        member.email = user.name
-        member.save(ignore_permissions=True)
-        return user
-
-    def _as_user(self, user_name):
-        """Context-manager-ish helper for test code clarity."""
-
-        class _Switcher:
-            def __init__(self, target):
-                self.target = target
-                self.original = None
-
-            def __enter__(self):
-                self.original = frappe.session.user
-                frappe.set_user(self.target)
-                return self
-
-            def __exit__(self, *exc):
-                frappe.set_user(self.original)
-
-        return _Switcher(user_name)
+        """Volunteer-tier, email-only link (the field SelfServiceAccessController
+        looks up): no Member role profile, no Member.user. Delegates the body to
+        PortalSelfServiceTestMixin."""
+        return super()._link_member_to_user(member, roles=roles, role_profile=None, link_user=False)
 
     # --- _validate_self_service_access ---------------------------------------
 
