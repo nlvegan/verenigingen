@@ -190,6 +190,43 @@ class TestMolliePortalEndpointsLive(EnhancedTestCase):
         self.assertTrue(entry["mandate_valid"])
         self.assertEqual(entry["mandate_status"], "valid")
 
+    def test_get_subscription_details_customer_without_subscription(self):
+        """A customer with a valid mandate but no subscription yields a customer-only
+        entry (subscription=None, has_customer_only) with the mandate still valid."""
+        customer_id = self._new_customer()
+        self._new_mandate(customer_id)  # valid mandate, but no subscription created
+        _, user = self._mollie_member(customer_id)
+
+        with self._as_user(user.name):
+            result = mollie_payment.get_subscription_details()
+
+        self.assertEqual(result["status"], "success")
+        entry = next((e for e in result["subscriptions"] if e["customer_id"] == customer_id), None)
+        self.assertIsNotNone(entry)
+        self.assertTrue(entry.get("has_customer_only"))
+        self.assertIsNone(entry["subscription"])
+        self.assertTrue(entry["mandate_valid"])
+
+    def test_get_subscription_details_aggregates_multiple_customers(self):
+        """A member with comma-separated Mollie customer ids gets subscriptions from
+        every customer aggregated into one response."""
+        c1 = self._new_customer()
+        s1 = self._new_subscription(c1, self._new_mandate(c1))
+        c2 = self._new_customer()
+        s2 = self._new_subscription(c2, self._new_mandate(c2))
+        member, user = self._mollie_member()
+        frappe.db.set_value("Member", member.name, {"mollie_customer_id": f"{c1},{c2}"})
+        member.reload()
+
+        with self._as_user(user.name):
+            result = mollie_payment.get_subscription_details()
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["total_customers"], 2)
+        sub_ids = {e.get("subscription_id") for e in result["subscriptions"]}
+        self.assertIn(s1, sub_ids)
+        self.assertIn(s2, sub_ids)
+
     # --- tests: cancel_specific_subscription ---------------------------------
 
     def test_cancel_specific_subscription_cancels_and_clears_member(self):
@@ -215,6 +252,30 @@ class TestMolliePortalEndpointsLive(EnhancedTestCase):
         member.reload()
         self.assertIsNone(member.mollie_subscription_id)
         self.assertEqual(member.subscription_status, "cancelled")
+
+    def test_cancel_donor_subscription_authorized_via_donor_record(self):
+        """cancel_specific_subscription authorizes a customer id that belongs to the
+        member's DONOR record (recurring-donation subscription), not the Member, and
+        cancels the real subscription."""
+        customer_id = self._new_customer()
+        subscription_id = self._new_subscription(customer_id, self._new_mandate(customer_id))
+        # Member carries no Mollie ids; the Donor linked to it holds the relationship.
+        member, user = self._mollie_member()
+        self.create_test_donor(
+            donor_name=f"Donor {member.name}",
+            member=member.name,
+            mollie_customer_id=customer_id,
+            mollie_subscription_id=subscription_id,
+        )
+
+        with self._as_user(user.name):
+            result = mollie_payment.cancel_specific_subscription(
+                customer_id=customer_id, subscription_id=subscription_id
+            )
+
+        self.assertEqual(result["status"], "success")
+        sub = self.client.sdk_client.customers.get(customer_id).subscriptions.get(subscription_id)
+        self.assertEqual(sub.status, "canceled")
 
     # --- tests: update_mollie_bank_account -----------------------------------
 
