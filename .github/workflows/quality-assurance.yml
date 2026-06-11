@@ -34,15 +34,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'yarn'
 
       - name: 📦 Install Dependencies
-        run: yarn install --frozen-lockfile
+        run: npm install
 
       - name: 🔍 Run API Contract Tests
         run: |
           echo "🧪 Running API Contract Validation Tests..."
-          yarn test -- --testPathPattern="api-contract" --coverage
+          npm test -- --testPathPattern="api-contract" --coverage
           echo "✅ API Contract validation completed"
 
       - name: 📊 Validate Contract Coverage
@@ -79,13 +78,13 @@ jobs:
       - name: 🏦 External API Contract Testing
         run: |
           echo "🏦 Running eBoekhouden & Mollie API Contract Tests..."
-          yarn test -- --testPathPattern="external-api-contracts" --verbose
+          npm test -- --testPathPattern="external-api-contracts" --verbose
           echo "✅ External API contract testing completed"
 
       - name: ⚡ Performance Benchmark
         run: |
           echo "⚡ Running API Contract Performance Tests..."
-          yarn test -- --testPathPattern="api-contract-performance" --verbose
+          npm test -- --testPathPattern="api-contract-performance" --verbose
           echo "📊 Performance benchmark completed"
 
       - name: 📋 Generate Contract Report
@@ -165,21 +164,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'yarn'
 
       - name: 📦 Install Dependencies
-        run: yarn install --frozen-lockfile
+        run: npm install
 
       - name: 🧪 Run All Controller Tests
         run: |
           echo "🎮 Running All Controller Tests..."
-          yarn test -- --testPathPattern="focused" --coverage --verbose
+          npm test -- --testPathPattern="focused" --coverage --verbose
           echo "✅ Controller testing completed"
 
       - name: 🏆 Run High Priority Controller Tests
         run: |
           echo "🏆 Running High Priority Controller Tests..."
-          yarn test -- --testPathPattern="membership_termination_request_controller_focused" --verbose
+          npm test -- --testPathPattern="membership_termination_request_controller_focused" --verbose
           echo "✅ High priority controller testing completed"
 
       - name: 📊 Performance Analysis & Regression Detection
@@ -187,7 +185,7 @@ jobs:
           echo "📊 Controller Test Performance Analysis..."
 
           # Run performance tests and capture timing data
-          yarn test -- --testPathPattern="focused" --verbose > test-performance.log 2>&1 || true
+          npm test -- --testPathPattern="focused" --verbose > test-performance.log 2>&1 || true
 
           # Extract timing information
           echo "⏱️ Performance Metrics:"
@@ -249,15 +247,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'yarn'
 
       - name: 📦 Install Dependencies
-        run: yarn install --frozen-lockfile
+        run: npm install
 
       - name: 🔗 Run Integration Tests
         run: |
           echo "🔗 Running Controller + API Contract Integration Tests..."
-          yarn test -- --testPathPattern="simple_contracts" --verbose
+          npm test -- --testPathPattern="simple_contracts" --verbose
           echo "✅ Integration validation completed"
 
       - name: 📈 Generate Quality Report
