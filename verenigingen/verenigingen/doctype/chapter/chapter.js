@@ -159,8 +159,9 @@ frappe.ui.form.on('Chapter', {
 	/**
    * Postal Codes Field Change Handler
    *
-   * Validates postal code ranges and checks for conflicts with other chapters.
-   * Ensures proper geographical coverage without overlaps.
+   * Validates the postal-code pattern syntax for this chapter via the
+   * server-side `validate_postal_codes` method and warns on invalid patterns.
+   * Does not check for overlaps with other chapters.
    *
    * @param {Object} frm - Form object with postal code data
    */
@@ -393,7 +394,7 @@ frappe.ui.form.on('Chapter Board Member', {
    * Board Member Add Event Handler
    *
    * Triggered when a new board member row is added to the chapter.
-   * Initializes default values and validation rules for the new row.
+   * Defaults the term start date to today and marks the row active.
    *
    * @param {Object} frm - Parent chapter form object
    * @param {string} cdt - Child DocType name ('Chapter Board Member')
@@ -406,8 +407,9 @@ frappe.ui.form.on('Chapter Board Member', {
 	/**
    * Board Member Remove Event Handler
    *
-   * Handles cleanup when a board member is removed from the chapter.
-   * Manages role transitions and notification requirements.
+   * Client-side no-op. Board Member role removal and removal
+   * notifications are handled server-side in
+   * ChapterBoardMember.on_trash().
    *
    * @param {Object} frm - Parent chapter form object
    * @param {string} cdt - Child DocType name
@@ -420,8 +422,10 @@ frappe.ui.form.on('Chapter Board Member', {
 	/**
    * Volunteer Field Change Handler
    *
-   * Validates volunteer assignment and checks for eligibility,
-   * conflicts, and capacity constraints.
+   * Populates the read-only volunteer_name and email columns from the
+   * selected Volunteer. Authoritative validation (volunteer/role
+   * existence, date range, email, linked user) runs server-side in
+   * ChapterBoardMember.validate().
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -434,8 +438,8 @@ frappe.ui.form.on('Chapter Board Member', {
 	/**
    * Chapter Role Field Change Handler
    *
-   * Manages role assignment validation and ensures role uniqueness
-   * where required (e.g., only one chapter head).
+   * Client-side no-op placeholder. Chapter Role existence is validated
+   * server-side in ChapterBoardMember.validate().
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -448,8 +452,9 @@ frappe.ui.form.on('Chapter Board Member', {
 	/**
    * From Date Field Change Handler
    *
-   * Validates board member term start dates and checks for
-   * chronological consistency with other date fields.
+   * Wired to the shared date handler. Date-range consistency
+   * (end-after-start) is enforced on to_date change client-side and
+   * again server-side in ChapterBoardMember.validate().
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -462,8 +467,8 @@ frappe.ui.form.on('Chapter Board Member', {
 	/**
    * To Date Field Change Handler
    *
-   * Validates board member term end dates and manages
-   * automatic status transitions for expired terms.
+   * Rejects an end date earlier than the start date, clearing the
+   * field with a warning message.
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -476,8 +481,8 @@ frappe.ui.form.on('Chapter Board Member', {
 	/**
    * Is Active Field Change Handler
    *
-   * Manages board member active status changes and validates
-   * business rules for active/inactive transitions.
+   * When a row is marked inactive without an end date, defaults the
+   * end date to today.
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -499,7 +504,7 @@ frappe.ui.form.on('Chapter Member', {
    * Member Add Event Handler
    *
    * Triggered when a new member is added to the chapter.
-   * Validates member eligibility and geographic alignment.
+   * Enables the row and defaults the chapter join date to today.
    *
    * @param {Object} frm - Parent chapter form object
    * @param {string} cdt - Child DocType name ('Chapter Member')
@@ -512,8 +517,7 @@ frappe.ui.form.on('Chapter Member', {
 	/**
    * Member Remove Event Handler
    *
-   * Handles member removal from chapter and updates
-   * related member records and statistics.
+   * Client-side no-op placeholder.
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -526,8 +530,7 @@ frappe.ui.form.on('Chapter Member', {
 	/**
    * Member Field Change Handler
    *
-   * Validates member assignment and checks for conflicts
-   * with other chapter memberships and eligibility criteria.
+   * Defaults the chapter join date to today when a member is selected.
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -540,8 +543,7 @@ frappe.ui.form.on('Chapter Member', {
 	/**
    * Enabled Field Change Handler
    *
-   * Manages member active status within the chapter context,
-   * affecting participation and communication eligibility.
+   * Client-side no-op placeholder.
    *
    * @param {Object} frm - Parent form object
    * @param {string} cdt - Child DocType name
@@ -884,7 +886,7 @@ function handle_volunteer_change(frm, cdt, cdn) {
 }
 
 function handle_role_change(_frm, _cdt, _cdn) {
-	// Handle role-specific logic
+	// No-op placeholder: Chapter Role is validated server-side on save.
 }
 
 function handle_date_change(frm, cdt, cdn, field) {
@@ -935,7 +937,7 @@ function handle_member_change(frm, cdt, cdn) {
 }
 
 function handle_enabled_change(_frm, _cdt, _cdn) {
-	// Handle member enabled/disabled change
+	// No-op placeholder: no client-side behavior on enabled toggle.
 }
 
 // UI Helper Functions
