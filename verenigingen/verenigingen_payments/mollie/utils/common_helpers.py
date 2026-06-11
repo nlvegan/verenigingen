@@ -7,11 +7,25 @@ common operations used across Mollie integration code.
 """
 
 import re
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import frappe
 from frappe import _
+
+
+def mollie_signature_date() -> str:
+    """Return today's date (UTC) as a Y-m-d string for a Mollie SEPA mandate.
+
+    Mollie rejects a mandate ``signatureDate`` in the FUTURE relative to its own
+    clock, so site-local ``frappe.utils.today()`` breaks on a site configured east
+    of Mollie's timezone (it returns tomorrow near local midnight → HTTP 422). The
+    UTC date is never ahead of Mollie's clock, and SEPA accepts a past signature
+    date without restriction, so this is safe on every site.
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
 
 # Decimal precision for monetary amounts (2 decimal places)
 DECIMAL_PLACES = Decimal("0.01")

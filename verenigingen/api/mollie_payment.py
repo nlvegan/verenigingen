@@ -7,8 +7,6 @@ account on the active subscription. All three resolve the member from the sessio
 and delegate Mollie operations to the production SubscriptionService.
 """
 
-from datetime import datetime, timezone
-
 import frappe
 from frappe import _
 
@@ -18,6 +16,7 @@ from verenigingen.utils.member_utils import (
 )
 from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import mollie_signature_date
 
 
 @frappe.whitelist(allow_guest=False)
@@ -302,7 +301,10 @@ def cancel_specific_subscription(customer_id: str = None, subscription_id: str =
             # Check if this subscription ID matches the member's subscription
             if member.mollie_subscription_id == subscription_id:
                 member.db_set("mollie_subscription_id", None)
-                member.db_set("subscription_status", "cancelled")
+                # "canceled" is the Member.subscription_status Select option (single
+                # l); db_set bypasses validation, so a typo'd value would silently
+                # render blank and never match status == "canceled" checks.
+                member.db_set("subscription_status", "canceled")
                 frappe.logger().info(
                     f"Cleared mollie_subscription_id from member {member_name} after successful cancellation"
                 )
@@ -399,11 +401,9 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
             "method": "directdebit",
             "consumerName": account_holder_name,
             "consumerAccount": iban,
-            # UTC calendar date, not site-local today(): Mollie rejects a signature
-            # date in the future (relative to its own clock), so a site configured
-            # east of Mollie's timezone would 422 near local midnight. UTC is never
-            # ahead of Mollie's clock and a past signature date is always accepted.
-            "signatureDate": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            # UTC date (see mollie_signature_date): Mollie 422s a future signature
+            # date, which site-local today() can produce east of Mollie's timezone.
+            "signatureDate": mollie_signature_date(),
         }
         if bic:
             mandate_data["consumerBic"] = bic

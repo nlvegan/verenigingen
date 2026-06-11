@@ -18,6 +18,7 @@ The endpoints are still invoked as a logged-in plain member so the @self_service
 tier gate is exercised exactly as in production.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -143,3 +144,39 @@ class TestMolliePortalEndpointsUnit(EnhancedTestCase):
         # The Member record was not advanced to the new (now-revoked) mandate.
         member.reload()
         self.assertEqual(member.mollie_mandate_id, "mdt_originalaa")
+
+    # --- signature date regression -------------------------------------------
+
+    def test_update_bank_account_sends_utc_signature_date(self):
+        """The mandate is created with a UTC signatureDate, never site-local today().
+
+        Pins the regression the production fix targets: Mollie 422s a future-dated
+        signature, which site-local today() produces east of Mollie's clock. Asserts
+        the exact value passed to Mollie's mandate-create call.
+        """
+        _, user = self._link_member_to_user(
+            mollie_customer_id="cst_aaaaaaaaaa",
+            mollie_subscription_id="sub_aaaaaaaaaa",
+            mollie_mandate_id="mdt_originalaa",
+        )
+
+        with patch(_SUBSCRIPTION_SERVICE) as MockService:
+            service = MockService.return_value
+            customer_obj = service.client.sdk_client.customers.get.return_value
+            customer_obj.subscriptions.get.return_value.status = "active"
+            customer_obj.mandates.create.return_value = MagicMock(id="mdt_newsuccess0")
+            # PATCH succeeds -> endpoint completes the happy path.
+            service.update_subscription_mandate.return_value = {"status": "success"}
+
+            date_before = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            with self._as_user(user.name):
+                result = mollie_payment.update_mollie_bank_account(
+                    iban=generate_test_iban(), account_holder_name="Jan Jansen"
+                )
+            date_after = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+            self.assertEqual(result["status"], "success")
+            mandate_data = customer_obj.mandates.create.call_args.args[0]
+
+        # The UTC date at call time (tolerating a UTC-midnight rollover during the test).
+        self.assertIn(mandate_data["signatureDate"], {date_before, date_after})

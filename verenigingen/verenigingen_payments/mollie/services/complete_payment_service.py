@@ -28,6 +28,7 @@ from ..utils.common_helpers import (
     format_mollie_amount_string,
     get_member_by_customer_id,
     merge_metadata_safely,
+    mollie_signature_date,
     validate_mollie_amount,
 )
 from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
@@ -379,7 +380,10 @@ class CompletePaymentService:
                         "method": "directdebit",
                         "consumerName": customer_data.get("name", ""),
                         "consumerAccount": consumer_account,
-                        "signatureDate": frappe.utils.today(),
+                        # UTC date (see mollie_signature_date): Mollie 422s a future
+                        # signature date, which site-local today() can produce east
+                        # of Mollie's timezone.
+                        "signatureDate": mollie_signature_date(),
                         "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
                     },
                 )

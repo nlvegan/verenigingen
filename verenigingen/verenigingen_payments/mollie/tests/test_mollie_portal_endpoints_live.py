@@ -251,7 +251,7 @@ class TestMolliePortalEndpointsLive(EnhancedTestCase):
         # ...and the endpoint cleared the matching subscription id off the Member.
         member.reload()
         self.assertIsNone(member.mollie_subscription_id)
-        self.assertEqual(member.subscription_status, "cancelled")
+        self.assertEqual(member.subscription_status, "canceled")
 
     def test_cancel_donor_subscription_authorized_via_donor_record(self):
         """cancel_specific_subscription authorizes a customer id that belongs to the
