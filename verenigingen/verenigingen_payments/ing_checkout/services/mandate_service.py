@@ -11,11 +11,14 @@ Provides high-level operations for mandate lifecycle management:
 - Mandate status synchronization
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import get_url, today
+
+if TYPE_CHECKING:
+    from verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate import SEPAMandate
 
 
 class MandateService:

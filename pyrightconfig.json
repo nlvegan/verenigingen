@@ -20,7 +20,7 @@
 	],
 	"venvPath": "/home/frappeuser/frappe-bench",
 	"venv": "env",
-	"pythonVersion": "3.12",
+	"pythonVersion": "3.14",
 	"typeCheckingMode": "off",
 	"reportMissingModuleSource": false,
 	"reportUndefinedVariable": "error",

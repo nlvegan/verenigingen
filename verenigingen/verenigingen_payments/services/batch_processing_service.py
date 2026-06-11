@@ -5,7 +5,7 @@ This service handles medium complexity batch processing operations for SEPA dire
 Extracted from Direct Debit Batch system for better separation of concerns.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List
 
 import frappe
 from frappe import _
@@ -17,6 +17,9 @@ from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     CalculationUtilities,
     InvoiceManagementUtilities,
 )
+
+if TYPE_CHECKING:
+    from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
 
 
 class BatchProcessingService:

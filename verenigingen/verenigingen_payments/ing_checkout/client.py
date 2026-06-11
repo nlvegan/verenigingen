@@ -12,7 +12,7 @@ API Documentation: https://developer.pay.nl/docs/platform
 
 import base64
 import json
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import frappe
 import requests
@@ -24,6 +24,11 @@ from verenigingen.verenigingen_payments.core.resilience import (
     CircuitBreakerConfig,
     with_circuit_breaker,
 )
+
+if TYPE_CHECKING:
+    from verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings import (
+        INGCheckoutSettings,
+    )
 
 
 class PayNLError(Exception):

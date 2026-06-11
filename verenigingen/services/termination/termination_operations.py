@@ -8,9 +8,14 @@ with consistent result tracking, error handling, and audit trail integration.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List
 
 import frappe
+
+if TYPE_CHECKING:
+    from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (
+        MembershipTerminationRequest,
+    )
 
 
 @dataclass

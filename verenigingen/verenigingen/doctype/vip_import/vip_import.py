@@ -14,7 +14,7 @@ Import Flow:
 import json
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 from frappe import _
@@ -28,6 +28,11 @@ from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.queue_management import has_queue_capacity, wait_for_queue_capacity
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
+if TYPE_CHECKING:
+    from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
+        BulkVolunteerCreationSummary,
+    )
 
 # ==================== CONSTANTS ====================
 # Import processing limits

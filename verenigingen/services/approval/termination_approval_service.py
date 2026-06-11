@@ -6,7 +6,7 @@ Handles the multi-stage approval workflow with different rules based on
 termination type (voluntary, disciplinary, non-payment, etc.).
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
@@ -14,6 +14,11 @@ from frappe.utils import now
 
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.constants import Roles
+
+if TYPE_CHECKING:
+    from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (
+        MembershipTerminationRequest,
+    )
 
 
 class TerminationApprovalService(StatefulService):
