@@ -108,36 +108,13 @@ module.exports = {
     "!**/fixtures/**",
   ],
 
-  // Real, enforced coverage gate (the --coverage run exits non-zero if coverage
-  // regresses below the floors below — verified by raising a floor and watching
-  // it fail). Two tiers:
-  //   1. A DIRECTORY floor over the whole instrumentable layer (`public/js`),
-  //      guarding against overall regression. Set just below measured reality
-  //      (stmts 7.6 / branch 7.2 / func 6.4 / lines 7.9).
-  //   2. A PER-FILE ratchet on each module that has real direct unit tests, set
-  //      just below its measured coverage. Today that is iban-validator.js
-  //      (measured 91.3/77.8/100/91.3). As services/utils gain direct unit tests,
-  //      add a per-file key at its measured floor and raise existing floors.
-  //
-  // NOTE: per-file (and glob) threshold keys require @jest/reporters to use glob@7
-  // — jest 29's threshold checker calls `glob.default.sync()`, which the default
-  // glob@10 (exports `globSync`, no `.default.sync`) throws on. That's pinned via
-  // the `@jest/reporters > glob` nested override in package.json; without it, only
-  // the single directory key works and per-file keys crash the coverage run.
-  coverageThreshold: {
-    "./verenigingen/public/js": {
-      statements: 7,
-      branches: 7,
-      functions: 6,
-      lines: 7,
-    },
-    "./verenigingen/public/js/utils/iban-validator.js": {
-      statements: 90,
-      branches: 75,
-      functions: 90,
-      lines: 90,
-    },
-  },
+  // NOTE: the enforced coverage GATE (coverageThreshold) lives in
+  // jest.coverage.config.js, used only by `npm run test:coverage` (the full
+  // suite). It is deliberately NOT here: this base config is also used for
+  // targeted `--coverage` runs (e.g. CI's `npm test -- --testPathPattern=...
+  // --coverage`), and a threshold here would fail those partial runs because a
+  // subset never exercises the gated module (e.g. iban-validator). Base-config
+  // --coverage runs therefore report coverage without enforcing it.
 
   /** @type {Object} Module path resolution for assets and styles */
   moduleNameMapper: {

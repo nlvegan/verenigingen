@@ -9,7 +9,7 @@
     "build": "tailwindcss -i ./verenigingen/templates/styles/tailwind.css -o ./verenigingen/public/css/tailwind.css --config ./tailwind.config.js --minify",
     "test": "jest --testMatch='**/tests/unit/**/*.test.js'",
     "test:watch": "jest --watch --testMatch='**/tests/unit/**/*.test.js'",
-    "test:coverage": "jest --coverage --testMatch='**/tests/unit/**/*.test.js'",
+    "test:coverage": "jest --coverage --config jest.coverage.config.js --testMatch='**/tests/unit/**/*.test.js'",
     "test:utilities": "jest --testMatch='**/tests/unit/**/*.test.js'",
     "test:e2e": "cypress run",
     "test:e2e:open": "cypress open",
