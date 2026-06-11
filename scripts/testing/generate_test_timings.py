@@ -31,7 +31,7 @@ import sys
 
 APP = "verenigingen"
 APP_PKG_DIR = f"apps/{APP}/{APP}"  # the python package dir (apps/verenigingen/verenigingen)
-FAST_TEST_COST = 0.3  # seconds-equivalent charged per test method (covers sub-2s tests)
+FAST_TEST_COST = 0.55  # seconds per sub-2s test method (calibrated from baseline wall-clock)
 OUT = f"apps/{APP}/{APP}/tests/test_timings.json"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -45,13 +45,15 @@ def dotted_to_relfile(dotted):
 
 
 def measured_slow_seconds(log_paths):
-    """Sum >=2s test durations per dotted module, taking the max across logs."""
+    """Per dotted module: (max >=2s-test seconds, slow-test count) across logs."""
     best = {}
+    bestcnt = {}
     for path in log_paths:
         with open(path, errors="ignore") as f:
             txt = ANSI.sub("", f.read())
         cur = None
         per_run = {}
+        per_cnt = {}
         for line in txt.splitlines():
             h = HEADER.match(line)
             if h and ".test" in h.group(1).lower():
@@ -61,9 +63,12 @@ def measured_slow_seconds(log_paths):
             d = DURATION.search(line)
             if d and cur:
                 per_run[cur] = per_run.get(cur, 0.0) + float(d.group(1))
+                per_cnt[cur] = per_cnt.get(cur, 0) + 1
         for mod, secs in per_run.items():
-            best[mod] = max(best.get(mod, 0.0), secs)
-    return best
+            if secs > best.get(mod, 0.0):
+                best[mod] = secs
+                bestcnt[mod] = per_cnt[mod]
+    return best, bestcnt
 
 
 def count_test_methods(relfile):
@@ -81,7 +86,7 @@ def main(log_globs):
     if not log_paths:
         print("No log files matched; pass shard log paths/globs as args.", file=sys.stderr)
         return 1
-    slow = measured_slow_seconds(log_paths)
+    slow, slowcnt = measured_slow_seconds(log_paths)
 
     # Walk every test file so the table is complete (files with no slow tests
     # still get a count-based weight; new files fall back in the runner patch).
@@ -98,7 +103,10 @@ def main(log_globs):
             dotted = os.path.relpath(relfile, f"apps/{APP}").replace("/", ".")[: -len(".py")]
             count = count_test_methods(relfile)
             secs = slow.get(dotted, 0.0)
-            weights[dotted] = max(1, round(secs + FAST_TEST_COST * count))
+            # measured slow-test seconds + a flat allowance for the remaining
+            # sub-2s tests (don't double-charge the slow ones already in `secs`).
+            fast = max(0, count - slowcnt.get(dotted, 0))
+            weights[dotted] = max(1, round(secs + FAST_TEST_COST * fast))
 
     with open(OUT, "w") as f:
         json.dump(dict(sorted(weights.items())), f, indent=1)

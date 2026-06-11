@@ -1,5 +1,5 @@
 /* Email Brand CSS - Auto-generated from Brand Settings */
-/* Generated at: 2026-01-04 06:58:43.711462 */
+/* Generated at: 2026-06-06 22:42:27.328360 */
 /* NOTE: Literal hex values - email clients don't support CSS variables */
 
 /* Email container and layout */
@@ -14,22 +14,22 @@
 
 /* Brand headers for different message types */
 .email-header-primary {
-    background-color: #F99F21;
-    color: #000000;
+    background-color: #cf3131;
+    color: #ffffff;
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }
 
 .email-header-success {
-    background-color: #1A555F;
-    color: #155724;
+    background-color: #28a745;
+    color: #ffffff;
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }
 
 .email-header-danger {
     background-color: #dc3545;
-    color: #721c24;
+    color: #ffffff;
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }
@@ -42,8 +42,8 @@
 }
 
 .email-header-info {
-    background-color: #2D9EB3;
-    color: #0c5460;
+    background-color: #17a2b8;
+    color: #ffffff;
     padding: 20px;
     border-radius: 8px 8px 0 0;
 }
@@ -65,8 +65,8 @@
 
 /* Buttons */
 .email-btn-primary {
-    background-color: #F99F21;
-    color: #000000;
+    background-color: #cf3131;
+    color: #ffffff;
     padding: 15px 30px;
     text-decoration: none;
     border-radius: 5px;
@@ -75,7 +75,7 @@
 }
 
 .email-btn-secondary {
-    background-color: #1b5661;
+    background-color: #01796f;
     color: #ffffff;
     padding: 15px 30px;
     text-decoration: none;
@@ -94,7 +94,7 @@
 }
 
 .email-alert-info {
-    background-color: #2D9EB3;
+    background-color: #17a2b8;
     padding: 15px;
     border-radius: 5px;
     border-left: 4px solid #17a2b8;
