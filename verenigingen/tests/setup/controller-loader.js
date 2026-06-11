@@ -197,9 +197,12 @@ function loadFrappeController(controllerPath) {
 			isFailureResult: global.isFailureResult,
 			isOperationResultFailed: global.isOperationResultFailed,
 
-			global: {
-				_frappe_form_handlers: global._frappe_form_handlers
-			}
+			// Share the real test `global` so controllers' `global.<fn>(...)` test-
+			// compatibility shims (e.g. chapter.js calling global.validate_postal_codes)
+			// resolve to the jest.fn() mocks the tests install — and see per-test
+			// reassignments in beforeEach. The minimal stub used previously only
+			// exposed _frappe_form_handlers, so those shims silently never fired.
+			global: global
 		});
 
 		// Execute with timeout and error handling

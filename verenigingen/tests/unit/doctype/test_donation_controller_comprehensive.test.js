@@ -302,10 +302,11 @@ const customDonationTests = {
 			// Trigger make_payment_entry workflow
 			controllerTest.testEvent('make_payment_entry');
 
-			// Verify correct API method called
+			// Verify correct API method called (donation.js uses ERPNext's standard
+			// payment-entry endpoint, matching the other tests in this suite)
 			expect(global.frappe.call).toHaveBeenCalledWith(
 				expect.objectContaining({
-					method: 'verenigingen.utils.payment_utils.get_donation_payment_entry'
+					method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry'
 				})
 			);
 
