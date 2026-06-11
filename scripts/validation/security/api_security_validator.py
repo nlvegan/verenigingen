@@ -107,16 +107,16 @@ class APISecurityValidator:
     
     # Expected security decorators in the framework
     FRAMEWORK_DECORATORS = {
-        '@critical_api', '@high_security_api', '@standard_api',
+        '@critical_api', '@high_security_api', '@standard_api', '@self_service_api',
         '@utility_api', '@public_api', '@api_security_framework',
         '@development_only_api', '@development_only'
     }
-    
+
     # Security framework imports to look for
     FRAMEWORK_IMPORTS = {
         'api_security_framework', 'critical_api', 'high_security_api',
-        'standard_api', 'utility_api', 'public_api', 'development_only_api',
-        'development_only', 'SecurityLevel', 'OperationType'
+        'standard_api', 'self_service_api', 'utility_api', 'public_api',
+        'development_only_api', 'development_only', 'SecurityLevel', 'OperationType'
     }
     
     # Performance monitoring decorators
@@ -281,7 +281,7 @@ class APISecurityValidator:
         has_security_decorator = any(
             decorator in d for d in decorators
             for decorator in ['critical_api', 'high_security_api', 'standard_api',
-                            'utility_api', 'public_api', 'development_only']
+                            'self_service_api', 'utility_api', 'public_api', 'development_only']
         )
         validations.extend(self._validate_security_patterns(
             function_name, function_source, str(file_path), line_number,

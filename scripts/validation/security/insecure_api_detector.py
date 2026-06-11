@@ -102,7 +102,8 @@ class InsecureAPIDetector:
 
     # Security decorator patterns to look for
     SECURITY_DECORATORS = {
-        'critical_api', 'high_security_api', 'standard_api', 'utility_api', 'public_api',
+        'critical_api', 'high_security_api', 'standard_api', 'self_service_api',
+        'utility_api', 'public_api',
         'api_security_framework', 'require_csrf_token', 'rate_limit', 'require_roles',
         'audit_log', 'require_sepa_permission', 'development_only'
     }
