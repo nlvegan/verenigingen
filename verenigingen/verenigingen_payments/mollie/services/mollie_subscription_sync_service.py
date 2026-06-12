@@ -17,6 +17,10 @@ from ..utils.common_helpers import format_mollie_amount
 from .subscription_description import get_member_subscription_description
 from .subscription_service import SubscriptionService
 
+# One cent expressed as a strict-comparison threshold: differences at or
+# above EUR 0.01 are real mismatches; anything smaller is float noise.
+AMOUNT_MATCH_TOLERANCE = 0.005
+
 # Billing interval mapping to Mollie format
 BILLING_INTERVAL_TO_MOLLIE_FORMAT = {
     "Monthly": "1 month",
@@ -344,7 +348,7 @@ class MollieSubscriptionSyncService:
             }
 
         updated_amount = extract_amount_float(updated.amount)
-        if abs(updated_amount - float(new_amount)) > 0.005:
+        if abs(updated_amount - float(new_amount)) > AMOUNT_MATCH_TOLERANCE:
             return {
                 "status": "warning",
                 "subscription_id": subscription_id,
@@ -546,8 +550,9 @@ class MollieSubscriptionSyncService:
 
         mollie_amount = subscription_status.get("amount", 0)
 
-        # Check if amounts match (within 0.01 EUR tolerance for rounding)
-        if abs(mollie_amount - expected_amount) < 0.01:
+        # Check if amounts match (AMOUNT_MATCH_TOLERANCE: differences above 0.005
+        # are treated as real mismatches; float noise below that threshold is ignored).
+        if not abs(mollie_amount - expected_amount) > AMOUNT_MATCH_TOLERANCE:
             frappe.logger().info(
                 f"✅ Subscription amount verified: {mollie_amount} EUR matches expected {expected_amount} EUR"
             )
@@ -572,7 +577,7 @@ class MollieSubscriptionSyncService:
                 fresh_expected_amount = dues_schedule.dues_rate
 
                 # Check if fresh data matches Mollie
-                if abs(mollie_amount - fresh_expected_amount) < 0.01:
+                if not abs(mollie_amount - fresh_expected_amount) > AMOUNT_MATCH_TOLERANCE:
                     frappe.logger().info(
                         f"✅ Retry successful: Subscription amount {mollie_amount} EUR matches fresh dues rate {fresh_expected_amount} EUR"
                     )

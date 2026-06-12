@@ -477,3 +477,62 @@ class TestAmendmentSyncPatchPath(EnhancedTestCase):
         self.assertEqual(
             service._mandate_id_for_replacement(member, {"mandate_id": None}), "mdt_FIELD"
         )
+
+    def test_replacement_blocked_when_mandate_invalid(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        member, membership = self._member_with_subscription(mandate_id="mdt_LIVE")
+        # Interval differs -> replacement path; mandate comes back revoked.
+        sdk = FakeSDKClient(live_subscription=_FakeSubscription(interval="3 months"))
+
+        class _RevokedMandates(_FakeMandates):
+            def get(self, mandate_id):
+                return _FakeMandate(mandate_id=mandate_id, status="revoked")
+
+        class _RevokedCustomer(_FakeCustomer):
+            def __init__(self, inner_sdk):
+                super().__init__(inner_sdk)
+                self.mandates = _RevokedMandates()
+
+        sdk.customers.get = lambda cid: _RevokedCustomer(sdk)
+
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["reason"], "invalid_mandate")
+        self.assertTrue(result["requires_admin_review"])
+        self.assertEqual(sdk.subscriptions_created, [])
+
+    def test_replacement_blocked_when_mandate_lookup_fails(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        member, membership = self._member_with_subscription(mandate_id="mdt_LIVE")
+        sdk = FakeSDKClient(live_subscription=_FakeSubscription(interval="3 months"))
+
+        class _BrokenMandates(_FakeMandates):
+            def get(self, mandate_id):
+                raise RuntimeError("simulated mandate lookup failure")
+
+        class _BrokenCustomer(_FakeCustomer):
+            def __init__(self, inner_sdk):
+                super().__init__(inner_sdk)
+                self.mandates = _BrokenMandates()
+
+        sdk.customers.get = lambda cid: _BrokenCustomer(sdk)
+
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["reason"], "mandate_validation_failed")
+        self.assertTrue(result["requires_admin_review"])
+        self.assertEqual(sdk.subscriptions_created, [])
