@@ -143,7 +143,14 @@ repos:
 
       - id: eslint
         name: 🔧 ESLint JavaScript validation
-        entry: bash -c 'echo "Running ESLint on JavaScript files..."; npx eslint --fix --max-warnings=1000 "$@"; echo "✅ ESLint completed (auto-fixed issues where possible)"'
+        # Check-only: report lint problems on the *staged* files and fail the
+        # commit; the dev fixes them. The trailing `--` makes $0='--' so "$@"
+        # is the real staged filenames (without it pre-commit's first filename
+        # is consumed as $0, and a single staged file leaves "$@" empty ->
+        # eslint would lint the whole tree). No `--fix` (avoids piecemeal
+        # reformat churn) and no trailing echo (so the hook's exit code is
+        # eslint's, instead of always 0).
+        entry: bash -c 'npx eslint --max-warnings=1000 "$@"' --
         language: system
         files: \.js$
         stages: [pre-commit]
