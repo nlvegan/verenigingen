@@ -660,6 +660,7 @@
                                     {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
                                     {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
                                     {{ _("Current rate") }}: <strong>{{ frappe.format_value(active_dues_schedule.amount, {"fieldtype": "Currency"}) }}</strong> {{ _("per") }} {{ frequency }}
+                                    <a href="/membership_adjustment" class="text-primary-600 hover:text-primary-700 font-medium ml-1">{{ _("Adjust") }}</a>
                                 </p>
                                 {% endif %}
                             </div>
