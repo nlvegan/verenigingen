@@ -98,8 +98,7 @@ frappe.ui.form.on('Expense Claim', {
 		if (frm.doc.employee && !frm.doc.__islocal) {
 			// Check if this employee is linked to a member
 			frappe.call({
-				method:
-          'verenigingen.setup.document_links.get_member_from_expense_claim',
+				method: 'verenigingen.setup.document_links.get_member_from_expense_claim',
 				args: {
 					expense_claim: frm.doc.name
 				},
@@ -149,7 +148,9 @@ frappe.ui.form.on('Expense Claim', {
 			frappe.msgprint({
 				title: __('Approval Required'),
 				indicator: 'red',
-				message: __('Please set the Approval Status to "Approved" or "Rejected" before submitting this expense claim.')
+				message: __(
+					'Please set the Approval Status to "Approved" or "Rejected" before submitting this expense claim.'
+				)
 			});
 			frappe.validated = false;
 			return false;

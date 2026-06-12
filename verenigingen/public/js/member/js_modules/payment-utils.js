@@ -69,8 +69,7 @@ function refresh_membership_dues_info(frm) {
 
 			// Updated to refresh dues schedule summary
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
+				method: 'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
 				args: {
 					member: frm.doc.name
 				},
@@ -88,8 +87,7 @@ function refresh_membership_dues_info(frm) {
 
 			// Refresh fee change history from dues schedules
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
+				method: 'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
 				args: {
 					member_name: frm.doc.name
 				},

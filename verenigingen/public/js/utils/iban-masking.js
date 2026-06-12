@@ -89,8 +89,7 @@ verenigingen.iban = {
 	 * }
 	 */
 	canViewFull() {
-		return frappe.user_roles.includes('Accounts Manager')
-			|| frappe.user_roles.includes('System Manager');
+		return frappe.user_roles.includes('Accounts Manager') || frappe.user_roles.includes('System Manager');
 	},
 
 	/**

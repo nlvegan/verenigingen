@@ -518,7 +518,7 @@ class DDBatchManagementDashboard {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				this.renderBatchList(data.batches);
 				this.updateSecurityAlerts(data.security_alerts);
 			} else {
@@ -589,25 +589,25 @@ class DDBatchManagementDashboard {
                             <i class="fa fa-eye"></i>
                         </button>
                         ${
-	batch.conflicts > 0
-		? `
+							batch.conflicts > 0
+								? `
                             <button class="btn btn-sm btn-outline-warning resolve-conflicts"
                                     data-batch-id="${batch.name}">
                                 <i class="fa fa-exclamation-triangle"></i>
                             </button>
                         `
-		: ''
-}
+								: ''
+						}
                         ${
-	batch.sepa_file
-		? `
+							batch.sepa_file
+								? `
                             <button class="btn btn-sm btn-outline-success download-sepa"
                                     data-batch-id="${batch.name}">
                                 <i class="fa fa-download"></i>
                             </button>
                         `
-		: ''
-}
+								: ''
+						}
                     </div>
                 </td>
             </tr>
@@ -697,7 +697,7 @@ class DDBatchManagementDashboard {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				this.renderBatchDetails(data.batch);
 				$('#batch-details-modal').modal('show');
 			} else {
@@ -817,8 +817,7 @@ class DDBatchManagementDashboard {
 		}
 
 		if (!html) {
-			html
-        = '<div class="alert alert-success"><i class="fa fa-check"></i> No security issues detected</div>';
+			html = '<div class="alert alert-success"><i class="fa fa-check"></i> No security issues detected</div>';
 		}
 
 		return html;
@@ -844,15 +843,15 @@ class DDBatchManagementDashboard {
                 </td>
                 <td>
                     ${
-	invoice.issues
-		? `
+						invoice.issues
+							? `
                         <button class="btn btn-sm btn-outline-warning"
                                 onclick="this.showInvoiceIssues('${invoice.invoice}')">
                             <i class="fa fa-exclamation-triangle"></i> ${invoice.issues.length}
                         </button>
                     `
-		: '<span class="text-success">None</span>'
-}
+							: '<span class="text-success">None</span>'
+					}
                 </td>
             </tr>
         `
@@ -889,7 +888,7 @@ class DDBatchManagementDashboard {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				this.conflictData = data.conflicts;
 				this.renderConflictResolution(data.conflicts);
 				$('#conflict-resolution-modal').modal('show');
@@ -921,10 +920,7 @@ class DDBatchManagementDashboard {
 		}
 
 		// Potential duplicates
-		if (
-			conflicts.potential_duplicates
-      && conflicts.potential_duplicates.length > 0
-		) {
+		if (conflicts.potential_duplicates && conflicts.potential_duplicates.length > 0) {
 			html += `
                 <div class="alert alert-warning">
                     <h5><i class="fa fa-exclamation-triangle"></i> Potential Duplicates</h5>
@@ -1016,8 +1012,8 @@ class DDBatchManagementDashboard {
                         </label>
                     </div>
                     ${
-	severity === 'high'
-		? `
+						severity === 'high'
+							? `
                         <div class="form-check">
                             <input class="form-check-input" type="radio"
                                    name="resolution_${conflict.existing_member}"
@@ -1027,8 +1023,8 @@ class DDBatchManagementDashboard {
                             </label>
                         </div>
                     `
-		: ''
-}
+							: ''
+					}
                 </div>
             </div>
         `;
@@ -1048,12 +1044,15 @@ class DDBatchManagementDashboard {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				$('#conflict-resolution-modal').modal('hide');
 				this.showSuccess('Conflict resolutions applied successfully');
 				this.loadBatchList(); // Refresh the list
 			} else {
-				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to apply conflict resolutions');
+				const errorMsg = verenigingen.utils.getErrorMessage(
+					response.message,
+					'Failed to apply conflict resolutions'
+				);
 				this.showError(errorMsg);
 			}
 		} catch (error) {
@@ -1091,7 +1090,7 @@ class DDBatchManagementDashboard {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				$('#conflict-resolution-modal').modal('hide');
 				this.showSuccess('Conflicts escalated to administrator');
 			} else {
@@ -1119,14 +1118,14 @@ class DDBatchManagementDashboard {
                     <strong>${alert.title}</strong>
                     <p>${alert.message}</p>
                     ${
-	alert.action_required
-		? `
+						alert.action_required
+							? `
                         <button class="btn btn-sm btn-primary" onclick="this.handleSecurityAction('${alert.id}')">
                             ${alert.action_text || 'Take Action'}
                         </button>
                     `
-		: ''
-}
+							: ''
+					}
                 </div>
             `;
 		});
@@ -1390,9 +1389,7 @@ class BatchCreationWizard {
 
 	async loadEligibleInvoices() {
 		try {
-			$('#invoice-selection-results').html(
-				'<i class="fa fa-spinner fa-spin"></i> Loading invoices...'
-			);
+			$('#invoice-selection-results').html('<i class="fa fa-spinner fa-spin"></i> Loading invoices...');
 
 			const filters = {
 				date_from: $('#invoice-date-from').val(),
@@ -1409,19 +1406,15 @@ class BatchCreationWizard {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				this.renderEligibleInvoices(data.invoices);
 			} else {
 				const errorMsg = verenigingen.utils.getErrorMessage(response.message, 'Failed to load invoices');
-				$('#invoice-selection-results').html(
-					`<p class="text-danger">${errorMsg}</p>`
-				);
+				$('#invoice-selection-results').html(`<p class="text-danger">${errorMsg}</p>`);
 			}
 		} catch (error) {
 			console.error('Error loading invoices:', error);
-			$('#invoice-selection-results').html(
-				'<p class="text-danger">Error loading invoices</p>'
-			);
+			$('#invoice-selection-results').html('<p class="text-danger">Error loading invoices</p>');
 		}
 	}
 
@@ -1458,8 +1451,8 @@ class BatchCreationWizard {
                         </thead>
                         <tbody>
                             ${invoices
-		.map(
-			(invoice) => `
+								.map(
+									(invoice) => `
                                 <tr>
                                     <td><input type="checkbox" class="invoice-checkbox" value="${invoice.name}"></td>
                                     <td>${invoice.name}</td>
@@ -1474,8 +1467,8 @@ class BatchCreationWizard {
                                     </td>
                                 </tr>
                             `
-		)
-		.join('')}
+								)
+								.join('')}
                         </tbody>
                     </table>
                 </div>
@@ -1520,18 +1513,14 @@ class BatchCreationWizard {
 		let total = 0;
 		selectedInvoices.each(() => {
 			const invoiceId = $(this).val();
-			const invoice = this.batchData.available_invoices.find(
-				(inv) => inv.name === invoiceId
-			);
+			const invoice = this.batchData.available_invoices.find((inv) => inv.name === invoiceId);
 			if (invoice) {
 				total += invoice.amount;
 			}
 		});
 
 		$('#selection-count').text(count);
-		$('#selection-total').text(
-			frappe.format_value(total, { fieldtype: 'Currency' })
-		);
+		$('#selection-total').text(frappe.format_value(total, { fieldtype: 'Currency' }));
 
 		// Store selected invoices
 		this.batchData.selected_invoices = [];
@@ -1541,10 +1530,7 @@ class BatchCreationWizard {
 	}
 
 	validateInvoiceSelection() {
-		if (
-			!this.batchData.selected_invoices
-      || this.batchData.selected_invoices.length === 0
-		) {
+		if (!this.batchData.selected_invoices || this.batchData.selected_invoices.length === 0) {
 			frappe.msgprint('Please select at least one invoice for the batch.');
 			return false;
 		}
@@ -1563,10 +1549,7 @@ class BatchCreationWizard {
 // Initialize the dashboard when document is ready
 $(document).ready(() => {
 	// Only initialize if we're on the appropriate page
-	if (
-		window.location.pathname.includes('dd-batch')
-    || window.location.pathname.includes('direct-debit')
-	) {
+	if (window.location.pathname.includes('dd-batch') || window.location.pathname.includes('direct-debit')) {
 		window.ddBatchDashboard = new DDBatchManagementDashboard();
 	}
 });

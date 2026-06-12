@@ -89,10 +89,10 @@ const IBANValidator = {
 	},
 
 	/**
-   * Validate IBAN with comprehensive checks including mod-97
-   * @param {string} iban - The IBAN to validate
-   * @returns {Object} - { valid: boolean, error: string, formatted: string }
-   */
+	 * Validate IBAN with comprehensive checks including mod-97
+	 * @param {string} iban - The IBAN to validate
+	 * @returns {Object} - { valid: boolean, error: string, formatted: string }
+	 */
 	validate(iban) {
 		if (!iban) {
 			return { valid: false, error: 'IBAN is required' };
@@ -148,19 +148,16 @@ const IBANValidator = {
 	},
 
 	/**
-   * Validate IBAN checksum using mod-97 algorithm
-   * @param {string} iban - Clean IBAN without spaces
-   * @returns {boolean} - True if checksum is valid
-   */
+	 * Validate IBAN checksum using mod-97 algorithm
+	 * @param {string} iban - Clean IBAN without spaces
+	 * @returns {boolean} - True if checksum is valid
+	 */
 	validateChecksum(iban) {
 		// Move first 4 characters to end
 		const rearranged = iban.substring(4) + iban.substring(0, 4);
 
 		// Convert letters to numbers (A=10, B=11, ..., Z=35)
-		const numeric = rearranged.replace(
-			/[A-Z]/g,
-			(char) => char.charCodeAt(0) - 55
-		);
+		const numeric = rearranged.replace(/[A-Z]/g, (char) => char.charCodeAt(0) - 55);
 
 		// Calculate mod 97 using chunks to avoid JavaScript number precision issues
 		const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
@@ -171,20 +168,20 @@ const IBANValidator = {
 	},
 
 	/**
-   * Format IBAN with spaces every 4 characters
-   * @param {string} iban - IBAN to format
-   * @returns {string} - Formatted IBAN
-   */
+	 * Format IBAN with spaces every 4 characters
+	 * @param {string} iban - IBAN to format
+	 * @returns {string} - Formatted IBAN
+	 */
 	format(iban) {
 		const clean = iban.replace(/\s/g, '').toUpperCase();
 		return clean.match(/.{1,4}/g).join(' ');
 	},
 
 	/**
-   * Derive BIC from Dutch IBAN
-   * @param {string} iban - The IBAN
-   * @returns {string|null} - BIC code or null
-   */
+	 * Derive BIC from Dutch IBAN
+	 * @param {string} iban - The IBAN
+	 * @returns {string|null} - BIC code or null
+	 */
 	deriveBIC(iban) {
 		if (!iban) {
 			return null;
@@ -214,10 +211,10 @@ const IBANValidator = {
 	},
 
 	/**
-   * Get bank name from IBAN
-   * @param {string} iban - The IBAN
-   * @returns {string|null} - Bank name or null
-   */
+	 * Get bank name from IBAN
+	 * @param {string} iban - The IBAN
+	 * @returns {string|null} - Bank name or null
+	 */
 	getBankName(iban) {
 		if (!iban) {
 			return null;

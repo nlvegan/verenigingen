@@ -1,12 +1,8 @@
 <template>
 	<div class="expense-claim-form">
 		<div class="form-header">
-			<h2 class="text-2xl font-bold text-gray-900">
-				Submit Expense Claim
-			</h2>
-			<p class="text-gray-600 mt-2">
-				Add multiple expense items and submit them together
-			</p>
+			<h2 class="text-2xl font-bold text-gray-900">Submit Expense Claim</h2>
+			<p class="text-gray-600 mt-2">Add multiple expense items and submit them together</p>
 		</div>
 
 		<div class="form-content mt-6">
@@ -20,18 +16,10 @@
 					class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 					@change="onOrganizationTypeChange"
 				>
-					<option value="">
-						Select organization type
-					</option>
-					<option value="Chapter">
-						Chapter
-					</option>
-					<option value="Team">
-						Team
-					</option>
-					<option value="National">
-						National
-					</option>
+					<option value="">Select organization type</option>
+					<option value="Chapter">Chapter</option>
+					<option value="Team">Team</option>
+					<option value="National">National</option>
 				</select>
 
 				<!-- Chapter Selection -->
@@ -43,14 +31,8 @@
 						v-model="selectedChapter"
 						class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 					>
-						<option value="">
-							Select chapter
-						</option>
-						<option
-							v-for="chapter in userChapters"
-							:key="chapter"
-							:value="chapter"
-						>
+						<option value="">Select chapter</option>
+						<option v-for="chapter in userChapters" :key="chapter" :value="chapter">
 							{{ chapter }}
 						</option>
 					</select>
@@ -65,9 +47,7 @@
 						v-model="selectedTeam"
 						class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 					>
-						<option value="">
-							Select team
-						</option>
+						<option value="">Select team</option>
 						<option v-for="team in userTeams" :key="team" :value="team">
 							{{ team }}
 						</option>
@@ -78,25 +58,13 @@
 			<!-- Expense Lines -->
 			<div class="expense-lines-section">
 				<div class="flex justify-between items-center mb-4">
-					<h3 class="text-lg font-semibold text-gray-900">
-						Expense Items
-					</h3>
+					<h3 class="text-lg font-semibold text-gray-900">Expense Items</h3>
 					<button
 						class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
 						@click="addExpenseLine"
 					>
-						<svg
-							class="w-4 h-4 mr-2"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M12 4v16m8-8H4"
-							/>
+						<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 						</svg>
 						Add Item
 					</button>
@@ -104,21 +72,11 @@
 
 				<!-- Expense Line Headers -->
 				<div class="hidden md:grid md:grid-cols-12 gap-4 mb-2 px-4">
-					<div class="col-span-2 text-sm font-medium text-gray-700">
-						Date
-					</div>
-					<div class="col-span-2 text-sm font-medium text-gray-700">
-						Category
-					</div>
-					<div class="col-span-3 text-sm font-medium text-gray-700">
-						Description
-					</div>
-					<div class="col-span-2 text-sm font-medium text-gray-700">
-						Amount (€)
-					</div>
-					<div class="col-span-2 text-sm font-medium text-gray-700">
-						Receipt
-					</div>
+					<div class="col-span-2 text-sm font-medium text-gray-700">Date</div>
+					<div class="col-span-2 text-sm font-medium text-gray-700">Category</div>
+					<div class="col-span-3 text-sm font-medium text-gray-700">Description</div>
+					<div class="col-span-2 text-sm font-medium text-gray-700">Amount (€)</div>
+					<div class="col-span-2 text-sm font-medium text-gray-700">Receipt</div>
 					<div class="col-span-1" />
 				</div>
 
@@ -132,36 +90,26 @@
 						<div class="grid grid-cols-1 md:grid-cols-12 gap-4">
 							<!-- Date -->
 							<div class="md:col-span-2">
-								<label
-									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
-								>Date</label>
+								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Date</label>
 								<input
 									v-model="line.expense_date"
 									type="date"
 									:max="today"
 									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 									required
-								>
+								/>
 							</div>
 
 							<!-- Category -->
 							<div class="md:col-span-2">
-								<label
-									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
-								>Category</label>
+								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Category</label>
 								<select
 									v-model="line.category"
 									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 									required
 								>
-									<option value="">
-										Select category
-									</option>
-									<option
-										v-for="cat in expenseCategories"
-										:key="cat"
-										:value="cat"
-									>
+									<option value="">Select category</option>
+									<option v-for="cat in expenseCategories" :key="cat" :value="cat">
 										{{ cat }}
 									</option>
 								</select>
@@ -169,23 +117,21 @@
 
 							<!-- Description -->
 							<div class="md:col-span-3">
-								<label
-									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
-								>Description</label>
+								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1"
+									>Description</label
+								>
 								<input
 									v-model="line.description"
 									type="text"
 									placeholder="Brief description"
 									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 									required
-								>
+								/>
 							</div>
 
 							<!-- Amount -->
 							<div class="md:col-span-2">
-								<label
-									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
-								>Amount (€)</label>
+								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Amount (€)</label>
 								<input
 									v-model.number="line.amount"
 									type="number"
@@ -194,14 +140,12 @@
 									placeholder="0.00"
 									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
 									required
-								>
+								/>
 							</div>
 
 							<!-- Receipt -->
 							<div class="md:col-span-2">
-								<label
-									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
-								>Receipt</label>
+								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Receipt</label>
 								<div class="relative">
 									<input
 										:id="`receipt-${line.id}`"
@@ -209,12 +153,12 @@
 										accept="image/*,.pdf"
 										class="hidden"
 										@change="handleFileUpload($event, index)"
-									>
+									/>
 									<label
 										:for="`receipt-${line.id}`"
 										class="w-full px-3 py-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 text-sm text-gray-600 text-center block"
 									>
-										{{ line.receipt_name || "Choose file" }}
+										{{ line.receipt_name || 'Choose file' }}
 									</label>
 								</div>
 							</div>
@@ -227,12 +171,7 @@
 									title="Remove item"
 									@click="removeExpenseLine(index)"
 								>
-									<svg
-										class="w-5 h-5"
-										fill="none"
-										stroke="currentColor"
-										viewBox="0 0 24 24"
-									>
+									<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path
 											stroke-linecap="round"
 											stroke-linejoin="round"
@@ -281,19 +220,8 @@
 				>
 					<span v-if="!isSubmitting">Submit Expenses</span>
 					<span v-else class="flex items-center">
-						<svg
-							class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-							fill="none"
-							viewBox="0 0 24 24"
-						>
-							<circle
-								class="opacity-25"
-								cx="12"
-								cy="12"
-								r="10"
-								stroke="currentColor"
-								stroke-width="4"
-							/>
+						<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
 							<path
 								class="opacity-75"
 								fill="currentColor"
@@ -307,32 +235,15 @@
 		</div>
 
 		<!-- Success Message -->
-		<div
-			v-if="showSuccess"
-			class="fixed inset-0 flex items-center justify-center z-50"
-		>
+		<div v-if="showSuccess" class="fixed inset-0 flex items-center justify-center z-50">
 			<div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
 			<div class="bg-white rounded-lg p-6 max-w-sm mx-auto relative z-10">
-				<div
-					class="flex items-center justify-center w-12 h-12 mx-auto bg-green-100 rounded-full mb-4"
-				>
-					<svg
-						class="w-6 h-6 text-green-600"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M5 13l4 4L19 7"
-						/>
+				<div class="flex items-center justify-center w-12 h-12 mx-auto bg-green-100 rounded-full mb-4">
+					<svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
 					</svg>
 				</div>
-				<h3 class="text-lg font-medium text-gray-900 text-center mb-2">
-					Expenses Submitted!
-				</h3>
+				<h3 class="text-lg font-medium text-gray-900 text-center mb-2">Expenses Submitted!</h3>
 				<p class="text-sm text-gray-500 text-center mb-4">
 					{{ successMessage }}
 				</p>
@@ -373,10 +284,7 @@ export default {
 		});
 
 		const totalAmount = computed(() => {
-			return expenseLines.value.reduce(
-				(sum, line) => sum + (parseFloat(line.amount) || 0),
-				0
-			);
+			return expenseLines.value.reduce((sum, line) => sum + (parseFloat(line.amount) || 0), 0);
 		});
 
 		const isFormValid = computed(() => {
@@ -398,12 +306,7 @@ export default {
 
 			// Check each expense line
 			return expenseLines.value.every((line) => {
-				return (
-					line.expense_date
-          && line.category
-          && line.description
-          && line.amount > 0
-				);
+				return line.expense_date && line.category && line.description && line.amount > 0;
 			});
 		});
 
@@ -411,8 +314,7 @@ export default {
 		const loadUserData = async () => {
 			try {
 				const response = await frappe.call({
-					method:
-            'verenigingen.api.volunteer.expenses.get_volunteer_expense_context'
+					method: 'verenigingen.api.volunteer.expenses.get_volunteer_expense_context'
 				});
 
 				if (response.message) {
@@ -506,16 +408,14 @@ export default {
 					expense_date: line.expense_date,
 					organization_type: organizationType.value,
 					category: line.category,
-					chapter:
-            organizationType.value === 'Chapter' ? selectedChapter.value : null,
+					chapter: organizationType.value === 'Chapter' ? selectedChapter.value : null,
 					team: organizationType.value === 'Team' ? selectedTeam.value : null,
 					notes: line.notes || null,
 					receipt_attachment: line.receipt_attachment
 				}));
 
 				const response = await frappe.call({
-					method:
-            'verenigingen.api.volunteer.expenses.submit_multiple_expenses',
+					method: 'verenigingen.api.volunteer.expenses.submit_multiple_expenses',
 					args: {
 						expenses
 					}
@@ -526,9 +426,7 @@ export default {
 					showSuccess.value = true;
 					clearForm();
 				} else {
-					throw new Error(
-						response.message?.error || 'Failed to submit expenses'
-					);
+					throw new Error(response.message?.error || 'Failed to submit expenses');
 				}
 			} catch (error) {
 				frappe.msgprint({
@@ -579,40 +477,40 @@ export default {
 
 <style scoped>
 .expense-claim-form {
-  @apply max-w-6xl mx-auto p-6;
+	@apply max-w-6xl mx-auto p-6;
 }
 
 .form-header {
-  @apply border-b border-gray-200 pb-4;
+	@apply border-b border-gray-200 pb-4;
 }
 
 .expense-line {
-  @apply transition-all duration-200;
+	@apply transition-all duration-200;
 }
 
 .expense-line:hover {
-  @apply shadow-md;
+	@apply shadow-md;
 }
 
 /* Custom scrollbar for expense lines */
 .expense-lines {
-  max-height: 600px;
-  overflow-y: auto;
+	max-height: 600px;
+	overflow-y: auto;
 }
 
 .expense-lines::-webkit-scrollbar {
-  width: 8px;
+	width: 8px;
 }
 
 .expense-lines::-webkit-scrollbar-track {
-  @apply bg-gray-100 rounded;
+	@apply bg-gray-100 rounded;
 }
 
 .expense-lines::-webkit-scrollbar-thumb {
-  @apply bg-gray-400 rounded;
+	@apply bg-gray-400 rounded;
 }
 
 .expense-lines::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-500;
+	@apply bg-gray-500;
 }
 </style>

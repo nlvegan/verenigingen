@@ -29,8 +29,7 @@
  * @requires frappe.listview_settings
  */
 
-frappe.listview_settings['Bank Transaction']
-  = frappe.listview_settings['Bank Transaction'] || {};
+frappe.listview_settings['Bank Transaction'] = frappe.listview_settings['Bank Transaction'] || {};
 
 /**
  * Bank Transaction List View Enhancement
@@ -42,11 +41,11 @@ frappe.listview_settings['Bank Transaction']
  */
 frappe.listview_settings['Bank Transaction'].onload = function (listview) {
 	/**
-   * Add MT940 Import Menu Item
-   *
-   * Provides access to MT940 statement import functionality directly
-   * from the bank transaction list view for improved workflow efficiency.
-   */
+	 * Add MT940 Import Menu Item
+	 *
+	 * Provides access to MT940 statement import functionality directly
+	 * from the bank transaction list view for improved workflow efficiency.
+	 */
 	listview.page.add_menu_item(
 		__('Import MT940 File'),
 		() => {
@@ -57,11 +56,11 @@ frappe.listview_settings['Bank Transaction'].onload = function (listview) {
 	);
 
 	/**
-   * Add Primary MT940 Import Action
-   *
-   * Prominent button for frequent MT940 import operations,
-   * maintaining user context within the current session.
-   */
+	 * Add Primary MT940 Import Action
+	 *
+	 * Prominent button for frequent MT940 import operations,
+	 * maintaining user context within the current session.
+	 */
 	listview.page.add_primary_action(
 		__('Import MT940'),
 		() => {

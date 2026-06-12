@@ -34,17 +34,23 @@
  */
 window.verenigingen = window.verenigingen || {};
 window.verenigingen.suppressPasswordAutofill = function (frm, fieldnames) {
-	if (!frm || !Array.isArray(fieldnames)) { return; }
+	if (!frm || !Array.isArray(fieldnames)) {
+		return;
+	}
 
 	fieldnames.forEach((fn) => {
 		const field = frm.fields_dict[fn];
 		const $input = field && field.$input;
-		if (!$input || !$input.length) { return; }
+		if (!$input || !$input.length) {
+			return;
+		}
 
 		// Flag so we don't re-apply on every refresh (Frappe re-renders
 		// fields on various events; re-randomising the name on each call
 		// would churn the DOM unnecessarily).
-		if ($input.data('vv-autofill-suppressed')) { return; }
+		if ($input.data('vv-autofill-suppressed')) {
+			return;
+		}
 		$input.data('vv-autofill-suppressed', true);
 
 		const random_name = `${fn}_${Math.random().toString(36).slice(2)}`;
@@ -61,9 +67,13 @@ window.verenigingen.suppressPasswordAutofill = function (frm, fieldnames) {
 		// the user has started typing. A second 100ms clear catches Chrome's
 		// delayed autofill which sometimes fires after DOM attach.
 		const clear_if_spurious = () => {
-			if ($input.is(':focus')) { return; }
+			if ($input.is(':focus')) {
+				return;
+			}
 			const input_val = $input.val();
-			if (!input_val) { return; }
+			if (!input_val) {
+				return;
+			}
 			const doc_val = frm.doc[fn] || '';
 			// Frappe renders Password fields with masked placeholder text
 			// when a value exists on the saved doc; only clear if the doc

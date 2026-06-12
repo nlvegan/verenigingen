@@ -67,8 +67,8 @@ class StepManager {
 	}
 
 	/**
-   * Initialize step definitions
-   */
+	 * Initialize step definitions
+	 */
 	_initializeSteps() {
 		return {
 			1: {
@@ -120,8 +120,8 @@ class StepManager {
 	}
 
 	/**
-   * Initialize UI elements
-   */
+	 * Initialize UI elements
+	 */
 	_initializeUI() {
 		this._createStepIndicator();
 		this._createNavigationButtons();
@@ -129,8 +129,8 @@ class StepManager {
 	}
 
 	/**
-   * Create step indicator UI
-   */
+	 * Create step indicator UI
+	 */
 	_createStepIndicator() {
 		const $container = $('.step-indicator-container');
 		if ($container.length === 0) {
@@ -170,8 +170,8 @@ class StepManager {
 	}
 
 	/**
-   * Create navigation buttons
-   */
+	 * Create navigation buttons
+	 */
 	_createNavigationButtons() {
 		const $container = $('.step-navigation-container');
 		if ($container.length === 0) {
@@ -199,8 +199,8 @@ class StepManager {
 	}
 
 	/**
-   * Bind events
-   */
+	 * Bind events
+	 */
 	_bindEvents() {
 		// Navigation buttons
 		$(document).on('click', '#btn-next', () => this.nextStep());
@@ -228,8 +228,8 @@ class StepManager {
 	}
 
 	/**
-   * Navigate to next step
-   */
+	 * Navigate to next step
+	 */
 	async nextStep() {
 		if (this.currentStep >= this.options.totalSteps) {
 			return;
@@ -251,8 +251,8 @@ class StepManager {
 	}
 
 	/**
-   * Navigate to previous step
-   */
+	 * Navigate to previous step
+	 */
 	async previousStep() {
 		if (this.currentStep <= 1) {
 			return;
@@ -267,8 +267,8 @@ class StepManager {
 	}
 
 	/**
-   * Go directly to a specific step
-   */
+	 * Go directly to a specific step
+	 */
 	async goToStep(stepNumber) {
 		if (!this._isValidStepNumber(stepNumber)) {
 			return;
@@ -311,8 +311,8 @@ class StepManager {
 	}
 
 	/**
-   * Validate current step
-   */
+	 * Validate current step
+	 */
 	async validateCurrentStep() {
 		const step = this.steps[this.currentStep];
 		if (!step) {
@@ -323,10 +323,7 @@ class StepManager {
 		const stepData = this._getCurrentStepData();
 
 		// Validate step fields
-		const validationResult = await this.validation.validateStep(
-			this.currentStep,
-			stepData
-		);
+		const validationResult = await this.validation.validateStep(this.currentStep, stepData);
 
 		// Store validation results
 		this.stepValidationResults[this.currentStep] = validationResult;
@@ -338,15 +335,13 @@ class StepManager {
 	}
 
 	/**
-   * Submit application
-   */
+	 * Submit application
+	 */
 	async submitApplication() {
 		// Validate all steps
 		const allValid = await this._validateAllSteps();
 		if (!allValid) {
-			this._showSubmissionError(
-				'Please complete all required steps before submitting'
-			);
+			this._showSubmissionError('Please complete all required steps before submitting');
 			return;
 		}
 
@@ -358,38 +353,34 @@ class StepManager {
 	}
 
 	/**
-   * Get current step data from form
-   */
+	 * Get current step data from form
+	 */
 	_getCurrentStepData() {
-		const $currentStepContainer = $(
-			`.step-content[data-step="${this.currentStep}"]`
-		);
+		const $currentStepContainer = $(`.step-content[data-step="${this.currentStep}"]`);
 		const data = {};
 
-		$currentStepContainer
-			.find('input, select, textarea')
-			.each((index, element) => {
-				const $element = $(element);
-				const name = $element.attr('name');
-				if (name) {
-					if ($element.attr('type') === 'checkbox') {
-						data[name] = $element.is(':checked');
-					} else if ($element.attr('type') === 'radio') {
-						if ($element.is(':checked')) {
-							data[name] = $element.val();
-						}
-					} else {
+		$currentStepContainer.find('input, select, textarea').each((index, element) => {
+			const $element = $(element);
+			const name = $element.attr('name');
+			if (name) {
+				if ($element.attr('type') === 'checkbox') {
+					data[name] = $element.is(':checked');
+				} else if ($element.attr('type') === 'radio') {
+					if ($element.is(':checked')) {
 						data[name] = $element.val();
 					}
+				} else {
+					data[name] = $element.val();
 				}
-			});
+			}
+		});
 
 		return data;
 	}
 
 	/**
-   * Save current step data
-   */
+	 * Save current step data
+	 */
 	async _saveCurrentStepData() {
 		const stepData = this._getCurrentStepData();
 		this.stepData[this.currentStep] = stepData;
@@ -401,8 +392,8 @@ class StepManager {
 	}
 
 	/**
-   * Load step data
-   */
+	 * Load step data
+	 */
 	async _loadStepData(stepNumber) {
 		const savedData = this.stepData[stepNumber];
 		if (!savedData) {
@@ -427,8 +418,8 @@ class StepManager {
 	}
 
 	/**
-   * UI update methods
-   */
+	 * UI update methods
+	 */
 	_showStep(stepNumber) {
 		$(`.step-content[data-step="${stepNumber}"]`).show().addClass('active');
 		$('body').attr('data-current-step', stepNumber);
@@ -446,10 +437,7 @@ class StepManager {
 		Object.entries(this.stepValidationResults).forEach(([step, result]) => {
 			const $stepItem = $(`.step-item[data-step="${step}"]`);
 			$stepItem.toggleClass('completed', result.valid);
-			$stepItem.toggleClass(
-				'has-errors',
-				!result.valid && result.errors?.length > 0
-			);
+			$stepItem.toggleClass('has-errors', !result.valid && result.errors?.length > 0);
 		});
 	}
 
@@ -495,8 +483,8 @@ class StepManager {
 	}
 
 	/**
-   * Utility methods
-   */
+	 * Utility methods
+	 */
 	_isValidStepNumber(stepNumber) {
 		return stepNumber >= 1 && stepNumber <= this.options.totalSteps;
 	}
@@ -510,10 +498,7 @@ class StepManager {
 		if (stepNumber <= this.currentStep) {
 			return true;
 		}
-		if (
-			stepNumber === this.currentStep + 1
-      && this.stepValidationResults[this.currentStep]?.valid
-		) {
+		if (stepNumber === this.currentStep + 1 && this.stepValidationResults[this.currentStep]?.valid) {
 			return true;
 		}
 
@@ -592,8 +577,8 @@ class StepManager {
 	}
 
 	/**
-   * Public API
-   */
+	 * Public API
+	 */
 	getCurrentStep() {
 		return this.currentStep;
 	}
@@ -611,9 +596,7 @@ class StepManager {
 	}
 
 	getProgress() {
-		const completedSteps = Object.values(this.stepValidationResults).filter(
-			(r) => r.valid
-		).length;
+		const completedSteps = Object.values(this.stepValidationResults).filter((r) => r.valid).length;
 		return {
 			current: this.currentStep,
 			total: this.options.totalSteps,

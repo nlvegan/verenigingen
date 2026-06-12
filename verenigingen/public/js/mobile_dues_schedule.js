@@ -108,9 +108,7 @@ class MobileDuesSchedule {
 
 		// Initialize on DOM ready
 		if (document.readyState === 'loading') {
-			document.addEventListener('DOMContentLoaded', () =>
-				this.initializeMobileFeatures()
-			);
+			document.addEventListener('DOMContentLoaded', () => this.initializeMobileFeatures());
 		} else {
 			this.initializeMobileFeatures();
 		}
@@ -201,10 +199,7 @@ class MobileDuesSchedule {
 				const deltaY = currentY - startY;
 
 				// Check if it's a horizontal swipe
-				if (
-					Math.abs(deltaX) > Math.abs(deltaY)
-          && Math.abs(deltaX) > swipeThreshold
-				) {
+				if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
 					this.handleTabSwipe(deltaX > 0 ? 'right' : 'left');
 				}
 
@@ -279,9 +274,7 @@ class MobileDuesSchedule {
 	}
 
 	handleCalendarSwipe(direction) {
-		const button = document.querySelector(
-			direction === 'prev' ? '#prev-month' : '#next-month'
-		);
+		const button = document.querySelector(direction === 'prev' ? '#prev-month' : '#next-month');
 		if (button) {
 			button.click();
 			this.showSwipeIndicator(direction === 'prev' ? 'right' : 'left');
@@ -348,11 +341,7 @@ class MobileDuesSchedule {
 		if (window.visualViewport) {
 			window.visualViewport.addEventListener('resize', () => {
 				const focusedElement = document.activeElement;
-				if (
-					focusedElement
-          && (focusedElement.tagName === 'INPUT'
-            || focusedElement.tagName === 'TEXTAREA')
-				) {
+				if (focusedElement && (focusedElement.tagName === 'INPUT' || focusedElement.tagName === 'TEXTAREA')) {
 					setTimeout(() => {
 						focusedElement.scrollIntoView({
 							behavior: 'smooth',
@@ -457,8 +446,7 @@ class MobileDuesSchedule {
 
 		const text = indicator.querySelector('.pull-text');
 		if (text) {
-			text.textContent
-        = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
+			text.textContent = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
 		}
 	}
 
@@ -684,8 +672,8 @@ class MobileDuesSchedule {
 		const skipLink = document.createElement('a');
 		skipLink.href = '#main-content';
 		skipLink.textContent = 'Skip to main content';
-		skipLink.className
-      = 'sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-primary focus:text-white focus:p-2';
+		skipLink.className =
+			'sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-primary focus:text-white focus:p-2';
 		document.body.insertBefore(skipLink, document.body.firstChild);
 
 		// Announce page changes
@@ -769,8 +757,7 @@ class MobileDuesSchedule {
 
 	addLandmarks() {
 		// Add ARIA landmarks for better navigation
-		const main
-      = document.querySelector('main') || document.querySelector('.main-content');
+		const main = document.querySelector('main') || document.querySelector('.main-content');
 		if (main) {
 			main.setAttribute('role', 'main');
 			main.setAttribute('aria-label', 'Main content');
@@ -866,8 +853,7 @@ class MobileDuesSchedule {
 
 	optimizeAnimations() {
 		// Disable animations on slower devices
-		const isSlowDevice
-      = navigator.hardwareConcurrency < 4 || navigator.deviceMemory < 4;
+		const isSlowDevice = navigator.hardwareConcurrency < 4 || navigator.deviceMemory < 4;
 
 		if (isSlowDevice) {
 			const style = document.createElement('style');
@@ -892,9 +878,7 @@ class MobileDuesSchedule {
 			});
 		});
 
-		const animatedElements = document.querySelectorAll(
-			'.financial-card, .quick-action'
-		);
+		const animatedElements = document.querySelectorAll('.financial-card, .quick-action');
 		animatedElements.forEach((el) => observer.observe(el));
 	}
 
@@ -944,10 +928,7 @@ class MobileDuesSchedule {
 	updateScrollPosition() {
 		// Update scroll position for various elements
 		const scrollTop = window.pageYOffset;
-		document.documentElement.style.setProperty(
-			'--scroll-top',
-			`${scrollTop}px`
-		);
+		document.documentElement.style.setProperty('--scroll-top', `${scrollTop}px`);
 	}
 
 	manageScrollBasedElements() {

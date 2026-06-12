@@ -57,9 +57,7 @@ function enhance_chapter_history_table(frm) {
 	}
 
 	// Add custom styling and functionality to the chapter membership history table
-	frm.fields_dict.chapter_membership_history.grid.get_field(
-		'status'
-	).get_query = function () {
+	frm.fields_dict.chapter_membership_history.grid.get_field('status').get_query = function () {
 		return {
 			filters: [['name', 'in', ['Active', 'Completed', 'Quit']]]
 		};
@@ -85,28 +83,17 @@ function enhance_chapter_history_table(frm) {
 }
 
 function add_chapter_history_insights(frm) {
-	if (
-		!frm.doc.chapter_membership_history
-    || frm.doc.chapter_membership_history.length === 0
-	) {
+	if (!frm.doc.chapter_membership_history || frm.doc.chapter_membership_history.length === 0) {
 		return;
 	}
 
 	// Count active vs completed memberships
-	const active_count = frm.doc.chapter_membership_history.filter(
-		(h) => h.status === 'Active'
-	).length;
-	const completed_count = frm.doc.chapter_membership_history.filter(
-		(h) => h.status === 'Completed'
-	).length;
-	const terminated_count = frm.doc.chapter_membership_history.filter(
-		(h) => h.status === 'Quit'
-	).length;
+	const active_count = frm.doc.chapter_membership_history.filter((h) => h.status === 'Active').length;
+	const completed_count = frm.doc.chapter_membership_history.filter((h) => h.status === 'Completed').length;
+	const terminated_count = frm.doc.chapter_membership_history.filter((h) => h.status === 'Quit').length;
 
 	// Get unique chapters
-	const chapters = [
-		...new Set(frm.doc.chapter_membership_history.map((h) => h.chapter_name))
-	];
+	const chapters = [...new Set(frm.doc.chapter_membership_history.map((h) => h.chapter_name))];
 
 	// Add insights HTML after the chapter membership history section
 	const insights_html = `

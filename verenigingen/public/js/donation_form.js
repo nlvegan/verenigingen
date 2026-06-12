@@ -181,18 +181,14 @@ function showStep(stepNumber) {
 	// Check for success step - handle both string and any truthy value
 	if (stepNumber === 'success' || stepNumber === 6) {
 		// Find success step by data-step attribute
-		currentStepElement = document.querySelector(
-			'.form-step[data-step="success"]'
-		);
+		currentStepElement = document.querySelector('.form-step[data-step="success"]');
 		if (!currentStepElement) {
 			// Try as step 6 since it's the 6th form step
 			currentStepElement = document.querySelector('.form-step[data-step="6"]');
 		}
 	} else {
 		// Regular numbered step
-		currentStepElement = document.querySelector(
-			`.form-step[data-step="${stepNumber}"]`
-		);
+		currentStepElement = document.querySelector(`.form-step[data-step="${stepNumber}"]`);
 	}
 
 	if (currentStepElement) {
@@ -256,10 +252,7 @@ function validateCurrentStep() {
 	if (window.currentStep === 1) {
 		const amount = parseFloat(document.getElementById('amount').value);
 		if (!amount || amount <= 0) {
-			showFieldError(
-				document.getElementById('amount'),
-				__('Amount must be greater than zero')
-			);
+			showFieldError(document.getElementById('amount'), __('Amount must be greater than zero'));
 			isValid = false;
 		}
 	}
@@ -267,18 +260,13 @@ function validateCurrentStep() {
 	if (window.currentStep === 3) {
 		const email = document.querySelector('[name="donor_email"]').value;
 		if (!isValidEmail(email)) {
-			showFieldError(
-				document.querySelector('[name="donor_email"]'),
-				__('Please enter a valid email address')
-			);
+			showFieldError(document.querySelector('[name="donor_email"]'), __('Please enter a valid email address'));
 			isValid = false;
 		}
 	}
 
 	if (window.currentStep === 4) {
-		const selectedPayment = document.querySelector(
-			'[name="payment_method"]:checked'
-		);
+		const selectedPayment = document.querySelector('[name="payment_method"]:checked');
 		if (!selectedPayment) {
 			showAlert(__('Please select a payment method'), 'danger');
 			isValid = false;
@@ -477,12 +465,9 @@ function populateConfirmation() {
 
 	// Get payment method text
 	let paymentMethodText = window.formData.payment_method || 'Not selected';
-	const selectedPaymentElement = document.querySelector(
-		'[name="payment_method"]:checked'
-	);
+	const selectedPaymentElement = document.querySelector('[name="payment_method"]:checked');
 	if (selectedPaymentElement) {
-		const paymentMethodContainer
-      = selectedPaymentElement.closest('.payment-method');
+		const paymentMethodContainer = selectedPaymentElement.closest('.payment-method');
 		if (paymentMethodContainer) {
 			const labelElement = paymentMethodContainer.querySelector('h5');
 			if (labelElement) {
@@ -496,8 +481,7 @@ function populateConfirmation() {
 	let nextPaymentText = '';
 
 	if (donationStatus === 'Recurring') {
-		const subscriptionInterval
-      = window.formData.subscription_interval || '1 month';
+		const subscriptionInterval = window.formData.subscription_interval || '1 month';
 
 		// Convert billing cycle to readable format
 		frequencyText = getFrequencyDisplayText(subscriptionInterval);
@@ -591,7 +575,7 @@ function submitDonation() {
 
 			// Handle OperationResult format
 			const data = unwrapOperationResult(response.message);
-			if (data && (data.success !== false)) {
+			if (data && data.success !== false) {
 				showSuccessStep(data);
 			} else {
 				const errorMsg = verenigingen.utils.getErrorMessage(response.message, __('An error occurred'));
@@ -603,12 +587,7 @@ function submitDonation() {
 			submitText.style.display = 'inline-block';
 			submitLoading.style.display = 'none';
 
-			showAlert(
-				__(
-					'An error occurred while submitting your donation. Please try again.'
-				),
-				'danger'
-			);
+			showAlert(__('An error occurred while submitting your donation. Please try again.'), 'danger');
 		}
 	});
 }
@@ -646,8 +625,8 @@ function showSuccessStep(response) {
                 <p class="text-info">${response.payment_info.instructions}</p>
             `;
 		} else if (
-			response.payment_info.status === 'subscription_redirect_required'
-      && response.payment_info.payment_url
+			response.payment_info.status === 'subscription_redirect_required' &&
+			response.payment_info.payment_url
 		) {
 			// Handle Mollie subscription redirect
 			successContent += `
@@ -669,10 +648,7 @@ function showSuccessStep(response) {
 			setTimeout(() => {
 				window.open(response.payment_info.payment_url, '_self');
 			}, 3000);
-		} else if (
-			response.payment_info.status === 'redirect_required'
-      && response.payment_info.payment_url
-		) {
+		} else if (response.payment_info.status === 'redirect_required' && response.payment_info.payment_url) {
 			// Handle regular Mollie payment redirect
 			successContent += `
                 <div class="alert alert-info">
@@ -800,13 +776,10 @@ function toggleAnbiFields() {
 	if (checkbox.checked) {
 		fields.style.display = 'block';
 		// Auto-generate ANBI agreement number if empty
-		const numberField = document.querySelector(
-			'[name="anbi_agreement_number"]'
-		);
+		const numberField = document.querySelector('[name="anbi_agreement_number"]');
 		if (!numberField.value) {
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.donation.donation.generate_anbi_agreement_number',
+				method: 'verenigingen.verenigingen.doctype.donation.donation.generate_anbi_agreement_number',
 				callback(response) {
 					if (response.message) {
 						numberField.value = response.message;

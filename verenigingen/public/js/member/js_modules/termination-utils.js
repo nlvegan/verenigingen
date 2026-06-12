@@ -63,7 +63,7 @@ function show_termination_dialog(member_id, member_name) {
 					fieldtype: 'Select',
 					label: __('Termination Type'),
 					options:
-            'Voluntary\nNon-payment\nDeceased\n--- Disciplinary ---\nPolicy Violation\nDisciplinary Action\nExpulsion',
+						'Voluntary\nNon-payment\nDeceased\n--- Disciplinary ---\nPolicy Violation\nDisciplinary Action\nExpulsion',
 					reqd: 1,
 					onchange() {
 						update_termination_dialog_fields(dialog);
@@ -79,7 +79,9 @@ function show_termination_dialog(member_id, member_name) {
 					fieldname: 'member_request_date',
 					fieldtype: 'Date',
 					label: __('Member Request Date'),
-					description: __('Date when member indicated they want to leave (for voluntary/deceased terminations)'),
+					description: __(
+						'Date when member indicated they want to leave (for voluntary/deceased terminations)'
+					),
 					depends_on: 'eval:["Voluntary", "Deceased"].includes(doc.termination_type)'
 				},
 				{
@@ -105,13 +107,16 @@ function show_termination_dialog(member_id, member_name) {
 					fieldname: 'deactivate_sepa_mandates',
 					fieldtype: 'Check',
 					label: __('Cancel Payment Mandates'),
-					default: (impact_data.sepa_mandates > 0 || impact_data.mollie_mandates > 0) ? 1 : 0,
+					default: impact_data.sepa_mandates > 0 || impact_data.mollie_mandates > 0 ? 1 : 0,
 					description: (() => {
 						const sepa_count = impact_data.sepa_mandates || 0;
 						const mollie_count = impact_data.mollie_mandates || 0;
 
 						if (sepa_count > 0 && mollie_count > 0) {
-							return __('Will cancel {0} SEPA mandate(s) and {1} Mollie mandate(s)', [sepa_count, mollie_count]);
+							return __('Will cancel {0} SEPA mandate(s) and {1} Mollie mandate(s)', [
+								sepa_count,
+								mollie_count
+							]);
 						} else if (sepa_count > 0) {
 							return __('Will cancel {0} SEPA mandate(s)', [sepa_count]);
 						} else if (mollie_count > 0) {
@@ -127,23 +132,24 @@ function show_termination_dialog(member_id, member_name) {
 					label: __('End Board Positions'),
 					default: impact_data.board_positions > 0 ? 1 : 0,
 					description:
-            impact_data.board_positions > 0
-            	? __('Will end {0} active board position(s)', [
-            		impact_data.board_positions
-            	])
-            	: __('No active board positions found')
+						impact_data.board_positions > 0
+							? __('Will end {0} active board position(s)', [impact_data.board_positions])
+							: __('No active board positions found')
 				},
 				{
 					fieldname: 'cancel_memberships_and_subscriptions',
 					fieldtype: 'Check',
 					label: __('Cancel Memberships & Subscriptions'),
-					default: (impact_data.active_memberships > 0 || (impact_data.active_dues_schedules || 0) > 0) ? 1 : 0,
+					default: impact_data.active_memberships > 0 || (impact_data.active_dues_schedules || 0) > 0 ? 1 : 0,
 					description: (() => {
 						const memberships = impact_data.active_memberships || 0;
 						const schedules = impact_data.active_dues_schedules || 0;
 
 						if (memberships > 0 && schedules > 0) {
-							return __('Will cancel {0} membership(s) and {1} dues schedule(s)', [memberships, schedules]);
+							return __('Will cancel {0} membership(s) and {1} dues schedule(s)', [
+								memberships,
+								schedules
+							]);
 						} else if (memberships > 0) {
 							return __('Will cancel {0} membership(s)', [memberships]);
 						} else if (schedules > 0) {
@@ -159,11 +165,11 @@ function show_termination_dialog(member_id, member_name) {
 					label: __('Annotate Outstanding Invoices'),
 					default: impact_data.outstanding_invoices > 0 ? 1 : 0,
 					description:
-            impact_data.outstanding_invoices > 0
-            	? __('Will add termination note to {0} outstanding invoice(s)', [
-            		impact_data.outstanding_invoices
-            	])
-            	: __('No outstanding invoices found')
+						impact_data.outstanding_invoices > 0
+							? __('Will add termination note to {0} outstanding invoice(s)', [
+									impact_data.outstanding_invoices
+								])
+							: __('No outstanding invoices found')
 				},
 				{
 					fieldname: 'cancel_outstanding_invoices',
@@ -171,17 +177,17 @@ function show_termination_dialog(member_id, member_name) {
 					label: __('Cancel Outstanding Invoices'),
 					default: 0,
 					description:
-            impact_data.outstanding_invoices > 0
-            	? __('⚠️ Will cancel {0} outstanding invoice(s) - cannot be undone', [
-            		impact_data.outstanding_invoices
-            	])
-            	: __('No outstanding invoices found')
+						impact_data.outstanding_invoices > 0
+							? __('⚠️ Will cancel {0} outstanding invoice(s) - cannot be undone', [
+									impact_data.outstanding_invoices
+								])
+							: __('No outstanding invoices found')
 				},
 				{
 					fieldtype: 'Section Break',
 					label: __('Disciplinary Actions'),
 					depends_on:
-            'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(doc.termination_type)'
+						'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(doc.termination_type)'
 				},
 				{
 					fieldname: 'appeal_deadline',
@@ -190,7 +196,7 @@ function show_termination_dialog(member_id, member_name) {
 					default: frappe.datetime.add_days(frappe.datetime.get_today(), 30),
 					description: __('Last date for filing appeals'),
 					depends_on:
-            'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(doc.termination_type)'
+						'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(doc.termination_type)'
 				},
 				{
 					fieldname: 'disciplinary_documentation',
@@ -198,7 +204,7 @@ function show_termination_dialog(member_id, member_name) {
 					label: __('Disciplinary Documentation'),
 					description: __('Reference to supporting documentation'),
 					depends_on:
-            'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(doc.termination_type)'
+						'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(doc.termination_type)'
 				}
 			],
 			primary_action_label: __('Create Termination Request'),
@@ -236,11 +242,7 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 	};
 
 	// Add disciplinary fields if applicable
-	const disciplinary_types = [
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	];
+	const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
 	const is_disciplinary = disciplinary_types.includes(values.termination_type);
 
 	if (is_disciplinary) {
@@ -248,15 +250,11 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 			termination_data.appeal_deadline = values.appeal_deadline;
 		}
 		if (values.disciplinary_documentation) {
-			termination_data.disciplinary_documentation
-        = values.disciplinary_documentation;
+			termination_data.disciplinary_documentation = values.disciplinary_documentation;
 		}
 	}
 
-	const confirmation_msg = create_confirmation_message(
-		values,
-		termination_data
-	);
+	const confirmation_msg = create_confirmation_message(values, termination_data);
 
 	frappe.confirm(confirmation_msg, () => {
 		frappe.call({
@@ -267,11 +265,7 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 			callback(r) {
 				if (r.message) {
 					dialog.hide();
-					frappe.set_route(
-						'Form',
-						'Membership Termination Request',
-						r.message.name
-					);
+					frappe.set_route('Form', 'Membership Termination Request', r.message.name);
 					frappe.show_alert(
 						{
 							message: __('Termination request created successfully'),
@@ -286,9 +280,7 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 }
 
 function create_confirmation_message(values, termination_data) {
-	let msg = __('Are you sure you want to terminate membership for {0}?', [
-		values.member_name || 'this member'
-	]);
+	let msg = __('Are you sure you want to terminate membership for {0}?', [values.member_name || 'this member']);
 
 	msg += `<br><br><strong>${__('Termination Details:')}</strong><br>`;
 	msg += `${__('Type: {0}', [values.termination_type])}<br>`;
@@ -328,8 +320,7 @@ function create_confirmation_message(values, termination_data) {
 
 function show_termination_history(member_id) {
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_member_termination_history',
+		method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_member_termination_history',
 		args: {
 			member: member_id
 		},
@@ -365,11 +356,9 @@ function display_termination_history_dialog(termination_records) {
 				Cancelled: 'red'
 			};
 
-			const type_color = [
-				'Policy Violation',
-				'Disciplinary Action',
-				'Expulsion'
-			].includes(record.termination_type)
+			const type_color = ['Policy Violation', 'Disciplinary Action', 'Expulsion'].includes(
+				record.termination_type
+			)
 				? 'red'
 				: 'blue';
 
@@ -402,10 +391,9 @@ function display_termination_history_dialog(termination_records) {
 }
 
 function generate_impact_assessment_html(impact_data) {
-	let html
-    = '<div class="impact-assessment" style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">';
-	html
-    += '<h5 style="margin: 0 0 15px 0; color: #495057;">📊 Termination Impact Assessment</h5>';
+	let html =
+		'<div class="impact-assessment" style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">';
+	html += '<h5 style="margin: 0 0 15px 0; color: #495057;">📊 Termination Impact Assessment</h5>';
 
 	const impacts = [
 		{ label: 'SEPA Mandates', count: impact_data.sepa_mandates, icon: '💳' },
@@ -465,10 +453,9 @@ function generate_impact_assessment_html(impact_data) {
 	html += '</div>';
 
 	if (!impact_data.customer_linked) {
-		html
-      += '<div style="background: #fff3cd; padding: 8px; margin-top: 10px; border-radius: 3px; font-size: 13px;">';
-		html
-      += '⚠️ <strong>Note:</strong> No customer account linked - some system updates may not apply.';
+		html +=
+			'<div style="background: #fff3cd; padding: 8px; margin-top: 10px; border-radius: 3px; font-size: 13px;">';
+		html += '⚠️ <strong>Note:</strong> No customer account linked - some system updates may not apply.';
 		html += '</div>';
 	}
 
@@ -478,8 +465,7 @@ function generate_impact_assessment_html(impact_data) {
 
 function get_termination_impact(member_id, callback) {
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_termination_impact_preview',
+		method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_termination_impact_preview',
 		args: {
 			member: member_id
 		},

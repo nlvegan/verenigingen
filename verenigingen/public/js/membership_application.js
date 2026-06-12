@@ -108,10 +108,12 @@ function getBillingPeriod(membershipType, defaultValue = 'year') {
 	if (!membershipType) {
 		return defaultValue;
 	}
-	return membershipType.billing_frequency
-		|| membershipType.billing_period
-		|| membershipType.legacy_period
-		|| defaultValue;
+	return (
+		membershipType.billing_frequency ||
+		membershipType.billing_period ||
+		membershipType.legacy_period ||
+		defaultValue
+	);
 }
 
 // Form Validator class - needed by BaseStep
@@ -223,19 +225,11 @@ class _MembershipApplication {
 			});
 		}
 
-		if (
-			typeof StepManager !== 'undefined'
-      && this.validationService
-      && this.storageService
-		) {
-			this.stepManager = new StepManager(
-				this.validationService,
-				this.storageService,
-				{
-					totalSteps: this.config.maxSteps,
-					autoSave: this.config.enableAutoSave
-				}
-			);
+		if (typeof StepManager !== 'undefined' && this.validationService && this.storageService) {
+			this.stepManager = new StepManager(this.validationService, this.storageService, {
+				totalSteps: this.config.maxSteps,
+				autoSave: this.config.enableAutoSave
+			});
 		}
 	}
 
@@ -281,9 +275,9 @@ class _MembershipApplication {
 
 			// Start auto-save if enabled
 			if (
-				this.config.enableAutoSave
-        && this.storageService
-        && typeof this.storageService.startAutoSave === 'function'
+				this.config.enableAutoSave &&
+				this.storageService &&
+				typeof this.storageService.startAutoSave === 'function'
 			) {
 				this.storageService.startAutoSave(() => this.getAllFormData());
 			}
@@ -294,10 +288,7 @@ class _MembershipApplication {
 			console.log('Refactored membership application initialized successfully');
 		} catch (error) {
 			console.error('Failed to initialize application:', error);
-			if (
-				this.errorHandler
-        && typeof this.errorHandler.handleError === 'function'
-			) {
+			if (this.errorHandler && typeof this.errorHandler.handleError === 'function') {
 				this.errorHandler.handleError(error, { context: 'initialization' });
 			} else {
 				console.warn('ErrorHandler not available, showing basic error message');
@@ -305,8 +296,7 @@ class _MembershipApplication {
 				if (typeof frappe !== 'undefined' && frappe.msgprint) {
 					frappe.msgprint({
 						title: 'Initialization Error',
-						message:
-              'Failed to initialize the membership application form. Please refresh the page.',
+						message: 'Failed to initialize the membership application form. Please refresh the page.',
 						indicator: 'red'
 					});
 				}
@@ -329,10 +319,7 @@ class _MembershipApplication {
 			this.loadStaticData(data);
 		} catch (error) {
 			console.error('Failed to load initial data:', error);
-			if (
-				this.errorHandler
-        && typeof this.errorHandler.handleAPIError === 'function'
-			) {
+			if (this.errorHandler && typeof this.errorHandler.handleAPIError === 'function') {
 				this.errorHandler.handleAPIError(error, 'get_application_form_data');
 			}
 			throw error;
@@ -348,9 +335,7 @@ class _MembershipApplication {
 				select.empty().append('<option value="">Select Country...</option>');
 
 				countries.forEach((country) => {
-					select.append(
-						`<option value="${country.name}">${country.name}</option>`
-					);
+					select.append(`<option value="${country.name}">${country.name}</option>`);
 				});
 
 				// Set Netherlands as default
@@ -367,9 +352,7 @@ class _MembershipApplication {
 			if (chapters && chapters.length > 0) {
 				// Only rebuild if not already populated
 				if (select.children().length <= 1) {
-					select
-						.empty()
-						.append('<option value="">Select a chapter...</option>');
+					select.empty().append('<option value="">Select a chapter...</option>');
 
 					chapters.forEach((chapter) => {
 						let displayText = chapter.name;
@@ -383,16 +366,12 @@ class _MembershipApplication {
 							displayText += ` (${locationInfo.join(', ')})`;
 						}
 
-						select.append(
-							`<option value="${chapter.name}">${displayText}</option>`
-						);
+						select.append(`<option value="${chapter.name}">${displayText}</option>`);
 					});
 				}
 			} else {
 				// No chapters available - show message
-				select
-					.empty()
-					.append('<option value="">No chapters available</option>');
+				select.empty().append('<option value="">No chapters available</option>');
 			}
 
 			// Chapter selection is always visible in the HTML now
@@ -421,10 +400,7 @@ class _MembershipApplication {
 			.off('submit')
 			.on('submit', (e) => {
 				e.preventDefault();
-				if (
-					this.stepManager
-          && typeof this.stepManager.submitApplication === 'function'
-				) {
+				if (this.stepManager && typeof this.stepManager.submitApplication === 'function') {
 					this.stepManager.submitApplication();
 				} else {
 					this.submitApplication();
@@ -460,9 +436,7 @@ class _MembershipApplication {
 				console.log('Next button clicked, current step:', this.currentStep);
 
 				// Disable button during validation
-				$('#btn-next')
-					.prop('disabled', true)
-					.html('<i class="fa fa-spinner fa-spin"></i> Validating...');
+				$('#btn-next').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Validating...');
 
 				try {
 					await this.nextStep();
@@ -566,11 +540,11 @@ class _MembershipApplication {
 	getStepName(stepNumber) {
 		const hasVolunteer = this.config.enableVolunteerStep;
 		if (hasVolunteer) {
-			return { 1: 'personal', 2: 'address', 3: 'membership', 4: 'volunteer',
-				5: 'payment', 6: 'confirmation' }[stepNumber];
+			return { 1: 'personal', 2: 'address', 3: 'membership', 4: 'volunteer', 5: 'payment', 6: 'confirmation' }[
+				stepNumber
+			];
 		}
-		return { 1: 'personal', 2: 'address', 3: 'membership',
-			4: 'payment', 5: 'confirmation' }[stepNumber];
+		return { 1: 'personal', 2: 'address', 3: 'membership', 4: 'payment', 5: 'confirmation' }[stepNumber];
 	}
 
 	validateStepBasic(step) {
@@ -584,21 +558,14 @@ class _MembershipApplication {
 		switch (stepName) {
 			case 'personal': {
 				// Personal info
-				const requiredFields = [
-					'#first_name',
-					'#last_name',
-					'#email',
-					'#birth_date'
-				];
+				const requiredFields = ['#first_name', '#last_name', '#email', '#birth_date'];
 				requiredFields.forEach((field) => {
 					const $field = $(field);
 					if (!$field.val() || $field.val().trim() === '') {
 						$field.addClass('is-invalid');
 						const feedback = $field.siblings('.invalid-feedback');
 						if (feedback.length === 0) {
-							$field.after(
-								'<div class="invalid-feedback">This field is required</div>'
-							);
+							$field.after('<div class="invalid-feedback">This field is required</div>');
 						}
 						$field.siblings('.invalid-feedback').show();
 						isValid = false;
@@ -609,31 +576,21 @@ class _MembershipApplication {
 				const email = $('#email').val();
 				if (email && !this.isValidEmail(email)) {
 					$('#email').addClass('is-invalid');
-					$('#email')
-						.siblings('.invalid-feedback')
-						.text('Please enter a valid email')
-						.show();
+					$('#email').siblings('.invalid-feedback').text('Please enter a valid email').show();
 					isValid = false;
 				}
 				break;
 			}
 			case 'address': {
 				// Address
-				const addressFields = [
-					'#address_line1',
-					'#city',
-					'#postal_code',
-					'#country'
-				];
+				const addressFields = ['#address_line1', '#city', '#postal_code', '#country'];
 				addressFields.forEach((field) => {
 					const $field = $(field);
 					if (!$field.val() || $field.val().trim() === '') {
 						$field.addClass('is-invalid');
 						const feedback = $field.siblings('.invalid-feedback');
 						if (feedback.length === 0) {
-							$field.after(
-								'<div class="invalid-feedback">This field is required</div>'
-							);
+							$field.after('<div class="invalid-feedback">This field is required</div>');
 						}
 						$field.siblings('.invalid-feedback').show();
 						isValid = false;
@@ -647,46 +604,29 @@ class _MembershipApplication {
 				const membership = this.state.get('membership');
 
 				if (!selectedType && (!membership || !membership.type)) {
-					$('#membership-type-error')
-						.text('Please select a membership type')
-						.show();
+					$('#membership-type-error').text('Please select a membership type').show();
 					isValid = false;
 				} else {
 					// Check if custom amount is valid when used
-					const membershipAmount
-            = this.state.get('custom_contribution_fee')
-            || (membership && membership.amount);
-					const usesCustomAmount
-            = this.state.get('uses_custom_amount')
-            || (membership && membership.isCustom);
+					const membershipAmount =
+						this.state.get('custom_contribution_fee') || (membership && membership.amount);
+					const usesCustomAmount =
+						this.state.get('uses_custom_amount') || (membership && membership.isCustom);
 
-					if (
-						usesCustomAmount
-            && (!membershipAmount || membershipAmount <= 0)
-					) {
-						$('#membership-type-error')
-							.text('Please enter a valid membership amount')
-							.show();
+					if (usesCustomAmount && (!membershipAmount || membershipAmount <= 0)) {
+						$('#membership-type-error').text('Please enter a valid membership amount').show();
 						isValid = false;
 					} else if (usesCustomAmount && membershipAmount > 0) {
 						// Validate minimum fee requirement
 						const currentType = selectedType || (membership && membership.type);
-						if (
-							currentType
-              && this.membershipTypes
-              && this.membershipTypes.length > 0
-						) {
-							const typeData = this.membershipTypes.find(
-								(t) => t.name === currentType
-							);
+						if (currentType && this.membershipTypes && this.membershipTypes.length > 0) {
+							const typeData = this.membershipTypes.find((t) => t.name === currentType);
 							if (typeData && typeData.amount) {
 								const minAmount = typeData.amount * 0.5; // 50% minimum
 								if (membershipAmount < minAmount) {
 									const formattedMin = this.formatCurrency(minAmount);
 									$('#membership-type-error')
-										.text(
-											`Minimum contribution is ${formattedMin} (50% of standard amount)`
-										)
+										.text(`Minimum contribution is ${formattedMin} (50% of standard amount)`)
 										.show();
 									isValid = false;
 								}
@@ -719,7 +659,8 @@ class _MembershipApplication {
 				// Bank details are only required for SEPA Direct Debit
 				// Not required for Mollie or Bank Transfer
 				const normalizedMethod = (paymentMethod || '').toLowerCase().replace(/[^a-z]/g, '');
-				const requiresBankDetails = normalizedMethod === 'sepadirectdebit' || paymentMethod === 'SEPA Direct Debit';
+				const requiresBankDetails =
+					normalizedMethod === 'sepadirectdebit' || paymentMethod === 'SEPA Direct Debit';
 				const isMollie = normalizedMethod === 'mollie' || paymentMethod === 'Mollie';
 
 				console.log('Requires bank details:', requiresBankDetails, 'Is Mollie:', isMollie);
@@ -734,9 +675,7 @@ class _MembershipApplication {
 						$('#iban').addClass('is-invalid');
 						const feedback = $('#iban').siblings('.invalid-feedback');
 						if (feedback.length === 0) {
-							$('#iban').after(
-								'<div class="invalid-feedback">IBAN is required</div>'
-							);
+							$('#iban').after('<div class="invalid-feedback">IBAN is required</div>');
 						}
 						$('#iban').siblings('.invalid-feedback').show();
 						isValid = false;
@@ -747,9 +686,7 @@ class _MembershipApplication {
 							console.log('IBAN validation failed:', validation.error);
 							$('#iban').removeClass('is-valid').addClass('is-invalid');
 							$('#iban').siblings('.invalid-feedback').remove();
-							$('#iban').after(
-								`<div class="invalid-feedback">${validation.error}</div>`
-							);
+							$('#iban').after(`<div class="invalid-feedback">${validation.error}</div>`);
 							isValid = false;
 						} else {
 							// Format the IBAN if valid
@@ -764,9 +701,7 @@ class _MembershipApplication {
 					if (!accountHolder || accountHolder.trim() === '') {
 						console.log('Account holder name is empty');
 						$('#account_holder_name').addClass('is-invalid');
-						const feedback = $('#account_holder_name').siblings(
-							'.invalid-feedback'
-						);
+						const feedback = $('#account_holder_name').siblings('.invalid-feedback');
 						if (feedback.length === 0) {
 							$('#account_holder_name').after(
 								'<div class="invalid-feedback">Account holder name is required</div>'
@@ -839,14 +774,13 @@ class _MembershipApplication {
 		}
 
 		const setup = stepMap[stepNumber];
-		if (setup) { setup(); }
+		if (setup) {
+			setup();
+		}
 	}
 
 	getCurrentStep() {
-		if (
-			this.stepManager
-      && typeof this.stepManager.getCurrentStep === 'function'
-		) {
+		if (this.stepManager && typeof this.stepManager.getCurrentStep === 'function') {
 			return this.stepManager.getCurrentStep();
 		}
 		return this.currentStep || 1;
@@ -899,16 +833,13 @@ class _MembershipApplication {
 			country: $('#country').val() || '',
 
 			// Step 3: Membership and Chapter selection
-			selected_membership_type:
-        this.state.get('selected_membership_type') || '',
+			selected_membership_type: this.state.get('selected_membership_type') || '',
 			custom_contribution_fee: this.state.get('custom_contribution_fee') || 0,
 			uses_custom_amount: this.state.get('uses_custom_amount') || false,
 			selected_chapter: $('#selected_chapter').val() || '',
 
 			// Step 4: Volunteer Information
-			interested_in_volunteering: $('#interested_in_volunteering').is(
-				':checked'
-			),
+			interested_in_volunteering: $('#interested_in_volunteering').is(':checked'),
 			volunteer_availability: $('#volunteer_availability').val() || '',
 			volunteer_experience_level: $('#volunteer_experience_level').val() || '',
 			newsletter_opt_in: $('#newsletter_opt_in').is(':checked'),
@@ -916,20 +847,14 @@ class _MembershipApplication {
 			application_source_details: $('#application_source_details').val() || '',
 
 			// Communication Preferences (on confirmation step)
-			opt_out_optional_emails: $('#opt_out_optional_emails').is(':checked')
-				? 1
-				: 0,
+			opt_out_optional_emails: $('#opt_out_optional_emails').is(':checked') ? 1 : 0,
 
 			// Payment Details
-			payment_method:
-        $('input[name="payment_method"]:checked').val()
-        || $('#payment_method').val()
-        || '',
+			payment_method: $('input[name="payment_method"]:checked').val() || $('#payment_method').val() || '',
 
 			// Bank Account Details (SEPA Direct Debit)
 			iban: $('#iban').val() || '',
-			bank_account_name:
-        $('#account_holder_name').val() || $('#bank_account_name').val() || '',
+			bank_account_name: $('#account_holder_name').val() || $('#bank_account_name').val() || '',
 
 			// Bank Transfer Account Details (for payment matching)
 			// Note: These should map to the member IBAN fields when payment_method is 'Bank Transfer'
@@ -1004,11 +929,7 @@ class _MembershipApplication {
 			const country = $('#country').val();
 
 			if (postalCode && postalCode.trim().length >= 4 && city) {
-				console.log(
-					'Checking chapter suggestion for city + postal code:',
-					city,
-					postalCode
-				);
+				console.log('Checking chapter suggestion for city + postal code:', city, postalCode);
 				await this.suggestChapterFromPostalCode(postalCode, city, country);
 			}
 		});
@@ -1021,8 +942,7 @@ class _MembershipApplication {
 			// Make API call to get chapter suggestions
 			const result = await new Promise((resolve, reject) => {
 				frappe.call({
-					method:
-            'verenigingen.verenigingen.doctype.chapter.chapter.suggest_chapters_for_member',
+					method: 'verenigingen.verenigingen.doctype.chapter.chapter.suggest_chapters_for_member',
 					args: {
 						member: null, // We don't have a member yet during application
 						postal_code: postalCode,
@@ -1111,10 +1031,7 @@ class _MembershipApplication {
 		let age = today.getFullYear() - birth.getFullYear();
 		const monthDiff = today.getMonth() - birth.getMonth();
 
-		if (
-			monthDiff < 0
-      || (monthDiff === 0 && today.getDate() < birth.getDate())
-		) {
+		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
 			age--;
 		}
 
@@ -1127,9 +1044,7 @@ class _MembershipApplication {
 				.show();
 		} else if (age < 18) {
 			ageWarning
-				.html(
-					'<strong>Note:</strong> You are under 18. Parental consent may be required for membership.'
-				)
+				.html('<strong>Note:</strong> You are under 18. Parental consent may be required for membership.')
 				.show();
 		} else if (age > 120) {
 			ageWarning
@@ -1175,9 +1090,7 @@ class _MembershipApplication {
 		if (!emailRegex.test(email)) {
 			emailField.addClass('is-invalid');
 			emailField.siblings('.invalid-feedback').remove();
-			emailField.after(
-				'<div class="invalid-feedback">Please enter a valid email address</div>'
-			);
+			emailField.after('<div class="invalid-feedback">Please enter a valid email address</div>');
 		} else {
 			emailField.removeClass('is-invalid').addClass('is-valid');
 			emailField.siblings('.invalid-feedback').hide();
@@ -1193,17 +1106,12 @@ class _MembershipApplication {
 
 		// Call API to validate postal code and suggest chapters
 		frappe.call({
-			method:
-        'verenigingen.api.membership_application.suggest_chapters_for_postal_code',
+			method: 'verenigingen.api.membership_application.suggest_chapters_for_postal_code',
 			args: { postal_code: postalCode },
 			callback: (r) => {
 				// Handle OperationResult format
 				const data = unwrapOperationResult(r.message);
-				if (
-					data
-          && data.suggested_chapters
-          && data.suggested_chapters.length > 0
-				) {
+				if (data && data.suggested_chapters && data.suggested_chapters.length > 0) {
 					// Show chapter suggestions
 					this.showChapterSuggestions(data.suggested_chapters);
 				}
@@ -1228,9 +1136,7 @@ class _MembershipApplication {
 
 		if (!validation.valid) {
 			ibanField.removeClass('is-valid').addClass('is-invalid');
-			ibanField.after(
-				`<div class="invalid-feedback">${validation.error}</div>`
-			);
+			ibanField.after(`<div class="invalid-feedback">${validation.error}</div>`);
 
 			// Clear BIC field if IBAN is invalid
 			$('#bic').val('');
@@ -1243,9 +1149,7 @@ class _MembershipApplication {
 			// Show success message with bank info if available
 			const bankName = this.getBankNameFromIBAN(iban);
 			if (bankName) {
-				ibanField.after(
-					`<div class="valid-feedback">Valid ${bankName} IBAN</div>`
-				);
+				ibanField.after(`<div class="valid-feedback">Valid ${bankName} IBAN</div>`);
 			} else {
 				ibanField.after('<div class="valid-feedback">Valid IBAN</div>');
 			}
@@ -1335,10 +1239,7 @@ class _MembershipApplication {
 
 		// Perform mod-97 checksum validation
 		const rearranged = cleanIBAN.substring(4) + cleanIBAN.substring(0, 4);
-		const numeric = rearranged.replace(
-			/[A-Z]/g,
-			(char) => char.charCodeAt(0) - 55
-		);
+		const numeric = rearranged.replace(/[A-Z]/g, (char) => char.charCodeAt(0) - 55);
 		const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
 			return (parseInt(acc + chunk, 10) % 97).toString();
 		}, '');
@@ -1420,22 +1321,16 @@ class _MembershipApplication {
 		// Collect any additional form data not handled by step manager
 		// Use state as primary source, with hidden fields as fallback
 		return {
-			selected_membership_type:
-        this.state.get('selected_membership_type')
-        || $('#membership_type').val()
-        || '',
+			selected_membership_type: this.state.get('selected_membership_type') || $('#membership_type').val() || '',
 			selected_dues_schedule:
-        this.state.get('selected_dues_schedule')
-        || $('#selected_dues_schedule').val()
-        || '',
+				this.state.get('selected_dues_schedule') || $('#selected_dues_schedule').val() || '',
 			selected_billing_frequency:
-        this.state.get('selected_billing_frequency')
-        || $('#selected_billing_frequency').val()
-        || '',
+				this.state.get('selected_billing_frequency') || $('#selected_billing_frequency').val() || '',
 			custom_contribution_fee:
-        this.state.get('custom_contribution_fee')
-        || this.state.get('contribution_amount')
-        || parseFloat($('#selected_amount').val()) || 0,
+				this.state.get('custom_contribution_fee') ||
+				this.state.get('contribution_amount') ||
+				parseFloat($('#selected_amount').val()) ||
+				0,
 			uses_custom_amount: this.state.get('uses_custom_amount') || false,
 			payment_method: this.getPaymentMethod() || ''
 		};
@@ -1465,10 +1360,7 @@ class _MembershipApplication {
 			return result;
 		} catch (error) {
 			console.warn('Draft save failed:', error);
-			if (
-				this.errorHandler
-        && typeof this.errorHandler.handleError === 'function'
-			) {
+			if (this.errorHandler && typeof this.errorHandler.handleError === 'function') {
 				this.errorHandler.handleError(error, { context: 'draft_save' });
 			}
 			return { success: false, error: error.message };
@@ -1488,9 +1380,9 @@ class _MembershipApplication {
 
 				// Show notification about loaded draft
 				if (
-					result.source === 'local'
-          && this.errorHandler
-          && typeof this.errorHandler.showNotification === 'function'
+					result.source === 'local' &&
+					this.errorHandler &&
+					typeof this.errorHandler.showNotification === 'function'
 				) {
 					this.errorHandler.showNotification(
 						'info',
@@ -1579,10 +1471,7 @@ class _MembershipApplication {
 	handleSubmissionSuccess(result) {
 		// Store application ID
 		if (result.application_id && this.storageService) {
-			this.storageService.setSessionData(
-				'last_application_id',
-				result.application_id
-			);
+			this.storageService.setSessionData('last_application_id', result.application_id);
 		}
 
 		// Show success message
@@ -1595,10 +1484,7 @@ class _MembershipApplication {
 	}
 
 	handleSubmissionError(error) {
-		if (
-			this.errorHandler
-      && typeof this.errorHandler.handleAPIError === 'function'
-		) {
+		if (this.errorHandler && typeof this.errorHandler.handleAPIError === 'function') {
 			this.errorHandler.handleAPIError(error, 'submit_application', {
 				onRetry: () => this.submitApplication()
 			});
@@ -1607,9 +1493,7 @@ class _MembershipApplication {
 			if (typeof frappe !== 'undefined' && frappe.msgprint) {
 				frappe.msgprint({
 					title: 'Submission Error',
-					message:
-            error.message
-            || 'An error occurred while submitting your application',
+					message: error.message || 'An error occurred while submitting your application',
 					indicator: 'red'
 				});
 			}
@@ -1619,9 +1503,7 @@ class _MembershipApplication {
 	showSubmissionLoading(isLoading) {
 		const $submitBtn = $('#btn-submit, #submit-btn');
 		if (isLoading) {
-			$submitBtn
-				.prop('disabled', true)
-				.html('<i class="fa fa-spinner fa-spin"></i> Processing...');
+			$submitBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
 		} else {
 			$submitBtn.prop('disabled', false).html('Submit Application');
 		}
@@ -1630,15 +1512,12 @@ class _MembershipApplication {
 	showSuccessMessage(result) {
 		let successHTML = '<div class="text-center py-5">';
 		successHTML += '<div class="success-icon mb-4">';
-		successHTML
-      += '<i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>';
+		successHTML += '<i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>';
 		successHTML += '</div>';
-		successHTML
-      += '<h2 class="text-success">Application Submitted Successfully!</h2>';
+		successHTML += '<h2 class="text-success">Application Submitted Successfully!</h2>';
 
 		if (result.application_id) {
-			successHTML
-        += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
+			successHTML += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
 			successHTML += `<h4>Your Application ID: <strong>${result.application_id}</strong></h4>`;
 			successHTML += '<p>Please save this ID for future reference.</p>';
 			successHTML += '</div>';
@@ -1653,10 +1532,7 @@ class _MembershipApplication {
 	}
 
 	redirectToPayment(paymentUrl) {
-		if (
-			this.errorHandler
-      && typeof this.errorHandler.showNotification === 'function'
-		) {
+		if (this.errorHandler && typeof this.errorHandler.showNotification === 'function') {
 			this.errorHandler.showNotification(
 				'info',
 				'Redirecting to Payment',
@@ -1674,13 +1550,8 @@ class _MembershipApplication {
 
 	setupFieldValidation() {
 		// Set up real-time validation for form fields
-		if (
-			!this.validationService
-      || typeof this.validationService.setupRealTimeValidation !== 'function'
-		) {
-			console.log(
-				'ValidationService not available, skipping real-time validation setup'
-			);
+		if (!this.validationService || typeof this.validationService.setupRealTimeValidation !== 'function') {
+			console.log('ValidationService not available, skipping real-time validation setup');
 			return;
 		}
 
@@ -1700,13 +1571,9 @@ class _MembershipApplication {
 			const $field = $(`#${fieldId}`);
 			if ($field.length) {
 				try {
-					this.validationService.setupRealTimeValidation(
-						$field[0],
-						validationKey,
-						{
-							country: () => $('#country').val() || 'Netherlands'
-						}
-					);
+					this.validationService.setupRealTimeValidation($field[0], validationKey, {
+						country: () => $('#country').val() || 'Netherlands'
+					});
 				} catch (error) {
 					console.warn(`Failed to setup validation for ${fieldId}:`, error);
 				}
@@ -1751,7 +1618,6 @@ class _MembershipApplication {
 		// Set up volunteer skill add button
 		this.setupVolunteerSkills();
 	}
-
 
 	setupVolunteerSkills() {
 		// Add event handler for the add skill button
@@ -1819,36 +1685,17 @@ class _MembershipApplication {
 				'SetupPaymentStep: Payment method radios found:',
 				$('input[name="payment_method_selection"]').length
 			);
-			console.log(
-				'SetupPaymentStep: Payment method options found:',
-				$('.payment-method-option').length
-			);
-			console.log(
-				'SetupPaymentStep: Bank account details section found:',
-				$('#bank-account-details').length
-			);
-			console.log(
-				'SetupPaymentStep: Bank account details section found:',
-				$('#bank-account-details').length
-			);
-			console.log(
-				'SetupPaymentStep: Bank transfer notice section found:',
-				$('#bank-transfer-notice').length
-			);
-			console.log(
-				'SetupPaymentStep: Bank transfer details section found:',
-				$('#bank-transfer-details').length
-			);
+			console.log('SetupPaymentStep: Payment method options found:', $('.payment-method-option').length);
+			console.log('SetupPaymentStep: Bank account details section found:', $('#bank-account-details').length);
+			console.log('SetupPaymentStep: Bank account details section found:', $('#bank-account-details').length);
+			console.log('SetupPaymentStep: Bank transfer notice section found:', $('#bank-transfer-notice').length);
+			console.log('SetupPaymentStep: Bank transfer details section found:', $('#bank-transfer-details').length);
 
 			// Ensure any pre-selected payment method shows the correct form fields
-			const selectedMethod
-        = $('input[name="payment_method_selection"]:checked').val()
-        || $('#payment_method').val();
+			const selectedMethod =
+				$('input[name="payment_method_selection"]:checked').val() || $('#payment_method').val();
 			if (selectedMethod) {
-				console.log(
-					'Setting up payment step with pre-selected method:',
-					selectedMethod
-				);
+				console.log('Setting up payment step with pre-selected method:', selectedMethod);
 				// Use the new handlePaymentMethodChange method for consistency
 				this.handlePaymentMethodChange(selectedMethod);
 			} else {
@@ -1946,8 +1793,9 @@ class _MembershipApplication {
 			this.progressiveConfig = null;
 
 			// Update description
-			const description = contributionOptions.calculator.description
-				|| `We suggest ${contributionOptions.calculator.percentage}% of your monthly net income`;
+			const description =
+				contributionOptions.calculator.description ||
+				`We suggest ${contributionOptions.calculator.percentage}% of your monthly net income`;
 			$('#calculator-description').text(description);
 			$('#calc-income-percentage').text(contributionOptions.calculator.percentage);
 
@@ -1992,7 +1840,7 @@ class _MembershipApplication {
 		// Calculate wage contribution percentage using the formula:
 		// (income - (2 × lowerThreshold) + median) / (median - lowerThreshold)
 		const denominator = referenceIncome - lowerThreshold;
-		const numerator = monthlyIncome - (2 * lowerThreshold) + referenceIncome;
+		const numerator = monthlyIncome - 2 * lowerThreshold + referenceIncome;
 		let wagePercentage = numerator / denominator;
 
 		// Floor at 0 (no negative percentage), no ceiling
@@ -2141,18 +1989,12 @@ class _MembershipApplication {
 		};
 
 		// Bind calculator events
-		$('#calc-monthly-income, #calc-payment-interval').on(
-			'input change',
-			() => this.calculateContribution()
-		);
+		$('#calc-monthly-income, #calc-payment-interval').on('input change', () => this.calculateContribution());
 
 		// Apply calculated amount to main form
 		$('#apply-calculated-amount').on('click', () => {
 			if (calculatedAmount > 0) {
-				this.applyCalculatedAmount(
-					calculatedAmount,
-					$('#calc-payment-interval').val()
-				);
+				this.applyCalculatedAmount(calculatedAmount, $('#calc-payment-interval').val());
 			}
 		});
 	}
@@ -2210,37 +2052,23 @@ class _MembershipApplication {
 		}
 
 		// For non-Progressive modes, find membership type by payment interval
-		const targetMembershipType
-      = this.findMembershipTypeByInterval(paymentInterval);
+		const targetMembershipType = this.findMembershipTypeByInterval(paymentInterval);
 
 		if (targetMembershipType) {
 			// Select the matching membership type card
-			const membershipCard = $(
-				`.membership-type-card[data-type="${targetMembershipType.name}"]`
-			);
-			console.log(
-				'Found membership card:',
-				membershipCard.length > 0,
-				'for type:',
-				targetMembershipType.name
-			);
+			const membershipCard = $(`.membership-type-card[data-type="${targetMembershipType.name}"]`);
+			console.log('Found membership card:', membershipCard.length > 0, 'for type:', targetMembershipType.name);
 
 			if (membershipCard.length) {
 				// First select the membership type by clicking the standard select button
 				const selectButton = membershipCard.find('.select-membership');
 				if (selectButton.length) {
 					selectButton.click();
-					console.log(
-						'Clicked select button for membership type:',
-						targetMembershipType.name
-					);
+					console.log('Clicked select button for membership type:', targetMembershipType.name);
 				} else {
 					// Fallback: click the card itself
 					membershipCard.click();
-					console.log(
-						'Clicked membership card for type:',
-						targetMembershipType.name
-					);
+					console.log('Clicked membership card for type:', targetMembershipType.name);
 				}
 			}
 
@@ -2248,10 +2076,7 @@ class _MembershipApplication {
 			setTimeout(() => {
 				// Look for "Choose Amount" button (toggle-custom class) in the selected membership card
 				const chooseAmountButton = membershipCard.find('.toggle-custom');
-				console.log(
-					'Found choose amount button:',
-					chooseAmountButton.length > 0
-				);
+				console.log('Found choose amount button:', chooseAmountButton.length > 0);
 
 				if (chooseAmountButton.length) {
 					// Click the "Choose Amount" button to show custom amount section
@@ -2289,9 +2114,7 @@ class _MembershipApplication {
 						);
 					}, 300);
 				} else {
-					console.warn(
-						'Could not find choose amount button for membership type'
-					);
+					console.warn('Could not find choose amount button for membership type');
 					// Fallback: try to set any custom amount input directly
 					const customInput = membershipCard.find('.custom-amount-input');
 					if (customInput.length) {
@@ -2301,10 +2124,7 @@ class _MembershipApplication {
 				}
 			}, 400);
 		} else {
-			console.warn(
-				'Could not find matching membership type for payment interval:',
-				paymentInterval
-			);
+			console.warn('Could not find matching membership type for payment interval:', paymentInterval);
 
 			// Fallback: Try to apply to first available membership type with custom amount support
 			const firstCardWithCustom = $('.membership-type-card')
@@ -2314,9 +2134,7 @@ class _MembershipApplication {
 				.first();
 
 			if (firstCardWithCustom.length) {
-				console.log(
-					'Using fallback: first membership type with custom amount support'
-				);
+				console.log('Using fallback: first membership type with custom amount support');
 
 				// Select the membership type first
 				const selectButton = firstCardWithCustom.find('.select-membership');
@@ -2330,9 +2148,7 @@ class _MembershipApplication {
 						chooseAmountButton.click();
 
 						setTimeout(() => {
-							const customInput = firstCardWithCustom.find(
-								'.custom-amount-input'
-							);
+							const customInput = firstCardWithCustom.find('.custom-amount-input');
 							if (customInput.length) {
 								customInput.val(amount.toFixed(2)).trigger('input');
 								this.selectMembershipType(firstCardWithCustom, true, amount);
@@ -2363,13 +2179,8 @@ class _MembershipApplication {
 		console.log('Finding membership type for interval:', paymentInterval);
 
 		// Get available membership types from state
-		const membershipTypes
-      = this.state.get('membershipTypes') || this.membershipTypes || [];
-		console.log(
-			'Available membership types:',
-			membershipTypes.length,
-			membershipTypes
-		);
+		const membershipTypes = this.state.get('membershipTypes') || this.membershipTypes || [];
+		console.log('Available membership types:', membershipTypes.length, membershipTypes);
 
 		// Updated to use billing_period mapping
 		const billingPeriodMapping = {
@@ -2384,14 +2195,8 @@ class _MembershipApplication {
 			for (const membershipType of membershipTypes) {
 				// Use helper for consistent billing period resolution
 				const billingPeriod = getBillingPeriod(membershipType);
-				if (
-					billingPeriod
-          && billingPeriod.toLowerCase() === targetPeriod.toLowerCase()
-				) {
-					console.log(
-						'Found matching membership type by billing_period:',
-						membershipType
-					);
+				if (billingPeriod && billingPeriod.toLowerCase() === targetPeriod.toLowerCase()) {
+					console.log('Found matching membership type by billing_period:', membershipType);
 					return membershipType;
 				}
 			}
@@ -2408,19 +2213,12 @@ class _MembershipApplication {
 
 		// Find first membership type that matches the interval in name or description
 		for (const membershipType of membershipTypes) {
-			const name = (
-				membershipType.name
-        || membershipType.membership_type_name
-        || ''
-			).toLowerCase();
+			const name = (membershipType.name || membershipType.membership_type_name || '').toLowerCase();
 			const description = (membershipType.description || '').toLowerCase();
 
 			for (const matcher of matchers) {
 				if (name.includes(matcher) || description.includes(matcher)) {
-					console.log(
-						'Found matching membership type by name/description:',
-						membershipType
-					);
+					console.log('Found matching membership type by name/description:', membershipType);
 					return membershipType;
 				}
 			}
@@ -2435,10 +2233,7 @@ class _MembershipApplication {
 					const currentAmount = parseFloat(current.amount || 0);
 					return currentAmount > prevAmount ? current : prev;
 				});
-				console.log(
-					'Using highest amount membership type for annual:',
-					highestAmount
-				);
+				console.log('Using highest amount membership type for annual:', highestAmount);
 				return highestAmount;
 			}
 
@@ -2505,17 +2300,12 @@ class _MembershipApplication {
 		this.bindPaymentEvents();
 
 		// Also bind the payment method field switching events after DOM is updated
-		console.log(
-			'Main app: Re-binding payment method events after loading methods'
-		);
+		console.log('Main app: Re-binding payment method events after loading methods');
 		this.bindPaymentMethodEvents();
 
 		// Auto-select first method to show appropriate fields
 		if (paymentMethods.length > 0) {
-			console.log(
-				'Main app: Auto-selecting first payment method:',
-				paymentMethods[0].name
-			);
+			console.log('Main app: Auto-selecting first payment method:', paymentMethods[0].name);
 			this.selectPaymentMethod(paymentMethods[0].name);
 		}
 	}
@@ -2564,15 +2354,11 @@ class _MembershipApplication {
 		content += '<h6>Membership</h6>';
 
 		if (data.selected_membership_type) {
-			const membershipType
-        = this.membershipTypes
-        && this.membershipTypes.find(
-        	(t) => t.name === data.selected_membership_type
-        );
+			const membershipType =
+				this.membershipTypes && this.membershipTypes.find((t) => t.name === data.selected_membership_type);
 
 			if (membershipType) {
-				const typeName
-          = membershipType.membership_type_name || membershipType.name;
+				const typeName = membershipType.membership_type_name || membershipType.name;
 				content += `<p><strong>Type:</strong> ${typeName}</p>`;
 
 				// Format amount with billing period
@@ -2581,8 +2367,7 @@ class _MembershipApplication {
 				// Use simple currency formatting to avoid HTML structure issues
 				const currency = membershipType.currency || 'EUR';
 				const formattedAmount = `${currency} ${parseFloat(amount).toFixed(2)}`;
-				const periodText
-          = period.toLowerCase() === 'quarterly' ? 'Quarterly' : `per ${period}`;
+				const periodText = period.toLowerCase() === 'quarterly' ? 'Quarterly' : `per ${period}`;
 				content += `<p><strong>Amount:</strong> ${formattedAmount} ${periodText}</p>`;
 
 				if (data.uses_custom_amount) {
@@ -2637,8 +2422,7 @@ class _MembershipApplication {
 					content += `<p><strong>Account Holder:</strong> ${data.transfer_account_name}</p>`;
 				}
 				if (!data.transfer_iban && !data.transfer_account_name) {
-					content
-            += '<p><em>Account details will be provided via email</em></p>';
+					content += '<p><em>Account details will be provided via email</em></p>';
 				}
 			}
 		} else {
@@ -2667,10 +2451,7 @@ class _MembershipApplication {
 				'input[name="payment_method_selection"], input[name="payment_method"], .payment-method-radio',
 				function () {
 					const selectedMethod = $(this).val();
-					console.log(
-						'Main app: Payment method selection changed to:',
-						selectedMethod
-					);
+					console.log('Main app: Payment method selection changed to:', selectedMethod);
 
 					// Use the new handlePaymentMethodChange method for consistent behavior
 					self.handlePaymentMethodChange(selectedMethod);
@@ -2705,51 +2486,37 @@ class _MembershipApplication {
 		console.log('Form data for confirmation:', data);
 
 		// Personal Information
-		const fullName
-      = `${data.first_name || ''} ${data.middle_name ? `${data.middle_name} ` : ''}${data.last_name || ''}`.trim();
+		const fullName =
+			`${data.first_name || ''} ${data.middle_name ? `${data.middle_name} ` : ''}${data.last_name || ''}`.trim();
 		$('#confirm-name').text(fullName || 'Not provided');
 		$('#confirm-email').text(data.email || 'Not provided');
 		$('#confirm-phone').text(data.mobile_no || 'Not provided');
 
 		// Address Information
-		const address
-      = `${data.address_line1 || ''}, ${data.city || ''}, ${data.postal_code || ''}`.replace(
-      	/^,\s*|,\s*$/g,
-      	''
-      );
+		const address = `${data.address_line1 || ''}, ${data.city || ''}, ${data.postal_code || ''}`.replace(
+			/^,\s*|,\s*$/g,
+			''
+		);
 		$('#confirm-address').text(address || 'Not provided');
 		$('#confirm-city').text(
-			`${data.city || ''}, ${data.postal_code || ''}`.replace(
-				/^,\s*|,\s*$/g,
-				''
-			) || 'Not provided'
+			`${data.city || ''}, ${data.postal_code || ''}`.replace(/^,\s*|,\s*$/g, '') || 'Not provided'
 		);
 		$('#confirm-country').text(data.country || 'Not provided');
 
 		// Membership Information
-		const membershipType
-      = this.state.get('selected_membership_type') || 'Not selected';
+		const membershipType = this.state.get('selected_membership_type') || 'Not selected';
 		// Check both contribution_amount and custom_contribution_fee for the amount
-		const membershipAmount = this.state.get('custom_contribution_fee')
-			|| this.state.get('contribution_amount')
-			|| 0;
+		const membershipAmount =
+			this.state.get('custom_contribution_fee') || this.state.get('contribution_amount') || 0;
 		$('#confirm-membership-type').text(membershipType);
-		$('#confirm-membership-fee').text(
-			membershipAmount ? `€${parseFloat(membershipAmount).toFixed(2)}` : 'Not set'
-		);
+		$('#confirm-membership-fee').text(membershipAmount ? `€${parseFloat(membershipAmount).toFixed(2)}` : 'Not set');
 
 		// Payment Information
-		const paymentMethod
-      = $('input[name="payment_method"]:checked').val() || 'Not selected';
-		$('#confirm-payment-method').text(
-			paymentMethod.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase())
-		);
+		const paymentMethod = $('input[name="payment_method"]:checked').val() || 'Not selected';
+		$('#confirm-payment-method').text(paymentMethod.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()));
 
 		// Bank Details for bank transfer or SEPA direct debit
-		if (
-			paymentMethod === 'bank_transfer'
-      || paymentMethod === 'sepa_direct_debit'
-		) {
+		if (paymentMethod === 'bank_transfer' || paymentMethod === 'sepa_direct_debit') {
 			const iban = data.iban || '';
 			// Use bank_account_name since that's what gets stored in the database
 			const accountHolder = data.bank_account_name || '';
@@ -2816,8 +2583,7 @@ class _MembershipApplication {
 	createMembershipCard(type) {
 		// Ensure we have a valid amount
 		const amount = type.amount || 0;
-		const membershipTypeName
-      = type.membership_type_name || type.name || 'Unknown';
+		const membershipTypeName = type.membership_type_name || type.name || 'Unknown';
 		const billingPeriod = getBillingPeriod(type);
 
 		// Get contribution options (new structure)
@@ -2826,7 +2592,12 @@ class _MembershipApplication {
 		const hasQuickAmounts = contributionOptions.quick_amounts && contributionOptions.quick_amounts.length > 0;
 		const isProgressiveMode = contributionOptions.mode === 'Progressive';
 		// Progressive mode uses the income calculator instead of direct amount entry
-		const allowsContributionChoice = !isProgressiveMode && (hasTiers || hasQuickAmounts || contributionOptions.mode === 'Calculator' || contributionOptions.mode === 'Custom');
+		const allowsContributionChoice =
+			!isProgressiveMode &&
+			(hasTiers ||
+				hasQuickAmounts ||
+				contributionOptions.mode === 'Calculator' ||
+				contributionOptions.mode === 'Custom');
 
 		console.log('Creating membership card for:', {
 			name: type.name,
@@ -2888,8 +2659,7 @@ class _MembershipApplication {
 			cardHTML += '<div class="mt-3">';
 			cardHTML += '<label>Or enter custom amount:</label>';
 			const minAmount = contributionOptions.minimum || type.minimum_amount || amount;
-			cardHTML
-        += '<input type="number" class="form-control custom-amount-input" ';
+			cardHTML += '<input type="number" class="form-control custom-amount-input" ';
 			cardHTML += `min="${minAmount}" step="0.01" placeholder="Enter amount">`;
 			cardHTML += `<small class="text-muted">Minimum: ${frappe.format(minAmount, { fieldtype: 'Currency' })}</small>`;
 			cardHTML += '</div>';
@@ -2897,14 +2667,12 @@ class _MembershipApplication {
 		}
 
 		cardHTML += '<div class="btn-group mt-3">';
-		cardHTML
-      += '<button type="button" class="btn btn-primary select-membership">';
+		cardHTML += '<button type="button" class="btn btn-primary select-membership">';
 		cardHTML += `Select${allowsContributionChoice ? ' Standard' : ''}`;
 		cardHTML += '</button>';
 
 		if (allowsContributionChoice) {
-			cardHTML
-        += '<button type="button" class="btn btn-outline-secondary toggle-custom">';
+			cardHTML += '<button type="button" class="btn btn-outline-secondary toggle-custom">';
 			cardHTML += 'Choose Amount';
 			cardHTML += '</button>';
 		}
@@ -2943,8 +2711,7 @@ class _MembershipApplication {
 		methodCardHTML += '<div class="form-check">';
 
 		const radioId = `payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`;
-		methodCardHTML
-      += '<input class="form-check-input payment-method-radio" type="radio" ';
+		methodCardHTML += '<input class="form-check-input payment-method-radio" type="radio" ';
 		methodCardHTML += `name="payment_method_selection" value="${method.name}" id="${radioId}">`;
 		methodCardHTML += `<label class="form-check-label" for="${radioId}">`;
 		methodCardHTML += 'Select';
@@ -2993,9 +2760,7 @@ class _MembershipApplication {
 
 					const standardAmount = parseFloat(card.data('amount'));
 					if (!isNaN(standardAmount) && standardAmount > 0) {
-						card
-							.find(`.amount-pill[data-amount="${standardAmount}"]`)
-							.addClass('selected');
+						card.find(`.amount-pill[data-amount="${standardAmount}"]`).addClass('selected');
 						card.find('.custom-amount-input').val(standardAmount);
 						this.selectMembershipType(card, true, standardAmount);
 					}
@@ -3024,12 +2789,7 @@ class _MembershipApplication {
 				});
 
 				if (isNaN(amount) || amount <= 0) {
-					console.error(
-						'Invalid amount from tier:',
-						rawAmount,
-						'tier:',
-						tier[0]
-					);
+					console.error('Invalid amount from tier:', rawAmount, 'tier:', tier[0]);
 					return;
 				}
 
@@ -3066,12 +2826,7 @@ class _MembershipApplication {
 				});
 
 				if (isNaN(amount) || amount <= 0) {
-					console.error(
-						'Invalid amount from pill:',
-						rawAmount,
-						'pill:',
-						pill[0]
-					);
+					console.error('Invalid amount from pill:', rawAmount, 'pill:', pill[0]);
 					return;
 				}
 
@@ -3100,9 +2855,7 @@ class _MembershipApplication {
 				if (isNaN(amount) || amount <= 0) {
 					input.addClass('is-invalid');
 					input.siblings('.invalid-feedback').remove();
-					input.after(
-						'<div class="invalid-feedback">Please enter a valid amount</div>'
-					);
+					input.after('<div class="invalid-feedback">Please enter a valid amount</div>');
 					return;
 				}
 
@@ -3141,12 +2894,7 @@ class _MembershipApplication {
 
 		const standardAmount = parseFloat(cardAmount);
 		if (isNaN(standardAmount)) {
-			console.error(
-				'Invalid standard amount for type:',
-				membershipType,
-				'amount:',
-				cardAmount
-			);
+			console.error('Invalid standard amount for type:', membershipType, 'amount:', cardAmount);
 			return;
 		}
 
@@ -3159,12 +2907,7 @@ class _MembershipApplication {
 				finalAmount = parsedCustomAmount;
 				usesCustomAmount = finalAmount !== standardAmount;
 			} else {
-				console.error(
-					'Invalid custom amount:',
-					customAmount,
-					'parsed:',
-					parsedCustomAmount
-				);
+				console.error('Invalid custom amount:', customAmount, 'parsed:', parsedCustomAmount);
 				console.error('Falling back to standard amount:', standardAmount);
 				// Fall back to standard amount instead of returning early
 				finalAmount = standardAmount;
@@ -3196,18 +2939,14 @@ class _MembershipApplication {
 		$('#membership-type-error').hide();
 
 		// Update membership fee display
-		this.updateMembershipFeeDisplay(
-			membershipType,
-			finalAmount,
-			usesCustomAmount
-		);
+		this.updateMembershipFeeDisplay(membershipType, finalAmount, usesCustomAmount);
 
 		// Configure income calculator based on the selected membership type's contribution mode
 		// Skip if using the new server-rendered two-phase selection system
 		const usingTwoPhaseSelection = $('#membership-types input[name="membership_type_selection"]').length > 0;
 		if (!usingTwoPhaseSelection) {
-			const membershipTypeData = this.membershipTypes
-				&& this.membershipTypes.find((t) => t.name === membershipType);
+			const membershipTypeData =
+				this.membershipTypes && this.membershipTypes.find((t) => t.name === membershipType);
 			if (membershipTypeData && membershipTypeData.contribution_options) {
 				// Pass billing_frequency from dues schedule template
 				const billingFrequency = membershipTypeData.billing_frequency || 'Annual';
@@ -3230,9 +2969,8 @@ class _MembershipApplication {
 		}
 
 		// Find the membership type details
-		const membershipTypeDetails
-      = this.membershipTypes
-      && this.membershipTypes.find((t) => t.name === membershipType);
+		const membershipTypeDetails =
+			this.membershipTypes && this.membershipTypes.find((t) => t.name === membershipType);
 		const membershipTypeName = membershipTypeDetails
 			? membershipTypeDetails.membership_type_name || membershipTypeDetails.name
 			: membershipType;
@@ -3240,10 +2978,7 @@ class _MembershipApplication {
 		// Use helper for consistent billing period resolution
 		const billingPeriod = getBillingPeriod(membershipTypeDetails);
 
-		const periodText
-      = billingPeriod.toLowerCase() === 'quarterly'
-      	? 'Quarterly'
-      	: `per ${billingPeriod}`;
+		const periodText = billingPeriod.toLowerCase() === 'quarterly' ? 'Quarterly' : `per ${billingPeriod}`;
 
 		// Format the amount
 		const formattedAmount = `EUR ${parseFloat(amount).toFixed(2)}`;
@@ -3274,10 +3009,7 @@ class _MembershipApplication {
 
 	async validateCustomAmount(membershipType, amount) {
 		try {
-			const result = await this.apiService.validateCustomAmount(
-				membershipType,
-				amount
-			);
+			const result = await this.apiService.validateCustomAmount(membershipType, amount);
 			if (result && !result.valid) {
 				$('#membership-type-error').show().text(result.message);
 			} else {
@@ -3292,9 +3024,7 @@ class _MembershipApplication {
 		$('.payment-method-option')
 			.off('click')
 			.on('click', (e) => {
-				const methodName = $(e.target)
-					.closest('.payment-method-option')
-					.data('method');
+				const methodName = $(e.target).closest('.payment-method-option').data('method');
 				this.selectPaymentMethod(methodName);
 			});
 
@@ -3322,18 +3052,11 @@ class _MembershipApplication {
 			$('#payment_method').val(methodName);
 		} else {
 			$('.payment-method-option').removeClass('selected');
-			$(`.payment-method-option[data-method="${methodName}"]`).addClass(
-				'selected'
-			);
+			$(`.payment-method-option[data-method="${methodName}"]`).addClass('selected');
 
 			// Update radio button and trigger change event for field switching
 			const radioButton = $(`.payment-method-radio[value="${methodName}"]`);
-			console.log(
-				'Main app: Found radio button for',
-				methodName,
-				':',
-				radioButton.length
-			);
+			console.log('Main app: Found radio button for', methodName, ':', radioButton.length);
 			radioButton.prop('checked', true).trigger('change');
 		}
 
@@ -3375,40 +3098,25 @@ class _MembershipApplication {
 
 		// Show appropriate section based on payment method
 		if (is_direct_debit) {
-			console.log(
-				'Main app: Showing bank account details for SEPA Direct Debit'
-			);
+			console.log('Main app: Showing bank account details for SEPA Direct Debit');
 			$('#bank-account-details').show();
 			$('#bank-details').show();
 
 			// Set required attributes for bank account fields
-			$('#iban, #bank_account_name, #account_holder_name').prop(
-				'required',
-				true
-			);
+			$('#iban, #bank_account_name, #account_holder_name').prop('required', true);
 		} else if (is_bank_transfer) {
-			console.log(
-				'Main app: Showing bank transfer details with account fields'
-			);
+			console.log('Main app: Showing bank transfer details with account fields');
 			$('#bank-transfer-details').show();
 			$('#bank-details').show();
 
 			// Bank transfer fields are optional (for payment matching purposes)
-			$('#iban, #bank_account_name, #account_holder_name').prop(
-				'required',
-				false
-			);
+			$('#iban, #bank_account_name, #account_holder_name').prop('required', false);
 			$('#transfer_iban, #transfer_account_name').prop('required', false);
 		} else if (is_mollie) {
-			console.log(
-				'Main app: Hiding bank details for Mollie payment'
-			);
+			console.log('Main app: Hiding bank details for Mollie payment');
 			// Hide bank details and remove required for Mollie
 			$('#bank-details').hide();
-			$('#iban, #bank_account_name, #account_holder_name').prop(
-				'required',
-				false
-			);
+			$('#iban, #bank_account_name, #account_holder_name').prop('required', false);
 		}
 
 		// Clear validation errors when switching payment methods
@@ -3446,9 +3154,7 @@ class _MembershipApplication {
 		];
 
 		fallbackMethods.forEach((method) => {
-			select.append(
-				`<option value="${method.name}">${method.name} - ${method.description}</option>`
-			);
+			select.append(`<option value="${method.name}">${method.name} - ${method.description}</option>`);
 		});
 
 		// Bind change event
@@ -3558,9 +3264,7 @@ class PersonalInfoStep extends BaseStep {
 		// Ensure age warning element exists only if birth_date field exists
 		const birthDateField = $('#birth_date');
 		if (birthDateField.length > 0 && $('#age-warning').length === 0) {
-			birthDateField.after(
-				'<div id="age-warning" class="alert mt-2" style="display: none;"></div>'
-			);
+			birthDateField.after('<div id="age-warning" class="alert mt-2" style="display: none;"></div>');
 		}
 	}
 
@@ -3589,9 +3293,7 @@ class PersonalInfoStep extends BaseStep {
 		try {
 			// Check if membershipApp and its API are available
 			if (typeof membershipApp === 'undefined' || !membershipApp.apiService) {
-				console.warn(
-					'MembershipApp API not available, skipping email validation'
-				);
+				console.warn('MembershipApp API not available, skipping email validation');
 				return true;
 			}
 
@@ -3631,9 +3333,7 @@ class PersonalInfoStep extends BaseStep {
 
 		// Create warning div if it doesn't exist
 		if (warningDiv.length === 0) {
-			birthDateField.after(
-				'<div id="age-warning" class="alert mt-2" style="display: none;"></div>'
-			);
+			birthDateField.after('<div id="age-warning" class="alert mt-2" style="display: none;"></div>');
 			warningDiv = $('#age-warning');
 		}
 
@@ -3644,10 +3344,7 @@ class PersonalInfoStep extends BaseStep {
 
 		if (age < 0) {
 			if (this.validator) {
-				this.validator.showError(
-					'#birth_date',
-					'Birth date cannot be in the future'
-				);
+				this.validator.showError('#birth_date', 'Birth date cannot be in the future');
 			}
 			return false;
 		}
@@ -3658,9 +3355,7 @@ class PersonalInfoStep extends BaseStep {
 		if (age < 12) {
 			warningDiv
 				.addClass('alert-info')
-				.html(
-					'<i class="fa fa-info-circle"></i> Applicants under 12 may require parental consent'
-				)
+				.html('<i class="fa fa-info-circle"></i> Applicants under 12 may require parental consent')
 				.show();
 		} else if (age > 100) {
 			warningDiv
@@ -3697,9 +3392,8 @@ class PersonalInfoStep extends BaseStep {
 
 			// Adjust for birthday not yet reached this year
 			if (
-				today.getMonth() < birth.getMonth()
-        || (today.getMonth() === birth.getMonth()
-          && today.getDate() < birth.getDate())
+				today.getMonth() < birth.getMonth() ||
+				(today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())
 			) {
 				age--;
 			}
@@ -3766,9 +3460,7 @@ class AddressStep extends BaseStep {
 			select.empty().append('<option value="">Select Country...</option>');
 
 			countries.forEach((country) => {
-				select.append(
-					`<option value="${country.name}">${country.name}</option>`
-				);
+				select.append(`<option value="${country.name}">${country.name}</option>`);
 			});
 
 			// Set Netherlands as default
@@ -3792,16 +3484,11 @@ class AddressStep extends BaseStep {
 
 		try {
 			if (typeof membershipApp === 'undefined' || !membershipApp.apiService) {
-				console.warn(
-					'MembershipApp API not available, skipping postal code validation'
-				);
+				console.warn('MembershipApp API not available, skipping postal code validation');
 				return;
 			}
 
-			const result = await membershipApp.apiService.validatePostalCode(
-				postalCode,
-				country
-			);
+			const result = await membershipApp.apiService.validatePostalCode(postalCode, country);
 
 			if (result.suggested_chapters && result.suggested_chapters.length > 0) {
 				const suggestion = result.suggested_chapters[0];
@@ -3891,12 +3578,8 @@ class VolunteerStep extends BaseStep {
 			select.empty().append('<option value="">Select a chapter...</option>');
 
 			chapters.forEach((chapter) => {
-				const displayText = chapter.region
-					? `${chapter.name} - ${chapter.region}`
-					: chapter.name;
-				select.append(
-					`<option value="${chapter.name}">${displayText}</option>`
-				);
+				const displayText = chapter.region ? `${chapter.name} - ${chapter.region}` : chapter.name;
+				select.append(`<option value="${chapter.name}">${displayText}</option>`);
 			});
 
 			// Show chapter selection section if chapters are available
@@ -3955,9 +3638,7 @@ class VolunteerStep extends BaseStep {
 		});
 
 		return {
-			interested_in_volunteering: $('#interested_in_volunteering').is(
-				':checked'
-			),
+			interested_in_volunteering: $('#interested_in_volunteering').is(':checked'),
 			volunteer_availability: $('#volunteer_availability').val() || '',
 			volunteer_experience_level: $('#volunteer_experience_level').val() || '',
 			volunteer_interests: interests,
@@ -4000,13 +3681,8 @@ class PaymentStep extends BaseStep {
 		this.bindPaymentEvents();
 
 		// Also ensure main app payment method events are bound after DOM update
-		if (
-			typeof membershipApp !== 'undefined'
-      && membershipApp.bindPaymentMethodEvents
-		) {
-			console.log(
-				'PaymentStep: Re-binding main app payment method events after loading methods'
-			);
+		if (typeof membershipApp !== 'undefined' && membershipApp.bindPaymentMethodEvents) {
+			console.log('PaymentStep: Re-binding main app payment method events after loading methods');
 			membershipApp.bindPaymentMethodEvents();
 		}
 
@@ -4038,8 +3714,7 @@ class PaymentStep extends BaseStep {
 		methodCardHTML += '<div class="form-check">';
 
 		const radioId = `payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`;
-		methodCardHTML
-      += '<input class="form-check-input payment-method-radio" type="radio" ';
+		methodCardHTML += '<input class="form-check-input payment-method-radio" type="radio" ';
 		methodCardHTML += `name="payment_method_selection" value="${method.name}" id="${radioId}">`;
 		methodCardHTML += `<label class="form-check-label" for="${radioId}">`;
 		methodCardHTML += 'Select';
@@ -4080,9 +3755,7 @@ class PaymentStep extends BaseStep {
 		];
 
 		fallbackMethods.forEach((method) => {
-			select.append(
-				`<option value="${method.name}">${method.name} - ${method.description}</option>`
-			);
+			select.append(`<option value="${method.name}">${method.name} - ${method.description}</option>`);
 		});
 
 		// Bind change event
@@ -4113,12 +3786,7 @@ class PaymentStep extends BaseStep {
 			.on('click', (e) => {
 				const target = $(e.target).closest('.payment-method-option');
 				const methodName = target.data('method');
-				console.log(
-					'PaymentStep: Payment method clicked:',
-					methodName,
-					'Target:',
-					target
-				);
+				console.log('PaymentStep: Payment method clicked:', methodName, 'Target:', target);
 				this.selectPaymentMethod(methodName);
 			});
 
@@ -4126,31 +3794,19 @@ class PaymentStep extends BaseStep {
 			.off('change')
 			.on('change', (e) => {
 				if ($(e.target).is(':checked')) {
-					console.log(
-						'PaymentStep: Payment method radio changed:',
-						$(e.target).val()
-					);
+					console.log('PaymentStep: Payment method radio changed:', $(e.target).val());
 					this.selectPaymentMethod($(e.target).val());
 				}
 			});
 
 		// Also bind to the main app's payment method events for field switching
-		if (
-			typeof membershipApp !== 'undefined'
-      && membershipApp.bindPaymentMethodEvents
-		) {
+		if (typeof membershipApp !== 'undefined' && membershipApp.bindPaymentMethodEvents) {
 			console.log('PaymentStep: Calling main app bindPaymentMethodEvents');
 			membershipApp.bindPaymentMethodEvents();
 		}
 
-		console.log(
-			'PaymentStep: Found payment method options:',
-			$('.payment-method-option').length
-		);
-		console.log(
-			'PaymentStep: Found payment method radios:',
-			$('.payment-method-radio').length
-		);
+		console.log('PaymentStep: Found payment method options:', $('.payment-method-option').length);
+		console.log('PaymentStep: Found payment method radios:', $('.payment-method-radio').length);
 	}
 
 	selectPaymentMethod(methodName) {
@@ -4168,37 +3824,21 @@ class PaymentStep extends BaseStep {
 			$('#payment_method').val(methodName);
 		} else {
 			$('.payment-method-option').removeClass('selected');
-			$(`.payment-method-option[data-method="${methodName}"]`).addClass(
-				'selected'
-			);
+			$(`.payment-method-option[data-method="${methodName}"]`).addClass('selected');
 
 			// Update radio button and trigger change event
 			const radioButton = $(`.payment-method-radio[value="${methodName}"]`);
-			console.log(
-				'PaymentStep: Found radio button for',
-				methodName,
-				':',
-				radioButton.length
-			);
+			console.log('PaymentStep: Found radio button for', methodName, ':', radioButton.length);
 			radioButton.prop('checked', true).trigger('change');
 		}
 
 		// Use the main app's handlePaymentMethodChange for consistent behavior
-		if (
-			typeof membershipApp !== 'undefined'
-      && membershipApp.handlePaymentMethodChange
-		) {
-			console.log(
-				'PaymentStep: Using main app handlePaymentMethodChange for:',
-				methodName
-			);
+		if (typeof membershipApp !== 'undefined' && membershipApp.handlePaymentMethodChange) {
+			console.log('PaymentStep: Using main app handlePaymentMethodChange for:', methodName);
 			membershipApp.handlePaymentMethodChange(methodName);
 		} else {
 			// Fallback for standalone operation
-			console.log(
-				'PaymentStep: Fallback - showing fields for payment method:',
-				methodName
-			);
+			console.log('PaymentStep: Fallback - showing fields for payment method:', methodName);
 			// Payment method sections hidden by default
 			$('#bank-account-details').hide();
 			$('#bank-transfer-notice').hide();
@@ -4208,9 +3848,7 @@ class PaymentStep extends BaseStep {
 				console.log('PaymentStep: Showing bank account fields');
 				$('#bank-account-details').show();
 			} else if (methodName === 'Bank Transfer') {
-				console.log(
-					'PaymentStep: Showing bank transfer details with account fields'
-				);
+				console.log('PaymentStep: Showing bank transfer details with account fields');
 				$('#bank-transfer-details').show();
 			}
 		}
@@ -4219,10 +3857,7 @@ class PaymentStep extends BaseStep {
 	updateSummary(state) {
 		// Use the main application's comprehensive updateApplicationSummary method
 		// which includes detailed financial information and proper data handling
-		if (
-			typeof membershipApp !== 'undefined'
-      && membershipApp.updateApplicationSummary
-		) {
+		if (typeof membershipApp !== 'undefined' && membershipApp.updateApplicationSummary) {
 			membershipApp.updateApplicationSummary();
 		} else {
 			// Fallback to basic summary if main app method is not available
@@ -4251,9 +3886,7 @@ class PaymentStep extends BaseStep {
 		const membership = state.get('membership');
 		if (membership && membership.type) {
 			const membershipTypes = state.get('membershipTypes') || [];
-			const membershipType = membershipTypes.find(
-				(t) => t.name === membership.type
-			);
+			const membershipType = membershipTypes.find((t) => t.name === membership.type);
 			if (membershipType) {
 				content += `<p><strong>Type:</strong> ${membershipType.membership_type_name}</p>`;
 				content += `<p><strong>Amount:</strong> ${frappe.format(membership.amount, { fieldtype: 'Currency' })}</p>`;
@@ -4274,9 +3907,7 @@ class PaymentStep extends BaseStep {
 			content += '<p><strong>Interested in volunteering:</strong> Yes</p>';
 		}
 
-		const paymentMethod
-      = $('input[name="payment_method_selection"]:checked').val()
-      || $('#payment_method').val();
+		const paymentMethod = $('input[name="payment_method_selection"]:checked').val() || $('#payment_method').val();
 		if (paymentMethod) {
 			content += `<p><strong>Payment Method:</strong> ${paymentMethod}</p>`;
 		}
@@ -4301,9 +3932,8 @@ class PaymentStep extends BaseStep {
 			let age = today.getFullYear() - birth.getFullYear();
 
 			if (
-				today.getMonth() < birth.getMonth()
-        || (today.getMonth() === birth.getMonth()
-          && today.getDate() < birth.getDate())
+				today.getMonth() < birth.getMonth() ||
+				(today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())
 			) {
 				age--;
 			}
@@ -4323,15 +3953,11 @@ class PaymentStep extends BaseStep {
 		$('.is-invalid').removeClass('is-invalid');
 
 		// Payment method validation
-		const paymentMethod
-      = $('input[name="payment_method_selection"]:checked').val()
-      || $('#payment_method').val();
+		const paymentMethod = $('input[name="payment_method_selection"]:checked').val() || $('#payment_method').val();
 		if (!paymentMethod) {
 			if ($('#payment-method-fallback').is(':visible')) {
 				$('#payment_method').addClass('is-invalid');
-				$('#payment_method').after(
-					'<div class="invalid-feedback">Please select a payment method</div>'
-				);
+				$('#payment_method').after('<div class="invalid-feedback">Please select a payment method</div>');
 			} else {
 				const errorDiv = $(
 					'<div class="invalid-feedback d-block text-danger mb-3">Please select a payment method</div>'
@@ -4345,37 +3971,23 @@ class PaymentStep extends BaseStep {
 				// Bank account validation
 				if (!$('#iban').val()) {
 					$('#iban').addClass('is-invalid');
-					$('#iban').after(
-						'<div class="invalid-feedback">IBAN is required</div>'
-					);
+					$('#iban').after('<div class="invalid-feedback">IBAN is required</div>');
 					valid = false;
 				}
 
-				const bankAccountName
-          = $('#bank_account_name').val() || $('#account_holder_name').val();
+				const bankAccountName = $('#bank_account_name').val() || $('#account_holder_name').val();
 				if (!bankAccountName) {
-					const $field = $('#bank_account_name').length
-						? $('#bank_account_name')
-						: $('#account_holder_name');
+					const $field = $('#bank_account_name').length ? $('#bank_account_name') : $('#account_holder_name');
 					$field.addClass('is-invalid');
-					$field.after(
-						'<div class="invalid-feedback">Account holder name is required</div>'
-					);
+					$field.after('<div class="invalid-feedback">Account holder name is required</div>');
 					valid = false;
 				}
 
 				// Basic IBAN validation (at least country code + 2 check digits + account identifier)
 				const iban = $('#iban').val().replace(/\s/g, '');
-				if (
-					iban
-          && (iban.length < 15
-            || iban.length > 34
-            || !/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/i.test(iban))
-				) {
+				if (iban && (iban.length < 15 || iban.length > 34 || !/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/i.test(iban))) {
 					$('#iban').addClass('is-invalid');
-					$('#iban').after(
-						'<div class="invalid-feedback">Please enter a valid IBAN</div>'
-					);
+					$('#iban').after('<div class="invalid-feedback">Please enter a valid IBAN</div>');
 					valid = false;
 				}
 			}
@@ -4403,36 +4015,25 @@ class PaymentStep extends BaseStep {
 
 class MembershipAPI {
 	async getFormData() {
-		return await this.call(
-			'verenigingen.api.membership_application.get_application_form_data'
-		);
+		return await this.call('verenigingen.api.membership_application.get_application_form_data');
 	}
 
 	async validateEmail(email) {
-		return await this.call(
-			'verenigingen.api.membership_application.validate_email',
-			{ email }
-		);
+		return await this.call('verenigingen.api.membership_application.validate_email', { email });
 	}
 
 	async validatePostalCode(postalCode, country) {
-		return await this.call(
-			'verenigingen.api.membership_application.validate_postal_code',
-			{
-				postal_code: postalCode,
-				country
-			}
-		);
+		return await this.call('verenigingen.api.membership_application.validate_postal_code', {
+			postal_code: postalCode,
+			country
+		});
 	}
 
 	async validateCustomAmount(membershipType, amount) {
-		return await this.call(
-			'verenigingen.api.membership_application.validate_custom_amount',
-			{
-				membership_type: membershipType,
-				amount
-			}
-		);
+		return await this.call('verenigingen.api.membership_application.validate_custom_amount', {
+			membership_type: membershipType,
+			amount
+		});
 	}
 
 	async submitApplication(data) {
@@ -4444,10 +4045,7 @@ class MembershipAPI {
 			try {
 				jsonData = JSON.stringify(data);
 				console.log('JSON serialized data length:', jsonData.length);
-				console.log(
-					'JSON serialized data preview:',
-					`${jsonData.substring(0, 100)}...`
-				);
+				console.log('JSON serialized data preview:', `${jsonData.substring(0, 100)}...`);
 			} catch (error) {
 				console.error('JSON serialization failed:', error);
 				console.error('Problem data:', data);
@@ -4473,10 +4071,7 @@ class MembershipAPI {
 						resolve(response.message);
 					} else if (response.message) {
 						console.log('Full error response:', response.message);
-						const errorMsg
-              = response.message.message
-              || response.message.error
-              || 'Submission failed';
+						const errorMsg = response.message.message || response.message.error || 'Submission failed';
 						reject(new Error(errorMsg));
 					} else {
 						reject(new Error('Unknown response format'));
@@ -4511,10 +4106,7 @@ class MembershipAPI {
 	}
 
 	async saveDraft(data) {
-		return await this.call(
-			'verenigingen.api.membership_application.save_draft_application',
-			{ data }
-		);
+		return await this.call('verenigingen.api.membership_application.save_draft_application', { data });
 	}
 
 	async call(method, args = {}) {
@@ -4590,9 +4182,8 @@ class MembershipAPI {
 
 					// Check if response contains an error message (even in "success" response)
 					if (
-						response.error_message
-            || (response.server_messages
-              && response.server_messages.includes('does not have permission'))
+						response.error_message ||
+						(response.server_messages && response.server_messages.includes('does not have permission'))
 					) {
 						let errorMsg = response.error_message || 'Permission denied';
 
@@ -4601,10 +4192,8 @@ class MembershipAPI {
 							try {
 								const messages = JSON.parse(response.server_messages);
 								if (messages && messages.length > 0) {
-									const firstMessage
-                    = typeof messages[0] === 'string'
-                    	? JSON.parse(messages[0])
-                    	: messages[0];
+									const firstMessage =
+										typeof messages[0] === 'string' ? JSON.parse(messages[0]) : messages[0];
 									if (firstMessage.message) {
 										errorMsg = firstMessage.message.replace(/<[^>]*>/g, ''); // Strip HTML
 									}
@@ -4621,9 +4210,7 @@ class MembershipAPI {
 					if (response.message && response.message.success) {
 						resolve(response.message);
 					} else if (response.message && response.message.error) {
-						reject(
-							new Error(response.message.message || response.message.error)
-						);
+						reject(new Error(response.message.message || response.message.error));
 					} else {
 						reject(new Error(response.message || 'Unknown error occurred'));
 					}
@@ -4637,10 +4224,7 @@ class MembershipAPI {
 							errorMsg = xhr.responseJSON.exc;
 						} else if (xhr.responseJSON.error_message) {
 							errorMsg = xhr.responseJSON.error_message;
-						} else if (
-							xhr.responseJSON.message
-              && xhr.responseJSON.message.error
-						) {
+						} else if (xhr.responseJSON.message && xhr.responseJSON.message.error) {
 							errorMsg = xhr.responseJSON.message.error;
 						}
 					} else if (error) {
@@ -4683,9 +4267,7 @@ class _UIManager {
 	setSubmitting(isSubmitting) {
 		const btn = $('#submit-btn');
 		if (isSubmitting) {
-			btn
-				.prop('disabled', true)
-				.html('<i class="fa fa-spinner fa-spin"></i> Processing...');
+			btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
 		} else {
 			btn.prop('disabled', false).html('Submit Application & Pay');
 		}
@@ -4695,16 +4277,13 @@ class _UIManager {
 		// Create success message with application ID prominently displayed
 		let successHTML = '<div class="text-center py-5">';
 		successHTML += '<div class="success-icon mb-4">';
-		successHTML
-      += '<i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>';
+		successHTML += '<i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>';
 		successHTML += '</div>';
-		successHTML
-      += '<h2 class="text-success">Application Submitted Successfully!</h2>';
+		successHTML += '<h2 class="text-success">Application Submitted Successfully!</h2>';
 
 		// Display application ID if available
 		if (result.application_id) {
-			successHTML
-        += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
+			successHTML += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
 			successHTML += `<h4>Your Application ID: <strong>${result.application_id}</strong></h4>`;
 			successHTML += '<p>Please save this ID for future reference.</p>';
 			successHTML += '</div>';
@@ -4759,10 +4338,7 @@ window.debugApp = () => {
 	console.log('=== APPLICATION DEBUG ===');
 	console.log('State:', window.membershipApp.state.getData());
 	console.log('Current step:', window.membershipApp.state.currentStep);
-	console.log(
-		'Selected membership:',
-		window.membershipApp.state.get('membership')
-	);
+	console.log('Selected membership:', window.membershipApp.state.get('membership'));
 	console.log('========================');
 	return window.membershipApp.state.getData();
 };
@@ -4776,18 +4352,9 @@ window.debugMembershipSelection = () => {
 	const membership = window.membershipApp.state.get('membership');
 	console.log('Membership data:', membership);
 	console.log('Legacy compatibility:');
-	console.log(
-		'  - selected_membership_type:',
-		window.membershipApp.state.get('selected_membership_type')
-	);
-	console.log(
-		'  - custom_contribution_fee:',
-		window.membershipApp.state.get('custom_contribution_fee')
-	);
-	console.log(
-		'  - uses_custom_amount:',
-		window.membershipApp.state.get('uses_custom_amount')
-	);
+	console.log('  - selected_membership_type:', window.membershipApp.state.get('selected_membership_type'));
+	console.log('  - custom_contribution_fee:', window.membershipApp.state.get('custom_contribution_fee'));
+	console.log('  - uses_custom_amount:', window.membershipApp.state.get('uses_custom_amount'));
 
 	// Check visible custom sections
 	$('.custom-amount-section:visible').each(function () {
@@ -4798,12 +4365,7 @@ window.debugMembershipSelection = () => {
 
 	// Check selected membership cards
 	$('.membership-type-card.selected').each(function () {
-		console.log(
-			'Selected card:',
-			$(this).data('type'),
-			'amount:',
-			$(this).data('amount')
-		);
+		console.log('Selected card:', $(this).data('type'), 'amount:', $(this).data('amount'));
 	});
 
 	// Test form data collection
@@ -4852,10 +4414,7 @@ class ConfirmationStep extends BaseStep {
 
 	render(state) {
 		// Update final summary when rendered
-		if (
-			typeof membershipApp !== 'undefined'
-      && membershipApp.updateFinalApplicationSummary
-		) {
+		if (typeof membershipApp !== 'undefined' && membershipApp.updateFinalApplicationSummary) {
 			membershipApp.updateFinalApplicationSummary();
 		}
 	}
@@ -4872,9 +4431,7 @@ class ConfirmationStep extends BaseStep {
 			$('#terms').addClass('is-invalid');
 			$('#terms')
 				.closest('.form-check')
-				.after(
-					'<div class="invalid-feedback d-block">You must accept the terms and conditions</div>'
-				);
+				.after('<div class="invalid-feedback d-block">You must accept the terms and conditions</div>');
 			valid = false;
 		}
 
@@ -4883,9 +4440,7 @@ class ConfirmationStep extends BaseStep {
 			$('#gdpr_consent').addClass('is-invalid');
 			$('#gdpr_consent')
 				.closest('.form-check')
-				.after(
-					'<div class="invalid-feedback d-block">You must consent to data processing</div>'
-				);
+				.after('<div class="invalid-feedback d-block">You must consent to data processing</div>');
 			valid = false;
 		}
 
@@ -4894,9 +4449,7 @@ class ConfirmationStep extends BaseStep {
 			$('#confirm_accuracy').addClass('is-invalid');
 			$('#confirm_accuracy')
 				.closest('.form-check')
-				.after(
-					'<div class="invalid-feedback d-block">You must confirm the accuracy of your information</div>'
-				);
+				.after('<div class="invalid-feedback d-block">You must confirm the accuracy of your information</div>');
 			valid = false;
 		}
 
@@ -4919,8 +4472,7 @@ window.testBackendMethod = async function () {
 	try {
 		const result = await new Promise((resolve, reject) => {
 			frappe.call({
-				method:
-          'verenigingen.api.membership_application.get_application_form_data',
+				method: 'verenigingen.api.membership_application.get_application_form_data',
 				callback: (r) => {
 					if (r.message !== undefined) {
 						resolve(r.message);

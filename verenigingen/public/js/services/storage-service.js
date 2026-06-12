@@ -118,8 +118,8 @@ class StorageService {
 	}
 
 	/**
-   * Initialize storage and check browser compatibility
-   */
+	 * Initialize storage and check browser compatibility
+	 */
 	_initializeStorage() {
 		this.storageAvailable = {
 			localStorage: this._storageAvailable('localStorage'),
@@ -139,8 +139,8 @@ class StorageService {
 	}
 
 	/**
-   * Check if storage type is available
-   */
+	 * Check if storage type is available
+	 */
 	_storageAvailable(type) {
 		try {
 			const storage = window[type];
@@ -154,8 +154,8 @@ class StorageService {
 	}
 
 	/**
-   * Start auto-save functionality
-   */
+	 * Start auto-save functionality
+	 */
 	startAutoSave(getData) {
 		this.getDataCallback = getData;
 
@@ -169,15 +169,12 @@ class StorageService {
 			}
 		}, this.options.autoSaveInterval);
 
-		console.log(
-			'Auto-save started with interval:',
-			this.options.autoSaveInterval
-		);
+		console.log('Auto-save started with interval:', this.options.autoSaveInterval);
 	}
 
 	/**
-   * Stop auto-save functionality
-   */
+	 * Stop auto-save functionality
+	 */
 	stopAutoSave() {
 		if (this.autoSaveTimer) {
 			clearInterval(this.autoSaveTimer);
@@ -186,27 +183,26 @@ class StorageService {
 	}
 
 	/**
-   * Mark data as dirty (changed)
-   */
+	 * Mark data as dirty (changed)
+	 */
 	markDirty() {
 		this.isDirty = true;
 	}
 
 	/**
-   * Mark data as clean (saved)
-   */
+	 * Mark data as clean (saved)
+	 */
 	markClean() {
 		this.isDirty = false;
 		this.lastSaved = new Date();
 	}
 
 	/**
-   * Save draft to local storage and optionally to server
-   */
+	 * Save draft to local storage and optionally to server
+	 */
 	async saveDraft(data = null, saveToServer = true) {
 		try {
-			const draftData
-        = data || (this.getDataCallback ? this.getDataCallback() : {});
+			const draftData = data || (this.getDataCallback ? this.getDataCallback() : {});
 
 			if (!draftData || Object.keys(draftData).length === 0) {
 				return { success: false, message: 'No data to save' };
@@ -226,10 +222,7 @@ class StorageService {
 						this._saveMetadata('currentDraftId', this.currentDraftId);
 					}
 				} catch (error) {
-					console.warn(
-						'Server draft save failed, using local storage only:',
-						error
-					);
+					console.warn('Server draft save failed, using local storage only:', error);
 					serverResult = { success: false, error: error.message };
 				}
 			}
@@ -254,8 +247,8 @@ class StorageService {
 	}
 
 	/**
-   * Load draft from local storage or server
-   */
+	 * Load draft from local storage or server
+	 */
 	async loadDraft(draftId = null) {
 		try {
 			// Try to load from server first if draft ID is provided
@@ -273,10 +266,7 @@ class StorageService {
 						};
 					}
 				} catch (error) {
-					console.warn(
-						'Server draft load failed, trying local storage:',
-						error
-					);
+					console.warn('Server draft load failed, trying local storage:', error);
 				}
 			}
 
@@ -302,8 +292,8 @@ class StorageService {
 	}
 
 	/**
-   * Get all available draft versions
-   */
+	 * Get all available draft versions
+	 */
 	getAllDrafts() {
 		const drafts = [];
 
@@ -332,8 +322,8 @@ class StorageService {
 	}
 
 	/**
-   * Delete a specific draft
-   */
+	 * Delete a specific draft
+	 */
 	deleteDraft(draftId) {
 		if (this.storageAvailable.localStorage) {
 			const key = `${this.options.storagePrefix}draft_${draftId}`;
@@ -348,8 +338,8 @@ class StorageService {
 	}
 
 	/**
-   * Clear all drafts
-   */
+	 * Clear all drafts
+	 */
 	clearAllDrafts() {
 		if (this.storageAvailable.localStorage) {
 			const keysToRemove = [];
@@ -366,16 +356,15 @@ class StorageService {
 	}
 
 	/**
-   * Save to local storage
-   */
+	 * Save to local storage
+	 */
 	_saveToLocalStorage(data = null) {
 		if (!this.storageAvailable.localStorage) {
 			return { success: false, message: 'localStorage not available' };
 		}
 
 		try {
-			const draftData
-        = data || (this.getDataCallback ? this.getDataCallback() : {});
+			const draftData = data || (this.getDataCallback ? this.getDataCallback() : {});
 			const timestamp = new Date().toISOString();
 			const draftId = this._generateDraftId();
 
@@ -409,8 +398,8 @@ class StorageService {
 	}
 
 	/**
-   * Load from local storage
-   */
+	 * Load from local storage
+	 */
 	_loadFromLocalStorage() {
 		if (!this.storageAvailable.localStorage) {
 			return { success: false, message: 'localStorage not available' };
@@ -446,8 +435,8 @@ class StorageService {
 	}
 
 	/**
-   * Save/load metadata
-   */
+	 * Save/load metadata
+	 */
 	_saveMetadata(key, value) {
 		if (this.storageAvailable.localStorage) {
 			const metaKey = `${this.options.storagePrefix}meta_${key}`;
@@ -465,8 +454,8 @@ class StorageService {
 	}
 
 	/**
-   * Utility functions
-   */
+	 * Utility functions
+	 */
 	_generateDraftId() {
 		return `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 	}
@@ -502,8 +491,8 @@ class StorageService {
 	}
 
 	/**
-   * Storage statistics and debugging
-   */
+	 * Storage statistics and debugging
+	 */
 	getStorageStats() {
 		let usedSpace = 0;
 		let draftCount = 0;
@@ -533,8 +522,8 @@ class StorageService {
 	}
 
 	/**
-   * Session storage methods for temporary data
-   */
+	 * Session storage methods for temporary data
+	 */
 	setSessionData(key, value) {
 		if (this.storageAvailable.sessionStorage) {
 			const fullKey = `${this.options.storagePrefix}session_${key}`;
@@ -568,9 +557,7 @@ class StorageService {
 					keysToRemove.push(storageKey);
 				}
 			}
-			keysToRemove.forEach((storageKey) =>
-				sessionStorage.removeItem(storageKey)
-			);
+			keysToRemove.forEach((storageKey) => sessionStorage.removeItem(storageKey));
 		}
 	}
 }

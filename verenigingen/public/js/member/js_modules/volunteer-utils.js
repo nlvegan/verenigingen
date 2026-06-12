@@ -116,24 +116,16 @@ function show_volunteer_info(frm) {
 							const volunteerDoc = volunteerResponse.message;
 							let skillsHtml = '';
 
-							if (
-								volunteerDoc.volunteer_skills
-                && volunteerDoc.volunteer_skills.length > 0
-							) {
+							if (volunteerDoc.volunteer_skills && volunteerDoc.volunteer_skills.length > 0) {
 								skillsHtml = '<strong>Skills:</strong><br>';
 								volunteerDoc.volunteer_skills.forEach((skill) => {
-									const proficiencyColor = get_proficiency_color(
-										skill.proficiency_level
-									);
+									const proficiencyColor = get_proficiency_color(skill.proficiency_level);
 									skillsHtml += `<span class="badge" style="background-color: ${proficiencyColor}; margin: 2px;">${skill.skill} (${skill.proficiency_level})</span><br>`;
 								});
 							}
 
 							let interestsHtml = '';
-							if (
-								volunteerDoc.interest_areas
-                && volunteerDoc.interest_areas.length > 0
-							) {
+							if (volunteerDoc.interest_areas && volunteerDoc.interest_areas.length > 0) {
 								interestsHtml = '<strong>Interest Areas:</strong><br>';
 								volunteerDoc.interest_areas.forEach((interest) => {
 									interestsHtml += `<span class="badge badge-secondary" style="margin: 2px;">${interest.interest_area}</span><br>`;
@@ -239,8 +231,7 @@ function create_volunteer_from_member(frm) {
 			}
 
 			frappe.call({
-				method:
-					'verenigingen.verenigingen.doctype.volunteer.volunteer.create_volunteer_from_member',
+				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.create_volunteer_from_member',
 				args,
 				freeze: true,
 				freeze_message: __('Creating volunteer profile...'),
@@ -324,10 +315,7 @@ function show_volunteer_activation_dialog(options) {
 				fieldtype: 'MultiSelect',
 				fieldname: 'additional_roles',
 				label: __('Additional Roles'),
-				options: [
-					'Volunteer Team Member',
-					'Volunteer Team Leader'
-				],
+				options: ['Volunteer Team Member', 'Volunteer Team Leader'],
 				description: __('Optional additional roles to assign')
 			}
 		],
@@ -336,7 +324,7 @@ function show_volunteer_activation_dialog(options) {
 			// Build roles list - always include Verenigingen Volunteer
 			const roles = ['Verenigingen Volunteer'];
 			if (values.additional_roles && values.additional_roles.length > 0) {
-				values.additional_roles.forEach(role => {
+				values.additional_roles.forEach((role) => {
 					if (!roles.includes(role)) {
 						roles.push(role);
 					}
@@ -355,12 +343,17 @@ function show_volunteer_activation_dialog(options) {
 				freeze_message: __('Activating volunteer...'),
 				callback(r) {
 					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: __('Volunteer activation queued: {0}', [r.message.data.request_name]),
-							indicator: 'green'
-						}, 7);
+						frappe.show_alert(
+							{
+								message: __('Volunteer activation queued: {0}', [r.message.data.request_name]),
+								indicator: 'green'
+							},
+							7
+						);
 						d.hide();
-						if (on_success) { on_success(r.message); }
+						if (on_success) {
+							on_success(r.message);
+						}
 					} else {
 						// Extract error from OperationResult format
 						const errorMsg = getErrorMessage(r.message, __('Failed to activate volunteer'));

@@ -73,9 +73,7 @@ function assign_chapter_for_member(frm) {
 				fieldname: 'note',
 				fieldtype: 'Small Text',
 				label: __('Assignment Note (Optional)'),
-				description: __(
-					'Optional note explaining the reason for this assignment'
-				)
+				description: __('Optional note explaining the reason for this assignment')
 			}
 		],
 		primary_action_label: __('Assign to Chapter'),
@@ -94,8 +92,7 @@ function assign_chapter_for_member(frm) {
 
 function assign_chapter_to_member(frm, chapter_name, note) {
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup',
+		method: 'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup',
 		args: {
 			member: frm.doc.name,
 			chapter: chapter_name,
@@ -119,9 +116,7 @@ function assign_chapter_to_member(frm, chapter_name, note) {
 				if (data.cleanup_performed) {
 					frappe.show_alert(
 						{
-							message: __(
-								'Previous chapter memberships and board roles have been ended'
-							),
+							message: __('Previous chapter memberships and board roles have been ended'),
 							indicator: 'blue'
 						},
 						7

@@ -67,8 +67,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Initialize global error handling
-   */
+	 * Initialize global error handling
+	 */
 	_initializeErrorHandling() {
 		// Global JavaScript error handler
 		window.addEventListener('error', (event) => {
@@ -103,17 +103,13 @@ class ErrorHandler {
 		});
 
 		window.addEventListener('online', () => {
-			this.showNotification(
-				'success',
-				'Connection Restored',
-				'You are back online. Attempting to sync data...'
-			);
+			this.showNotification('success', 'Connection Restored', 'You are back online. Attempting to sync data...');
 		});
 	}
 
 	/**
-   * Create error UI elements
-   */
+	 * Create error UI elements
+	 */
 	_createErrorUI() {
 		// Error container for notifications
 		if ($('#error-notification-container').length === 0) {
@@ -158,8 +154,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Main error handling method
-   */
+	 * Main error handling method
+	 */
 	handleError(error, context = {}) {
 		// Normalize error object
 		const normalizedError = this._normalizeError(error);
@@ -207,8 +203,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Handle validation errors
-   */
+	 * Handle validation errors
+	 */
 	handleValidationError(field, error, context = {}) {
 		const validationError = {
 			type: 'validation',
@@ -225,8 +221,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Handle API errors
-   */
+	 * Handle API errors
+	 */
 	handleAPIError(error, endpoint, options = {}) {
 		const apiError = {
 			type: 'api',
@@ -248,8 +244,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Handle network errors
-   */
+	 * Handle network errors
+	 */
 	handleNetworkError(error, context = {}) {
 		const networkError = {
 			type: 'network',
@@ -259,25 +255,17 @@ class ErrorHandler {
 		};
 
 		if (!navigator.onLine) {
-			this.showNotification(
-				'warning',
-				'Offline',
-				'Please check your internet connection'
-			);
+			this.showNotification('warning', 'Offline', 'Please check your internet connection');
 		} else {
-			this.showNotification(
-				'error',
-				'Network Error',
-				'Failed to connect to server'
-			);
+			this.showNotification('error', 'Network Error', 'Failed to connect to server');
 		}
 
 		return this.handleError(networkError, { category: 'network', ...context });
 	}
 
 	/**
-   * Show user notifications
-   */
+	 * Show user notifications
+	 */
 	showNotification(type, title, message, options = {}) {
 		const notification = {
 			id: this._generateId(),
@@ -301,8 +289,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Show modal error dialog
-   */
+	 * Show modal error dialog
+	 */
 	showErrorModal(error, options = {}) {
 		const $modal = $('#error-modal');
 		const $content = $('#error-modal-content');
@@ -350,14 +338,13 @@ class ErrorHandler {
 	}
 
 	/**
-   * Error severity handling
-   */
+	 * Error severity handling
+	 */
 	_handleCriticalError(error) {
 		// Critical errors require immediate user attention
 		this.showErrorModal({
 			title: 'Critical Error',
-			message:
-        'A critical error has occurred. Please refresh the page and try again.',
+			message: 'A critical error has occurred. Please refresh the page and try again.',
 			details: this.options.showStackTrace ? error.stack : null
 		});
 
@@ -391,8 +378,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Utility methods
-   */
+	 * Utility methods
+	 */
 	_normalizeError(error) {
 		const normalized = {
 			id: this._generateId(),
@@ -532,20 +519,15 @@ class ErrorHandler {
 	}
 
 	_showRetryableError(error, onRetry) {
-		this.showNotification(
-			'warning',
-			'Temporary Error',
-			`${error.message}. Click retry to try again.`,
-			{
-				autoHide: false,
-				actions: [
-					{
-						text: 'Retry',
-						action: onRetry
-					}
-				]
-			}
-		);
+		this.showNotification('warning', 'Temporary Error', `${error.message}. Click retry to try again.`, {
+			autoHide: false,
+			actions: [
+				{
+					text: 'Retry',
+					action: onRetry
+				}
+			]
+		});
 	}
 
 	_showAPIError(error) {
@@ -602,8 +584,8 @@ class ErrorHandler {
 	}
 
 	/**
-   * Public API
-   */
+	 * Public API
+	 */
 	getErrorStats() {
 		return {
 			totalErrors: this.errorLog.length,

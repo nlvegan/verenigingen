@@ -95,16 +95,14 @@
 function generateMandateReference(memberDoc) {
 	// Format: M-[MemberID]-[YYYYMMDD]-[Random3Digits]
 	const today = new Date();
-	const dateStr
-    = today.getFullYear().toString()
-    + (today.getMonth() + 1).toString().padStart(2, '0')
-    + today.getDate().toString().padStart(2, '0');
+	const dateStr =
+		today.getFullYear().toString() +
+		(today.getMonth() + 1).toString().padStart(2, '0') +
+		today.getDate().toString().padStart(2, '0');
 
 	const randomSuffix = Math.floor(Math.random() * 900) + 100; // 3-digit random number
 
-	const memberId
-    = memberDoc.member_id
-    || memberDoc.name.replace('Assoc-Member-', '').replace(/-/g, '');
+	const memberId = memberDoc.member_id || memberDoc.name.replace('Assoc-Member-', '').replace(/-/g, '');
 
 	return `M-${memberId}-${dateStr}-${randomSuffix}`;
 }
@@ -117,9 +115,7 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 
 	const suggestedReference = generateMandateReference(frm.doc);
 
-	const confirmMessage
-    = message
-    || __('Would you like to create a new SEPA mandate for this bank account?');
+	const confirmMessage = message || __('Would you like to create a new SEPA mandate for this bank account?');
 
 	frappe.confirm(
 		confirmMessage,
@@ -154,9 +150,7 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 						fieldtype: 'Data',
 						label: __('BIC/SWIFT Code'),
 						default: frm.doc.bic || '',
-						description: __(
-							'Bank Identifier Code (auto-derived from IBAN if empty)'
-						)
+						description: __('Bank Identifier Code (auto-derived from IBAN if empty)')
 					},
 					{
 						fieldname: 'account_holder_name',
@@ -297,12 +291,7 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 			};
 		},
 		() => {
-			frappe.show_alert(
-				__(
-					'No new SEPA mandate created. The existing mandate will remain active.'
-				),
-				5
-			);
+			frappe.show_alert(__('No new SEPA mandate created. The existing mandate will remain active.'), 5);
 		}
 	);
 }
@@ -312,8 +301,7 @@ function create_mandate_with_values(frm, values, dialog) {
 
 	// Get server-side validation data
 	frappe.call({
-		method:
-      'verenigingen.api.member.sepa_api.validate_mandate_creation',
+		method: 'verenigingen.api.member.sepa_api.validate_mandate_creation',
 		args: {
 			member: frm.doc.name,
 			iban: values.iban,
@@ -327,9 +315,7 @@ function create_mandate_with_values(frm, values, dialog) {
 				additionalArgs.replace_existing = serverData.existing_mandate;
 				frappe.show_alert(
 					{
-						message: __('Existing mandate {0} will be replaced', [
-							serverData.existing_mandate
-						]),
+						message: __('Existing mandate {0} will be replaced', [serverData.existing_mandate]),
 						indicator: 'orange'
 					},
 					5
@@ -337,8 +323,7 @@ function create_mandate_with_values(frm, values, dialog) {
 			}
 
 			frappe.call({
-				method:
-          'verenigingen.api.member.sepa_api.create_and_link_mandate_enhanced',
+				method: 'verenigingen.api.member.sepa_api.create_and_link_mandate_enhanced',
 				args: {
 					member: frm.doc.name,
 					mandate_id: values.mandate_id,
@@ -356,9 +341,7 @@ function create_mandate_with_values(frm, values, dialog) {
 					// Handle OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data) {
-						let alertMessage = __('SEPA Mandate {0} created successfully', [
-							values.mandate_id
-						]);
+						let alertMessage = __('SEPA Mandate {0} created successfully', [values.mandate_id]);
 						if (serverData && serverData.existing_mandate) {
 							alertMessage += `. ${__('Previous mandate has been marked as replaced.')}`;
 						}
@@ -372,10 +355,7 @@ function create_mandate_with_values(frm, values, dialog) {
 						);
 
 						// Update payment method if requested
-						if (
-							values.update_payment_method
-              && frm.doc.payment_method !== 'SEPA Direct Debit'
-						) {
+						if (values.update_payment_method && frm.doc.payment_method !== 'SEPA Direct Debit') {
 							frm.set_value('payment_method', 'SEPA Direct Debit');
 							frappe.show_alert(
 								{
@@ -436,8 +416,7 @@ function check_sepa_mandate_status(frm) {
 		let currentMandate = null;
 
 		frappe.call({
-			method:
-        'verenigingen.api.member.sepa_api.get_active_sepa_mandate',
+			method: 'verenigingen.api.member.sepa_api.get_active_sepa_mandate',
 			args: {
 				member: frm.doc.name,
 				iban: frm.doc.iban
@@ -461,13 +440,10 @@ function check_sepa_mandate_status(frm) {
 						Draft: 'orange'
 					};
 					const color = status_colors[currentMandate.status] || 'red';
-					const indicator_text
-            = currentMandate.status === 'Active'
-            	? __('SEPA Mandate: {0}', [currentMandate.mandate_id])
-            	: __('SEPA Mandate: {0} ({1})', [
-            		currentMandate.mandate_id,
-            		currentMandate.status
-            	]);
+					const indicator_text =
+						currentMandate.status === 'Active'
+							? __('SEPA Mandate: {0}', [currentMandate.mandate_id])
+							: __('SEPA Mandate: {0} ({1})', [currentMandate.mandate_id, currentMandate.status]);
 
 					frm.dashboard.add_indicator(indicator_text, color);
 
@@ -489,9 +465,7 @@ function check_sepa_mandate_status(frm) {
 							() => {
 								create_sepa_mandate_with_dialog(
 									frm,
-									__(
-										'No active SEPA mandate found for this IBAN. Would you like to create one?'
-									)
+									__('No active SEPA mandate found for this IBAN. Would you like to create one?')
 								);
 							},
 							__('SEPA')

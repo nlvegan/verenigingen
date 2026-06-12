@@ -10,14 +10,19 @@
 frappe.ui.form.on('Sales Invoice', {
 	refresh(frm) {
 		// Only show button for submitted, unpaid invoices
-		if (frm.doc.docstatus !== 1) { return; }
-		if (frm.doc.status === 'Paid') { return; }
-		if (frm.doc.outstanding_amount <= 0) { return; }
+		if (frm.doc.docstatus !== 1) {
+			return;
+		}
+		if (frm.doc.status === 'Paid') {
+			return;
+		}
+		if (frm.doc.outstanding_amount <= 0) {
+			return;
+		}
 
 		// Check if ING Checkout is enabled (async)
 		frappe.call({
-			method:
-				'verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings.is_ing_checkout_enabled',
+			method: 'verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings.is_ing_checkout_enabled',
 			callback(r) {
 				if (r.message && r.message.enabled) {
 					frm.add_custom_button(
@@ -38,8 +43,7 @@ frappe.ui.form.on('Sales Invoice', {
  */
 function ing_checkout_create_payment(frm) {
 	frappe.call({
-		method:
-			'verenigingen.verenigingen_payments.ing_checkout.api.payment.create_ideal_payment',
+		method: 'verenigingen.verenigingen_payments.ing_checkout.api.payment.create_ideal_payment',
 		args: {
 			reference_doctype: 'Sales Invoice',
 			reference_name: frm.doc.name,
