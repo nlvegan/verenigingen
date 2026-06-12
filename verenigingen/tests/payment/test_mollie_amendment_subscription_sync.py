@@ -50,6 +50,7 @@ class _FakeSubscription:
         self.metadata = {}
 
 
+# Exercised by the replacement-path mandate validation (amount-PATCH sync tests).
 class _FakeMandate:
     def __init__(self, mandate_id="mdt_FAKE", status="valid"):
         self.id = mandate_id
@@ -71,23 +72,31 @@ class _FakeSubscriptions:
 
     def get(self, subscription_id):
         live = self._sdk.live_subscription
-        live.id = subscription_id
-        return live
+        return _FakeSubscription(
+            subscription_id=subscription_id,
+            status=live.status,
+            amount=live.amount,
+            interval=live.interval,
+            description=live.description,
+            webhook_url=live.webhook_url,
+            mandate_id=live.mandate_id,
+            next_payment_date=live.next_payment_date,
+        )
 
     def update(self, subscription_id, data=None):
         self._sdk.subscriptions_updated.append((subscription_id, data))
         live = self._sdk.live_subscription
-        updated = _FakeSubscription(
+        data = data or {}
+        return _FakeSubscription(
             subscription_id=subscription_id,
             status=live.status,
-            amount=(data or {}).get("amount", live.amount),
-            interval=live.interval,
-            description=(data or {}).get("description", live.description),
-            webhook_url=(data or {}).get("webhookUrl", live.webhook_url),
-            mandate_id=live.mandate_id,
-            next_payment_date=live.next_payment_date,
+            amount=data.get("amount", live.amount),
+            interval=data.get("interval", live.interval),
+            description=data.get("description", live.description),
+            webhook_url=data.get("webhookUrl", live.webhook_url),
+            mandate_id=data.get("mandateId", live.mandate_id),
+            next_payment_date=data.get("startDate", live.next_payment_date),
         )
-        return updated
 
     def delete(self, subscription_id):
         self._sdk.subscriptions_deleted.append(subscription_id)
@@ -195,6 +204,7 @@ class TestAmendmentSubscriptionSync(EnhancedTestCase):
             "cst_SYNC", "sub_LIVE", {"amount": {"value": "26.50", "currency": "EUR"}}
         )
 
+        self.assertEqual(sdk.customers.fetched, ["cst_SYNC"])
         self.assertEqual(
             sdk.subscriptions_updated,
             [("sub_LIVE", {"amount": {"value": "26.50", "currency": "EUR"}})],

@@ -258,8 +258,8 @@ class MollieClient:
             customer = client.customers.get(customer_id)
             return customer.subscriptions.update(subscription_id, update_data)
         except Exception as e:
-            error_msg = f"Failed to update subscription {subscription_id}: {e}"
-            frappe.log_error(error_msg, "Mollie Subscription Update")
+            error_msg = f"Failed to update subscription {subscription_id} for customer {customer_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
     def cancel_subscription(self, customer_id: str, subscription_id: str) -> Any:
