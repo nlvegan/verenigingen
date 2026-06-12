@@ -336,6 +336,14 @@ function show_completion_message(frm) {
 
 	message += '</ul></div>';
 
+	// Actually surface the completion summary to the user (it was built but
+	// never displayed, so the import-result counts were silently discarded).
+	frappe.msgprint({
+		title: __('Import Complete'),
+		message,
+		indicator: 'green'
+	});
+
 	// Add view volunteers button
 	if (created > 0 || updated > 0) {
 		frm.add_custom_button(__('View Volunteers'), () => {
