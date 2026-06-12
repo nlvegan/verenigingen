@@ -45,12 +45,7 @@ frappe.ui.form.on('Volunteer Interest Area', {
 					if (r) {
 						// Set suggested defaults based on category
 						if (r.typical_time_commitment && !row.preferred_time_commitment) {
-							frappe.model.set_value(
-								cdt,
-								cdn,
-								'preferred_time_commitment',
-								r.typical_time_commitment
-							);
+							frappe.model.set_value(cdt, cdn, 'preferred_time_commitment', r.typical_time_commitment);
 						}
 						if (r.requires_training) {
 							frappe.model.set_value(cdt, cdn, 'training_required', 1);

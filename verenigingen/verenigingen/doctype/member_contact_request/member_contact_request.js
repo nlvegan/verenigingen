@@ -81,11 +81,7 @@ frappe.ui.form.on('Member Contact Request', {
 			}
 
 			// Create Opportunity button (if lead exists and status is in progress)
-			if (
-				frm.doc.crm_lead
-        && frm.doc.status === 'In Progress'
-        && !frm.doc.crm_opportunity
-			) {
+			if (frm.doc.crm_lead && frm.doc.status === 'In Progress' && !frm.doc.crm_opportunity) {
 				frm.add_custom_button(
 					__('Create Opportunity'),
 					() => {
@@ -136,10 +132,7 @@ frappe.ui.form.on('Member Contact Request', {
 		}
 
 		// Hide CRM fields for portal users
-		if (
-			frappe.user_roles.includes('Member')
-      && !frappe.user_roles.includes('System Manager')
-		) {
+		if (frappe.user_roles.includes('Member') && !frappe.user_roles.includes('System Manager')) {
 			frm.set_df_property('crm_integration_section', 'hidden', 1);
 			frm.set_df_property('notes', 'hidden', 1);
 			frm.set_df_property('assigned_to', 'hidden', 1);
@@ -182,10 +175,7 @@ frappe.ui.form.on('Member Contact Request', {
 				days = 10;
 			}
 
-			frm.set_value(
-				'follow_up_date',
-				frappe.datetime.add_days(frappe.datetime.now_date(), days)
-			);
+			frm.set_value('follow_up_date', frappe.datetime.add_days(frappe.datetime.now_date(), days));
 		}
 	},
 
@@ -195,10 +185,7 @@ frappe.ui.form.on('Member Contact Request', {
 			frm.set_value('response_date', frappe.datetime.now_date());
 		}
 
-		if (
-			(frm.doc.status === 'Resolved' || frm.doc.status === 'Closed')
-      && !frm.doc.closed_date
-		) {
+		if ((frm.doc.status === 'Resolved' || frm.doc.status === 'Closed') && !frm.doc.closed_date) {
 			frm.set_value('closed_date', frappe.datetime.now_date());
 		}
 	}

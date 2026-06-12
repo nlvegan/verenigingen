@@ -61,21 +61,21 @@
  */
 frappe.ui.form.on('Membership Type', {
 	/**
-   * @method refresh
-   * @description Initializes form interface with context-sensitive buttons and navigation
-   *
-   * Sets up the membership type form interface with intelligent button placement
-   * based on current configuration state. Provides direct access to related
-   * documents and administrative functions for streamlined workflow management.
-   *
-   * Interface Elements:
-   * - Dues schedule template creation/viewing (context-dependent)
-   * - Related memberships navigation and filtering
-   * - Administrative action buttons grouped logically
-   *
-   * @param {Object} frm - Frappe form object with document data and methods
-   * @since 1.0.0
-   */
+	 * @method refresh
+	 * @description Initializes form interface with context-sensitive buttons and navigation
+	 *
+	 * Sets up the membership type form interface with intelligent button placement
+	 * based on current configuration state. Provides direct access to related
+	 * documents and administrative functions for streamlined workflow management.
+	 *
+	 * Interface Elements:
+	 * - Dues schedule template creation/viewing (context-dependent)
+	 * - Related memberships navigation and filtering
+	 * - Administrative action buttons grouped logically
+	 *
+	 * @param {Object} frm - Frappe form object with document data and methods
+	 * @since 1.0.0
+	 */
 	refresh(frm) {
 		// Add button to create dues schedule template
 		if (!frm.doc.dues_schedule_template) {
@@ -83,8 +83,7 @@ frappe.ui.form.on('Membership Type', {
 				__('Create Dues Schedule Template'),
 				() => {
 					frappe.call({
-						method:
-              'verenigingen.verenigingen.doctype.membership_type.membership_type.create_dues_schedule_template',
+						method: 'verenigingen.verenigingen.doctype.membership_type.membership_type.create_dues_schedule_template',
 						args: {
 							membership_type_name: frm.doc.name
 						},
@@ -104,11 +103,7 @@ frappe.ui.form.on('Membership Type', {
 			frm.add_custom_button(
 				__('Dues Schedule Template'),
 				() => {
-					frappe.set_route(
-						'Form',
-						'Membership Dues Schedule',
-						frm.doc.dues_schedule_template
-					);
+					frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule_template);
 				},
 				__('View')
 			);
@@ -127,33 +122,27 @@ frappe.ui.form.on('Membership Type', {
 	},
 
 	/**
-   * @method billing_period
-   * @description Manages billing period configuration with conditional field visibility
-   *
-   * Handles dynamic form behavior for billing period settings, including
-   * conditional display and validation of custom billing period options.
-   * Ensures data integrity by clearing invalid custom values when switching
-   * to standard billing periods.
-   *
-   * Business Logic:
-   * - Standard periods: Monthly, Quarterly, Yearly (predefined intervals)
-   * - Custom period: User-defined billing interval in months
-   * - Field validation ensures custom period is specified when required
-   * - Automatic cleanup prevents orphaned custom values
-   *
-   * @param {Object} frm - Frappe form object
-   * @since 1.0.0
-   */
+	 * @method billing_period
+	 * @description Manages billing period configuration with conditional field visibility
+	 *
+	 * Handles dynamic form behavior for billing period settings, including
+	 * conditional display and validation of custom billing period options.
+	 * Ensures data integrity by clearing invalid custom values when switching
+	 * to standard billing periods.
+	 *
+	 * Business Logic:
+	 * - Standard periods: Monthly, Quarterly, Yearly (predefined intervals)
+	 * - Custom period: User-defined billing interval in months
+	 * - Field validation ensures custom period is specified when required
+	 * - Automatic cleanup prevents orphaned custom values
+	 *
+	 * @param {Object} frm - Frappe form object
+	 * @since 1.0.0
+	 */
 	billing_period(frm) {
 		// Toggle custom period field
-		frm.toggle_reqd(
-			'billing_period_in_months',
-			frm.doc.billing_period === 'Custom'
-		);
-		frm.toggle_display(
-			'billing_period_in_months',
-			frm.doc.billing_period === 'Custom'
-		);
+		frm.toggle_reqd('billing_period_in_months', frm.doc.billing_period === 'Custom');
+		frm.toggle_display('billing_period_in_months', frm.doc.billing_period === 'Custom');
 
 		// Clear the field if not custom
 		if (frm.doc.billing_period !== 'Custom') {
@@ -162,57 +151,54 @@ frappe.ui.form.on('Membership Type', {
 	},
 
 	/**
-   * @method allow_auto_renewal
-   * @description Enforces business rule relationship between auto-renewal and default status
-   *
-   * Implements critical business logic ensuring that default membership types
-   * must support auto-renewal functionality. Prevents configuration conflicts
-   * that could disrupt member onboarding and retention processes.
-   *
-   * Business Rules:
-   * - Default membership types must allow auto-renewal
-   * - Disabling auto-renewal automatically removes default status
-   * - User notification explains the business requirement
-   * - Maintains data consistency across membership configurations
-   *
-   * @param {Object} frm - Frappe form object
-   * @since 1.2.0
-   */
+	 * @method allow_auto_renewal
+	 * @description Enforces business rule relationship between auto-renewal and default status
+	 *
+	 * Implements critical business logic ensuring that default membership types
+	 * must support auto-renewal functionality. Prevents configuration conflicts
+	 * that could disrupt member onboarding and retention processes.
+	 *
+	 * Business Rules:
+	 * - Default membership types must allow auto-renewal
+	 * - Disabling auto-renewal automatically removes default status
+	 * - User notification explains the business requirement
+	 * - Maintains data consistency across membership configurations
+	 *
+	 * @param {Object} frm - Frappe form object
+	 * @since 1.2.0
+	 */
 	allow_auto_renewal(frm) {
 		// If auto renewal is disabled, uncheck default for new members
 		if (!frm.doc.allow_auto_renewal && frm.doc.default_for_new_members) {
 			frm.set_value('default_for_new_members', 0);
-			frappe.msgprint(
-				__('Auto-renewal must be allowed for the default membership type'),
-				__('Warning')
-			);
+			frappe.msgprint(__('Auto-renewal must be allowed for the default membership type'), __('Warning'));
 		}
 	},
 
 	/**
-   * @method default_for_new_members
-   * @description Manages exclusive default membership type designation with conflict resolution
-   *
-   * Implements singleton pattern for default membership type designation,
-   * ensuring only one membership type can be marked as default at any time.
-   * Provides user-friendly conflict resolution through confirmation dialog
-   * with clear options for resolving conflicts.
-   *
-   * Conflict Resolution Process:
-   * 1. Detect existing default membership type
-   * 2. Present user with clear conflict resolution options
-   * 3. Transfer default status or revert current change
-   * 4. Maintain referential integrity throughout process
-   * 5. Refresh form to reflect final state
-   *
-   * Business Impact:
-   * - Ensures consistent member onboarding experience
-   * - Prevents configuration conflicts in automated processes
-   * - Provides clear administrative control over default behavior
-   *
-   * @param {Object} frm - Frappe form object
-   * @since 1.0.0
-   */
+	 * @method default_for_new_members
+	 * @description Manages exclusive default membership type designation with conflict resolution
+	 *
+	 * Implements singleton pattern for default membership type designation,
+	 * ensuring only one membership type can be marked as default at any time.
+	 * Provides user-friendly conflict resolution through confirmation dialog
+	 * with clear options for resolving conflicts.
+	 *
+	 * Conflict Resolution Process:
+	 * 1. Detect existing default membership type
+	 * 2. Present user with clear conflict resolution options
+	 * 3. Transfer default status or revert current change
+	 * 4. Maintain referential integrity throughout process
+	 * 5. Refresh form to reflect final state
+	 *
+	 * Business Impact:
+	 * - Ensures consistent member onboarding experience
+	 * - Prevents configuration conflicts in automated processes
+	 * - Provides clear administrative control over default behavior
+	 *
+	 * @param {Object} frm - Frappe form object
+	 * @since 1.0.0
+	 */
 	default_for_new_members(frm) {
 		// Only one membership type can be default
 		if (frm.doc.default_for_new_members) {

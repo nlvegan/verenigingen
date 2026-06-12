@@ -88,51 +88,40 @@ function add_amendment_buttons(frm) {
 	if (frm.doc.status === 'Pending Approval') {
 		// Add approval buttons for authorized users
 		if (frappe.user.has_role(['System Manager'])) {
-			frm
-				.add_custom_button(
-					__('Approve'),
-					() => {
-						approve_amendment(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-success');
+			frm.add_custom_button(
+				__('Approve'),
+				() => {
+					approve_amendment(frm);
+				},
+				__('Actions')
+			).addClass('btn-success');
 
-			frm
-				.add_custom_button(
-					__('Reject'),
-					() => {
-						reject_amendment(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-danger');
+			frm.add_custom_button(
+				__('Reject'),
+				() => {
+					reject_amendment(frm);
+				},
+				__('Actions')
+			).addClass('btn-danger');
 		}
 	}
 
 	if (frm.doc.status === 'Approved') {
 		// Add apply button for system managers
 		if (frappe.user.has_role(['System Manager'])) {
-			frm
-				.add_custom_button(__('Apply Amendment'), () => {
-					apply_amendment(frm);
-				})
-				.addClass('btn-primary');
+			frm.add_custom_button(__('Apply Amendment'), () => {
+				apply_amendment(frm);
+			}).addClass('btn-primary');
 		}
 
 		// Show apply info
 		if (frm.doc.effective_date) {
 			const today = frappe.datetime.get_today();
 			if (frm.doc.effective_date <= today) {
-				frm.dashboard.add_comment(
-					__('This amendment is ready to be applied'),
-					'blue'
-				);
+				frm.dashboard.add_comment(__('This amendment is ready to be applied'), 'blue');
 			} else {
 				frm.dashboard.add_comment(
-					__('This amendment will be applied on {0}', [
-						frappe.datetime.str_to_user(frm.doc.effective_date)
-					]),
+					__('This amendment will be applied on {0}', [frappe.datetime.str_to_user(frm.doc.effective_date)]),
 					'orange'
 				);
 			}
@@ -140,11 +129,9 @@ function add_amendment_buttons(frm) {
 	}
 
 	if (frm.doc.status === 'Draft') {
-		frm
-			.add_custom_button(__('Submit for Approval'), () => {
-				submit_for_approval(frm);
-			})
-			.addClass('btn-warning');
+		frm.add_custom_button(__('Submit for Approval'), () => {
+			submit_for_approval(frm);
+		}).addClass('btn-warning');
 
 		frm.add_custom_button(__('Preview Impact'), () => {
 			preview_amendment_impact(frm);
@@ -156,8 +143,7 @@ function set_field_visibility(frm) {
 	// Show/hide fields based on amendment type
 	const is_fee_change = frm.doc.amendment_type === 'Fee Change';
 	const is_type_change = frm.doc.amendment_type === 'Membership Type Change';
-	const is_billing_change
-    = frm.doc.amendment_type === 'Billing Interval Change';
+	const is_billing_change = frm.doc.amendment_type === 'Billing Interval Change';
 
 	frm.toggle_display('requested_amount', is_fee_change || is_type_change);
 	frm.toggle_display('new_billing_interval', is_billing_change);
@@ -280,51 +266,46 @@ function reject_amendment(frm) {
 }
 
 function apply_amendment(frm) {
-	frappe.confirm(
-		__(
-			'Are you sure you want to apply this amendment? This action cannot be undone.'
-		),
-		() => {
-			frappe.call({
-				method: 'apply_amendment',
-				doc: frm.doc,
-				callback(r) {
-					if (!r.exc && r.message) {
-						const response = r.message;
+	frappe.confirm(__('Are you sure you want to apply this amendment? This action cannot be undone.'), () => {
+		frappe.call({
+			method: 'apply_amendment',
+			doc: frm.doc,
+			callback(r) {
+				if (!r.exc && r.message) {
+					const response = r.message;
 
-						// Handle different response types
-						if (response.status === 'success') {
-							frm.reload_doc();
-							frappe.show_alert({
-								message: __('Amendment applied successfully'),
-								indicator: 'green'
-							});
-						} else if (response.status === 'warning') {
-							// Warning is already shown via msgprint in Python
-							// Just show a brief alert as well
-							frappe.show_alert({
-								message: __('Amendment is scheduled for future application'),
-								indicator: 'orange'
-							});
-						} else if (response.status === 'error') {
-							// Error message is already shown via msgprint in Python
-							frappe.show_alert({
-								message: __('Amendment application failed'),
-								indicator: 'red'
-							});
-						}
-					} else if (!r.exc) {
-						// Fallback for old-style responses
+					// Handle different response types
+					if (response.status === 'success') {
 						frm.reload_doc();
 						frappe.show_alert({
 							message: __('Amendment applied successfully'),
 							indicator: 'green'
 						});
+					} else if (response.status === 'warning') {
+						// Warning is already shown via msgprint in Python
+						// Just show a brief alert as well
+						frappe.show_alert({
+							message: __('Amendment is scheduled for future application'),
+							indicator: 'orange'
+						});
+					} else if (response.status === 'error') {
+						// Error message is already shown via msgprint in Python
+						frappe.show_alert({
+							message: __('Amendment application failed'),
+							indicator: 'red'
+						});
 					}
+				} else if (!r.exc) {
+					// Fallback for old-style responses
+					frm.reload_doc();
+					frappe.show_alert({
+						message: __('Amendment applied successfully'),
+						indicator: 'green'
+					});
 				}
-			});
-		}
-	);
+			}
+		});
+	});
 }
 
 function submit_for_approval(frm) {

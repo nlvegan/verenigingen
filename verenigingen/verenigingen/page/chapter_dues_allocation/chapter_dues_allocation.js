@@ -94,13 +94,21 @@ class ChapterDuesAllocationTool {
 			me.preview_allocation();
 		});
 
-		this.page.add_inner_button(__('Generate Journal Entries'), () => {
-			me.generate_journal_entries();
-		}, __('Actions'));
+		this.page.add_inner_button(
+			__('Generate Journal Entries'),
+			() => {
+				me.generate_journal_entries();
+			},
+			__('Actions')
+		);
 
-		this.page.add_inner_button(__('View Chapter Dues Split Report'), () => {
-			frappe.set_route('query-report', 'Chapter Dues Split');
-		}, __('Reports'));
+		this.page.add_inner_button(
+			__('View Chapter Dues Split Report'),
+			() => {
+				frappe.set_route('query-report', 'Chapter Dues Split');
+			},
+			__('Reports')
+		);
 	}
 
 	get_filters() {
@@ -296,74 +304,71 @@ class ChapterDuesAllocationTool {
 			});
 		}
 
-		frappe.confirm(
-			__('This will create Journal Entry(s) to allocate membership dues income. Continue?'),
-			() => {
-				frappe.call({
-					method: 'verenigingen.verenigingen.page.chapter_dues_allocation.chapter_dues_allocation.generate_allocation_journal_entries',
-					args: filters,
-					freeze: true,
-					freeze_message: __('Creating journal entries...'),
-					callback(r) {
-						if (r.message && r.message.success) {
-							frappe.msgprint({
-								title: __('Success'),
-								message: r.message.message,
-								indicator: 'green'
-							});
-
-							// Show links to created journal entries
-							if (r.message.journal_entries && r.message.journal_entries.length > 0) {
-								let msg = `${__('Created Journal Entries')}:<br>`;
-								r.message.journal_entries.forEach((name) => {
-									msg += `<a href="/app/journal-entry/${name}">${name}</a><br>`;
-								});
-								frappe.msgprint(msg);
-							}
-
-							// Refresh preview
-							try {
-								me.preview_allocation();
-							} catch (error) {
-								console.error('Error refreshing preview:', error);
-								// Don't show error to user - journal entries were created successfully
-							}
-						} else if (r.message && !r.message.success) {
-							// Server returned response but operation failed
-							frappe.msgprint({
-								title: __('Operation Failed'),
-								message: r.message.message || __('Failed to create journal entries'),
-								indicator: 'red'
-							});
-						}
-					},
-					error(r) {
-						console.error('API error:', r);
-
-						// Try to extract error message from response
-						let error_message = __('Failed to create journal entries');
-						if (r && r.message) {
-							error_message = r.message;
-						} else if (r && r._server_messages) {
-							try {
-								const messages = JSON.parse(r._server_messages);
-								if (messages && messages.length > 0) {
-									const parsed = JSON.parse(messages[0]);
-									error_message = parsed.message || error_message;
-								}
-							} catch (e) {
-								// Ignore JSON parse errors
-							}
-						}
-
+		frappe.confirm(__('This will create Journal Entry(s) to allocate membership dues income. Continue?'), () => {
+			frappe.call({
+				method: 'verenigingen.verenigingen.page.chapter_dues_allocation.chapter_dues_allocation.generate_allocation_journal_entries',
+				args: filters,
+				freeze: true,
+				freeze_message: __('Creating journal entries...'),
+				callback(r) {
+					if (r.message && r.message.success) {
 						frappe.msgprint({
-							title: __('Error'),
-							message: error_message,
+							title: __('Success'),
+							message: r.message.message,
+							indicator: 'green'
+						});
+
+						// Show links to created journal entries
+						if (r.message.journal_entries && r.message.journal_entries.length > 0) {
+							let msg = `${__('Created Journal Entries')}:<br>`;
+							r.message.journal_entries.forEach((name) => {
+								msg += `<a href="/app/journal-entry/${name}">${name}</a><br>`;
+							});
+							frappe.msgprint(msg);
+						}
+
+						// Refresh preview
+						try {
+							me.preview_allocation();
+						} catch (error) {
+							console.error('Error refreshing preview:', error);
+							// Don't show error to user - journal entries were created successfully
+						}
+					} else if (r.message && !r.message.success) {
+						// Server returned response but operation failed
+						frappe.msgprint({
+							title: __('Operation Failed'),
+							message: r.message.message || __('Failed to create journal entries'),
 							indicator: 'red'
 						});
 					}
-				});
-			}
-		);
+				},
+				error(r) {
+					console.error('API error:', r);
+
+					// Try to extract error message from response
+					let error_message = __('Failed to create journal entries');
+					if (r && r.message) {
+						error_message = r.message;
+					} else if (r && r._server_messages) {
+						try {
+							const messages = JSON.parse(r._server_messages);
+							if (messages && messages.length > 0) {
+								const parsed = JSON.parse(messages[0]);
+								error_message = parsed.message || error_message;
+							}
+						} catch (e) {
+							// Ignore JSON parse errors
+						}
+					}
+
+					frappe.msgprint({
+						title: __('Error'),
+						message: error_message,
+						indicator: 'red'
+					});
+				}
+			});
+		});
 	}
 }

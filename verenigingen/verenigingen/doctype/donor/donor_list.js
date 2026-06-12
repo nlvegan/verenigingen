@@ -58,12 +58,12 @@
  */
 frappe.listview_settings['Donor'] = {
 	/**
-   * Additional fields to display in list view beyond the standard fields
-   *
-   * Includes donor name for identification, donor type for categorization,
-   * and image for visual recognition of donors.
-   *
-   * @type {Array<string>}
-   */
+	 * Additional fields to display in list view beyond the standard fields
+	 *
+	 * Includes donor name for identification, donor type for categorization,
+	 * and image for visual recognition of donors.
+	 *
+	 * @type {Array<string>}
+	 */
 	add_fields: ['donor_name', 'donor_type', 'image']
 };

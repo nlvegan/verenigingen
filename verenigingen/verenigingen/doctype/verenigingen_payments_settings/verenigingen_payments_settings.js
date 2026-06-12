@@ -3,10 +3,7 @@
 
 frappe.ui.form.on('Verenigingen Payments Settings', {
 	refresh(frm) {
-		verenigingen.suppressPasswordAutofill(frm, [
-			'membership_webhook_secret',
-			'ing_checkout_webhook_secret'
-		]);
+		verenigingen.suppressPasswordAutofill(frm, ['membership_webhook_secret', 'ing_checkout_webhook_secret']);
 
 		// Also suppress autofill on webhook_user (a plain Data field that
 		// gets caught by browsers' "looks like a login form" heuristics).

@@ -21,7 +21,8 @@ frappe.query_reports['Volunteer Activity by Tag'] = {
 			fieldname: 'activity_type',
 			label: __('Activity Type'),
 			fieldtype: 'Select',
-			options: '\nProject\nEvent\nWorkshop\nTraining\nCampaign\nExternal Board Position\nCouncil/Government Intervention\nExternal Campaign Support\nCommunity Organizing\nMedia/Advocacy\nCoalition Work\nPublic Speaking\nOther',
+			options:
+				'\nProject\nEvent\nWorkshop\nTraining\nCampaign\nExternal Board Position\nCouncil/Government Intervention\nExternal Campaign Support\nCommunity Organizing\nMedia/Advocacy\nCoalition Work\nPublic Speaking\nOther',
 			reqd: 0
 		},
 		{

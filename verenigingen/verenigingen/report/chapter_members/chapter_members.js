@@ -68,13 +68,13 @@
  */
 frappe.query_reports['Chapter Members'] = {
 	/**
-   * @property {Array} filters
-   * @description Report filter configuration with role-based access control
-   *
-   * Defines the filtering interface for chapter member reporting with integrated
-   * permission management and user access control. Ensures users can only access
-   * chapters they have permission to view and manage.
-   */
+	 * @property {Array} filters
+	 * @description Report filter configuration with role-based access control
+	 *
+	 * Defines the filtering interface for chapter member reporting with integrated
+	 * permission management and user access control. Ensures users can only access
+	 * chapters they have permission to view and manage.
+	 */
 	filters: [
 		{
 			fieldname: 'chapter',
@@ -99,27 +99,27 @@ frappe.query_reports['Chapter Members'] = {
 	],
 
 	/**
-   * @method formatter
-   * @description Enhanced visual formatting for member status display
-   *
-   * Applies color-coded formatting to member status values for improved
-   * visual identification and quick assessment of member states. Supports
-   * administrative workflow efficiency through visual cues.
-   *
-   * Status Color Coding:
-   * - Pending: Orange (#ff9800) - Requires attention/approval
-   * - Active: Green (#4caf50) - Normal operational state
-   * - Inactive: Red (#f44336) - Requires intervention or review
-   *
-   * @param {*} value - Original cell value
-   * @param {Object} row - Complete row data
-   * @param {Object} column - Column configuration
-   * @param {Object} data - Complete dataset
-   * @param {Function} default_formatter - Standard Frappe formatter
-   * @returns {string} Formatted HTML with status-appropriate styling
-   *
-   * @since 1.0.0
-   */
+	 * @method formatter
+	 * @description Enhanced visual formatting for member status display
+	 *
+	 * Applies color-coded formatting to member status values for improved
+	 * visual identification and quick assessment of member states. Supports
+	 * administrative workflow efficiency through visual cues.
+	 *
+	 * Status Color Coding:
+	 * - Pending: Orange (#ff9800) - Requires attention/approval
+	 * - Active: Green (#4caf50) - Normal operational state
+	 * - Inactive: Red (#f44336) - Requires intervention or review
+	 *
+	 * @param {*} value - Original cell value
+	 * @param {Object} row - Complete row data
+	 * @param {Object} column - Column configuration
+	 * @param {Object} data - Complete dataset
+	 * @param {Function} default_formatter - Standard Frappe formatter
+	 * @returns {string} Formatted HTML with status-appropriate styling
+	 *
+	 * @since 1.0.0
+	 */
 	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 

@@ -161,8 +161,7 @@ function setup_dashboard_layout(page) {
 function load_dashboard_data(page) {
 	// Load statistics
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.get_request_statistics',
+		method: 'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.get_request_statistics',
 		callback(r) {
 			if (r.message) {
 				update_statistics(r.message);
@@ -265,9 +264,7 @@ function show_requests_table(filter_type) {
 
 function render_requests_table(requests, container) {
 	if (requests.length === 0) {
-		container.html(
-			'<div class="text-center text-muted" style="padding: 40px;">No requests found</div>'
-		);
+		container.html('<div class="text-center text-muted" style="padding: 40px;">No requests found</div>');
 		return;
 	}
 
@@ -346,8 +343,7 @@ function render_action_buttons(req) {
 function retry_request(request_name) {
 	frappe.confirm('Retry this account creation request?', () => {
 		frappe.call({
-			method:
-        'verenigingen.utils.account_creation_manager.retry_failed_request',
+			method: 'verenigingen.utils.account_creation_manager.retry_failed_request',
 			args: {
 				request_name
 			},
@@ -359,9 +355,7 @@ function retry_request(request_name) {
 					});
 					load_dashboard_data();
 				} else {
-					frappe.msgprint(
-						`Failed to retry request: ${r.message.error || 'Unknown error'}`
-					);
+					frappe.msgprint(`Failed to retry request: ${r.message.error || 'Unknown error'}`);
 				}
 			}
 		});
@@ -382,8 +376,7 @@ function queue_request(request_name) {
 		},
 		callback() {
 			frappe.call({
-				method:
-          'verenigingen.utils.account_creation_manager.process_account_creation_request',
+				method: 'verenigingen.utils.account_creation_manager.process_account_creation_request',
 				args: {
 					request_name
 				},
@@ -442,19 +435,14 @@ function process_all_pending_requests(page) {
 						const request_names = r.message.map((req) => req.name);
 
 						frappe.call({
-							method:
-                'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.bulk_queue_requests',
+							method: 'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.bulk_queue_requests',
 							args: {
 								request_names
 							},
 							callback(resp) {
 								if (resp.message) {
-									const success_count = resp.message.filter(
-										(result) => result.success
-									).length;
-									frappe.msgprint(
-										`Queued ${success_count} requests for processing`
-									);
+									const success_count = resp.message.filter((result) => result.success).length;
+									frappe.msgprint(`Queued ${success_count} requests for processing`);
 									load_dashboard_data(page);
 								}
 							}
@@ -469,35 +457,26 @@ function process_all_pending_requests(page) {
 }
 
 function cleanup_old_requests(page) {
-	frappe.confirm(
-		'Delete completed account creation requests older than 30 days?',
-		() => {
-			frappe.call({
-				method: 'frappe.client.get_list',
-				args: {
-					doctype: 'Account Creation Request',
-					filters: [
-						['status', '=', 'Completed'],
-						[
-							'creation',
-							'<',
-							frappe.datetime.add_days(frappe.datetime.nowdate(), -30)
-						]
-					],
-					fields: ['name'],
-					limit_page_length: 1000
-				},
-				callback(r) {
-					if (r.message && r.message.length > 0) {
-						frappe.msgprint(
-							`Found ${r.message.length} old completed requests. Cleanup will be processed.`
-						);
-						// Could implement bulk deletion here
-					} else {
-						frappe.msgprint('No old requests found for cleanup');
-					}
+	frappe.confirm('Delete completed account creation requests older than 30 days?', () => {
+		frappe.call({
+			method: 'frappe.client.get_list',
+			args: {
+				doctype: 'Account Creation Request',
+				filters: [
+					['status', '=', 'Completed'],
+					['creation', '<', frappe.datetime.add_days(frappe.datetime.nowdate(), -30)]
+				],
+				fields: ['name'],
+				limit_page_length: 1000
+			},
+			callback(r) {
+				if (r.message && r.message.length > 0) {
+					frappe.msgprint(`Found ${r.message.length} old completed requests. Cleanup will be processed.`);
+					// Could implement bulk deletion here
+				} else {
+					frappe.msgprint('No old requests found for cleanup');
 				}
-			});
-		}
-	);
+			}
+		});
+	});
 }

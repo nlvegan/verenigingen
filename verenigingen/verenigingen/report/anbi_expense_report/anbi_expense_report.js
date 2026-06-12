@@ -33,18 +33,12 @@ frappe.query_reports['ANBI Expense Report'] = {
 			if (data.account_number === '61') {
 				// Doelstelling - green if >= 70%
 				if (data.percentage >= 70) {
-					value
-						= `<span style="color: green; font-weight: bold;">${
-						 value
-						 }</span>`;
+					value = `<span style="color: green; font-weight: bold;">${value}</span>`;
 				}
 			} else if (data.account_number === '63') {
 				// Beheer - orange warning if > 15%
 				if (data.percentage > 15) {
-					value
-						= `<span style="color: orange; font-weight: bold;">${
-						 value
-						 }</span>`;
+					value = `<span style="color: orange; font-weight: bold;">${value}</span>`;
 				}
 			}
 		}

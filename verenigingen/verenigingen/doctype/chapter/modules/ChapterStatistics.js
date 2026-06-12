@@ -63,26 +63,10 @@ export class ChapterStatistics {
 	}
 
 	addButtons() {
-		this.frm.add_custom_button(
-			__('Chapter Statistics'),
-			() => this.showStatisticsDialog(),
-			__('View')
-		);
-		this.frm.add_custom_button(
-			__('Growth Report'),
-			() => this.showGrowthReport(),
-			__('View')
-		);
-		this.frm.add_custom_button(
-			__('Activity Dashboard'),
-			() => this.showActivityDashboard(),
-			__('View')
-		);
-		this.frm.add_custom_button(
-			__('Export Analytics'),
-			() => this.exportAnalytics(),
-			__('Actions')
-		);
+		this.frm.add_custom_button(__('Chapter Statistics'), () => this.showStatisticsDialog(), __('View'));
+		this.frm.add_custom_button(__('Growth Report'), () => this.showGrowthReport(), __('View'));
+		this.frm.add_custom_button(__('Activity Dashboard'), () => this.showActivityDashboard(), __('View'));
+		this.frm.add_custom_button(__('Export Analytics'), () => this.exportAnalytics(), __('Actions'));
 	}
 
 	async showStatisticsDialog() {
@@ -119,13 +103,12 @@ export class ChapterStatistics {
 	}
 
 	async fetchChapterStatistics() {
-		const [basicStats, membershipStats, activityStats, boardStats]
-      = await Promise.all([
-      	this.getBasicStatistics(),
-      	this.getMembershipStatistics(),
-      	this.getActivityStatistics(),
-      	this.getBoardStatistics()
-      ]);
+		const [basicStats, membershipStats, activityStats, boardStats] = await Promise.all([
+			this.getBasicStatistics(),
+			this.getMembershipStatistics(),
+			this.getActivityStatistics(),
+			this.getBoardStatistics()
+		]);
 
 		return {
 			...basicStats,
@@ -147,14 +130,10 @@ export class ChapterStatistics {
 		});
 
 		// Get board member count
-		const boardMemberCount
-      = this.frm.doc.board_members?.filter((m) => m.is_active).length || 0;
+		const boardMemberCount = this.frm.doc.board_members?.filter((m) => m.is_active).length || 0;
 
 		// Get recent members (last 30 days) - need to query Chapter Members added recently
-		const thirtyDaysAgo = frappe.datetime.add_days(
-			frappe.datetime.nowdate(),
-			-30
-		);
+		const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
 		const recentMembers = await this.api.getCount('Member', {
 			name: ['in', chapterMemberIds],
 			creation: ['>=', thirtyDaysAgo]
@@ -166,40 +145,31 @@ export class ChapterStatistics {
 			inactiveMembers: totalMembers - activeMembers,
 			boardMemberCount,
 			recentMembers,
-			memberRetentionRate:
-        totalMembers > 0
-        	? ((activeMembers / totalMembers) * 100).toFixed(1)
-        	: 0
+			memberRetentionRate: totalMembers > 0 ? ((activeMembers / totalMembers) * 100).toFixed(1) : 0
 		};
 	}
 
 	async getMembershipStatistics() {
 		// Get membership type distribution
-		const membershipTypes = await this.api.call(
-			'frappe.desk.reportview.get_list',
-			{
-				doctype: 'Membership',
-				fields: ['membership_type', 'count(name) as count'],
-				filters: {
-					member: ['in', await this.getChapterMemberIds()],
-					status: 'Active'
-				},
-				group_by: 'membership_type'
-			}
-		);
+		const membershipTypes = await this.api.call('frappe.desk.reportview.get_list', {
+			doctype: 'Membership',
+			fields: ['membership_type', 'count(name) as count'],
+			filters: {
+				member: ['in', await this.getChapterMemberIds()],
+				status: 'Active'
+			},
+			group_by: 'membership_type'
+		});
 
 		// Get membership status distribution
-		const membershipStatuses = await this.api.call(
-			'frappe.desk.reportview.get_list',
-			{
-				doctype: 'Membership',
-				fields: ['status', 'count(name) as count'],
-				filters: {
-					member: ['in', await this.getChapterMemberIds()]
-				},
-				group_by: 'status'
-			}
-		);
+		const membershipStatuses = await this.api.call('frappe.desk.reportview.get_list', {
+			doctype: 'Membership',
+			fields: ['status', 'count(name) as count'],
+			filters: {
+				member: ['in', await this.getChapterMemberIds()]
+			},
+			group_by: 'status'
+		});
 
 		return {
 			membershipTypes: membershipTypes || [],
@@ -224,16 +194,13 @@ export class ChapterStatistics {
 		// Get volunteer hours (if volunteer module exists)
 		let volunteerHours = 0;
 		try {
-			const volunteerData = await this.api.call(
-				'frappe.desk.reportview.get_list',
-				{
-					doctype: 'Volunteer Activity',
-					fields: ['sum(hours) as total_hours'],
-					filters: {
-						volunteer: ['in', await this.getChapterVolunteerIds()]
-					}
+			const volunteerData = await this.api.call('frappe.desk.reportview.get_list', {
+				doctype: 'Volunteer Activity',
+				fields: ['sum(hours) as total_hours'],
+				filters: {
+					volunteer: ['in', await this.getChapterVolunteerIds()]
 				}
-			);
+			});
 			volunteerHours = volunteerData?.[0]?.total_hours || 0;
 		} catch (e) {
 			// Volunteer module might not exist
@@ -249,11 +216,7 @@ export class ChapterStatistics {
 			eventAttendance,
 			volunteerHours,
 			communicationCount,
-			engagementScore: this.calculateEngagementScore(
-				eventAttendance,
-				volunteerHours,
-				communicationCount
-			)
+			engagementScore: this.calculateEngagementScore(eventAttendance, volunteerHours, communicationCount)
 		};
 	}
 
@@ -264,8 +227,7 @@ export class ChapterStatistics {
 		const roleDistribution = {};
 		boardMembers.forEach((member) => {
 			if (member.is_active && member.chapter_role) {
-				roleDistribution[member.chapter_role]
-          = (roleDistribution[member.chapter_role] || 0) + 1;
+				roleDistribution[member.chapter_role] = (roleDistribution[member.chapter_role] || 0) + 1;
 			}
 		});
 
@@ -282,8 +244,7 @@ export class ChapterStatistics {
 			}
 		});
 
-		const averageTenure
-      = tenureCount > 0 ? Math.round(totalTenure / tenureCount) : 0;
+		const averageTenure = tenureCount > 0 ? Math.round(totalTenure / tenureCount) : 0;
 
 		return {
 			roleDistribution,
@@ -309,10 +270,7 @@ export class ChapterStatistics {
 		let changes = 0;
 
 		boardMembers.forEach((member) => {
-			if (
-				(member.from_date && member.from_date >= lastYear)
-        || (member.to_date && member.to_date >= lastYear)
-			) {
+			if ((member.from_date && member.from_date >= lastYear) || (member.to_date && member.to_date >= lastYear)) {
 				changes++;
 			}
 		});
@@ -491,76 +449,54 @@ export class ChapterStatistics {
 
 	initializeCharts(dialog, stats) {
 		// Member Status Chart
-		this.createPieChart(
-			dialog.$wrapper.find('#member-status-chart')[0],
-			'memberStatus',
-			{
-				labels: [__('Active'), __('Inactive')],
-				datasets: [
-					{
-						data: [stats.activeMembers, stats.inactiveMembers],
-						backgroundColor: ['#28a745', '#dc3545']
-					}
-				]
-			}
-		);
+		this.createPieChart(dialog.$wrapper.find('#member-status-chart')[0], 'memberStatus', {
+			labels: [__('Active'), __('Inactive')],
+			datasets: [
+				{
+					data: [stats.activeMembers, stats.inactiveMembers],
+					backgroundColor: ['#28a745', '#dc3545']
+				}
+			]
+		});
 
 		// Membership Type Chart
 		if (stats.membershipTypes && stats.membershipTypes.length > 0) {
-			this.createPieChart(
-				dialog.$wrapper.find('#membership-type-chart')[0],
-				'membershipType',
-				{
-					labels: stats.membershipTypes.map((t) => t.membership_type),
-					datasets: [
-						{
-							data: stats.membershipTypes.map((t) => t.count),
-							backgroundColor: this.generateColors(
-								stats.membershipTypes.length
-							)
-						}
-					]
-				}
-			);
+			this.createPieChart(dialog.$wrapper.find('#membership-type-chart')[0], 'membershipType', {
+				labels: stats.membershipTypes.map((t) => t.membership_type),
+				datasets: [
+					{
+						data: stats.membershipTypes.map((t) => t.count),
+						backgroundColor: this.generateColors(stats.membershipTypes.length)
+					}
+				]
+			});
 		}
 
 		// Board Role Chart
 		const roleLabels = Object.keys(stats.roleDistribution);
 		if (roleLabels.length > 0) {
-			this.createPieChart(
-				dialog.$wrapper.find('#board-role-chart')[0],
-				'boardRole',
-				{
-					labels: roleLabels,
-					datasets: [
-						{
-							data: roleLabels.map((role) => stats.roleDistribution[role]),
-							backgroundColor: this.generateColors(roleLabels.length)
-						}
-					]
-				}
-			);
+			this.createPieChart(dialog.$wrapper.find('#board-role-chart')[0], 'boardRole', {
+				labels: roleLabels,
+				datasets: [
+					{
+						data: roleLabels.map((role) => stats.roleDistribution[role]),
+						backgroundColor: this.generateColors(roleLabels.length)
+					}
+				]
+			});
 		}
 
 		// Activity Chart
-		this.createBarChart(
-			dialog.$wrapper.find('#activity-chart')[0],
-			'activity',
-			{
-				labels: [__('Events'), __('Volunteer Hours'), __('Communications')],
-				datasets: [
-					{
-						label: __('Activity Metrics'),
-						data: [
-							stats.eventAttendance,
-							stats.volunteerHours,
-							stats.communicationCount
-						],
-						backgroundColor: ['#007bff', '#28a745', '#ffc107']
-					}
-				]
-			}
-		);
+		this.createBarChart(dialog.$wrapper.find('#activity-chart')[0], 'activity', {
+			labels: [__('Events'), __('Volunteer Hours'), __('Communications')],
+			datasets: [
+				{
+					label: __('Activity Metrics'),
+					data: [stats.eventAttendance, stats.volunteerHours, stats.communicationCount],
+					backgroundColor: ['#007bff', '#28a745', '#ffc107']
+				}
+			]
+		});
 	}
 
 	createPieChart(canvas, chartId, data) {
@@ -736,41 +672,32 @@ export class ChapterStatistics {
 		const startDate = frappe.datetime.add_months(endDate, -12);
 
 		// Get monthly member growth
-		const monthlyGrowth = await this.api.call(
-			'frappe.desk.reportview.get_list',
-			{
-				doctype: 'Member',
-				fields: [
-					'DATE_FORMAT(creation, "%Y-%m") as month',
-					'count(name) as new_members'
-				],
-				filters: {
-					name: ['in', await this.getChapterMemberIds()],
-					creation: ['between', [startDate, endDate]]
-				},
-				group_by: 'month',
-				order_by: 'month'
-			}
-		);
+		const monthlyGrowth = await this.api.call('frappe.desk.reportview.get_list', {
+			doctype: 'Member',
+			fields: ['DATE_FORMAT(creation, "%Y-%m") as month', 'count(name) as new_members'],
+			filters: {
+				name: ['in', await this.getChapterMemberIds()],
+				creation: ['between', [startDate, endDate]]
+			},
+			group_by: 'month',
+			order_by: 'month'
+		});
 
 		// Get monthly membership data
-		const monthlyMemberships = await this.api.call(
-			'frappe.desk.reportview.get_list',
-			{
-				doctype: 'Membership',
-				fields: [
-					'DATE_FORMAT(start_date, "%Y-%m") as month',
-					'count(name) as new_memberships',
-					'sum(amount) as revenue'
-				],
-				filters: {
-					member: ['in', await this.getChapterMemberIds()],
-					start_date: ['between', [startDate, endDate]]
-				},
-				group_by: 'month',
-				order_by: 'month'
-			}
-		);
+		const monthlyMemberships = await this.api.call('frappe.desk.reportview.get_list', {
+			doctype: 'Membership',
+			fields: [
+				'DATE_FORMAT(start_date, "%Y-%m") as month',
+				'count(name) as new_memberships',
+				'sum(amount) as revenue'
+			],
+			filters: {
+				member: ['in', await this.getChapterMemberIds()],
+				start_date: ['between', [startDate, endDate]]
+			},
+			group_by: 'month',
+			order_by: 'month'
+		});
 
 		return {
 			monthlyGrowth: monthlyGrowth || [],
@@ -827,8 +754,7 @@ export class ChapterStatistics {
 		return sortedMonths
 			.map((month) => {
 				const growth = data.monthlyGrowth.find((g) => g.month === month) || {};
-				const membership
-          = data.monthlyMemberships.find((m) => m.month === month) || {};
+				const membership = data.monthlyMemberships.find((m) => m.month === month) || {};
 
 				return `
                 <tr>
@@ -877,9 +803,7 @@ export class ChapterStatistics {
 					{
 						label: __('New Memberships'),
 						data: sortedMonths.map((month) => {
-							const membership = data.monthlyMemberships.find(
-								(m) => m.month === month
-							);
+							const membership = data.monthlyMemberships.find((m) => m.month === month);
 							return membership ? membership.new_memberships : 0;
 						}),
 						borderColor: '#28a745',
@@ -927,14 +851,9 @@ export class ChapterStatistics {
 			dialog.show();
 
 			// Initialize activity timeline
-			setTimeout(
-				() => this.initializeActivityTimeline(dialog, activityData),
-				100
-			);
+			setTimeout(() => this.initializeActivityTimeline(dialog, activityData), 100);
 		} catch (error) {
-			frappe.msgprint(
-				__('Error loading activity dashboard: {0}', [error.message])
-			);
+			frappe.msgprint(__('Error loading activity dashboard: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('activityDashboard', false);
 		}
@@ -988,12 +907,12 @@ export class ChapterStatistics {
 		});
 
 		// Get board changes
-		const boardChanges
-      = this.frm.doc.board_members?.filter((member) => {
-      	const fromDate = frappe.datetime.str_to_obj(member.from_date);
-      	const compareStart = frappe.datetime.str_to_obj(startDate);
-      	return fromDate >= compareStart;
-      }) || [];
+		const boardChanges =
+			this.frm.doc.board_members?.filter((member) => {
+				const fromDate = frappe.datetime.str_to_obj(member.from_date);
+				const compareStart = frappe.datetime.str_to_obj(startDate);
+				return fromDate >= compareStart;
+			}) || [];
 
 		boardChanges.forEach((change) => {
 			activities.push({
@@ -1063,15 +982,15 @@ export class ChapterStatistics {
                         </div>
 
                         ${
-	data.upcomingEvents.length > 0
-		? `
+							data.upcomingEvents.length > 0
+								? `
                             <h5 class="mt-4">${__('Upcoming Events')}</h5>
                             <div class="event-list">
                                 ${this.generateEventListHTML(data.upcomingEvents)}
                             </div>
                         `
-		: ''
-}
+								: ''
+						}
                     </div>
                 </div>
             </div>
@@ -1201,10 +1120,7 @@ export class ChapterStatistics {
 			const url = URL.createObjectURL(blob);
 
 			link.setAttribute('href', url);
-			link.setAttribute(
-				'download',
-				`${this.frm.doc.name}_analytics_${frappe.datetime.nowdate()}.csv`
-			);
+			link.setAttribute('download', `${this.frm.doc.name}_analytics_${frappe.datetime.nowdate()}.csv`);
 			link.style.visibility = 'hidden';
 
 			document.body.appendChild(link);
@@ -1268,10 +1184,8 @@ export class ChapterStatistics {
 		Array.from(months)
 			.sort()
 			.forEach((month) => {
-				const growth
-          = growthData.monthlyGrowth.find((g) => g.month === month) || {};
-				const membership
-          = growthData.monthlyMemberships.find((m) => m.month === month) || {};
+				const growth = growthData.monthlyGrowth.find((g) => g.month === month) || {};
+				const membership = growthData.monthlyMemberships.find((m) => m.month === month) || {};
 
 				lines.push(
 					`${month},${growth.new_members || 0},${membership.new_memberships || 0},${membership.revenue || 0}`
@@ -1294,17 +1208,13 @@ export class ChapterStatistics {
 			return [];
 		}
 
-		return this.frm.doc.board_members
-			.filter((m) => m.is_active && m.volunteer)
-			.map((m) => m.volunteer);
+		return this.frm.doc.board_members.filter((m) => m.is_active && m.volunteer).map((m) => m.volunteer);
 	}
 	async refresh() {
 		// Refresh statistics if dialog is open
 		if (this.state.get('ui.activeDialog') === 'statistics') {
 			// Find and refresh the statistics dialog
-			const dialog = Array.from(
-				document.querySelectorAll('.modal-dialog')
-			).find((d) =>
+			const dialog = Array.from(document.querySelectorAll('.modal-dialog')).find((d) =>
 				d.querySelector('.modal-title')?.textContent.includes('Statistics')
 			);
 

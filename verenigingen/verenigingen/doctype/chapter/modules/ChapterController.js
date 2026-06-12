@@ -235,8 +235,7 @@ export class ChapterController {
 	async checkUserBoardMemberships() {
 		try {
 			const result = await frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.get_board_memberships',
+				method: 'verenigingen.verenigingen.doctype.member.member.get_board_memberships',
 				args: {
 					member_name: this.frm.doc.name
 				}
@@ -257,11 +256,7 @@ export class ChapterController {
 
 	navigateToCurrentMandate() {
 		if (this.frm.doc.current_sepa_mandate) {
-			frappe.set_route(
-				'Form',
-				'SEPA Mandate',
-				this.frm.doc.current_sepa_mandate
-			);
+			frappe.set_route('Form', 'SEPA Mandate', this.frm.doc.current_sepa_mandate);
 		}
 	}
 
@@ -279,9 +274,7 @@ export class ChapterController {
 		}
 
 		// Validate postal codes
-		const postalValidation = ChapterValidation.validatePostalCodes(
-			this.frm.doc.postal_codes
-		);
+		const postalValidation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
 		if (!postalValidation.isValid) {
 			this.ui.showPostalCodeWarning(postalValidation.invalidPatterns);
 		}
@@ -319,26 +312,20 @@ export class ChapterController {
 		const validations = [];
 
 		// Validate chapter info
-		const chapterValidation = ChapterValidation.validateChapterInfo(
-			this.frm.doc
-		);
+		const chapterValidation = ChapterValidation.validateChapterInfo(this.frm.doc);
 		if (!chapterValidation.isValid) {
 			validations.push(...chapterValidation.errors);
 		}
 
 		// Validate board members
-		const boardValidation = ChapterValidation.validateBoardMembers(
-			this.frm.doc.board_members
-		);
+		const boardValidation = ChapterValidation.validateBoardMembers(this.frm.doc.board_members);
 		if (!boardValidation.isValid) {
 			validations.push(...boardValidation.errors);
 		}
 
 		// Validate postal codes
 		if (this.frm.doc.postal_codes) {
-			const postalValidation = ChapterValidation.validatePostalCodes(
-				this.frm.doc.postal_codes
-			);
+			const postalValidation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
 			if (!postalValidation.isValid) {
 				validations.push(...postalValidation.errors);
 			}
@@ -368,9 +355,7 @@ export class ChapterController {
 
 	onPostalCodesChange() {
 		// Handle postal codes change
-		const validation = ChapterValidation.validatePostalCodes(
-			this.frm.doc.postal_codes
-		);
+		const validation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
 
 		if (!validation.isValid) {
 			this.ui.showPostalCodeWarning(validation.invalidPatterns);
@@ -383,18 +368,11 @@ export class ChapterController {
 		// Handle chapter head change
 		if (this.frm.doc.chapter_head) {
 			// Verify the member exists and is active
-			frappe.db.get_value(
-				'Member',
-				this.frm.doc.chapter_head,
-				'status',
-				(r) => {
-					if (r && r.status !== 'Active') {
-						frappe.msgprint(
-							__('Warning: Selected chapter head is not an active member')
-						);
-					}
+			frappe.db.get_value('Member', this.frm.doc.chapter_head, 'status', (r) => {
+				if (r && r.status !== 'Active') {
+					frappe.msgprint(__('Warning: Selected chapter head is not an active member'));
 				}
-			);
+			});
 		}
 	}
 
@@ -439,10 +417,7 @@ export class ChapterController {
 		for (const member of boardMembers) {
 			if (member.chapter_role) {
 				try {
-					const role = await frappe.db.get_doc(
-						'Chapter Role',
-						member.chapter_role
-					);
+					const role = await frappe.db.get_doc('Chapter Role', member.chapter_role);
 					if (role.is_chair && role.is_active) {
 						chairMembers.push(member);
 					}
@@ -455,10 +430,7 @@ export class ChapterController {
 		if (chairMembers.length > 0) {
 			// Get the member ID from the volunteer
 			try {
-				const volunteer = await frappe.db.get_doc(
-					'Volunteer',
-					chairMembers[0].volunteer
-				);
+				const volunteer = await frappe.db.get_doc('Volunteer', chairMembers[0].volunteer);
 				if (volunteer.member) {
 					this.frm.set_value('chapter_head', volunteer.member);
 				}
@@ -472,9 +444,7 @@ export class ChapterController {
 
 	validatePostalCodes() {
 		// Validate postal codes field
-		const validation = ChapterValidation.validatePostalCodes(
-			this.frm.doc.postal_codes
-		);
+		const validation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
 
 		if (!validation.isValid) {
 			frappe.msgprint({
@@ -508,9 +478,7 @@ export class ChapterController {
 				const allCodes = new Set();
 				suggestions.forEach((s) => {
 					if (s.postal_codes) {
-						s.postal_codes
-							.split(',')
-							.forEach((code) => allCodes.add(code.trim()));
+						s.postal_codes.split(',').forEach((code) => allCodes.add(code.trim()));
 					}
 				});
 

@@ -18,7 +18,9 @@ frappe.listview_settings['Organization Document'] = {
 	onload(listview) {
 		const roles = frappe.user_roles || [];
 		const allowed = roles.includes('System Manager') || roles.includes('Verenigingen Administrator');
-		if (!allowed) { return; }
+		if (!allowed) {
+			return;
+		}
 
 		listview.page.add_actions_menu_item(__('Reclassify from MijnRood folder'), () => {
 			const items = listview.get_checked_items();
@@ -26,13 +28,12 @@ frappe.listview_settings['Organization Document'] = {
 				frappe.msgprint(__('Select at least one document.'));
 				return;
 			}
-			const names = items.map(i => i.name);
+			const names = items.map((i) => i.name);
 
 			// Defer to the form bundle's helper if loaded; both paths show the
 			// same preview dialog, so this just avoids duplicate code paths in
 			// the common case where a user has visited a doc form recently.
-			const flow = (window.verenigingen && window.verenigingen.run_reclassify_flow)
-				|| run_reclassify_flow_local;
+			const flow = (window.verenigingen && window.verenigingen.run_reclassify_flow) || run_reclassify_flow_local;
 			flow(names, () => listview.refresh());
 		});
 	}
@@ -48,7 +49,9 @@ function run_reclassify_flow_local(names, onApplied) {
 		freeze: true,
 		freeze_message: __('Computing reclassification preview…'),
 		callback(r) {
-			if (!r.message) { return; }
+			if (!r.message) {
+				return;
+			}
 			show_reclassify_preview_local(r.message, () => {
 				frappe.call({
 					method: 'verenigingen.mijnrood_sync.services.document_reclassify_service.reclassify_documents',
@@ -56,13 +59,19 @@ function run_reclassify_flow_local(names, onApplied) {
 					freeze: true,
 					freeze_message: __('Applying reclassification…'),
 					callback(r2) {
-						if (!r2.message) { return; }
-						const errorCount = (r2.message.changes || [])
-							.reduce((n, c) => n + ((c.write_errors || []).length), 0);
+						if (!r2.message) {
+							return;
+						}
+						const errorCount = (r2.message.changes || []).reduce(
+							(n, c) => n + (c.write_errors || []).length,
+							0
+						);
 						if (errorCount > 0) {
 							frappe.show_alert({
-								message: __('Reclassified {0} documents with {1} field write error(s) — check error log.',
-									[r2.message.applied, errorCount]),
+								message: __(
+									'Reclassified {0} documents with {1} field write error(s) — check error log.',
+									[r2.message.applied, errorCount]
+								),
 								indicator: 'orange'
 							});
 						} else {
@@ -71,7 +80,9 @@ function run_reclassify_flow_local(names, onApplied) {
 								indicator: 'green'
 							});
 						}
-						if (onApplied) { onApplied(); }
+						if (onApplied) {
+							onApplied();
+						}
 					}
 				});
 			});
@@ -86,21 +97,26 @@ function show_reclassify_preview_local(result, onConfirm) {
 	if (!changes.length) {
 		frappe.msgprint({
 			title: __('Nothing to reclassify'),
-			message: __('All {0} documents are unchanged or skipped (skipped: {1}).',
-				[result.total, skipped.length]),
+			message: __('All {0} documents are unchanged or skipped (skipped: {1}).', [result.total, skipped.length]),
 			indicator: 'blue'
 		});
 		return;
 	}
 
-	const rows = changes.flatMap(c => c.diff_fields.map(f => `
+	const rows = changes
+		.flatMap((c) =>
+			c.diff_fields.map(
+				(f) => `
 		<tr>
 			<td>${frappe.utils.escape_html(c.name)}</td>
 			<td>${frappe.utils.escape_html(f)}</td>
 			<td>${frappe.utils.escape_html(String(c.current[f] ?? ''))}</td>
 			<td>${frappe.utils.escape_html(String(c.proposed[f] ?? ''))}</td>
 		</tr>
-	`)).join('');
+	`
+			)
+		)
+		.join('');
 
 	const html = `
 		<div style="max-height: 400px; overflow-y: auto;">

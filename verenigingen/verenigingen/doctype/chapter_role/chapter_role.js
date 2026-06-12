@@ -84,9 +84,7 @@ frappe.ui.form.on('Chapter Role', {
 		// Add information about chair roles
 		if (frm.doc.is_chair) {
 			frm.set_intro(
-				__(
-					'This role is marked as Chair. Members with this role will be automatically set as Chapter Heads.'
-				),
+				__('This role is marked as Chair. Members with this role will be automatically set as Chapter Heads.'),
 				'blue'
 			);
 		}
@@ -108,7 +106,7 @@ frappe.ui.form.on('Chapter Role', {
 						if (r.message && r.message.length > 0) {
 							// Group by chapter
 							const chapters = {};
-							r.message.forEach(row => {
+							r.message.forEach((row) => {
 								if (!chapters[row.parent]) {
 									chapters[row.parent] = [];
 								}
@@ -191,9 +189,7 @@ frappe.ui.form.on('Chapter Role', {
 
 			if (chairTerms.some((term) => lowerName.includes(term))) {
 				frappe.confirm(
-					__(
-						'This role name suggests it might be a Chair role. Would you like to mark it as Chair?'
-					),
+					__('This role name suggests it might be a Chair role. Would you like to mark it as Chair?'),
 					() => {
 						// Yes - set as chair
 						frm.set_value('is_chair', 1);
@@ -206,21 +202,12 @@ frappe.ui.form.on('Chapter Role', {
 
 	permissions_level(frm) {
 		// If setting admin permissions level, suggest setting is_chair if not already set
-		if (
-			frm.doc.permissions_level === 'Admin'
-      && !frm.doc.is_chair
-      && frm.doc.is_active
-		) {
-			frappe.confirm(
-				__(
-					'Admin roles are often chair roles. Would you like to mark this role as Chair?'
-				),
-				() => {
-					// Yes - set as chair
-					frm.set_value('is_chair', 1);
-					check_for_duplicate_chair_roles(frm);
-				}
-			);
+		if (frm.doc.permissions_level === 'Admin' && !frm.doc.is_chair && frm.doc.is_active) {
+			frappe.confirm(__('Admin roles are often chair roles. Would you like to mark this role as Chair?'), () => {
+				// Yes - set as chair
+				frm.set_value('is_chair', 1);
+				check_for_duplicate_chair_roles(frm);
+			});
 		}
 	},
 
@@ -228,9 +215,7 @@ frappe.ui.form.on('Chapter Role', {
 		// If this is a chair role, suggest updating affected chapters
 		if (frm.doc.is_chair && frm.doc.is_active) {
 			frappe.confirm(
-				__(
-					'Would you like to update the Chapter Head for all chapters using this role now?'
-				),
+				__('Would you like to update the Chapter Head for all chapters using this role now?'),
 				() => {
 					// Yes - update chapters
 					update_chapters_with_this_role(frm);
@@ -289,8 +274,7 @@ function check_for_duplicate_chair_roles(frm) {
 // Function to update chapters with this role
 function update_chapters_with_this_role(frm) {
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.chapter_role.chapter_role.update_chapters_with_role',
+		method: 'verenigingen.verenigingen.doctype.chapter_role.chapter_role.update_chapters_with_role',
 		args: {
 			role: frm.doc.name
 		},
@@ -301,10 +285,10 @@ function update_chapters_with_this_role(frm) {
 				frappe.msgprint({
 					title: __('Chapters Updated'),
 					indicator: 'green',
-					message: __(
-						'Updated {0} chapters with this role. {1} chapters had their Chapter Head changed.',
-						[r.message.chapters_found, r.message.chapters_updated]
-					)
+					message: __('Updated {0} chapters with this role. {1} chapters had their Chapter Head changed.', [
+						r.message.chapters_found,
+						r.message.chapters_updated
+					])
 				});
 			}
 		}

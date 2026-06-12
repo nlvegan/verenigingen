@@ -157,9 +157,7 @@ export class ChapterUI {
 		const enabledMembers = this.frm.doc.members?.filter((m) => m.enabled) || [];
 		const memberCount = enabledMembers.length;
 
-		const $header = this.frm.fields_dict.chapter_members?.$wrapper.find(
-			'.form-section-heading'
-		);
+		const $header = this.frm.fields_dict.chapter_members?.$wrapper.find('.form-section-heading');
 		if ($header.length) {
 			const summary = ` <span class="text-muted">(${memberCount} members)</span>`;
 
@@ -183,9 +181,7 @@ export class ChapterUI {
 
 		let $preview = $wrapper.find('.postal-code-preview');
 		if (!$preview.length) {
-			$preview = $(
-				'<div class="postal-code-preview alert alert-info mt-3"></div>'
-			);
+			$preview = $('<div class="postal-code-preview alert alert-info mt-3"></div>');
 			$wrapper.append($preview);
 		}
 
@@ -216,10 +212,9 @@ export class ChapterUI {
 		frappe.msgprint({
 			title: __('Invalid Postal Code Patterns'),
 			indicator: 'orange',
-			message: __(
-				'The following postal code patterns are invalid and will be ignored: {0}',
-				[invalidPatterns.join(', ')]
-			)
+			message: __('The following postal code patterns are invalid and will be ignored: {0}', [
+				invalidPatterns.join(', ')
+			])
 		});
 	}
 
@@ -380,9 +375,7 @@ export class ChapterUI {
 			// Update existing progress
 			const $progressBar = this.progressDialog.$wrapper.find('.progress-bar');
 			$progressBar.css('width', `${percentage}%`).text(`${percentage}%`);
-			this.progressDialog.$wrapper
-				.find('.text-center')
-				.text(`${current} / ${total}`);
+			this.progressDialog.$wrapper.find('.text-center').text(`${current} / ${total}`);
 		}
 
 		if (current >= total) {

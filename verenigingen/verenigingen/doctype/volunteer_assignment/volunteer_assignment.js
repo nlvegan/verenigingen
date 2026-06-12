@@ -78,9 +78,7 @@ frappe.ui.form.on('Volunteer Assignment', {
 		if (child.reference_doctype) {
 			setTimeout(() => {
 				// This forces the dynamic link to refresh its options
-				frm.fields_dict.active_assignments.grid.grid_rows_by_docname[
-					cdn
-				].refresh_field('reference_name');
+				frm.fields_dict.active_assignments.grid.grid_rows_by_docname[cdn].refresh_field('reference_name');
 			}, 300);
 		}
 	}

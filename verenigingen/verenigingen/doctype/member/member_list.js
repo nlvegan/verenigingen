@@ -48,13 +48,7 @@ frappe.listview_settings['Member'] = {
 	// ==================== LIST VIEW CONFIGURATION ====================
 
 	// Add fields needed for new member tracking
-	add_fields: [
-		'status',
-		'chapter_assigned_date',
-		'creation',
-		'application_id',
-		'application_status'
-	],
+	add_fields: ['status', 'chapter_assigned_date', 'creation', 'application_id', 'application_status'],
 
 	// Auto refresh when data changes
 	refresh(listview) {
@@ -74,14 +68,8 @@ frappe.listview_settings['Member'] = {
 		const is_application_member = !!doc.application_id;
 
 		// Check if member is new (created within last 30 days)
-		const thirtyDaysAgo = frappe.datetime.add_days(
-			frappe.datetime.nowdate(),
-			-30
-		);
-		const sevenDaysAgo = frappe.datetime.add_days(
-			frappe.datetime.nowdate(),
-			-7
-		);
+		const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
+		const sevenDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -7);
 		const creationDate = doc.creation ? doc.creation.split(' ')[0] : null;
 
 		// Check for recent chapter changes
@@ -104,10 +92,7 @@ frappe.listview_settings['Member'] = {
 
 		// Primary status based on member status field
 		const status_indicators = {
-			Pending: [
-				'yellow',
-				is_application_member ? 'Pending Application' : 'Pending Member'
-			],
+			Pending: ['yellow', is_application_member ? 'Pending Application' : 'Pending Member'],
 			Active: ['green', 'Active Member'],
 			Rejected: ['red', 'Application Rejected'],
 			Expired: ['orange', 'Membership Expired'],
@@ -118,17 +103,10 @@ frappe.listview_settings['Member'] = {
 		};
 
 		// Get indicator for main status
-		let indicator = status_indicators[doc.status] || [
-			'grey',
-			doc.status || 'Unknown'
-		];
+		let indicator = status_indicators[doc.status] || ['grey', doc.status || 'Unknown'];
 
 		// Only override with application status for application-created members
-		if (
-			is_application_member
-      && doc.application_status
-      && doc.application_status !== 'Active'
-		) {
+		if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
 			const app_status_indicators = {
 				Pending: ['yellow', 'Application Pending Review'],
 				'Under Review': ['blue', 'Under Review'],
@@ -198,11 +176,7 @@ frappe.listview_settings['Member'] = {
 			// Only show application status indicators for application-created members
 			const is_application_member = !!doc.application_id;
 
-			if (
-				is_application_member
-        && doc.application_status
-        && doc.application_status !== 'Active'
-			) {
+			if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
 				const status_badges = {
 					Pending: '🟡',
 					'Under Review': '🔵',
@@ -294,8 +268,7 @@ frappe.listview_settings['Member'] = {
 		// Add refresh button for manual status sync
 		listview.page.add_menu_item(__('Refresh Status'), () => {
 			frappe.call({
-				method:
-          'verenigingen.api.admin_membership_operations.sync_member_statuses',
+				method: 'verenigingen.api.admin_membership_operations.sync_member_statuses',
 				callback(r) {
 					if (r.message) {
 						frappe.show_alert(
@@ -312,20 +285,15 @@ frappe.listview_settings['Member'] = {
 		});
 
 		// Add fix for backend members showing as pending
-		if (
-			frappe.user.has_role(['System Manager', 'Verenigingen Administrator'])
-		) {
+		if (frappe.user.has_role(['System Manager', 'Verenigingen Administrator'])) {
 			listview.page.add_menu_item(__('Fix Backend Member Status'), () => {
 				frappe.confirm(
-					__(
-						'This will fix backend-created members that are incorrectly showing as "Pending". Continue?'
-					),
+					__('This will fix backend-created members that are incorrectly showing as "Pending". Continue?'),
 					() => {
 						frappe.show_alert(__('Fixing backend member statuses...'), 2);
 
 						frappe.call({
-							method:
-                'verenigingen.api.admin_membership_operations.fix_backend_member_statuses',
+							method: 'verenigingen.api.admin_membership_operations.fix_backend_member_statuses',
 							callback(r) {
 								if (r.message && r.message.success) {
 									frappe.show_alert(
@@ -450,10 +418,7 @@ function add_new_member_filter_buttons(listview) {
 	listview.$new_member_filters_added = true;
 
 	// Add quick filter buttons for new members
-	const thirtyDaysAgo = frappe.datetime.add_days(
-		frappe.datetime.nowdate(),
-		-30
-	);
+	const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
 	const sevenDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -7);
 
 	// Create filter button container
@@ -505,18 +470,14 @@ function add_new_member_filter_buttons(listview) {
 				]);
 				break;
 			case 'chapter-changes':
-				listview.filter_area.add([
-					['Member', 'chapter_assigned_date', '>=', thirtyDaysAgo]
-				]);
+				listview.filter_area.add([['Member', 'chapter_assigned_date', '>=', thirtyDaysAgo]]);
 				break;
 			case 'no-chapter':
 				// Filter for members without chapters - this will need to be handled differently
 				// since we now use Chapter Member child table
 				frappe.msgprint({
 					title: __('Filter Info'),
-					message: __(
-						'To see members without chapters, please use the "Members Without Chapter" report.'
-					),
+					message: __('To see members without chapters, please use the "Members Without Chapter" report.'),
 					indicator: 'blue'
 				});
 				break;
@@ -626,7 +587,7 @@ function show_source_target_picker(first_name, second_name, listview) {
 }
 
 function show_member_selection_dialog(members, callback) {
-	const member_options = members.map(m => m.name).join('\n');
+	const member_options = members.map((m) => m.name).join('\n');
 
 	const dialog = new frappe.ui.Dialog({
 		title: __('Select Members to Merge'),
@@ -702,32 +663,35 @@ function render_merge_dialog(preview, listview) {
 			<div class="alert alert-warning" style="margin-bottom: 15px;">
 				<strong>⚠️ Important Warnings:</strong>
 				<ul style="margin-bottom: 0; margin-top: 8px;">
-					${warnings.map(w => `<li>${w}</li>`).join('')}
+					${warnings.map((w) => `<li>${w}</li>`).join('')}
 				</ul>
 			</div>
 		`;
 	}
 
 	// Build field selection HTML
-	const fields_html = fields.map(field => {
-		// Format display values with context
-		const format_value = (value, fieldname) => {
-			if (!value) { return '<em>(empty)</em>'; }
+	const fields_html = fields
+		.map((field) => {
+			// Format display values with context
+			const format_value = (value, fieldname) => {
+				if (!value) {
+					return '<em>(empty)</em>';
+				}
 
-			// Format date fields for readability
-			if (fieldname === 'birth_date' && value) {
-				return frappe.datetime.str_to_user(value);
-			}
+				// Format date fields for readability
+				if (fieldname === 'birth_date' && value) {
+					return frappe.datetime.str_to_user(value);
+				}
 
-			return value;
-		};
+				return value;
+			};
 
-		const source_display = format_value(field.source_value, field.fieldname);
-		const target_display = format_value(field.target_value, field.fieldname);
-		const has_conflict = field.has_conflict;
-		const suggested = field.suggested || 'target';
+			const source_display = format_value(field.source_value, field.fieldname);
+			const target_display = format_value(field.target_value, field.fieldname);
+			const has_conflict = field.has_conflict;
+			const suggested = field.suggested || 'target';
 
-		return `
+			return `
 			<div class="merge-field-row" style="margin-bottom: 12px; padding: 10px; background: ${has_conflict ? '#fff3cd' : '#f8f9fa'}; border-radius: 4px; border-left: 3px solid ${has_conflict ? '#ffc107' : '#e9ecef'};">
 				<div style="margin-bottom: 6px;">
 					<strong>${field.label}</strong>
@@ -745,7 +709,8 @@ function render_merge_dialog(preview, listview) {
 				</div>
 			</div>
 		`;
-	}).join('');
+		})
+		.join('');
 
 	const dialog = new frappe.ui.Dialog({
 		title: __('Merge Members'),
@@ -796,7 +761,7 @@ function render_merge_dialog(preview, listview) {
 		primary_action() {
 			// Collect field selections
 			const field_selections = {};
-			fields.forEach(field => {
+			fields.forEach((field) => {
 				const selected_radio = dialog.$wrapper.find(`input[name="field_${field.fieldname}"]:checked`);
 				if (selected_radio.length) {
 					field_selections[field.fieldname] = selected_radio.val();
@@ -805,7 +770,10 @@ function render_merge_dialog(preview, listview) {
 
 			// Confirm before proceeding
 			frappe.confirm(
-				__('Are you sure you want to merge these members? This action cannot be undone. The source member ({0}) will be DELETED.', [source.name]),
+				__(
+					'Are you sure you want to merge these members? This action cannot be undone. The source member ({0}) will be DELETED.',
+					[source.name]
+				),
 				() => {
 					dialog.hide();
 					execute_merge(source.name, target.name, field_selections, listview);
@@ -833,10 +801,13 @@ function execute_merge(source_name, target_name, field_selections, listview) {
 		callback(r) {
 			if (r.message && r.message.success) {
 				const result = r.message.data;
-				frappe.show_alert({
-					message: __('Members merged successfully! {0} changes applied.', [result.changes_applied]),
-					indicator: 'green'
-				}, 5);
+				frappe.show_alert(
+					{
+						message: __('Members merged successfully! {0} changes applied.', [result.changes_applied]),
+						indicator: 'green'
+					},
+					5
+				);
 
 				// Refresh list view
 				listview.refresh();

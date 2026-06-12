@@ -161,24 +161,17 @@ frappe.query_reports['ANBI Periodic Agreements'] = {
 					label: __('Days Before Expiry'),
 					fieldtype: 'Int',
 					default: 90,
-					description: __(
-						'Send reminders to agreements expiring within these many days'
-					)
+					description: __('Send reminders to agreements expiring within these many days')
 				},
 				(values) => {
 					frappe.call({
-						method:
-              'verenigingen.api.periodic_donation_operations.send_renewal_reminders',
+						method: 'verenigingen.api.periodic_donation_operations.send_renewal_reminders',
 						args: {
 							days_before_expiry: values.days
 						},
 						callback(r) {
 							if (r.message) {
-								frappe.msgprint(
-									__('{0} renewal reminder emails sent', [
-										r.message.sent_count
-									])
-								);
+								frappe.msgprint(__('{0} renewal reminder emails sent', [r.message.sent_count]));
 							}
 						}
 					});
@@ -198,9 +191,7 @@ frappe.query_reports['ANBI Periodic Agreements'] = {
 				},
 				callback(r) {
 					if (r.message) {
-						frappe.msgprint(
-							__('{0} tax receipts generated', [r.message.generated_count])
-						);
+						frappe.msgprint(__('{0} tax receipts generated', [r.message.generated_count]));
 					}
 				}
 			});
@@ -208,8 +199,7 @@ frappe.query_reports['ANBI Periodic Agreements'] = {
 
 		report.page.add_inner_button(__('Export Agreements'), () => {
 			frappe.call({
-				method:
-          'verenigingen.api.periodic_donation_operations.export_agreements',
+				method: 'verenigingen.api.periodic_donation_operations.export_agreements',
 				args: {
 					filters: report.get_filter_values()
 				},

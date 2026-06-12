@@ -15,17 +15,9 @@ QUnit.test('test: Member - Basic Test Structure Validation', (assert) => {
 			]),
 		() => frappe.timeout(1),
 		() => {
-			assert.equal(
-				cur_frm.doc.first_name,
-				'Validation',
-				'First name should be set'
-			);
+			assert.equal(cur_frm.doc.first_name, 'Validation', 'First name should be set');
 			assert.equal(cur_frm.doc.last_name, 'Test', 'Last name should be set');
-			assert.equal(
-				cur_frm.doc.full_name,
-				'Validation Test',
-				'Full name should be generated'
-			);
+			assert.equal(cur_frm.doc.full_name, 'Validation Test', 'Full name should be generated');
 		},
 		() => done()
 	]);
@@ -44,8 +36,7 @@ QUnit.test('test: Member - Utility Function Availability', (assert) => {
 				'UIUtils check should not fail'
 			);
 			assert.ok(
-				typeof PaymentUtils !== 'undefined'
-          || typeof PaymentUtils === 'undefined',
+				typeof PaymentUtils !== 'undefined' || typeof PaymentUtils === 'undefined',
 				'PaymentUtils check should not fail'
 			);
 			assert.ok(
@@ -53,13 +44,11 @@ QUnit.test('test: Member - Utility Function Availability', (assert) => {
 				'SepaUtils check should not fail'
 			);
 			assert.ok(
-				typeof ChapterUtils !== 'undefined'
-          || typeof ChapterUtils === 'undefined',
+				typeof ChapterUtils !== 'undefined' || typeof ChapterUtils === 'undefined',
 				'ChapterUtils check should not fail'
 			);
 			assert.ok(
-				typeof VolunteerUtils !== 'undefined'
-          || typeof VolunteerUtils === 'undefined',
+				typeof VolunteerUtils !== 'undefined' || typeof VolunteerUtils === 'undefined',
 				'VolunteerUtils check should not fail'
 			);
 		},
@@ -77,20 +66,14 @@ QUnit.test('test: Member - Error Handling Validation', (assert) => {
 			// Test that we can handle form creation gracefully
 			try {
 				const testForm = new frappe.ui.form.Form('Member', null, true);
-				assert.ok(
-					testForm.doc.doctype === 'Member',
-					'Form creation should work'
-				);
+				assert.ok(testForm.doc.doctype === 'Member', 'Form creation should work');
 			} catch (e) {
 				assert.ok(false, `Form creation should not throw errors: ${e.message}`);
 			}
 		},
 		() => {
 			// Test that our test utilities work
-			assert.ok(
-				typeof frappe.tests.make === 'function',
-				'frappe.tests.make should be available'
-			);
+			assert.ok(typeof frappe.tests.make === 'function', 'frappe.tests.make should be available');
 		},
 		() => done()
 	]);

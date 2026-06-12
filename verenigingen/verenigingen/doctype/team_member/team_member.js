@@ -120,10 +120,9 @@ function validate_dates(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 
 	if (
-		row.to_date
-    && row.from_date
-    && frappe.datetime.str_to_obj(row.from_date)
-      > frappe.datetime.str_to_obj(row.to_date)
+		row.to_date &&
+		row.from_date &&
+		frappe.datetime.str_to_obj(row.from_date) > frappe.datetime.str_to_obj(row.to_date)
 	) {
 		frappe.msgprint(__('Start date cannot be after end date'));
 		frappe.model.set_value(cdt, cdn, 'to_date', row.from_date);

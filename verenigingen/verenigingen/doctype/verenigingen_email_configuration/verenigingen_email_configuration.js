@@ -257,9 +257,9 @@ function show_sync_dialog(frm, data) {
 			<div class="alert alert-info" style="margin-bottom: 15px;">
 				<strong><i class="fa fa-info-circle"></i> ${__('Undocumented Keys')}</strong>
 				<p class="mb-1 small">${__(
-		'These {0} keys are used in code but not documented in notification_registry.py. Consider adding descriptions.',
-		[undocumented_keys.length]
-	)}</p>
+					'These {0} keys are used in code but not documented in notification_registry.py. Consider adding descriptions.',
+					[undocumented_keys.length]
+				)}</p>
 				<div style="max-height: 80px; overflow-y: auto;">
 					<code class="small">${undocumented_keys.join(', ')}</code>
 				</div>
@@ -286,8 +286,8 @@ function show_sync_dialog(frm, data) {
 						</thead>
 						<tbody>
 							${new_keys
-		.map(
-			(k, idx) => `
+								.map(
+									(k, idx) => `
 								<tr${!k.in_registry ? ' class="table-warning"' : ''}>
 									<td><input type="checkbox" class="new-key-checkbox" data-idx="${idx}" checked></td>
 									<td>
@@ -298,8 +298,8 @@ function show_sync_dialog(frm, data) {
 									<td class="small">${k.description || '<span class="text-muted">No description</span>'}</td>
 								</tr>
 							`
-		)
-		.join('')}
+								)
+								.join('')}
 						</tbody>
 					</table>
 				</div>

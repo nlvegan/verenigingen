@@ -59,21 +59,9 @@ export class MemberManager {
 
 		// Only show member management buttons if chapter has been saved
 		if (this.frm.doc.name && !this.frm.doc.__islocal) {
-			this.ui.addButton(
-				__('Add Members'),
-				() => this.showAddMembersDialog(),
-				__('Actions')
-			);
-			this.ui.addButton(
-				__('Member Directory'),
-				() => this.showMemberDirectory(),
-				__('View')
-			);
-			this.ui.addButton(
-				__('Export Member List'),
-				() => this.exportMemberList(),
-				__('Actions')
-			);
+			this.ui.addButton(__('Add Members'), () => this.showAddMembersDialog(), __('Actions'));
+			this.ui.addButton(__('Member Directory'), () => this.showMemberDirectory(), __('View'));
+			this.ui.addButton(__('Export Member List'), () => this.exportMemberList(), __('Actions'));
 		}
 	}
 
@@ -100,9 +88,7 @@ export class MemberManager {
 			const availableMembers = await this.getAvailableMembers();
 
 			if (!availableMembers || availableMembers.length === 0) {
-				this.ui.showError(
-					__('No available members found to add to this chapter')
-				);
+				this.ui.showError(__('No available members found to add to this chapter'));
 				return;
 			}
 
@@ -132,9 +118,7 @@ export class MemberManager {
 						fieldtype: 'Check',
 						label: __('Set as Primary Chapter'),
 						default: 0,
-						description: __(
-							'Update selected members to have this as their primary chapter'
-						)
+						description: __('Update selected members to have this as their primary chapter')
 					}
 				],
 				primary_action_label: __('Add Members'),
@@ -144,9 +128,7 @@ export class MemberManager {
 				}
 			});
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to load available members: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to load available members: {0}', [error.message]));
 		}
 	}
 
@@ -162,9 +144,7 @@ export class MemberManager {
 		const currentMemberIds = this.frm.doc.members?.map((m) => m.member) || [];
 
 		// Filter out members already in this chapter
-		return allMembers.filter(
-			(member) => !currentMemberIds.includes(member.name)
-		);
+		return allMembers.filter((member) => !currentMemberIds.includes(member.name));
 	}
 
 	async addMembersToChapter(memberIds, setAsPrimary) {
@@ -186,9 +166,7 @@ export class MemberManager {
 					const member = await this.api.getDoc('Member', memberId);
 
 					// Add to chapter members table
-					const exists = this.frm.doc.members?.some(
-						(m) => m.member === memberId
-					);
+					const exists = this.frm.doc.members?.some((m) => m.member === memberId);
 
 					if (!exists) {
 						const newMember = this.frm.add_child('members');
@@ -268,17 +246,14 @@ export class MemberManager {
 			// Add search functionality
 			this.addDirectorySearch(dialog);
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to load member directory: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to load member directory: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('memberDirectory', false);
 		}
 	}
 
 	async getChapterMembersDetails() {
-		const memberIds
-      = this.frm.doc.members?.filter((m) => m.enabled).map((m) => m.member) || [];
+		const memberIds = this.frm.doc.members?.filter((m) => m.enabled).map((m) => m.member) || [];
 
 		if (memberIds.length === 0) {
 			return [];
@@ -287,23 +262,13 @@ export class MemberManager {
 		// Get detailed member information
 		const members = await this.api.getList('Member', {
 			filters: [['name', 'in', memberIds]],
-			fields: [
-				'name',
-				'full_name',
-				'email',
-				'contact_number',
-				'status',
-				'member_since',
-				'image'
-			],
+			fields: ['name', 'full_name', 'email', 'contact_number', 'status', 'member_since', 'image'],
 			limit: 500
 		});
 
 		// Add chapter-specific information
 		return members.map((member) => {
-			const chapterMember = this.frm.doc.members.find(
-				(m) => m.member === member.name
-			);
+			const chapterMember = this.frm.doc.members.find((m) => m.member === member.name);
 			return {
 				...member,
 				introduction: chapterMember?.introduction,
@@ -363,14 +328,14 @@ export class MemberManager {
                                     <i class="fa fa-eye"></i> ${__('View')}
                                 </button>
                                 ${
-	this.canManageMembers()
-		? `
+									this.canManageMembers()
+										? `
                                     <button class="btn btn-default" onclick="window._chapterMemberManager.removeMemberFromChapter('${member.name}', '${member.full_name}')">
                                         <i class="fa fa-times"></i> ${__('Remove')}
                                     </button>
                                 `
-		: ''
-}
+										: ''
+								}
                             </div>
                         </div>
                     </div>
@@ -442,47 +407,34 @@ export class MemberManager {
 			});
 
 			// Update count
-			const visibleCount = dialog.$wrapper.find(
-				'.member-card-wrapper:visible'
-			).length;
+			const visibleCount = dialog.$wrapper.find('.member-card-wrapper:visible').length;
 			dialog.$wrapper
 				.find('.directory-stats')
-				.append(
-					` <span class="badge badge-info">${__('Showing')}: ${visibleCount}</span>`
-				);
+				.append(` <span class="badge badge-info">${__('Showing')}: ${visibleCount}</span>`);
 		});
 	}
 
 	async removeMemberFromChapter(memberId, memberName) {
-		this.ui.confirmAction(
-			__('Are you sure you want to remove {0} from this chapter?', [
-				memberName
-			]),
-			async () => {
-				try {
-					// Find and remove from members table
-					const memberIndex = this.frm.doc.members.findIndex(
-						(m) => m.member === memberId
-					);
+		this.ui.confirmAction(__('Are you sure you want to remove {0} from this chapter?', [memberName]), async () => {
+			try {
+				// Find and remove from members table
+				const memberIndex = this.frm.doc.members.findIndex((m) => m.member === memberId);
 
-					if (memberIndex > -1) {
-						this.frm.doc.members.splice(memberIndex, 1);
+				if (memberIndex > -1) {
+					this.frm.doc.members.splice(memberIndex, 1);
 
-						// Save the document
-						await this.frm.save();
+					// Save the document
+					await this.frm.save();
 
-						this.ui.showAlert(__('Member removed from chapter'), 'green');
+					this.ui.showAlert(__('Member removed from chapter'), 'green');
 
-						// Refresh member count
-						this.ui.updateMembersSummary();
-					}
-				} catch (error) {
-					this.ui.showError(
-						__('Failed to remove member: {0}', [error.message])
-					);
+					// Refresh member count
+					this.ui.updateMembersSummary();
 				}
+			} catch (error) {
+				this.ui.showError(__('Failed to remove member: {0}', [error.message]));
 			}
-		);
+		});
 	}
 
 	async exportMemberList() {
@@ -497,15 +449,7 @@ export class MemberManager {
 			}
 
 			// Create CSV content
-			const headers = [
-				'Name',
-				'Email',
-				'Mobile',
-				'Status',
-				'Member Since',
-				'Introduction',
-				'Website'
-			];
+			const headers = ['Name', 'Email', 'Mobile', 'Status', 'Member Since', 'Introduction', 'Website'];
 			const rows = members.map((member) => [
 				member.full_name,
 				member.email || '',
@@ -524,10 +468,7 @@ export class MemberManager {
 			const url = URL.createObjectURL(blob);
 
 			link.setAttribute('href', url);
-			link.setAttribute(
-				'download',
-				`${this.frm.doc.name}_members_${frappe.datetime.nowdate()}.csv`
-			);
+			link.setAttribute('download', `${this.frm.doc.name}_members_${frappe.datetime.nowdate()}.csv`);
 			link.style.visibility = 'hidden';
 
 			document.body.appendChild(link);
@@ -536,9 +477,7 @@ export class MemberManager {
 
 			this.ui.showAlert(__('Member list exported successfully'), 'green');
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to export member list: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to export member list: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('exportMembers', false);
 		}
@@ -565,18 +504,13 @@ export class MemberManager {
 
 	canManageMembers() {
 		// Check if user has permission to manage members
-		return (
-			frappe.user_roles.includes('Verenigingen Administrator')
-      || frappe.user_roles.includes('System Manager')
-		);
+		return frappe.user_roles.includes('Verenigingen Administrator') || frappe.user_roles.includes('System Manager');
 	}
 
 	// Handle member-related state changes
 	handleMemberUpdate(memberId) {
 		// Refresh member list if needed
-		const memberIndex = this.frm.doc.members?.findIndex(
-			(m) => m.member === memberId
-		);
+		const memberIndex = this.frm.doc.members?.findIndex((m) => m.member === memberId);
 
 		if (memberIndex > -1) {
 			this.frm.refresh_field('members');
@@ -588,8 +522,7 @@ export class MemberManager {
 	async getMemberCount() {
 		try {
 			// Count from Chapter Member child table instead of Member.primary_chapter
-			const enabledMembers
-        = this.frm.doc.members?.filter((m) => m.enabled) || [];
+			const enabledMembers = this.frm.doc.members?.filter((m) => m.enabled) || [];
 			const count = enabledMembers.length;
 
 			this.state.update('chapter.memberCount', count);
@@ -602,10 +535,7 @@ export class MemberManager {
 
 	// Check if a member is in this chapter
 	isMemberInChapter(memberId) {
-		return (
-			this.frm.doc.members?.some((m) => m.member === memberId && m.enabled)
-      || false
-		);
+		return this.frm.doc.members?.some((m) => m.member === memberId && m.enabled) || false;
 	}
 
 	// Get chapter member details
@@ -627,10 +557,7 @@ export class MemberManager {
 
 			await this.frm.save();
 
-			this.ui.showAlert(
-				enabled ? __('Member enabled') : __('Member disabled'),
-				'green'
-			);
+			this.ui.showAlert(enabled ? __('Member enabled') : __('Member disabled'), 'green');
 		}
 	}
 	// Event handlers
@@ -693,8 +620,7 @@ export class MemberManager {
 				cdt,
 				cdn,
 				'leave_reason',
-				row.leave_reason
-          || __('Disabled on {0}', [frappe.datetime.now_datetime()])
+				row.leave_reason || __('Disabled on {0}', [frappe.datetime.now_datetime()])
 			);
 		} else {
 			// Member is being re-enabled
@@ -709,10 +635,7 @@ export class MemberManager {
 		const row = locals[cdt][cdn];
 
 		// Validate introduction length
-		if (
-			row.introduction
-      && row.introduction.length > ChapterConfig.members.maxIntroductionLength
-		) {
+		if (row.introduction && row.introduction.length > ChapterConfig.members.maxIntroductionLength) {
 			this.ui.showError(
 				__('Introduction exceeds maximum length of {0} characters', [
 					ChapterConfig.members.maxIntroductionLength
@@ -724,10 +647,7 @@ export class MemberManager {
 				cdt,
 				cdn,
 				'introduction',
-				row.introduction.substring(
-					0,
-					ChapterConfig.members.maxIntroductionLength
-				)
+				row.introduction.substring(0, ChapterConfig.members.maxIntroductionLength)
 			);
 		}
 	}
@@ -742,16 +662,8 @@ export class MemberManager {
 				frappe.model.set_value(cdt, cdn, 'website_url', '');
 			} else {
 				// Add protocol if missing
-				if (
-					!row.website_url.startsWith('http://')
-          && !row.website_url.startsWith('https://')
-				) {
-					frappe.model.set_value(
-						cdt,
-						cdn,
-						'website_url',
-						`https://${row.website_url}`
-					);
+				if (!row.website_url.startsWith('http://') && !row.website_url.startsWith('https://')) {
+					frappe.model.set_value(cdt, cdn, 'website_url', `https://${row.website_url}`);
 				}
 			}
 		}
@@ -760,14 +672,9 @@ export class MemberManager {
 	updateMemberRowStyle(row) {
 		// Add visual indication for disabled members
 		if (!row.enabled) {
-			frappe.utils.add_custom_button_to_grid(
-				this.frm.fields_dict.members.grid,
-				row.idx,
-				__('Re-enable'),
-				() => {
-					frappe.model.set_value(row.doctype, row.name, 'enabled', 1);
-				}
-			);
+			frappe.utils.add_custom_button_to_grid(this.frm.fields_dict.members.grid, row.idx, __('Re-enable'), () => {
+				frappe.model.set_value(row.doctype, row.name, 'enabled', 1);
+			});
 		}
 	}
 

@@ -105,11 +105,7 @@ frappe.ui.form.on('Membership', {
 							frm.add_custom_button(
 								__('View Active Dues Schedule'),
 								() => {
-									frappe.set_route(
-										'Form',
-										'Membership Dues Schedule',
-										result.message.name
-									);
+									frappe.set_route('Form', 'Membership Dues Schedule', result.message.name);
 								},
 								__('Dues Schedule')
 							);
@@ -141,17 +137,15 @@ frappe.ui.form.on('Membership', {
 							frm.add_custom_button(
 								__('Create Dues Schedule'),
 								() => {
-									frm
-										.call('create_dues_schedule_from_membership')
-										.then((response) => {
-											if (response.message) {
-												frappe.show_alert({
-													message: __('Dues Schedule created successfully'),
-													indicator: 'green'
-												});
-												frm.refresh();
-											}
-										});
+									frm.call('create_dues_schedule_from_membership').then((response) => {
+										if (response.message) {
+											frappe.show_alert({
+												message: __('Dues Schedule created successfully'),
+												indicator: 'green'
+											});
+											frm.refresh();
+										}
+									});
 								},
 								__('Dues Schedule')
 							);
@@ -188,11 +182,7 @@ frappe.ui.form.on('Membership', {
 
 	view_dues_schedule(frm) {
 		if (frm.doc.dues_schedule) {
-			frappe.set_route(
-				'Form',
-				'Membership Dues Schedule',
-				frm.doc.dues_schedule
-			);
+			frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
 		}
 	},
 
@@ -211,8 +201,8 @@ frappe.ui.form.on('Membership', {
 						]
 					});
 
-					let html
-            = '<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr>';
+					let html =
+						'<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr>';
 					r.message.forEach((payment) => {
 						html += `<tr><td>${payment.invoice}</td><td>${payment.date}</td><td>${payment.amount}</td><td>${payment.status}</td></tr>`;
 					});

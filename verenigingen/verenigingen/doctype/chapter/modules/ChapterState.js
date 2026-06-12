@@ -81,20 +81,20 @@ export class ChapterState {
 	}
 
 	/**
-   * Get state value by path
-   * @param {string} path - Dot-separated path to state value (e.g., 'ui.loadingStates.memberValidation')
-   * @returns {any} The state value at the specified path
-   */
+	 * Get state value by path
+	 * @param {string} path - Dot-separated path to state value (e.g., 'ui.loadingStates.memberValidation')
+	 * @returns {any} The state value at the specified path
+	 */
 	get(path) {
 		return this._getNestedValue(this.state, path);
 	}
 
 	/**
-   * Update state and notify subscribers
-   * @param {string} path - Dot-separated path to state value
-   * @param {any} value - New value to set
-   * @param {boolean} trackHistory - Whether to track this change in history (default: true)
-   */
+	 * Update state and notify subscribers
+	 * @param {string} path - Dot-separated path to state value
+	 * @param {any} value - New value to set
+	 * @param {boolean} trackHistory - Whether to track this change in history (default: true)
+	 */
 	update(path, value, trackHistory = true) {
 		const oldValue = this.get(path);
 

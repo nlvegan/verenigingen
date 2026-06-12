@@ -55,21 +55,9 @@ export class CommunicationManager {
 	}
 
 	addButtons() {
-		this.frm.add_custom_button(
-			__('Email Board Members'),
-			() => this.showEmailBoardDialog(),
-			__('Communication')
-		);
-		this.frm.add_custom_button(
-			__('Email All Members'),
-			() => this.showEmailMembersDialog(),
-			__('Communication')
-		);
-		this.frm.add_custom_button(
-			__('Send Newsletter'),
-			() => this.showNewsletterDialog(),
-			__('Communication')
-		);
+		this.frm.add_custom_button(__('Email Board Members'), () => this.showEmailBoardDialog(), __('Communication'));
+		this.frm.add_custom_button(__('Email All Members'), () => this.showEmailMembersDialog(), __('Communication'));
+		this.frm.add_custom_button(__('Send Newsletter'), () => this.showNewsletterDialog(), __('Communication'));
 		this.frm.add_custom_button(
 			__('Communication History'),
 			() => this.showCommunicationHistory(),
@@ -83,15 +71,11 @@ export class CommunicationManager {
 			const boardMembers = this.getActiveBoardMembersWithEmail();
 
 			if (!boardMembers.length) {
-				frappe.msgprint(
-					__('No active board members with email addresses found')
-				);
+				frappe.msgprint(__('No active board members with email addresses found'));
 				return;
 			}
 
-			const recipientList = boardMembers
-				.map((m) => `${m.volunteer_name} (${m.email})`)
-				.join('\n');
+			const recipientList = boardMembers.map((m) => `${m.volunteer_name} (${m.email})`).join('\n');
 
 			const dialog = new frappe.ui.Dialog({
 				title: __('Email Board Members'),
@@ -151,9 +135,7 @@ export class CommunicationManager {
 						fieldname: 'send_individually',
 						fieldtype: 'Check',
 						label: __('Send as Individual Emails'),
-						description: __(
-							'Send separate emails to each recipient instead of using BCC'
-						)
+						description: __('Send separate emails to each recipient instead of using BCC')
 					}
 				],
 				primary_action_label: __('Send'),
@@ -268,9 +250,7 @@ export class CommunicationManager {
 
 			dialog.show();
 		} catch (error) {
-			frappe.msgprint(
-				__('Error preparing member email dialog: {0}', [error.message])
-			);
+			frappe.msgprint(__('Error preparing member email dialog: {0}', [error.message]));
 		}
 	}
 
@@ -361,9 +341,7 @@ export class CommunicationManager {
 					fieldname: 'footer_message',
 					fieldtype: 'Small Text',
 					label: __('Footer Message'),
-					default: __('This newsletter is sent to members of {0} Chapter', [
-						this.frm.doc.name
-					])
+					default: __('This newsletter is sent to members of {0} Chapter', [this.frm.doc.name])
 				},
 				{
 					fieldname: 'include_social_links',
@@ -427,9 +405,7 @@ export class CommunicationManager {
 
 			dialog.show();
 		} catch (error) {
-			frappe.msgprint(
-				__('Error loading communication history: {0}', [error.message])
-			);
+			frappe.msgprint(__('Error loading communication history: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('communicationHistory', false);
 		}
@@ -458,9 +434,7 @@ export class CommunicationManager {
 
 		communications.forEach((comm) => {
 			const statusColor = comm.status === 'Sent' ? 'green' : 'orange';
-			const recipientCount = comm.recipients
-				? comm.recipients.split(',').length
-				: 0;
+			const recipientCount = comm.recipients ? comm.recipients.split(',').length : 0;
 
 			html += `
                 <tr>
@@ -500,9 +474,7 @@ export class CommunicationManager {
 	}
 
 	async getChapterMembersWithEmail() {
-		const memberIds = (this.frm.doc.members || [])
-			.filter((m) => m.enabled)
-			.map((m) => m.member);
+		const memberIds = (this.frm.doc.members || []).filter((m) => m.enabled).map((m) => m.member);
 
 		if (memberIds.length === 0) {
 			return [];
@@ -553,9 +525,7 @@ export class CommunicationManager {
 					use_bcc: true
 				});
 
-				frappe.msgprint(
-					__('Email sent to {0} board members', [boardMembers.length])
-				);
+				frappe.msgprint(__('Email sent to {0} board members', [boardMembers.length]));
 			}
 		} catch (error) {
 			frappe.msgprint(__('Error sending emails: {0}', [error.message]));
@@ -572,9 +542,7 @@ export class CommunicationManager {
 			let filteredMembers = members;
 
 			if (values.member_status && values.member_status.length > 0) {
-				filteredMembers = filteredMembers.filter((m) =>
-					values.member_status.includes(m.status)
-				);
+				filteredMembers = filteredMembers.filter((m) => values.member_status.includes(m.status));
 			}
 
 			if (values.membership_type) {
@@ -648,9 +616,7 @@ export class CommunicationManager {
 					break;
 				}
 				case __('Custom Selection'):
-					recipients = values.custom_recipients
-						.split(',')
-						.map((email) => ({ email: email.trim() }));
+					recipients = values.custom_recipients.split(',').map((email) => ({ email: email.trim() }));
 					break;
 			}
 
@@ -673,9 +639,7 @@ export class CommunicationManager {
 				is_newsletter: true
 			});
 
-			frappe.msgprint(
-				__('Newsletter sent to {0} recipients', [recipients.length])
-			);
+			frappe.msgprint(__('Newsletter sent to {0} recipients', [recipients.length]));
 		} catch (error) {
 			frappe.msgprint(__('Error sending newsletter: {0}', [error.message]));
 		} finally {
@@ -719,8 +683,8 @@ export class CommunicationManager {
 		}
 
 		// Footer
-		html
-      += '<div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #666;">';
+		html +=
+			'<div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #666;">';
 
 		if (values.footer_message) {
 			html += `<p>${values.footer_message}</p>`;
@@ -771,10 +735,7 @@ export class CommunicationManager {
 			args.recipients = frappe.session.user_email || 'noreply@example.com';
 		}
 
-		return await this.api.call(
-			'frappe.core.doctype.communication.email.make',
-			args
-		);
+		return await this.api.call('frappe.core.doctype.communication.email.make', args);
 	}
 
 	async scheduleEmail(options) {
@@ -794,10 +755,7 @@ export class CommunicationManager {
 	personalizeContent(content, recipient) {
 		// Replace placeholders with recipient data
 		return content
-			.replace(
-				/\{name\}/g,
-				recipient.volunteer_name || recipient.full_name || ''
-			)
+			.replace(/\{name\}/g, recipient.volunteer_name || recipient.full_name || '')
 			.replace(/\{email\}/g, recipient.email || '')
 			.replace(/\{role\}/g, recipient.role || '')
 			.replace(/\{chapter\}/g, this.frm.doc.name || '');
@@ -854,31 +812,22 @@ export class CommunicationManager {
 		switch (eventType) {
 			case 'chapter_submitted':
 				subject = __('Chapter {0} has been submitted', [this.frm.doc.name]);
-				message = __('The chapter {0} has been submitted and is now active.', [
-					this.frm.doc.name
-				]);
+				message = __('The chapter {0} has been submitted and is now active.', [this.frm.doc.name]);
 				break;
 
 			case 'member_added':
 				subject = __('New member added to {0}', [this.frm.doc.name]);
-				message = __('A new member has been added to chapter {0}.', [
-					this.frm.doc.name
-				]);
+				message = __('A new member has been added to chapter {0}.', [this.frm.doc.name]);
 				break;
 
 			case 'board_change':
 				subject = __('Board change in {0}', [this.frm.doc.name]);
-				message = __(
-					'There has been a change in the board members of chapter {0}.',
-					[this.frm.doc.name]
-				);
+				message = __('There has been a change in the board members of chapter {0}.', [this.frm.doc.name]);
 				break;
 
 			default:
 				subject = __('Chapter {0} notification', [this.frm.doc.name]);
-				message = __('This is a notification from chapter {0}.', [
-					this.frm.doc.name
-				]);
+				message = __('This is a notification from chapter {0}.', [this.frm.doc.name]);
 		}
 
 		// Add custom data to message
@@ -902,12 +851,9 @@ export class CommunicationManager {
 
 	async trackEmailOpen(communicationId) {
 		try {
-			await this.api.call(
-				'frappe.core.doctype.communication.communication.mark_email_as_seen',
-				{
-					communication: communicationId
-				}
-			);
+			await this.api.call('frappe.core.doctype.communication.communication.mark_email_as_seen', {
+				communication: communicationId
+			});
 		} catch (error) {
 			console.error('Error tracking email open:', error);
 		}

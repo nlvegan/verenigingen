@@ -135,10 +135,7 @@ frappe.query_reports['Chapter Expense Report'] = {
 		}
 
 		// Highlight overdue pending expenses
-		if (
-			column.fieldname === 'days_to_approval'
-      && data.status === 'Submitted'
-		) {
+		if (column.fieldname === 'days_to_approval' && data.status === 'Submitted') {
 			if (value > 7) {
 				return `<span style="color: #e74c3c; font-weight: bold;">${value}</span>`;
 			} else if (value > 3) {
@@ -177,8 +174,7 @@ frappe.query_reports['Chapter Expense Report'] = {
 
 		report.page.add_inner_button(__('Send Overdue Reminders'), () => {
 			frappe.call({
-				method:
-          'verenigingen.utils.expense_notifications.send_overdue_reminders',
+				method: 'verenigingen.utils.expense_notifications.send_overdue_reminders',
 				args: { days_overdue: 7 },
 				callback() {
 					frappe.show_alert(__('Overdue reminders sent'));

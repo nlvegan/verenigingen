@@ -54,15 +54,15 @@ import { ChapterValidation } from '../utils/ChapterValidation.js';
  */
 export class BoardManager {
 	/**
-   * BoardManager Constructor
-   *
-   * Initializes the board management system with required dependencies
-   * and sets up state tracking for board member operations.
-   *
-   * @param {Object} frm - Frappe Form object for chapter document
-   * @param {Object} state - Chapter state management object
-   * @param {Object} ui - Chapter UI management object
-   */
+	 * BoardManager Constructor
+	 *
+	 * Initializes the board management system with required dependencies
+	 * and sets up state tracking for board member operations.
+	 *
+	 * @param {Object} frm - Frappe Form object for chapter document
+	 * @param {Object} state - Chapter state management object
+	 * @param {Object} ui - Chapter UI management object
+	 */
 	constructor(frm, state, ui) {
 		this.frm = frm;
 		this.state = state;
@@ -72,67 +72,47 @@ export class BoardManager {
 	}
 
 	/**
-   * Add Board Management Action Buttons
-   *
-   * Creates action buttons for board member management operations
-   * including role transitions, bulk operations, and system integration.
-   *
-   * @description Available Actions:
-   * - Manage Board Members: Add/remove board members with validation
-   * - Transition Board Role: Handle role changes and succession planning
-   * - View Board History: Display historical board composition and changes
-   * - Sync with Volunteer System: Integrate with volunteer management
-   * - Bulk Remove Board Members: Efficient bulk operations for board changes
-   *
-   * @example
-   * // Called during chapter form initialization:
-   * boardManager.addButtons();
-   */
+	 * Add Board Management Action Buttons
+	 *
+	 * Creates action buttons for board member management operations
+	 * including role transitions, bulk operations, and system integration.
+	 *
+	 * @description Available Actions:
+	 * - Manage Board Members: Add/remove board members with validation
+	 * - Transition Board Role: Handle role changes and succession planning
+	 * - View Board History: Display historical board composition and changes
+	 * - Sync with Volunteer System: Integrate with volunteer management
+	 * - Bulk Remove Board Members: Efficient bulk operations for board changes
+	 *
+	 * @example
+	 * // Called during chapter form initialization:
+	 * boardManager.addButtons();
+	 */
 	addButtons() {
 		// Add board management buttons
-		this.ui.addButton(
-			__('Manage Board Members'),
-			() => this.showManageDialog(),
-			__('Board')
-		);
-		this.ui.addButton(
-			__('Transition Board Role'),
-			() => this.showTransitionDialog(),
-			__('Board')
-		);
-		this.ui.addButton(
-			__('View Board History'),
-			() => this.showHistory(),
-			__('Board')
-		);
-		this.ui.addButton(
-			__('Sync with Volunteer System'),
-			() => this.syncWithVolunteerSystem(),
-			__('Board')
-		);
-		this.ui.addButton(
-			__('Bulk Remove Board Members'),
-			() => this.showBulkRemoveDialog(),
-			__('Board')
-		);
+		this.ui.addButton(__('Manage Board Members'), () => this.showManageDialog(), __('Board'));
+		this.ui.addButton(__('Transition Board Role'), () => this.showTransitionDialog(), __('Board'));
+		this.ui.addButton(__('View Board History'), () => this.showHistory(), __('Board'));
+		this.ui.addButton(__('Sync with Volunteer System'), () => this.syncWithVolunteerSystem(), __('Board'));
+		this.ui.addButton(__('Bulk Remove Board Members'), () => this.showBulkRemoveDialog(), __('Board'));
 	}
 
 	/**
-   * Setup Board Member Grid Interface
-   *
-   * Configures the board member child table grid with enhanced functionality
-   * including custom buttons, selection handling, and bulk operations.
-   *
-   * @description Grid Enhancements:
-   * - Custom action buttons for board operations
-   * - Multi-selection support for bulk operations
-   * - Real-time validation and business rule enforcement
-   * - Enhanced user interface for board management
-   *
-   * @example
-   * // Called during form refresh:
-   * boardManager.setupGrid();
-   */
+	 * Setup Board Member Grid Interface
+	 *
+	 * Configures the board member child table grid with enhanced functionality
+	 * including custom buttons, selection handling, and bulk operations.
+	 *
+	 * @description Grid Enhancements:
+	 * - Custom action buttons for board operations
+	 * - Multi-selection support for bulk operations
+	 * - Real-time validation and business rule enforcement
+	 * - Enhanced user interface for board management
+	 *
+	 * @example
+	 * // Called during form refresh:
+	 * boardManager.setupGrid();
+	 */
 	setupGrid() {
 		const grid = this.frm.fields_dict.board_members?.grid;
 		if (!grid) {
@@ -140,12 +120,8 @@ export class BoardManager {
 		}
 
 		// Add custom button to grid
-		grid.add_custom_button(__('Add Board Member'), () =>
-			this.addNewBoardMember()
-		);
-		grid.add_custom_button(__('Bulk Operations'), () =>
-			this.showBulkOperationsInfo()
-		);
+		grid.add_custom_button(__('Add Board Member'), () => this.addNewBoardMember());
+		grid.add_custom_button(__('Bulk Operations'), () => this.showBulkOperationsInfo());
 
 		// Set up selection handling
 		setTimeout(() => this.enhanceGridWithSelection(), 500);
@@ -201,9 +177,7 @@ export class BoardManager {
 				const boardMember = this.frm.doc.board_members[idx - 1];
 
 				if (boardMember && boardMember.is_active) {
-					const $checkbox = $(
-						`<input type="checkbox" class="board-member-checkbox" data-idx="${idx}">`
-					);
+					const $checkbox = $(`<input type="checkbox" class="board-member-checkbox" data-idx="${idx}">`);
 
 					$checkbox.change(() => {
 						if ($checkbox.is(':checked')) {
@@ -256,10 +230,7 @@ export class BoardManager {
 			return;
 		}
 
-		$grid
-			.find('.board-member-checkbox:checked')
-			.prop('checked', false)
-			.trigger('change');
+		$grid.find('.board-member-checkbox:checked').prop('checked', false).trigger('change');
 	}
 
 	async addNewBoardMember() {
@@ -270,9 +241,7 @@ export class BoardManager {
 		});
 
 		if (!roles || !roles.length) {
-			this.ui.showError(
-				__('No active chapter roles found. Please create roles first.')
-			);
+			this.ui.showError(__('No active chapter roles found. Please create roles first.'));
 			return;
 		}
 
@@ -286,8 +255,7 @@ export class BoardManager {
 					options: 'Volunteer',
 					reqd: 1,
 					get_query: () => ({
-						query:
-              'verenigingen.verenigingen.doctype.chapter.chapter.get_volunteers_for_chapter',
+						query: 'verenigingen.verenigingen.doctype.chapter.chapter.get_volunteers_for_chapter',
 						filters: { chapter: this.frm.doc.name }
 					})
 				},
@@ -358,24 +326,16 @@ export class BoardManager {
 
 	async addBoardMemberToMembers(volunteerId) {
 		try {
-			const volunteer = await this.api.getValue(
-				'Volunteer',
-				volunteerId,
-				'member'
-			);
+			const volunteer = await this.api.getValue('Volunteer', volunteerId, 'member');
 			if (!volunteer?.member) {
-				this.ui.showError(
-					__('Could not find member associated with this volunteer')
-				);
+				this.ui.showError(__('Could not find member associated with this volunteer'));
 				return;
 			}
 
 			const memberId = volunteer.member;
 
 			// Check if already a member
-			const alreadyMember = this.frm.doc.members?.some(
-				(m) => m.member === memberId
-			);
+			const alreadyMember = this.frm.doc.members?.some((m) => m.member === memberId);
 
 			if (!alreadyMember) {
 				const member = await this.api.getDoc('Member', memberId);
@@ -388,12 +348,7 @@ export class BoardManager {
 				});
 
 				this.frm.refresh_field('members');
-				this.ui.showAlert(
-					__('Board member {0} added to chapter members list', [
-						member.full_name
-					]),
-					'green'
-				);
+				this.ui.showAlert(__('Board member {0} added to chapter members list', [member.full_name]), 'green');
 			}
 		} catch (error) {
 			console.error('Error adding board member to members:', error);
@@ -401,34 +356,28 @@ export class BoardManager {
 	}
 
 	async checkForDuplicateRoles(currentRow) {
-		const role = await this.api.getValue(
-			'Chapter Role',
-			currentRow.chapter_role,
-			'is_unique'
-		);
+		const role = await this.api.getValue('Chapter Role', currentRow.chapter_role, 'is_unique');
 
 		if (role?.is_unique) {
 			const duplicates = this.frm.doc.board_members.filter(
 				(member) =>
-					member.is_active
-          && member.chapter_role === currentRow.chapter_role
-          && member.name !== currentRow.name
+					member.is_active &&
+					member.chapter_role === currentRow.chapter_role &&
+					member.name !== currentRow.name
 			);
 
 			if (duplicates.length > 0) {
 				const duplicate = duplicates[0];
 				this.ui.showError(
 					__(
-						'Role \'{0}\' is already assigned to {1}. This role can only be assigned to one person at a time.',
+						"Role '{0}' is already assigned to {1}. This role can only be assigned to one person at a time.",
 						[currentRow.chapter_role, duplicate.volunteer_name]
 					)
 				);
 
 				// Ask if user wants to deactivate the existing role
 				this.ui.confirmAction(
-					__('Do you want to deactivate the existing assignment to {0}?', [
-						duplicate.volunteer_name
-					]),
+					__('Do you want to deactivate the existing assignment to {0}?', [duplicate.volunteer_name]),
 					() => {
 						frappe.model.set_value(duplicate.doctype, duplicate.name, {
 							is_active: 0,
@@ -438,10 +387,7 @@ export class BoardManager {
 				);
 			} else {
 				this.ui.showAlert(
-					__('Role \'{0}\' assigned to {1}', [
-						currentRow.chapter_role,
-						currentRow.volunteer_name
-					]),
+					__("Role '{0}' assigned to {1}", [currentRow.chapter_role, currentRow.volunteer_name]),
 					'green',
 					3
 				);
@@ -465,8 +411,7 @@ export class BoardManager {
 					options: 'Volunteer',
 					reqd: 1,
 					get_query: () => ({
-						query:
-              'verenigingen.verenigingen.doctype.chapter.chapter.get_volunteers_for_chapter',
+						query: 'verenigingen.verenigingen.doctype.chapter.chapter.get_volunteers_for_chapter',
 						filters: { chapter: this.frm.doc.name }
 					})
 				},
@@ -509,9 +454,7 @@ export class BoardManager {
 						this.frm.reload_doc();
 					}
 				} catch (error) {
-					this.ui.showError(
-						__('Failed to add board member: {0}', [error.message])
-					);
+					this.ui.showError(__('Failed to add board member: {0}', [error.message]));
 				}
 			}
 		});
@@ -533,9 +476,7 @@ export class BoardManager {
 					fieldtype: 'Select',
 					label: __('Current Board Member'),
 					options: activeMembers
-						.map(
-							(m) => `${m.volunteer} | ${m.volunteer_name} (${m.chapter_role})`
-						)
+						.map((m) => `${m.volunteer} | ${m.volunteer_name} (${m.chapter_role})`)
 						.join('\n'),
 					reqd: 1
 				},
@@ -574,9 +515,7 @@ export class BoardManager {
 						this.frm.reload_doc();
 					}
 				} catch (error) {
-					this.ui.showError(
-						__('Failed to transition role: {0}', [error.message])
-					);
+					this.ui.showError(__('Failed to transition role: {0}', [error.message]));
 				}
 			}
 		});
@@ -614,17 +553,14 @@ export class BoardManager {
 				}
 			});
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to load board history: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to load board history: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('boardHistory', false);
 		}
 	}
 
 	generateHistoryHTML(history) {
-		let html
-      = '<div class="board-history"><table class="table table-bordered">';
+		let html = '<div class="board-history"><table class="table table-bordered">';
 		html += '<thead><tr>';
 		html += `<th>${__('Member')}</th>`;
 		html += `<th>${__('Role')}</th>`;
@@ -662,16 +598,12 @@ export class BoardManager {
 
 			if (result?.updated_count !== undefined) {
 				this.ui.showAlert(
-					__('Synced {0} board members with volunteer system.', [
-						result.updated_count
-					]),
+					__('Synced {0} board members with volunteer system.', [result.updated_count]),
 					'green'
 				);
 			}
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to sync with volunteer system: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to sync with volunteer system: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('volunteerSync', false);
 			this.ui.hideLoadingIndicator();
@@ -749,10 +681,10 @@ export class BoardManager {
 			};
 		});
 
-		const method
-      = values.action === 'Remove'
-      	? 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_remove_board_members'
-      	: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_deactivate_board_members';
+		const method =
+			values.action === 'Remove'
+				? 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_remove_board_members'
+				: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_deactivate_board_members';
 
 		try {
 			this.state.setLoading('bulkAction', true);
@@ -763,21 +695,14 @@ export class BoardManager {
 			});
 
 			if (result?.success) {
-				this.ui.showAlert(
-					__('{0} board members processed successfully', [result.processed]),
-					'green'
-				);
+				this.ui.showAlert(__('{0} board members processed successfully', [result.processed]), 'green');
 
 				this.frm.reload_doc();
 			} else {
-				this.ui.showError(
-					__('Error processing board members. Please check the error log.')
-				);
+				this.ui.showError(__('Error processing board members. Please check the error log.'));
 			}
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to process board members: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to process board members: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('bulkAction', false);
 		}
@@ -807,14 +732,12 @@ export class BoardManager {
 
 	showBulkRemovalDialog(selectedMembers, action) {
 		const actionLabel = action === 'remove' ? __('Remove') : __('Deactivate');
-		const actionDescription
-      = action === 'remove'
-      	? __(
-      		'This will permanently remove the selected board members from the chapter.'
-      	)
-      	: __(
-      		'This will deactivate the selected board members (they will remain in the list but marked as inactive).'
-      	);
+		const actionDescription =
+			action === 'remove'
+				? __('This will permanently remove the selected board members from the chapter.')
+				: __(
+						'This will deactivate the selected board members (they will remain in the list but marked as inactive).'
+					);
 
 		const membersList = selectedMembers
 			.map((member) => `• ${member.volunteer_name} (${member.chapter_role})`)
@@ -862,10 +785,10 @@ export class BoardManager {
 			reason: values.reason
 		}));
 
-		const method
-      = action === 'remove'
-      	? 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_remove_board_members'
-      	: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_deactivate_board_members';
+		const method =
+			action === 'remove'
+				? 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_remove_board_members'
+				: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_deactivate_board_members';
 
 		try {
 			this.state.setLoading('bulkRemoval', true);
@@ -886,14 +809,10 @@ export class BoardManager {
 
 				this.frm.reload_doc();
 			} else {
-				this.ui.showError(
-					__('Error processing board members. Please check the error log.')
-				);
+				this.ui.showError(__('Error processing board members. Please check the error log.'));
 			}
 		} catch (error) {
-			this.ui.showError(
-				__('Failed to process board members: {0}', [error.message])
-			);
+			this.ui.showError(__('Failed to process board members: {0}', [error.message]));
 		} finally {
 			this.state.setLoading('bulkRemoval', false);
 		}
@@ -909,9 +828,7 @@ export class BoardManager {
 	}
 
 	getActiveBoardMembers() {
-		return (
-			this.frm.doc.board_members?.filter((member) => member.is_active) || []
-		);
+		return this.frm.doc.board_members?.filter((member) => member.is_active) || [];
 	}
 
 	getSelectedBoardMembers() {
@@ -935,9 +852,7 @@ export class BoardManager {
 	}
 
 	async validateBoardMembers() {
-		const result = await ChapterValidation.validateBoardMembers(
-			this.frm.doc.board_members
-		);
+		const result = await ChapterValidation.validateBoardMembers(this.frm.doc.board_members);
 
 		if (!result.isValid) {
 			this.state.update('validation.boardMembers', result.errors);
@@ -951,12 +866,7 @@ export class BoardManager {
 
 		// Set default values
 		if (!row.from_date) {
-			frappe.model.set_value(
-				cdt,
-				cdn,
-				'from_date',
-				frappe.datetime.get_today()
-			);
+			frappe.model.set_value(cdt, cdn, 'from_date', frappe.datetime.get_today());
 		}
 
 		if (!row.is_active) {
@@ -1002,9 +912,7 @@ export class BoardManager {
 			} else {
 				this.ui.showAlert(
 					{
-						message: __(
-							'Warning: This volunteer doesn\'t have an associated member record.'
-						),
+						message: __("Warning: This volunteer doesn't have an associated member record."),
 						indicator: 'orange'
 					},
 					5
@@ -1025,18 +933,10 @@ export class BoardManager {
 	onDateChange(cdt, cdn, dateField) {
 		const row = locals[cdt][cdn];
 
-		if (
-			dateField === 'from_date'
-      && row.to_date
-      && row.from_date > row.to_date
-		) {
+		if (dateField === 'from_date' && row.to_date && row.from_date > row.to_date) {
 			this.ui.showError(__('Start date cannot be after end date'));
 			frappe.model.set_value(cdt, cdn, 'from_date', row.to_date);
-		} else if (
-			dateField === 'to_date'
-      && row.from_date
-      && row.to_date < row.from_date
-		) {
+		} else if (dateField === 'to_date' && row.from_date && row.to_date < row.from_date) {
 			this.ui.showError(__('End date cannot be before start date'));
 			frappe.model.set_value(cdt, cdn, 'to_date', row.from_date);
 		}
@@ -1054,12 +954,7 @@ export class BoardManager {
 
 	handleBoardMemberDeactivation(row) {
 		if (!row.to_date) {
-			frappe.model.set_value(
-				row.doctype,
-				row.name,
-				'to_date',
-				frappe.datetime.get_today()
-			);
+			frappe.model.set_value(row.doctype, row.name, 'to_date', frappe.datetime.get_today());
 		}
 
 		this.ui.showAlert(
@@ -1100,9 +995,7 @@ export class BoardManager {
 			console.error('Error updating volunteer history:', error);
 			this.ui.showAlert(
 				{
-					message: __(
-						'Failed to update volunteer history. Please check the logs.'
-					),
+					message: __('Failed to update volunteer history. Please check the logs.'),
 					indicator: 'red'
 				},
 				5

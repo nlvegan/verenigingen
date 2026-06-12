@@ -107,10 +107,10 @@ frappe.pages['system-health-dashboard'].on_page_load = function (wrapper) {
  */
 class SystemHealthDashboard {
 	/**
-   * Creates SystemHealthDashboard instance
-   *
-   * @param {Object} page - Frappe page instance for dashboard container
-   */
+	 * Creates SystemHealthDashboard instance
+	 *
+	 * @param {Object} page - Frappe page instance for dashboard container
+	 */
 	constructor(page) {
 		this.page = page;
 		this.setup_page();
@@ -150,24 +150,24 @@ class SystemHealthDashboard {
 	}
 
 	/**
-   * Forces Progress Dialog Cleanup
-   *
-   * Aggressively removes progress dialogs and modal backdrops that may persist
-   * after dashboard loading, ensuring clean UI state restoration.
-   *
-   * @description Cleanup Strategy:
-   * - Multiple fallback methods for different UI state scenarios
-   * - DOM manipulation for stuck modal elements
-   * - Frappe dialog state cleanup and reset
-   * - CSS state restoration for modal-open class conflicts
-   * - Progress element hiding with comprehensive selectors
-   *
-   * @description Implementation Notes:
-   * - Uses multiple timeout-delayed cleanup phases
-   * - Comprehensive element selection for thorough cleanup
-   * - Console logging for debugging persistent UI issues
-   * - CSS overflow restoration for body scroll functionality
-   */
+	 * Forces Progress Dialog Cleanup
+	 *
+	 * Aggressively removes progress dialogs and modal backdrops that may persist
+	 * after dashboard loading, ensuring clean UI state restoration.
+	 *
+	 * @description Cleanup Strategy:
+	 * - Multiple fallback methods for different UI state scenarios
+	 * - DOM manipulation for stuck modal elements
+	 * - Frappe dialog state cleanup and reset
+	 * - CSS state restoration for modal-open class conflicts
+	 * - Progress element hiding with comprehensive selectors
+	 *
+	 * @description Implementation Notes:
+	 * - Uses multiple timeout-delayed cleanup phases
+	 * - Comprehensive element selection for thorough cleanup
+	 * - Console logging for debugging persistent UI issues
+	 * - CSS overflow restoration for body scroll functionality
+	 */
 	force_hide_progress() {
 		console.log('Attempting to force hide progress dialog...');
 
@@ -206,10 +206,7 @@ class SystemHealthDashboard {
 				console.log('Removed progress modal elements via DOM manipulation');
 
 				// Check if backdrop is still there
-				console.log(
-					'After removal - modal-backdrop count:',
-					$('.modal-backdrop').length
-				);
+				console.log('After removal - modal-backdrop count:', $('.modal-backdrop').length);
 			}, 100);
 
 			// Method 3: Force close frappe dialogs
@@ -254,14 +251,8 @@ class SystemHealthDashboard {
 					.hide();
 
 				// Final check
-				console.log(
-					'Final cleanup - modal-backdrop count:',
-					$('.modal-backdrop').length
-				);
-				console.log(
-					'Final cleanup - body modal-open:',
-					$('body').hasClass('modal-open')
-				);
+				console.log('Final cleanup - modal-backdrop count:', $('.modal-backdrop').length);
+				console.log('Final cleanup - body modal-open:', $('body').hasClass('modal-open'));
 			}, 500);
 		} catch (e) {
 			console.error('Error hiding progress:', e);
@@ -393,30 +384,25 @@ class SystemHealthDashboard {
 	}
 
 	render_health_status(data) {
-		const status_color
-      = data.status === 'healthy'
-      	? 'green'
-      	: data.status === 'degraded'
-      		? 'orange'
-      		: 'red';
+		const status_color = data.status === 'healthy' ? 'green' : data.status === 'degraded' ? 'orange' : 'red';
 
-		const status_icon
-      = data.status === 'healthy'
-      	? 'fa-check-circle'
-      	: data.status === 'degraded'
-      		? 'fa-exclamation-triangle'
-      		: 'fa-times-circle';
+		const status_icon =
+			data.status === 'healthy'
+				? 'fa-check-circle'
+				: data.status === 'degraded'
+					? 'fa-exclamation-triangle'
+					: 'fa-times-circle';
 
 		let checks_html = '';
 		for (const [check, result] of Object.entries(data.checks || {})) {
-			const check_color
-        = result.status === 'ok'
-        	? 'green'
-        	: result.status === 'warning'
-        		? 'orange'
-        		: result.status === 'slow'
-        			? 'orange'
-        			: 'red';
+			const check_color =
+				result.status === 'ok'
+					? 'green'
+					: result.status === 'warning'
+						? 'orange'
+						: result.status === 'slow'
+							? 'orange'
+							: 'red';
 
 			let details = '';
 			if (result.response_time_ms !== undefined) {
@@ -427,10 +413,7 @@ class SystemHealthDashboard {
 			}
 
 			// Updated to use dues schedule system
-			if (
-				check === 'dues_schedule_processing'
-        && result.active_dues_schedules !== undefined
-			) {
+			if (check === 'dues_schedule_processing' && result.active_dues_schedules !== undefined) {
 				details += `<br><small>Active: ${result.active_dues_schedules}, Today: ${result.invoices_today}</small>`;
 			}
 			if (check === 'scheduler' && result.stuck_jobs !== undefined) {
@@ -472,8 +455,7 @@ class SystemHealthDashboard {
 
 	load_performance_metrics() {
 		return frappe.call({
-			method:
-        'verenigingen.utils.performance_dashboard.get_performance_dashboard',
+			method: 'verenigingen.utils.performance_dashboard.get_performance_dashboard',
 			callback: (r) => {
 				if (r.message) {
 					this.render_performance_metrics(r.message);
@@ -487,15 +469,8 @@ class SystemHealthDashboard {
 
 		// API Performance Summary
 		if (data.api_performance && data.api_performance.endpoints) {
-			for (const [endpoint, stats] of Object.entries(
-				data.api_performance.endpoints
-			)) {
-				const perf_color
-          = stats.avg_time_ms < 500
-          	? 'green'
-          	: stats.avg_time_ms < 1000
-          		? 'orange'
-          		: 'red';
+			for (const [endpoint, stats] of Object.entries(data.api_performance.endpoints)) {
+				const perf_color = stats.avg_time_ms < 500 ? 'green' : stats.avg_time_ms < 1000 ? 'orange' : 'red';
 				metrics_html += `
 					<tr>
 						<td>${endpoint}</td>
@@ -514,8 +489,8 @@ class SystemHealthDashboard {
 				</div>
 				<div class="card-body">
 					${
-	metrics_html
-		? `
+						metrics_html
+							? `
 						<table class="table table-sm">
 							<thead>
 								<tr>
@@ -530,8 +505,8 @@ class SystemHealthDashboard {
 							</tbody>
 						</table>
 					`
-		: '<p class="text-muted">No API activity in the last 24 hours</p>'
-}
+							: '<p class="text-muted">No API activity in the last 24 hours</p>'
+					}
 				</div>
 			</div>
 		`);
@@ -539,8 +514,7 @@ class SystemHealthDashboard {
 
 	load_optimization_suggestions() {
 		return frappe.call({
-			method:
-        'verenigingen.utils.performance_dashboard.get_optimization_suggestions',
+			method: 'verenigingen.utils.performance_dashboard.get_optimization_suggestions',
 			callback: (r) => {
 				if (r.message) {
 					this.render_optimization_suggestions(r.message);
@@ -642,8 +616,7 @@ class SystemHealthDashboard {
 
 	load_business_metrics() {
 		return frappe.call({
-			method:
-        'verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix',
+			method: 'verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix',
 			callback: (r) => {
 				if (r.message && r.message.metrics) {
 					this.render_business_metrics(r.message.metrics);
@@ -694,11 +667,11 @@ class SystemHealthDashboard {
 				label: 'Hours Since Last Subscription Run',
 				value: metrics.last_dues_schedule_run || 0,
 				color:
-          metrics.last_dues_schedule_run > 25
-          	? 'red'
-          	: metrics.last_dues_schedule_run > 4
-          		? 'orange'
-          		: 'green'
+					metrics.last_dues_schedule_run > 25
+						? 'red'
+						: metrics.last_dues_schedule_run > 4
+							? 'orange'
+							: 'green'
 			},
 			{
 				label: 'Stuck Scheduler Jobs',
@@ -739,8 +712,7 @@ class SystemHealthDashboard {
 
 	load_api_performance() {
 		return frappe.call({
-			method:
-        'verenigingen.utils.performance_dashboard.get_api_performance_summary',
+			method: 'verenigingen.utils.performance_dashboard.get_api_performance_summary',
 			args: { hours: 24 },
 			callback: (r) => {
 				if (r.message) {

@@ -135,11 +135,7 @@ frappe.ui.form.on('Volunteer Activity', {
 
 	end_date(frm) {
 		// Validate dates
-		if (
-			frm.doc.start_date
-      && frm.doc.end_date
-      && frm.doc.start_date > frm.doc.end_date
-		) {
+		if (frm.doc.start_date && frm.doc.end_date && frm.doc.start_date > frm.doc.end_date) {
 			frappe.msgprint(__('End date cannot be before start date'));
 			frm.set_value('end_date', frm.doc.start_date);
 		}
@@ -191,9 +187,7 @@ function show_complete_dialog(frm) {
 			if (values.notes) {
 				frm.set_value(
 					'notes',
-					frm.doc.notes
-						? `${frm.doc.notes}\n\nCompletion Notes: ${values.notes}`
-						: values.notes
+					frm.doc.notes ? `${frm.doc.notes}\n\nCompletion Notes: ${values.notes}` : values.notes
 				);
 			}
 

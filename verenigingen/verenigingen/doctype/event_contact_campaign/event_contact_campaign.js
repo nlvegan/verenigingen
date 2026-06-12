@@ -66,9 +66,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 		// Clear contact list when chapter changes (only if there are members)
 		if (frm.doc.contact_list && frm.doc.contact_list.length > 0) {
 			frappe.confirm(
-				__(
-					'Changing the chapter will clear the existing contact list. Continue?'
-				),
+				__('Changing the chapter will clear the existing contact list. Continue?'),
 				() => {
 					frm.clear_table('contact_list');
 					frm.refresh_field('contact_list');
@@ -91,7 +89,9 @@ frappe.ui.form.on('Event Contact Campaign', {
 		// Set up filter for assigned_to field in child table
 		// This restricts volunteer selection to team/chapter members
 
-		if (frm.is_new()) { return; }
+		if (frm.is_new()) {
+			return;
+		}
 
 		frappe.call({
 			method: 'verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.get_available_volunteers',
@@ -102,9 +102,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 				if (r.message && r.message.length > 0) {
 					const volunteer_ids = r.message.map((v) => v.name);
 
-					frm.fields_dict.contact_list.grid.get_field(
-						'assigned_to'
-					).get_query = function () {
+					frm.fields_dict.contact_list.grid.get_field('assigned_to').get_query = function () {
 						return {
 							filters: {
 								name: ['in', volunteer_ids]
@@ -116,9 +114,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 					frm.available_volunteers = r.message;
 				} else {
 					// No filter if no volunteers available
-					frm.fields_dict.contact_list.grid.get_field(
-						'assigned_to'
-					).get_query = function () {
+					frm.fields_dict.contact_list.grid.get_field('assigned_to').get_query = function () {
 						return {};
 					};
 					frm.available_volunteers = [];
@@ -143,11 +139,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 				if (r.message) {
 					const members = r.message;
 					const new_count = members.filter(
-						(m) =>
-							!frm.doc.contact_list
-                            || !frm.doc.contact_list.find(
-                            	(row) => row.member === m.member
-                            )
+						(m) => !frm.doc.contact_list || !frm.doc.contact_list.find((row) => row.member === m.member)
 					).length;
 
 					if (new_count === 0) {
@@ -159,20 +151,14 @@ frappe.ui.form.on('Event Contact Campaign', {
 							);
 						} else {
 							frappe.msgprint(
-								__(
-									'All {0} contactable members are already in the list.',
-									[members.length]
-								)
+								__('All {0} contactable members are already in the list.', [members.length])
 							);
 						}
 						return;
 					}
 
 					frappe.confirm(
-						__(
-							'Found {0} new contactable members. Add them to the campaign?',
-							[new_count]
-						),
+						__('Found {0} new contactable members. Add them to the campaign?', [new_count]),
 						() => {
 							frappe.call({
 								method: 'verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.import_contactable_members',
@@ -230,9 +216,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 			callback(r) {
 				if (!r.message || r.message.length === 0) {
 					frappe.msgprint(
-						__(
-							'No volunteers available. Please select a Team or Chapter as campaign owner first.'
-						)
+						__('No volunteers available. Please select a Team or Chapter as campaign owner first.')
 					);
 					return;
 				}
@@ -243,9 +227,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 				const fields = [
 					{
 						fieldtype: 'HTML',
-						options: `<p>${__(
-							'Select volunteers to distribute members among:'
-						)}</p>`
+						options: `<p>${__('Select volunteers to distribute members among:')}</p>`
 					}
 				];
 
@@ -272,9 +254,7 @@ frappe.ui.form.on('Event Contact Campaign', {
 						});
 
 						if (selected.length === 0) {
-							frappe.msgprint(
-								__('Please select at least one volunteer')
-							);
+							frappe.msgprint(__('Please select at least one volunteer'));
 							return;
 						}
 
@@ -291,12 +271,12 @@ frappe.ui.form.on('Event Contact Campaign', {
 							callback(resp) {
 								if (resp.message) {
 									const result = resp.message;
-									const indicator
-                                        = result.status === 'success'
-                                        	? 'green'
-                                        	: result.status === 'info'
-                                        		? 'blue'
-                                        		: 'orange';
+									const indicator =
+										result.status === 'success'
+											? 'green'
+											: result.status === 'info'
+												? 'blue'
+												: 'orange';
 
 									frappe.show_alert(
 										{
@@ -327,34 +307,28 @@ frappe.ui.form.on('Event Contact Campaign', {
 	},
 
 	clear_assignments(frm) {
-		frappe.confirm(
-			__('Are you sure you want to clear all volunteer assignments?'),
-			() => {
-				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.clear_assignments',
-					args: {
-						docname: frm.doc.name
-					},
-					freeze: true,
-					freeze_message: __('Clearing assignments...'),
-					callback(r) {
-						if (r.message) {
-							frappe.show_alert(
-								{
-									message: r.message.message,
-									indicator:
-                                        r.message.status === 'success'
-                                        	? 'green'
-                                        	: 'blue'
-								},
-								5
-							);
-							frm.reload_doc();
-						}
+		frappe.confirm(__('Are you sure you want to clear all volunteer assignments?'), () => {
+			frappe.call({
+				method: 'verenigingen.verenigingen.doctype.event_contact_campaign.event_contact_campaign.clear_assignments',
+				args: {
+					docname: frm.doc.name
+				},
+				freeze: true,
+				freeze_message: __('Clearing assignments...'),
+				callback(r) {
+					if (r.message) {
+						frappe.show_alert(
+							{
+								message: r.message.message,
+								indicator: r.message.status === 'success' ? 'green' : 'blue'
+							},
+							5
+						);
+						frm.reload_doc();
 					}
-				});
-			}
-		);
+				}
+			});
+		});
 	},
 
 	update_progress_dashboard(frm) {
@@ -399,20 +373,10 @@ frappe.ui.form.on('Event Contact Campaign Member', {
 		if (row.contacted) {
 			// Auto-fill contacted date and user if not set
 			if (!row.contacted_date) {
-				frappe.model.set_value(
-					cdt,
-					cdn,
-					'contacted_date',
-					frappe.datetime.now_datetime()
-				);
+				frappe.model.set_value(cdt, cdn, 'contacted_date', frappe.datetime.now_datetime());
 			}
 			if (!row.contacted_by) {
-				frappe.model.set_value(
-					cdt,
-					cdn,
-					'contacted_by',
-					frappe.session.user
-				);
+				frappe.model.set_value(cdt, cdn, 'contacted_by', frappe.session.user);
 			}
 			// Set contact method to "Other" if still "Not Contacted"
 			if (row.contact_method === 'Not Contacted') {
@@ -431,17 +395,8 @@ frappe.ui.form.on('Event Contact Campaign Member', {
 		const row = locals[cdt][cdn];
 
 		// Auto-fill response date when response is set
-		if (
-			row.response
-            && row.response !== 'No Response'
-            && !row.response_date
-		) {
-			frappe.model.set_value(
-				cdt,
-				cdn,
-				'response_date',
-				frappe.datetime.get_today()
-			);
+		if (row.response && row.response !== 'No Response' && !row.response_date) {
+			frappe.model.set_value(cdt, cdn, 'response_date', frappe.datetime.get_today());
 		}
 
 		// Trigger save to update progress

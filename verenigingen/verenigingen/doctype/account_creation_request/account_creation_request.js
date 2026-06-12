@@ -5,39 +5,33 @@ frappe.ui.form.on('Account Creation Request', {
 	refresh(frm) {
 		// Add custom buttons based on status
 		if (frm.doc.status === 'Failed') {
-			frm
-				.add_custom_button(
-					__('Retry Processing'),
-					() => {
-						retry_account_creation_request(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-warning');
+			frm.add_custom_button(
+				__('Retry Processing'),
+				() => {
+					retry_account_creation_request(frm);
+				},
+				__('Actions')
+			).addClass('btn-warning');
 		}
 
 		if (frm.doc.status === 'Requested') {
-			frm
-				.add_custom_button(
-					__('Queue for Processing'),
-					() => {
-						queue_account_creation_request(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-primary');
+			frm.add_custom_button(
+				__('Queue for Processing'),
+				() => {
+					queue_account_creation_request(frm);
+				},
+				__('Actions')
+			).addClass('btn-primary');
 		}
 
 		if (frm.doc.status in ['Requested', 'Queued', 'Processing']) {
-			frm
-				.add_custom_button(
-					__('Cancel Request'),
-					() => {
-						cancel_account_creation_request(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-secondary');
+			frm.add_custom_button(
+				__('Cancel Request'),
+				() => {
+					cancel_account_creation_request(frm);
+				},
+				__('Actions')
+			).addClass('btn-secondary');
 		}
 
 		// Add refresh status button
@@ -69,28 +63,20 @@ function retry_account_creation_request(frm) {
 		return;
 	}
 
-	frappe.confirm(
-		__('Are you sure you want to retry this account creation request?'),
-		() => {
-			frappe.call({
-				method: 'retry_processing',
-				doc: frm.doc,
-				callback(r) {
-					if (r.message && r.message.success) {
-						frappe.msgprint(
-							__('Account creation request has been queued for retry')
-						);
-						frm.reload_doc();
-					} else {
-						frappe.msgprint(
-							__('Failed to retry request: ')
-                + (r.message.error || 'Unknown error')
-						);
-					}
+	frappe.confirm(__('Are you sure you want to retry this account creation request?'), () => {
+		frappe.call({
+			method: 'retry_processing',
+			doc: frm.doc,
+			callback(r) {
+				if (r.message && r.message.success) {
+					frappe.msgprint(__('Account creation request has been queued for retry'));
+					frm.reload_doc();
+				} else {
+					frappe.msgprint(__('Failed to retry request: ') + (r.message.error || 'Unknown error'));
 				}
-			});
-		}
-	);
+			}
+		});
+	});
 }
 
 function queue_account_creation_request(frm) {
@@ -104,15 +90,10 @@ function queue_account_creation_request(frm) {
 		doc: frm.doc,
 		callback(r) {
 			if (r.message && r.message.success) {
-				frappe.msgprint(
-					__('Account creation request has been queued for processing')
-				);
+				frappe.msgprint(__('Account creation request has been queued for processing'));
 				frm.reload_doc();
 			} else {
-				frappe.msgprint(
-					__('Failed to queue request: ')
-            + (r.message.error || 'Unknown error')
-				);
+				frappe.msgprint(__('Failed to queue request: ') + (r.message.error || 'Unknown error'));
 			}
 		}
 	});
@@ -169,9 +150,7 @@ function update_status_indicator(frm) {
 			break;
 		case 'Processing':
 			color = 'yellow';
-			message
-        = __('Request is currently being processed: ')
-        + (frm.doc.pipeline_stage || 'Unknown stage');
+			message = __('Request is currently being processed: ') + (frm.doc.pipeline_stage || 'Unknown stage');
 			break;
 		case 'Completed':
 			color = 'green';
@@ -197,14 +176,10 @@ function update_status_indicator(frm) {
 	}
 
 	frm.dashboard.set_headline_alert(
-		`<div class="row">`
-      + `<div class="col-xs-12">`
-      + `<span class="indicator ${
-      	color
-      }">${
-      	message
-      }</span>`
-      + `</div>`
-      + `</div>`
+		`<div class="row">` +
+			`<div class="col-xs-12">` +
+			`<span class="indicator ${color}">${message}</span>` +
+			`</div>` +
+			`</div>`
 	);
 }

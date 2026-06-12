@@ -92,12 +92,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Make a Frappe API call with error handling and retries
-   * @param {String} method - Method name
-   * @param {Object} args - Method arguments
-   * @param {Object} options - Additional options
-   * @returns {Promise} API response
-   */
+	 * Make a Frappe API call with error handling and retries
+	 * @param {String} method - Method name
+	 * @param {Object} args - Method arguments
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} API response
+	 */
 	async call(method, args = {}, options = {}) {
 		const {
 			freeze = true,
@@ -158,8 +158,8 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Internal method to make the actual API call
-   */
+	 * Internal method to make the actual API call
+	 */
 	async _makeCall(method, args, options, attemptNumber = 1) {
 		try {
 			const response = await frappe.call({
@@ -191,12 +191,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Get a document
-   * @param {String} doctype - Document type
-   * @param {String} name - Document name
-   * @param {Object} options - Additional options
-   * @returns {Promise} Document data
-   */
+	 * Get a document
+	 * @param {String} doctype - Document type
+	 * @param {String} name - Document name
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Document data
+	 */
 	async getDoc(doctype, name, options = {}) {
 		return this.call(
 			'frappe.client.get',
@@ -213,12 +213,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Get list of documents
-   * @param {String} doctype - Document type
-   * @param {Object} params - List parameters
-   * @param {Object} options - Additional options
-   * @returns {Promise} List of documents
-   */
+	 * Get list of documents
+	 * @param {String} doctype - Document type
+	 * @param {Object} params - List parameters
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} List of documents
+	 */
 	async getList(doctype, params = {}, options = {}) {
 		const defaultParams = {
 			doctype,
@@ -233,12 +233,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Get document count
-   * @param {String} doctype - Document type
-   * @param {Object} filters - Filters
-   * @param {Object} options - Additional options
-   * @returns {Promise} Document count
-   */
+	 * Get document count
+	 * @param {String} doctype - Document type
+	 * @param {Object} filters - Filters
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Document count
+	 */
 	async getCount(doctype, filters = {}, options = {}) {
 		return this.call(
 			'frappe.client.get_count',
@@ -251,13 +251,13 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Get single value from document
-   * @param {String} doctype - Document type
-   * @param {String} name - Document name
-   * @param {String} fieldname - Field name
-   * @param {Object} options - Additional options
-   * @returns {Promise} Field value
-   */
+	 * Get single value from document
+	 * @param {String} doctype - Document type
+	 * @param {String} name - Document name
+	 * @param {String} fieldname - Field name
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Field value
+	 */
 	async getValue(doctype, name, fieldname, options = {}) {
 		return this.call(
 			'frappe.client.get_value',
@@ -275,14 +275,14 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Set value in document
-   * @param {String} doctype - Document type
-   * @param {String} name - Document name
-   * @param {String} fieldname - Field name
-   * @param {*} value - New value
-   * @param {Object} options - Additional options
-   * @returns {Promise} Update result
-   */
+	 * Set value in document
+	 * @param {String} doctype - Document type
+	 * @param {String} name - Document name
+	 * @param {String} fieldname - Field name
+	 * @param {*} value - New value
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Update result
+	 */
 	async setValue(doctype, name, fieldname, value, options = {}) {
 		// Clear cache for this document
 		this.clearDocCache(doctype, name);
@@ -300,11 +300,11 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Insert new document
-   * @param {Object} doc - Document data
-   * @param {Object} options - Additional options
-   * @returns {Promise} Created document
-   */
+	 * Insert new document
+	 * @param {Object} doc - Document data
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Created document
+	 */
 	async insert(doc, options = {}) {
 		return this.call(
 			'frappe.client.insert',
@@ -316,11 +316,11 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Update existing document
-   * @param {Object} doc - Document data with name
-   * @param {Object} options - Additional options
-   * @returns {Promise} Updated document
-   */
+	 * Update existing document
+	 * @param {Object} doc - Document data with name
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Updated document
+	 */
 	async update(doc, options = {}) {
 		// Clear cache for this document
 		this.clearDocCache(doc.doctype, doc.name);
@@ -335,12 +335,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Delete document
-   * @param {String} doctype - Document type
-   * @param {String} name - Document name
-   * @param {Object} options - Additional options
-   * @returns {Promise} Deletion result
-   */
+	 * Delete document
+	 * @param {String} doctype - Document type
+	 * @param {String} name - Document name
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Deletion result
+	 */
 	async delete(doctype, name, options = {}) {
 		// Clear cache for this document
 		this.clearDocCache(doctype, name);
@@ -356,13 +356,13 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Bulk update documents
-   * @param {String} doctype - Document type
-   * @param {Array} names - Document names
-   * @param {Object} updates - Field updates
-   * @param {Object} options - Additional options
-   * @returns {Promise} Update result
-   */
+	 * Bulk update documents
+	 * @param {String} doctype - Document type
+	 * @param {Array} names - Document names
+	 * @param {Object} updates - Field updates
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Update result
+	 */
 	async bulkUpdate(doctype, names, updates, options = {}) {
 		// Clear cache for all documents
 		names.forEach((name) => this.clearDocCache(doctype, name));
@@ -379,12 +379,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Run report
-   * @param {String} report - Report name
-   * @param {Object} filters - Report filters
-   * @param {Object} options - Additional options
-   * @returns {Promise} Report data
-   */
+	 * Run report
+	 * @param {String} report - Report name
+	 * @param {Object} filters - Report filters
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Report data
+	 */
 	async runReport(report, filters = {}, options = {}) {
 		return this.call(
 			'frappe.desk.query_report.run',
@@ -397,11 +397,11 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Send email
-   * @param {Object} emailData - Email parameters
-   * @param {Object} options - Additional options
-   * @returns {Promise} Email result
-   */
+	 * Send email
+	 * @param {Object} emailData - Email parameters
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Email result
+	 */
 	async sendEmail(emailData, options = {}) {
 		return this.call(
 			'frappe.core.doctype.communication.email.make',
@@ -419,13 +419,13 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Get print format
-   * @param {String} doctype - Document type
-   * @param {String} name - Document name
-   * @param {String} format - Print format name
-   * @param {Object} options - Additional options
-   * @returns {Promise} Print HTML
-   */
+	 * Get print format
+	 * @param {String} doctype - Document type
+	 * @param {String} name - Document name
+	 * @param {String} format - Print format name
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Print HTML
+	 */
 	async getPrintFormat(doctype, name, format, options = {}) {
 		return this.call(
 			'frappe.www.printview.get_print_format',
@@ -439,12 +439,12 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Upload file
-   * @param {File} file - File object
-   * @param {Object} params - Upload parameters
-   * @param {Object} options - Additional options
-   * @returns {Promise} Upload result
-   */
+	 * Upload file
+	 * @param {File} file - File object
+	 * @param {Object} params - Upload parameters
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Upload result
+	 */
 	async uploadFile(file, params = {}, _options = {}) {
 		const formData = new FormData();
 		formData.append('file', file);
@@ -471,17 +471,13 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Batch API calls
-   * @param {Array} calls - Array of API call definitions
-   * @param {Object} options - Additional options
-   * @returns {Promise} Array of results
-   */
+	 * Batch API calls
+	 * @param {Array} calls - Array of API call definitions
+	 * @param {Object} options - Additional options
+	 * @returns {Promise} Array of results
+	 */
 	async batch(calls, options = {}) {
-		const {
-			parallel = true,
-			batchSize = ChapterConfig.api.batchSize,
-			continueOnError = false
-		} = options;
+		const { parallel = true, batchSize = ChapterConfig.api.batchSize, continueOnError = false } = options;
 
 		if (parallel) {
 			// Process in parallel batches
@@ -522,10 +518,10 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Clear cache for a specific document
-   * @param {String} doctype - Document type
-   * @param {String} name - Document name
-   */
+	 * Clear cache for a specific document
+	 * @param {String} doctype - Document type
+	 * @param {String} name - Document name
+	 */
 	clearDocCache(doctype, name) {
 		const keysToDelete = [];
 
@@ -539,27 +535,27 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Clear all cache
-   */
+	 * Clear all cache
+	 */
 	clearCache() {
 		this.cache.clear();
 	}
 
 	/**
-   * Generate cache key
-   * @param {String} method - Method name
-   * @param {Object} args - Method arguments
-   * @returns {String} Cache key
-   */
+	 * Generate cache key
+	 * @param {String} method - Method name
+	 * @param {Object} args - Method arguments
+	 * @returns {String} Cache key
+	 */
 	generateCacheKey(method, args) {
 		return `${method}-${JSON.stringify(args)}`;
 	}
 
 	/**
-   * Handle API errors
-   * @param {Error} error - Error object
-   * @param {String} context - Error context
-   */
+	 * Handle API errors
+	 * @param {Error} error - Error object
+	 * @param {String} context - Error context
+	 */
 	handleError(error, context) {
 		console.error(`API Error in ${context}:`, error);
 
@@ -607,27 +603,22 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Check if error should be logged to server
-   * @param {Error} error - Error object
-   * @returns {Boolean} Whether to log error
-   */
+	 * Check if error should be logged to server
+	 * @param {Error} error - Error object
+	 * @returns {Boolean} Whether to log error
+	 */
 	shouldLogError(error) {
 		// Don't log expected errors
-		const expectedErrors = [
-			'PermissionError',
-			'ValidationError',
-			'DoesNotExistError',
-			'DuplicateEntryError'
-		];
+		const expectedErrors = ['PermissionError', 'ValidationError', 'DoesNotExistError', 'DuplicateEntryError'];
 
 		return !expectedErrors.some((e) => error.message?.includes(e));
 	}
 
 	/**
-   * Log error to server
-   * @param {Error} error - Error object
-   * @param {String} context - Error context
-   */
+	 * Log error to server
+	 * @param {Error} error - Error object
+	 * @param {String} context - Error context
+	 */
 	async logError(error, context) {
 		try {
 			await this.call(
@@ -647,27 +638,27 @@ export class ChapterAPI {
 	}
 
 	/**
-   * Sleep for specified milliseconds
-   * @param {Number} ms - Milliseconds to sleep
-   * @returns {Promise} Promise that resolves after sleep
-   */
+	 * Sleep for specified milliseconds
+	 * @param {Number} ms - Milliseconds to sleep
+	 * @returns {Promise} Promise that resolves after sleep
+	 */
 	sleep(ms) {
 		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
 	/**
-   * Check API rate limits
-   * @returns {Boolean} Whether rate limit is exceeded
-   */
+	 * Check API rate limits
+	 * @returns {Boolean} Whether rate limit is exceeded
+	 */
 	checkRateLimit() {
 		// This would need actual implementation based on your rate limiting strategy
 		return false;
 	}
 
 	/**
-   * Get API statistics
-   * @returns {Object} API usage statistics
-   */
+	 * Get API statistics
+	 * @returns {Object} API usage statistics
+	 */
 	getStatistics() {
 		return {
 			cacheSize: this.cache.size,

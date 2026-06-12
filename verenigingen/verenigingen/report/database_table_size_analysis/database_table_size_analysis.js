@@ -52,9 +52,7 @@ frappe.query_reports['Database Table Size Analysis'] = {
 		// Add visual bar for percentage
 		if (column.fieldname === 'table_name' && data.percentage) {
 			const barWidth = Math.min(data.percentage * 2, 100);
-			const barColor = data.percentage > 10 ? '#ff4757'
-			                 : data.percentage > 5 ? '#ffa502'
-			                 : '#4C9AFF';
+			const barColor = data.percentage > 10 ? '#ff4757' : data.percentage > 5 ? '#ffa502' : '#4C9AFF';
 
 			value = `
 				<div style="position: relative;">
@@ -80,45 +78,57 @@ frappe.query_reports['Database Table Size Analysis'] = {
 
 	onload(report) {
 		// Add custom buttons
-		report.page.add_inner_button(__('Optimize Tables'), () => {
-			frappe.confirm(
-				__('This will run OPTIMIZE TABLE on all tables. This may take several minutes. Continue?'),
-				() => {
-					frappe.call({
-						method: 'verenigingen.verenigingen.report.database_table_size_analysis.database_table_size_analysis.optimize_all_tables',
-						callback(r) {
-							if (r.message) {
-								frappe.msgprint({
-									title: __('Optimization Complete'),
-									message: __('Optimized {0} tables', [r.message.optimized_count]),
-									indicator: 'green'
-								});
-								report.refresh();
+		report.page.add_inner_button(
+			__('Optimize Tables'),
+			() => {
+				frappe.confirm(
+					__('This will run OPTIMIZE TABLE on all tables. This may take several minutes. Continue?'),
+					() => {
+						frappe.call({
+							method: 'verenigingen.verenigingen.report.database_table_size_analysis.database_table_size_analysis.optimize_all_tables',
+							callback(r) {
+								if (r.message) {
+									frappe.msgprint({
+										title: __('Optimization Complete'),
+										message: __('Optimized {0} tables', [r.message.optimized_count]),
+										indicator: 'green'
+									});
+									report.refresh();
+								}
 							}
-						}
-					});
-				}
-			);
-		}, __('Actions'));
-
-		report.page.add_inner_button(__('Analyze Tables'), () => {
-			frappe.call({
-				method: 'verenigingen.verenigingen.report.database_table_size_analysis.database_table_size_analysis.analyze_all_tables',
-				callback(r) {
-					if (r.message) {
-						frappe.msgprint({
-							title: __('Analysis Complete'),
-							message: __('Analyzed {0} tables', [r.message.analyzed_count]),
-							indicator: 'green'
 						});
-						report.refresh();
 					}
-				}
-			});
-		}, __('Actions'));
+				);
+			},
+			__('Actions')
+		);
 
-		report.page.add_inner_button(__('Export to CSV'), () => {
-			report.export_report();
-		}, __('Actions'));
+		report.page.add_inner_button(
+			__('Analyze Tables'),
+			() => {
+				frappe.call({
+					method: 'verenigingen.verenigingen.report.database_table_size_analysis.database_table_size_analysis.analyze_all_tables',
+					callback(r) {
+						if (r.message) {
+							frappe.msgprint({
+								title: __('Analysis Complete'),
+								message: __('Analyzed {0} tables', [r.message.analyzed_count]),
+								indicator: 'green'
+							});
+							report.refresh();
+						}
+					}
+				});
+			},
+			__('Actions')
+		);
+
+		report.page.add_inner_button(
+			__('Export to CSV'),
+			() => {
+				report.export_report();
+			},
+			__('Actions')
+		);
 	}
 };

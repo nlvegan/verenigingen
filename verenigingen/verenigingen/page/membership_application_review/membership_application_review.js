@@ -61,9 +61,7 @@
  * @param {Object} wrapper - Frappe page wrapper element
  * @since 1.0.0
  */
-frappe.pages['membership-application-review'].on_page_load = function (
-	wrapper
-) {
+frappe.pages['membership-application-review'].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Membership Application Review',
@@ -91,7 +89,9 @@ class MembershipApplicationReview {
 	}
 
 	escapeHtml(str) {
-		if (!str) { return ''; }
+		if (!str) {
+			return '';
+		}
 		return String(str)
 			.replace(/&/g, '&amp;')
 			.replace(/</g, '&lt;')
@@ -491,8 +491,7 @@ class MembershipApplicationReview {
 		try {
 			// Check user's chapter management permissions
 			const permissions = await frappe.call({
-				method:
-          'verenigingen.services.chapter.chapter_security.get_user_chapter_permissions'
+				method: 'verenigingen.services.chapter.chapter_security.get_user_chapter_permissions'
 			});
 
 			this.user_permissions = permissions.message || {};
@@ -541,9 +540,7 @@ class MembershipApplicationReview {
 				const $select = $('#filter-chapter');
 				// Keep existing options (All Chapters, Unassigned) and add chapters
 				chapters.message.forEach((chapter) => {
-					$select.append(
-						`<option value="${chapter.name}">${chapter.name}</option>`
-					);
+					$select.append(`<option value="${chapter.name}">${chapter.name}</option>`);
 				});
 			}
 		} catch (error) {
@@ -554,8 +551,7 @@ class MembershipApplicationReview {
 	async load_statistics() {
 		try {
 			const response = await frappe.call({
-				method:
-          'verenigingen.api.admin_membership_operations.get_application_stats'
+				method: 'verenigingen.api.admin_membership_operations.get_application_stats'
 			});
 
 			if (response.message) {
@@ -579,8 +575,7 @@ class MembershipApplicationReview {
 
 		try {
 			const response = await frappe.call({
-				method:
-          'verenigingen.api.membership_application_review.get_pending_applications',
+				method: 'verenigingen.api.membership_application_review.get_pending_applications',
 				args: {
 					chapter: this.filters.chapter,
 					days_overdue: this.filters.days_overdue
@@ -611,9 +606,7 @@ class MembershipApplicationReview {
 			return;
 		}
 
-		const html = this.applications
-			.map((app) => this.render_application_card(app))
-			.join('');
+		const html = this.applications.map((app) => this.render_application_card(app)).join('');
 		$('.applications-list').html(html);
 
 		// Update statistics
@@ -672,14 +665,9 @@ class MembershipApplicationReview {
 
 	update_local_statistics() {
 		const total = this.applications.length;
-		const overdue = this.applications.filter(
-			(app) => app.days_pending > 14
-		).length;
-		const volunteer_interest = this.applications.filter(
-			(app) => app.interested_in_volunteering
-		).length;
-		const interest_rate
-      = total > 0 ? Math.round((volunteer_interest / total) * 100) : 0;
+		const overdue = this.applications.filter((app) => app.days_pending > 14).length;
+		const volunteer_interest = this.applications.filter((app) => app.interested_in_volunteering).length;
+		const interest_rate = total > 0 ? Math.round((volunteer_interest / total) * 100) : 0;
 
 		$('#total-pending').text(total);
 		$('#overdue-count').text(overdue);
@@ -688,7 +676,9 @@ class MembershipApplicationReview {
 
 	async approve_application(member_name) {
 		const app = this.applications.find((a) => a.name === member_name);
-		if (!app) { return; }
+		if (!app) {
+			return;
+		}
 
 		// Check for duplicates before showing approval dialog
 		let duplicateCheckResult;
@@ -710,8 +700,10 @@ class MembershipApplicationReview {
 			const duplicates = duplicateCheckResult.message;
 			const summary = duplicates.summary;
 
-			let warningHtml = '<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 15px;">';
-			warningHtml += '<h5 style="margin-top: 0; color: #856404;"><i class="fa fa-exclamation-triangle"></i> Potential Duplicate Members Found</h5>';
+			let warningHtml =
+				'<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 15px;">';
+			warningHtml +=
+				'<h5 style="margin-top: 0; color: #856404;"><i class="fa fa-exclamation-triangle"></i> Potential Duplicate Members Found</h5>';
 
 			if (summary.high > 0) {
 				warningHtml += `<p style="color: #721c24; font-weight: bold;">⚠️ ${summary.high} high-confidence match(es)</p>`;
@@ -726,8 +718,9 @@ class MembershipApplicationReview {
 			// Show details for high and medium confidence matches
 			const importantMatches = [...duplicates.high_confidence, ...duplicates.medium_confidence];
 			if (importantMatches.length > 0) {
-				warningHtml += '<div style="margin-top: 10px;"><strong>Matches:</strong><ul style="margin-bottom: 5px;">';
-				importantMatches.forEach(match => {
+				warningHtml +=
+					'<div style="margin-top: 10px;"><strong>Matches:</strong><ul style="margin-bottom: 5px;">';
+				importantMatches.forEach((match) => {
 					const confidence = Math.round(match.confidence * 100);
 					const details = match.details;
 					// SECURITY FIX: Escape all user-controlled data to prevent XSS
@@ -744,7 +737,8 @@ class MembershipApplicationReview {
 				warningHtml += '</ul></div>';
 			}
 
-			warningHtml += '<p style="margin-bottom: 0; margin-top: 10px;"><strong>Please review these matches before approving.</strong></p>';
+			warningHtml +=
+				'<p style="margin-bottom: 0; margin-top: 10px;"><strong>Please review these matches before approving.</strong></p>';
 			warningHtml += '</div>';
 
 			dialogFields.push({
@@ -781,10 +775,7 @@ class MembershipApplicationReview {
 				fieldname: 'chapter',
 				label: 'Chapter Assignment',
 				options: 'Chapter',
-				default:
-            app.current_chapter_display !== 'Unassigned'
-            	? app.current_chapter_display
-            	: ''
+				default: app.current_chapter_display !== 'Unassigned' ? app.current_chapter_display : ''
 			},
 			{
 				fieldtype: 'Small Text',
@@ -807,8 +798,7 @@ class MembershipApplicationReview {
 			primary_action: async (values) => {
 				try {
 					const response = await frappe.call({
-						method:
-              'verenigingen.api.membership_application_review.approve_membership_application',
+						method: 'verenigingen.api.membership_application_review.approve_membership_application',
 						args: {
 							member_name,
 							membership_type: values.membership_type,
@@ -838,7 +828,9 @@ class MembershipApplicationReview {
 
 	async reject_application(member_name) {
 		const app = this.applications.find((a) => a.name === member_name);
-		if (!app) { return; }
+		if (!app) {
+			return;
+		}
 
 		// Show rejection dialog
 		const dialog = new frappe.ui.Dialog({
@@ -848,12 +840,7 @@ class MembershipApplicationReview {
 					fieldtype: 'Select',
 					fieldname: 'rejection_category',
 					label: 'Rejection Category',
-					options: [
-						'General',
-						'Incomplete Information',
-						'Ineligible',
-						'Duplicate Application'
-					],
+					options: ['General', 'Incomplete Information', 'Ineligible', 'Duplicate Application'],
 					reqd: 1
 				},
 				{
@@ -883,8 +870,7 @@ class MembershipApplicationReview {
 			primary_action: async (values) => {
 				try {
 					const response = await frappe.call({
-						method:
-              'verenigingen.api.membership_application_review.reject_membership_application',
+						method: 'verenigingen.api.membership_application_review.reject_membership_application',
 						args: {
 							member_name,
 							reason: values.reason,
@@ -919,8 +905,7 @@ class MembershipApplicationReview {
 	show_statistics() {
 		frappe
 			.call({
-				method:
-          'verenigingen.api.admin_membership_operations.get_application_stats'
+				method: 'verenigingen.api.admin_membership_operations.get_application_stats'
 			})
 			.then((response) => {
 				if (response.message) {
@@ -944,10 +929,7 @@ class MembershipApplicationReview {
 	render_statistics_html(stats) {
 		const by_chapter = stats.by_chapter || [];
 		const chapter_rows = by_chapter
-			.map(
-				(c) =>
-					`<tr><td>${c.current_chapter_display || 'Unassigned'}</td><td>${c.count}</td></tr>`
-			)
+			.map((c) => `<tr><td>${c.current_chapter_display || 'Unassigned'}</td><td>${c.count}</td></tr>`)
 			.join('');
 
 		return `
@@ -957,11 +939,8 @@ class MembershipApplicationReview {
 					<table class="table table-bordered">
 						<tr><th>Status</th><th>Count</th></tr>
 						${Object.entries(stats.by_status || {})
-		.map(
-			([status, count]) =>
-				`<tr><td>${status}</td><td>${count}</td></tr>`
-		)
-		.join('')}
+							.map(([status, count]) => `<tr><td>${status}</td><td>${count}</td></tr>`)
+							.join('')}
 					</table>
 				</div>
 				<div class="col-md-6">
@@ -1004,15 +983,12 @@ class MembershipApplicationReview {
 			return;
 		}
 
-		frappe.confirm(
-			`Are you sure you want to approve ${selected.length} applications?`,
-			() => {
-				// Process each application
-				selected.forEach((member_name) => {
-					this.approve_application(member_name);
-				});
-			}
-		);
+		frappe.confirm(`Are you sure you want to approve ${selected.length} applications?`, () => {
+			// Process each application
+			selected.forEach((member_name) => {
+				this.approve_application(member_name);
+			});
+		});
 	}
 
 	bulk_reject() {
@@ -1027,22 +1003,18 @@ class MembershipApplicationReview {
 			return;
 		}
 
-		frappe.confirm(
-			`Are you sure you want to reject ${selected.length} applications?`,
-			() => {
-				// Process each application
-				selected.forEach((member_name) => {
-					this.reject_application(member_name);
-				});
-			}
-		);
+		frappe.confirm(`Are you sure you want to reject ${selected.length} applications?`, () => {
+			// Process each application
+			selected.forEach((member_name) => {
+				this.reject_application(member_name);
+			});
+		});
 	}
 
 	async create_email_templates() {
 		try {
 			const response = await frappe.call({
-				method:
-          'verenigingen.api.membership_email_templates.create_default_email_templates'
+				method: 'verenigingen.api.membership_email_templates.create_default_email_templates'
 			});
 
 			if (response.message?.success) {

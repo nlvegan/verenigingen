@@ -171,28 +171,16 @@ frappe.query_reports['Pending Membership Applications'] = {
 
 		// Add role-based chapter filter for non-admin users
 		frappe.call({
-			method:
-        'verenigingen.api.membership_application_review.get_user_chapter_access',
+			method: 'verenigingen.api.membership_application_review.get_user_chapter_access',
 			callback(r) {
-				if (
-					r.message
-          && r.message.restrict_to_chapters
-          && r.message.chapters.length === 1
-				) {
+				if (r.message && r.message.restrict_to_chapters && r.message.chapters.length === 1) {
 					// Auto-set chapter filter if user only has access to one chapter
 					report.set_filter_value('chapter', r.message.chapters[0]);
 					report.refresh();
-				} else if (
-					r.message
-          && r.message.restrict_to_chapters
-          && r.message.chapters.length > 1
-				) {
+				} else if (r.message && r.message.restrict_to_chapters && r.message.chapters.length > 1) {
 					// Add info message about user's chapter access
 					const chapter_names = r.message.chapters.join(', ');
-					report.page.set_indicator(
-						__('Filtered to your chapters: {0}', [chapter_names]),
-						'blue'
-					);
+					report.page.set_indicator(__('Filtered to your chapters: {0}', [chapter_names]), 'blue');
 				}
 			}
 		});
@@ -200,15 +188,10 @@ frappe.query_reports['Pending Membership Applications'] = {
 		// Add custom button to export overdue applications
 		report.page.add_inner_button(__('Email Overdue List'), () => {
 			frappe.call({
-				method:
-          'verenigingen.api.overdue_application_notifications.send_overdue_notifications',
+				method: 'verenigingen.api.overdue_application_notifications.send_overdue_notifications',
 				callback(r) {
 					if (r.message) {
-						frappe.msgprint(
-							__('Notifications sent to {0} chapters', [
-								r.message.notified_chapters
-							])
-						);
+						frappe.msgprint(__('Notifications sent to {0} chapters', [r.message.notified_chapters]));
 					}
 				}
 			});
@@ -245,8 +228,8 @@ function show_bulk_actions_dialog(report) {
 				label: __('Default Membership Type'),
 				fieldtype: 'Link',
 				options: 'Membership Type',
-				depends_on: 'eval:doc.action==\'Approve Selected\'',
-				description: __('Used if application doesn\'t specify a type')
+				depends_on: "eval:doc.action=='Approve Selected'",
+				description: __("Used if application doesn't specify a type")
 			}
 		],
 		primary_action_label: __('Execute'),

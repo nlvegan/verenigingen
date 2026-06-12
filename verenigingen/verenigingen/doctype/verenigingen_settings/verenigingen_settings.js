@@ -145,8 +145,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 			};
 		});
 
-		const docs_url
-      = 'https://docs.erpnext.com/docs/user/manual/en/verenigingen/membership';
+		const docs_url = 'https://docs.erpnext.com/docs/user/manual/en/verenigingen/membership';
 
 		frm.set_intro(
 			`${__('You can learn more about memberships in the manual. ')}<a href='${docs_url}'>${__('ERPNext Docs')}</a>`,
@@ -174,13 +173,11 @@ frappe.ui.form.on('Verenigingen Settings', {
 			frm.add_custom_button(
 				__('Revoke Key'),
 				() => {
-					frm
-						.call('revoke_key', {
-							key: 'membership_webhook_secret'
-						})
-						.then(() => {
-							frm.refresh();
-						});
+					frm.call('revoke_key', {
+						key: 'membership_webhook_secret'
+					}).then(() => {
+						frm.refresh();
+					});
 				},
 				__('Memberships')
 			);
@@ -193,13 +190,11 @@ frappe.ui.form.on('Verenigingen Settings', {
 		frm.add_custom_button(
 			label,
 			() => {
-				frm
-					.call('generate_webhook_secret', {
-						field: 'membership_webhook_secret'
-					})
-					.then(() => {
-						frm.refresh();
-					});
+				frm.call('generate_webhook_secret', {
+					field: 'membership_webhook_secret'
+				}).then(() => {
+					frm.refresh();
+				});
 			},
 			__('Memberships')
 		);
@@ -224,13 +219,11 @@ frappe.ui.form.on('Verenigingen Settings', {
 			frm.add_custom_button(
 				__('Revoke Key'),
 				() => {
-					frm
-						.call('revoke_key', {
-							key: 'donation_webhook_secret'
-						})
-						.then(() => {
-							frm.refresh();
-						});
+					frm.call('revoke_key', {
+						key: 'donation_webhook_secret'
+					}).then(() => {
+						frm.refresh();
+					});
 				},
 				__('Donations')
 			);
@@ -241,13 +234,11 @@ frappe.ui.form.on('Verenigingen Settings', {
 		frm.add_custom_button(
 			label,
 			() => {
-				frm
-					.call('generate_webhook_secret', {
-						field: 'donation_webhook_secret'
-					})
-					.then(() => {
-						frm.refresh();
-					});
+				frm.call('generate_webhook_secret', {
+					field: 'donation_webhook_secret'
+				}).then(() => {
+					frm.refresh();
+				});
 			},
 			__('Donations')
 		);
@@ -259,8 +250,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 			__('View Portal Stats'),
 			() => {
 				frappe.call({
-					method:
-            'verenigingen.utils.member_portal_utils.get_member_portal_stats',
+					method: 'verenigingen.utils.member_portal_utils.get_member_portal_stats',
 					callback(r) {
 						if (r.message) {
 							const stats = r.message;
@@ -289,39 +279,33 @@ frappe.ui.form.on('Verenigingen Settings', {
 		frm.add_custom_button(
 			__('Setup Portal Home Pages'),
 			() => {
-				frappe.confirm(
-					__('Set /member_portal as home page for all users with Member role?'),
-					() => {
-						frappe.call({
-							method:
-                'verenigingen.utils.member_portal_utils.set_all_members_home_page',
-							args: {
-								home_page: '/member_portal'
-							},
-							callback(r) {
-								if (r.message && r.message.success) {
-									frappe.show_alert(
-										{
-											message: __(
-												'Updated {0} member users with portal home page',
-												[r.message.updated_count]
-											),
-											indicator: 'green'
-										},
-										5
-									);
-								} else {
-									frappe.msgprint({
-										title: __('Error'),
-										message:
-                      r.message.message || 'Failed to update member home pages',
-										indicator: 'red'
-									});
-								}
+				frappe.confirm(__('Set /member_portal as home page for all users with Member role?'), () => {
+					frappe.call({
+						method: 'verenigingen.utils.member_portal_utils.set_all_members_home_page',
+						args: {
+							home_page: '/member_portal'
+						},
+						callback(r) {
+							if (r.message && r.message.success) {
+								frappe.show_alert(
+									{
+										message: __('Updated {0} member users with portal home page', [
+											r.message.updated_count
+										]),
+										indicator: 'green'
+									},
+									5
+								);
+							} else {
+								frappe.msgprint({
+									title: __('Error'),
+									message: r.message.message || 'Failed to update member home pages',
+									indicator: 'red'
+								});
 							}
-						});
-					}
-				);
+						}
+					});
+				});
 			},
 			__('Member Portal')
 		);
@@ -330,8 +314,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 			__('Test Portal Redirect'),
 			() => {
 				frappe.call({
-					method:
-            'verenigingen.utils.member_portal_utils.get_user_appropriate_home_page',
+					method: 'verenigingen.utils.member_portal_utils.get_user_appropriate_home_page',
 					callback(r) {
 						if (r.message) {
 							frappe.show_alert(

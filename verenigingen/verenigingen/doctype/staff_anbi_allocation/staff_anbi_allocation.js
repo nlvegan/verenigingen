@@ -28,22 +28,13 @@ frappe.ui.form.on('Staff ANBI Allocation', {
 	calculate_amounts(frm) {
 		const cost = frm.doc.annual_employer_cost || 0;
 
-		frm.set_value(
-			'amount_doelstelling',
-			(cost * (frm.doc.pct_doelstelling || 0)) / 100
-		);
-		frm.set_value(
-			'amount_werving',
-			(cost * (frm.doc.pct_werving || 0)) / 100
-		);
+		frm.set_value('amount_doelstelling', (cost * (frm.doc.pct_doelstelling || 0)) / 100);
+		frm.set_value('amount_werving', (cost * (frm.doc.pct_werving || 0)) / 100);
 		frm.set_value('amount_beheer', (cost * (frm.doc.pct_beheer || 0)) / 100);
 	},
 
 	update_percentage_indicator(frm) {
-		const total
-			= (frm.doc.pct_doelstelling || 0)
-			+ (frm.doc.pct_werving || 0)
-			+ (frm.doc.pct_beheer || 0);
+		const total = (frm.doc.pct_doelstelling || 0) + (frm.doc.pct_werving || 0) + (frm.doc.pct_beheer || 0);
 
 		let indicator_class = 'orange';
 		if (Math.abs(total - 100) < 0.01) {

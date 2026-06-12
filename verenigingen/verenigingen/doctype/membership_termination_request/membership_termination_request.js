@@ -81,11 +81,7 @@
  */
 const TERMINATION_CONFIG = {
 	/** @type {string[]} Termination types requiring disciplinary documentation and secondary approval */
-	DISCIPLINARY_TYPES: Object.freeze([
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	]),
+	DISCIPLINARY_TYPES: Object.freeze(['Policy Violation', 'Disciplinary Action', 'Expulsion']),
 
 	/** @type {Object.<string, string>} Status value constants */
 	STATUS: Object.freeze({
@@ -106,10 +102,7 @@ const TERMINATION_CONFIG = {
 	}),
 
 	/** @type {string[]} Roles authorized to override secondary approval requirements */
-	ADMIN_ROLES: Object.freeze([
-		'System Manager',
-		'Verenigingen Administrator'
-	])
+	ADMIN_ROLES: Object.freeze(['System Manager', 'Verenigingen Administrator'])
 };
 
 /**
@@ -117,8 +110,10 @@ const TERMINATION_CONFIG = {
  * @const {Object} API_METHODS
  */
 const API_METHODS = {
-	GET_ELIGIBLE_APPROVERS: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
-	INITIATE_DISCIPLINARY: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination'
+	GET_ELIGIBLE_APPROVERS:
+		'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
+	INITIATE_DISCIPLINARY:
+		'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination'
 };
 
 /**
@@ -142,9 +137,7 @@ function isDisciplinaryType(termination_type) {
  */
 function canUserApprove(user_roles, secondary_approver) {
 	// Admin roles can always approve
-	const has_admin_role = TERMINATION_CONFIG.ADMIN_ROLES.some(
-		role => user_roles.includes(role)
-	);
+	const has_admin_role = TERMINATION_CONFIG.ADMIN_ROLES.some((role) => user_roles.includes(role));
 
 	if (has_admin_role) {
 		return true;
@@ -173,9 +166,7 @@ frappe.ui.form.on('Membership Termination Request', {
 		frm.set_df_property('audit_trail', 'read_only', 1);
 
 		// Only admins can override secondary approval requirement
-		const can_override_approval = TERMINATION_CONFIG.ADMIN_ROLES.some(
-			role => frappe.user_roles.includes(role)
-		);
+		const can_override_approval = TERMINATION_CONFIG.ADMIN_ROLES.some((role) => frappe.user_roles.includes(role));
 		frm.set_df_property('requires_secondary_approval', 'read_only', !can_override_approval);
 	},
 
@@ -214,10 +205,7 @@ frappe.ui.form.on('Membership Termination Request', {
 
 function set_status_indicator(frm) {
 	if (frm.doc.status && TERMINATION_CONFIG.INDICATOR_COLORS[frm.doc.status]) {
-		frm.page.set_indicator(
-			frm.doc.status,
-			TERMINATION_CONFIG.INDICATOR_COLORS[frm.doc.status]
-		);
+		frm.page.set_indicator(frm.doc.status, TERMINATION_CONFIG.INDICATOR_COLORS[frm.doc.status]);
 	}
 }
 
@@ -237,49 +225,41 @@ function add_action_buttons(frm) {
 
 	if (frm.doc.status === TERMINATION_CONFIG.STATUS.DRAFT) {
 		// Submit for approval button
-		frm
-			.add_custom_button(
-				__('Submit for Approval'),
-				() => {
-					submit_for_approval(frm);
-				},
-				__('Actions')
-			)
-			.addClass('btn-primary');
+		frm.add_custom_button(
+			__('Submit for Approval'),
+			() => {
+				submit_for_approval(frm);
+			},
+			__('Actions')
+		).addClass('btn-primary');
 	} else if (frm.doc.status === TERMINATION_CONFIG.STATUS.PENDING) {
 		// Show approval buttons if user can approve
 		if (can_approve_request(frm)) {
-			frm
-				.add_custom_button(
-					__('Approve'),
-					() => {
-						approve_request(frm, 'approved');
-					},
-					__('Actions')
-				)
-				.addClass('btn-success');
+			frm.add_custom_button(
+				__('Approve'),
+				() => {
+					approve_request(frm, 'approved');
+				},
+				__('Actions')
+			).addClass('btn-success');
 
-			frm
-				.add_custom_button(
-					__('Reject'),
-					() => {
-						approve_request(frm, 'rejected');
-					},
-					__('Actions')
-				)
-				.addClass('btn-danger');
+			frm.add_custom_button(
+				__('Reject'),
+				() => {
+					approve_request(frm, 'rejected');
+				},
+				__('Actions')
+			).addClass('btn-danger');
 		}
 	} else if (frm.doc.status === TERMINATION_CONFIG.STATUS.APPROVED) {
 		// Execute termination button
-		frm
-			.add_custom_button(
-				__('Execute Termination'),
-				() => {
-					execute_termination(frm);
-				},
-				__('Actions')
-			)
-			.addClass('btn-warning');
+		frm.add_custom_button(
+			__('Execute Termination'),
+			() => {
+				execute_termination(frm);
+			},
+			__('Actions')
+		).addClass('btn-warning');
 	}
 
 	// View member button
@@ -331,15 +311,11 @@ function validate_required_fields(frm) {
 
 	if (is_disciplinary) {
 		if (!frm.doc.disciplinary_documentation) {
-			frappe.throw(
-				__('Documentation is required for disciplinary terminations')
-			);
+			frappe.throw(__('Documentation is required for disciplinary terminations'));
 		}
 
 		if (frm.doc.status === TERMINATION_CONFIG.STATUS.PENDING && !frm.doc.secondary_approver) {
-			frappe.throw(
-				__('Secondary approver is required for disciplinary terminations')
-			);
+			frappe.throw(__('Secondary approver is required for disciplinary terminations'));
 		}
 	}
 }
@@ -425,10 +401,8 @@ function approve_request(frm, decision) {
 						frm.refresh();
 						dialog.hide();
 
-						const message
-              = decision === 'approved'
-              	? __('Request approved successfully')
-              	: __('Request rejected');
+						const message =
+							decision === 'approved' ? __('Request approved successfully') : __('Request rejected');
 
 						frappe.show_alert(
 							{
@@ -440,7 +414,9 @@ function approve_request(frm, decision) {
 					} else {
 						frappe.msgprint({
 							title: __('Warning'),
-							message: __('Operation completed but no confirmation received. Please refresh to verify status.'),
+							message: __(
+								'Operation completed but no confirmation received. Please refresh to verify status.'
+							),
 							indicator: 'orange'
 						});
 						dialog.enable_primary_action();
@@ -467,13 +443,11 @@ function approve_request(frm, decision) {
 function execute_termination(frm) {
 	// Show confirmation dialog
 	frappe.confirm(
-		`${__(
-			'Are you sure you want to execute this termination? This action cannot be undone and will:'
-		)}<br><br>`
-      + `• ${__('Cancel all SEPA mandates')}<br>`
-      + `• ${__('Unsubscribe from member newsletters')}<br>`
-      + `• ${__('End all board/committee positions')}<br>`
-      + `• ${__('Update membership status')}`,
+		`${__('Are you sure you want to execute this termination? This action cannot be undone and will:')}<br><br>` +
+			`• ${__('Cancel all SEPA mandates')}<br>` +
+			`• ${__('Unsubscribe from member newsletters')}<br>` +
+			`• ${__('End all board/committee positions')}<br>` +
+			`• ${__('Update membership status')}`,
 		() => {
 			// User confirmed
 			frappe.call({
@@ -494,7 +468,9 @@ function execute_termination(frm) {
 					} else {
 						frappe.msgprint({
 							title: __('Warning'),
-							message: __('Termination processed but no confirmation received. Please refresh to verify status.'),
+							message: __(
+								'Termination processed but no confirmation received. Please refresh to verify status.'
+							),
 							indicator: 'orange'
 						});
 					}
@@ -565,29 +541,24 @@ frappe.membership_termination.show_dialog = function (member_id, member_name) {
 				fieldname: 'disciplinary_documentation',
 				fieldtype: 'Text Editor',
 				label: __('Documentation Required'),
-				depends_on:
-          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
 				mandatory_depends_on:
-          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
-				description: __(
-					'Required for disciplinary actions - will be included in expulsion report'
-				)
+					'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				description: __('Required for disciplinary actions - will be included in expulsion report')
 			},
 			{
 				fieldtype: 'Section Break',
 				label: __('Approval'),
-				depends_on:
-          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)'
+				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)'
 			},
 			{
 				fieldname: 'secondary_approver',
 				fieldtype: 'Link',
 				label: __('Secondary Approver'),
 				options: 'User',
-				depends_on:
-          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
 				mandatory_depends_on:
-          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+					'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
 				get_query() {
 					return {
 						query: API_METHODS.GET_ELIGIBLE_APPROVERS
@@ -659,11 +630,7 @@ frappe.membership_termination.show_dialog = function (member_id, member_name) {
 					callback(r) {
 						if (r.message) {
 							dialog.hide();
-							frappe.set_route(
-								'Form',
-								'Membership Termination Request',
-								r.message.request_id
-							);
+							frappe.set_route('Form', 'Membership Termination Request', r.message.request_id);
 						} else {
 							frappe.msgprint({
 								title: __('Warning'),
@@ -758,8 +725,8 @@ function toggle_dialog_fields(dialog, termination_type) {
 // @deprecated Use frappe.membership_termination.show_dialog() instead
 window.show_enhanced_termination_dialog = function (member_id, member_name) {
 	console.warn(
-		'window.show_enhanced_termination_dialog() is deprecated. '
-		+ 'Use frappe.membership_termination.show_dialog() instead.'
+		'window.show_enhanced_termination_dialog() is deprecated. ' +
+			'Use frappe.membership_termination.show_dialog() instead.'
 	);
 	return frappe.membership_termination.show_dialog(member_id, member_name);
 };

@@ -92,9 +92,7 @@ frappe.query_reports['Donation Summary'] = {
 			label: __('Only Reportable'),
 			fieldtype: 'Check',
 			default: 0,
-			description: __(
-				'Show only donations that need to be reported to Belastingdienst'
-			)
+			description: __('Show only donations that need to be reported to Belastingdienst')
 		},
 		{
 			fieldname: 'only_periodic',
@@ -156,8 +154,7 @@ frappe.query_reports['Donation Summary'] = {
 		// Add custom buttons
 		report.page.add_inner_button(__('Export for Belastingdienst'), () => {
 			frappe.call({
-				method:
-          'verenigingen.api.anbi_operations.export_belastingdienst_report',
+				method: 'verenigingen.api.anbi_operations.export_belastingdienst_report',
 				args: {
 					filters: report.get_filter_values()
 				},
@@ -170,25 +167,20 @@ frappe.query_reports['Donation Summary'] = {
 		});
 
 		report.page.add_inner_button(__('Send Consent Requests'), () => {
-			frappe.confirm(
-				__('Send ANBI consent request emails to all donors without consent?'),
-				() => {
-					frappe.call({
-						method: 'verenigingen.api.anbi_operations.send_consent_requests',
-						args: {
-							filters: report.get_filter_values()
-						},
-						callback(r) {
-							if (r.message) {
-								frappe.msgprint(
-									__('{0} consent request emails sent', [r.message.sent_count])
-								);
-								report.refresh();
-							}
+			frappe.confirm(__('Send ANBI consent request emails to all donors without consent?'), () => {
+				frappe.call({
+					method: 'verenigingen.api.anbi_operations.send_consent_requests',
+					args: {
+						filters: report.get_filter_values()
+					},
+					callback(r) {
+						if (r.message) {
+							frappe.msgprint(__('{0} consent request emails sent', [r.message.sent_count]));
+							report.refresh();
 						}
-					});
-				}
-			);
+					}
+				});
+			});
 		});
 	}
 };

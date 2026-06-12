@@ -67,11 +67,7 @@ frappe.ui.form.on('API Audit Log', {
 		// Add custom buttons for viewing related records
 		if (frm.doc.reference_doctype && frm.doc.reference_name) {
 			frm.add_custom_button(__('View Reference Document'), () => {
-				frappe.set_route(
-					'Form',
-					frm.doc.reference_doctype,
-					frm.doc.reference_name
-				);
+				frappe.set_route('Form', frm.doc.reference_doctype, frm.doc.reference_name);
 			});
 		}
 
@@ -84,10 +80,7 @@ frappe.ui.form.on('API Audit Log', {
 		// Show details in a formatted way
 		if (frm.doc.details) {
 			try {
-				const details
-          = typeof frm.doc.details === 'string'
-          	? JSON.parse(frm.doc.details)
-          	: frm.doc.details;
+				const details = typeof frm.doc.details === 'string' ? JSON.parse(frm.doc.details) : frm.doc.details;
 
 				if (Object.keys(details).length > 0) {
 					frm.add_custom_button(__('View Details'), () => {
@@ -132,10 +125,7 @@ frappe.ui.form.on('API Audit Log', {
 	onload(frm) {
 		// Format timestamp display
 		if (frm.doc.timestamp) {
-			frm.set_value(
-				'timestamp',
-				moment(frm.doc.timestamp).format('YYYY-MM-DD HH:mm:ss')
-			);
+			frm.set_value('timestamp', moment(frm.doc.timestamp).format('YYYY-MM-DD HH:mm:ss'));
 		}
 	}
 });

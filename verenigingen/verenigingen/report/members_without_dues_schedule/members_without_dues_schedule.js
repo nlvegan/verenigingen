@@ -62,22 +62,21 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 			label: __('Include Quit Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Quit\''
+			description: "Include members with status 'Quit'"
 		},
 		{
 			fieldname: 'include_suspended',
 			label: __('Include Suspended Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Suspended\''
+			description: "Include members with status 'Suspended'"
 		},
 		{
 			fieldname: 'include_pending',
 			label: __('Include Pending Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description:
-        'Include members with status \'Pending\' (applicants who haven\'t been approved yet)'
+			description: "Include members with status 'Pending' (applicants who haven't been approved yet)"
 		},
 		{
 			fieldname: 'member_status',
@@ -147,10 +146,7 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 
 			// Get members with issues
 			const problematic_members = data.filter((row) => {
-				return (
-					row.days_overdue > 0
-          || row.dues_schedule_status.includes('No Schedule')
-				);
+				return row.days_overdue > 0 || row.dues_schedule_status.includes('No Schedule');
 			});
 
 			if (problematic_members.length === 0) {
@@ -159,16 +155,12 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 			}
 
 			frappe.confirm(
-				__(
-					'This will attempt to fix schedule issues for {0} members. Continue?',
-					[problematic_members.length]
-				),
+				__('This will attempt to fix schedule issues for {0} members. Continue?', [problematic_members.length]),
 				() => {
 					const member_list = problematic_members.map((row) => row.member_id);
 
 					frappe.call({
-						method:
-              'verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule.fix_member_schedule_issues',
+						method: 'verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule.fix_member_schedule_issues',
 						args: {
 							member_list
 						},
@@ -184,10 +176,7 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 											<p><strong>Failed:</strong> <span style="color: red;">${result.total_processed - result.success_count}</span></p>
 										</div>
 									`,
-									indicator:
-                    result.success_count === result.total_processed
-                    	? 'green'
-                    	: 'orange'
+									indicator: result.success_count === result.total_processed ? 'green' : 'orange'
 								});
 
 								// Refresh the report

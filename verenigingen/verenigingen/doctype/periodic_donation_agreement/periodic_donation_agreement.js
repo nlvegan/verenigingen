@@ -139,15 +139,9 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 
 		// Auto-update end date based on duration
 		if (frm.doc.start_date && frm.doc.agreement_duration_years) {
-			const duration = parseInt(
-				frm.doc.agreement_duration_years.split(' ')[0],
-				10
-			);
+			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10);
 			if (duration) {
-				const end_date = frappe.datetime.add_years(
-					frm.doc.start_date,
-					duration
-				);
+				const end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
 				frm.set_value('end_date', end_date);
 			}
 		}
@@ -156,15 +150,9 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 	start_date(frm) {
 		// Auto-calculate end date based on selected duration
 		if (frm.doc.start_date && frm.doc.agreement_duration_years) {
-			const duration = parseInt(
-				frm.doc.agreement_duration_years.split(' ')[0],
-				10
-			);
+			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10);
 			if (duration) {
-				const end_date = frappe.datetime.add_years(
-					frm.doc.start_date,
-					duration
-				);
+				const end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
 				frm.set_value('end_date', end_date);
 			}
 		}
@@ -194,7 +182,7 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 							frappe.msgprint({
 								title: __('Identification Not Verified'),
 								message: __(
-									'This donor\'s identification has not been verified. Consider verifying before creating the agreement.'
+									"This donor's identification has not been verified. Consider verifying before creating the agreement."
 								),
 								indicator: 'orange'
 							});
@@ -304,30 +292,25 @@ function cancel_agreement_dialog(frm) {
 		],
 		primary_action_label: __('Cancel Agreement'),
 		primary_action(values) {
-			frappe.confirm(
-				__(
-					'Are you sure you want to cancel this agreement? This action cannot be undone.'
-				),
-				() => {
-					frappe.call({
-						method: 'cancel_agreement',
-						doc: frm.doc,
-						args: {
-							reason: values.reason,
-							send_email: !!values.send_email
-						},
-						callback(r) {
-							if (r.message) {
-								frappe.show_alert({
-									message: __('Agreement cancelled successfully'),
-									indicator: 'green'
-								});
-								frm.reload_doc();
-							}
+			frappe.confirm(__('Are you sure you want to cancel this agreement? This action cannot be undone.'), () => {
+				frappe.call({
+					method: 'cancel_agreement',
+					doc: frm.doc,
+					args: {
+						reason: values.reason,
+						send_email: !!values.send_email
+					},
+					callback(r) {
+						if (r.message) {
+							frappe.show_alert({
+								message: __('Agreement cancelled successfully'),
+								indicator: 'green'
+							});
+							frm.reload_doc();
 						}
-					});
-				}
-			);
+					}
+				});
+			});
 			d.hide();
 		}
 	});
@@ -337,13 +320,7 @@ function cancel_agreement_dialog(frm) {
 
 function activate_agreement(frm) {
 	// Check required fields
-	const required_fields = [
-		'donor',
-		'start_date',
-		'annual_amount',
-		'payment_frequency',
-		'payment_method'
-	];
+	const required_fields = ['donor', 'start_date', 'annual_amount', 'payment_frequency', 'payment_method'];
 	const missing_fields = [];
 
 	required_fields.forEach((field) => {
@@ -355,21 +332,16 @@ function activate_agreement(frm) {
 	if (missing_fields.length > 0) {
 		frappe.msgprint({
 			title: __('Missing Required Fields'),
-			message: __('Please fill the following fields before activating: {0}', [
-				missing_fields.join(', ')
-			]),
+			message: __('Please fill the following fields before activating: {0}', [missing_fields.join(', ')]),
 			indicator: 'red'
 		});
 		return;
 	}
 
-	frappe.confirm(
-		__('Are you sure you want to activate this agreement?'),
-		() => {
-			frm.set_value('status', 'Active');
-			frm.save();
-		}
-	);
+	frappe.confirm(__('Are you sure you want to activate this agreement?'), () => {
+		frm.set_value('status', 'Active');
+		frm.save();
+	});
 }
 
 function generate_agreement_pdf(_frm) {
@@ -383,19 +355,15 @@ function add_donation_statistics(frm) {
 		// Calculate actual duration in years
 		let duration_years = 5; // default
 		if (frm.doc.agreement_duration_years) {
-			duration_years
-        = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10) || 5;
+			duration_years = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10) || 5;
 		}
 
 		const total_expected = frm.doc.annual_amount * duration_years;
-		const progress_percentage
-      = total_expected > 0
-      	? ((frm.doc.total_donated / total_expected) * 100).toFixed(1)
-      	: 0;
+		const progress_percentage =
+			total_expected > 0 ? ((frm.doc.total_donated / total_expected) * 100).toFixed(1) : 0;
 
 		// Determine agreement type for display
-		const agreement_type
-      = duration_years >= 5 ? __('ANBI Agreement') : __('Donation Pledge');
+		const agreement_type = duration_years >= 5 ? __('ANBI Agreement') : __('Donation Pledge');
 
 		const stats_html = `
             <div class="donation-statistics">
@@ -512,9 +480,7 @@ function show_anbi_validation_status(frm) {
 				if (!status.valid) {
 					frappe.show_alert(
 						{
-							message: __(
-								'ANBI validation failed. Please review the issues listed above.'
-							),
+							message: __('ANBI validation failed. Please review the issues listed above.'),
 							indicator: 'red'
 						},
 						8
@@ -525,9 +491,7 @@ function show_anbi_validation_status(frm) {
 		error(_xhr, _status, error) {
 			frappe.show_alert(
 				{
-					message: __(
-						'Failed to check ANBI validation status. Please try again.'
-					),
+					message: __('Failed to check ANBI validation status. Please try again.'),
 					indicator: 'orange'
 				},
 				5
@@ -539,17 +503,12 @@ function show_anbi_validation_status(frm) {
 function update_anbi_eligibility_message(frm) {
 	// Update ANBI eligibility message based on selected duration
 	if (frm.doc.agreement_duration_years) {
-		const duration = parseInt(
-			frm.doc.agreement_duration_years.split(' ')[0],
-			10
-		);
+		const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10);
 		let message = '';
 		let indicator = '';
 
 		if (duration >= 5) {
-			message = __(
-				'This agreement qualifies for ANBI periodic donation tax benefits (5+ year commitment).'
-			);
+			message = __('This agreement qualifies for ANBI periodic donation tax benefits (5+ year commitment).');
 			indicator = 'green';
 			frm.set_value('anbi_eligible', 1);
 
@@ -567,9 +526,8 @@ function update_anbi_eligibility_message(frm) {
 			frm.set_df_property(
 				'agreement_duration_years',
 				'description',
-				__(
-					'Duration of the commitment. Minimum 5 years required for ANBI periodic donation tax benefits.'
-				) + anbi_info
+				__('Duration of the commitment. Minimum 5 years required for ANBI periodic donation tax benefits.') +
+					anbi_info
 			);
 		} else {
 			message = __(
@@ -592,9 +550,8 @@ function update_anbi_eligibility_message(frm) {
 			frm.set_df_property(
 				'agreement_duration_years',
 				'description',
-				__(
-					'Duration of the commitment. Minimum 5 years required for ANBI periodic donation tax benefits.'
-				) + pledge_info
+				__('Duration of the commitment. Minimum 5 years required for ANBI periodic donation tax benefits.') +
+					pledge_info
 			);
 		}
 

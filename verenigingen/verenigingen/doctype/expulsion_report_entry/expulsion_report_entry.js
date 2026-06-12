@@ -87,14 +87,8 @@ frappe.ui.form.on('Expulsion Report Entry', {
 				callback(r) {
 					if (r.message) {
 						frm.set_value('member_name', r.message.full_name);
-						if (
-							r.message.current_chapter_display
-              && !frm.doc.chapter_involved
-						) {
-							frm.set_value(
-								'chapter_involved',
-								r.message.current_chapter_display
-							);
+						if (r.message.current_chapter_display && !frm.doc.chapter_involved) {
+							frm.set_value('chapter_involved', r.message.current_chapter_display);
 						}
 					}
 				}
@@ -144,9 +138,7 @@ function add_action_buttons(frm) {
 								frappe.msgprint(__('Appeal creation dialog not available'));
 							}
 						} else {
-							frappe.msgprint(
-								__('No executed termination request found for this expulsion')
-							);
+							frappe.msgprint(__('No executed termination request found for this expulsion'));
 						}
 					}
 				});

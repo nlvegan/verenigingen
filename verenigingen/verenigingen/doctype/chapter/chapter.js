@@ -59,14 +59,14 @@
  */
 frappe.ui.form.on('Chapter', {
 	/**
-   * Form Onload Event Handler
-   *
-   * Initializes the chapter form with required functionality and prevents
-   * duplicate initialization. Sets up form behavior, validation rules,
-   * and UI components for chapter management.
-   *
-   * @param {Object} frm - Frappe Form object for chapter document
-   */
+	 * Form Onload Event Handler
+	 *
+	 * Initializes the chapter form with required functionality and prevents
+	 * duplicate initialization. Sets up form behavior, validation rules,
+	 * and UI components for chapter management.
+	 *
+	 * @param {Object} frm - Frappe Form object for chapter document
+	 */
 	onload(frm) {
 		// Initialize chapter form functionality
 		if (!frm._chapter_initialized) {
@@ -80,7 +80,9 @@ frappe.ui.form.on('Chapter', {
 			callback(r) {
 				if (r.message) {
 					frm.fields_dict.board_documents?.grid?.update_docfield_property(
-						'document_type', 'options', r.message
+						'document_type',
+						'options',
+						r.message
 					);
 				}
 			}
@@ -88,20 +90,20 @@ frappe.ui.form.on('Chapter', {
 	},
 
 	/**
-   * Form Refresh Event Handler
-   *
-   * Called when the chapter form is displayed or refreshed. Sets up
-   * action buttons, updates UI components, and configures board member
-   * management grid based on current chapter state and user permissions.
-   *
-   * @description Key Operations:
-   * - Configures chapter-specific action buttons
-   * - Updates chapter status and member count displays
-   * - Sets up board member management grid
-   * - Applies role-based access controls
-   *
-   * @param {Object} frm - Form object containing chapter data
-   */
+	 * Form Refresh Event Handler
+	 *
+	 * Called when the chapter form is displayed or refreshed. Sets up
+	 * action buttons, updates UI components, and configures board member
+	 * management grid based on current chapter state and user permissions.
+	 *
+	 * @description Key Operations:
+	 * - Configures chapter-specific action buttons
+	 * - Updates chapter status and member count displays
+	 * - Sets up board member management grid
+	 * - Applies role-based access controls
+	 *
+	 * @param {Object} frm - Form object containing chapter data
+	 */
 	refresh(frm) {
 		setup_chapter_buttons(frm);
 		update_chapter_ui(frm);
@@ -110,14 +112,14 @@ frappe.ui.form.on('Chapter', {
 	},
 
 	/**
-   * Form Validation Event Handler
-   *
-   * Validates chapter form data before saving. Checks postal code ranges,
-   * board member assignments, and business rule compliance.
-   *
-   * @param {Object} frm - Form object to validate
-   * @returns {boolean} True if validation passes, false otherwise
-   */
+	 * Form Validation Event Handler
+	 *
+	 * Validates chapter form data before saving. Checks postal code ranges,
+	 * board member assignments, and business rule compliance.
+	 *
+	 * @param {Object} frm - Form object to validate
+	 * @returns {boolean} True if validation passes, false otherwise
+	 */
 	validate(frm) {
 		const result = validate_chapter_form(frm);
 
@@ -130,26 +132,26 @@ frappe.ui.form.on('Chapter', {
 	},
 
 	/**
-   * Before Save Event Handler
-   *
-   * Prepares chapter data for saving, including data normalization,
-   * relationship validation, and audit trail preparation.
-   *
-   * @param {Object} frm - Form object being saved
-   * @returns {boolean} True to continue save, false to abort
-   */
+	 * Before Save Event Handler
+	 *
+	 * Prepares chapter data for saving, including data normalization,
+	 * relationship validation, and audit trail preparation.
+	 *
+	 * @param {Object} frm - Form object being saved
+	 * @returns {boolean} True to continue save, false to abort
+	 */
 	before_save(frm) {
 		return prepare_chapter_save(frm);
 	},
 
 	/**
-   * After Save Event Handler
-   *
-   * Handles post-save operations including member reassignment,
-   * notification sending, and system updates.
-   *
-   * @param {Object} frm - Saved form object
-   */
+	 * After Save Event Handler
+	 *
+	 * Handles post-save operations including member reassignment,
+	 * notification sending, and system updates.
+	 *
+	 * @param {Object} frm - Saved form object
+	 */
 	after_save(frm) {
 		handle_chapter_after_save(frm);
 	},
@@ -157,14 +159,14 @@ frappe.ui.form.on('Chapter', {
 	// ==================== FIELD EVENT HANDLERS ====================
 
 	/**
-   * Postal Codes Field Change Handler
-   *
-   * Validates the postal-code pattern syntax for this chapter via the
-   * server-side `validate_postal_codes` method and warns on invalid patterns.
-   * Does not check for overlaps with other chapters.
-   *
-   * @param {Object} frm - Form object with postal code data
-   */
+	 * Postal Codes Field Change Handler
+	 *
+	 * Validates the postal-code pattern syntax for this chapter via the
+	 * server-side `validate_postal_codes` method and warns on invalid patterns.
+	 * Does not check for overlaps with other chapters.
+	 *
+	 * @param {Object} frm - Form object with postal code data
+	 */
 	postal_codes(frm) {
 		validate_postal_codes(frm);
 
@@ -175,13 +177,13 @@ frappe.ui.form.on('Chapter', {
 	},
 
 	/**
-   * Chapter Head Field Change Handler
-   *
-   * Validates chapter head assignment and ensures the selected volunteer
-   * is eligible for the leadership role.
-   *
-   * @param {Object} frm - Form object with chapter head assignment
-   */
+	 * Chapter Head Field Change Handler
+	 *
+	 * Validates chapter head assignment and ensures the selected volunteer
+	 * is eligible for the leadership role.
+	 *
+	 * @param {Object} frm - Form object with chapter head assignment
+	 */
 	chapter_head(frm) {
 		validate_chapter_head(frm);
 
@@ -208,13 +210,13 @@ frappe.ui.form.on('Chapter', {
 	},
 
 	/**
-   * Region Field Change Handler
-   *
-   * Handles region assignment changes and updates related geographical
-   * configurations and member assignments.
-   *
-   * @param {Object} frm - Form object with region data
-   */
+	 * Region Field Change Handler
+	 *
+	 * Handles region assignment changes and updates related geographical
+	 * configurations and member assignments.
+	 *
+	 * @param {Object} frm - Form object with region data
+	 */
 	region(frm) {
 		handle_region_change(frm);
 
@@ -238,13 +240,13 @@ frappe.ui.form.on('Chapter', {
 	},
 
 	/**
-   * Published Field Change Handler
-   *
-   * Manages chapter publication status changes, affecting visibility
-   * in member portal and public interfaces.
-   *
-   * @param {Object} frm - Form object with publication status
-   */
+	 * Published Field Change Handler
+	 *
+	 * Manages chapter publication status changes, affecting visibility
+	 * in member portal and public interfaces.
+	 *
+	 * @param {Object} frm - Form object with publication status
+	 */
 	published(frm) {
 		handle_published_change(frm);
 
@@ -360,23 +362,23 @@ frappe.ui.form.on('Chapter', {
 	// ==================== ROLE PROFILE EVENT HANDLERS ====================
 
 	/**
-   * Enable Board Role-Specific Profiles Change Handler
-   *
-   * Handles toggle for board role-specific profile configuration.
-   *
-   * @param {Object} frm - Form object
-   */
+	 * Enable Board Role-Specific Profiles Change Handler
+	 *
+	 * Handles toggle for board role-specific profile configuration.
+	 *
+	 * @param {Object} frm - Form object
+	 */
 	enable_board_role_specific_profiles(frm) {
 		handle_board_role_specific_profiles_toggle(frm);
 	},
 
 	/**
-   * Default Board Role Profile Change Handler
-   *
-   * Validates default board role profile selection.
-   *
-   * @param {Object} frm - Form object
-   */
+	 * Default Board Role Profile Change Handler
+	 *
+	 * Validates default board role profile selection.
+	 *
+	 * @param {Object} frm - Form object
+	 */
 	default_board_role_profile(frm) {
 		validate_default_board_role_profile(frm);
 	}
@@ -391,103 +393,103 @@ frappe.ui.form.on('Chapter', {
  */
 frappe.ui.form.on('Chapter Board Member', {
 	/**
-   * Board Member Add Event Handler
-   *
-   * Triggered when a new board member row is added to the chapter.
-   * Defaults the term start date to today and marks the row active.
-   *
-   * @param {Object} frm - Parent chapter form object
-   * @param {string} cdt - Child DocType name ('Chapter Board Member')
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Board Member Add Event Handler
+	 *
+	 * Triggered when a new board member row is added to the chapter.
+	 * Defaults the term start date to today and marks the row active.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name ('Chapter Board Member')
+	 * @param {string} cdn - Child document name/ID
+	 */
 	board_members_add(frm, cdt, cdn) {
 		handle_board_member_add(frm, cdt, cdn);
 	},
 
 	/**
-   * Board Member Remove Event Handler
-   *
-   * Client-side no-op. Board Member role removal and removal
-   * notifications are handled server-side in
-   * ChapterBoardMember.on_trash().
-   *
-   * @param {Object} frm - Parent chapter form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Board Member Remove Event Handler
+	 *
+	 * Client-side no-op. Board Member role removal and removal
+	 * notifications are handled server-side in
+	 * ChapterBoardMember.on_trash().
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	board_members_remove(frm, cdt, cdn) {
 		handle_board_member_remove(frm, cdt, cdn);
 	},
 
 	/**
-   * Volunteer Field Change Handler
-   *
-   * Populates the read-only volunteer_name and email columns from the
-   * selected Volunteer. Authoritative validation (volunteer/role
-   * existence, date range, email, linked user) runs server-side in
-   * ChapterBoardMember.validate().
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Volunteer Field Change Handler
+	 *
+	 * Populates the read-only volunteer_name and email columns from the
+	 * selected Volunteer. Authoritative validation (volunteer/role
+	 * existence, date range, email, linked user) runs server-side in
+	 * ChapterBoardMember.validate().
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	volunteer(frm, cdt, cdn) {
 		handle_volunteer_change(frm, cdt, cdn);
 	},
 
 	/**
-   * Chapter Role Field Change Handler
-   *
-   * Client-side no-op placeholder. Chapter Role existence is validated
-   * server-side in ChapterBoardMember.validate().
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Chapter Role Field Change Handler
+	 *
+	 * Client-side no-op placeholder. Chapter Role existence is validated
+	 * server-side in ChapterBoardMember.validate().
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	chapter_role(frm, cdt, cdn) {
 		handle_role_change(frm, cdt, cdn);
 	},
 
 	/**
-   * From Date Field Change Handler
-   *
-   * Wired to the shared date handler. Date-range consistency
-   * (end-after-start) is enforced on to_date change client-side and
-   * again server-side in ChapterBoardMember.validate().
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * From Date Field Change Handler
+	 *
+	 * Wired to the shared date handler. Date-range consistency
+	 * (end-after-start) is enforced on to_date change client-side and
+	 * again server-side in ChapterBoardMember.validate().
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	from_date(frm, cdt, cdn) {
 		handle_date_change(frm, cdt, cdn, 'from_date');
 	},
 
 	/**
-   * To Date Field Change Handler
-   *
-   * Rejects an end date earlier than the start date, clearing the
-   * field with a warning message.
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * To Date Field Change Handler
+	 *
+	 * Rejects an end date earlier than the start date, clearing the
+	 * field with a warning message.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	to_date(frm, cdt, cdn) {
 		handle_date_change(frm, cdt, cdn, 'to_date');
 	},
 
 	/**
-   * Is Active Field Change Handler
-   *
-   * When a row is marked inactive without an end date, defaults the
-   * end date to today.
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Is Active Field Change Handler
+	 *
+	 * When a row is marked inactive without an end date, defaults the
+	 * end date to today.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	is_active(frm, cdt, cdn) {
 		handle_active_change(frm, cdt, cdn);
 	}
@@ -501,54 +503,54 @@ frappe.ui.form.on('Chapter Board Member', {
  */
 frappe.ui.form.on('Chapter Member', {
 	/**
-   * Member Add Event Handler
-   *
-   * Triggered when a new member is added to the chapter.
-   * Enables the row and defaults the chapter join date to today.
-   *
-   * @param {Object} frm - Parent chapter form object
-   * @param {string} cdt - Child DocType name ('Chapter Member')
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Member Add Event Handler
+	 *
+	 * Triggered when a new member is added to the chapter.
+	 * Enables the row and defaults the chapter join date to today.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name ('Chapter Member')
+	 * @param {string} cdn - Child document name/ID
+	 */
 	members_add(frm, cdt, cdn) {
 		handle_member_add(frm, cdt, cdn);
 	},
 
 	/**
-   * Member Remove Event Handler
-   *
-   * Client-side no-op placeholder.
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Member Remove Event Handler
+	 *
+	 * Client-side no-op placeholder.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	members_remove(frm, cdt, cdn) {
 		handle_member_remove(frm, cdt, cdn);
 	},
 
 	/**
-   * Member Field Change Handler
-   *
-   * Defaults the chapter join date to today when a member is selected.
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Member Field Change Handler
+	 *
+	 * Defaults the chapter join date to today when a member is selected.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	member(frm, cdt, cdn) {
 		handle_member_change(frm, cdt, cdn);
 	},
 
 	/**
-   * Enabled Field Change Handler
-   *
-   * Client-side no-op placeholder.
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Enabled Field Change Handler
+	 *
+	 * Client-side no-op placeholder.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	enabled(frm, cdt, cdn) {
 		handle_enabled_change(frm, cdt, cdn);
 	}
@@ -562,27 +564,27 @@ frappe.ui.form.on('Chapter Member', {
  */
 frappe.ui.form.on('Chapter Role Profile Mapping', {
 	/**
-   * Chapter Role Field Change Handler
-   *
-   * Validates chapter role selection and checks for duplicates.
-   *
-   * @param {Object} frm - Parent chapter form object
-   * @param {string} cdt - Child DocType name ('Chapter Role Profile Mapping')
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Chapter Role Field Change Handler
+	 *
+	 * Validates chapter role selection and checks for duplicates.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name ('Chapter Role Profile Mapping')
+	 * @param {string} cdn - Child document name/ID
+	 */
 	chapter_role(frm, cdt, cdn) {
 		validate_chapter_role_assignment(frm, cdt, cdn);
 	},
 
 	/**
-   * Role Profile Field Change Handler
-   *
-   * Validates role profile selection for chapter role.
-   *
-   * @param {Object} frm - Parent form object
-   * @param {string} cdt - Child DocType name
-   * @param {string} cdn - Child document name/ID
-   */
+	 * Role Profile Field Change Handler
+	 *
+	 * Validates role profile selection for chapter role.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	role_profile(frm, cdt, cdn) {
 		// Link field validation is sufficient - Role Profile has no 'disabled' field
 	}
@@ -622,11 +624,7 @@ function setup_chapter_buttons(frm) {
 			frm.add_custom_button(
 				__('Current SEPA Mandate'),
 				() => {
-					frappe.set_route(
-						'Form',
-						'SEPA Mandate',
-						frm.doc.current_sepa_mandate
-					);
+					frappe.set_route('Form', 'SEPA Mandate', frm.doc.current_sepa_mandate);
 				},
 				__('View')
 			);
@@ -685,23 +683,21 @@ function update_chapter_ui(frm) {
 function setup_board_grid(frm) {
 	// Set up board members grid
 	if (frm.fields_dict.board_members && frm.fields_dict.board_members.grid) {
-		frm.fields_dict.board_members.grid.get_field('volunteer').get_query
-      = function () {
-      	return {
-      		filters: {
-      			status: ['in', ['Active', 'New']]
-					}
-      	};
+		frm.fields_dict.board_members.grid.get_field('volunteer').get_query = function () {
+			return {
+				filters: {
+					status: ['in', ['Active', 'New']]
+				}
 			};
+		};
 
-		frm.fields_dict.board_members.grid.get_field('chapter_role').get_query
-      = function () {
-      	return {
-      		filters: {
-      			is_active: 1
-					}
-      	};
+		frm.fields_dict.board_members.grid.get_field('chapter_role').get_query = function () {
+			return {
+				filters: {
+					is_active: 1
+				}
 			};
+		};
 	}
 }
 
@@ -772,9 +768,7 @@ function validate_chapter_head(frm) {
 	if (frm.doc.chapter_head) {
 		frappe.db.get_value('Member', frm.doc.chapter_head, 'status', (r) => {
 			if (r && r.status !== 'Active') {
-				frappe.msgprint(
-					__('Warning: Selected chapter head is not an active member')
-				);
+				frappe.msgprint(__('Warning: Selected chapter head is not an active member'));
 			}
 		});
 	}
@@ -871,17 +865,12 @@ function handle_board_member_remove(_frm, _cdt, _cdn) {
 function handle_volunteer_change(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	if (row.volunteer) {
-		frappe.db.get_value(
-			'Volunteer',
-			row.volunteer,
-			['volunteer_name', 'email'],
-			(r) => {
-				if (r) {
-					frappe.model.set_value(cdt, cdn, 'volunteer_name', r.volunteer_name);
-					frappe.model.set_value(cdt, cdn, 'email', r.email);
-				}
+		frappe.db.get_value('Volunteer', row.volunteer, ['volunteer_name', 'email'], (r) => {
+			if (r) {
+				frappe.model.set_value(cdt, cdn, 'volunteer_name', r.volunteer_name);
+				frappe.model.set_value(cdt, cdn, 'email', r.email);
 			}
-		);
+		});
 	}
 }
 
@@ -911,12 +900,7 @@ function handle_member_add(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	row.enabled = 1;
 	if (!row.chapter_join_date) {
-		frappe.model.set_value(
-			cdt,
-			cdn,
-			'chapter_join_date',
-			frappe.datetime.get_today()
-		);
+		frappe.model.set_value(cdt, cdn, 'chapter_join_date', frappe.datetime.get_today());
 	}
 }
 
@@ -927,12 +911,7 @@ function handle_member_remove(_frm, _cdt, _cdn) {
 function handle_member_change(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	if (row.member && !row.chapter_join_date) {
-		frappe.model.set_value(
-			cdt,
-			cdn,
-			'chapter_join_date',
-			frappe.datetime.get_today()
-		);
+		frappe.model.set_value(cdt, cdn, 'chapter_join_date', frappe.datetime.get_today());
 	}
 }
 
@@ -947,9 +926,7 @@ function update_members_summary(frm) {
 		const total_count = frm.doc.members.length;
 
 		if (frm.dashboard && frm.dashboard.set_headline) {
-			frm.dashboard.set_headline(
-				__('Members: {0} active of {1} total', [active_count, total_count])
-			);
+			frm.dashboard.set_headline(__('Members: {0} active of {1} total', [active_count, total_count]));
 		}
 	}
 }
@@ -980,9 +957,7 @@ function view_chapter_members(_frm) {
 	// Navigate to members list - members will be filtered by chapter roster
 	frappe.msgprint({
 		title: __('Chapter Members'),
-		message: __(
-			'Viewing members for this chapter. Use the chapter roster below to see all members.'
-		),
+		message: __('Viewing members for this chapter. Use the chapter roster below to see all members.'),
 		indicator: 'blue'
 	});
 	frappe.set_route('List', 'Member');
@@ -1176,8 +1151,7 @@ function display_chapter_join_requests(frm) {
 	}
 
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.get_chapter_join_requests',
+		method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.get_chapter_join_requests',
 		args: {
 			chapter_name: frm.doc.name
 		},
@@ -1190,8 +1164,8 @@ function display_chapter_join_requests(frm) {
 
 				// Create header
 				const header = document.createElement('h5');
-				header.style.cssText
-          = 'margin-bottom: 15px; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 5px;';
+				header.style.cssText =
+					'margin-bottom: 15px; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 5px;';
 
 				// Create icon element safely
 				const headerIcon = document.createElement('i');
@@ -1233,8 +1207,7 @@ window.approve_chapter_join_request = function (request_name, _chapter_name) {
 		],
 		(values) => {
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.approve_join_request',
+				method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.approve_join_request',
 				args: {
 					request_name,
 					notes: values.notes
@@ -1253,11 +1226,7 @@ window.approve_chapter_join_request = function (request_name, _chapter_name) {
 						// Refresh the current form to update the display
 						cur_frm.refresh();
 					} else {
-						frappe.msgprint(
-							__('Failed to approve request: {0}', [
-								r.message.error || 'Unknown error'
-							])
-						);
+						frappe.msgprint(__('Failed to approve request: {0}', [r.message.error || 'Unknown error']));
 					}
 				},
 				error(r) {
@@ -1291,8 +1260,7 @@ window.reject_chapter_join_request = function (request_name, _chapter_name) {
 		],
 		(values) => {
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.reject_join_request',
+				method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.reject_join_request',
 				args: {
 					request_name,
 					reason: values.reason
@@ -1311,11 +1279,7 @@ window.reject_chapter_join_request = function (request_name, _chapter_name) {
 						// Refresh the current form to update the display
 						cur_frm.refresh();
 					} else {
-						frappe.msgprint(
-							__('Failed to reject request: {0}', [
-								r.message.error || 'Unknown error'
-							])
-						);
+						frappe.msgprint(__('Failed to reject request: {0}', [r.message.error || 'Unknown error']));
 					}
 				},
 				error(r) {
@@ -1338,15 +1302,9 @@ window.reject_chapter_join_request = function (request_name, _chapter_name) {
 function create_chapter_request_card(request, frm) {
 	// Sanitize user input data
 	const safe_member_name = frappe.utils.escape_html(request.member_name || '');
-	const safe_member_email = frappe.utils.escape_html(
-		request.member_email || ''
-	);
-	const safe_introduction = frappe.utils.escape_html(
-		request.introduction || ''
-	);
-	const safe_review_notes = frappe.utils.escape_html(
-		request.review_notes || ''
-	);
+	const safe_member_email = frappe.utils.escape_html(request.member_email || '');
+	const safe_introduction = frappe.utils.escape_html(request.introduction || '');
+	const safe_review_notes = frappe.utils.escape_html(request.review_notes || '');
 	const safe_request_name = frappe.utils.escape_html(request.name || '');
 
 	// Determine status styling
@@ -1381,9 +1339,7 @@ function create_chapter_request_card(request, frm) {
 	const memberIcon = document.createElement('i');
 	memberIcon.className = 'fa fa-user';
 	memberHeader.appendChild(memberIcon);
-	memberHeader.appendChild(
-		document.createTextNode(` ${safe_member_name} (${safe_member_email})`)
-	);
+	memberHeader.appendChild(document.createTextNode(` ${safe_member_name} (${safe_member_email})`));
 	leftCol.appendChild(memberHeader);
 
 	// Request date
@@ -1393,11 +1349,7 @@ function create_chapter_request_card(request, frm) {
 	const dateLabel = document.createElement('strong');
 	dateLabel.textContent = 'Request Date:';
 	requestDate.appendChild(dateLabel);
-	requestDate.appendChild(
-		document.createTextNode(
-			` ${frappe.datetime.str_to_user(request.request_date)}`
-		)
-	);
+	requestDate.appendChild(document.createTextNode(` ${frappe.datetime.str_to_user(request.request_date)}`));
 	leftCol.appendChild(requestDate);
 
 	// Introduction text (truncated and escaped)
@@ -1409,10 +1361,8 @@ function create_chapter_request_card(request, frm) {
 	introLabel.textContent = 'Introduction:';
 	introSmall.appendChild(introLabel);
 
-	const truncated_intro
-    = safe_introduction.length > 100
-    	? `${safe_introduction.substring(0, 100)}...`
-    	: safe_introduction;
+	const truncated_intro =
+		safe_introduction.length > 100 ? `${safe_introduction.substring(0, 100)}...` : safe_introduction;
 	introSmall.appendChild(document.createTextNode(` ${truncated_intro}`));
 	introduction.appendChild(introSmall);
 	leftCol.appendChild(introduction);
@@ -1475,8 +1425,7 @@ function create_chapter_request_card(request, frm) {
 		approveIcon.className = 'fa fa-check';
 		approveBtn.appendChild(approveIcon);
 		approveBtn.appendChild(document.createTextNode(' Approve'));
-		approveBtn.onclick = () =>
-			window.approve_chapter_join_request(safe_request_name, frm.doc.name);
+		approveBtn.onclick = () => window.approve_chapter_join_request(safe_request_name, frm.doc.name);
 		actionDiv.appendChild(approveBtn);
 
 		// Reject button
@@ -1487,8 +1436,7 @@ function create_chapter_request_card(request, frm) {
 		rejectIcon.className = 'fa fa-times';
 		rejectBtn.appendChild(rejectIcon);
 		rejectBtn.appendChild(document.createTextNode(' Reject'));
-		rejectBtn.onclick = () =>
-			window.reject_chapter_join_request(safe_request_name, frm.doc.name);
+		rejectBtn.onclick = () => window.reject_chapter_join_request(safe_request_name, frm.doc.name);
 		actionDiv.appendChild(rejectBtn);
 
 		rightCol.appendChild(actionDiv);
@@ -1534,9 +1482,7 @@ function inject_chapter_requests_safely(frm, container) {
 		}
 	} catch (e) {
 		console.error('Form layout injection failed:', e);
-		frappe.msgprint(
-			__('Unable to display chapter join requests. Please refresh the page.')
-		);
+		frappe.msgprint(__('Unable to display chapter join requests. Please refresh the page.'));
 	}
 }
 
@@ -1548,10 +1494,7 @@ function inject_chapter_requests_safely(frm, container) {
  */
 function setup_chapter_role_profile_ui(frm) {
 	// Set conditional visibility for board role-specific profiles table
-	frm.toggle_display(
-		'board_role_specific_profiles',
-		frm.doc.enable_board_role_specific_profiles
-	);
+	frm.toggle_display('board_role_specific_profiles', frm.doc.enable_board_role_specific_profiles);
 
 	// Add helpful descriptions
 	if (frm.doc.enable_board_role_specific_profiles) {
@@ -1570,17 +1513,12 @@ function setup_chapter_role_profile_ui(frm) {
  * @param {Object} frm - Form object
  */
 function handle_board_role_specific_profiles_toggle(frm) {
-	frm.toggle_display(
-		'board_role_specific_profiles',
-		frm.doc.enable_board_role_specific_profiles
-	);
+	frm.toggle_display('board_role_specific_profiles', frm.doc.enable_board_role_specific_profiles);
 
 	if (frm.doc.enable_board_role_specific_profiles) {
 		frappe.show_alert(
 			{
-				message: __(
-					'You can now configure different role profiles for different board roles'
-				),
+				message: __('You can now configure different role profiles for different board roles'),
 				indicator: 'blue'
 			},
 			5
@@ -1590,19 +1528,11 @@ function handle_board_role_specific_profiles_toggle(frm) {
 		frm.refresh_field('board_role_specific_profiles');
 	} else {
 		// Clear board role-specific profiles if disabled
-		if (
-			frm.doc.board_role_specific_profiles
-      && frm.doc.board_role_specific_profiles.length > 0
-		) {
-			frappe.confirm(
-				__(
-					'This will clear all board role-specific profile assignments. Continue?'
-				),
-				() => {
-					frm.clear_table('board_role_specific_profiles');
-					frm.refresh_field('board_role_specific_profiles');
-				}
-			);
+		if (frm.doc.board_role_specific_profiles && frm.doc.board_role_specific_profiles.length > 0) {
+			frappe.confirm(__('This will clear all board role-specific profile assignments. Continue?'), () => {
+				frm.clear_table('board_role_specific_profiles');
+				frm.refresh_field('board_role_specific_profiles');
+			});
 		}
 	}
 }
@@ -1649,9 +1579,7 @@ function validate_chapter_role_assignment(frm, cdt, cdn) {
 	if (existing_assignment) {
 		frappe.msgprint({
 			title: __('Duplicate Role Assignment'),
-			message: __(
-				'This chapter role already has a role profile assignment. Please choose a different role.'
-			),
+			message: __('This chapter role already has a role profile assignment. Please choose a different role.'),
 			indicator: 'red'
 		});
 		frappe.model.set_value(cdt, cdn, 'chapter_role', '');
@@ -1660,12 +1588,7 @@ function validate_chapter_role_assignment(frm, cdt, cdn) {
 
 	// Auto-suggest description based on role
 	if (row.chapter_role && !row.description) {
-		frappe.model.set_value(
-			cdt,
-			cdn,
-			'description',
-			__('Role profile assignment for {0} role', [row.chapter_role])
-		);
+		frappe.model.set_value(cdt, cdn, 'description', __('Role profile assignment for {0} role', [row.chapter_role]));
 	}
 }
 
@@ -1724,10 +1647,7 @@ function generate_board_role_profile_summary_html(frm) {
 
 	// Board role-specific profiles
 	html += `<h5>${__('Board Role-Specific Profiles')}</h5>`;
-	if (
-		frm.doc.enable_board_role_specific_profiles
-    && frm.doc.board_role_specific_profiles?.length > 0
-	) {
+	if (frm.doc.enable_board_role_specific_profiles && frm.doc.board_role_specific_profiles?.length > 0) {
 		html += '<ul class="list-unstyled">';
 		frm.doc.board_role_specific_profiles.forEach((assignment) => {
 			html += `<li class="text-info"><i class="fa fa-user"></i> ${assignment.chapter_role}: ${assignment.role_profile}</li>`;
@@ -1752,13 +1672,10 @@ function apply_role_profiles_to_board_members(frm) {
 	}
 
 	frappe.confirm(
-		__(
-			'This will apply role profiles to all chapter board members based on your configuration. Continue?'
-		),
+		__('This will apply role profiles to all chapter board members based on your configuration. Continue?'),
 		() => {
 			frappe.call({
-				method:
-          'verenigingen.services.chapter.chapter_role_profile_manager.bulk_assign_chapter_board_role_profiles',
+				method: 'verenigingen.services.chapter.chapter_role_profile_manager.bulk_assign_chapter_board_role_profiles',
 				args: {
 					chapter_name: frm.doc.name
 				},
@@ -1768,20 +1685,15 @@ function apply_role_profiles_to_board_members(frm) {
 					if (r.message && r.message.success) {
 						frappe.show_alert(
 							{
-								message: __(
-									'Role profiles applied successfully to {0} board members',
-									[r.message.members_updated || 0]
-								),
+								message: __('Role profiles applied successfully to {0} board members', [
+									r.message.members_updated || 0
+								]),
 								indicator: 'green'
 							},
 							5
 						);
 					} else {
-						frappe.msgprint(
-							__(
-								'No board members were updated. Please check your chapter configuration.'
-							)
-						);
+						frappe.msgprint(__('No board members were updated. Please check your chapter configuration.'));
 					}
 				},
 				error(r) {
@@ -1793,8 +1705,7 @@ function apply_role_profiles_to_board_members(frm) {
 }
 
 // Make apply_role_profiles_to_board_members globally accessible for dialog
-window.apply_role_profiles_to_board_members
-  = apply_role_profiles_to_board_members;
+window.apply_role_profiles_to_board_members = apply_role_profiles_to_board_members;
 
 // ==================== CHAPTER BOARD DOCUMENT HANDLERS ====================
 
@@ -1825,9 +1736,7 @@ frappe.ui.form.on('Chapter Board Document', {
 			const name_without_ext = filename.replace(/\.[^/.]+$/, '');
 
 			// Clean up the name (replace hyphens/underscores with spaces, capitalize)
-			const cleaned_name = name_without_ext
-				.replace(/[-_]/g, ' ')
-				.replace(/\b\w/g, char => char.toUpperCase());
+			const cleaned_name = name_without_ext.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
 			frappe.model.set_value(cdt, cdn, 'document_name', cleaned_name);
 		}

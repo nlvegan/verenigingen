@@ -36,15 +36,23 @@ frappe.ui.form.on('Organization Document', {
 		if (frm.is_new() || !frm.doc.source_folder_id) {
 			return;
 		}
-		frm.add_custom_button(__('Reclassify from MijnRood folder'), () => {
-			run_reclassify_flow([frm.doc.name], () => frm.reload_doc());
-		}, __('Actions'));
+		frm.add_custom_button(
+			__('Reclassify from MijnRood folder'),
+			() => {
+				run_reclassify_flow([frm.doc.name], () => frm.reload_doc());
+			},
+			__('Actions')
+		);
 	},
 
 	applies_on_precision(frm) {
-		if (!frm.doc.applies_on) { return; }
+		if (!frm.doc.applies_on) {
+			return;
+		}
 		const d = frappe.datetime.str_to_obj(frm.doc.applies_on);
-		if (!d || isNaN(d)) { return; }
+		if (!d || isNaN(d)) {
+			return;
+		}
 
 		if (frm.doc.applies_on_precision === 'Month' && d.getDate() !== 1) {
 			d.setDate(1);
@@ -57,9 +65,13 @@ frappe.ui.form.on('Organization Document', {
 	},
 
 	applies_on(frm) {
-		if (!frm.doc.applies_on) { return; }
+		if (!frm.doc.applies_on) {
+			return;
+		}
 		const d = frappe.datetime.str_to_obj(frm.doc.applies_on);
-		if (!d || isNaN(d)) { return; }
+		if (!d || isNaN(d)) {
+			return;
+		}
 
 		// If the user picked a non-1 day, force precision to Day. Don't touch
 		// precision when day is 1 — could be a real Jan 1 or month-precision.
@@ -81,7 +93,9 @@ function run_reclassify_flow(names, onApplied) {
 		freeze: true,
 		freeze_message: __('Computing reclassification preview…'),
 		callback(r) {
-			if (!r.message) { return; }
+			if (!r.message) {
+				return;
+			}
 			show_reclassify_preview(r.message, () => {
 				frappe.call({
 					method: 'verenigingen.mijnrood_sync.services.document_reclassify_service.reclassify_documents',
@@ -89,13 +103,19 @@ function run_reclassify_flow(names, onApplied) {
 					freeze: true,
 					freeze_message: __('Applying reclassification…'),
 					callback(r2) {
-						if (!r2.message) { return; }
-						const errorCount = (r2.message.changes || [])
-							.reduce((n, c) => n + ((c.write_errors || []).length), 0);
+						if (!r2.message) {
+							return;
+						}
+						const errorCount = (r2.message.changes || []).reduce(
+							(n, c) => n + (c.write_errors || []).length,
+							0
+						);
 						if (errorCount > 0) {
 							frappe.show_alert({
-								message: __('Reclassified {0} documents with {1} field write error(s) — check error log.',
-									[r2.message.applied, errorCount]),
+								message: __(
+									'Reclassified {0} documents with {1} field write error(s) — check error log.',
+									[r2.message.applied, errorCount]
+								),
 								indicator: 'orange'
 							});
 						} else {
@@ -104,7 +124,9 @@ function run_reclassify_flow(names, onApplied) {
 								indicator: 'green'
 							});
 						}
-						if (onApplied) { onApplied(); }
+						if (onApplied) {
+							onApplied();
+						}
 					}
 				});
 			});
@@ -119,21 +141,26 @@ function show_reclassify_preview(result, onConfirm) {
 	if (!changes.length) {
 		frappe.msgprint({
 			title: __('Nothing to reclassify'),
-			message: __('All {0} documents are unchanged or skipped (skipped: {1}).',
-				[result.total, skipped.length]),
+			message: __('All {0} documents are unchanged or skipped (skipped: {1}).', [result.total, skipped.length]),
 			indicator: 'blue'
 		});
 		return;
 	}
 
-	const rows = changes.flatMap(c => c.diff_fields.map(f => `
+	const rows = changes
+		.flatMap((c) =>
+			c.diff_fields.map(
+				(f) => `
 		<tr>
 			<td>${frappe.utils.escape_html(c.name)}</td>
 			<td>${frappe.utils.escape_html(f)}</td>
 			<td>${frappe.utils.escape_html(String(c.current[f] ?? ''))}</td>
 			<td>${frappe.utils.escape_html(String(c.proposed[f] ?? ''))}</td>
 		</tr>
-	`)).join('');
+	`
+			)
+		)
+		.join('');
 
 	const html = `
 		<div style="max-height: 400px; overflow-y: auto;">

@@ -49,12 +49,9 @@ frappe.query_reports['Members Without Chapter'] = {
 			const memberName = $(this).data('member');
 			const chapterName = $(this).data('chapter');
 
-			frappe.confirm(
-				`Are you sure you want to assign ${memberName} to ${chapterName}?`,
-				() => {
-					assignMemberToChapter(memberName, chapterName, report);
-				}
-			);
+			frappe.confirm(`Are you sure you want to assign ${memberName} to ${chapterName}?`, () => {
+				assignMemberToChapter(memberName, chapterName, report);
+			});
 		});
 
 		// Event delegation for manual assign buttons

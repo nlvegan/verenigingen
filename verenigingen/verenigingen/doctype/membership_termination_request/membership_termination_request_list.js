@@ -60,11 +60,7 @@ frappe.listview_settings['Membership Termination Request'] = {
 			Executed: 'gray'
 		};
 
-		return [
-			__(doc.status),
-			status_colors[doc.status] || 'gray',
-			`status,=,${doc.status}`
-		];
+		return [__(doc.status), status_colors[doc.status] || 'gray', `status,=,${doc.status}`];
 	},
 
 	onload(listview) {
@@ -95,11 +91,7 @@ frappe.listview_settings['Membership Termination Request'] = {
 
 	formatters: {
 		termination_type(value) {
-			const disciplinary_types = [
-				'Policy Violation',
-				'Disciplinary Action',
-				'Expulsion'
-			];
+			const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
 			if (disciplinary_types.includes(value)) {
 				return `<span class="indicator red">${value}</span>`;
 			}
@@ -129,8 +121,7 @@ function show_expulsion_report_dialog() {
 		primary_action_label: __('Generate Report'),
 		primary_action(values) {
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.generate_expulsion_report',
+				method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.generate_expulsion_report',
 				args: {
 					date_range: values.date_range,
 					chapter: values.chapter
@@ -140,9 +131,7 @@ function show_expulsion_report_dialog() {
 						show_expulsion_report_results(r.message);
 						dialog.hide();
 					} else {
-						frappe.msgprint(
-							__('No expulsion records found for the selected criteria')
-						);
+						frappe.msgprint(__('No expulsion records found for the selected criteria'));
 					}
 				}
 			});
@@ -209,14 +198,10 @@ function show_bulk_process_dialog(listview) {
 	}
 
 	// Filter to only show approved items
-	const approved_items = selected_items.filter(
-		(item) => item.status === 'Approved'
-	);
+	const approved_items = selected_items.filter((item) => item.status === 'Approved');
 
 	if (!approved_items.length) {
-		frappe.msgprint(
-			__('Please select approved termination requests to process')
-		);
+		frappe.msgprint(__('Please select approved termination requests to process'));
 		return;
 	}
 
@@ -248,8 +233,7 @@ function show_bulk_process_dialog(listview) {
 
 			approved_items.forEach((item, index) => {
 				frappe.call({
-					method:
-            'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.execute_termination',
+					method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.execute_termination',
 					args: {
 						request_name: item.name
 					},

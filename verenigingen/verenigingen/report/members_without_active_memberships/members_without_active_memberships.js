@@ -46,14 +46,16 @@ frappe.query_reports['Members Without Active Memberships'] = {
 			label: __('Include Quit/Banned Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Quit\' or \'Banned\' (Note: Rejected and Deceased members are always excluded)'
+			description:
+				"Include members with status 'Quit' or 'Banned' (Note: Rejected and Deceased members are always excluded)"
 		},
 		{
 			fieldname: 'include_suspended',
 			label: __('Include Suspended Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Suspended\' (Note: Rejected and Deceased members are always excluded)'
+			description:
+				"Include members with status 'Suspended' (Note: Rejected and Deceased members are always excluded)"
 		},
 		{
 			fieldname: 'member_status',
@@ -67,8 +69,7 @@ frappe.query_reports['Members Without Active Memberships'] = {
 			label: __('Include Dues Schedule Information'),
 			fieldtype: 'Check',
 			default: 0,
-			description:
-        'Add columns showing dues schedule status, next invoice date, and coverage gaps'
+			description: 'Add columns showing dues schedule status, next invoice date, and coverage gaps'
 		},
 		{
 			fieldname: 'chapter',

@@ -78,24 +78,24 @@
  */
 frappe.ui.form.on('Donor', {
 	/**
-   * @method refresh
-   * @description Initializes comprehensive donor management interface with ANBI compliance tools
-   *
-   * Sets up the donor form with integrated contact management, donation history tracking,
-   * and ANBI compliance features. Provides context-sensitive interface elements based
-   * on donor type and compliance status for streamlined donor relationship management.
-   *
-   * Interface Components:
-   * - Dynamic contact and address management integration
-   * - Donation history dashboard with analytics
-   * - ANBI compliance tools and validation interfaces
-   * - Tax identifier management for Dutch regulations
-   * - Periodic donation agreement creation
-   * - Regulatory reporting and export capabilities
-   *
-   * @param {Object} frm - Frappe form object with donor data and methods
-   * @since 1.0.0
-   */
+	 * @method refresh
+	 * @description Initializes comprehensive donor management interface with ANBI compliance tools
+	 *
+	 * Sets up the donor form with integrated contact management, donation history tracking,
+	 * and ANBI compliance features. Provides context-sensitive interface elements based
+	 * on donor type and compliance status for streamlined donor relationship management.
+	 *
+	 * Interface Components:
+	 * - Dynamic contact and address management integration
+	 * - Donation history dashboard with analytics
+	 * - ANBI compliance tools and validation interfaces
+	 * - Tax identifier management for Dutch regulations
+	 * - Periodic donation agreement creation
+	 * - Regulatory reporting and export capabilities
+	 *
+	 * @param {Object} frm - Frappe form object with donor data and methods
+	 * @since 1.0.0
+	 */
 	refresh(frm) {
 		frappe.dynamic_link = { doc: frm.doc, fieldname: 'name', doctype: 'Donor' };
 
@@ -121,14 +121,8 @@ frappe.ui.form.on('Donor', {
 
 	identification_verified(frm) {
 		// Update verification fields when checkbox is changed
-		if (
-			frm.doc.identification_verified
-      && !frm.doc.identification_verification_date
-		) {
-			frm.set_value(
-				'identification_verification_date',
-				frappe.datetime.nowdate()
-			);
+		if (frm.doc.identification_verified && !frm.doc.identification_verification_date) {
+			frm.set_value('identification_verification_date', frappe.datetime.nowdate());
 		}
 	},
 
@@ -141,10 +135,7 @@ frappe.ui.form.on('Donor', {
 
 	bsn_citizen_service_number(frm) {
 		// Validate BSN on change
-		if (
-			frm.doc.bsn_citizen_service_number
-      && !frm.doc.bsn_citizen_service_number.startsWith('*')
-		) {
+		if (frm.doc.bsn_citizen_service_number && !frm.doc.bsn_citizen_service_number.startsWith('*')) {
 			validate_bsn_field(frm);
 		}
 	}
@@ -213,9 +204,7 @@ function sync_donation_history(frm) {
 				frm.reload_doc();
 			} else {
 				frappe.show_alert({
-					message:
-            __('Error syncing donation history: ')
-            + (r.message.error || 'Unknown error'),
+					message: __('Error syncing donation history: ') + (r.message.error || 'Unknown error'),
 					indicator: 'red'
 				});
 			}
@@ -284,10 +273,7 @@ function display_donation_summary(frm, summary) {
 	}
 
 	// Add payment methods breakdown if available
-	if (
-		summary.payment_methods
-    && Object.keys(summary.payment_methods).length > 0
-	) {
+	if (summary.payment_methods && Object.keys(summary.payment_methods).length > 0) {
 		let methods_html = '<p><strong>Payment Methods:</strong> ';
 		const methods = [];
 		for (const method in summary.payment_methods) {
@@ -304,9 +290,7 @@ function display_donation_summary(frm, summary) {
 	}
 
 	// Find the donation history section and add summary before it
-	const $donation_tab = frm
-		.get_field('donor_history')
-		.$wrapper.closest('.tab-pane');
+	const $donation_tab = frm.get_field('donor_history').$wrapper.closest('.tab-pane');
 	if ($donation_tab.length) {
 		// Remove existing summary if it exists
 		$donation_tab.find('.donation-summary').remove();
@@ -432,40 +416,30 @@ function validate_bsn_format(dialog, bsn) {
 		dialog.set_df_property(
 			'bsn',
 			'description',
-			__('Invalid: BSN must be exactly 9 digits (currently {0})', [
-				clean_bsn.length
-			])
+			__('Invalid: BSN must be exactly 9 digits (currently {0})', [clean_bsn.length])
 		);
 		return false;
 	}
 
 	// Check for obvious invalid patterns
 	if (
-		clean_bsn === '000000000'
-    || clean_bsn === '111111111'
-    || clean_bsn === '222222222'
-    || clean_bsn === '333333333'
-    || clean_bsn === '444444444'
-    || clean_bsn === '555555555'
-    || clean_bsn === '666666666'
-    || clean_bsn === '777777777'
-    || clean_bsn === '888888888'
-    || clean_bsn === '999999999'
+		clean_bsn === '000000000' ||
+		clean_bsn === '111111111' ||
+		clean_bsn === '222222222' ||
+		clean_bsn === '333333333' ||
+		clean_bsn === '444444444' ||
+		clean_bsn === '555555555' ||
+		clean_bsn === '666666666' ||
+		clean_bsn === '777777777' ||
+		clean_bsn === '888888888' ||
+		clean_bsn === '999999999'
 	) {
-		dialog.set_df_property(
-			'bsn',
-			'description',
-			__('Invalid: BSN cannot be all the same digit')
-		);
+		dialog.set_df_property('bsn', 'description', __('Invalid: BSN cannot be all the same digit'));
 		return false;
 	}
 
 	// Reset to normal description if valid format
-	dialog.set_df_property(
-		'bsn',
-		'description',
-		__('9-digit Dutch citizen service number')
-	);
+	dialog.set_df_property('bsn', 'description', __('9-digit Dutch citizen service number'));
 	return true;
 }
 
@@ -481,16 +455,15 @@ function update_tax_identifiers(frm, values) {
 		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
-					message:
-            r.message.message || __('Tax identifiers updated successfully'),
+					message: r.message.message || __('Tax identifiers updated successfully'),
 					indicator: 'green'
 				});
 				frm.reload_doc();
 			} else {
-				const error_msg
-          = r.message && r.message.message
-          	? r.message.message
-          	: __('Failed to update tax identifiers. Please try again.');
+				const error_msg =
+					r.message && r.message.message
+						? r.message.message
+						: __('Failed to update tax identifiers. Please try again.');
 				frappe.show_alert({
 					message: error_msg,
 					indicator: 'red'
@@ -499,9 +472,7 @@ function update_tax_identifiers(frm, values) {
 		},
 		error(xhr, status, error) {
 			frappe.show_alert({
-				message: __(
-					'Network error while updating tax identifiers. Please check your connection.'
-				),
+				message: __('Network error while updating tax identifiers. Please check your connection.'),
 				indicator: 'red'
 			});
 		}
@@ -518,9 +489,7 @@ function validate_bsn(bsn) {
 			if (r.message) {
 				frappe.msgprint({
 					title: __('BSN Validation Result'),
-					message:
-            r.message.message
-            || (r.message.valid ? __('BSN is valid') : __('BSN is invalid')),
+					message: r.message.message || (r.message.valid ? __('BSN is valid') : __('BSN is invalid')),
 					indicator: r.message.valid ? 'green' : 'red'
 				});
 			} else {
@@ -534,9 +503,7 @@ function validate_bsn(bsn) {
 		error(xhr, status, error) {
 			frappe.msgprint({
 				title: __('BSN Validation Error'),
-				message: __(
-					'Network error during BSN validation. Please check your connection and try again.'
-				),
+				message: __('Network error during BSN validation. Please check your connection and try again.'),
 				indicator: 'red'
 			});
 		}
@@ -588,9 +555,7 @@ function generate_anbi_report(frm) {
 				label: __('Include BSN/RSIN'),
 				fieldname: 'include_bsn',
 				fieldtype: 'Check',
-				description: __(
-					'Include decrypted tax identifiers (requires special permission)'
-				)
+				description: __('Include decrypted tax identifiers (requires special permission)')
 			}
 		],
 		primary_action_label: __('Generate'),
@@ -604,9 +569,7 @@ function generate_anbi_report(frm) {
 						show_anbi_report(r.message);
 					} else {
 						frappe.show_alert({
-							message: r.message
-								? r.message.message
-								: __('Error generating report'),
+							message: r.message ? r.message.message : __('Error generating report'),
 							indicator: 'red'
 						});
 					}
@@ -644,8 +607,7 @@ window.download_anbi_report = function (report_data_encoded) {
 	const report_data = JSON.parse(decodeURIComponent(report_data_encoded));
 
 	// Convert to CSV format for Excel
-	let csv
-    = 'Donation ID,Date,Amount,Donor Name,Donor Type,ANBI Agreement Number,ANBI Agreement Date,Purpose';
+	let csv = 'Donation ID,Date,Amount,Donor Name,Donor Type,ANBI Agreement Number,ANBI Agreement Date,Purpose';
 	if (report_data.summary.includes_tax_ids) {
 		csv += ',BSN/RSIN';
 	}
@@ -671,34 +633,25 @@ window.download_anbi_report = function (report_data_encoded) {
 
 function add_anbi_indicators(frm) {
 	// Add visual indicators for ANBI compliance status
-	let indicator_html
-    = '<div class="anbi-indicators" style="margin-top: 10px;">';
+	let indicator_html = '<div class="anbi-indicators" style="margin-top: 10px;">';
 
 	// ANBI consent indicator
 	if (frm.doc.anbi_consent) {
-		indicator_html
-      += '<span class="indicator-pill green">ANBI Consent ✓</span> ';
+		indicator_html += '<span class="indicator-pill green">ANBI Consent ✓</span> ';
 	} else {
-		indicator_html
-      += '<span class="indicator-pill grey">No ANBI Consent</span> ';
+		indicator_html += '<span class="indicator-pill grey">No ANBI Consent</span> ';
 	}
 
 	// Identification verification indicator
 	if (frm.doc.identification_verified) {
-		indicator_html
-      += '<span class="indicator-pill green">ID Verified ✓</span> ';
+		indicator_html += '<span class="indicator-pill green">ID Verified ✓</span> ';
 	} else {
-		indicator_html
-      += '<span class="indicator-pill orange">ID Not Verified</span> ';
+		indicator_html += '<span class="indicator-pill orange">ID Not Verified</span> ';
 	}
 
 	// Tax ID indicator
-	if (
-		frm.doc.bsn_citizen_service_number
-    || frm.doc.rsin_organization_tax_number
-	) {
-		indicator_html
-      += '<span class="indicator-pill blue">Tax ID Available</span> ';
+	if (frm.doc.bsn_citizen_service_number || frm.doc.rsin_organization_tax_number) {
+		indicator_html += '<span class="indicator-pill blue">Tax ID Available</span> ';
 	}
 
 	indicator_html += '</div>';

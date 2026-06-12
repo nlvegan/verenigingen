@@ -18,43 +18,26 @@ QUnit.test('test: Member', (assert) => {
 		() => {
 			assert.equal(cur_frm.doc.first_name, 'Test');
 			assert.equal(cur_frm.doc.last_name, 'Member');
-			assert.equal(
-				cur_frm.doc.full_name,
-				'Test Member',
-				'Full name should be automatically generated'
-			);
+			assert.equal(cur_frm.doc.full_name, 'Test Member', 'Full name should be automatically generated');
 			assert.equal(cur_frm.doc.email, 'test@example.com');
 		},
 		// Test field updates
 		() => frappe.tests.set_form_values(cur_frm, [{ middle_name: 'Middle' }]),
 		() => frappe.timeout(1),
 		() => {
-			assert.equal(
-				cur_frm.doc.full_name,
-				'Test Middle Member',
-				'Full name should be updated with middle name'
-			);
+			assert.equal(cur_frm.doc.full_name, 'Test Middle Member', 'Full name should be updated with middle name');
 		},
 		// Test payment method change
-		() =>
-			frappe.tests.set_form_values(cur_frm, [
-				{ payment_method: 'SEPA Direct Debit' }
-			]),
+		() => frappe.tests.set_form_values(cur_frm, [{ payment_method: 'SEPA Direct Debit' }]),
 		() => frappe.timeout(1),
 		() => {
 			// Check if bank details section is visible
 			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
-			assert.ok(
-				bankSection.is(':visible'),
-				'Bank details section should be visible for SEPA Direct Debit'
-			);
+			assert.ok(bankSection.is(':visible'), 'Bank details section should be visible for SEPA Direct Debit');
 
 			// Check if IBAN field is required
 			const ibanField = cur_frm.get_field('iban');
-			assert.ok(
-				ibanField.df.reqd,
-				'IBAN should be required for SEPA Direct Debit'
-			);
+			assert.ok(ibanField.df.reqd, 'IBAN should be required for SEPA Direct Debit');
 		},
 		() => done()
 	]);
@@ -84,10 +67,7 @@ QUnit.test('test: Member - Customer Creation', (assert) => {
 			assert.ok(customerButton.length, 'Create Customer button should exist');
 
 			// Since customer doesn't exist yet, customer field should be empty
-			assert.ok(
-				!cur_frm.doc.customer,
-				'Customer field should be empty initially'
-			);
+			assert.ok(!cur_frm.doc.customer, 'Customer field should be empty initially');
 		},
 		() => done()
 	]);
@@ -117,13 +97,8 @@ QUnit.test('test: Member - Volunteer Section', (assert) => {
 			assert.ok(volunteerButton.length, 'Create Volunteer button should exist');
 
 			// Check if volunteer details section exists
-			const volunteerSection = $(
-				cur_frm.fields_dict.volunteer_details_html.wrapper
-			);
-			assert.ok(
-				volunteerSection.length,
-				'Volunteer details section should exist'
-			);
+			const volunteerSection = $(cur_frm.fields_dict.volunteer_details_html.wrapper);
+			assert.ok(volunteerSection.length, 'Volunteer details section should exist');
 		},
 		() => done()
 	]);
@@ -175,10 +150,7 @@ QUnit.test('test: Member - SEPA Mandate Handling', (assert) => {
 		// Verify NO dialog appears the second time
 		() => {
 			const dialog = $('.modal-dialog:visible');
-			assert.notOk(
-				dialog.length,
-				'No mandate dialog should appear on second save'
-			);
+			assert.notOk(dialog.length, 'No mandate dialog should appear on second save');
 		},
 
 		() => done()

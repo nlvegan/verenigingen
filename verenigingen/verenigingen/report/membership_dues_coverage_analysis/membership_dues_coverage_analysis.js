@@ -235,9 +235,10 @@ function generate_catchup_invoices(report) {
 
 	// Get current filter values for date range display
 	const filters = report.get_values();
-	const dateRangeText = filters.from_date && filters.to_date
-		? `<p><strong>Date range:</strong> ${filters.from_date} to ${filters.to_date}</p>`
-		: '<p><em>No date range specified - analyzing all gaps</em></p>';
+	const dateRangeText =
+		filters.from_date && filters.to_date
+			? `<p><strong>Date range:</strong> ${filters.from_date} to ${filters.to_date}</p>`
+			: '<p><em>No date range specified - analyzing all gaps</em></p>';
 
 	// Show confirmation dialog
 	const dialog = new frappe.ui.Dialog({
@@ -251,12 +252,7 @@ function generate_catchup_invoices(report) {
 						<strong>Members requiring catch-up invoices: ${selected_members.length}</strong>
 						${dateRangeText}
 						<ul>
-							${selected_members
-		.map(
-			(m) =>
-				`<li>${m.member_name} (${m.member}) - €${m.catchup_amount}</li>`
-		)
-		.join('')}
+							${selected_members.map((m) => `<li>${m.member_name} (${m.member}) - €${m.catchup_amount}</li>`).join('')}
 						</ul>
 					</div>
 				`
@@ -264,18 +260,14 @@ function generate_catchup_invoices(report) {
 			{
 				fieldtype: 'Check',
 				fieldname: 'confirm_generation',
-				label: __(
-					'I confirm that I want to generate catch-up invoices for these members'
-				),
+				label: __('I confirm that I want to generate catch-up invoices for these members'),
 				reqd: 1
 			}
 		],
 		primary_action_label: __('Generate Invoices'),
 		primary_action(values) {
 			if (!values.confirm_generation) {
-				frappe.msgprint(
-					__('Please confirm the generation of catch-up invoices.')
-				);
+				frappe.msgprint(__('Please confirm the generation of catch-up invoices.'));
 				return;
 			}
 
@@ -283,8 +275,7 @@ function generate_catchup_invoices(report) {
 			// Pass date filters to limit catch-up to the analyzed period
 			const report_filters = report.get_values();
 			frappe.call({
-				method:
-          'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.generate_catchup_invoices',
+				method: 'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.generate_catchup_invoices',
 				args: {
 					members: selected_members,
 					from_date: report_filters.from_date,
@@ -312,8 +303,7 @@ function generate_catchup_invoices(report) {
 function export_gap_analysis(report) {
 	// Export detailed gap analysis to Excel
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.export_gap_analysis',
+		method: 'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.export_gap_analysis',
 		args: {
 			filters: report.get_values()
 		},
@@ -331,9 +321,7 @@ function show_coverage_timeline(report) {
 	const selected_rows = report.get_checked_items();
 
 	if (selected_rows.length !== 1) {
-		frappe.msgprint(
-			__('Please select exactly one member to view coverage timeline.')
-		);
+		frappe.msgprint(__('Please select exactly one member to view coverage timeline.'));
 		return;
 	}
 
@@ -341,8 +329,7 @@ function show_coverage_timeline(report) {
 
 	// Open coverage timeline dialog
 	frappe.call({
-		method:
-      'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.get_coverage_timeline_data',
+		method: 'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.get_coverage_timeline_data',
 		args: {
 			member,
 			from_date: report.get_values().from_date,

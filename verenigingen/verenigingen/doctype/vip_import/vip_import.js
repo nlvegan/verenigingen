@@ -26,9 +26,9 @@ frappe.ui.form.on('VIP Import', {
 		if (frm.doc.docstatus === 0) {
 			// Add validation button
 			if (
-				frm.doc.csv_file
-				&& frm.doc.name
-				&& !['Validating', 'In Progress', 'Queued'].includes(frm.doc.import_status)
+				frm.doc.csv_file &&
+				frm.doc.name &&
+				!['Validating', 'In Progress', 'Queued'].includes(frm.doc.import_status)
 			) {
 				frm.add_custom_button(__('Validate CSV'), () => {
 					validate_csv(frm);
@@ -37,15 +37,23 @@ frappe.ui.form.on('VIP Import', {
 
 			// Add process import button if ready
 			if (frm.doc.import_status === 'Ready for Import') {
-				frm.add_custom_button(__('Process Import'), () => {
-					process_import(frm);
-				}, __('Actions')).addClass('btn-primary');
+				frm.add_custom_button(
+					__('Process Import'),
+					() => {
+						process_import(frm);
+					},
+					__('Actions')
+				).addClass('btn-primary');
 			}
 
 			// Add download template button
-			frm.add_custom_button(__('Download Template'), () => {
-				download_template();
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Download Template'),
+				() => {
+					download_template();
+				},
+				__('Actions')
+			);
 		}
 
 		// Auto-refresh during processing
@@ -75,7 +83,6 @@ frappe.ui.form.on('VIP Import', {
 		}
 	}
 });
-
 
 /**
  * Set status message based on import status
@@ -115,7 +122,6 @@ function set_status_message(frm) {
 	}
 }
 
-
 /**
  * Validate the CSV file
  */
@@ -131,9 +137,7 @@ function validate_csv(frm) {
 		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
-					message: __('Validation successful! {0} valid rows found.', [
-						r.message.preview.valid_rows
-					]),
+					message: __('Validation successful! {0} valid rows found.', [r.message.preview.valid_rows]),
 					indicator: 'green'
 				});
 				frm.reload_doc();
@@ -157,7 +161,6 @@ function validate_csv(frm) {
 	});
 }
 
-
 /**
  * Process the import (submit the document)
  */
@@ -170,7 +173,6 @@ function process_import(frm) {
 		frm.save('Submit');
 	});
 }
-
 
 /**
  * Download the CSV template
@@ -194,12 +196,13 @@ function download_template() {
 	});
 }
 
-
 /**
  * Render preview data
  */
 function render_preview(frm) {
-	if (!frm.doc.preview_data) { return; }
+	if (!frm.doc.preview_data) {
+		return;
+	}
 
 	try {
 		const preview = JSON.parse(frm.doc.preview_data);
@@ -305,7 +308,6 @@ function render_preview(frm) {
 		console.error('Error rendering preview:', e);
 	}
 }
-
 
 /**
  * Show completion message with results

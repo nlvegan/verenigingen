@@ -138,24 +138,20 @@ class BulkOperationsMonitor {
 		try {
 			// Load performance metrics
 			const performance_data = await frappe.call({
-				method:
-          'verenigingen.utils.bulk_performance_monitor.get_performance_dashboard_data'
+				method: 'verenigingen.utils.bulk_performance_monitor.get_performance_dashboard_data'
 			});
 
 			this.render_performance_metrics(performance_data.message);
 
 			// Load retry queue status
 			const retry_data = await frappe.call({
-				method:
-          'verenigingen.utils.bulk_retry_processor.get_retry_queue_status'
+				method: 'verenigingen.utils.bulk_retry_processor.get_retry_queue_status'
 			});
 
 			this.render_retry_queues(retry_data.message);
 		} catch (error) {
 			console.error('Failed to load dashboard data:', error);
-			frappe.msgprint(
-				'Failed to load dashboard data. Please check console for details.'
-			);
+			frappe.msgprint('Failed to load dashboard data. Please check console for details.');
 		}
 	}
 
@@ -317,8 +313,8 @@ class BulkOperationsMonitor {
 					</thead>
 					<tbody>
 						${retry_queues
-		.map(
-			(queue) => `
+							.map(
+								(queue) => `
 							<tr>
 								<td>${queue.tracker_name}</td>
 								<td>${queue.operation_type}</td>
@@ -336,8 +332,8 @@ class BulkOperationsMonitor {
 								</td>
 							</tr>
 						`
-		)
-		.join('')}
+							)
+							.join('')}
 					</tbody>
 				</table>
 			</div>
@@ -374,9 +370,7 @@ class BulkOperationsMonitor {
 					method: 'verenigingen.utils.bulk_queue_config.clear_stuck_jobs',
 					callback: (r) => {
 						if (r.message && r.message.success) {
-							frappe.msgprint(
-								`Cleared ${r.message.cleared_jobs.length} stuck jobs`
-							);
+							frappe.msgprint(`Cleared ${r.message.cleared_jobs.length} stuck jobs`);
 							this.load_dashboard_data();
 						}
 					}
@@ -388,8 +382,7 @@ class BulkOperationsMonitor {
 	async retry_tracker(tracker_name) {
 		frappe.confirm(`Retry failed requests for ${tracker_name}?`, () => {
 			frappe.call({
-				method:
-          'verenigingen.utils.bulk_retry_processor.manual_retry_failed_requests',
+				method: 'verenigingen.utils.bulk_retry_processor.manual_retry_failed_requests',
 				args: { tracker_name },
 				callback: (r) => {
 					if (r.message) {
