@@ -72,7 +72,10 @@ def sync_mollie_subscription_on_amendment_applied(doc, method=None):
 
         status_value, completed, notify = _sync_status_update_for_result(result)
 
-        frappe.logger().info(
+        log_fn = (
+            frappe.logger().warning if status_value in ("Needs Review", "Failed") else frappe.logger().info
+        )
+        log_fn(
             f"Mollie subscription sync for amendment {doc.name}: "
             f"{result.get('status')} -> {status_value} ({result.get('message') or result.get('reason') or ''})"
         )
@@ -200,7 +203,7 @@ def _build_sync_issue_message(context):
     <h4>Sync Result:</h4>
     <ul>
         <li><strong>Status:</strong> {frappe.utils.escape_html(sync_result['status'])}</li>
-        <li><strong>Message:</strong> {frappe.utils.escape_html(sync_result['message'])}</li>
+        <li><strong>Message:</strong> {frappe.utils.escape_html(sync_result.get("message", ""))}</li>
     </ul>
     """
 

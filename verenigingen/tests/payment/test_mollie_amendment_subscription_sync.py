@@ -616,3 +616,8 @@ class TestSyncResultStatusMapping(EnhancedTestCase):
         self.assertEqual(
             _sync_status_update_for_result({"status": "error"}), ("Failed", 0, True)
         )
+        # warning without the review flag: visible status, no notification
+        self.assertEqual(
+            _sync_status_update_for_result({"status": "warning"}),
+            ("Needs Review", 0, False),
+        )
