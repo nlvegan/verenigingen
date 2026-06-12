@@ -1127,12 +1127,19 @@ def get_member_field_info():
 
 
 def check_application_status(application_id):
-    """Check the status of an application by ID"""
+    """Check the status of an application by ID.
+
+    Security: this is exposed via a guest-accessible endpoint and the
+    application_id is enumerable (APP-YYYYMMDD-XXXX). To avoid leaking
+    applicant PII through ID enumeration, the response returns ONLY the
+    application status/date — never the applicant's name, email, or internal
+    member docname.
+    """
     try:
         member = frappe.get_value(
             "Member",
             {"application_id": application_id},
-            ["name", "application_status", "application_date", "full_name", "email"],
+            ["application_status", "application_date"],
             as_dict=True,
         )
 
@@ -1143,9 +1150,7 @@ def check_application_status(application_id):
             "success": True,
             "application_id": application_id,
             "status": member.application_status,
-            "applicant_name": member.full_name,
             "application_date": member.application_date,
-            "member_id": member.name,
         }
 
     except Exception as e:

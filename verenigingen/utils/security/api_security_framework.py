@@ -506,6 +506,60 @@ class APISecurityFramework:
 
         return True
 
+    def validate_ip_restrictions(self, profile: SecurityProfile) -> bool:
+        """Enforce an optional IP allowlist for IP-restricted profiles.
+
+        Profiles with ``ip_restrictions=True`` (currently CRITICAL) consult the
+        site config key ``critical_api_ip_allowlist`` — a list of IPs/CIDRs. The
+        control is opt-in: if no allowlist is configured the request proceeds
+        (no behavioural change), but once an operator sets an allowlist it is
+        actually enforced. The source IP comes from ``get_client_ip()``, which
+        already resolves X-Forwarded-For only via trusted proxies, so it is not
+        client-spoofable.
+
+        Returns True if allowed; raises VPermissionError if the client IP is
+        outside a configured allowlist.
+        """
+        if not profile.ip_restrictions or not frappe.request:
+            return True
+
+        allowlist = frappe.conf.get("critical_api_ip_allowlist")
+        if not allowlist:
+            # Not configured → control is dormant (documented, not a false promise)
+            return True
+
+        import ipaddress
+
+        from verenigingen.utils.security.client_ip import get_client_ip
+
+        client_ip = get_client_ip()
+        try:
+            client_addr = ipaddress.ip_address(client_ip)
+        except ValueError:
+            # Unparseable source IP under an active allowlist → deny (fail closed)
+            frappe.logger("verenigingen.api_security").warning(
+                f"IP_RESTRICTION_DENIED: unparseable client IP {client_ip!r}"
+            )
+            raise VPermissionError(_("Access denied from this network location."))
+
+        for entry in allowlist:
+            try:
+                if "/" in str(entry):
+                    if client_addr in ipaddress.ip_network(entry, strict=False):
+                        return True
+                elif client_addr == ipaddress.ip_address(entry):
+                    return True
+            except ValueError:
+                frappe.logger("verenigingen.api_security").warning(
+                    f"Invalid critical_api_ip_allowlist entry: {entry!r}"
+                )
+                continue
+
+        frappe.logger("verenigingen.api_security").warning(
+            f"IP_RESTRICTION_DENIED: client IP {client_ip} not in allowlist"
+        )
+        raise VPermissionError(_("Access denied from this network location."))
+
     def validate_rate_limits(
         self, profile: SecurityProfile, operation_key: str, force_check: bool = False
     ) -> bool:
@@ -847,6 +901,7 @@ def api_security_framework(
                 framework.validate_authentication(profile)
                 framework.validate_request_method(profile)
                 framework.validate_request_size(profile)
+                framework.validate_ip_restrictions(profile)
                 # NOTE: CSRF validation handled natively by Frappe (auth.py)
 
                 # Rate limiting

@@ -6,6 +6,7 @@ Replaces the complex department hierarchy with simple role-based approvals
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def get_volunteer_expense_approver(volunteer_name):
@@ -174,8 +175,15 @@ def validate_expense_approver_setup():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_expense_approver_issues():
-    """Automatically fix common expense approver setup issues"""
+    """Automatically fix common expense approver setup issues.
+
+    Security: this is an administrative maintenance operation that reassigns
+    expense approvers and grants the Expense Approver role. It is gated to
+    CRITICAL (admin role profiles only); the role-grant branch additionally
+    enforces User:write via secure_document_operation.
+    """
     validation_result = validate_expense_approver_setup()
     fixed_count = 0
 
@@ -233,36 +241,3 @@ def is_native_expense_system_ready():
     issue_percentage = (total_issues / total_employees) * 100
 
     return issue_percentage < 10  # System ready if less than 10% have issues
-
-
-@frappe.whitelist()
-def emergency_clear_departments():
-    """Emergency function to clear all department references causing validation errors"""
-    try:
-        # Clear all department references from Employee records
-        frappe.db.sql("UPDATE `tabEmployee` SET department = NULL WHERE department IS NOT NULL")
-
-        # Get count of updated records
-        updated_count = frappe.db.sql("SELECT ROW_COUNT()")[0][0]
-
-        # Specifically handle Foppe de Haan
-        # foppe_result = frappe.db.sql(
-        #     """
-        #     UPDATE `tabEmployee` e
-        #     JOIN `tabVolunteer` v ON v.employee_id = e.name
-        #     SET e.department = NULL, e.expense_approver = 'Administrator'
-        #     WHERE v.name = 'FOPPE-DE-HAAN'
-        # """
-        # )
-
-        frappe.db.commit()
-
-        return {
-            "success": True,
-            "message": f"Cleared department references from {updated_count} employee records",
-            "foppe_updated": True,
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error clearing departments: {str(e)}", "Emergency Department Clear")
-        return {"success": False, "message": f"Error: {str(e)}"}

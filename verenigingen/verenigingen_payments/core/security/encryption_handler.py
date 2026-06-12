@@ -2,6 +2,17 @@
 Encryption Handler
 Multi-layer encryption for sensitive financial data
 
+.. warning::
+    NOT USED IN PRODUCTION. This module is retained only for tests and is not
+    wired into any live request path. Do NOT instantiate it for real data
+    without first fixing the known key-persistence defect in
+    ``_get_master_key()``: it writes the generated key to the in-memory
+    ``frappe.conf`` dict, which does NOT persist to site_config.json, so a new
+    key is generated on every process start and previously "encrypted" data
+    becomes permanently undecryptable. Production secret handling uses Frappe
+    ``Password`` fields (see ``mollie_settings.get_password``) and
+    ``MollieSecurityManager`` instead.
+
 Features:
 - Field-level encryption for sensitive data
 - Key derivation for enhanced security

@@ -1702,13 +1702,16 @@ def get_volunteer_permission_query(user):
         user_chapter_names = get_user_chapter_memberships_cached(user, get_cache_key())
 
         if user_chapter_names:
-            chapter_list = "','".join(user_chapter_names)
+            # Escape each chapter name (Chapter uses prompt-based naming, so names
+            # are user-controlled — raw interpolation would be SQL-injectable).
+            # frappe.db.escape() adds the surrounding quotes.
+            chapter_list = ", ".join(frappe.db.escape(c) for c in user_chapter_names)
             conditions.append(
                 f"""
                 `tabVolunteer`.member IN (
                     SELECT cm.member
                     FROM `tabChapter Member` cm
-                    WHERE cm.parent IN ('{chapter_list}')
+                    WHERE cm.parent IN ({chapter_list})
                       AND cm.enabled = 1
                       AND cm.status = 'Active'
                 )
@@ -1730,13 +1733,15 @@ def get_volunteer_permission_query(user):
         )
 
         if user_teams:
-            team_list = "','".join([t.parent for t in user_teams])
+            # Escape each team name (Team names are user-controlled via team_name).
+            # frappe.db.escape() adds the surrounding quotes.
+            team_list = ", ".join(frappe.db.escape(t.parent) for t in user_teams)
             conditions.append(
                 f"""
                 `tabVolunteer`.name IN (
                     SELECT tm.volunteer
                     FROM `tabTeam Member` tm
-                    WHERE tm.parent IN ('{team_list}') AND tm.status = 'Active'
+                    WHERE tm.parent IN ({team_list}) AND tm.status = 'Active'
                 )
             """
             )

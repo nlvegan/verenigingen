@@ -6,7 +6,7 @@ from frappe import _
 
 from verenigingen.e_boekhouden.services.dashboard_service import get_eboekhouden_dashboard_service
 from verenigingen.utils.operation_result import OperationResult
-from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
@@ -38,10 +38,16 @@ def get_context(context):
     return context
 
 
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.PUBLIC)
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_live_dashboard_data() -> OperationResult[Dict[str, Any]]:
-    """API endpoint for live dashboard updates
+    """API endpoint for live dashboard updates.
+
+    Security: returns e-Boekhouden accounting internals (account/customer/
+    supplier counts, migration history) and triggers calls to the external
+    e-Boekhouden API. Restricted to authenticated staff/admin roles — the
+    page's own get_context() already blocks Guest, but this API previously
+    did not, leaking internal data to unauthenticated callers.
 
     Returns:
         OperationResult[Dict[str, Any]]: Dashboard data with migration stats and connection status

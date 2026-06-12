@@ -495,13 +495,19 @@ def create_member_optimized(**kwargs):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_dashboard(member_name: str):
-    """Whitelisted method for member dashboard data.
+    """Whitelisted method for member dashboard data (staff/admin tooling).
 
-    Security: the underlying query is raw SQL, which bypasses
-    `permission_query_conditions`. Enforce the row-level Member read
-    permission explicitly so the result respects the same ownership rules
-    (own record / chapter board / staff / admin) as the ORM path. This also
-    narrows Chapter Board Members to members in their own chapters.
+    Security: two layers. (1) @high_security_api restricts the endpoint to
+    HIGH-tier roles (staff / board / treasurer / admin); plain members and
+    volunteers are denied at the auth gate. (2) The underlying query is raw
+    SQL, which bypasses `permission_query_conditions`, so we additionally
+    enforce the row-level Member read permission — this narrows Chapter Board
+    Members (who hold HIGH globally) to members in their own chapters, matching
+    the ORM path.
+
+    Note: this is not a member self-service endpoint. If member self-view is
+    ever needed, switch to self_service_only=True rather than relying on the
+    inner has_permission, since the HIGH auth gate fires first.
     """
     frappe.has_permission("Member", "read", member_name, throw=True)
     return member_optimizer.get_member_dashboard_cached(member_name)

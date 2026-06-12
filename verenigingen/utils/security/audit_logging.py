@@ -183,7 +183,7 @@ class SEPAAuditLogger:
             "referer": self._safe_get_request_header("Referer") or "",
             "session_id": getattr(frappe.session, "sid", "unknown"),
             "site": getattr(frappe.local, "site", "unknown"),
-            "details": details or {},
+            "details": self._redact_sensitive_details(details or {}),
             "sensitive_data": sensitive_data,
         }
 
@@ -225,6 +225,50 @@ class SEPAAuditLogger:
             # Fallback logging if audit system fails
             frappe.log_error(f"Audit logging failed for event {event_type}: {str(e)}", "Audit System Error")
             return f"failed_{int(time.time())}"
+
+    # Substrings that mark a details key as carrying sensitive material that
+    # must never be persisted in cleartext in the audit log.
+    _SENSITIVE_KEY_SUBSTRINGS = (
+        "iban",
+        "bsn",
+        "rsin",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "private_key",
+        "signature",
+        "cvv",
+        "card_number",
+    )
+
+    @classmethod
+    def _redact_sensitive_details(cls, details: Any, _depth: int = 0) -> Any:
+        """Recursively mask values under sensitive-looking keys.
+
+        Audit details can include validation/violation payloads echoing raw user
+        input (e.g. an IBAN or token that failed a check). Masking by key name
+        keeps the audit trail useful without persisting PII/secrets in
+        cleartext. Depth-bounded to avoid pathological nesting; on hitting the
+        limit we truncate rather than pass through, so a sensitive key buried
+        below the limit can never bypass redaction (fail-safe).
+        """
+        if _depth > 6:
+            return "***TRUNCATED:depth_limit***"
+        if isinstance(details, dict):
+            redacted = {}
+            for key, value in details.items():
+                key_l = str(key).lower()
+                if any(sub in key_l for sub in cls._SENSITIVE_KEY_SUBSTRINGS):
+                    redacted[key] = "***REDACTED***"
+                else:
+                    redacted[key] = cls._redact_sensitive_details(value, _depth + 1)
+            return redacted
+        if isinstance(details, (list, tuple)):
+            return [cls._redact_sensitive_details(v, _depth + 1) for v in details]
+        return details
 
     def _store_audit_event(self, audit_event: Dict[str, Any]):
         """Store audit event in appropriate database table"""

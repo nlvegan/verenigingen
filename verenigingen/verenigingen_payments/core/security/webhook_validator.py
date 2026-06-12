@@ -2,6 +2,13 @@
 Webhook Validator
 Enhanced webhook validation for Mollie integration
 
+.. warning::
+    NOT USED IN PRODUCTION. The live Mollie webhook path validates requests via
+    ``verenigingen_payments/utils/webhook_security.py`` and the API-refetch
+    trust model in ``webhook_wrapper_service_unified.py``. This module is
+    retained only for tests; do not wire it into request handling without
+    re-reviewing it against the live path.
+
 Features:
 - Signature validation with HMAC-SHA256
 - Replay attack prevention

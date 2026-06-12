@@ -466,7 +466,9 @@ def get_permission_query_conditions(user=None):
         if "Verenigingen Chapter Board Member" in user_roles:
             chapters = _get_user_chapters(volunteer)
             if chapters:
-                chapter_list = ", ".join([f"'{c}'" for c in chapters])
+                # Escape chapter names (user-controlled via prompt naming) to
+                # prevent SQL injection. frappe.db.escape() adds the quotes.
+                chapter_list = ", ".join(frappe.db.escape(c) for c in chapters)
                 # Access if chapter field matches OR (owner_type='Chapter' AND owner_reference matches)
                 conditions.append(
                     f"(`tabEvent Contact Campaign`.chapter IN ({chapter_list}) "
@@ -477,7 +479,8 @@ def get_permission_query_conditions(user=None):
         # Team members see campaigns owned by their teams
         teams = _get_user_teams(volunteer)
         if teams:
-            team_list = ", ".join([f"'{t}'" for t in teams])
+            # Escape team names (user-controlled via team_name)
+            team_list = ", ".join(frappe.db.escape(t) for t in teams)
             conditions.append(
                 f"(`tabEvent Contact Campaign`.owner_type = 'Team' "
                 f"AND `tabEvent Contact Campaign`.owner_reference IN ({team_list}))"
