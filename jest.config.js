@@ -76,76 +76,76 @@
  * environment setup, coverage thresholds, and reporting options.
  */
 module.exports = {
-  /** @type {string} Test environment for DOM-based testing */
-  testEnvironment: "jsdom",
+	/** @type {string} Test environment for DOM-based testing */
+	testEnvironment: 'jsdom',
 
-  /** @type {Array<string>} Root directories for test discovery */
-  roots: ["<rootDir>/verenigingen"],
+	/** @type {Array<string>} Root directories for test discovery */
+	roots: ['<rootDir>/verenigingen'],
 
-  /** @type {Array<string>} Patterns for locating test files - utilities and controller tests */
-  testMatch: [
-    "**/tests/unit/**/*.test.js",
-    "**/tests/unit/doctype/test_*_controller.js",
-    "**/tests/unit/doctype/test_*_real_controller.js",
-  ],
+	/** @type {Array<string>} Patterns for locating test files - utilities and controller tests */
+	testMatch: [
+		'**/tests/unit/**/*.test.js',
+		'**/tests/unit/doctype/test_*_controller.js',
+		'**/tests/unit/doctype/test_*_real_controller.js'
+	],
 
-  // Coverage is collected only from the *instrumentable* JS layer: source modules
-  // that the unit suites `require()` directly. The doctype controllers under
-  // `verenigingen/**/doctype/*/*.js` are deliberately EXCLUDED — their 13 test
-  // suites load them through a vm sandbox (the doctype controller-loader), which
-  // Istanbul cannot instrument, so they always report 0% regardless of how
-  // thoroughly they are tested. Including them only produced a misleading ~0.5%
-  // global and ~50 permanent-0% rows. They are tested, just not measurable here;
-  // making them instrumentable is a separate, larger refactor.
-  /** @type {Array<string>} Files to include in coverage collection - directly-imported source layer */
-  collectCoverageFrom: [
-    "verenigingen/public/js/utils/**/*.js",
-    "verenigingen/public/js/services/**/*.js",
-    "!**/*frappe*/**", // Exclude Frappe-dependent files
-    "!**/node_modules/**",
-    "!**/vendor/**",
-    "!**/tests/**",
-    "!**/fixtures/**",
-  ],
+	// Coverage is collected only from the *instrumentable* JS layer: source modules
+	// that the unit suites `require()` directly. The doctype controllers under
+	// `verenigingen/**/doctype/*/*.js` are deliberately EXCLUDED — their 13 test
+	// suites load them through a vm sandbox (the doctype controller-loader), which
+	// Istanbul cannot instrument, so they always report 0% regardless of how
+	// thoroughly they are tested. Including them only produced a misleading ~0.5%
+	// global and ~50 permanent-0% rows. They are tested, just not measurable here;
+	// making them instrumentable is a separate, larger refactor.
+	/** @type {Array<string>} Files to include in coverage collection - directly-imported source layer */
+	collectCoverageFrom: [
+		'verenigingen/public/js/utils/**/*.js',
+		'verenigingen/public/js/services/**/*.js',
+		'!**/*frappe*/**', // Exclude Frappe-dependent files
+		'!**/node_modules/**',
+		'!**/vendor/**',
+		'!**/tests/**',
+		'!**/fixtures/**'
+	],
 
-  // NOTE: the enforced coverage GATE (coverageThreshold) lives in
-  // jest.coverage.config.js, used only by `npm run test:coverage` (the full
-  // suite). It is deliberately NOT here: this base config is also used for
-  // targeted `--coverage` runs (e.g. CI's `npm test -- --testPathPattern=...
-  // --coverage`), and a threshold here would fail those partial runs because a
-  // subset never exercises the gated module (e.g. iban-validator). Base-config
-  // --coverage runs therefore report coverage without enforcing it.
+	// NOTE: the enforced coverage GATE (coverageThreshold) lives in
+	// jest.coverage.config.js, used only by `npm run test:coverage` (the full
+	// suite). It is deliberately NOT here: this base config is also used for
+	// targeted `--coverage` runs (e.g. CI's `npm test -- --testPathPattern=...
+	// --coverage`), and a threshold here would fail those partial runs because a
+	// subset never exercises the gated module (e.g. iban-validator). Base-config
+	// --coverage runs therefore report coverage without enforcing it.
 
-  /** @type {Object} Module path resolution for assets and styles */
-  moduleNameMapper: {
-    "\\.(css|less|scss|sass)$": "identity-obj-proxy",
-  },
+	/** @type {Object} Module path resolution for assets and styles */
+	moduleNameMapper: {
+		'\\.(css|less|scss|sass)$': 'identity-obj-proxy'
+	},
 
-  /** @type {Array<string>} Setup files to run after test framework initialization */
-  setupFilesAfterEnv: [
-    "<rootDir>/verenigingen/tests/setup/test-environment.js",
-    "<rootDir>/verenigingen/tests/frontend/setup.js",
-  ],
+	/** @type {Array<string>} Setup files to run after test framework initialization */
+	setupFilesAfterEnv: [
+		'<rootDir>/verenigingen/tests/setup/test-environment.js',
+		'<rootDir>/verenigingen/tests/frontend/setup.js'
+	],
 
-  /** @type {Object} File transformation rules for different file types */
-  transform: {
-    "^.+\\.jsx?$": "babel-jest",
-  },
+	/** @type {Object} File transformation rules for different file types */
+	transform: {
+		'^.+\\.jsx?$': 'babel-jest'
+	},
 
-  /** @type {Array<string>} Coverage report output formats */
-  coverageReporters: ["text", "lcov", "html", "json"],
+	/** @type {Array<string>} Coverage report output formats */
+	coverageReporters: ['text', 'lcov', 'html', 'json'],
 
-  /** @type {Array} Test result reporters for different output formats */
-  reporters: [
-    "default",
-    [
-      "jest-junit",
-      {
-        /** @type {string} Directory for JUnit XML output */
-        outputDirectory: "./test-results",
-        /** @type {string} Filename for JUnit XML report */
-        outputName: "jest-junit.xml",
-      },
-    ],
-  ],
+	/** @type {Array} Test result reporters for different output formats */
+	reporters: [
+		'default',
+		[
+			'jest-junit',
+			{
+				/** @type {string} Directory for JUnit XML output */
+				outputDirectory: './test-results',
+				/** @type {string} Filename for JUnit XML report */
+				outputName: 'jest-junit.xml'
+			}
+		]
+	]
 };
