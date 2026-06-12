@@ -195,7 +195,6 @@ describe('StorageService', () => {
 			// Seed 4 drafts, then a fresh service with maxDrafts:2 prunes the oldest.
 			const seeder = makeStorage(null, { maxDrafts: 100 });
 			for (let i = 0; i < 4; i++) {
-				// eslint-disable-next-line no-await-in-loop
 				await seeder.saveDraft({ n: i }, false);
 			}
 			expect(seeder.getAllDrafts().length).toBe(4);

@@ -67,7 +67,7 @@ describe('ValidationService (real module)', () => {
 		});
 
 		test('accepts a Dutch surname with tussenvoegsel and apostrophe', async () => {
-			await expect(service.validateField('lastName', "van der Berg-d'Or"))
+			await expect(service.validateField('lastName', 'van der Berg-d\'Or'))
 				.resolves.toEqual({ valid: true });
 		});
 
