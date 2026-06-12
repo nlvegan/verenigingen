@@ -344,6 +344,80 @@ class MemberUserAccountService(StatelessService):
             frappe.msgprint(_("User {0} created successfully").format(user.name))
         return user.name, "created_new"
 
+    def create_organization_user_for_member(
+        self,
+        member_doc: "Document",
+        email: str,
+        first_name: str,
+        last_name: str = "",
+        send_welcome_email: bool = True,
+    ) -> tuple:
+        """Create a user account for a member from explicit account details.
+
+        Unlike create_user_for_member (which uses the member's own email/name),
+        this provisions a user with a caller-supplied email and name — used by
+        the Member form's "Create Organization User Account" action for
+        organization members that need a dedicated org-domain login. It shares
+        the same role/module assignment, ownership transfer and member linking.
+
+        Returns:
+            tuple: (username, action) where action is "already_exists",
+            "linked_existing" or "created_new".
+        """
+        from verenigingen.utils.boolean_utils import cbool
+
+        if member_doc.user:
+            frappe.msgprint(_("User {0} already exists for this member").format(member_doc.user))
+            return member_doc.user, "already_exists"
+
+        if not email:
+            frappe.throw(_("Email is required to create a user"))
+        if not first_name:
+            frappe.throw(_("First name is required to create a user"))
+
+        # Link an existing user with this email rather than creating a duplicate
+        if frappe.db.exists("User", email):
+            existing_user = frappe.get_doc("User", email)
+            member_doc.user = existing_user.name
+            member_doc.flags.ignore_validate_update_after_submit = True
+            member_doc.save()
+            get_member_role_service().add_member_roles_to_user(existing_user.name)
+            frappe.msgprint(_("Linked to existing user {0}").format(existing_user.name))
+            return existing_user.name, "linked_existing"
+
+        user = frappe.new_doc("User")
+        user.email = email
+        user.first_name = first_name
+        user.last_name = last_name
+        user.send_welcome_email = cbool(send_welcome_email)
+        user.user_type = "System User"
+        user.enabled = 1
+
+        user_result = secure_document_operation(
+            operation="insert",
+            doc=user,
+            justification=f"Organization user creation for member {member_doc.name}",
+            required_permissions=["User:create"],
+        )
+        if not user_result.success:
+            frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
+
+        get_member_role_service().add_member_roles_to_user(user.name)
+        get_member_role_service().set_member_user_modules(user.name)
+
+        # Transfer ownership so the member record is editable by the new account
+        if member_doc.owner != user.name:
+            frappe.db.set_value("Member", member_doc.name, "owner", user.name, update_modified=False)
+            member_doc.reload()
+
+        member_doc.user = user.name
+        member_doc.flags.ignore_validate_update_after_submit = True
+        member_doc.flags.ignore_mandatory = False
+        member_doc.save()
+
+        frappe.msgprint(_("Organization user {0} created successfully").format(user.name))
+        return user.name, "created_new"
+
     def create_member_user_account(
         self, member_name: str, send_welcome_email: bool = True
     ) -> OperationResult[str]:

@@ -903,6 +903,33 @@ def create_user(doc=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def create_organization_user(
+    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email=True
+):
+    """Create an organization user account for a member.
+
+    Backs the Member form's "Create Organization User Account" dialog, which
+    supplies an org-domain email and name (distinct from the member's personal
+    details). Delegates to MemberUserAccountService.
+    """
+    from verenigingen.services.member.account.member_user_account_service import (
+        get_member_user_account_service,
+    )
+
+    member_doc = frappe.get_doc("Member", member)
+    member_doc.check_permission("write")
+    username, action = get_member_user_account_service().create_organization_user_for_member(
+        member_doc,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        send_welcome_email=send_welcome_email,
+    )
+    return {"success": True, "user": username, "action": action}
+
+
+@frappe.whitelist()
 def update_membership_duration(doc=None):
     return _load_member_for_shim(doc, "write").update_membership_duration()
 
