@@ -186,3 +186,48 @@ class TestSubscriptionServiceLive(EnhancedTestCase):
 
         self.assertEqual(result.get("status"), "success")
         self.assertEqual(result["new_mandate_id"], mandate_two)
+
+    def test_update_subscription_patches_amount_description_webhook_live(self):
+        """One PATCH carrying amount + description + webhookUrl — the exact call
+        shape the amendment-sync drift repair issues — lands all three on the
+        real subscription, with id and mandate untouched."""
+        customer_id = self._new_customer()
+        mandate_id = self._new_mandate(customer_id)
+        subscription_id = self._new_subscription(customer_id, mandate_id, value="10.00")
+
+        updated = self.client.update_subscription(
+            customer_id,
+            subscription_id,
+            {
+                "amount": {"currency": "EUR", "value": "26.50"},
+                "description": "Contribution payment for member LIVE-1",
+                "webhookUrl": "https://example.org/api/method/mollie-live-test",
+            },
+        )
+        self.assertEqual(updated.id, subscription_id)
+
+        status = self.service.get_subscription_status(customer_id, subscription_id)
+        self.assertEqual(status["amount"], 26.5)
+        self.assertEqual(status["description"], "Contribution payment for member LIVE-1")
+        self.assertEqual(status["webhook_url"], "https://example.org/api/method/mollie-live-test")
+        self.assertEqual(status["mandate_id"], mandate_id)
+        self.assertEqual(status["status"], "active")
+
+    def test_update_subscription_amount_only_preserves_other_fields_live(self):
+        """An amount-only PATCH (the no-drift case) leaves description, webhook,
+        mandate and the billing cycle (next_payment_date) untouched at Mollie."""
+        customer_id = self._new_customer()
+        mandate_id = self._new_mandate(customer_id)
+        subscription_id = self._new_subscription(customer_id, mandate_id, value="10.00")
+        before = self.service.get_subscription_status(customer_id, subscription_id)
+
+        self.client.update_subscription(
+            customer_id, subscription_id, {"amount": {"currency": "EUR", "value": "11.00"}}
+        )
+
+        after = self.service.get_subscription_status(customer_id, subscription_id)
+        self.assertEqual(after["amount"], 11.0)
+        self.assertEqual(after["description"], before["description"])
+        self.assertEqual(after["webhook_url"], before["webhook_url"])
+        self.assertEqual(after["mandate_id"], mandate_id)
+        self.assertEqual(after["next_payment_date"], before["next_payment_date"])
