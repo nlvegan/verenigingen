@@ -17,6 +17,9 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
     CompletePaymentService,
 )
+from verenigingen.verenigingen_payments.mollie.services.subscription_description import (
+    get_member_subscription_description,
+)
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     convert_frequency_to_mollie_interval,
     create_error_response,
@@ -561,7 +564,7 @@ class MollieGateway(PaymentGateway):
                 ),
                 "interval": interval_mapping.get(subscription_data.get("interval", "1 month"), "1 month"),
                 "description": subscription_data.get(
-                    "description", f"Membership dues for {member.first_name} {member.last_name}"
+                    "description", get_member_subscription_description(member)
                 ),
                 "webhookUrl": self.settings.get_subscription_webhook_url(),
                 "metadata": {

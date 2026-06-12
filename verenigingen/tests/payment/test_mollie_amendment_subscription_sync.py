@@ -536,3 +536,56 @@ class TestAmendmentSyncPatchPath(EnhancedTestCase):
         self.assertEqual(result["reason"], "mandate_validation_failed")
         self.assertTrue(result["requires_admin_review"])
         self.assertEqual(sdk.subscriptions_created, [])
+
+
+class TestGatewayDescriptionDefault(EnhancedTestCase):
+    """MollieGateway.create_subscription defaults the description to the
+    canonical helper output instead of a hardcoded format."""
+
+    def test_gateway_defaults_description_to_canonical_helper(self):
+        from unittest.mock import MagicMock, patch
+
+        from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
+
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Gateway",
+            last_name=f"Desc{token}",
+            email=f"gateway-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+
+        captured = {}
+
+        def _fake_create_customer_subscription(customer_data, subscription_data):
+            captured["subscription_data"] = subscription_data
+            return {
+                "status": "success",
+                "customer_id": "cst_CAP",
+                "subscription_id": "sub_CAP",
+                "subscription_status": "active",
+            }
+
+        # CompletePaymentService() __init__ calls MollieClient() which loads live
+        # credentials — skip it by patching the whole class with a MagicMock whose
+        # create_customer_subscription captures the payload we want to assert on.
+        fake_service_instance = MagicMock()
+        fake_service_instance.create_customer_subscription.side_effect = (
+            _fake_create_customer_subscription
+        )
+        fake_service_class = MagicMock(return_value=fake_service_instance)
+
+        gateway = MollieGateway.__new__(MollieGateway)  # skip __init__ (loads live settings)
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_gateways.CompletePaymentService",
+            fake_service_class,
+        ):
+            gateway.settings = MagicMock()
+            gateway.settings.enable_subscriptions = True
+            gateway.settings.get_subscription_webhook_url.return_value = "https://x.example/hook"
+            gateway.create_subscription(member, {"amount": 15.0, "interval": "1 month"})
+
+        self.assertEqual(
+            captured["subscription_data"]["description"],
+            get_member_subscription_description(member),
+        )
