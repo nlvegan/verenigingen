@@ -276,3 +276,204 @@ class TestSubscriptionDescription(EnhancedTestCase):
             get_member_subscription_description(member),
             f"Dues {member.full_name} ({member.member_id})",
         )
+
+
+class TestAmendmentSyncPatchPath(EnhancedTestCase):
+    """Amount-only amendments PATCH the live subscription; drifted
+    description/webhookUrl are repaired in the same call."""
+
+    def _member_with_subscription(self, mandate_id=None):
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Patch",
+            last_name=f"Sync{token}",
+            email=f"patch-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        values = {
+            "mollie_customer_id": "cst_SYNC",
+            "mollie_subscription_id": "sub_LIVE",
+        }
+        if mandate_id:
+            values["mollie_mandate_id"] = mandate_id
+        frappe.db.set_value("Member", member.name, values, update_modified=False)
+        member.reload()
+        membership = self.create_test_membership(member_name=member.name)
+        return member, membership
+
+    def _fee_change_amendment(self, membership, member, amount=26.5):
+        return frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": membership.name,
+                "member": member.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": amount,
+                "status": "Applied",
+            }
+        )
+
+    def _canonical_pair(self, member):
+        settings = frappe.get_single("Mollie Settings")
+        return get_member_subscription_description(member), settings.get_subscription_webhook_url()
+
+    def test_amount_only_amendment_patches_without_replacing(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        member, membership = self._member_with_subscription()  # NO mandate id: gate must not skip
+        canonical_desc, canonical_hook = self._canonical_pair(member)
+        sdk = FakeSDKClient(
+            live_subscription=_FakeSubscription(
+                interval="1 month",
+                description=canonical_desc,
+                webhook_url=canonical_hook,
+                mandate_id="mdt_LIVE",
+            )
+        )
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_LIVE")
+        # PATCH happened; nothing was created or canceled.
+        self.assertEqual(len(sdk.subscriptions_updated), 1)
+        self.assertEqual(sdk.subscriptions_created, [])
+        self.assertEqual(sdk.subscriptions_deleted, [])
+        sub_id, payload = sdk.subscriptions_updated[0]
+        self.assertEqual(sub_id, "sub_LIVE")
+        # No drift -> amount is the only key.
+        self.assertEqual(payload, {"amount": {"value": "26.50", "currency": "EUR"}})
+        # Member keeps the same subscription id.
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_LIVE"
+        )
+
+    def test_patch_repairs_drifted_description_and_webhook(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        member, membership = self._member_with_subscription()
+        canonical_desc, canonical_hook = self._canonical_pair(member)
+        sdk = FakeSDKClient(
+            live_subscription=_FakeSubscription(
+                interval="1 month",
+                description="Membership dues - Stale Format",
+                webhook_url="https://dev.veganisme.net/api/method/old.path?env=test",
+                mandate_id="mdt_LIVE",
+            )
+        )
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        self.assertEqual(result["status"], "success")
+        _, payload = sdk.subscriptions_updated[0]
+        self.assertEqual(payload["description"], canonical_desc)
+        self.assertEqual(payload["webhookUrl"], canonical_hook)
+
+    def test_interval_change_takes_replacement_path(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        member, membership = self._member_with_subscription(mandate_id="mdt_LIVE")
+        # Live interval differs from the computed "1 month" -> replacement.
+        sdk = FakeSDKClient(live_subscription=_FakeSubscription(interval="3 months"))
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        # Replacement created a new subscription and never PATCHed.
+        self.assertEqual(len(sdk.subscriptions_created), 1)
+        self.assertEqual(sdk.subscriptions_updated, [])
+        self.assertIn(result["status"], ("success", "warning"))
+
+    def test_patch_amount_mismatch_returns_warning(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        member, membership = self._member_with_subscription()
+        canonical_desc, canonical_hook = self._canonical_pair(member)
+        live = _FakeSubscription(
+            interval="1 month",
+            description=canonical_desc,
+            webhook_url=canonical_hook,
+        )
+        sdk = FakeSDKClient(live_subscription=live)
+
+        # Make the fake's update() echo a WRONG amount back.
+        class _WrongAmountSubscriptions(_FakeSubscriptions):
+            def update(self, subscription_id, data=None):
+                self._sdk.subscriptions_updated.append((subscription_id, data))
+                return _FakeSubscription(
+                    subscription_id=subscription_id,
+                    amount={"value": "99.99", "currency": "EUR"},
+                    interval="1 month",
+                )
+
+        class _WrongAmountCustomer(_FakeCustomer):
+            def __init__(self, sdk):
+                super().__init__(sdk)
+                self.subscriptions = _WrongAmountSubscriptions(sdk)
+
+        sdk.customers.get = lambda cid: _WrongAmountCustomer(sdk)
+
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(sdk))
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        self.assertEqual(result["status"], "warning")
+        self.assertTrue(result["requires_admin_review"])
+
+    def test_member_without_subscription_id_is_skipped(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="NoSub",
+            last_name=f"Sync{token}",
+            email=f"nosub-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value(
+            "Member", member.name, "mollie_customer_id", "cst_SYNC", update_modified=False
+        )
+        member.reload()
+        membership = self.create_test_membership(member_name=member.name)
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(FakeSDKClient()))
+
+        result = service.sync_subscription_for_amendment(
+            self._fee_change_amendment(membership, member)
+        )
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "no_mollie_subscription")
+
+    def test_replacement_mandate_resolves_from_subscription_first(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        service = MollieSubscriptionSyncService(client=_make_mollie_client(FakeSDKClient()))
+        member = frappe._dict(mollie_mandate_id="mdt_FIELD")
+
+        self.assertEqual(
+            service._mandate_id_for_replacement(member, {"mandate_id": "mdt_SUB"}), "mdt_SUB"
+        )
+        self.assertEqual(
+            service._mandate_id_for_replacement(member, {"mandate_id": None}), "mdt_FIELD"
+        )

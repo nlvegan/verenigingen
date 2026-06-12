@@ -12,7 +12,9 @@ from frappe import _
 
 from ..core.client import MollieClient
 from ..exceptions import MollieIntegrationError
+from ..utils.amount_helpers import extract_amount_float
 from ..utils.common_helpers import format_mollie_amount
+from .subscription_description import get_member_subscription_description
 from .subscription_service import SubscriptionService
 
 # Billing interval mapping to Mollie format
@@ -74,39 +76,12 @@ class MollieSubscriptionSyncService:
                     "message": "Member does not have Mollie customer ID",
                 }
 
-            if not member.mollie_subscription_id or not member.mollie_mandate_id:
-                frappe.logger().info(
-                    f"⚠️ Member {member.name} has no Mollie subscription or mandate, skipping sync"
-                )
+            if not member.mollie_subscription_id:
+                frappe.logger().info(f"⚠️ Member {member.name} has no Mollie subscription, skipping sync")
                 return {
                     "status": "skipped",
                     "reason": "no_mollie_subscription",
                     "message": "Member does not have active Mollie subscription",
-                }
-
-            # Validate SEPA mandate is still active via Mollie API
-            try:
-                raw_mollie_client = self.client._get_mollie_client()
-                customer_obj = raw_mollie_client.customers.get(member.mollie_customer_id)
-                mandate = customer_obj.mandates.get(member.mollie_mandate_id)
-
-                if mandate.status not in ["valid", "pending"]:
-                    frappe.logger().warning(
-                        f"⚠️ SEPA mandate {member.mollie_mandate_id} for member {member.name} has status '{mandate.status}'"
-                    )
-                    return {
-                        "status": "error",
-                        "reason": "invalid_mandate",
-                        "message": f"SEPA mandate is {mandate.status}. Cannot create new subscription. Please renew mandate first.",
-                    }
-            except Exception as mandate_error:
-                frappe.logger().error(
-                    f"Failed to validate mandate for member {member.name}: {str(mandate_error)}"
-                )
-                return {
-                    "status": "error",
-                    "reason": "mandate_validation_failed",
-                    "message": f"Could not validate SEPA mandate: {str(mandate_error)}",
                 }
 
             # Store old subscription ID for cancellation
@@ -119,6 +94,37 @@ class MollieSubscriptionSyncService:
 
             # Determine new subscription parameters from amendment
             new_amount, new_interval = self._get_subscription_parameters(amendment_doc, membership)
+
+            # Amount-only change: PATCH the live subscription in place.
+            # The subscription id stays stable; drifted description/webhook
+            # values are repaired in the same call.
+            if new_interval == old_subscription.get("interval"):
+                return self._patch_subscription_amount(member, amendment_doc, old_subscription, new_amount)
+
+            # Interval changed: replacement path. Validate the mandate that
+            # the NEW subscription will charge against. The live subscription
+            # is the authoritative mandate source; the Member field is only a
+            # fallback (it was historically never populated).
+            replacement_mandate_id = self._mandate_id_for_replacement(member, old_subscription)
+            if replacement_mandate_id:
+                try:
+                    raw_mollie_client = self.client._get_mollie_client()
+                    customer_obj = raw_mollie_client.customers.get(member.mollie_customer_id)
+                    mandate = customer_obj.mandates.get(replacement_mandate_id)
+                    if mandate.status not in ["valid", "pending"]:
+                        return {
+                            "status": "error",
+                            "reason": "invalid_mandate",
+                            "message": f"SEPA mandate is {mandate.status}. Cannot create new subscription. Please renew mandate first.",
+                            "requires_admin_review": True,
+                        }
+                except Exception as mandate_error:
+                    return {
+                        "status": "error",
+                        "reason": "mandate_validation_failed",
+                        "message": f"Could not validate SEPA mandate: {str(mandate_error)}",
+                        "requires_admin_review": True,
+                    }
 
             # TRANSACTION SAFETY: Create new subscription first, then cancel old one
             # This prevents leaving member without active subscription if creation fails
@@ -320,6 +326,75 @@ class MollieSubscriptionSyncService:
                 "requires_admin_review": True,
             }
 
+    def _patch_subscription_amount(self, member, amendment_doc, live_subscription, new_amount):
+        """PATCH the live subscription's amount, repairing drifted
+        description/webhookUrl in the same call. Returns a sync-result dict."""
+        payload = self._build_amount_patch_payload(member, live_subscription, new_amount)
+        subscription_id = live_subscription["id"]
+
+        try:
+            updated = self.client.update_subscription(member.mollie_customer_id, subscription_id, payload)
+        except Exception as patch_error:
+            return {
+                "status": "error",
+                "reason": "patch_failed",
+                "subscription_id": subscription_id,
+                "message": f"Mollie PATCH failed: {str(patch_error)}",
+                "requires_admin_review": True,
+            }
+
+        updated_amount = extract_amount_float(updated.amount)
+        if abs(updated_amount - float(new_amount)) > 0.005:
+            return {
+                "status": "warning",
+                "subscription_id": subscription_id,
+                "message": (
+                    f"PATCH returned amount {updated_amount}, expected {new_amount}. "
+                    "Manual verification required."
+                ),
+                "requires_admin_review": True,
+            }
+
+        member.db_set(
+            {
+                "subscription_status": updated.status,
+                "next_payment_date": getattr(updated, "next_payment_date", None),
+            },
+            update_modified=False,
+        )
+
+        repaired = [key for key in ("description", "webhookUrl") if key in payload]
+        frappe.logger().info(
+            f"✅ PATCHed subscription {subscription_id} for amendment {amendment_doc.name}: "
+            f"amount -> {new_amount}" + (f", repaired drifted {', '.join(repaired)}" if repaired else "")
+        )
+        return {
+            "status": "success",
+            "subscription_id": subscription_id,
+            "patched_fields": list(payload.keys()),
+            "message": f"Subscription amount updated to {new_amount} via PATCH",
+        }
+
+    def _build_amount_patch_payload(self, member, live_subscription, new_amount) -> dict:
+        """Amount always; description/webhookUrl only when the live values
+        differ from the canonical ones (drift repair)."""
+        payload = {"amount": format_mollie_amount(new_amount, "EUR")}
+
+        canonical_description = get_member_subscription_description(member)
+        if (live_subscription.get("description") or "") != canonical_description:
+            payload["description"] = canonical_description
+
+        canonical_webhook = frappe.get_single("Mollie Settings").get_subscription_webhook_url()
+        if (live_subscription.get("webhook_url") or "") != canonical_webhook:
+            payload["webhookUrl"] = canonical_webhook
+
+        return payload
+
+    def _mandate_id_for_replacement(self, member, live_subscription):
+        """The live subscription's mandate is authoritative; the Member
+        field is a fallback for subscriptions Mollie reports without one."""
+        return live_subscription.get("mandate_id") or member.mollie_mandate_id
+
     def _create_replacement_subscription(
         self,
         member,
@@ -354,7 +429,7 @@ class MollieSubscriptionSyncService:
         subscription_data = {
             "amount": format_mollie_amount(amount, "EUR"),
             "interval": interval,
-            "description": f"Membership dues - {member.first_name} {member.last_name}",
+            "description": get_member_subscription_description(member),
             "webhookUrl": self._get_webhook_url(),
             "metadata": {
                 "member_id": member.name,
@@ -535,7 +610,7 @@ class MollieSubscriptionSyncService:
             "Membership Dues Schedule",
             filters={"member": member_id, "docstatus": 1, "status": ["in", ["Active", "Scheduled"]]},
             fields=["name", "dues_rate", "billing_frequency"],
-            order_by="effective_from desc",
+            order_by="creation desc",
             limit=1,
         )
 
@@ -544,6 +619,5 @@ class MollieSubscriptionSyncService:
         return None
 
     def _get_webhook_url(self) -> str:
-        """Get webhook URL for subscription notifications."""
-        site_url = frappe.utils.get_url()
-        return f"{site_url}/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook"
+        """Canonical subscription webhook URL (Mollie Settings owns it)."""
+        return frappe.get_single("Mollie Settings").get_subscription_webhook_url()
