@@ -470,11 +470,12 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
     flows need a test running as the actual target role (not Administrator),
     because Administrator bypasses all DocPerms.
 
-    The exception-message regex ('only allowed') matches what
-    frappe.only_for raises — this isolates the only_for gate from the
-    later frappe.get_doc permission check (which would raise a different
-    PermissionError with a different message). Without the regex match,
-    deleting the only_for line would leave the test passing.
+    The endpoints carry two layers of protection: the @critical_api
+    (OperationType.ADMIN) decorator is the first gate, with the internal
+    frappe.only_for(ADMIN_ROLES) in base_csv_import as defense-in-depth. The
+    decorator fires first for a non-admin, so the expected message is the
+    framework's 'Access denied' (regex isolates a real authorization failure
+    from an unrelated error — without it, removing the gate could pass silently).
     """
 
     def test_non_admin_cannot_validate(self):
@@ -489,7 +490,7 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
         original_user = frappe.session.user
         try:
             frappe.set_user("Guest")
-            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
+            with self.assertRaisesRegex(frappe.PermissionError, "Access denied"):
                 validate_import_file(doc.name)
         finally:
             frappe.set_user(original_user)
@@ -504,9 +505,9 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
         original_user = frappe.session.user
         try:
             frappe.set_user("Guest")
-            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
+            with self.assertRaisesRegex(frappe.PermissionError, "Access denied"):
                 process_import_background(doc.name)
-            # only_for must run BEFORE any side-effect flag set.
+            # The authorization gate must run BEFORE any side-effect flag set.
             self.assertFalse(getattr(frappe.flags, "in_background_job", False))
         finally:
             frappe.set_user(original_user)

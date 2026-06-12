@@ -298,9 +298,11 @@ def _create_stub_procurios_csv_import_doc():
 class TestProcuriosCSVImportPermissions(EnhancedTestCase):
     """Non-admin users must not be able to trigger the whitelisted endpoints.
 
-    Sibling of TestProcuriosMandateImportPermissions. The regex match on
-    'only allowed' isolates the frappe.only_for gate from later
-    get_doc / row-level permission checks.
+    Sibling of TestProcuriosMandateImportPermissions. The endpoints carry the
+    @critical_api(OperationType.ADMIN) decorator as the first gate (raising the
+    framework's 'Access denied'), with frappe.only_for(ADMIN_ROLES) in
+    base_csv_import as defense-in-depth. The regex isolates a real authorization
+    failure from later get_doc / row-level errors.
     """
 
     def test_non_admin_cannot_validate(self):
@@ -313,7 +315,7 @@ class TestProcuriosCSVImportPermissions(EnhancedTestCase):
         original_user = frappe.session.user
         try:
             frappe.set_user("Guest")
-            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
+            with self.assertRaisesRegex(frappe.PermissionError, "Access denied"):
                 validate_import_file(doc.name)
         finally:
             frappe.set_user(original_user)
@@ -328,9 +330,9 @@ class TestProcuriosCSVImportPermissions(EnhancedTestCase):
         original_user = frappe.session.user
         try:
             frappe.set_user("Guest")
-            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
+            with self.assertRaisesRegex(frappe.PermissionError, "Access denied"):
                 process_import_background(doc.name)
-            # only_for must run BEFORE any side-effect flag set.
+            # The authorization gate must run BEFORE any side-effect flag set.
             self.assertFalse(getattr(frappe.flags, "in_background_job", False))
             self.assertFalse(getattr(frappe.flags, "bulk_member_operations", False))
         finally:

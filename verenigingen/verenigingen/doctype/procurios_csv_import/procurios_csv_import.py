@@ -21,6 +21,7 @@ from verenigingen.utils.csv_import_processor import (
     ensure_bulk_import_members_set,
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 ADDRESS_TYPE_MAP = {
     "Standaardadres": "Personal",
@@ -260,12 +261,14 @@ class ProcuriosCSVImport(BaseCSVImport):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation."""
     return run_csv_validation("Procurios CSV Import", import_doc_name)
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
     doc, test_mode = prepare_background_import("Procurios CSV Import", import_doc_name, test_mode)

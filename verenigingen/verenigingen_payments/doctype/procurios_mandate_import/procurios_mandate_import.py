@@ -32,6 +32,7 @@ from verenigingen.utils.csv.procurios_mandate_validator import (
     ProcuriosMandateValidator,
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 @dataclass
@@ -407,12 +408,14 @@ class ProcuriosMandateImport(BaseCSVImport):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation (called from the client script)."""
     return run_csv_validation("Procurios Mandate Import", import_doc_name)
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: validate, build caches, process, finalize."""
     import traceback

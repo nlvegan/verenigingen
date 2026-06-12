@@ -173,6 +173,7 @@ jobs:
 
         security_decorators = [
             '@critical_api', '@standard_api', '@high_security_api',
+            '@self_service_api', '@api_security_framework',
             '@development_only_api', '@public_api', '@utility_api',
             '@development_only', '@_development_only', '@require_role',
             '@webhook_api'
@@ -264,6 +265,7 @@ jobs:
 
         security_decorators = [
             '@critical_api', '@standard_api', '@high_security_api',
+            '@self_service_api', '@api_security_framework',
             '@development_only_api', '@public_api', '@utility_api',
             '@development_only', '@_development_only', '@require_role',
             '@webhook_api'
