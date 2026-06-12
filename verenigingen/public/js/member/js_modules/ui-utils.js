@@ -131,29 +131,30 @@ function add_custom_css() {
 function show_debug_postal_code_info(frm) {
 	if (frm.doc.pincode) {
 		frappe.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.debug_postal_code_matching',
+			method: 'verenigingen.verenigingen.doctype.member.member_utils.debug_postal_code_matching',
 			args: {
-				pincode: frm.doc.pincode
+				postal_code: frm.doc.pincode
 			},
 			callback(r) {
 				// Unwrap OperationResult format
 				const data = unwrapOperationResult(r.message);
 				if (data) {
-					let message = `<div><strong>Postal Code Debug Results for ${data.pincode}</strong><br><br>`;
+					let message = `<div><strong>Postal Code Debug Results for ${data.postal_code}</strong><br><br>`;
+					message += `Checked ${data.total_chapters || 0} published chapter(s).<br><br>`;
 
-					if (data.chapters && data.chapters.length > 0) {
+					if (data.matching_chapters && data.matching_chapters.length > 0) {
 						message += '<strong>Matching Chapters:</strong><br>';
-						data.chapters.forEach((chapter) => {
-							message += `• ${chapter.name} (Score: ${chapter.score}%, Distance: ${chapter.distance}km)<br>`;
+						data.matching_chapters.forEach((chapter) => {
+							message += `• ${chapter.name} (Region: ${chapter.region || '-'})<br>`;
 						});
 					} else {
 						message += 'No matching chapters found.<br>';
 					}
 
-					if (data.debug_info) {
-						message += '<br><strong>Debug Info:</strong><br>';
-						Object.keys(data.debug_info).forEach((key) => {
-							message += `${key}: ${data.debug_info[key]}<br>`;
+					if (data.non_matching_chapters && data.non_matching_chapters.length > 0) {
+						message += '<br><strong>Non-matching Chapters:</strong><br>';
+						data.non_matching_chapters.forEach((chapter) => {
+							message += `• ${chapter.name} (${chapter.reason || 'No match'})<br>`;
 						});
 					}
 

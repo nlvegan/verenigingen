@@ -851,8 +851,8 @@ export class CommunicationManager {
 
 	async trackEmailOpen(communicationId) {
 		try {
-			await this.api.call('frappe.core.doctype.communication.communication.mark_email_as_seen', {
-				communication: communicationId
+			await this.api.call('frappe.core.doctype.communication.email.mark_email_as_seen', {
+				name: communicationId
 			});
 		} catch (error) {
 			console.error('Error tracking email open:', error);
