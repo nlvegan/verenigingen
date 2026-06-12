@@ -81,7 +81,7 @@ def get_context(context):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_workflow_actions(member_name):
+def get_workflow_actions(member_name: str):
     """Get available workflow actions for a member"""
 
     if not frappe.has_permission("Member", "write"):
@@ -115,7 +115,7 @@ def get_workflow_actions(member_name):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def execute_workflow_action(member_name, action, next_state):
+def execute_workflow_action(member_name: str, action, next_state):
     """Execute a workflow action on a member"""
 
     if not frappe.has_permission("Member", "write"):

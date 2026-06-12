@@ -58,7 +58,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def generate_manual_invoice(member_name) -> OperationResult[Dict[str, Any]]:
+def generate_manual_invoice(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Generate a manual invoice for a member's current active dues schedule.
 
@@ -188,7 +188,7 @@ def generate_manual_invoice(member_name) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
-def get_member_invoice_info(member_name) -> OperationResult[Dict[str, Any]]:
+def get_member_invoice_info(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Get information about member's dues schedule and recent invoices for UI display
 

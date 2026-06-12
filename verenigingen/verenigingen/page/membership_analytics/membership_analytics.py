@@ -26,7 +26,11 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_dashboard_data(
-    year=None, period="year", compare_previous=False, cohort_interval="monthly", filters=None
+    year=None,
+    period="year",
+    compare_previous=False,
+    cohort_interval="monthly",
+    filters: dict | str | None = None,
 ):
     """Get all dashboard data for membership analytics"""
     if not year:
@@ -60,7 +64,7 @@ def get_dashboard_data(
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_summary_metrics(year, period="year", filters=None):
+def get_summary_metrics(year, period="year", filters: dict | None = None):
     """Get summary metrics for the dashboard header"""
     filters = filters or {}
 
@@ -485,7 +489,7 @@ def _get_error_response(error_message):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_growth_trend(year, period="year", filters=None):
+def get_growth_trend(year, period="year", filters: dict | None = None):
     """Get member growth trend data for charts"""
     filters = filters or {}
     growth_data = []
@@ -526,7 +530,7 @@ def get_growth_trend(year, period="year", filters=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_revenue_projection(year, filters=None):
+def get_revenue_projection(year, filters: dict | None = None):
     """Get revenue by membership type for a specific year
 
     Calculates actual revenue from invoices for the selected year,
@@ -577,7 +581,7 @@ def get_revenue_projection(year, filters=None):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_membership_breakdown(year, filters=None):
+def get_membership_breakdown(year, filters: dict | None = None):
     """Get membership breakdown by type for a specific year
 
     Returns membership type distribution based on:
@@ -804,7 +808,7 @@ def create_goal(goal_data):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_segmentation_data(year, period="year", filters=None):
+def get_segmentation_data(year, period="year", filters: dict | None = None):
     """Get detailed segmentation data"""
     filters = filters or {}
 

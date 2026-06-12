@@ -924,7 +924,7 @@ def get_donation_status(donation_id):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def mark_donation_paid(donation_id, payment_reference=None):
+def mark_donation_paid(donation_id, payment_reference: str | None = None):
     """Mark donation as paid (for manual processing)"""
     if not frappe.has_permission("Donation", "write"):
         return {"error": "Insufficient permissions"}

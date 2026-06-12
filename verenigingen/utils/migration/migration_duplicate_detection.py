@@ -427,7 +427,7 @@ class DuplicateMerger:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def detect_migration_duplicates(doctype, filters=None):
+def detect_migration_duplicates(doctype: str, filters: dict | None = None):
     """Detect all duplicates for a doctype"""
     detector = DuplicateDetector()
 
@@ -467,7 +467,7 @@ def detect_migration_duplicates(doctype, filters=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def merge_duplicate_group(doctype, primary, duplicates):
+def merge_duplicate_group(doctype: str, primary, duplicates):
     """Merge a group of duplicates"""
     merger = DuplicateMerger()
     return merger.merge_duplicates(doctype, primary, duplicates)

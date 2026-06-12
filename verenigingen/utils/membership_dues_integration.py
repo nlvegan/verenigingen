@@ -288,7 +288,9 @@ def _calculate_member_paid_ytd_python(member_name: str) -> float:
 
 
 @frappe.whitelist()
-def adjust_dues_schedule(schedule_name, new_amount=None, new_frequency=None, new_next_date=None, reason=None):
+def adjust_dues_schedule(
+    schedule_name: str, new_amount=None, new_frequency=None, new_next_date=None, reason=None
+):
     """Adjust an existing dues schedule"""
 
     schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
@@ -322,7 +324,7 @@ def adjust_dues_schedule(schedule_name, new_amount=None, new_frequency=None, new
 
 
 @frappe.whitelist()
-def create_payment_plan(member_name, total_amount, installments, start_date=None, notes=None):
+def create_payment_plan(member_name: str, total_amount, installments, start_date=None, notes=None):
     """Create a payment plan with multiple dues schedules"""
 
     start_date = start_date or today()

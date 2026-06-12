@@ -170,7 +170,7 @@ def send_overdue_payment_reminders(
     include_payment_link=True,
     custom_message=None,
     send_to_chapters=False,
-    filters=None,
+    filters: dict | str | None = None,
 ) -> OperationResult[Dict[str, Any]]:
     """
     Send payment reminders to members with overdue payments.
@@ -363,7 +363,9 @@ def send_overdue_payment_reminders(
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=5000)
-def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[str, Any]]:
+def export_overdue_payments(
+    filters: dict | str | None = None, format="CSV"
+) -> OperationResult[Dict[str, Any]]:
     """Export overdue payments data for external processing"""
     try:
         from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
@@ -461,7 +463,7 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
 @handle_api_error
 @performance_monitor(threshold_ms=10000)
 def execute_bulk_payment_action(
-    action, apply_to="All Visible Records", filters=None
+    action, apply_to="All Visible Records", filters: dict | str | None = None
 ) -> OperationResult[Dict[str, Any]]:
     """Execute bulk actions on overdue payments"""
     try:

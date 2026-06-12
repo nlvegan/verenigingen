@@ -211,7 +211,7 @@ def update_auto_creation_settings(
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def test_customer_eligibility(customer_name, amount) -> OperationResult[Dict[str, Any]]:
+def test_customer_eligibility(customer_name: str, amount) -> OperationResult[Dict[str, Any]]:
     """
     Test if a customer would be eligible for donor auto-creation
 
@@ -307,7 +307,9 @@ def get_customer_groups() -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def simulate_auto_creation(customer_name, amount, donations_account=None) -> OperationResult[Dict[str, Any]]:
+def simulate_auto_creation(
+    customer_name: str, amount, donations_account=None
+) -> OperationResult[Dict[str, Any]]:
     """
     Simulate donor auto-creation without actually creating records
 

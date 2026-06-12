@@ -41,7 +41,7 @@ from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAI
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limit=100):
+def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | None = None, limit=100):
     """
     Securely load unpaid invoices for batch processing
 
@@ -187,7 +187,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_invoice_mandate_info_secure(invoice):
+def get_invoice_mandate_info_secure(invoice: str):
     """
     Securely get mandate information for an invoice
 
@@ -258,7 +258,7 @@ def get_invoice_mandate_info_secure(invoice):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def validate_invoice_mandate_secure(invoice, member):
+def validate_invoice_mandate_secure(invoice: str, member: str):
     """
     Securely validate mandate for a specific invoice
 
@@ -342,7 +342,7 @@ def validate_invoice_mandate_secure(invoice, member):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_batch_analytics_secure(batch_name):
+def get_batch_analytics_secure(batch_name: str):
     """
     Securely get detailed analytics for a batch
 
@@ -405,7 +405,7 @@ def get_batch_analytics_secure(batch_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def preview_sepa_xml_secure(batch_name):
+def preview_sepa_xml_secure(batch_name: str):
     """
     Securely preview SEPA XML content before generation
 
@@ -686,7 +686,7 @@ def create_sepa_batch_validated_secure(**params):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def validate_batch_invoices_secure(invoice_list):
+def validate_batch_invoices_secure(invoice_list: str | list):
     """
     Securely validate a list of invoices for SEPA batch processing
 

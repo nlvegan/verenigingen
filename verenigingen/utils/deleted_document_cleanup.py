@@ -268,7 +268,7 @@ def clear_deleted_documents_older_than_days(days=90) -> OperationResult[Dict[str
 
 
 @frappe.whitelist()
-def clear_deleted_documents_by_doctype(doctype, older_than_days=None) -> OperationResult[Dict[str, Any]]:
+def clear_deleted_documents_by_doctype(doctype: str, older_than_days=None) -> OperationResult[Dict[str, Any]]:
     """
     Clear deleted documents for a specific DocType.
 
@@ -372,7 +372,9 @@ def clear_deleted_documents_by_doctype(doctype, older_than_days=None) -> Operati
 
 
 @frappe.whitelist()
-def permanently_delete_doctype_documents(doctype, document_names) -> OperationResult[Dict[str, Any]]:
+def permanently_delete_doctype_documents(
+    doctype: str, document_names: str | list
+) -> OperationResult[Dict[str, Any]]:
     """
     Permanently delete specific documents that are in the Deleted Document table.
 

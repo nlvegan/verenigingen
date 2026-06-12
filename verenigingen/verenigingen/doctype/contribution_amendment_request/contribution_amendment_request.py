@@ -738,7 +738,7 @@ def process_pending_amendments():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_fee_change_amendment(member_name, new_amount, reason, effective_date=None):
+def create_fee_change_amendment(member_name: str, new_amount, reason, effective_date=None):
     """
     Create a fee change amendment for a member.
 
@@ -802,7 +802,7 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_member_pending_contribution_amendments(member_name):
+def get_member_pending_contribution_amendments(member_name: str):
     """
     Get all pending contribution amendments for a member.
 

@@ -110,7 +110,7 @@ def get_or_create_donor_for_user():
 
 
 @frappe.whitelist()
-def calculate_payment_amount(annual_amount, payment_frequency):
+def calculate_payment_amount(annual_amount, payment_frequency: str):
     """Calculate payment amount based on annual amount and frequency"""
     annual = flt(annual_amount)
 
@@ -125,7 +125,7 @@ def calculate_payment_amount(annual_amount, payment_frequency):
 
 
 @frappe.whitelist()
-def validate_bsn(bsn):
+def validate_bsn(bsn: str):
     """Validate BSN format and checksum"""
     from verenigingen.api.anbi_operations import validate_bsn as validate_bsn_api
 

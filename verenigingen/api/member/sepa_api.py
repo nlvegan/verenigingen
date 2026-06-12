@@ -30,7 +30,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def refresh_sepa_mandates(member):
+def refresh_sepa_mandates(member: str):
     """Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records"""
     try:
         member_doc = frappe.get_doc("Member", member)
@@ -44,7 +44,7 @@ def refresh_sepa_mandates(member):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_active_sepa_mandate(member, iban=None):
+def get_active_sepa_mandate(member: str, iban: str = None):
     """
     Get active SEPA mandate for a member.
 
@@ -82,11 +82,11 @@ def get_active_sepa_mandate(member, iban=None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_and_link_mandate_enhanced(
-    member,
+    member: str,
     mandate_id,
-    iban,
+    iban: str,
     bic="",
-    account_holder_name="",
+    account_holder_name: str = "",
     mandate_type="Recurring",
     sign_date=None,
     used_for_memberships=1,
@@ -181,7 +181,7 @@ def create_and_link_mandate_enhanced(
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def derive_bic_from_iban(iban):
+def derive_bic_from_iban(iban: str):
     """
     Derive BIC from IBAN for Dutch banks.
 
@@ -206,7 +206,7 @@ def derive_bic_from_iban(iban):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def deactivate_old_sepa_mandates(member, new_iban):
+def deactivate_old_sepa_mandates(member: str, new_iban):
     """
     Deactivate old SEPA mandates when IBAN changes.
 
@@ -240,7 +240,7 @@ def deactivate_old_sepa_mandates(member, new_iban):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def validate_mandate_creation(member, iban, mandate_id):
+def validate_mandate_creation(member: str, iban: str, mandate_id):
     """
     Validate mandate creation parameters and check for existing mandates.
 

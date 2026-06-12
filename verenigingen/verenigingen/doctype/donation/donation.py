@@ -295,7 +295,7 @@ class Donation(Document):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_donation_from_bank_transfer(donor, amount, date, bank_reference, donation_type=None):
+def create_donation_from_bank_transfer(donor: str, amount, date, bank_reference, donation_type=None):
     """Create donation from bank transfer details (payment-first architecture)"""
     from verenigingen.services.donation.financial_service import DonationFinancialService
 
@@ -328,7 +328,7 @@ def get_donor_by_email(email):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def create_donor_from_donation(donor_name, email, phone=None, donor_type=None):
+def create_donor_from_donation(donor_name: str, email: str, phone=None, donor_type: str = None):
     """Create a new donor from donation information"""
     if not donor_type:
         donor_type = frappe.db.get_single_value("Verenigingen Settings", "default_donor_type")
@@ -353,7 +353,9 @@ def get_company_for_donations():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, recurring_frequency=None):
+def create_sepa_donation(
+    donor: str, amount, date, sepa_mandate, donation_type=None, recurring_frequency=None
+):
     """Create donation for SEPA direct debit"""
     from verenigingen.services.donation.financial_service import DonationFinancialService
 
@@ -422,7 +424,7 @@ def generate_anbi_agreement_number():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_donations_by_chapter(chapter, from_date=None, to_date=None):
+def get_donations_by_chapter(chapter: str, from_date=None, to_date=None):
     """Get all donations earmarked for a specific chapter"""
     from verenigingen.services.donation.reporting_service import DonationReportingService
 
@@ -452,7 +454,7 @@ def get_donation_summary_by_purpose(from_date=None, to_date=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_chapter_donation(donor, amount, chapter, date=None, donation_type=None, notes=None):
+def create_chapter_donation(donor: str, amount, chapter: str, date=None, donation_type=None, notes=None):
     """Create a donation earmarked for a specific chapter"""
     from verenigingen.services.donation.financial_service import DonationFinancialService
 
@@ -482,7 +484,7 @@ def reconcile_donation_accounts():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def create_donation_allocation_report(chapter=None, from_date=None, to_date=None):
+def create_donation_allocation_report(chapter: str = None, from_date=None, to_date=None):
     """Create detailed allocation report for chapter or overall donations"""
     from verenigingen.services.donation.reporting_service import DonationReportingService
 

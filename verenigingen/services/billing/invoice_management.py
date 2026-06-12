@@ -34,7 +34,7 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def bulk_generate_dues_invoices(
-    filter_criteria=None, dry_run=True, max_invoices=50
+    filter_criteria: dict | None = None, dry_run=True, max_invoices=50
 ) -> OperationResult[Dict[str, Any]]:
     """
     Generate invoices for multiple dues schedules with comprehensive filtering and validation

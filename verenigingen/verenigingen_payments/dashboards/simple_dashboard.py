@@ -11,7 +11,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_dashboard_data(settings_name=None):
+def get_dashboard_data(settings_name: str | None = None):
     """Get dashboard data for frontend - simplified version"""
     # Return test data for now while Mollie API integration is being set up
     return {
@@ -30,7 +30,7 @@ def get_dashboard_data(settings_name=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_financial_report(period="month", settings_name=None):
+def get_financial_report(period="month", settings_name: str | None = None):
     """Get financial report for specified period - simplified version"""
     return {
         "success": True,

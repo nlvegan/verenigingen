@@ -254,7 +254,13 @@ class PaymentPlan(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def process_payment(self, installment_number, payment_amount, payment_reference=None, payment_date=None):
+    def process_payment(
+        self,
+        installment_number,
+        payment_amount: float,
+        payment_reference: str | None = None,
+        payment_date: str | None = None,
+    ):
         """Process a payment for a specific installment"""
         if not payment_date:
             payment_date = today()
@@ -435,7 +441,7 @@ class PaymentPlan(Document):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def create_payment_plan_from_application(member, total_amount, installments, frequency, reason=None):
+def create_payment_plan_from_application(member: str, total_amount, installments, frequency, reason=None):
     """Create payment plan from membership application or dues schedule"""
     try:
         payment_plan = frappe.new_doc("Payment Plan")
@@ -459,7 +465,7 @@ def create_payment_plan_from_application(member, total_amount, installments, fre
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def approve_payment_plan(plan_name, approver_notes=None):
+def approve_payment_plan(plan_name: str, approver_notes=None):
     """Approve a payment plan"""
     try:
         plan = frappe.get_doc("Payment Plan", plan_name)

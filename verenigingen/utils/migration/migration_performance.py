@@ -396,7 +396,7 @@ def create_migration_index(doctype, fields):
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def get_migration_performance_report(migration_name):
+def get_migration_performance_report(migration_name: str):
     """Get performance report for a migration"""
     # This would fetch actual performance metrics from the migration
     return {

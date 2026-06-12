@@ -528,7 +528,7 @@ def setup_dutch_tax_exemption(doc=None, method=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def apply_btw_exemption(docname, doctype="Sales Invoice", exemption_type=None):
+def apply_btw_exemption(docname: str, doctype: str = "Sales Invoice", exemption_type=None):
     """
     Apply BTW exemption to a document
     """

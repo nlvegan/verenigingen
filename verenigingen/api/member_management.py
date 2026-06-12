@@ -32,7 +32,7 @@ from verenigingen.utils.security.enhanced_validation import validate_with_schema
 @validate_with_schema("member_data")
 @handle_api_error
 @performance_monitor(threshold_ms=500)
-def assign_member_to_chapter(member_name, chapter_name) -> OperationResult[Dict[str, Any]]:
+def assign_member_to_chapter(member_name: str, chapter_name: str) -> OperationResult[Dict[str, Any]]:
     """Assign a member to a specific chapter using centralized manager"""
     # Validate inputs using standardized validation
     validate_required_fields(
@@ -333,7 +333,9 @@ def _enrich_members_with_chapters(members, chapter_relationships, chapter_info):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 @performance_monitor(threshold_ms=1000)
-def get_members_with_chapter_info(filters=None, limit=50) -> OperationResult[Dict[str, Any]]:
+def get_members_with_chapter_info(
+    filters: dict | str | None = None, limit=50
+) -> OperationResult[Dict[str, Any]]:
     """
     Get member list with chapter relationships using optimized queries (N+1 prevention)
 
@@ -855,7 +857,7 @@ def create_bank_transaction_improved(transaction_data, bank_account, company):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def get_chapter_member_emails(chapter_name) -> OperationResult[Dict[str, Any]]:
+def get_chapter_member_emails(chapter_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Get email addresses of all members in a specific chapter.
 

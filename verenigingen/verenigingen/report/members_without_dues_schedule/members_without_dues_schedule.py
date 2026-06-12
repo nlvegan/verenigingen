@@ -314,7 +314,7 @@ def get_chart_data(data):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def fix_member_schedule_issues(member_list):
+def fix_member_schedule_issues(member_list: str | list):
     """API function to batch fix member schedule issues or create missing memberships/schedules"""
     try:
         if isinstance(member_list, str):

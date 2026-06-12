@@ -133,7 +133,7 @@ def _create_monthly_dues_collection_batch_impl():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def process_sepa_returns(batch_name, return_file):
+def process_sepa_returns(batch_name: str, return_file):
     """Process SEPA return file for a batch"""
     processor = get_sepa_batch_processor()
     failed_count = processor.process_batch_returns(batch_name, return_file)

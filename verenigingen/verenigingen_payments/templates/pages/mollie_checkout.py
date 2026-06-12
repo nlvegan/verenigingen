@@ -132,7 +132,7 @@ def get_mollie_settings(reference_docname, gateway_name):
 
 @frappe.whitelist(allow_guest=True)
 @public_api
-def make_payment(data, reference_doctype, reference_docname, gateway_name="Default"):
+def make_payment(data, reference_doctype, reference_docname, gateway_name: str = "Default"):
     """
     Create or check Mollie payment status
 

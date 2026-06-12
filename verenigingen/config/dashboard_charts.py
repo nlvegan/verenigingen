@@ -9,7 +9,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, st
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_member_age_distribution(chart_name=None, filters=None):
+def get_member_age_distribution(chart_name: str | None = None, filters: dict | None = None):
     """
     Get member age distribution in 5-year groups
     This is a custom chart source for dashboard charts

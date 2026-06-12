@@ -24,7 +24,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_donor_customer_info(donor_name) -> OperationResult[Dict[str, Any]]:
+def get_donor_customer_info(donor_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Get comprehensive information about donor and its customer integration
 
@@ -80,7 +80,7 @@ def get_donor_customer_info(donor_name) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def force_donor_customer_sync(donor_name) -> OperationResult[Dict[str, Any]]:
+def force_donor_customer_sync(donor_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Force synchronization of donor with customer record
 
@@ -130,7 +130,7 @@ def force_donor_customer_sync(donor_name) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def unlink_donor_customer(donor_name, remove_customer=False) -> OperationResult[Dict[str, Any]]:
+def unlink_donor_customer(donor_name: str, remove_customer=False) -> OperationResult[Dict[str, Any]]:
     """
     Unlink donor from customer record
 

@@ -7,7 +7,7 @@ from verenigingen.utils.constants import Roles
 
 
 @frappe.whitelist()
-def validate_termination_readiness(member_name):
+def validate_termination_readiness(member_name: str):
     """
     Validate if a member is ready for termination and return impact assessment
     """
@@ -191,7 +191,7 @@ def validate_termination_readiness(member_name):
 
 
 @frappe.whitelist()
-def get_termination_impact_summary(member_name):
+def get_termination_impact_summary(member_name: str):
     """
     Get a summary of what will be affected by member termination
     """

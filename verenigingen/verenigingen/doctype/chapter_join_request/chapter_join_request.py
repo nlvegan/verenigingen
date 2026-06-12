@@ -306,7 +306,7 @@ class ChapterJoinRequest(Document):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def has_chapter_approval_permission(chapter_name=None, user=None):
+def has_chapter_approval_permission(chapter_name: str = None, user: str = None):
     """Check if user has permission to approve/reject requests for a specific chapter"""
     if not chapter_name:
         # Return False if no chapter specified, rather than throwing an error
@@ -332,7 +332,7 @@ def has_chapter_approval_permission(chapter_name=None, user=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def approve_join_request(request_name, notes=None):
+def approve_join_request(request_name: str, notes=None):
     """API method to approve a chapter join request with proper permission validation"""
     try:
         doc = frappe.get_doc("Chapter Join Request", request_name)
@@ -353,7 +353,7 @@ def approve_join_request(request_name, notes=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def reject_join_request(request_name, reason=None):
+def reject_join_request(request_name: str, reason=None):
     """API method to reject a chapter join request with proper permission validation"""
     try:
         doc = frappe.get_doc("Chapter Join Request", request_name)
@@ -372,7 +372,7 @@ def reject_join_request(request_name, reason=None):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_member_chapter_join_requests(member_name):
+def get_member_chapter_join_requests(member_name: str):
     """Get all chapter join requests for a specific member"""
     try:
         requests = frappe.get_all(
@@ -401,7 +401,7 @@ def get_member_chapter_join_requests(member_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_chapter_join_requests(chapter_name):
+def get_chapter_join_requests(chapter_name: str):
     """Get all chapter join requests for a specific chapter"""
     try:
         # Get requests first, then check permissions for approve/deny buttons

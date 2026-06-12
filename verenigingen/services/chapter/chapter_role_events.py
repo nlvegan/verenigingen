@@ -144,7 +144,7 @@ def sync_all_chapter_board_roles():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_user_board_summary(user_email=None):
+def get_user_board_summary(user_email: str | None = None):
     """
     Get summary of user's board positions and permissions
     Useful for debugging and administration

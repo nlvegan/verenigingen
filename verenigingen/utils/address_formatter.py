@@ -159,7 +159,7 @@ def format_address_single_line(address_doc):
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 @api_response_handler
 @cache_with_ttl(ttl=1800)  # Cache for 30 minutes - addresses don't change frequently
-def format_member_address(member_name):
+def format_member_address(member_name: str):
     """Format a member's primary address using appropriate country conventions"""
     # CORRECTED SECURE VERSION: Check Member read permissions explicitly
     if not frappe.has_permission("Member", "read", member_name):

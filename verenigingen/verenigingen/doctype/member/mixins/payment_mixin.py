@@ -84,7 +84,7 @@ class PaymentMixin:
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
-    def refresh_payment_entry(self, payment_entry_name):
+    def refresh_payment_entry(self, payment_entry_name: str):
         """
         Update payment history for a specific payment entry instead of full rebuild
 

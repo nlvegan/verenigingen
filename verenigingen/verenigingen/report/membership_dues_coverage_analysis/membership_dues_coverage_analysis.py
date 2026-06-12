@@ -1206,7 +1206,7 @@ def get_empty_coverage_analysis():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def generate_catchup_invoices(members, from_date=None, to_date=None):
+def generate_catchup_invoices(members: str | list, from_date=None, to_date=None):
     """Generate catch-up invoices for members with coverage gaps"""
     import html
     from datetime import timedelta
@@ -1364,7 +1364,7 @@ def generate_catchup_invoices(members, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
-def export_gap_analysis(filters):
+def export_gap_analysis(filters: dict | str | None):
     """Export detailed gap analysis to Excel"""
 
     # Check permissions
@@ -1519,7 +1519,7 @@ def debug_coverage_fields():
 
 
 @frappe.whitelist()
-def get_coverage_timeline_data(member, from_date=None, to_date=None):
+def get_coverage_timeline_data(member: str, from_date=None, to_date=None):
     """Get detailed coverage timeline data for visualization"""
 
     # Check permissions

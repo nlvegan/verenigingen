@@ -27,7 +27,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def create_member_user_account(member_name, send_welcome_email=True):
+def create_member_user_account(member_name: str, send_welcome_email=True):
     """
     Create a user account for a member to access portal pages.
 
@@ -50,7 +50,7 @@ def create_member_user_account(member_name, send_welcome_email=True):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def check_donor_exists(member_name):
+def check_donor_exists(member_name: str):
     """Check if a donor record exists for this member"""
     from verenigingen.services.member.donor import get_donor_management_service
 
@@ -59,7 +59,7 @@ def check_donor_exists(member_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_donor_from_member(member_name):
+def create_donor_from_member(member_name: str):
     """
     Create a donor record from member information.
 
@@ -81,7 +81,7 @@ def create_donor_from_member(member_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.UTILITY)
-def test_member_form_functionality(member_name):
+def test_member_form_functionality(member_name: str):
     """Delegate to extracted testing utility.
 
     Note: This is a testing/debugging utility intended for development.
@@ -93,7 +93,7 @@ def test_member_form_functionality(member_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_linked_donations(member):
+def get_linked_donations(member: str):
     """
     Find linked donor record for a member to view donations.
 

@@ -172,7 +172,7 @@ class DonationCampaign(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
-    def create_project(self, project_name=None):
+    def create_project(self, project_name: str = None):
         """Create a project for this campaign"""
         if self.project:
             frappe.throw(_("Campaign already has a project linked"))

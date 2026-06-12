@@ -700,7 +700,7 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def test_email_template(template_name, test_context=None) -> OperationResult[Dict[str, Any]]:
+def test_email_template(template_name: str, test_context=None) -> OperationResult[Dict[str, Any]]:
     """Test email template rendering with sample context"""
     try:
         if test_context is None:

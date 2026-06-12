@@ -63,7 +63,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_from_customer(customer) -> OperationResult[Dict[str, Any]]:
+def get_member_from_customer(customer: str) -> OperationResult[Dict[str, Any]]:
     """
     Retrieve the Member record associated with a Customer record.
 

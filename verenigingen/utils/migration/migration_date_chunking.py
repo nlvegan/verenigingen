@@ -348,7 +348,7 @@ def process_with_date_chunks(
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def estimate_migration_chunks(migration_name):
+def estimate_migration_chunks(migration_name: str):
     """Estimate optimal chunking strategy for a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 

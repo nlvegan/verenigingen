@@ -633,7 +633,7 @@ def test_eboekhouden_product_data():
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def migrate_stock_transactions_standalone(migration_name, date_from=None, date_to=None, dry_run=True):
+def migrate_stock_transactions_standalone(migration_name: str, date_from=None, date_to=None, dry_run=True):
     """Standalone function to migrate stock transactions"""
     try:
         # Get migration document or create a temporary one

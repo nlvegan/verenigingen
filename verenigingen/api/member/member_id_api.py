@@ -32,7 +32,7 @@ def assign_missing_member_ids():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def debug_member_id_assignment(member_name):
+def debug_member_id_assignment(member_name: str):
     """Debug member ID assignment - delegates to MemberIDService.
 
     Note: This is a debugging utility intended for development/troubleshooting.

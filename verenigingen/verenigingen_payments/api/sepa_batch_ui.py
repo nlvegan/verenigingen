@@ -20,7 +20,7 @@ from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAI
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
-def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
+def load_unpaid_invoices(date_range="overdue", membership_type: str | None = None, limit=100):
     """Load unpaid invoices for batch processing"""
 
     # Input validation
@@ -142,7 +142,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_invoice_mandate_info(invoice):
+def get_invoice_mandate_info(invoice: str):
     """Get mandate information for an invoice - optimized single query"""
 
     # Single query to get invoice, membership dues schedule, member, and mandate data
@@ -195,7 +195,7 @@ def get_invoice_mandate_info(invoice):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def validate_invoice_mandate(invoice, member):
+def validate_invoice_mandate(invoice: str, member: str):
     """Validate mandate for a specific invoice - optimized single query"""
 
     try:
@@ -258,7 +258,7 @@ def validate_invoice_mandate(invoice, member):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
-def get_batch_analytics(batch_name):
+def get_batch_analytics(batch_name: str):
     """Get detailed analytics for a batch"""
 
     batch = frappe.get_doc("Direct Debit Batch", batch_name)
@@ -303,7 +303,7 @@ def get_batch_analytics(batch_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def preview_sepa_xml(batch_name):
+def preview_sepa_xml(batch_name: str):
     """Preview SEPA XML content before generation"""
 
     batch = frappe.get_doc("Direct Debit Batch", batch_name)
@@ -506,7 +506,7 @@ def create_sepa_batch_validated(**params):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
-def validate_batch_invoices(invoice_list):
+def validate_batch_invoices(invoice_list: str | list):
     """
     Validate a list of invoices for SEPA batch processing
 

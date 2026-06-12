@@ -27,6 +27,11 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import cint, get_datetime, now_datetime
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+)
+
 
 class MemberPerformanceOptimizer:
     """Production-ready performance optimizations for Member operations"""
@@ -488,14 +493,29 @@ def create_member_optimized(**kwargs):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_dashboard(member_name: str):
-    """Whitelisted method for member dashboard data"""
+    """Whitelisted method for member dashboard data.
+
+    Security: the underlying query is raw SQL, which bypasses
+    `permission_query_conditions`. Enforce the row-level Member read
+    permission explicitly so the result respects the same ownership rules
+    (own record / chapter board / staff / admin) as the ORM path. This also
+    narrows Chapter Board Members to members in their own chapters.
+    """
+    frappe.has_permission("Member", "read", member_name, throw=True)
     return member_optimizer.get_member_dashboard_cached(member_name)
 
 
 @frappe.whitelist()
-def search_members_optimized(filters=None, limit=50):
-    """Whitelisted method for optimized member search"""
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def search_members_optimized(filters: dict | str | None = None, limit=50):
+    """Whitelisted method for optimized member search.
+
+    Security: raw-SQL bulk member search bypasses row-level permissions, so it
+    is restricted to HIGH-tier roles (staff / board / treasurer / admin) via
+    the security decorator. Plain members and volunteers are denied.
+    """
     from verenigingen.utils.validation.api_validators import parse_json_filters
 
     filters = parse_json_filters(filters)

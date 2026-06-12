@@ -173,7 +173,7 @@ def create_missing_sepa_mandates(dry_run=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def fix_specific_member_sepa_mandate(member_name):
+def fix_specific_member_sepa_mandate(member_name: str):
     """
     Create SEPA mandate for a specific member
     """

@@ -403,7 +403,7 @@ def generate_audit_summary(audit_report):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def audit_subscription_payments(customer_id=None, subscription_id=None):
+def audit_subscription_payments(customer_id: str | None = None, subscription_id=None):
     """
     Audit subscription payments for specific customer/subscription
 
@@ -471,7 +471,7 @@ def audit_subscription_payments(customer_id=None, subscription_id=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def fix_missing_payments(payment_ids=None, dry_run=True):
+def fix_missing_payments(payment_ids: str | list | None = None, dry_run=True):
     """
     Attempt to fix payments that exist in Mollie but are missing from database
 

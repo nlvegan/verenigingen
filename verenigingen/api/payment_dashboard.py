@@ -33,7 +33,7 @@ def validate_member_exists(member_id: str | None) -> str:
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 @performance_monitor()
-def get_dashboard_data(member=None) -> OperationResult[Dict[str, Any]]:
+def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get payment dashboard summary data"""
     try:
         # Get actual member ID
@@ -134,7 +134,7 @@ def get_dashboard_data(member=None) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_payment_method(member=None) -> OperationResult[Dict[str, Any]]:
+def get_payment_method(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get active payment method details"""
     try:
         # Get actual member ID
@@ -176,7 +176,9 @@ def get_payment_method(member=None) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_payment_history(member=None, year=None, status=None, **kwargs) -> OperationResult[Dict[str, Any]]:
+def get_payment_history(
+    member: str = None, year=None, status=None, **kwargs
+) -> OperationResult[Dict[str, Any]]:
     """Get payment history for member"""
     try:
         # Get actual member ID
@@ -353,7 +355,7 @@ def get_payment_history(member=None, year=None, status=None, **kwargs) -> Operat
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_mandate_history(member=None) -> OperationResult[Dict[str, Any]]:
+def get_mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get SEPA mandate history"""
     try:
         # Get actual member ID
@@ -399,7 +401,7 @@ def get_mandate_history(member=None) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
+def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get upcoming payment schedule"""
     try:
         # Get actual member ID
@@ -480,7 +482,7 @@ def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_next_payment(member=None) -> OperationResult[Dict[str, Any]]:
+def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get next scheduled payment"""
     try:
         # Get actual member ID
@@ -514,7 +516,7 @@ def get_next_payment(member=None) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def retry_failed_payment(invoice_id) -> OperationResult[Dict[str, Any]]:
+def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
     """Manually trigger payment retry"""
     try:
         invoice = frappe.get_doc("Sales Invoice", invoice_id)
@@ -559,7 +561,7 @@ def retry_failed_payment(invoice_id) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def download_payment_receipt(payment_id) -> OperationResult[Dict[str, Any]]:
+def download_payment_receipt(payment_id: str) -> OperationResult[Dict[str, Any]]:
     """Generate payment receipt PDF"""
     try:
         payment = frappe.get_doc("Payment Entry", payment_id)

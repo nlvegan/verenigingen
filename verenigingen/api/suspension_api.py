@@ -26,7 +26,7 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.MEMBER_DATA)
 def suspend_member(
-    member_name, suspension_reason, suspend_user=True, suspend_teams=True
+    member_name: str, suspension_reason, suspend_user=True, suspend_teams=True
 ) -> OperationResult[Dict[str, Any]]:
     """
     Suspend a member with specified options
@@ -114,7 +114,7 @@ def suspend_member(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.MEMBER_DATA)
-def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[str, Any]]:
+def unsuspend_member(member_name: str, unsuspension_reason) -> OperationResult[Dict[str, Any]]:
     """
     Unsuspend a member
     """
@@ -199,7 +199,7 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_suspension_status(member_name) -> OperationResult[Dict[str, Any]]:
+def get_suspension_status(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Get suspension status for a member (admin/staff use only)
     """
@@ -233,7 +233,7 @@ def get_suspension_status(member_name) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
-def can_suspend_member(member_name=None) -> OperationResult[Dict[str, Any]]:
+def can_suspend_member(member_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
     Check if current user can suspend/unsuspend a member
     If no member_name provided, checks general suspension permissions
@@ -322,7 +322,7 @@ def _can_suspend_member_fallback(member_name):
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor()
-def get_suspension_preview(member_name) -> OperationResult[Dict[str, Any]]:
+def get_suspension_preview(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Preview what would be affected by suspension with caching
     """
@@ -402,7 +402,7 @@ def get_suspension_preview(member_name) -> OperationResult[Dict[str, Any]]:
 @handle_api_error
 @performance_monitor()
 def bulk_suspend_members(
-    member_list, suspension_reason, suspend_user=True, suspend_teams=True
+    member_list: str | list, suspension_reason, suspend_user=True, suspend_teams=True
 ) -> OperationResult[Dict[str, Any]]:
     """
     Suspend multiple members at once using optimized batch processing
@@ -522,7 +522,9 @@ def bulk_suspend_members(
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor()
-def get_suspension_list(limit=100, offset=0, status=None, chapter=None) -> OperationResult[Dict[str, Any]]:
+def get_suspension_list(
+    limit=100, offset=0, status=None, chapter: str = None
+) -> OperationResult[Dict[str, Any]]:
     """
     Get list of suspended members with pagination and filtering
     """
@@ -605,7 +607,7 @@ def get_suspension_list(limit=100, offset=0, status=None, chapter=None) -> Opera
 
 @frappe.whitelist(allow_guest=True)
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, Any]]:
+def get_suspension_status_safe(member_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
     Safe wrapper for getting suspension status that handles permission errors gracefully
     If member_name is not provided, gets status for current user's member record

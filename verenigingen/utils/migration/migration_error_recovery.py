@@ -387,7 +387,7 @@ class MigrationErrorRecovery:
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def retry_failed_migration_records(migration_name):
+def retry_failed_migration_records(migration_name: str):
     """Retry all failed records from a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
@@ -428,7 +428,7 @@ def retry_failed_migration_records(migration_name):
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def get_migration_recovery_report(migration_name):
+def get_migration_recovery_report(migration_name: str):
     """Get recovery report for a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     recovery = MigrationErrorRecovery(migration_doc)

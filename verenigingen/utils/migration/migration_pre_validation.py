@@ -660,7 +660,7 @@ class JournalEntryValidator(BaseValidator):
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def validate_migration_data(migration_name, sample_size=None):
+def validate_migration_data(migration_name: str, sample_size=None):
     """Run pre-import validation on migration data"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     validator = PreImportValidator()

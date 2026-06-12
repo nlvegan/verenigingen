@@ -335,7 +335,7 @@ def execute_termination_request(request_name: str):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_termination_impact_preview(member):
+def get_termination_impact_preview(member: str):
     """Public API to get termination impact preview"""
     from verenigingen.utils.termination_utils import validate_termination_readiness
 
@@ -369,7 +369,7 @@ def get_termination_impact_preview(member):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def execute_safe_member_termination(member, termination_type, termination_date=None):
+def execute_safe_member_termination(member: str, termination_type, termination_date=None):
     """Public API to execute termination using safe methods"""
     from verenigingen.api.termination_api import execute_safe_termination
 
@@ -378,7 +378,7 @@ def execute_safe_member_termination(member, termination_type, termination_date=N
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_member_termination_status(member):
+def get_member_termination_status(member: str):
     """Get termination status for a member - redirect to member_utils"""
     from verenigingen.verenigingen.doctype.member.member_utils import get_member_termination_status
 
@@ -387,7 +387,7 @@ def get_member_termination_status(member):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_termination_history(member):
+def get_member_termination_history(member: str):
     """Get termination history for a member"""
     try:
         # Get all termination requests for this member
@@ -493,7 +493,9 @@ def get_termination_statistics():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_eligible_approvers(doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None):
+def get_eligible_approvers(
+    doctype: str | None = None, txt=None, searchfield=None, start=0, page_len=20, filters: dict | None = None
+):
     """Get list of users eligible to approve termination requests
 
     Used as query function for Link field - returns list of tuples
@@ -507,7 +509,7 @@ def get_eligible_approvers(doctype=None, txt=None, searchfield=None, start=0, pa
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.REPORTING)
-def generate_expulsion_report(filters=None):
+def generate_expulsion_report(filters: dict | None = None):
     """Generate expulsion report based on filters"""
     try:
         if not filters:
@@ -589,7 +591,7 @@ def generate_expulsion_report(filters=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def initiate_disciplinary_termination(member, reason, evidence=None, reporter=None):
+def initiate_disciplinary_termination(member: str, reason, evidence=None, reporter=None):
     """Initiate disciplinary termination procedure for a member"""
     try:
         # Validate input

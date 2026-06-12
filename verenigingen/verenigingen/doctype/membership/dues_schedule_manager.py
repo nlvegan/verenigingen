@@ -336,7 +336,7 @@ def get_unpaid_membership_invoices():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def add_to_direct_debit_batch(membership_name):
+def add_to_direct_debit_batch(membership_name: str):
     """
     Add a membership to a direct debit batch
     Creates a new batch if needed

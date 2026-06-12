@@ -275,7 +275,7 @@ def get_skills_statistics(member_ids=None):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def search_skills(skill_name="", category="", min_level=""):
+def search_skills(skill_name: str = "", category="", min_level=""):
     """API endpoint for skills search (can be called via AJAX)"""
     from verenigingen.verenigingen.doctype.volunteer.volunteer import search_volunteers_by_skill
 

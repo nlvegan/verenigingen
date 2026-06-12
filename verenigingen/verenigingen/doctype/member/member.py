@@ -893,12 +893,12 @@ def _load_member_for_shim(doc, ptype):
 
 
 @frappe.whitelist()
-def create_customer(doc=None):
+def create_customer(doc: str | dict = None):
     return _load_member_for_shim(doc, "write").create_customer()
 
 
 @frappe.whitelist()
-def create_user(doc=None):
+def create_user(doc: str | dict = None):
     return _load_member_for_shim(doc, "write").create_user()
 
 
@@ -930,27 +930,27 @@ def create_organization_user(
 
 
 @frappe.whitelist()
-def update_membership_duration(doc=None):
+def update_membership_duration(doc: str | dict = None):
     return _load_member_for_shim(doc, "write").update_membership_duration()
 
 
 @frappe.whitelist()
-def get_address_members_html(doc=None):
+def get_address_members_html(doc: str | dict = None):
     return _load_member_for_shim(doc, "read").get_address_members_html()
 
 
 @frappe.whitelist()
-def get_current_membership_fee(doc=None):
+def get_current_membership_fee(doc: str | dict = None):
     return _load_member_for_shim(doc, "read").get_current_membership_fee()
 
 
 @frappe.whitelist()
-def get_display_membership_fee(doc=None):
+def get_display_membership_fee(doc: str | dict = None):
     return _load_member_for_shim(doc, "read").get_display_membership_fee()
 
 
 @frappe.whitelist()
-def ensure_member_id(doc=None):
+def ensure_member_id(doc: str | dict = None):
     # The instance method's @high_security_api decorator already converts the
     # underlying OperationResult to a dict (api_security_framework.py:934-939),
     # so this normally returns a dict already. The fallback below is defence in

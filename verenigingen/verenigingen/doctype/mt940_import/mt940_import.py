@@ -503,7 +503,7 @@ def create_mollie_bulk_import(from_date, to_date, strategy="hybrid", company=Non
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def submit_import(import_name):
+def submit_import(import_name: str):
     """Submit an MT940 Import document"""
     try:
         if not frappe.has_permission("MT940 Import", "submit"):

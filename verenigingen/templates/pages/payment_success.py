@@ -455,7 +455,7 @@ def get_next_steps(status, doctype, docname):
 
 @frappe.whitelist(allow_guest=True)
 @public_api
-def refresh_payment_status(doctype, docname, payment_id):
+def refresh_payment_status(doctype: str, docname: str, payment_id: str):
     """
     API endpoint to refresh payment status.
 

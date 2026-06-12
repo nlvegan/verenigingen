@@ -100,7 +100,9 @@ def get_sort_name(first_name, tussenvoegsel=None, last_name=None):
 
 
 @frappe.whitelist()
-def format_dutch_full_name(first_name, middle_name=None, tussenvoegsel=None, last_name=None):
+def format_dutch_full_name(
+    first_name: str, middle_name: str | None = None, tussenvoegsel=None, last_name: str | None = None
+):
     """
     Format a complete Dutch name with proper tussenvoegsel handling
 

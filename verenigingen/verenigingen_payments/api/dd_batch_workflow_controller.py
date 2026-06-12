@@ -24,7 +24,7 @@ from verenigingen.utils.security.authorization import (
 @high_security_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.VALIDATE, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
-def validate_batch_for_approval(batch_name):
+def validate_batch_for_approval(batch_name: str):
     """
     Validate batch and determine appropriate approval path
 
@@ -203,7 +203,7 @@ def normalize_iban(iban):
 @critical_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
-def approve_batch(batch_name, approval_notes=None):
+def approve_batch(batch_name: str, approval_notes=None):
     """
     Approve batch and move to next state
 
@@ -265,7 +265,7 @@ def approve_batch(batch_name, approval_notes=None):
 @critical_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_CANCEL)
 @frappe.whitelist()
-def reject_batch(batch_name, rejection_reason):
+def reject_batch(batch_name: str, rejection_reason):
     """
     Reject batch and provide reason
 
@@ -322,7 +322,7 @@ def can_user_approve_batch(batch):
 @standard_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
-def get_batch_approval_history(batch_name):
+def get_batch_approval_history(batch_name: str):
     """Get approval history for a batch"""
     try:
         batch = frappe.get_doc("Direct Debit Batch", batch_name)
@@ -362,7 +362,7 @@ def get_batch_approval_history(batch_name):
 @critical_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.XML_GENERATE)
 @frappe.whitelist()
-def trigger_sepa_generation(batch_name):
+def trigger_sepa_generation(batch_name: str):
     """
     Trigger SEPA file generation for approved batch
 

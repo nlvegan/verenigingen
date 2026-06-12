@@ -54,7 +54,7 @@ def run_discovery(retrieval_mode="customer", days_back=7, max_members=None, date
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def process_payment(payment_id):
+def process_payment(payment_id: str):
     """
     API endpoint for processing a single payment.
 
@@ -84,7 +84,7 @@ def process_payment(payment_id):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def process_bulk_payments(payment_ids):
+def process_bulk_payments(payment_ids: str | list):
     """
     API endpoint for processing multiple payments in bulk.
 

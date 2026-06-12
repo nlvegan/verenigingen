@@ -264,7 +264,7 @@ def uninstall_performance_optimizations():
 
 
 @frappe.whitelist()
-def trigger_member_bulk_optimization(member_names):
+def trigger_member_bulk_optimization(member_names: str | list):
     """API endpoint to trigger bulk member optimization"""
     try:
         if isinstance(member_names, str):

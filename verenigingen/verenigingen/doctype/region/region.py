@@ -262,7 +262,7 @@ def find_region_by_postal_code(postal_code):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_regional_coordinator(region_name):
+def get_regional_coordinator(region_name: str):
     """Get regional coordinator for a region"""
     if not region_name:
         return None

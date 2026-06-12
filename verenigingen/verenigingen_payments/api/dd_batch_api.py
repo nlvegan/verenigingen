@@ -79,7 +79,7 @@ from verenigingen.utils.security.api_security_framework import (
 @high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def get_batch_list_with_security(filters=None):
+def get_batch_list_with_security(filters: dict | None = None):
     """
     Retrieve a secured list of direct debit batches with comprehensive metadata.
 
@@ -366,7 +366,7 @@ def get_batch_conflicts(batch_id):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
-def get_eligible_invoices(filters=None):
+def get_eligible_invoices(filters: dict | None = None):
     """
     Get invoices eligible for direct debit processing.
 

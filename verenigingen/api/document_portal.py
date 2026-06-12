@@ -52,10 +52,10 @@ def get_upload_context():
 )  # 15MB for 10MB file + base64 overhead
 def upload_document(
     organization_type,
-    organization_name,
-    document_name,
-    document_type,
-    file_name,
+    organization_name: str,
+    document_name: str,
+    document_type: str,
+    file_name: str,
     file_content,
     content_type=None,
     description=None,
@@ -151,7 +151,7 @@ def upload_document(
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_organization_documents(organization_type, organization_name):
+def get_organization_documents(organization_type, organization_name: str):
     """
     Get documents for an organization.
 
@@ -194,7 +194,7 @@ def get_organization_documents(organization_type, organization_name):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def can_upload_to_organization(organization_type, organization_name):
+def can_upload_to_organization(organization_type, organization_name: str):
     """
     Check if current user can upload to an organization.
 
@@ -298,7 +298,7 @@ def get_browsable_documents(
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def delete_document(document_name):
+def delete_document(document_name: str):
     """
     Delete an organization document.
 

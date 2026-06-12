@@ -575,7 +575,7 @@ def get_team_permission_level(team_name, volunteer, permission_type):
 
 
 @frappe.whitelist()
-def get_user_project_teams(user=None):
+def get_user_project_teams(user: str | None = None):
     """
     Get all teams, chapters, and their projects that a user has access to
 

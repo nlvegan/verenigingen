@@ -236,7 +236,7 @@ def get_mandate_issues():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def fix_member_mandate_issues(member_id, issue_types=None):
+def fix_member_mandate_issues(member_id: str, issue_types=None):
     """
     Fix SEPA mandate issues for a specific member.
 
@@ -262,7 +262,7 @@ def fix_member_mandate_issues(member_id, issue_types=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def bulk_fix_mandate_issues(issue_type=None, member_ids=None):
+def bulk_fix_mandate_issues(issue_type=None, member_ids: str | list | None = None):
     """
     Fix SEPA mandate issues for multiple members.
 

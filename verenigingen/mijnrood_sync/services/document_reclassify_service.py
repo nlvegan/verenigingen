@@ -82,7 +82,7 @@ def _resolve_mapped_folder(folder_id, mapping_by_id, folder_tree):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def reclassify_documents(names, dry_run: bool = True) -> dict:
+def reclassify_documents(names: str | list, dry_run: bool = True) -> dict:
     """Re-apply MijnRood folder mapping + extracted date to existing docs.
 
     Uses critical_api (POST-only, IP-restricted, tighter rate limit) because

@@ -44,7 +44,7 @@ def has_donor_permlevel_access(permission_type="read"):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def update_donor_tax_identifiers(
-    donor, bsn=None, rsin=None, verification_method=None
+    donor: str, bsn: str = None, rsin: str = None, verification_method=None
 ) -> OperationResult[Dict[str, Any]]:
     """
     Update donor tax identifiers with proper security checks and validation.
@@ -132,7 +132,7 @@ def update_donor_tax_identifiers(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def get_donor_anbi_data(donor) -> OperationResult[Dict[str, Any]]:
+def get_donor_anbi_data(donor: str) -> OperationResult[Dict[str, Any]]:
     """
     Get ANBI-related data for a donor (with decryption for authorized users)
 
@@ -320,7 +320,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def update_anbi_consent(donor, consent, reason=None) -> OperationResult[Dict[str, Any]]:
+def update_anbi_consent(donor: str, consent, reason=None) -> OperationResult[Dict[str, Any]]:
     """
     Update ANBI consent for a donor
 
@@ -377,7 +377,7 @@ def update_anbi_consent(donor, consent, reason=None) -> OperationResult[Dict[str
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
-def validate_bsn(bsn) -> OperationResult[Dict[str, Any]]:
+def validate_bsn(bsn: str) -> OperationResult[Dict[str, Any]]:
     """
     Validate a BSN number using the eleven-proof algorithm
 
@@ -498,7 +498,7 @@ def get_anbi_statistics(from_date=None, to_date=None) -> OperationResult[Dict[st
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def export_belastingdienst_report(filters) -> OperationResult[Dict[str, Any]]:
+def export_belastingdienst_report(filters: str | dict) -> OperationResult[Dict[str, Any]]:
     """
     Export ANBI report for Belastingdienst in CSV format
 
@@ -611,7 +611,7 @@ def export_belastingdienst_report(filters) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
-def send_consent_requests(filters=None) -> OperationResult[Dict[str, Any]]:
+def send_consent_requests(filters: dict | str | None = None) -> OperationResult[Dict[str, Any]]:
     """
     Send ANBI consent request emails to donors without consent
 

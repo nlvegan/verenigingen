@@ -478,7 +478,7 @@ class DryRunSimulator:
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def run_migration_dry_run(migration_name, sample_size=None):
+def run_migration_dry_run(migration_name: str, sample_size=None):
     """Run a dry-run simulation of the migration"""
     from .eboekhouden_soap_migration import fetch_eboekhouden_data
 

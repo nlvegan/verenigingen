@@ -357,7 +357,7 @@ def get_auto_creation_stats():
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def test_auto_creation_conditions(customer_name, amount):
+def test_auto_creation_conditions(customer_name: str, amount):
     """
     Test if auto-creation conditions would be met for a given customer and amount
 

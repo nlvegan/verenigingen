@@ -221,7 +221,7 @@ def get_data(filters):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_report_summary(filters=None):
+def get_report_summary(filters: dict | None = None):
     """Generate summary statistics for the report"""
     try:
         if filters is None:

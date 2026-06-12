@@ -320,7 +320,7 @@ def execute_payment_retry(retry_record=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def check_payment_retry_status(invoice):
+def check_payment_retry_status(invoice: str):
     """Check if an invoice has retry scheduled"""
     retry = frappe.db.exists("SEPA Payment Retry", {"invoice": invoice})
 

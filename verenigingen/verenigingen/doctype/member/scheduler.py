@@ -165,7 +165,7 @@ def process_member_history_batch(members):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def enqueue_member_history_refresh(members=None):
+def enqueue_member_history_refresh(members: str | list = None):
     """
     Enqueue member financial history refresh as a background job for large datasets.
     """
@@ -188,7 +188,7 @@ def enqueue_member_history_refresh(members=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def refresh_specific_member_histories(member_names):
+def refresh_specific_member_histories(member_names: str | list):
     """
     Refresh financial history for specific members.
 
@@ -272,7 +272,7 @@ def get_member_history_refresh_status():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.UTILITY)
-def test_member_history_refresh(member_name=None):
+def test_member_history_refresh(member_name: str = None):
     """
     Test the member history refresh functionality with a single member.
     If no member_name provided, uses the first available member with a customer record.
@@ -341,7 +341,7 @@ def update_all_membership_durations():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def update_single_member_duration(member_name):
+def update_single_member_duration(member_name: str):
     """Update duration for a single member - useful for testing"""
     try:
         member = frappe.get_doc("Member", member_name)

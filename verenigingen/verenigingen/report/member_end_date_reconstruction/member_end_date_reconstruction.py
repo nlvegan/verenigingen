@@ -291,7 +291,7 @@ def get_member_billing_frequency(member_name):
 
 
 @frappe.whitelist()
-def apply_suggestion(member_id, suggested_date):
+def apply_suggestion(member_id: str, suggested_date):
     """Apply suggested end date to member record"""
 
     # Verify user has permission

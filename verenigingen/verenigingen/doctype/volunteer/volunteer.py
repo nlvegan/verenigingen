@@ -462,7 +462,7 @@ class Volunteer(Document):
         start_date=None,
         end_date=None,
         reference_doctype=None,
-        reference_name=None,
+        reference_name: str | None = None,
         estimated_hours=None,
         notes=None,
     ):
@@ -490,7 +490,7 @@ class Volunteer(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
-    def end_activity(self, activity_name, end_date=None, notes=None):
+    def end_activity(self, activity_name: str, end_date=None, notes=None):
         """End a volunteer activity
 
         Delegates to VolunteerActivityService for business logic.
@@ -677,8 +677,8 @@ class Volunteer(Document):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_volunteer_from_member(
-    member_name,
-    volunteer_name=None,
+    member_name: str,
+    volunteer_name: str | None = None,
     status="New",
     interested_skills=None,
     create_user_account=False,
@@ -914,7 +914,7 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None, r
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def search_volunteers_by_skill(skill_name, category=None, min_level=None):
+def search_volunteers_by_skill(skill_name: str, category=None, min_level=None):
     """Search volunteers by specific skill
 
     Args:

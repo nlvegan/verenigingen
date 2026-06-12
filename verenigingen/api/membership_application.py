@@ -207,7 +207,7 @@ def get_application_form_data() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 @performance_monitor(threshold_ms=200)
-def validate_email(email) -> OperationResult[Dict[str, Any]]:
+def validate_email(email: str) -> OperationResult[Dict[str, Any]]:
     """Validate email format and check if it already exists"""
 
     if not email:
@@ -320,7 +320,7 @@ def validate_birth_date(birth_date) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_name(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
+def validate_name(name: str, field_name: str = "Name") -> OperationResult[Dict[str, Any]]:
     """Validate name fields"""
     return _wrap_validation(
         lambda: validate_name_util(name, field_name),
@@ -689,7 +689,7 @@ def _create_pending_chapter_membership_safe(member, suggested_chapter):
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 @require_roles(list(Roles.ADMIN_ROLES))
-def approve_membership_application(member_name, notes=None) -> OperationResult[Dict[str, Any]]:
+def approve_membership_application(member_name: str, notes=None) -> OperationResult[Dict[str, Any]]:
     """
     DEPRECATED: Use verenigingen.api.membership_application_review.approve_membership_application instead.
 
@@ -735,7 +735,7 @@ def approve_membership_application(member_name, notes=None) -> OperationResult[D
 
 @frappe.whitelist()
 @high_security_api()  # Member application rejection
-def reject_membership_application(member_name, reason) -> OperationResult[Dict[str, Any]]:
+def reject_membership_application(member_name: str, reason) -> OperationResult[Dict[str, Any]]:
     """Reject a membership application — DEPRECATED, use membership_application_review version."""
     frappe.logger("membership").warning(
         "DEPRECATED: membership_application.reject_membership_application called. "
@@ -791,7 +791,7 @@ def reject_membership_application(member_name, reason) -> OperationResult[Dict[s
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def get_membership_fee_info_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
+def get_membership_fee_info_endpoint(membership_type: str) -> OperationResult[Dict[str, Any]]:
     """Get membership fee information"""
     return _wrap_data_fetch(
         lambda: get_membership_fee_info_util(membership_type),
@@ -803,7 +803,7 @@ def get_membership_fee_info_endpoint(membership_type) -> OperationResult[Dict[st
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def get_membership_type_details_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
+def get_membership_type_details_endpoint(membership_type: str) -> OperationResult[Dict[str, Any]]:
     """Get detailed membership type information"""
     return _wrap_data_fetch(
         lambda: get_membership_type_details_util(membership_type),
@@ -815,7 +815,7 @@ def get_membership_type_details_endpoint(membership_type) -> OperationResult[Dic
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def suggest_membership_amounts_endpoint(membership_type_name) -> OperationResult[Dict[str, Any]]:
+def suggest_membership_amounts_endpoint(membership_type_name: str) -> OperationResult[Dict[str, Any]]:
     """Suggest membership amounts based on type"""
     return _wrap_data_fetch(
         lambda: suggest_membership_amounts_util(membership_type_name),
@@ -828,7 +828,7 @@ def suggest_membership_amounts_endpoint(membership_type_name) -> OperationResult
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 def validate_membership_amount_selection_endpoint(
-    membership_type, amount, uses_custom
+    membership_type: str, amount, uses_custom
 ) -> OperationResult[Dict[str, Any]]:
     """Validate membership amount selection"""
     return _wrap_validation(
@@ -840,7 +840,7 @@ def validate_membership_amount_selection_endpoint(
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_custom_amount_endpoint(membership_type, amount) -> OperationResult[Dict[str, Any]]:
+def validate_custom_amount_endpoint(membership_type: str, amount) -> OperationResult[Dict[str, Any]]:
     """Validate custom membership amount"""
     return _wrap_validation(
         lambda: validate_custom_amount_util(membership_type, amount),
@@ -917,7 +917,7 @@ def check_application_status_endpoint(application_id) -> OperationResult[Dict[st
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def validate_custom_amount(membership_type, amount) -> OperationResult[Dict[str, Any]]:
+def validate_custom_amount(membership_type: str, amount) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - validate custom membership amount"""
     return validate_custom_amount_endpoint(membership_type, amount)
 
@@ -938,21 +938,21 @@ def load_draft_application(draft_id) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
-def get_membership_type_details(membership_type) -> OperationResult[Dict[str, Any]]:
+def get_membership_type_details(membership_type: str) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - get detailed membership type information"""
     return get_membership_type_details_endpoint(membership_type)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def get_membership_fee_info(membership_type) -> OperationResult[Dict[str, Any]]:
+def get_membership_fee_info(membership_type: str) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - get membership fee information"""
     return get_membership_fee_info_endpoint(membership_type)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
-def suggest_membership_amounts(membership_type_name) -> OperationResult[Dict[str, Any]]:
+def suggest_membership_amounts(membership_type_name: str) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - suggest membership amounts based on type"""
     return suggest_membership_amounts_endpoint(membership_type_name)
 

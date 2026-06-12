@@ -42,7 +42,7 @@ def _log_api_error(error_code: str, message: str, member_name: str, exception: E
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_current_chapters(member_name, structured_response=False):
+def get_member_current_chapters(member_name: str, structured_response=False):
     """
     Get current chapters for a member - safe for client calls.
 
@@ -97,7 +97,7 @@ def get_member_current_chapters(member_name, structured_response=False):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_chapter_names(member_name, structured_response=False):
+def get_member_chapter_names(member_name: str, structured_response=False):
     """
     Get simple list of chapter names for a member.
 
@@ -135,7 +135,7 @@ def get_member_chapter_names(member_name, structured_response=False):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_chapter_display_html(member_name, structured_response=False):
+def get_member_chapter_display_html(member_name: str, structured_response=False):
     """
     Get HTML display of member's chapters.
 

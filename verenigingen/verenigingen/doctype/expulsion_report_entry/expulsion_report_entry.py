@@ -236,7 +236,7 @@ class ExpulsionReportEntry(Document):
 # Server-side methods
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_expulsion_statistics(filters=None):
+def get_expulsion_statistics(filters: dict | None = None):
     """Get statistics about expulsions for reporting"""
 
     conditions = []
@@ -313,7 +313,7 @@ def get_expulsion_statistics(filters=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def generate_expulsion_governance_report(date_range=None, chapter=None, include_appeals=True):
+def generate_expulsion_governance_report(date_range=None, chapter: str = None, include_appeals=True):
     """Generate comprehensive governance report for expulsions.
 
     Args:
@@ -434,7 +434,7 @@ def generate_expulsion_governance_report(date_range=None, chapter=None, include_
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def reverse_expulsion_entry(expulsion_entry_name, reversal_reason):
+def reverse_expulsion_entry(expulsion_entry_name: str, reversal_reason):
     """Server method to reverse an expulsion entry"""
 
     expulsion_doc = frappe.get_doc("Expulsion Report Entry", expulsion_entry_name)
@@ -443,7 +443,7 @@ def reverse_expulsion_entry(expulsion_entry_name, reversal_reason):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_expulsion_history(member_id):
+def get_member_expulsion_history(member_id: str):
     """Get expulsion history for a specific member"""
 
     history = frappe.get_all(

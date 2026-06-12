@@ -319,7 +319,7 @@ class PeriodicDonationAgreement(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def link_donation(self, donation_name):
+    def link_donation(self, donation_name: str):
         """Link a donation to this agreement"""
         donation = frappe.get_doc("Donation", donation_name)
 

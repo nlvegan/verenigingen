@@ -79,7 +79,7 @@ def fix_all_missing_assignment_history():
 @critical_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 @require_roles(list(Roles.ADMIN_PAIR))
-def fix_missing_assignment_history(team_name=None, volunteer_name=None):
+def fix_missing_assignment_history(team_name: str = None, volunteer_name: str = None):
     """Fix missing team assignment history for existing assignments"""
 
     if not team_name or not volunteer_name:

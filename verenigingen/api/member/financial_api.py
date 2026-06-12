@@ -25,7 +25,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def sync_member_dues_rate(member_name):
+def sync_member_dues_rate(member_name: str):
     """Sync member's dues_rate field with their active dues schedule"""
     try:
         # Get the member's active dues schedule using repository
@@ -51,7 +51,7 @@ def sync_member_dues_rate(member_name):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_current_dues_schedule_details(member):
+def get_current_dues_schedule_details(member: str):
     """Get current dues schedule details for a member"""
     try:
         # Get active dues schedule using repository
@@ -93,7 +93,7 @@ def get_current_dues_schedule_details(member):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def refresh_fee_change_history(member_name):
+def refresh_fee_change_history(member_name: str):
     """
     Refresh fee change history from dues schedules with integrity checking.
 

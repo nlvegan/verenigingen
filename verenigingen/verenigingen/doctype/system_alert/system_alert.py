@@ -197,7 +197,7 @@ class SystemAlert(Document):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def acknowledge_alert(alert_name):
+def acknowledge_alert(alert_name: str):
     """API endpoint to acknowledge an alert"""
     try:
         alert = frappe.get_doc("System Alert", alert_name)
@@ -210,7 +210,7 @@ def acknowledge_alert(alert_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def resolve_alert(alert_name):
+def resolve_alert(alert_name: str):
     """API endpoint to resolve an alert"""
     try:
         alert = frappe.get_doc("System Alert", alert_name)

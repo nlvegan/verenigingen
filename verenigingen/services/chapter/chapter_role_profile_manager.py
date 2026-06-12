@@ -176,7 +176,7 @@ def determine_role_profile_for_board_member(chapter_name, board_role=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def assign_chapter_board_role_profile(user, chapter_name, board_role=None):
+def assign_chapter_board_role_profile(user: str, chapter_name: str, board_role=None):
     """
     Assign role profile when user joins a chapter board
 
@@ -193,7 +193,7 @@ def assign_chapter_board_role_profile(user, chapter_name, board_role=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def remove_chapter_board_role_profile(user, chapter_name, board_role=None):
+def remove_chapter_board_role_profile(user: str, chapter_name: str, board_role=None):
     """
     Remove role profile when user leaves a chapter board
 
@@ -210,7 +210,7 @@ def remove_chapter_board_role_profile(user, chapter_name, board_role=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def bulk_assign_chapter_board_role_profiles(chapter_name):
+def bulk_assign_chapter_board_role_profiles(chapter_name: str):
     """Recalculate role profiles for all active board members of a chapter.
 
     Uses auto_sync_on_role_change() which derives the correct profile from

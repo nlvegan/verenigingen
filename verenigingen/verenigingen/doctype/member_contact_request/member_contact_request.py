@@ -296,7 +296,7 @@ class MemberContactRequest(Document):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_contact_request(
-    member,
+    member: str,
     subject,
     message,
     request_type="General Inquiry",
@@ -398,7 +398,7 @@ def _create_member_contact_request(
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_contact_requests(member, limit=10):
+def get_member_contact_requests(member: str, limit=10):
     """Get contact requests for a specific member"""
 
     # Check if member exists

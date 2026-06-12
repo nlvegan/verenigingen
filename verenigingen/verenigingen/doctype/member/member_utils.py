@@ -63,7 +63,7 @@ def is_chapter_management_enabled():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def check_sepa_mandate_status(member):
+def check_sepa_mandate_status(member: str):
     """Check SEPA mandate status for dashboard indicators"""
     member_doc = frappe.get_doc("Member", member)
     active_mandates = member_doc.get_active_sepa_mandates()
@@ -86,7 +86,7 @@ def check_sepa_mandate_status(member):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def update_member_payment_history(doc, method=None):
+def update_member_payment_history(doc: dict, method=None):
     """Update payment history for member when a payment entry is modified"""
     if doc.party_type != "Customer":
         return
@@ -183,7 +183,9 @@ def update_member_payment_history_from_invoice(doc, method=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def add_manual_payment_record(member, amount, payment_date=None, payment_method=None, notes=None):
+def add_manual_payment_record(
+    member: str, amount, payment_date: str = None, payment_method: str = None, notes=None
+):
     """Manually add a payment record (e.g., for cash donations)"""
     if not member or not amount:
         frappe.throw(_("Member and amount are required"))
@@ -282,7 +284,7 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_linked_donations(member):
+def get_linked_donations(member: str):
     """Find linked donor record for a member to view donations"""
     if not member:
         return {"success": False, "message": "No member specified"}
@@ -318,10 +320,10 @@ def get_linked_donations(member):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_mandate_from_bank_details(
-    member,
-    iban,
+    member: str,
+    iban: str,
     bic=None,
-    account_holder_name=None,
+    account_holder_name: str = None,
     mandate_type=None,
     sign_date=None,
     used_for_memberships=1,
@@ -452,7 +454,7 @@ def find_chapter_by_postal_code(postal_code):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def check_mandate_iban_mismatch(member, current_iban):
+def check_mandate_iban_mismatch(member: str, current_iban: str):
     """Check if we should show SEPA mandate creation popup"""
     frappe.logger().debug(
         f"check_mandate_iban_mismatch called with member={member}, current_iban={current_iban}"
@@ -506,7 +508,7 @@ def check_mandate_iban_mismatch(member, current_iban):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def derive_bic_from_iban(iban):
+def derive_bic_from_iban(iban: str):
     """Derive BIC from IBAN using the IBAN validator utility.
 
     Uses Dutch bank code mappings to derive BIC from IBAN.
@@ -518,7 +520,7 @@ def derive_bic_from_iban(iban):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_member_termination_status(member):
+def get_member_termination_status(member: str):
     """Get termination status for a member"""
     pending_requests = frappe.get_all(
         "Membership Termination Request",
@@ -635,7 +637,7 @@ def get_next_member_id_preview():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def generate_mandate_reference(member):
+def generate_mandate_reference(member: str):
     """Generate a suggested mandate reference for a member"""
     member_doc = frappe.get_doc("Member", member)
 
@@ -674,7 +676,7 @@ def validate_mandate_reference(mandate_id):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def check_and_handle_sepa_mandate(member, iban):
+def check_and_handle_sepa_mandate(member: str, iban: str):
     """Check if a mandate exists for this IBAN and handle accordingly"""
     member_doc = frappe.get_doc("Member", member)
 
@@ -721,7 +723,7 @@ def check_and_handle_sepa_mandate(member, iban):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def need_new_mandate(member, iban):
+def need_new_mandate(member: str, iban: str):
     """Check if we need to create a new mandate for this IBAN"""
     matching_mandates = frappe.get_all(
         "SEPA Mandate",
@@ -735,10 +737,10 @@ def need_new_mandate(member, iban):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_and_link_mandate(
-    member,
-    iban,
+    member: str,
+    iban: str,
     bic=None,
-    account_holder_name=None,
+    account_holder_name: str = None,
     mandate_type="RCUR",
     sign_date=None,
     used_for_memberships=1,

@@ -532,7 +532,7 @@ class AuditedMigrationOperation:
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def get_migration_audit_summary(migration_name):
+def get_migration_audit_summary(migration_name: str):
     """Get audit summary for a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     audit_trail = MigrationAuditTrail(migration_doc)
@@ -542,7 +542,7 @@ def get_migration_audit_summary(migration_name):
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def get_migration_audit_details(migration_name, event_type=None, severity=None):
+def get_migration_audit_details(migration_name: str, event_type=None, severity=None):
     """Get detailed audit entries with filters"""
     # Find the latest audit file for this migration
     audit_dir = frappe.get_site_path("private", "files", "migration_audit_trails")

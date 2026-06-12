@@ -352,7 +352,7 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
 
 
 @frappe.whitelist()
-def clear_versions_by_doctype(doctype, older_than_days=None):
+def clear_versions_by_doctype(doctype: str, older_than_days=None):
     """
     Clear version history for a specific DocType.
 

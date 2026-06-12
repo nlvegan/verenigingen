@@ -27,10 +27,10 @@ from verenigingen.utils.security.api_security_framework import (
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def create_periodic_agreement(
-    donor,
+    donor: str,
     annual_amount,
-    payment_frequency,
-    payment_method,
+    payment_frequency: str,
+    payment_method: str,
     start_date=None,
     agreement_type="Private Written",
     sepa_mandate=None,
@@ -284,7 +284,7 @@ def get_renewal_reminder_email(agreement, days_remaining):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def generate_tax_receipts(filters) -> OperationResult[Dict[str, Any]]:
+def generate_tax_receipts(filters: dict | str) -> OperationResult[Dict[str, Any]]:
     """
     Generate tax receipts for periodic donations
 
@@ -360,7 +360,7 @@ def generate_tax_receipt_content(agreement):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def export_agreements(filters) -> OperationResult[Dict[str, Any]]:
+def export_agreements(filters: dict | str) -> OperationResult[Dict[str, Any]]:
     """
     Export periodic agreements to CSV
 

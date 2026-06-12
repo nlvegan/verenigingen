@@ -1981,7 +1981,7 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def process_donation_payment(donation_id, payment_method, form_data):
+def process_donation_payment(donation_id, payment_method: str, form_data):
     """Process payment for a donation using appropriate gateway"""
     try:
         donation = frappe.get_doc("Donation", donation_id)
@@ -2019,7 +2019,7 @@ def get_payment_status(donation_id):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def create_member_subscription(member_id, amount, interval="1 month", description=None, start_date=None):
+def create_member_subscription(member_id: str, amount, interval="1 month", description=None, start_date=None):
     """Create Mollie subscription for a member with optional start date"""
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions"))
@@ -2092,7 +2092,7 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def cancel_member_subscription(member_id):
+def cancel_member_subscription(member_id: str):
     """Cancel Mollie subscription for a member - SECURED: users can only cancel their own subscriptions"""
 
     # SECURITY: Validate user can only cancel their own subscription
@@ -2114,7 +2114,7 @@ def cancel_member_subscription(member_id):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_member_subscription_status(member_id):
+def get_member_subscription_status(member_id: str):
     """Get subscription status for a member"""
     try:
         member = frappe.get_doc("Member", member_id)
@@ -2140,7 +2140,7 @@ def get_member_subscription_status(member_id):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def manual_payment_confirmation(donation_id, payment_reference, notes=None):
+def manual_payment_confirmation(donation_id, payment_reference: str, notes=None):
     """Manually confirm payment (for bank transfers, cash, etc.)"""
     if not frappe.has_permission("Donation", "write"):
         frappe.throw(_("Insufficient permissions"))

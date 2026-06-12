@@ -308,7 +308,7 @@ def on_sepa_mandate_change(doc, method=None):
 
 # API endpoints for manual optimization triggers
 @frappe.whitelist()
-def trigger_member_optimization(member_names):
+def trigger_member_optimization(member_names: str | list):
     """
     API endpoint to manually trigger member optimization
 

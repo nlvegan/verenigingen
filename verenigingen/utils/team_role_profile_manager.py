@@ -154,7 +154,7 @@ def determine_role_profile_for_team_member(team_name, team_role=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def assign_team_role_profile(user, team_name, team_role=None):
+def assign_team_role_profile(user: str, team_name: str, team_role=None):
     """
     Assign role profile when user joins a team
 
@@ -171,7 +171,7 @@ def assign_team_role_profile(user, team_name, team_role=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def remove_team_role_profile(user, team_name, team_role=None):
+def remove_team_role_profile(user: str, team_name: str, team_role=None):
     """
     Remove role profile when user leaves a team
 
@@ -188,7 +188,7 @@ def remove_team_role_profile(user, team_name, team_role=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def bulk_assign_team_role_profiles(team_name):
+def bulk_assign_team_role_profiles(team_name: str):
     """
     Bulk assign role profiles to all existing members of a team
     Useful for initial setup or fixing missing assignments

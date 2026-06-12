@@ -322,7 +322,7 @@ def sync_crm_status_updates():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_opportunity_from_contact_request(contact_request_name):
+def create_opportunity_from_contact_request(contact_request_name: str):
     """Create a CRM Opportunity from a contact request"""
 
     try:
