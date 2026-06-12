@@ -381,7 +381,11 @@ class PayNLClient:
 
     def cancel_mandate(self, mandate_id: str) -> dict:
         """
-        Cancel an active mandate.
+        Cancel (delete) an active mandate.
+
+        Pay.nl exposes this as Mandate:Delete -- HTTP DELETE on the mandate
+        resource, NOT a POST to a /cancel sub-path.
+        Spec: https://developer.pay.nl/reference/delete_directdebits-mandates-mandateid
 
         Args:
             mandate_id: Pay.nl mandate ID (IO-xxxx-xxxx-xxxx)
@@ -389,8 +393,8 @@ class PayNLClient:
         Returns:
             Cancellation confirmation
         """
-        url = f"{self.GMS_BASE_URL}/{self.GMS_VERSION}/directdebits/mandates/{mandate_id}/cancel"
-        return self._make_request("POST", url)
+        url = f"{self.GMS_BASE_URL}/{self.GMS_VERSION}/directdebits/mandates/{mandate_id}"
+        return self._make_request("DELETE", url)
 
     @with_circuit_breaker(
         "paynl_directdebits", CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60)

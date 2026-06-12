@@ -67,10 +67,10 @@ class TestMandateService(FrappeTestCase):
 
             mock_get_doc.side_effect = get_doc_side_effect
 
-            # Mock Pay.nl client response
+            # Mock Pay.nl client response (the real API returns the id as "code").
             mock_client = MagicMock()
             mock_client.create_mandate.return_value = {
-                "mandateId": "MD-123456789",
+                "code": "IO-1234-5678-9012",
                 "status": "pending",
             }
 
@@ -87,10 +87,10 @@ class TestMandateService(FrappeTestCase):
                 mock_mandate_doc.status = "Pending"
                 mock_create.return_value = mock_mandate_doc
 
-                result = service.create_mandate_for_member("MEM-00001")
+                result = service.create_mandate_for_member("MEM-00001", amount=12.50)
 
                 self.assertTrue(result["success"])
-                self.assertEqual(result["mandate_id"], "MD-123456789")
+                self.assertEqual(result["mandate_id"], "IO-1234-5678-9012")
                 mock_client.create_mandate.assert_called_once()
 
     @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
@@ -182,7 +182,7 @@ class TestMandateService(FrappeTestCase):
             service._client = mock_client
             service._settings = self.mock_settings
 
-            result = service.create_mandate_for_member("MEM-00001")
+            result = service.create_mandate_for_member("MEM-00001", amount=12.50)
 
             self.assertFalse(result["success"])
             self.assertIn("API connection failed", result["error"])

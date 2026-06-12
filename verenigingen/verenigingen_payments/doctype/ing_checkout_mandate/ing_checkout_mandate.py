@@ -101,10 +101,12 @@ class INGCheckoutMandate(Document):
         from verenigingen.verenigingen_payments.ing_checkout.client import get_client
 
         client = get_client()
+        # Pay.nl DirectDebit:Add identifies the mandate via the "mandate" field
+        # (not "mandateId"). Spec: https://developer.pay.nl/reference/post_directdebits
         debit_data = {
-            "mandateId": self.mandate_id,
+            "mandate": self.mandate_id,
             "amount": {
-                "value": int(amount * 100),  # Convert to cents
+                "value": int(round(amount * 100)),  # Convert to cents (round avoids float truncation)
                 "currency": "EUR",
             },
             "description": description[:30] if description else "",  # Max 30 chars

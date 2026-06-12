@@ -86,30 +86,27 @@ class MandateService:
                 "error": _("Member has no active SEPA mandate with IBAN"),
             }
 
-        # Build mandate data for Pay.nl
-        mandate_data = {
-            "serviceId": self.settings.service_id,
-            "type": mandate_type,
-            "description": description or f"Mandate for {member.full_name}"[:30],
-            "debtor": {
-                "iban": sepa_mandate.iban,
-                "name": sepa_mandate.account_holder_name or member.full_name,
-                "email": member.email or "",
-            },
-            "termsAndConditionsUrl": self.settings.terms_and_conditions_url or get_url("/terms"),
-            "exchangeUrl": self._get_webhook_url("mandate"),
-        }
-
-        if amount:
-            mandate_data["amount"] = {
-                "value": int(amount * 100),
-                "currency": "EUR",
+        # Pay.nl requires an amount (minimum 1 cent). For FLEXIBLE/RECURRING the
+        # first collection is processed automatically at mandate creation.
+        if not amount or amount <= 0:
+            return {
+                "success": False,
+                "error": _("Amount is required to create a Pay.nl mandate"),
             }
+
+        mandate_data = self._build_mandate_payload(
+            sepa_mandate=sepa_mandate,
+            member=member,
+            mandate_type=mandate_type,
+            amount=amount,
+            description=description,
+        )
 
         try:
             # Create mandate via Pay.nl
             result = self.client.create_mandate(mandate_data)
-            mandate_id = result.get("mandateId") or result.get("id")
+            # Pay.nl returns the mandate id in the "code" field (IO-####-####-####).
+            mandate_id = result.get("code") or result.get("mandateId") or result.get("id")
 
             if not mandate_id:
                 return {
@@ -134,7 +131,9 @@ class MandateService:
 
             # Link to SEPA mandate if exists
             mandate_doc.sepa_mandate = sepa_mandate.name
-            mandate_doc.terms_url = mandate_data["termsAndConditionsUrl"]
+            # termsAndConditionsUrl is not part of the Pay.nl mandate payload; record
+            # the configured T&C URL on the local mandate for reference.
+            mandate_doc.terms_url = getattr(self.settings, "terms_and_conditions_url", None)
             mandate_doc.raw_response = frappe.as_json(result)
             # SECURITY JUSTIFICATION: MandateService is a system service called from
             # API endpoints that already validate user permissions. Mandate data comes
@@ -157,6 +156,49 @@ class MandateService:
                 "success": False,
                 "error": str(e),
             }
+
+    def _build_mandate_payload(
+        self,
+        sepa_mandate,
+        member,
+        mandate_type: str,
+        amount: float,
+        description: str = None,
+    ) -> dict:
+        """Build the Pay.nl Mandate:Create request body per the REST v2 contract.
+
+        Pay.nl requires an UPPERCASE ``type`` (SINGLE/RECURRING/FLEXIBLE), a
+        ``customer.bankAccount`` object (not a ``debtor`` object), ``amount`` in
+        integer cents, and a ``customer.ipAddress``.
+
+        Spec: https://developer.pay.nl/reference/post_directdebits-mandates
+
+        NOTE: RECURRING mandates additionally require an ``interval`` object,
+        which this builder does not yet populate — associations use FLEXIBLE.
+        """
+        bank_account = {
+            "iban": sepa_mandate.iban,
+            "owner": sepa_mandate.account_holder_name or member.full_name,
+        }
+        bic = getattr(sepa_mandate, "bic", None)
+        if bic:
+            bank_account["bic"] = bic
+
+        return {
+            "serviceId": self.settings.service_id,
+            "reference": sepa_mandate.name,
+            "type": (mandate_type or "flexible").upper(),
+            "description": (description or f"Mandate for {member.full_name}")[:30],
+            "amount": {"value": int(round(amount * 100)), "currency": "EUR"},
+            "customer": {
+                "bankAccount": bank_account,
+                "email": member.email or "",
+                # Required by Pay.nl. In the member-portal flow this is the real
+                # signer IP; fall back to a placeholder for background callers.
+                "ipAddress": getattr(frappe.local, "request_ip", None) or "0.0.0.0",
+            },
+            "exchangeUrl": self._get_webhook_url("mandate"),
+        }
 
     def execute_debit_for_invoice(
         self,
