@@ -438,9 +438,9 @@ function process_all_pending_requests(page) {
 							args: {
 								request_names
 							},
-							callback(r) {
-								if (r.message) {
-									const success_count = r.message.filter(
+							callback(resp) {
+								if (resp.message) {
+									const success_count = resp.message.filter(
 										(result) => result.success
 									).length;
 									frappe.msgprint(

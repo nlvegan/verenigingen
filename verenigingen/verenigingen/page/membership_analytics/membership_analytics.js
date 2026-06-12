@@ -986,8 +986,8 @@ class MembershipAnalytics {
 									name: goal_name,
 									fieldname: values
 								},
-								callback: (r) => {
-									if (r.message) {
+								callback: (resp) => {
+									if (resp.message) {
 										frappe.show_alert({
 											message: __('Goal updated successfully'),
 											indicator: 'green'

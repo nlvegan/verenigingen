@@ -648,7 +648,7 @@ function check_data_retention(donorData) {
 }
 
 function clean_bsn_input(input) {
-	return input.replace(/[\s\-\.]/g, '');
+	return input.replace(/[\s\-.]/g, '');
 }
 
 async function check_duplicate_donation(donationData) {

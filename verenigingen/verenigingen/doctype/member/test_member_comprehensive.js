@@ -1239,7 +1239,7 @@ QUnit.test('test: Member - Error Handling and Recovery', (assert) => {
 	frappe.run_serially([
 		// Test form behavior with missing required fields
 		() => {
-			cur_frm = new frappe.ui.form.Form('Member', null, true);
+			window.cur_frm = new frappe.ui.form.Form('Member', null, true);
 		},
 		() => frappe.timeout(1),
 		() => {
@@ -1377,7 +1377,7 @@ QUnit.test('test: Member - Performance and Load Tests', (assert) => {
 		// Test form initialization time
 		() => {
 			const start = performance.now();
-			cur_frm = new frappe.ui.form.Form('Member', null, true);
+			window.cur_frm = new frappe.ui.form.Form('Member', null, true);
 			const end = performance.now();
 			const initTime = end - start;
 			assert.ok(

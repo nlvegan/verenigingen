@@ -281,14 +281,14 @@ function generate_catchup_invoices(report) {
 
 			// Call server method to generate catch-up invoices
 			// Pass date filters to limit catch-up to the analyzed period
-			const filters = report.get_values();
+			const report_filters = report.get_values();
 			frappe.call({
 				method:
           'verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis.generate_catchup_invoices',
 				args: {
 					members: selected_members,
-					from_date: filters.from_date,
-					to_date: filters.to_date
+					from_date: report_filters.from_date,
+					to_date: report_filters.to_date
 				},
 				callback(r) {
 					if (r.message) {

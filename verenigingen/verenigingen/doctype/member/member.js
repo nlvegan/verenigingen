@@ -2355,8 +2355,8 @@ function show_suspension_dialog(frm) {
 										suspend_user: values.suspend_user,
 										suspend_teams: values.suspend_teams
 									},
-									callback(r) {
-										if (!isOperationResultFailed(r.message)) {
+									callback(resp) {
+										if (!isOperationResultFailed(resp.message)) {
 											dialog.hide();
 											frm.reload_doc();
 											frappe.show_alert({
@@ -2365,7 +2365,7 @@ function show_suspension_dialog(frm) {
 											});
 										} else {
 											frappe.show_alert({
-												message: r.message.message || __('Suspension failed'),
+												message: resp.message.message || __('Suspension failed'),
 												indicator: 'red'
 											});
 										}
@@ -2764,8 +2764,8 @@ function show_approval_dialog(frm) {
 						},
 						freeze: true,
 						freeze_message: __('Approving application...'),
-						callback(r) {
-							if (r.message && r.message.success) {
+						callback(resp) {
+							if (resp.message && resp.message.success) {
 								frappe.show_alert(
 									{
 										message: __('Application approved successfully!'),

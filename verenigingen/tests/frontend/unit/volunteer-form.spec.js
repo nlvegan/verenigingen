@@ -247,15 +247,15 @@ describe('Volunteer Form', () => {
 
 	describe('Skills Management', () => {
 		it('should add new skill', () => {
-			const addSkill = (frm, skill, proficiency) => {
+			const addSkill = (testFrm, skill, proficiency) => {
 				const newSkill = frappe.model.add_child(
-					frm.doc,
+					testFrm.doc,
 					'Volunteer Skill',
 					'skills'
 				);
 				newSkill.skill = skill;
 				newSkill.proficiency_level = proficiency;
-				frm.refresh_field('skills');
+				testFrm.refresh_field('skills');
 				return newSkill;
 			};
 

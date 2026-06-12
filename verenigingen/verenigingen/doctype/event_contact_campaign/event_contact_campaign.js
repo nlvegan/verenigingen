@@ -184,9 +184,9 @@ frappe.ui.form.on('Event Contact Campaign', {
 								},
 								freeze: true,
 								freeze_message: __('Importing members...'),
-								callback(r) {
-									if (r.message) {
-										const result = r.message;
+								callback(resp) {
+									if (resp.message) {
+										const result = resp.message;
 										if (result.status === 'success') {
 											frappe.show_alert(
 												{
@@ -291,9 +291,9 @@ frappe.ui.form.on('Event Contact Campaign', {
 							},
 							freeze: true,
 							freeze_message: __('Distributing members...'),
-							callback(r) {
-								if (r.message) {
-									const result = r.message;
+							callback(resp) {
+								if (resp.message) {
+									const result = resp.message;
 									const indicator
                                         = result.status === 'success'
                                         	? 'green'

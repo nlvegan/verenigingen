@@ -9,7 +9,10 @@ const sepaUtilsPath = path.join(
 );
 const sepaUtilsCode = fs.readFileSync(sepaUtilsPath, 'utf8');
 
-// Extract just the functions we want to test
+// Extract just the functions we want to test. The source module attaches its
+// functions to a Frappe namespace rather than exporting them, so we eval the
+// matched function source in isolation to unit-test it directly.
+// eslint-disable-next-line no-eval
 const generateMandateReference = eval(
 	`(${sepaUtilsCode.match(/function generateMandateReference[\s\S]*?(?=\n\nfunction|\n\/\/|$)/)[0]})`
 );
