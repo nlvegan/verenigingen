@@ -78,7 +78,9 @@ In `sync_subscription_for_amendment`:
   - Verify the returned amount equals the requested amount; on mismatch
     return `status="warning"` with `requires_admin_review=True` (mirrors
     the replacement path's verification semantics).
-  - Audit-log the change including which drifted fields were repaired.
+  - Log the change (worker log) including which drifted fields were
+    repaired; failures surface via the handler's Failed status + admin
+    notification.
   - No mandate validation (PATCH does not touch authorization; a broken
     mandate breaks charging regardless).
   - `member.mollie_subscription_id` is unchanged by design; update
