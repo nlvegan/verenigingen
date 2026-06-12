@@ -76,7 +76,7 @@ class DatabaseValidator {
 	async executeQuery(query, params = {}) {
 		try {
 			const result = await this.page.evaluate(
-				async ({ query, params }) => {
+				async ({ params: queryParams }) => {
 					// Execute query through Frappe's API
 					const response = await fetch('/api/method/frappe.client.get_list', {
 						method: 'POST',
@@ -85,11 +85,11 @@ class DatabaseValidator {
 							'X-Frappe-CSRF-Token': frappe.csrf_token
 						},
 						body: JSON.stringify({
-							doctype: params.doctype || 'Donation',
-							fields: params.fields || ['*'],
-							filters: params.filters || {},
-							limit: params.limit || 100,
-							order_by: params.order_by || 'modified desc'
+							doctype: queryParams.doctype || 'Donation',
+							fields: queryParams.fields || ['*'],
+							filters: queryParams.filters || {},
+							limit: queryParams.limit || 100,
+							order_by: queryParams.order_by || 'modified desc'
 						})
 					});
 
@@ -100,7 +100,7 @@ class DatabaseValidator {
 					const data = await response.json();
 					return data.message || [];
 				},
-				{ query, params }
+				{ params }
 			);
 
 			console.log(`[DB] Query executed successfully, found ${result.length} records`);
@@ -129,7 +129,7 @@ class DatabaseValidator {
 		const donors = await this.executeQuery('donor_list', {
 			doctype: 'Donor',
 			fields: this.donorFields,
-			filters: filters,
+			filters,
 			limit: 1
 		});
 
@@ -170,7 +170,7 @@ class DatabaseValidator {
 		const donations = await this.executeQuery('donation_list', {
 			doctype: 'Donation',
 			fields: this.donationFields,
-			filters: filters,
+			filters,
 			limit: 1
 		});
 
@@ -235,7 +235,7 @@ class DatabaseValidator {
 		const paymentEntries = await this.executeQuery('payment_entry_list', {
 			doctype: 'Payment Entry',
 			fields: this.paymentEntryFields,
-			filters: filters,
+			filters,
 			limit: 1
 		});
 
@@ -277,7 +277,7 @@ class DatabaseValidator {
 		const paymentHistory = await this.executeQuery('payment_history_list', {
 			doctype: 'Member Payment History',
 			fields: ['name', 'amount'],
-			filters: filters,
+			filters,
 			limit: 1
 		});
 
@@ -314,7 +314,7 @@ class DatabaseValidator {
 		const logs = await this.executeQuery('webhook_log_list', {
 			doctype: 'Webhook Processing Log',
 			fields: ['name', 'status'],
-			filters: filters,
+			filters,
 			limit: 1
 		});
 
@@ -349,7 +349,7 @@ class DatabaseValidator {
 		const invoices = await this.executeQuery('sales_invoice_list', {
 			doctype: 'Sales Invoice',
 			fields: ['name', 'grand_total'],
-			filters: filters,
+			filters,
 			limit: 1
 		});
 
@@ -488,7 +488,7 @@ class DatabaseValidator {
 
 		for (const record of recordsToCleanup) {
 			try {
-				await this.page.evaluate(async (record) => {
+				await this.page.evaluate(async (recordToDelete) => {
 					const response = await fetch('/api/method/frappe.client.delete', {
 						method: 'POST',
 						headers: {
@@ -496,13 +496,15 @@ class DatabaseValidator {
 							'X-Frappe-CSRF-Token': frappe.csrf_token
 						},
 						body: JSON.stringify({
-							doctype: record.doctype,
-							name: record.name
+							doctype: recordToDelete.doctype,
+							name: recordToDelete.name
 						})
 					});
 
 					if (!response.ok) {
-						console.warn(`Failed to delete ${record.doctype} ${record.name}: ${response.statusText}`);
+						console.warn(
+							`Failed to delete ${recordToDelete.doctype} ${recordToDelete.name}: ${response.statusText}`
+						);
 					}
 				}, record);
 

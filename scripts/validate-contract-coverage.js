@@ -11,7 +11,6 @@
 
 const { SimpleAPIContractTester } = require('../verenigingen/tests/setup/api-contract-simple');
 const fs = require('fs');
-const path = require('path');
 
 class ContractCoverageValidator {
 	constructor() {

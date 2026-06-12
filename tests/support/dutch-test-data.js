@@ -180,7 +180,7 @@ class DutchTestDataGenerator {
 	/**
 	 * Generate a test email address
 	 */
-	generateEmail(firstName, lastName, tussenvoegsel = null) {
+	generateEmail(firstName, lastName, _tussenvoegsel = null) {
 		const cleanFirstName = firstName.toLowerCase().replace(/[^a-z]/g, '');
 		const cleanLastName = lastName.toLowerCase().replace(/[^a-z]/g, '');
 		const domain = 'test-verenigingen.nl';

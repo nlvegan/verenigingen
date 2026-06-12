@@ -191,15 +191,15 @@ async function validateWebhookEndpoints(page) {
 
 	for (const endpoint of webhookEndpoints) {
 		try {
-			const response = await page.evaluate(async (endpoint) => {
+			const response = await page.evaluate(async (endpointUrl) => {
 				// Send a test OPTIONS request to check if endpoint exists
-				const response = await fetch(endpoint, {
+				const res = await fetch(endpointUrl, {
 					method: 'OPTIONS',
 					headers: {
 						'Content-Type': 'application/json'
 					}
 				});
-				return { status: response.status, endpoint };
+				return { status: res.status, endpoint: endpointUrl };
 			}, endpoint);
 
 			// Endpoint should exist (not 404)

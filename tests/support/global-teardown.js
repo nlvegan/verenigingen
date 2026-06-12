@@ -12,7 +12,7 @@ const { chromium } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-async function globalTeardown(config) {
+async function globalTeardown(_config) {
 	console.log('[Global Teardown] Starting Playwright E2E test cleanup...');
 
 	const browser = await chromium.launch();

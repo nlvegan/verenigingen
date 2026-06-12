@@ -162,7 +162,7 @@ class ContractReportGenerator {
 		return 'low';
 	}
 
-	identifyCoverageGaps(methods) {
+	identifyCoverageGaps(_methods) {
 		const gaps = {
 			missing: [
 				'SEPA mandate creation and validation',
@@ -200,11 +200,6 @@ class ContractReportGenerator {
 				action: 'Review schema definitions and test data generation'
 			});
 		}
-
-		const criticalMissing = [
-			'verenigingen.verenigingen.doctype.sepa_mandate.sepa_mandate.create_mandate',
-			'verenigingen.verenigingen_payments.utils.mollie_integration.create_payment'
-		];
 
 		recommendations.push({
 			type: 'enhancement',

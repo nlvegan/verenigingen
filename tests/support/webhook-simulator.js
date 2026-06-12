@@ -138,16 +138,16 @@ class WebhookSimulator {
 
 			// Send webhook to application
 			const webhookResult = await this.page.evaluate(
-				async ({ endpoint, payload, signature }) => {
+				async ({ endpoint, payload: requestBody, signature: webhookSignature }) => {
 					const response = await fetch(endpoint, {
 						method: 'POST',
 						headers: {
 							'Content-Type': 'application/json',
-							'X-Mollie-Signature': signature,
+							'X-Mollie-Signature': webhookSignature,
 							'User-Agent': 'Mollie/1.0 (Test Webhook)',
 							'X-Forwarded-For': '127.0.0.1'
 						},
-						body: payload
+						body: requestBody
 					});
 
 					let responseData;
@@ -442,13 +442,13 @@ class WebhookSimulator {
 		for (let i = 0; i < requestCount; i++) {
 			requests.push(
 				this.page.evaluate(
-					async ({ endpoint, payload, signature, requestId }) => {
+					async ({ endpoint, payload, signature: webhookSignature, requestId }) => {
 						const startTime = Date.now();
 						const response = await fetch(endpoint, {
 							method: 'POST',
 							headers: {
 								'Content-Type': 'application/json',
-								'X-Mollie-Signature': signature,
+								'X-Mollie-Signature': webhookSignature,
 								'User-Agent': 'Mollie/1.0 (Rate Limit Test)',
 								'X-Request-ID': `rate_test_${requestId}`
 							},
