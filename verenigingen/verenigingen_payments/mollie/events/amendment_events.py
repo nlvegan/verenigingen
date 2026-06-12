@@ -9,6 +9,22 @@ import frappe
 from verenigingen.utils.constants import Roles
 
 
+def _sync_status_update_for_result(result):
+    """Map a sync-result dict to (mollie_sync_status, completed_flag, notify_admins).
+
+    Errors always notify - the previous behavior (notify only with
+    requires_admin_review, status left 'In Progress') hid every failure.
+    """
+    status = result.get("status")
+    if status == "success":
+        return "Completed", 1, False
+    if status == "skipped":
+        return "Skipped", 0, False
+    if status == "warning":
+        return "Needs Review", 0, bool(result.get("requires_admin_review"))
+    return "Failed", 0, True
+
+
 def sync_mollie_subscription_on_amendment_applied(doc, method=None):
     """
     Background job handler for syncing Mollie subscriptions when amendments are applied.
@@ -54,45 +70,23 @@ def sync_mollie_subscription_on_amendment_applied(doc, method=None):
         # Sync subscription (handles all logic including verification and retry)
         result = sync_service.sync_subscription_for_amendment(doc)
 
-        # Log result
-        if result["status"] == "success":
-            frappe.logger().info(
-                f"✅ Mollie subscription sync successful for amendment {doc.name}: "
-                f"New subscription {result['subscription_id']}"
-            )
+        status_value, completed, notify = _sync_status_update_for_result(result)
 
-            # Mark as completed for idempotency
-            frappe.db.set_value(
-                "Contribution Amendment Request",
-                doc.name,
-                {"mollie_sync_completed": 1, "mollie_sync_status": "Completed"},
-                update_modified=False,
-            )
-            frappe.db.commit()
+        frappe.logger().info(
+            f"Mollie subscription sync for amendment {doc.name}: "
+            f"{result.get('status')} -> {status_value} ({result.get('message') or result.get('reason') or ''})"
+        )
 
-        elif result["status"] == "skipped":
-            frappe.logger().info(
-                f"⏭️ Mollie subscription sync skipped for amendment {doc.name}: {result['reason']}"
-            )
+        frappe.db.set_value(
+            "Contribution Amendment Request",
+            doc.name,
+            {"mollie_sync_completed": completed, "mollie_sync_status": status_value},
+            update_modified=False,
+        )
+        frappe.db.commit()
 
-        elif result["status"] == "warning":
-            frappe.logger().warning(
-                f"⚠️ Mollie subscription sync completed with warnings for amendment {doc.name}: "
-                f"{result['message']}"
-            )
-
-            # Send notification to administrators if verification failed
-            if result.get("requires_admin_review"):
-                notify_administrators_of_sync_issue(doc, result)
-
-        elif result["status"] == "error":
-            frappe.logger().error(
-                f"❌ Mollie subscription sync failed for amendment {doc.name}: {result['message']}"
-            )
-
-            # Send notification to administrators
-            if result.get("requires_admin_review"):
-                notify_administrators_of_sync_issue(doc, result)
+        if notify:
+            notify_administrators_of_sync_issue(doc, result)
 
     except Exception as e:
         error_message = str(e)

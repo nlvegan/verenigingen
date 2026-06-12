@@ -297,7 +297,7 @@
       "fieldname": "mollie_sync_status",
       "fieldtype": "Select",
       "label": "Mollie Sync Status",
-      "options": "Not Started\nQueued\nIn Progress\nCompleted\nFailed",
+      "options": "Not Started\nQueued\nIn Progress\nCompleted\nFailed\nSkipped\nNeeds Review",
       "read_only": 1,
       "hidden": 0,
       "no_copy": 1,

@@ -589,3 +589,30 @@ class TestGatewayDescriptionDefault(EnhancedTestCase):
             captured["subscription_data"]["description"],
             get_member_subscription_description(member),
         )
+
+
+class TestSyncResultStatusMapping(EnhancedTestCase):
+    """Every sync outcome maps to a visible mollie_sync_status."""
+
+    def test_status_mapping(self):
+        from verenigingen.verenigingen_payments.mollie.events.amendment_events import (
+            _sync_status_update_for_result,
+        )
+
+        self.assertEqual(
+            _sync_status_update_for_result({"status": "success"}), ("Completed", 1, False)
+        )
+        self.assertEqual(
+            _sync_status_update_for_result({"status": "skipped", "reason": "x"}),
+            ("Skipped", 0, False),
+        )
+        self.assertEqual(
+            _sync_status_update_for_result(
+                {"status": "warning", "requires_admin_review": True}
+            ),
+            ("Needs Review", 0, True),
+        )
+        # error notifies admins even without the explicit review flag
+        self.assertEqual(
+            _sync_status_update_for_result({"status": "error"}), ("Failed", 0, True)
+        )
