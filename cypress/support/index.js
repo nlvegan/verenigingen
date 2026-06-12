@@ -177,32 +177,32 @@
  */
 
 // Import commands
-import "./commands";
-import "@cypress/code-coverage/support";
-import "@testing-library/cypress/add-commands";
-import "cypress-real-events/support";
-import "cypress-wait-until";
+import './commands';
+import '@cypress/code-coverage/support';
+import '@testing-library/cypress/add-commands';
+import 'cypress-real-events/support';
+import 'cypress-wait-until';
 
 // Global before hook
 before(() => {
-  // Use credentials from cypress.env.json or fall back to defaults
-  const user = Cypress.env("ADMIN_USER") || "Administrator";
-  const pass = Cypress.env("ADMIN_PASSWORD") || "admin";
-  cy.login(user, pass);
-  cy.visit("/app");
+	// Use credentials from cypress.env.json or fall back to defaults
+	const user = Cypress.env('ADMIN_USER') || 'Administrator';
+	const pass = Cypress.env('ADMIN_PASSWORD') || 'admin';
+	cy.login(user, pass);
+	cy.visit('/app');
 });
 
 // Handle uncaught exceptions
-Cypress.on("uncaught:exception", (err) => {
-  // Ignore ResizeObserver errors
-  if (err.message.includes("ResizeObserver loop limit exceeded")) {
-    return false;
-  }
-  // Ignore other known Frappe framework errors
-  if (err.message.includes("Cannot read properties of undefined")) {
-    console.warn("Uncaught exception:", err.message);
-    return false;
-  }
-  // Let other errors fail the test
-  return true;
+Cypress.on('uncaught:exception', (err) => {
+	// Ignore ResizeObserver errors
+	if (err.message.includes('ResizeObserver loop limit exceeded')) {
+		return false;
+	}
+	// Ignore other known Frappe framework errors
+	if (err.message.includes('Cannot read properties of undefined')) {
+		console.warn('Uncaught exception:', err.message);
+		return false;
+	}
+	// Let other errors fail the test
+	return true;
 });

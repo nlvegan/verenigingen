@@ -44,9 +44,7 @@ describe('Membership Termination Request Controller', () => {
 
 			cy.findByLabelText('Termination Type').select('Voluntary');
 			cy.findByLabelText('Member Request Date').type('2025-11-01');
-			cy.findByLabelText('Termination Reason').type(
-				'Member relocating to another country'
-			);
+			cy.findByLabelText('Termination Reason').type('Member relocating to another country');
 
 			// Save the document
 			cy.findByRole('button', { name: /save/i }).click();
@@ -82,7 +80,7 @@ describe('Membership Termination Request Controller', () => {
 
 			// Click execute termination button
 			cy.contains('button', 'Execute Termination').click();
-			cy.wait(2000);  // Execution takes time
+			cy.wait(2000); // Execution takes time
 
 			// Should now be in Executed status
 			cy.get('[data-fieldname="status"]').should('contain', 'Executed');
@@ -123,7 +121,7 @@ describe('Membership Termination Request Controller', () => {
 
 	context('Disciplinary Termination Workflow', () => {
 		let disciplinaryRequest;
-		let secondaryApprover = 'Administrator';  // Use admin as approver
+		let secondaryApprover = 'Administrator'; // Use admin as approver
 
 		it('should require secondary approval for disciplinary termination', () => {
 			// Create a new member for disciplinary termination
@@ -140,12 +138,8 @@ describe('Membership Termination Request Controller', () => {
 				cy.get('.awesomplete li').first().click();
 
 				cy.findByLabelText('Termination Type').select('Disciplinary Action');
-				cy.findByLabelText('Termination Reason').type(
-					'Violation of membership code of conduct'
-				);
-				cy.findByLabelText('Disciplinary Documentation').type(
-					'See attached incident report #123'
-				);
+				cy.findByLabelText('Termination Reason').type('Violation of membership code of conduct');
+				cy.findByLabelText('Disciplinary Documentation').type('See attached incident report #123');
 
 				// Save
 				cy.findByRole('button', { name: /save/i }).click();
@@ -164,9 +158,7 @@ describe('Membership Termination Request Controller', () => {
 			cy.visit(`/app/membership-termination-request/${disciplinaryRequest}`);
 
 			// For disciplinary types, secondary approval should be required
-			cy.get('[data-fieldname="requires_secondary_approval"]')
-				.find('input')
-				.should('be.checked');
+			cy.get('[data-fieldname="requires_secondary_approval"]').find('input').should('be.checked');
 		});
 
 		it('should require secondary approver before submission', () => {
@@ -259,9 +251,7 @@ describe('Membership Termination Request Controller', () => {
 			cy.wait(1000);
 
 			// Termination date should be 30 days after member request date
-			cy.get('[data-fieldname="termination_date"] input')
-				.invoke('val')
-				.should('include', '2025-12');  // Should be in December
+			cy.get('[data-fieldname="termination_date"] input').invoke('val').should('include', '2025-12'); // Should be in December
 		});
 
 		it('should validate that termination date is not before member request date', () => {
@@ -274,9 +264,7 @@ describe('Membership Termination Request Controller', () => {
 			cy.findByLabelText('Member Request Date').type('2025-11-15');
 
 			// Manually set termination date before member request date
-			cy.get('[data-fieldname="termination_date"] input')
-				.clear()
-				.type('2025-11-01');  // Before member request date
+			cy.get('[data-fieldname="termination_date"] input').clear().type('2025-11-01'); // Before member request date
 
 			// Try to save
 			cy.findByRole('button', { name: /save/i }).click();
@@ -323,23 +311,26 @@ describe('Membership Termination Request Controller', () => {
 
 			// Call the termination preview API
 			cy.window().then((win) => {
-				return win.frappe.call({
-					method: `frappe.client.get_doc`,
-					args: {
-						doctype: 'Membership Termination Request',
-						name: terminationRequest
-					}
-				}).then((r) => {
-					// Call get_termination_preview method
-					return win.frappe.call({
-						method: `${r.message.doctype}.${r.message.name}.get_termination_preview`,
-						args: {}
+				return win.frappe
+					.call({
+						method: `frappe.client.get_doc`,
+						args: {
+							doctype: 'Membership Termination Request',
+							name: terminationRequest
+						}
+					})
+					.then((r) => {
+						// Call get_termination_preview method
+						return win.frappe.call({
+							method: `${r.message.doctype}.${r.message.name}.get_termination_preview`,
+							args: {}
+						});
+					})
+					.then((preview) => {
+						cy.log('Termination preview:', preview);
+						// Preview should contain impact data
+						expect(preview).to.have.property('message');
 					});
-				}).then((preview) => {
-					cy.log('Termination preview:', preview);
-					// Preview should contain impact data
-					expect(preview).to.have.property('message');
-				});
 			});
 		});
 	});
