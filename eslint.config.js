@@ -33,6 +33,8 @@ const frappeGlobals = {
   cstr: "readonly",
   flt: "readonly",
   format_currency: "readonly",
+  moment: "readonly",
+  cur_page: "readonly",
   // Frappe UI globals
   Dialog: "readonly",
   msgprint: "readonly",
@@ -64,6 +66,10 @@ const frappeGlobals = {
   StorageService: "readonly",
   ErrorHandler: "readonly",
   StepManager: "readonly",
+  // OperationResult helpers (window-attached in
+  // public/js/utils/operation-result-helpers.js, consumed bare app-wide)
+  unwrapOperationResult: "readonly",
+  getErrorMessage: "readonly",
   // Membership application classes
   MembershipApplication: "readonly",
   PersonalInfoStep: "readonly",
@@ -370,9 +376,16 @@ module.exports = [
 
   // --- Per-path overrides (same order/precedence as the old eslintrc) ---
 
-  // Test files (jest + mocha environments).
+  // Test files (jest + mocha environments). Includes the jest setup/helper
+  // files under tests/setup that aren't named test_*.js / *.test.js.
   {
-    files: ["**/*.test.js", "**/*.spec.js", "**/test_*.js", "cypress/**/*.js"],
+    files: [
+      "**/*.test.js",
+      "**/*.spec.js",
+      "**/test_*.js",
+      "cypress/**/*.js",
+      "verenigingen/tests/**/*.js",
+    ],
     languageOptions: {
       globals: { ...globals.jest, ...globals.mocha },
     },
