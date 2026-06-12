@@ -621,3 +621,30 @@ class TestSyncResultStatusMapping(EnhancedTestCase):
             _sync_status_update_for_result({"status": "warning"}),
             ("Needs Review", 0, False),
         )
+
+
+class TestStuckAmendmentPartition(EnhancedTestCase):
+    """Repair patch re-syncs only the latest stuck amendment per member."""
+
+    def test_partition_keeps_latest_per_member(self):
+        from verenigingen.patches.v2_2.resync_stuck_mollie_amendment_syncs import (
+            partition_stuck_amendments,
+        )
+
+        rows = [  # already in ascending creation order, as execute() queries
+            frappe._dict(name="AMEND-1", member="M-A"),
+            frappe._dict(name="AMEND-2", member="M-B"),
+            frappe._dict(name="AMEND-3", member="M-A"),
+        ]
+
+        resync, skip = partition_stuck_amendments(rows)
+
+        self.assertEqual(sorted(resync), ["AMEND-2", "AMEND-3"])
+        self.assertEqual(skip, ["AMEND-1"])
+
+    def test_partition_empty(self):
+        from verenigingen.patches.v2_2.resync_stuck_mollie_amendment_syncs import (
+            partition_stuck_amendments,
+        )
+
+        self.assertEqual(partition_stuck_amendments([]), ([], []))
