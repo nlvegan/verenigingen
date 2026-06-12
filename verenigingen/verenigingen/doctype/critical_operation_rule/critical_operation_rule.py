@@ -284,6 +284,16 @@ class CriticalOperationRule(Document):
         config = frappe.cache().get_value(cache_key)
 
         if not config:
+            # Existence check before get_doc: frappe.get_doc pushes a
+            # "Critical Operation Rule X not found" message into
+            # frappe.message_log before raising, and that message reaches the
+            # client even when the DoesNotExistError is caught below.
+            if not frappe.db.exists("Critical Operation Rule", operation_name):
+                frappe.logger("verenigingen.api_security").info(
+                    f"No Critical Operation Rule found for operation '{operation_name}'"
+                )
+                return None
+
             try:
                 rule = frappe.get_doc("Critical Operation Rule", operation_name)
                 if rule.enabled:

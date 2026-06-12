@@ -180,6 +180,29 @@ class TestCriticalOperationRule(FrappeTestCase):
         config = CriticalOperationRule.get_rule_config("test_disabled_rule")
         self.assertIsNone(config)
 
+    def test_missing_rule_does_not_pollute_message_log(self):
+        """Looking up a nonexistent rule must not leak 'not found' into the response.
+
+        frappe.get_doc pushes 'Critical Operation Rule X not found' into
+        frappe.message_log before raising DoesNotExistError; if that message
+        survives the swallowed exception it gets flushed to the client, so
+        portal users see internal framework messages (seen live on the
+        payment dashboard bank-account update).
+        """
+        from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
+            CriticalOperationRule,
+        )
+
+        frappe.clear_messages()
+        config = CriticalOperationRule.get_rule_config("test_no_such_rule_xyz")
+
+        self.assertIsNone(config)
+        self.assertEqual(
+            len(frappe.message_log),
+            0,
+            f"missing-rule lookup leaked messages to the client: {frappe.message_log}",
+        )
+
     def test_cache_invalidation(self):
         """Test that cache is properly invalidated on updates"""
         # Create a rule
