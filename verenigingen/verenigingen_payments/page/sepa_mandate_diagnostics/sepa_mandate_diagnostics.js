@@ -1,12 +1,12 @@
-frappe.pages['sepa_mandate_diagnostics'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['sepa_mandate_diagnostics'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __('SEPA Mandate Diagnostics'),
 		single_column: true
 	});
 
 	// Add refresh button
-	page.add_inner_button(__('Refresh'), function() {
+	page.add_inner_button(__('Refresh'), () => {
 		load_diagnostics(page);
 	});
 
@@ -16,12 +16,12 @@ frappe.pages['sepa_mandate_diagnostics'].on_page_load = function(wrapper) {
 
 function load_diagnostics(page) {
 	// Show loading indicator
-	$(page.body).html('<div class="text-center margin-top"><p class="text-muted">' + __('Loading diagnostics...') + '</p></div>');
+	$(page.body).html(`<div class="text-center margin-top"><p class="text-muted">${__('Loading diagnostics...')}</p></div>`);
 
 	// Fetch diagnostic data
 	frappe.call({
 		method: 'verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_mandate_diagnostics.get_mandate_issues',
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				render_diagnostics(page, r.message);
 			}
@@ -66,9 +66,9 @@ function render_diagnostics(page, data) {
 	// Build issue cards
 	Object.keys(issues).forEach(issue_key => {
 		const issue = issues[issue_key];
-		const severity_class = issue.severity === 'critical' ? 'danger' :
-		                       issue.severity === 'high' ? 'orange' :
-		                       issue.severity === 'medium' ? 'warning' : 'info';
+		const severity_class = issue.severity === 'critical' ? 'danger'
+		                       : issue.severity === 'high' ? 'orange'
+		                       : issue.severity === 'medium' ? 'warning' : 'info';
 
 		html += `
 			<div class="frappe-card margin-bottom">
@@ -102,22 +102,22 @@ function render_diagnostics(page, data) {
 
 function render_issue_members(issue_type, members) {
 	if (members.length === 0) {
-		return '<p class="text-muted text-center">' + __('No issues found') + '</p>';
+		return `<p class="text-muted text-center">${__('No issues found')}</p>`;
 	}
 
 	let html = '<table class="table table-bordered table-hover"><thead><tr>';
 
 	// Dynamic headers based on issue type
 	if (issue_type === 'sepa_selected_no_mandate') {
-		html += '<th>' + __('Member') + '</th><th>' + __('IBAN') + '</th><th>' + __('Account Holder') + '</th><th>' + __('Issue') + '</th><th>' + __('Actions') + '</th>';
+		html += `<th>${__('Member')}</th><th>${__('IBAN')}</th><th>${__('Account Holder')}</th><th>${__('Issue')}</th><th>${__('Actions')}</th>`;
 	} else if (issue_type === 'missing_child_table_entries') {
-		html += '<th>' + __('Member') + '</th><th>' + __('Mandate Count') + '</th><th>' + __('Mandate IDs') + '</th><th>' + __('Actions') + '</th>';
+		html += `<th>${__('Member')}</th><th>${__('Mandate Count')}</th><th>${__('Mandate IDs')}</th><th>${__('Actions')}</th>`;
 	} else if (issue_type === 'orphaned_child_table_entries') {
-		html += '<th>' + __('Member') + '</th><th>' + __('Orphaned Mandate') + '</th><th>' + __('Reference') + '</th><th>' + __('Actions') + '</th>';
+		html += `<th>${__('Member')}</th><th>${__('Orphaned Mandate')}</th><th>${__('Reference')}</th><th>${__('Actions')}</th>`;
 	} else if (issue_type === 'outdated_child_table_data') {
-		html += '<th>' + __('Member') + '</th><th>' + __('Mandate') + '</th><th>' + __('Current Status') + '</th><th>' + __('Child Table Status') + '</th><th>' + __('Actions') + '</th>';
+		html += `<th>${__('Member')}</th><th>${__('Mandate')}</th><th>${__('Current Status')}</th><th>${__('Child Table Status')}</th><th>${__('Actions')}</th>`;
 	} else if (issue_type === 'multiple_current_mandates') {
-		html += '<th>' + __('Member') + '</th><th>' + __('Current Count') + '</th><th>' + __('Mandate IDs') + '</th><th>' + __('Actions') + '</th>';
+		html += `<th>${__('Member')}</th><th>${__('Current Count')}</th><th>${__('Mandate IDs')}</th><th>${__('Actions')}</th>`;
 	}
 
 	html += '</tr></thead><tbody>';
@@ -133,20 +133,20 @@ function render_issue_members(issue_type, members) {
 			let issue_msg = '';
 
 			if (member.banking_status === 'missing_iban') {
-				issue_msg = '<span class="label label-danger">' + __('Missing IBAN') + '</span>';
+				issue_msg = `<span class="label label-danger">${__('Missing IBAN')}</span>`;
 				can_fix = false;
 			} else if (member.banking_status === 'missing_account_name') {
-				issue_msg = '<span class="label label-danger">' + __('Missing Account Holder Name') + '</span>';
+				issue_msg = `<span class="label label-danger">${__('Missing Account Holder Name')}</span>`;
 				can_fix = false;
 			} else if (member.banking_status === 'has_banking_data') {
-				issue_msg = '<span class="label label-warning">' + __('No Active Mandate') + '</span>';
-				can_fix = true;  // Can create mandate automatically
+				issue_msg = `<span class="label label-warning">${__('No Active Mandate')}</span>`;
+				can_fix = true; // Can create mandate automatically
 			}
 
 			html += `
 				<td><a href="/app/member/${member.member_id}">${member.full_name}</a></td>
-				<td><small>${member.iban || '<em class="text-muted">' + __('Not set') + '</em>'}</small></td>
-				<td><small>${member.bank_account_name || '<em class="text-muted">' + __('Not set') + '</em>'}</small></td>
+				<td><small>${member.iban || `<em class="text-muted">${__('Not set')}</em>`}</small></td>
+				<td><small>${member.bank_account_name || `<em class="text-muted">${__('Not set')}</em>`}</small></td>
 				<td>${issue_msg}</td>
 			`;
 		} else if (issue_type === 'missing_child_table_entries') {
@@ -200,8 +200,8 @@ function fix_single_member(member_id) {
 
 	frappe.call({
 		method: 'verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_mandate_diagnostics.fix_member_mandate_issues',
-		args: { member_id: member_id },
-		callback: function(r) {
+		args: { member_id },
+		callback(r) {
 			frappe.hide_progress();
 
 			if (r.message && r.message.success) {
@@ -225,13 +225,13 @@ function fix_single_member(member_id) {
 function fix_all_for_issue(issue_type) {
 	frappe.confirm(
 		__('This will fix all members with this issue type. Continue?'),
-		function() {
+		() => {
 			frappe.show_progress(__('Bulk Fix...'), 0, 1, __('Fixing mandate issues in batch'));
 
 			frappe.call({
 				method: 'verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_mandate_diagnostics.bulk_fix_mandate_issues',
-				args: { issue_type: issue_type },
-				callback: function(r) {
+				args: { issue_type },
+				callback(r) {
 					frappe.hide_progress();
 
 					if (r.message) {

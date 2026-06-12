@@ -250,7 +250,7 @@ frappe.ui.form.on('Mollie Settings', 'before_save', (frm) => {
 
 function render_credentials_status(frm) {
 	const wrapper = frm.get_field('credentials_status')?.$wrapper;
-	if (!wrapper) return;
+	if (!wrapper) { return; }
 	const dot = (set) => `<span style="color:${set ? '#28a745' : '#adb5bd'}">●</span>`;
 	const row = (label, set) =>
 		`<div style="margin:2px 0">${dot(set)} ${label}: <b>${set ? __('set') : __('not set')}</b></div>`;
@@ -270,21 +270,21 @@ function add_credential_buttons(frm) {
 	frm.add_custom_button(__('Set API Keys'), () => {
 		open_credentials_dialog(frm, __('Set Mollie API Keys'), [
 			{ fieldname: 'test_secret_key', label: __('Test Secret Key') },
-			{ fieldname: 'live_secret_key', label: __('Live Secret Key') },
+			{ fieldname: 'live_secret_key', label: __('Live Secret Key') }
 		]);
 	}, __('Credentials'));
 
 	frm.add_custom_button(__('Set Webhook Secrets'), () => {
 		open_credentials_dialog(frm, __('Set Mollie Webhook Secrets'), [
 			{ fieldname: 'testing_webhook_secret_key', label: __('Testing Webhook Secret Key') },
-			{ fieldname: 'live_webhook_secret_key', label: __('Live Webhook Secret Key') },
+			{ fieldname: 'live_webhook_secret_key', label: __('Live Webhook Secret Key') }
 		]);
 	}, __('Credentials'));
 
 	frm.add_custom_button(__('Set Backend Credentials'), () => {
 		open_credentials_dialog(frm, __('Set Mollie Backend Credentials'), [
 			{ fieldname: 'organization_access_token', label: __('Organization Access Token') },
-			{ fieldname: 'backend_webhook_secret', label: __('Backend Webhook Secret') },
+			{ fieldname: 'backend_webhook_secret', label: __('Backend Webhook Secret') }
 		]);
 	}, __('Credentials'));
 }
@@ -297,12 +297,12 @@ function open_credentials_dialog(frm, title, specs) {
 		fieldname: s.fieldname,
 		fieldtype: 'Password',
 		label: s.label,
-		description: __('Leave blank to keep existing value.'),
+		description: __('Leave blank to keep existing value.')
 	}));
 
 	const d = new frappe.ui.Dialog({
-		title: title,
-		fields: fields,
+		title,
+		fields,
 		primary_action_label: __('Save'),
 		primary_action(values) {
 			let dirty = false;
@@ -313,31 +313,31 @@ function open_credentials_dialog(frm, title, specs) {
 					dirty = true;
 				}
 			});
-			if (dirty) frm.dirty();
+			if (dirty) { frm.dirty(); }
 			d.hide();
 			render_credentials_status(frm);
 			frappe.show_alert({
 				message: __('Credentials updated. Save the document to store them encrypted.'),
-				indicator: 'green',
+				indicator: 'green'
 			});
-		},
+		}
 	});
 	d.show();
 
 	// Apply anti-autofill to each password input in the dialog.
 	specs.forEach((s) => {
 		const $input = d.fields_dict[s.fieldname]?.$input;
-		if (!$input) return;
-		const random_name = s.fieldname + '_' + Math.random().toString(36).slice(2);
+		if (!$input) { return; }
+		const random_name = `${s.fieldname}_${Math.random().toString(36).slice(2)}`;
 		$input.attr({
 			autocomplete: 'new-password',
 			name: random_name,
 			'data-lpignore': 'true',
 			'data-form-type': 'other',
-			'data-1p-ignore': 'true',
+			'data-1p-ignore': 'true'
 		});
 		const clear_if_spurious = () => {
-			if (!$input.is(':focus')) $input.val('');
+			if (!$input.is(':focus')) { $input.val(''); }
 		};
 		clear_if_spurious();
 		setTimeout(clear_if_spurious, 100);

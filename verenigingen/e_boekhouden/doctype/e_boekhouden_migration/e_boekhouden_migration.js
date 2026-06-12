@@ -1227,7 +1227,7 @@ function perform_cleanup_action(frm, delete_all_accounts, force_delete) {
 		method: 'verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_chart_of_accounts',
 		args: {
 			company: frm.doc.company,
-			delete_all_accounts: delete_all_accounts,
+			delete_all_accounts,
 			force_delete: force_delete || 0
 		},
 		freeze: true,
@@ -1305,36 +1305,36 @@ function start_coa_import(frm) {
 	// Just call start_migration directly - it will handle the field updates on the backend
 	// (workaround for session cookie issues with multiple frappe.db.set_value calls)
 	frappe.call({
-			method:
+		method:
         'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration',
-			args: {
-				migration_name: frm.doc.name,
-				setup_only: true // Special flag for CoA setup
-			},
-			callback(r) {
-				if (r.message && r.message.success) {
-					frappe.show_alert({
-						message: __('Chart of Accounts setup started!'),
-						indicator: 'green'
-					});
-					frm.reload_doc();
+		args: {
+			migration_name: frm.doc.name,
+			setup_only: true // Special flag for CoA setup
+		},
+		callback(r) {
+			if (r.message && r.message.success) {
+				frappe.show_alert({
+					message: __('Chart of Accounts setup started!'),
+					indicator: 'green'
+				});
+				frm.reload_doc();
 
-					// Show progress
-					show_migration_progress(frm);
+				// Show progress
+				show_migration_progress(frm);
 
-					// After completion, show account type review
-					setTimeout(() => {
-						check_and_show_account_type_review(frm);
-					}, 5000);
-				} else {
-					frappe.msgprint({
-						title: __('Error'),
-						message: r.message ? r.message.error : 'Unknown error',
-						indicator: 'red'
-					});
-				}
+				// After completion, show account type review
+				setTimeout(() => {
+					check_and_show_account_type_review(frm);
+				}, 5000);
+			} else {
+				frappe.msgprint({
+					title: __('Error'),
+					message: r.message ? r.message.error : 'Unknown error',
+					indicator: 'red'
+				});
 			}
-		});
+		}
+	});
 }
 
 function check_and_show_account_type_review(frm) {
@@ -1555,14 +1555,14 @@ function show_transaction_import_dialog(frm) {
 				fieldname: 'date_from',
 				fieldtype: 'Date',
 				description: 'Start date for transaction import',
-				reqd: 0  // Only required when "Custom Date Range" is selected
+				reqd: 0 // Only required when "Custom Date Range" is selected
 			},
 			{
 				label: 'To Date',
 				fieldname: 'date_to',
 				fieldtype: 'Date',
 				description: 'End date for transaction import',
-				reqd: 0  // Only required when "Custom Date Range" is selected
+				reqd: 0 // Only required when "Custom Date Range" is selected
 			},
 			{
 				fieldname: 'mutation_types_section',
@@ -1646,7 +1646,7 @@ function show_transaction_import_dialog(frm) {
 		primary_action(values) {
 			// Collect selected mutation types
 			const selected_types = [];
-			dialog.$wrapper.find('input[name="mutation_type"]:checked').each(function() {
+			dialog.$wrapper.find('input[name="mutation_type"]:checked').each(function () {
 				selected_types.push(parseInt($(this).val()));
 			});
 
@@ -2468,7 +2468,7 @@ function handle_import_single_mutation(frm) {
 
 							const msgData = {
 								title: __('Import Complete'),
-								message: message,
+								message,
 								indicator: 'blue'
 							};
 							console.log('[Skipped branch] Data being passed to frappe.msgprint:', msgData);
@@ -2503,7 +2503,7 @@ function handle_import_single_mutation(frm) {
 
 							const msgData = {
 								title: __('Import Complete'),
-								message: message,
+								message,
 								indicator: 'green'
 							};
 							console.log('Data being passed to frappe.msgprint:', msgData);

@@ -357,7 +357,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 		// Helper function to escape HTML for safe rendering
 		frm.escape_html = function (str) {
-			if (!str) return '';
+			if (!str) { return ''; }
 			return String(str)
 				.replace(/&/g, '&amp;')
 				.replace(/</g, '&lt;')
@@ -439,8 +439,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 						<div style="max-height: 150px; overflow-y: auto;">
 							<small class="text-muted">
 								${skipped_no_mapping.slice(0, 20).map(item =>
-									`${frm.escape_html(item.account)} (group ${frm.escape_html(item.group_code)})`
-								).join(', ')}
+		`${frm.escape_html(item.account)} (group ${frm.escape_html(item.group_code)})`
+	).join(', ')}
 								${skipped_no_mapping.length > 20 ? `... and ${skipped_no_mapping.length - 20} more` : ''}
 							</small>
 						</div>
@@ -985,7 +985,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 							frappe.msgprint({
 								title: __('Account Tree Rebuilt'),
-								message: message,
+								message,
 								indicator: 'green'
 							});
 						} else {
@@ -1081,7 +1081,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			frappe.call({
 				method:
 					'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings',
-				args: { merge_mode: merge_mode },
+				args: { merge_mode },
 				callback(r) {
 					if (r.message && r.message.success) {
 						// Show duplicate warnings if any

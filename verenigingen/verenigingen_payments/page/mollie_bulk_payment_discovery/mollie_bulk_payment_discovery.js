@@ -1,8 +1,8 @@
 // Copyright (c) 2025, Molecular Bits and contributors
 // For license information, please see license.txt
 
-frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Mollie Bulk Payment Discovery',
 		single_column: true
@@ -17,16 +17,16 @@ frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function(wrapper) {
 	};
 
 	// Add action buttons
-	page.set_primary_action('Run Discovery', function() {
+	page.set_primary_action('Run Discovery', () => {
 		run_discovery(page);
 	});
 
-	page.add_inner_button('Refresh', function() {
+	page.add_inner_button('Refresh', () => {
 		run_discovery(page);
 	});
 
 	// Store bulk process button for later showing/hiding
-	page.bulk_process_btn = page.add_inner_button('Process All Processable', function() {
+	page.bulk_process_btn = page.add_inner_button('Process All Processable', () => {
 		process_bulk_payments(page);
 	}, null, 'btn-success');
 
@@ -76,7 +76,7 @@ frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function(wrapper) {
 	`);
 
 	// Handle search method change to show/hide max_members
-	$(page.body).on('change', '#retrieval_mode', function() {
+	$(page.body).on('change', '#retrieval_mode', function () {
 		const mode = $(this).val();
 		if (mode === 'customer') {
 			$('#max_members_wrapper').show();
@@ -99,7 +99,7 @@ function run_discovery(page) {
 	frappe.call({
 		method: 'verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery.run_discovery',
 		args: filters,
-		callback: function(r) {
+		callback(r) {
 			frappe.dom.unfreeze();
 
 			if (r.message && r.message.success) {
@@ -112,7 +112,7 @@ function run_discovery(page) {
 				});
 			}
 		},
-		error: function(r) {
+		error(r) {
 			frappe.dom.unfreeze();
 			frappe.msgprint({
 				title: __('Error'),
@@ -211,7 +211,7 @@ function render_results(page, data, filters) {
 
 	// Build payments array from results
 	let payments = [];
-	let already_processed_payments = [];
+	const already_processed_payments = [];
 
 	if (data.retrieval_mode === 'customer' && data.customers) {
 		// Customer mode: extract from customers array
@@ -326,12 +326,12 @@ function render_results(page, data, filters) {
 					<td>${payment.paid_at || ''}</td>
 					<td>${format_processable(payment.processable)}</td>
 					<td>
-						${payment.processable === 'Yes' && !is_orphaned ?
-							`<button class="btn btn-sm btn-primary process-payment" data-payment-id="${payment.payment_id}">
+						${payment.processable === 'Yes' && !is_orphaned
+		? `<button class="btn btn-sm btn-primary process-payment" data-payment-id="${payment.payment_id}">
 								Process
-							</button>` :
-							'<span class="text-muted">N/A</span>'
-						}
+							</button>`
+		: '<span class="text-muted">N/A</span>'
+}
 					</td>
 				</tr>
 			`;
@@ -393,7 +393,7 @@ function render_results(page, data, filters) {
 	page.processable_payment_ids = processable_payments.map(p => p.payment_id);
 
 	// Attach click handlers
-	$table.find('.process-payment').on('click', function() {
+	$table.find('.process-payment').on('click', function () {
 		const payment_id = $(this).data('payment-id');
 		process_single_payment(payment_id, page);
 	});
@@ -401,11 +401,11 @@ function render_results(page, data, filters) {
 
 function format_status(status) {
 	const colors = {
-		'paid': 'success',
-		'pending': 'warning',
-		'failed': 'danger',
-		'expired': 'danger',
-		'canceled': 'danger'
+		paid: 'success',
+		pending: 'warning',
+		failed: 'danger',
+		expired: 'danger',
+		canceled: 'danger'
 	};
 	const color = colors[status] || 'secondary';
 	return `<span class="badge badge-${color}">${status}</span>`;
@@ -422,7 +422,7 @@ function format_processable(value) {
 	if (value === 'Yes') {
 		return '<span style="color: #28a745; font-weight: bold;">✓ Yes</span>';
 	} else if (value && value.includes('Orphaned')) {
-		return '<span style="color: #dc3545; font-weight: bold;">✗ ' + value + '</span>';
+		return `<span style="color: #dc3545; font-weight: bold;">✗ ${value}</span>`;
 	}
 	return '<span style="color: #6c757d;">✗ No</span>';
 }
@@ -430,15 +430,15 @@ function format_processable(value) {
 function process_single_payment(payment_id, page) {
 	frappe.confirm(
 		__('Process payment {0}?', [payment_id]),
-		function() {
+		() => {
 			frappe.dom.freeze(__('Processing payment...'));
 
 			frappe.call({
 				method: 'verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery.process_payment',
 				args: {
-					payment_id: payment_id
+					payment_id
 				},
-				callback: function(r) {
+				callback(r) {
 					frappe.dom.unfreeze();
 
 					if (r.message && r.message.success) {
@@ -476,15 +476,15 @@ function process_bulk_payments(page) {
 
 	frappe.confirm(
 		__('Process {0} payments in bulk?<br><br>This will create Bank Transactions and Payment Entries for all processable payments.', [payment_ids.length]),
-		function() {
+		() => {
 			frappe.dom.freeze(__('Processing {0} payments...', [payment_ids.length]));
 
 			frappe.call({
 				method: 'verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery.process_bulk_payments',
 				args: {
-					payment_ids: payment_ids
+					payment_ids
 				},
-				callback: function(r) {
+				callback(r) {
 					frappe.dom.unfreeze();
 
 					if (r.message && r.message.success) {
@@ -501,7 +501,7 @@ function process_bulk_payments(page) {
 						});
 					}
 				},
-				error: function(r) {
+				error(r) {
 					frappe.dom.unfreeze();
 					frappe.msgprint({
 						title: __('Error'),
@@ -579,14 +579,14 @@ function render_bulk_results(data) {
 	message += '</div>';
 
 	const indicator = data.errors > 0 ? 'orange' : 'green';
-	const title = data.errors > 0 ?
-		__('Bulk Processing Completed with Errors') :
-		__('Bulk Processing Completed Successfully');
+	const title = data.errors > 0
+		? __('Bulk Processing Completed with Errors')
+		: __('Bulk Processing Completed Successfully');
 
 	frappe.msgprint({
-		title: title,
-		message: message,
-		indicator: indicator,
+		title,
+		message,
+		indicator,
 		wide: true
 	});
 }
