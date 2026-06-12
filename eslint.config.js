@@ -18,6 +18,11 @@
 const js = require("@eslint/js");
 const pluginVue = require("eslint-plugin-vue");
 const globals = require("globals");
+// Disables every stylistic ESLint rule that could conflict with Prettier.
+// MUST be the final entry in the exported config array so it wins. Prettier now
+// owns formatting (indent, quotes, semi, comma-dangle, object-curly-spacing,
+// max-len, no-mixed-spaces-and-tabs, …); ESLint keeps only correctness rules.
+const prettier = require("eslint-config-prettier");
 
 // Frappe framework + Verenigingen app globals (verbatim from the old eslintrc
 // `globals` block). Standard browser/node/jquery globals come from the
@@ -490,4 +495,8 @@ module.exports = [
       "max-len": "warn",
     },
   },
+
+  // Prettier owns formatting — keep LAST so it turns off all stylistic rules
+  // (see the require at the top of this file).
+  prettier,
 ];

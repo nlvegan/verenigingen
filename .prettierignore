@@ -1,0 +1,61 @@
+# Mirrors the `ignores` block in eslint.config.js so Prettier and ESLint agree
+# on what is and isn't source we own. Keep these two in sync.
+
+# Dependencies / lockfiles
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build outputs
+**/dist/
+**/build/
+**/*.min.js
+**/*.bundle.js
+
+# Pre-built, committed assets (Tailwind output — built via `npm run build`, not Prettier)
+verenigingen/public/css/
+
+# Archived and legacy code
+**/archived_unused/
+**/archived_removal/
+**/archived_deleted/
+**/legacy/
+
+# Third-party libraries
+verenigingen/public/js/lib/
+verenigingen/public/js/vendor/
+**/vendor/
+
+# Generated files
+**/*.generated.js
+**/*-compiled.js
+
+# Test fixtures and mock data
+verenigingen/tests/fixtures/
+**/__mocks__/
+
+# Temporary files
+**/*.tmp.js
+**/*.temp.js
+
+# Documentation
+docs/
+
+# Scripts meant to be run directly (not through Frappe)
+scripts/analysis/
+scripts/monitoring/
+scripts/performance/
+scripts/rollback/
+scripts/security/
+
+# Development and debug utilities
+debug_utils/
+dev_scripts/
+
+# Files with intentional issues for testing
+**/test_field_validation_gaps.js
+**/intentional_errors.js
+
+# Cypress artifacts
+cypress/videos/
+cypress/screenshots/
