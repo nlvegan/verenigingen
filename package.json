@@ -46,7 +46,7 @@
     "@testing-library/vue": "^8.0.0",
     "@vue/test-utils": "^2.4.0",
     "@vue/vue3-jest": "^29.0.0",
-    "ajv": "^8.17.1",
+    "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "axios": "^1.15.0",
     "babel-jest": "^29.7.0",
@@ -126,6 +126,13 @@
     "js-cookie": "^3.0.7",
     "tmp": "^0.2.6",
     "postcss": "^8.5.10",
-    "ws": "^8.20.1"
+    "ws": "^8.20.1",
+    "ajv": "^8.18.0",
+    "eslint": {
+      "ajv": "^6.15.0"
+    },
+    "@eslint/eslintrc": {
+      "ajv": "^6.15.0"
+    }
   }
 }
