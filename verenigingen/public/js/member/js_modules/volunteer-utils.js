@@ -241,7 +241,7 @@ function create_volunteer_from_member(frm) {
 			frappe.call({
 				method:
 					'verenigingen.verenigingen.doctype.volunteer.volunteer.create_volunteer_from_member',
-				args: args,
+				args,
 				freeze: true,
 				freeze_message: __('Creating volunteer profile...'),
 				callback(r) {
@@ -257,7 +257,7 @@ function create_volunteer_from_member(frm) {
 
 						frappe.show_alert(
 							{
-								message: message,
+								message,
 								indicator: 'green'
 							},
 							7
@@ -334,7 +334,7 @@ function show_volunteer_activation_dialog(options) {
 		primary_action_label: __('Activate'),
 		primary_action(values) {
 			// Build roles list - always include Verenigingen Volunteer
-			let roles = ['Verenigingen Volunteer'];
+			const roles = ['Verenigingen Volunteer'];
 			if (values.additional_roles && values.additional_roles.length > 0) {
 				values.additional_roles.forEach(role => {
 					if (!roles.includes(role)) {
@@ -346,8 +346,8 @@ function show_volunteer_activation_dialog(options) {
 			frappe.call({
 				method: 'verenigingen.services.member.account.account_creation_api.queue_account_creation_for_member',
 				args: {
-					member_name: member_name,
-					roles: roles,
+					member_name,
+					roles,
 					role_profile: 'Verenigingen Volunteer',
 					priority: 'Normal'
 				},
@@ -360,7 +360,7 @@ function show_volunteer_activation_dialog(options) {
 							indicator: 'green'
 						}, 7);
 						d.hide();
-						if (on_success) on_success(r.message);
+						if (on_success) { on_success(r.message); }
 					} else {
 						// Extract error from OperationResult format
 						const errorMsg = getErrorMessage(r.message, __('Failed to activate volunteer'));

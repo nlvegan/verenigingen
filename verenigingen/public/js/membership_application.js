@@ -827,7 +827,7 @@ class _MembershipApplication {
 		const stepMap = {
 			1: () => this.setupPersonalInfoStep(),
 			2: () => this.setupAddressStep(),
-			3: () => this.setupMembershipStep(),
+			3: () => this.setupMembershipStep()
 		};
 		if (hasVolunteer) {
 			stepMap[4] = () => this.setupVolunteerStep();
@@ -839,7 +839,7 @@ class _MembershipApplication {
 		}
 
 		const setup = stepMap[stepNumber];
-		if (setup) setup();
+		if (setup) { setup(); }
 	}
 
 	getCurrentStep() {
@@ -1904,10 +1904,10 @@ class _MembershipApplication {
 
 		// Map billing frequency to dropdown value and set it
 		const frequencyMap = {
-			'Monthly': 'monthly',
-			'Quarterly': 'quarterly',
-			'Annual': 'annually',
-			'Annually': 'annually'
+			Monthly: 'monthly',
+			Quarterly: 'quarterly',
+			Annual: 'annually',
+			Annually: 'annually'
 		};
 		const dropdownValue = frequencyMap[billingFrequency] || 'annually';
 		$('#calc-payment-interval').val(dropdownValue);
@@ -1940,22 +1940,20 @@ class _MembershipApplication {
 			// Show calculator with progressive mode
 			$('#income-calculator').show();
 			console.log('Progressive calculator configured:', this.progressiveConfig);
-
 		} else if (mode === 'Calculator' && contributionOptions.calculator?.enabled) {
 			// Standard percentage-based calculator
 			this.calculatorMode = 'Calculator';
 			this.progressiveConfig = null;
 
 			// Update description
-			const description = contributionOptions.calculator.description ||
-				`We suggest ${contributionOptions.calculator.percentage}% of your monthly net income`;
+			const description = contributionOptions.calculator.description
+				|| `We suggest ${contributionOptions.calculator.percentage}% of your monthly net income`;
 			$('#calculator-description').text(description);
 			$('#calc-income-percentage').text(contributionOptions.calculator.percentage);
 
 			// Show calculator
 			$('#income-calculator').show();
 			console.log('Standard calculator configured');
-
 		} else {
 			// No calculator for this mode (Tier, Custom, etc.)
 			this.calculatorMode = null;
@@ -2011,7 +2009,7 @@ class _MembershipApplication {
 		return {
 			multiplier: Math.round(multiplier * 10000) / 10000,
 			percentage: Math.round(wagePercentage * 1000) / 10, // Display as percentage
-			suggestedDues: suggestedDues,
+			suggestedDues,
 			wagePercentage: Math.round(wagePercentage * 1000) / 10 // The calculated wage %
 		};
 	}
@@ -2051,7 +2049,7 @@ class _MembershipApplication {
 		const self = this;
 
 		// Main calculation function - handles both modes
-		this.calculateContribution = function() {
+		this.calculateContribution = function () {
 			const monthlyIncome = parseFloat($('#calc-monthly-income').val()) || 0;
 			// Use billing frequency from dues schedule template (stored in configureIncomeCalculator)
 			const billingFrequency = self.billingFrequency || 'Annual';
@@ -2069,10 +2067,10 @@ class _MembershipApplication {
 
 			// Map billing frequency to display text
 			const frequencyDisplayMap = {
-				'Monthly': '/month',
-				'Quarterly': '/quarter',
-				'Annual': '/year',
-				'Annually': '/year'
+				Monthly: '/month',
+				Quarterly: '/quarter',
+				Annual: '/year',
+				Annually: '/year'
 			};
 			displayFrequency = frequencyDisplayMap[billingFrequency] || '/year';
 
@@ -2111,7 +2109,6 @@ class _MembershipApplication {
 				$('#calc-result').hide();
 				$('#progressive-calc-result').show();
 				$('#apply-calculated-amount').show();
-
 			} else {
 				// Standard percentage-based calculation
 				// This calculates based on monthly income, so we need to convert to billing frequency
@@ -2809,7 +2806,6 @@ class _MembershipApplication {
 			? 'Yes, interested in volunteering'
 			: 'Not interested in volunteering';
 		$('#confirm-volunteering').text(volunteering);
-
 	}
 
 	updateFinalApplicationSummary() {

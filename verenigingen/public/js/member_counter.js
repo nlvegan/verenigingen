@@ -256,7 +256,6 @@ function _show_counter_statistics_dialog() {
 		callback(r) {
 			const stats = unwrapOperationResult(r.message);
 			if (stats) {
-
 				let dialog_content = `
                     <div class="counter-stats">
                         <h4>Member ID Counter Statistics</h4>

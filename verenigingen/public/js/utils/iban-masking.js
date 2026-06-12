@@ -60,7 +60,7 @@ verenigingen.iban = {
 	 * verenigingen.iban.mask('NL91 ABNA 0417 1643 00');
 	 * // Returns: 'NL91****4300' (spaces removed first)
 	 */
-	mask: function(iban) {
+	mask(iban) {
 		if (!iban || iban.length < 8) {
 			return iban;
 		}
@@ -68,7 +68,7 @@ verenigingen.iban = {
 		const cleanIban = iban.replace(/\s/g, '');
 		const first = cleanIban.substring(0, 4);
 		const last = cleanIban.substring(cleanIban.length - 4);
-		return first + '****' + last;
+		return `${first}****${last}`;
 	},
 
 	/**
@@ -88,9 +88,9 @@ verenigingen.iban = {
 	 *   // Show masked IBAN
 	 * }
 	 */
-	canViewFull: function() {
-		return frappe.user_roles.includes('Accounts Manager') ||
-			frappe.user_roles.includes('System Manager');
+	canViewFull() {
+		return frappe.user_roles.includes('Accounts Manager')
+			|| frappe.user_roles.includes('System Manager');
 	},
 
 	/**
@@ -115,7 +115,7 @@ verenigingen.iban = {
 	 *   }
 	 * });
 	 */
-	applyMasking: function(frm, fieldname) {
+	applyMasking(frm, fieldname) {
 		if (!verenigingen.iban.canViewFull()) {
 			const value = frm.doc[fieldname];
 			if (value) {
@@ -151,7 +151,7 @@ verenigingen.iban = {
 	 *   }
 	 * });
 	 */
-	restoreOriginal: function(frm, fieldname) {
+	restoreOriginal(frm, fieldname) {
 		if (frm._original_iban && frm._original_iban[fieldname]) {
 			frm.doc[fieldname] = frm._original_iban[fieldname];
 		}
@@ -169,25 +169,25 @@ verenigingen.iban = {
 	 *
 	 * @private
 	 */
-	setup: function() {
+	setup() {
 		// Auto-apply to SEPA Mandate forms
 		frappe.ui.form.on('SEPA Mandate', {
-			refresh: function(frm) {
+			refresh(frm) {
 				verenigingen.iban.applyMasking(frm, 'iban');
 			},
-			before_save: function(frm) {
+			before_save(frm) {
 				verenigingen.iban.restoreOriginal(frm, 'iban');
 			}
 		});
 
 		// Auto-apply to Member forms if they have IBAN field
 		frappe.ui.form.on('Member', {
-			refresh: function(frm) {
+			refresh(frm) {
 				if (frm.fields_dict.iban) {
 					verenigingen.iban.applyMasking(frm, 'iban');
 				}
 			},
-			before_save: function(frm) {
+			before_save(frm) {
 				if (frm.fields_dict.iban) {
 					verenigingen.iban.restoreOriginal(frm, 'iban');
 				}
@@ -197,6 +197,6 @@ verenigingen.iban = {
 };
 
 // Initialize on ready
-$(document).ready(function() {
+$(document).ready(() => {
 	verenigingen.iban.setup();
 });
