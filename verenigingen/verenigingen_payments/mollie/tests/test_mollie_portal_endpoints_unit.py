@@ -121,6 +121,81 @@ class TestMolliePortalEndpointsUnit(PortalSelfServiceTestMixin, EnhancedTestCase
         member.reload()
         self.assertEqual(member.mollie_mandate_id, "mdt_originalaa")
 
+    # --- old-mandate revocation ------------------------------------------------
+
+    def _successful_update_mocks(self, MockService, subscription_mandate_id):
+        """Wire the SDK mocks for a happy-path bank update: active subscription
+        carrying `subscription_mandate_id`, new mandate created, PATCH succeeds.
+        Returns the customer mock for assertions."""
+        service = MockService.return_value
+        customer_obj = service.client.sdk_client.customers.get.return_value
+        subscription = customer_obj.subscriptions.get.return_value
+        subscription.status = "active"
+        subscription.mandate_id = subscription_mandate_id
+        customer_obj.mandates.create.return_value = MagicMock(id="mdt_newsuccess1")
+        service.update_subscription_mandate.return_value = {"status": "success"}
+        return customer_obj
+
+    def test_update_bank_account_revokes_old_mandate_from_subscription(self):
+        """The old mandate to revoke comes from the subscription itself, so the
+        revoke works even when Member.mollie_mandate_id was never populated
+        (true for every member onboarded before this endpoint existed)."""
+        member, user = self._member_with_mollie(
+            mollie_customer_id="cst_aaaaaaaaaa",
+            mollie_subscription_id="sub_aaaaaaaaaa",
+            # mollie_mandate_id deliberately left empty
+        )
+
+        with patch(_SUBSCRIPTION_SERVICE) as MockService:
+            customer_obj = self._successful_update_mocks(MockService, "mdt_oldfromsub1")
+            with self._as_user(user.name):
+                result = mollie_payment.update_mollie_bank_account(
+                    iban=generate_test_iban(), account_holder_name="Jan Jansen"
+                )
+            customer_obj.mandates.delete.assert_called_once_with("mdt_oldfromsub1")
+
+        self.assertEqual(result["status"], "success")
+        member.reload()
+        self.assertEqual(member.mollie_mandate_id, "mdt_newsuccess1")
+
+    def test_update_bank_account_prefers_subscription_mandate_over_member_field(self):
+        """When the Member field and the subscription disagree, the subscription
+        is authoritative - it is what Mollie is actually charging."""
+        _, user = self._member_with_mollie(
+            mollie_customer_id="cst_aaaaaaaaaa",
+            mollie_subscription_id="sub_aaaaaaaaaa",
+            mollie_mandate_id="mdt_stalefield1",
+        )
+
+        with patch(_SUBSCRIPTION_SERVICE) as MockService:
+            customer_obj = self._successful_update_mocks(MockService, "mdt_subauthorit")
+            with self._as_user(user.name):
+                result = mollie_payment.update_mollie_bank_account(
+                    iban=generate_test_iban(), account_holder_name="Jan Jansen"
+                )
+            customer_obj.mandates.delete.assert_called_once_with("mdt_subauthorit")
+
+        self.assertEqual(result["status"], "success")
+
+    def test_update_bank_account_falls_back_to_member_field_for_old_mandate(self):
+        """A subscription without a mandateId (defensive: Mollie always sets one
+        on active SEPA subscriptions) falls back to the Member field."""
+        _, user = self._member_with_mollie(
+            mollie_customer_id="cst_aaaaaaaaaa",
+            mollie_subscription_id="sub_aaaaaaaaaa",
+            mollie_mandate_id="mdt_fieldfallbk",
+        )
+
+        with patch(_SUBSCRIPTION_SERVICE) as MockService:
+            customer_obj = self._successful_update_mocks(MockService, None)
+            with self._as_user(user.name):
+                result = mollie_payment.update_mollie_bank_account(
+                    iban=generate_test_iban(), account_holder_name="Jan Jansen"
+                )
+            customer_obj.mandates.delete.assert_called_once_with("mdt_fieldfallbk")
+
+        self.assertEqual(result["status"], "success")
+
     # --- signature date regression -------------------------------------------
 
     def test_update_bank_account_sends_utc_signature_date(self):

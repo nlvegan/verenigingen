@@ -303,16 +303,20 @@ class CompletePaymentService:
             )
 
             # The service owns the owning-DocType update.
-            self._update_owner_record(
-                owner_doctype,
-                owner_name,
-                {
-                    "mollie_customer_id": customer_id,
-                    "mollie_subscription_id": mollie_subscription.id,
-                    "subscription_status": mollie_subscription.status,
-                    "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
-                },
-            )
+            owner_values = {
+                "mollie_customer_id": customer_id,
+                "mollie_subscription_id": mollie_subscription.id,
+                "subscription_status": mollie_subscription.status,
+                "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
+            }
+            # Persist the pinned mandate so portal self-service (bank-account
+            # update) can revoke it later. Only when present: a subscription
+            # created without an IBAN pins no mandate, and overwriting an
+            # existing value with NULL would lose information.
+            mandate_id = getattr(mollie_subscription, "mandate_id", None)
+            if mandate_id:
+                owner_values["mollie_mandate_id"] = mandate_id
+            self._update_owner_record(owner_doctype, owner_name, owner_values)
             frappe.db.commit()
             frappe.logger().info(f"✅ Subscription created: {mollie_subscription.id}")
             return self._subscription_result(customer_id, mollie_subscription)

@@ -86,10 +86,13 @@ class _FakePaginationList:
 
 
 class _FakeSubscription:
-    def __init__(self, subscription_id="sub_FAKE", status="active", next_payment_date="2026-06-01"):
+    def __init__(
+        self, subscription_id="sub_FAKE", status="active", next_payment_date="2026-06-01", mandate_id=None
+    ):
         self.id = subscription_id
         self.status = status
         self.next_payment_date = next_payment_date
+        self.mandate_id = mandate_id
         self.canceled_at = None
         self.cancelled_at = None
         self.metadata = {}
@@ -128,7 +131,8 @@ class _FakeSubscriptions:
 
     def create(self, data=None):
         self._recorder.subscriptions_created.append(data)
-        return _FakeSubscription(status=self._sub_status)
+        # Mollie echoes the pinned mandate back on the subscription object.
+        return _FakeSubscription(status=self._sub_status, mandate_id=(data or {}).get("mandateId"))
 
     def get(self, subscription_id):
         return _FakeSubscription(subscription_id=subscription_id, status=self._sub_status)
@@ -1139,6 +1143,74 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         self.assertEqual(frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE")
         self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
         self.assertEqual(str(frappe.db.get_value("Member", member.name, "next_payment_date")), "2026-06-01")
+
+    def test_create_customer_subscription_persists_mandate_id_on_member(self):
+        """A subscription created with an IBAN pins a mandate, and that mandate id
+        is written back to Member.mollie_mandate_id - the bank-account update
+        endpoint relies on it (and on subscription.mandate_id) to revoke the old
+        mandate later."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Mandate",
+            last_name=f"Owner{token}",
+            email=f"mandate-owner-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Mandate Owner",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                    "consumerAccount": "NL39RABO0300065264",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "mollie_mandate_id"), "mdt_FAKE")
+
+    def test_create_customer_subscription_without_mandate_leaves_member_field_alone(self):
+        """No IBAN -> no mandate pinned -> the (possibly populated) Member
+        mandate field must not be overwritten with NULL."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Keep",
+            last_name=f"Mandate{token}",
+            email=f"keep-mandate-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value("Member", member.name, "mollie_mandate_id", "mdt_preexisting", update_modified=False)
+
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Keep Mandate",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "mollie_mandate_id"), "mdt_preexisting"
+        )
 
     def test_update_owner_record_skips_fields_a_doctype_lacks(self):
         """_update_owner_record writes every applicable field to a Member but

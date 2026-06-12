@@ -396,6 +396,12 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
                 "message": _("Your subscription is not active. Cannot update bank account."),
             }
 
+        # The subscription knows which mandate it is charging and is
+        # authoritative; Member.mollie_mandate_id is only populated by this
+        # endpoint, so it is empty for members who never used it (the normal
+        # subscription-creation flow historically did not store it).
+        old_mandate_id = getattr(subscription, "mandate_id", None) or old_mandate_id
+
         # Step 2: Create new Mollie mandate with the new IBAN
         mandate_data = {
             "method": "directdebit",
@@ -434,7 +440,7 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
         frappe.db.commit()
 
         # Step 5: Best-effort cleanup of old mandate
-        if old_mandate_id:
+        if old_mandate_id and old_mandate_id != new_mandate_id:
             try:
                 customer_obj.mandates.delete(old_mandate_id)
             except Exception as revoke_error:
