@@ -228,6 +228,79 @@ describe('ValidationService (real module)', () => {
 		});
 	});
 
+	// Realistic input cases ported from the legacy validation-service.test.js
+	// (which tested an inline COPY of the rules at 0% real coverage). Here they
+	// run against the SHIPPED module. Pattern *rejections* resolve synchronously
+	// in _validateBasic before the async branch, so no timers are needed.
+	describe('realistic input patterns (real module)', () => {
+		let service;
+		let api;
+		beforeEach(() => {
+			({ service, api } = makeService());
+		});
+
+		test.each(['Pieter', 'Jan-Willem', 'O\'Connor', 'José', 'Anne-Marie'])(
+			'accepts Dutch/international first name %p',
+			async (name) => {
+				await expect(service.validateField('firstName', name)).resolves.toEqual({ valid: true });
+			}
+		);
+
+		test.each(['John123', 'User@Name'])('rejects a malformed name %p', async (name) => {
+			const result = await service.validateField('firstName', name);
+			expect(result.valid).toBe(false);
+			expect(result.type).toBe('pattern');
+		});
+
+		test.each(['invalid.email', '@domain.com', 'user@'])(
+			'rejects a malformed email %p without calling the API',
+			async (email) => {
+				const result = await service.validateField('email', email);
+				expect(result.valid).toBe(false);
+				expect(result.type).toBe('pattern');
+				expect(api.validateEmail).not.toHaveBeenCalled();
+			}
+		);
+
+		test.each(['abc-def-ghij', '12'])('rejects a malformed phone %p', async (phone) => {
+			const result = await service.validateField('phone', phone);
+			expect(result.valid).toBe(false);
+			expect(result.type).toBe('pattern');
+		});
+	});
+
+	describe('well-formed email/phone reach the API after the debounce', () => {
+		beforeEach(() => jest.useFakeTimers());
+		afterEach(() => {
+			jest.runOnlyPendingTimers();
+			jest.useRealTimers();
+		});
+
+		test.each(['member@example.com', 'test.user+tag@domain.org', 'user123@test-domain.nl'])(
+			'%p passes the pattern and is sent to the email API',
+			async (email) => {
+				const { service, api } = makeService({ validateEmail: jest.fn(async () => ({ valid: true })) });
+				const promise = service.validateField('email', email);
+				await jest.advanceTimersByTimeAsync(500);
+				const result = await promise;
+				expect(api.validateEmail).toHaveBeenCalledWith(email);
+				expect(result.valid).toBe(true);
+			}
+		);
+
+		test.each(['+31 6 12345678', '06-12345678', '(020) 123-4567'])(
+			'well-formed phone %p passes the pattern and is sent to the phone API',
+			async (phone) => {
+				const { service, api } = makeService({ validatePhoneNumber: jest.fn(async () => ({ valid: true })) });
+				const promise = service.validateField('phone', phone, { country: 'Netherlands' });
+				await jest.advanceTimersByTimeAsync(500);
+				const result = await promise;
+				expect(api.validatePhoneNumber).toHaveBeenCalled();
+				expect(result.valid).toBe(true);
+			}
+		);
+	});
+
 	describe('_performAPIValidation routing', () => {
 		test('routes phone to the phone API and unknown fields to valid:true', async () => {
 			const { service, api } = makeService({
