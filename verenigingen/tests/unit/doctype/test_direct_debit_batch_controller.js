@@ -22,16 +22,8 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import test setup utilities
-const {
-	setupTestMocks,
-	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
-} = require('../../setup/frappe-mocks');
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../../setup/controller-loader');
+const { setupTestMocks, cleanupTestMocks, createMockForm, dutchTestData } = require('../../setup/frappe-mocks');
+const { loadFrappeController, testFormEvent } = require('../../setup/controller-loader');
 const { validateDutchIBAN } = require('../../setup/dutch-validators');
 
 // Initialize test environment
@@ -65,8 +57,8 @@ describe('Real Direct Debit Batch Controller', () => {
 
 	beforeAll(() => {
 		// Load the real Direct Debit Batch controller
-		const controllerPath
-      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js';
+		const controllerPath =
+			'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		batchHandlers = allHandlers['Direct Debit Batch'];
 
@@ -155,13 +147,7 @@ describe('Real Direct Debit Batch Controller', () => {
 		});
 
 		it('should handle different batch statuses', () => {
-			const statuses = [
-				'Draft',
-				'Generated',
-				'Submitted',
-				'Processed',
-				'Failed'
-			];
+			const statuses = ['Draft', 'Generated', 'Submitted', 'Processed', 'Failed'];
 
 			statuses.forEach((status) => {
 				frm.doc.status = status;
@@ -280,33 +266,31 @@ describe('Real Direct Debit Batch Controller', () => {
 	describe('Mandate Integration', () => {
 		beforeEach(() => {
 			// Mock mandate validation API calls
-			global.frappe.call.mockImplementation(
-				({ method, args, callback, error }) => {
-					if (method === 'validate_mandates') {
-						if (callback) {
-							callback({
-								message: {
-									valid_mandates: 4,
-									invalid_mandates: 1,
-									validation_errors: ['Mandate SEPA-2024-003 is expired']
+			global.frappe.call.mockImplementation(({ method, args, callback, error }) => {
+				if (method === 'validate_mandates') {
+					if (callback) {
+						callback({
+							message: {
+								valid_mandates: 4,
+								invalid_mandates: 1,
+								validation_errors: ['Mandate SEPA-2024-003 is expired']
+							}
+						});
+					}
+				} else if (method === 'get_batch_items') {
+					if (callback) {
+						callback({
+							message: [
+								{
+									mandate: 'SEPA-2024-001',
+									member: 'MEM-2024-001',
+									amount: 25.0
 								}
-							});
-						}
-					} else if (method === 'get_batch_items') {
-						if (callback) {
-							callback({
-								message: [
-									{
-										mandate: 'SEPA-2024-001',
-										member: 'MEM-2024-001',
-										amount: 25.0
-									}
-								]
-							});
-						}
+							]
+						});
 					}
 				}
-			);
+			});
 		});
 
 		it('should validate all mandates in the batch', () => {

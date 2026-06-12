@@ -13,9 +13,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -25,7 +23,7 @@ require('../../setup/frappe-mocks').setupTestMocks();
 const donationConfig = {
 	doctype: 'Donation',
 	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donation/donation.js',
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donation/donation.js',
 	expectedHandlers: ['refresh', 'make_payment_entry'],
 	defaultDoc: {
 		doctype: 'Donation',
@@ -163,11 +161,7 @@ const customDonationTests = {
 			expect(global.frappe.model.sync).toHaveBeenCalledWith(mockPaymentEntry);
 
 			// Verify navigation to payment entry
-			expect(global.frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Payment Entry',
-				'PE-2024-07-0001'
-			);
+			expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'Payment Entry', 'PE-2024-07-0001');
 		});
 
 		it('should handle different donation statuses correctly', () => {
@@ -206,9 +200,7 @@ const customDonationTests = {
 				if (testCase.expectButton) {
 					expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
 				} else {
-					expect(
-						controllerTest.mockForm.add_custom_button
-					).not.toHaveBeenCalled();
+					expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
 				}
 			});
 		});
@@ -333,9 +325,7 @@ const customDonationTests = {
 				}
 			});
 
-			global.frappe.model.sync.mockReturnValue([
-				{ name: 'PE-TEST-001', doctype: 'Payment Entry' }
-			]);
+			global.frappe.model.sync.mockReturnValue([{ name: 'PE-TEST-001', doctype: 'Payment Entry' }]);
 
 			// Should execute without errors
 			expect(() => {
@@ -417,10 +407,7 @@ const customDonationTests = {
 };
 
 // Create and export the test suite
-describe(
-	'Donation Controller (Comprehensive Tests)',
-	createControllerTestSuite(donationConfig, customDonationTests)
-);
+describe('Donation Controller (Comprehensive Tests)', createControllerTestSuite(donationConfig, customDonationTests));
 
 // Export test utilities for reuse
 module.exports = {

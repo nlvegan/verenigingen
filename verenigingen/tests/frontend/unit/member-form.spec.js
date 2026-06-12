@@ -209,13 +209,8 @@ describe('Member Form', () => {
 			frm.doc.iban = 'NL91ABNA0417164300';
 			memberEvents.iban(frm);
 
-			expect(window.IBANValidator.validate).toHaveBeenCalledWith(
-				'NL91ABNA0417164300'
-			);
-			expect(frm.set_value).toHaveBeenCalledWith(
-				'iban',
-				'NL91 ABNA 0417 1643 00'
-			);
+			expect(window.IBANValidator.validate).toHaveBeenCalledWith('NL91ABNA0417164300');
+			expect(frm.set_value).toHaveBeenCalledWith('iban', 'NL91 ABNA 0417 1643 00');
 			expect(frm.set_value).toHaveBeenCalledWith('bic', 'ABNANL2A');
 			expect(frappe.show_alert).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -247,9 +242,7 @@ describe('Member Form', () => {
 			frm.doc.payment_method = 'SEPA Direct Debit';
 			memberEvents.iban(frm);
 
-			expect(window.SepaUtils.check_sepa_mandate_status).toHaveBeenCalledWith(
-				frm
-			);
+			expect(window.SepaUtils.check_sepa_mandate_status).toHaveBeenCalledWith(frm);
 		});
 	});
 
@@ -286,11 +279,7 @@ describe('Member Form', () => {
 				return result.message;
 			};
 
-			const validation = await validateMandateCreation(
-				'MEM-001',
-				'NL91ABNA0417164300',
-				'NEW-MAND'
-			);
+			const validation = await validateMandateCreation('MEM-001', 'NL91ABNA0417164300', 'NEW-MAND');
 			expect(validation.existing_mandate).toBe('OLD-MAND-001');
 		});
 	});
@@ -313,16 +302,8 @@ describe('Member Form', () => {
 			const memberForm = require('./member').MemberForm;
 			memberForm.setup_all_buttons(frm);
 
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Process Payment',
-				expect.any(Function),
-				'Actions'
-			);
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Mark as Paid',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Process Payment', expect.any(Function), 'Actions');
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Mark as Paid', expect.any(Function), 'Actions');
 		});
 	});
 
@@ -336,9 +317,7 @@ describe('Member Form', () => {
 			memberEvents.pincode(frm);
 			jest.advanceTimersByTime(1000);
 
-			expect(
-				window.ChapterUtils.suggest_chapter_from_address
-			).toHaveBeenCalledWith(frm);
+			expect(window.ChapterUtils.suggest_chapter_from_address).toHaveBeenCalledWith(frm);
 
 			jest.useRealTimers();
 		});
@@ -368,8 +347,7 @@ describe('Member Form', () => {
 				}
 			});
 
-			const updateOtherMembersAtAddress
-        = require('./member').updateOtherMembersAtAddress;
+			const updateOtherMembersAtAddress = require('./member').updateOtherMembersAtAddress;
 			await updateOtherMembersAtAddress(frm);
 
 			expect(frm.call).toHaveBeenCalledWith(
@@ -393,19 +371,14 @@ describe('Member Form', () => {
 				}
 			});
 
-			const updateOtherMembersAtAddress
-        = require('./member').updateOtherMembersAtAddress;
+			const updateOtherMembersAtAddress = require('./member').updateOtherMembersAtAddress;
 			await updateOtherMembersAtAddress(frm);
 
 			// Simulate click
 			const handler = $.mock.calls[0][0];
 			handler.call(mockEvent.target, mockEvent);
 
-			expect(frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Member',
-				'MEM-002'
-			);
+			expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Member', 'MEM-002');
 		});
 	});
 
@@ -439,18 +412,15 @@ describe('Member Form', () => {
 			frappe.call.mockResolvedValue({ message: { success: true } });
 
 			const rejectApplication = async (memberName) => {
-				await frappe.prompt(
-					[{ fieldname: 'rejection_reason', fieldtype: 'Text' }],
-					async (values) => {
-						await frappe.call({
-							method: 'verenigingen.api.membership_application_review.reject_membership_application',
-							args: {
-								member_name: memberName,
-								reason: values.rejection_reason
-							}
-						});
-					}
-				);
+				await frappe.prompt([{ fieldname: 'rejection_reason', fieldtype: 'Text' }], async (values) => {
+					await frappe.call({
+						method: 'verenigingen.api.membership_application_review.reject_membership_application',
+						args: {
+							member_name: memberName,
+							reason: values.rejection_reason
+						}
+					});
+				});
 			};
 
 			await rejectApplication('MEM-001');
@@ -478,31 +448,20 @@ describe('Member Form', () => {
 			const memberForm = require('./member').MemberForm;
 			await memberForm.add_termination_buttons(frm);
 
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Terminate Membership',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Terminate Membership', expect.any(Function), 'Actions');
 		});
 
 		it('should show termination dialog', () => {
 			frappe.confirm.mockImplementation((msg, callback) => callback());
 
 			const showTerminationDialog = (memberName, fullName) => {
-				frappe.confirm(
-					`Are you sure you want to terminate membership for ${fullName}?`,
-					() => {
-						frappe.set_route('Form', 'Membership Termination Request', 'new');
-					}
-				);
+				frappe.confirm(`Are you sure you want to terminate membership for ${fullName}?`, () => {
+					frappe.set_route('Form', 'Membership Termination Request', 'new');
+				});
 			};
 
 			showTerminationDialog('MEM-001', 'John Doe');
-			expect(frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Membership Termination Request',
-				'new'
-			);
+			expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Membership Termination Request', 'new');
 		});
 	});
 
@@ -518,9 +477,7 @@ describe('Member Form', () => {
 			memberEvents.refresh(frm);
 
 			// Should not add more buttons
-			expect(frm.add_custom_button.mock.calls.length).toBe(
-				addCustomButtonCalls
-			);
+			expect(frm.add_custom_button.mock.calls.length).toBe(addCustomButtonCalls);
 		});
 
 		it('should set up all required buttons for submitted docs', () => {
@@ -555,10 +512,7 @@ describe('Member Form', () => {
 			const memberEvents = require('./member').memberFormEvents;
 			memberEvents.full_name(frm);
 
-			expect(frm.set_value).toHaveBeenCalledWith(
-				'full_name',
-				'Jan van der Berg'
-			);
+			expect(frm.set_value).toHaveBeenCalledWith('full_name', 'Jan van der Berg');
 		});
 	});
 });

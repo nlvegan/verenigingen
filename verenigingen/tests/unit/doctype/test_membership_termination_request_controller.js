@@ -67,8 +67,8 @@ describe('Real Membership Termination Request Controller', () => {
 
 	beforeAll(() => {
 		// Load the real Membership Termination Request controller
-		const controllerPath
-      = '../../../verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.js';
+		const controllerPath =
+			'../../../verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.js';
 		const allHandlers = loadControllerAndGetHandlers(controllerPath);
 		terminationHandlers = allHandlers['Membership Termination Request'];
 
@@ -142,11 +142,7 @@ describe('Real Membership Termination Request Controller', () => {
 
 		// Mock user permissions for termination operations
 		global.frappe.user.has_role.mockImplementation((role) => {
-			return [
-				'System Manager',
-				'Verenigingen Administrator',
-				'Board Member'
-			].includes(role);
+			return ['System Manager', 'Verenigingen Administrator', 'Board Member'].includes(role);
 		});
 	});
 
@@ -177,19 +173,13 @@ describe('Real Membership Termination Request Controller', () => {
 			it('should toggle disciplinary fields based on termination type', () => {
 				testFormHandler('Membership Termination Request', 'refresh', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
 			});
 
 			it('should make audit trail read-only', () => {
 				testFormHandler('Membership Termination Request', 'refresh', frm);
 
-				expect(frm.set_df_property).toHaveBeenCalledWith(
-					'audit_trail',
-					'read_only',
-					1
-				);
+				expect(frm.set_df_property).toHaveBeenCalledWith('audit_trail', 'read_only', 1);
 			});
 
 			it('should add View Member button when member is linked', () => {
@@ -197,9 +187,7 @@ describe('Real Membership Termination Request Controller', () => {
 
 				testFormHandler('Membership Termination Request', 'refresh', frm);
 
-				const memberButton = frm.add_custom_button.mock.calls.find(
-					(call) => call[0] === 'View Member'
-				);
+				const memberButton = frm.add_custom_button.mock.calls.find((call) => call[0] === 'View Member');
 				expect(memberButton).toBeDefined();
 				expect(memberButton[2]).toBe('View');
 			});
@@ -218,23 +206,15 @@ describe('Real Membership Termination Request Controller', () => {
 
 				testFormHandler('Membership Termination Request', 'onload', frm);
 
-				expect(frm.set_value).toHaveBeenCalledWith(
-					'request_date',
-					expect.any(String)
-				);
-				expect(frm.set_value).toHaveBeenCalledWith(
-					'requested_by',
-					'test@example.com'
-				);
+				expect(frm.set_value).toHaveBeenCalledWith('request_date', expect.any(String));
+				expect(frm.set_value).toHaveBeenCalledWith('requested_by', 'test@example.com');
 				expect(frm.set_value).toHaveBeenCalledWith('status', 'Draft');
 			});
 
 			it('should set secondary approver filter', () => {
 				testFormHandler('Membership Termination Request', 'onload', frm);
 
-				expect(
-					global.window.set_secondary_approver_filter
-				).toHaveBeenCalledWith(frm);
+				expect(global.window.set_secondary_approver_filter).toHaveBeenCalledWith(frm);
 			});
 
 			it('should not set defaults for existing documents', () => {
@@ -260,9 +240,7 @@ describe('Real Membership Termination Request Controller', () => {
 			it('should validate required fields', () => {
 				testFormHandler('Membership Termination Request', 'before_save', frm);
 
-				expect(global.window.validate_required_fields).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.validate_required_fields).toHaveBeenCalledWith(frm);
 			});
 		});
 	});
@@ -271,50 +249,30 @@ describe('Real Membership Termination Request Controller', () => {
 		describe('Termination Type Handler', () => {
 			it('should execute termination_type handler without errors', () => {
 				expect(() => {
-					testFormHandler(
-						'Membership Termination Request',
-						'termination_type',
-						frm
-					);
+					testFormHandler('Membership Termination Request', 'termination_type', frm);
 				}).not.toThrow();
 			});
 
 			it('should toggle disciplinary fields when type changes', () => {
 				frm.doc.termination_type = 'Expulsion';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
 			});
 
 			it('should set approval requirements', () => {
 				frm.doc.termination_type = 'Disciplinary Action';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 			});
 
 			it('should set default dates based on type', () => {
 				frm.doc.termination_type = 'Non-payment';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 				expect(global.window.set_default_dates).toHaveBeenCalledWith(frm);
 			});
@@ -333,11 +291,7 @@ describe('Real Membership Termination Request Controller', () => {
 					frm.doc.termination_type = type;
 
 					expect(() => {
-						testFormHandler(
-							'Membership Termination Request',
-							'termination_type',
-							frm
-						);
+						testFormHandler('Membership Termination Request', 'termination_type', frm);
 					}).not.toThrow();
 				});
 			});
@@ -366,9 +320,7 @@ describe('Real Membership Termination Request Controller', () => {
 				testFormHandler('Membership Termination Request', 'member', frm);
 
 				// Should not call set_value for member_name when member is present
-				const memberNameCalls = frm.set_value.mock.calls.filter(
-					(call) => call[0] === 'member_name'
-				);
+				const memberNameCalls = frm.set_value.mock.calls.filter((call) => call[0] === 'member_name');
 				expect(memberNameCalls).toHaveLength(0);
 			});
 		});
@@ -380,33 +332,19 @@ describe('Real Membership Termination Request Controller', () => {
 				frm.doc.termination_type = 'Voluntary';
 				frm.doc.termination_reason = 'Moving abroad';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
-				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
+				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 			});
 
 			it('should not require secondary approval for voluntary termination', () => {
 				frm.doc.termination_type = 'Voluntary';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 				// Should set single-tier approval
-				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 			});
 		});
 
@@ -414,49 +352,27 @@ describe('Real Membership Termination Request Controller', () => {
 			it('should handle disciplinary action workflow', () => {
 				frm.doc.termination_type = 'Disciplinary Action';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
-				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
+				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 			});
 
 			it('should handle expulsion workflow', () => {
 				frm.doc.termination_type = 'Expulsion';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
-				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
+				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 			});
 
 			it('should require disciplinary documentation for policy violations', () => {
 				frm.doc.termination_type = 'Policy Violation';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
 			});
 		});
 
@@ -464,11 +380,7 @@ describe('Real Membership Termination Request Controller', () => {
 			it('should handle deceased member termination', () => {
 				frm.doc.termination_type = 'Deceased';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 				expect(global.window.set_default_dates).toHaveBeenCalledWith(frm);
 			});
@@ -476,15 +388,9 @@ describe('Real Membership Termination Request Controller', () => {
 			it('should handle non-payment termination', () => {
 				frm.doc.termination_type = 'Non-payment';
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 				expect(global.window.set_default_dates).toHaveBeenCalledWith(frm);
 			});
 		});
@@ -492,13 +398,7 @@ describe('Real Membership Termination Request Controller', () => {
 
 	describe('Status Management', () => {
 		it('should handle different status values', () => {
-			const statusValues = [
-				'Draft',
-				'Pending',
-				'Approved',
-				'Rejected',
-				'Executed'
-			];
+			const statusValues = ['Draft', 'Pending', 'Approved', 'Rejected', 'Executed'];
 
 			statusValues.forEach((status) => {
 				frm.doc.status = status;
@@ -535,11 +435,7 @@ describe('Real Membership Termination Request Controller', () => {
 			frm.doc.termination_type = 'Voluntary';
 			frm.doc.requires_board_approval = 0;
 
-			testFormHandler(
-				'Membership Termination Request',
-				'termination_type',
-				frm
-			);
+			testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 			expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 		});
@@ -548,11 +444,7 @@ describe('Real Membership Termination Request Controller', () => {
 			frm.doc.termination_type = 'Expulsion';
 			frm.doc.requires_board_approval = 1;
 
-			testFormHandler(
-				'Membership Termination Request',
-				'termination_type',
-				frm
-			);
+			testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 			expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 		});
@@ -560,9 +452,7 @@ describe('Real Membership Termination Request Controller', () => {
 		it('should set secondary approver filter for complex terminations', () => {
 			testFormHandler('Membership Termination Request', 'onload', frm);
 
-			expect(global.window.set_secondary_approver_filter).toHaveBeenCalledWith(
-				frm
-			);
+			expect(global.window.set_secondary_approver_filter).toHaveBeenCalledWith(frm);
 		});
 	});
 
@@ -572,20 +462,14 @@ describe('Real Membership Termination Request Controller', () => {
 
 			testFormHandler('Membership Termination Request', 'refresh', frm);
 
-			const memberButton = frm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'View Member'
-			);
+			const memberButton = frm.add_custom_button.mock.calls.find((call) => call[0] === 'View Member');
 			expect(memberButton).toBeDefined();
 
 			// Test button functionality
 			const memberCallback = memberButton[1];
 			memberCallback();
 
-			expect(global.frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Member',
-				'Assoc-Member-2024-01-001'
-			);
+			expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'Member', 'Assoc-Member-2024-01-001');
 		});
 
 		it('should handle member field changes', () => {
@@ -609,11 +493,7 @@ describe('Real Membership Termination Request Controller', () => {
 			frm.doc.termination_type = 'Voluntary';
 			frm.doc.grace_period_days = 30; // Dutch legal requirement
 
-			testFormHandler(
-				'Membership Termination Request',
-				'termination_type',
-				frm
-			);
+			testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 			expect(global.window.set_default_dates).toHaveBeenCalledWith(frm);
 		});
@@ -631,11 +511,7 @@ describe('Real Membership Termination Request Controller', () => {
 			frm.doc.termination_type = 'Expulsion';
 			frm.doc.requires_board_approval = 1;
 
-			testFormHandler(
-				'Membership Termination Request',
-				'termination_type',
-				frm
-			);
+			testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 			expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 		});
@@ -645,11 +521,7 @@ describe('Real Membership Termination Request Controller', () => {
 		it('should maintain audit trail as read-only', () => {
 			testFormHandler('Membership Termination Request', 'refresh', frm);
 
-			expect(frm.set_df_property).toHaveBeenCalledWith(
-				'audit_trail',
-				'read_only',
-				1
-			);
+			expect(frm.set_df_property).toHaveBeenCalledWith('audit_trail', 'read_only', 1);
 		});
 
 		it('should track termination request lifecycle', () => {
@@ -673,9 +545,7 @@ describe('Real Membership Termination Request Controller', () => {
 			}).not.toThrow();
 
 			// Should not add member button
-			const memberButton = frm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'View Member'
-			);
+			const memberButton = frm.add_custom_button.mock.calls.find((call) => call[0] === 'View Member');
 			expect(memberButton).toBeUndefined();
 		});
 
@@ -683,11 +553,7 @@ describe('Real Membership Termination Request Controller', () => {
 			frm.doc.termination_type = 'Invalid Type';
 
 			expect(() => {
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 			}).not.toThrow();
 		});
 
@@ -717,11 +583,7 @@ describe('Real Membership Termination Request Controller', () => {
 			});
 
 			expect(() => {
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 			}).not.toThrow();
 		});
 	});
@@ -742,15 +604,10 @@ describe('Real Membership Termination Request Controller', () => {
 		it('should handle complex termination workflows efficiently', () => {
 			frm.doc.termination_type = 'Expulsion';
 			frm.doc.requires_board_approval = 1;
-			frm.doc.disciplinary_documentation
-        = 'Detailed violation documentation...';
+			frm.doc.disciplinary_documentation = 'Detailed violation documentation...';
 
 			expect(() => {
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 				testFormHandler('Membership Termination Request', 'before_save', frm);
 			}).not.toThrow();
 		});
@@ -758,45 +615,27 @@ describe('Real Membership Termination Request Controller', () => {
 
 	describe('UI State Management', () => {
 		it('should manage field visibility based on termination type', () => {
-			const disciplinaryTypes = [
-				'Policy Violation',
-				'Disciplinary Action',
-				'Expulsion'
-			];
+			const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
 
 			disciplinaryTypes.forEach((type) => {
 				frm.doc.termination_type = type;
 
-				testFormHandler(
-					'Membership Termination Request',
-					'termination_type',
-					frm
-				);
+				testFormHandler('Membership Termination Request', 'termination_type', frm);
 
-				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(
-					frm
-				);
+				expect(global.window.toggle_disciplinary_fields).toHaveBeenCalledWith(frm);
 			});
 		});
 
 		it('should update approval requirements dynamically', () => {
 			frm.doc.termination_type = 'Voluntary';
 
-			testFormHandler(
-				'Membership Termination Request',
-				'termination_type',
-				frm
-			);
+			testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 			expect(global.window.set_approval_requirements).toHaveBeenCalledWith(frm);
 
 			frm.doc.termination_type = 'Expulsion';
 
-			testFormHandler(
-				'Membership Termination Request',
-				'termination_type',
-				frm
-			);
+			testFormHandler('Membership Termination Request', 'termination_type', frm);
 
 			expect(global.window.set_approval_requirements).toHaveBeenCalledTimes(2);
 		});

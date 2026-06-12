@@ -519,10 +519,20 @@ function setupTestMocks() {
 	global.verenigingen = global.verenigingen || {};
 	global.verenigingen.utils = {
 		escapeHtml: jest.fn((str) => {
-			if (str == null) { return ''; }
-			return String(str).replace(/[&<>"']/g, (m) => ({
-				'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;'
-			}[m]));
+			if (str == null) {
+				return '';
+			}
+			return String(str).replace(
+				/[&<>"']/g,
+				(m) =>
+					({
+						'&': '&amp;',
+						'<': '&lt;',
+						'>': '&gt;',
+						'"': '&quot;',
+						"'": '&#39;'
+					})[m]
+			);
 		}),
 		unwrapOperationResult: jest.fn((message) => {
 			if (message && typeof message === 'object' && 'success' in message && 'data' in message) {

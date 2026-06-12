@@ -40,10 +40,10 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates a seeded random number generator for deterministic test data
-   * @param {number} seed - Random seed
-   * @returns {function} Seeded random function
-   */
+	 * Creates a seeded random number generator for deterministic test data
+	 * @param {number} seed - Random seed
+	 * @returns {function} Seeded random function
+	 */
 	createSeededRandom(seed) {
 		let state = seed;
 		return () => {
@@ -53,28 +53,28 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates a random item from an array
-   * @param {Array} array - Array to choose from
-   * @returns {*} Random array item
-   */
+	 * Generates a random item from an array
+	 * @param {Array} array - Array to choose from
+	 * @returns {*} Random array item
+	 */
 	randomChoice(array) {
 		return array[Math.floor(this.rng() * array.length)];
 	}
 
 	/**
-   * Generates a random integer within a range
-   * @param {number} min - Minimum value
-   * @param {number} max - Maximum value
-   * @returns {number} Random integer
-   */
+	 * Generates a random integer within a range
+	 * @param {number} min - Minimum value
+	 * @param {number} max - Maximum value
+	 * @returns {number} Random integer
+	 */
 	randomInt(min, max) {
 		return Math.floor(this.rng() * (max - min + 1)) + min;
 	}
 
 	/**
-   * Generates realistic Dutch first names
-   * @returns {string} Dutch first name
-   */
+	 * Generates realistic Dutch first names
+	 * @returns {string} Dutch first name
+	 */
 	generateDutchFirstName() {
 		const maleNames = [
 			'Jan',
@@ -118,9 +118,9 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates realistic Dutch surnames with tussenvoegsel
-   * @returns {Object} Object with lastname and optional tussenvoegsel
-   */
+	 * Generates realistic Dutch surnames with tussenvoegsel
+	 * @returns {Object} Object with lastname and optional tussenvoegsel
+	 */
 	generateDutchSurname() {
 		const lastNames = [
 			'de Jong',
@@ -150,10 +150,7 @@ class TestDataFactory {
 		const surname = this.randomChoice(lastNames);
 		const parts = surname.split(' ');
 
-		if (
-			parts.length > 1
-      && ['de', 'van', 'der', 'den', 'het', 'ter', 'te'].includes(parts[0])
-		) {
+		if (parts.length > 1 && ['de', 'van', 'der', 'den', 'het', 'ter', 'te'].includes(parts[0])) {
 			return {
 				tussenvoegsel: parts.slice(0, -1).join(' '),
 				last_name: parts[parts.length - 1]
@@ -167,21 +164,20 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates a valid Dutch postal code
-   * @returns {string} Dutch postal code (1234 AB format)
-   */
+	 * Generates a valid Dutch postal code
+	 * @returns {string} Dutch postal code (1234 AB format)
+	 */
 	generateDutchPostalCode() {
 		const numbers = this.randomInt(1000, 9999).toString();
-		const letters
-      = String.fromCharCode(65 + this.randomInt(0, 25))
-      + String.fromCharCode(65 + this.randomInt(0, 25));
+		const letters =
+			String.fromCharCode(65 + this.randomInt(0, 25)) + String.fromCharCode(65 + this.randomInt(0, 25));
 		return `${numbers} ${letters}`;
 	}
 
 	/**
-   * Generates a valid Dutch IBAN
-   * @returns {string} Valid Dutch IBAN
-   */
+	 * Generates a valid Dutch IBAN
+	 * @returns {string} Valid Dutch IBAN
+	 */
 	generateDutchIBAN() {
 		const bankCodes = ['ABNA', 'RABO', 'INGB', 'TRIO', 'BUNQ', 'SNSB'];
 		const bankCode = this.randomChoice(bankCodes);
@@ -195,11 +191,11 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates a valid email address
-   * @param {string} firstName - First name for email
-   * @param {string} lastName - Last name for email
-   * @returns {string} Valid email address
-   */
+	 * Generates a valid email address
+	 * @param {string} firstName - First name for email
+	 * @param {string} lastName - Last name for email
+	 * @returns {string} Valid email address
+	 */
 	generateEmail(firstName, lastName) {
 		const domains = ['example.com', 'test.nl', 'vereniging.org', 'member.net'];
 		const domain = this.randomChoice(domains);
@@ -217,9 +213,9 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates a Dutch mobile number
-   * @returns {string} Valid Dutch mobile number
-   */
+	 * Generates a Dutch mobile number
+	 * @returns {string} Valid Dutch mobile number
+	 */
 	generateDutchMobile() {
 		const prefixes = ['06', '+31 6'];
 		const prefix = this.randomChoice(prefixes);
@@ -232,11 +228,11 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates a realistic birth date for given age requirements
-   * @param {number} minAge - Minimum age
-   * @param {number} maxAge - Maximum age
-   * @returns {string} Birth date in YYYY-MM-DD format
-   */
+	 * Generates a realistic birth date for given age requirements
+	 * @param {number} minAge - Minimum age
+	 * @param {number} maxAge - Maximum age
+	 * @returns {string} Birth date in YYYY-MM-DD format
+	 */
 	generateBirthDate(minAge = 18, maxAge = 80) {
 		const currentYear = new Date().getFullYear();
 		const birthYear = currentYear - this.randomInt(minAge, maxAge);
@@ -247,10 +243,10 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates a realistic Member test data object
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} Complete member data
-   */
+	 * Creates a realistic Member test data object
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} Complete member data
+	 */
 	createMemberData(overrides = {}) {
 		const firstName = this.generateDutchFirstName();
 		const surname = this.generateDutchSurname();
@@ -271,19 +267,11 @@ class TestDataFactory {
 
 			// Membership
 			member_since: this.generateMemberSinceDate(),
-			current_membership_type: this.randomChoice([
-				'Regular Member',
-				'Student Member',
-				'Senior Member'
-			]),
+			current_membership_type: this.randomChoice(['Regular Member', 'Student Member', 'Senior Member']),
 			status: this.randomChoice(['Active', 'Pending', 'Inactive']),
 
 			// Payment
-			payment_method: this.randomChoice([
-				'SEPA Direct Debit',
-				'Bank Transfer',
-				'Credit Card'
-			]),
+			payment_method: this.randomChoice(['SEPA Direct Debit', 'Bank Transfer', 'Credit Card']),
 			iban: this.generateDutchIBAN(),
 			bank_account_name: `${firstName} ${surname.last_name}`,
 
@@ -300,10 +288,10 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates address test data
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} Address data
-   */
+	 * Creates address test data
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} Address data
+	 */
 	createAddressData(overrides = {}) {
 		const streets = [
 			'Hoofdstraat',
@@ -345,11 +333,11 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates SEPA Mandate test data
-   * @param {string} memberName - Member record name
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} SEPA Mandate data
-   */
+	 * Creates SEPA Mandate test data
+	 * @param {string} memberName - Member record name
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} SEPA Mandate data
+	 */
 	createSEPAMandateData(memberName, overrides = {}) {
 		const baseData = {
 			member: memberName,
@@ -369,10 +357,10 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates Chapter test data
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} Chapter data
-   */
+	 * Creates Chapter test data
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} Chapter data
+	 */
 	createChapterData(overrides = {}) {
 		const regions = [
 			'Noord-Holland',
@@ -405,11 +393,11 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates Volunteer test data
-   * @param {string} memberName - Member record name
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} Volunteer data
-   */
+	 * Creates Volunteer test data
+	 * @param {string} memberName - Member record name
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} Volunteer data
+	 */
 	createVolunteerData(memberName, overrides = {}) {
 		const skills = [
 			'Event Planning',
@@ -438,18 +426,8 @@ class TestDataFactory {
 			status: this.randomChoice(['Active', 'Inactive', 'On Break']),
 			skills: this.randomChoice(skills),
 			interests: this.randomChoice(interests),
-			availability: this.randomChoice([
-				'Weekends',
-				'Evenings',
-				'Flexible',
-				'Weekdays'
-			]),
-			experience_level: this.randomChoice([
-				'Beginner',
-				'Intermediate',
-				'Advanced',
-				'Expert'
-			]),
+			availability: this.randomChoice(['Weekends', 'Evenings', 'Flexible', 'Weekdays']),
+			experience_level: this.randomChoice(['Beginner', 'Intermediate', 'Advanced', 'Expert']),
 			max_hours_per_week: this.randomInt(2, 20),
 			doctype: 'Volunteer'
 		};
@@ -458,11 +436,11 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates Membership test data
-   * @param {string} memberName - Member record name
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} Membership data
-   */
+	 * Creates Membership test data
+	 * @param {string} memberName - Member record name
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} Membership data
+	 */
 	createMembershipData(memberName, overrides = {}) {
 		const currentDate = new Date();
 		const startDate = new Date(currentDate.getFullYear(), 0, 1);
@@ -480,12 +458,7 @@ class TestDataFactory {
 			end_date: endDate.toISOString().split('T')[0],
 			status: this.randomChoice(['Active', 'Pending', 'Expired', 'Cancelled']),
 			annual_fee: this.generateMembershipFee(),
-			payment_schedule: this.randomChoice([
-				'Annual',
-				'Semi-Annual',
-				'Quarterly',
-				'Monthly'
-			]),
+			payment_schedule: this.randomChoice(['Annual', 'Semi-Annual', 'Quarterly', 'Monthly']),
 			doctype: 'Membership'
 		};
 
@@ -493,21 +466,16 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates Direct Debit Batch test data
-   * @param {Object} overrides - Field overrides
-   * @returns {Object} Direct Debit Batch data
-   */
+	 * Creates Direct Debit Batch test data
+	 * @param {Object} overrides - Field overrides
+	 * @returns {Object} Direct Debit Batch data
+	 */
 	createDirectDebitBatchData(overrides = {}) {
 		const baseData = {
 			batch_name: `DD-Batch-${new Date().toISOString().split('T')[0]}-${this.randomInt(1, 999)}`,
 			collection_date: this.generateFutureDate(7),
 			description: 'Monthly membership fee collection',
-			status: this.randomChoice([
-				'Draft',
-				'Generated',
-				'Submitted',
-				'Processed'
-			]),
+			status: this.randomChoice(['Draft', 'Generated', 'Submitted', 'Processed']),
 			total_amount: this.randomInt(1000, 10000),
 			total_entries: this.randomInt(10, 100),
 			sequence_type: 'RCUR',
@@ -522,10 +490,10 @@ class TestDataFactory {
 	// Helper methods
 
 	/**
-   * Generates a recent date within specified days
-   * @param {number} daysBack - Number of days back from today
-   * @returns {string} Date in YYYY-MM-DD format
-   */
+	 * Generates a recent date within specified days
+	 * @param {number} daysBack - Number of days back from today
+	 * @returns {string} Date in YYYY-MM-DD format
+	 */
 	generateRecentDate(daysBack) {
 		const date = new Date();
 		date.setDate(date.getDate() - this.randomInt(0, daysBack));
@@ -533,10 +501,10 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates a future date within specified days
-   * @param {number} daysForward - Number of days forward from today
-   * @returns {string} Date in YYYY-MM-DD format
-   */
+	 * Generates a future date within specified days
+	 * @param {number} daysForward - Number of days forward from today
+	 * @returns {string} Date in YYYY-MM-DD format
+	 */
 	generateFutureDate(daysForward) {
 		const date = new Date();
 		date.setDate(date.getDate() + this.randomInt(1, daysForward));
@@ -544,9 +512,9 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates member since date (typically recent but can be years back)
-   * @returns {string} Date in YYYY-MM-DD format
-   */
+	 * Generates member since date (typically recent but can be years back)
+	 * @returns {string} Date in YYYY-MM-DD format
+	 */
 	generateMemberSinceDate() {
 		const yearsBack = this.randomInt(0, 10);
 		const date = new Date();
@@ -557,9 +525,9 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates establishment date for chapters
-   * @returns {string} Date in YYYY-MM-DD format
-   */
+	 * Generates establishment date for chapters
+	 * @returns {string} Date in YYYY-MM-DD format
+	 */
 	generateEstablishmentDate() {
 		const yearsBack = this.randomInt(1, 20);
 		const date = new Date();
@@ -568,9 +536,9 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates postal code ranges for chapters
-   * @returns {string} Comma-separated postal code ranges
-   */
+	 * Generates postal code ranges for chapters
+	 * @returns {string} Comma-separated postal code ranges
+	 */
 	generatePostalCodeRanges() {
 		const ranges = [];
 		const numRanges = this.randomInt(1, 3);
@@ -585,17 +553,17 @@ class TestDataFactory {
 	}
 
 	/**
-   * Generates realistic membership fee amounts
-   * @returns {number} Fee amount in euros
-   */
+	 * Generates realistic membership fee amounts
+	 * @returns {number} Fee amount in euros
+	 */
 	generateMembershipFee() {
 		const fees = [25, 35, 45, 55, 75, 100, 125, 150];
 		return this.randomChoice(fees);
 	}
 
 	/**
-   * Creates DocType test data methods for all remaining DocTypes
-   */
+	 * Creates DocType test data methods for all remaining DocTypes
+	 */
 
 	// Additional DocType factory methods for comprehensive test coverage
 
@@ -605,21 +573,12 @@ class TestDataFactory {
 		const baseData = {
 			name: `EBM-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(3, '0')}`,
 			company: 'Test Nederlandse Vereniging',
-			migration_type: this.randomChoice([
-				'Full Initial Migration',
-				'Transaction Update',
-				'Preview'
-			]),
+			migration_type: this.randomChoice(['Full Initial Migration', 'Transaction Update', 'Preview']),
 			api_type: this.randomChoice(['SOAP', 'REST']),
 			username: 'test_eb_user',
 			security_code: 'test_security_code',
 			rest_api_token: 'test_rest_token_12345',
-			migration_status: this.randomChoice([
-				'Draft',
-				'In Progress',
-				'Completed',
-				'Failed'
-			]),
+			migration_status: this.randomChoice(['Draft', 'In Progress', 'Completed', 'Failed']),
 			progress_percentage: this.randomInt(0, 100),
 			start_time: this.generateRecentDate(30),
 			end_time: this.generateFutureDate(1)
@@ -632,8 +591,7 @@ class TestDataFactory {
 		const surname = this.generateDutchSurname();
 		const baseData = {
 			name: `DNR-${String(this.memberCounter++).padStart(5, '0')}`,
-			donor_name:
-        `${firstName} ${surname.tussenvoegsel} ${surname.last_name}`.trim(),
+			donor_name: `${firstName} ${surname.tussenvoegsel} ${surname.last_name}`.trim(),
 			donor_type: this.randomChoice(['Individual', 'Organization']),
 			email: this.generateEmail(firstName, surname.last_name),
 			phone: this.generateDutchMobile(),
@@ -663,13 +621,7 @@ class TestDataFactory {
 			termination_reason: 'Test termination reason',
 			request_date: this.generateRecentDate(30),
 			termination_date: this.generateFutureDate(30),
-			status: this.randomChoice([
-				'Draft',
-				'Pending',
-				'Approved',
-				'Rejected',
-				'Executed'
-			]),
+			status: this.randomChoice(['Draft', 'Pending', 'Approved', 'Rejected', 'Executed']),
 			requested_by: 'test@example.com',
 			requires_secondary_approval: this.randomChoice([true, false]),
 			secondary_approver: 'manager@example.com',
@@ -685,11 +637,7 @@ class TestDataFactory {
 			donor_name: `${this.generateDutchFirstName()} ${this.generateDutchSurname().last_name}`,
 			duration_years: this.randomChoice([1, 3, 5, 10]),
 			total_commitment_amount: this.randomChoice([500, 1000, 2500, 5000]),
-			payment_frequency: this.randomChoice([
-				'Monthly',
-				'Quarterly',
-				'Annually'
-			]),
+			payment_frequency: this.randomChoice(['Monthly', 'Quarterly', 'Annually']),
 			annual_amount: this.randomChoice([100, 200, 500, 1000]),
 			payment_amount: this.randomChoice([25, 50, 100, 250]),
 			start_date: this.generateRecentDate(30),
@@ -706,22 +654,11 @@ class TestDataFactory {
 			name: `VE-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(4, '0')}`,
 			volunteer: this.createVolunteerName(),
 			volunteer_name: `${this.generateDutchFirstName()} ${this.generateDutchSurname().last_name}`,
-			expense_category: this.randomChoice([
-				'Travel',
-				'Materials',
-				'Food',
-				'Accommodation',
-				'Other'
-			]),
+			expense_category: this.randomChoice(['Travel', 'Materials', 'Food', 'Accommodation', 'Other']),
 			amount: this.randomChoice([25.5, 45.75, 100.0, 250.25]),
 			expense_date: this.generateRecentDate(90),
 			description: 'Test volunteer expense',
-			approval_status: this.randomChoice([
-				'Draft',
-				'Pending',
-				'Approved',
-				'Rejected'
-			]),
+			approval_status: this.randomChoice(['Draft', 'Pending', 'Approved', 'Rejected']),
 			approved_by: 'approver@example.com',
 			receipt_attached: this.randomChoice([true, false])
 		};
@@ -756,19 +693,9 @@ class TestDataFactory {
 			amount: this.randomChoice([25, 50, 100, 250, 500]),
 			donation_date: this.generateRecentDate(365),
 			status: this.randomChoice(['Draft', 'Pending', 'Paid', 'Cancelled']),
-			payment_method: this.randomChoice([
-				'Bank Transfer',
-				'Credit Card',
-				'Cash',
-				'SEPA Direct Debit'
-			]),
+			payment_method: this.randomChoice(['Bank Transfer', 'Credit Card', 'Cash', 'SEPA Direct Debit']),
 			anbi_eligible: this.randomChoice([true, false]),
-			purpose: this.randomChoice([
-				'General',
-				'Project Support',
-				'Emergency Fund',
-				'Specific Campaign'
-			]),
+			purpose: this.randomChoice(['General', 'Project Support', 'Emergency Fund', 'Specific Campaign']),
 			receipt_generated: this.randomChoice([true, false])
 		};
 		return { ...baseData, ...overrides };
@@ -800,11 +727,7 @@ class TestDataFactory {
 			auto_sync: this.randomChoice([true, false]),
 			sync_frequency: this.randomChoice(['Hourly', 'Daily', 'Weekly']),
 			last_sync: this.generateRecentDate(7),
-			connection_status: this.randomChoice([
-				'Connected',
-				'Disconnected',
-				'Error'
-			])
+			connection_status: this.randomChoice(['Connected', 'Disconnected', 'Error'])
 		};
 		return { ...baseData, ...overrides };
 	}
@@ -905,11 +828,7 @@ class TestDataFactory {
 			reason: 'Serious policy violation',
 			status: this.randomChoice(['Reported', 'Under Review', 'Completed']),
 			documentation_complete: this.randomChoice([true, false]),
-			workflow_status: this.randomChoice([
-				'Board Approved',
-				'Pending Review',
-				'Completed'
-			]),
+			workflow_status: this.randomChoice(['Board Approved', 'Pending Review', 'Completed']),
 			approval_date: this.generateRecentDate(30)
 		};
 		return { ...baseData, ...overrides };
@@ -946,11 +865,7 @@ class TestDataFactory {
 				'Mandate Cancelled'
 			]),
 			timestamp: this.generateRecentDate(30),
-			compliance_status: this.randomChoice([
-				'Compliant',
-				'Non-Compliant',
-				'Under Review'
-			]),
+			compliance_status: this.randomChoice(['Compliant', 'Non-Compliant', 'Under Review']),
 			regulation_reference: 'SEPA Regulation 2023',
 			checksum: 'abc123def456',
 			data_integrity: this.randomChoice(['Verified', 'Failed', 'Pending'])
@@ -1088,10 +1003,10 @@ class TestDataFactory {
 	}
 
 	/**
-   * Creates edge case test scenarios
-   * @param {string} scenario - Edge case scenario type
-   * @returns {Object} Edge case test data
-   */
+	 * Creates edge case test scenarios
+	 * @param {string} scenario - Edge case scenario type
+	 * @returns {Object} Edge case test data
+	 */
 	createEdgeCaseScenario(scenario) {
 		switch (scenario) {
 			case 'minimum_age_volunteer':

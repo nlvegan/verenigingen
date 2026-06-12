@@ -11,16 +11,8 @@
 /* global describe, it, expect, jest, beforeEach, afterEach */
 
 // Import test setup utilities
-const {
-	setupTestMocks,
-	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
-} = require('../../setup/frappe-mocks');
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../../setup/controller-loader');
+const { setupTestMocks, cleanupTestMocks, createMockForm, dutchTestData } = require('../../setup/frappe-mocks');
+const { loadFrappeController, testFormEvent } = require('../../setup/controller-loader');
 const { validateDutchEmail } = require('../../setup/dutch-validators');
 
 // Initialize test environment
@@ -47,8 +39,8 @@ describe('Real Volunteer Controller', () => {
 
 	beforeAll(() => {
 		// Load the real volunteer controller
-		const controllerPath
-      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
+		const controllerPath =
+			'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		volunteerHandlers = allHandlers.Volunteer;
 
@@ -141,10 +133,7 @@ describe('Real Volunteer Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(frm.toggle_display).toHaveBeenCalledWith(
-				['address_html', 'contact_html'],
-				true
-			);
+			expect(frm.toggle_display).toHaveBeenCalledWith(['address_html', 'contact_html'], true);
 		});
 
 		it('should render address and contact for saved records', () => {
@@ -154,9 +143,7 @@ describe('Real Volunteer Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				global.frappe.contacts.render_address_and_contact
-			).toHaveBeenCalledWith(frm);
+			expect(global.frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(frm);
 		});
 
 		it('should clear address and contact for new records', () => {
@@ -166,9 +153,7 @@ describe('Real Volunteer Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				global.frappe.contacts.clear_address_and_contact
-			).toHaveBeenCalledWith(frm);
+			expect(global.frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(frm);
 		});
 
 		it('should add View Member button when member is linked', () => {
@@ -180,9 +165,7 @@ describe('Real Volunteer Controller', () => {
 			});
 
 			// Check that custom button was added
-			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('View Member')
-			);
+			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('View Member'));
 			expect(viewMemberCall).toBeDefined();
 			expect(viewMemberCall[2]).toBe('Links');
 		});
@@ -195,23 +178,17 @@ describe('Real Volunteer Controller', () => {
 			});
 
 			// Check for Add Activity button
-			const addActivityCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('Add Activity')
-			);
+			const addActivityCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('Add Activity'));
 			expect(addActivityCall).toBeDefined();
 			expect(addActivityCall[2]).toBe('Assignments');
 
 			// Check for View Timeline button
-			const viewTimelineCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('View Timeline')
-			);
+			const viewTimelineCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('View Timeline'));
 			expect(viewTimelineCall).toBeDefined();
 			expect(viewTimelineCall[2]).toBe('View');
 
 			// Check for Volunteer Report button
-			const reportCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('Volunteer Report')
-			);
+			const reportCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('Volunteer Report'));
 			expect(reportCall).toBeDefined();
 			expect(reportCall[2]).toBe('View');
 		});
@@ -221,16 +198,11 @@ describe('Real Volunteer Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(frm.set_query).toHaveBeenCalledWith(
-				'reference_doctype',
-				'assignment_history',
-				expect.any(Function)
-			);
+			expect(frm.set_query).toHaveBeenCalledWith('reference_doctype', 'assignment_history', expect.any(Function));
 
 			// Test the query function
 			const queryCall = frm.set_query.mock.calls.find(
-				(call) =>
-					call[0] === 'reference_doctype' && call[1] === 'assignment_history'
+				(call) => call[0] === 'reference_doctype' && call[1] === 'assignment_history'
 			);
 			expect(queryCall).toBeDefined();
 
@@ -239,10 +211,7 @@ describe('Real Volunteer Controller', () => {
 
 			expect(result).toEqual({
 				filters: {
-					name: [
-						'in',
-						['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']
-					]
+					name: ['in', ['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']]
 				}
 			});
 		});
@@ -301,9 +270,7 @@ describe('Real Volunteer Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				global.frappe.contacts.render_address_and_contact
-			).toHaveBeenCalledWith(frm);
+			expect(global.frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(frm);
 		});
 
 		it('should fetch member data when member is selected', () => {
@@ -334,10 +301,7 @@ describe('Real Volunteer Controller', () => {
 
 			// Wait for async operations
 			setTimeout(() => {
-				expect(frm.set_value).toHaveBeenCalledWith(
-					'volunteer_name',
-					dutchTestData.members[0].full_name
-				);
+				expect(frm.set_value).toHaveBeenCalledWith('volunteer_name', dutchTestData.members[0].full_name);
 				done();
 			}, 100);
 		});
@@ -352,10 +316,7 @@ describe('Real Volunteer Controller', () => {
 
 			// Wait for async operations
 			setTimeout(() => {
-				expect(frm.set_value).toHaveBeenCalledWith(
-					'email',
-					expect.stringContaining('@example.org')
-				);
+				expect(frm.set_value).toHaveBeenCalledWith('email', expect.stringContaining('@example.org'));
 				done();
 			}, 100);
 		});
@@ -373,7 +334,7 @@ describe('Real Volunteer Controller', () => {
 					expected: 'maria.de.jong@example.org'
 				},
 				{
-					input: 'Peter van \'t Hof',
+					input: "Peter van 't Hof",
 					expected: 'peter.van.t.hof@example.org'
 				},
 				{
@@ -388,9 +349,7 @@ describe('Real Volunteer Controller', () => {
 				if (testCase.input) {
 					nameForEmail = testCase.input.replace(/\s+/g, '.').toLowerCase();
 					nameForEmail = nameForEmail.replace(/[^a-z.]/g, '');
-					nameForEmail = nameForEmail
-						.replace(/\.+/g, '.')
-						.replace(/^\.+|\.+$/g, '');
+					nameForEmail = nameForEmail.replace(/\.+/g, '.').replace(/^\.+|\.+$/g, '');
 				}
 
 				const orgEmail = nameForEmail ? `${nameForEmail}@example.org` : '';
@@ -405,11 +364,7 @@ describe('Real Volunteer Controller', () => {
 
 	describe('Email Validation', () => {
 		it('should validate organization emails correctly', () => {
-			const validEmails = [
-				'jan.van.der.berg@example.org',
-				'maria.de.jong@vereniging.nl',
-				'test@example.com'
-			];
+			const validEmails = ['jan.van.der.berg@example.org', 'maria.de.jong@vereniging.nl', 'test@example.com'];
 
 			validEmails.forEach((email) => {
 				const validation = validateDutchEmail(email);
@@ -418,12 +373,7 @@ describe('Real Volunteer Controller', () => {
 		});
 
 		it('should reject invalid email formats', () => {
-			const invalidEmails = [
-				'invalid-email',
-				'@example.org',
-				'test@',
-				'test space@example.org'
-			];
+			const invalidEmails = ['invalid-email', '@example.org', 'test@', 'test space@example.org'];
 
 			invalidEmails.forEach((email) => {
 				const validation = validateDutchEmail(email);
@@ -438,9 +388,10 @@ describe('Real Volunteer Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				frm.fields_dict.skills_and_qualifications.grid.add_custom_button
-			).toHaveBeenCalledWith('Add Skill', expect.any(Function));
+			expect(frm.fields_dict.skills_and_qualifications.grid.add_custom_button).toHaveBeenCalledWith(
+				'Add Skill',
+				expect.any(Function)
+			);
 		});
 
 		it('should handle missing fields gracefully', () => {
@@ -458,28 +409,26 @@ describe('Real Volunteer Controller', () => {
 	describe('Server Method Calls', () => {
 		beforeEach(() => {
 			// Mock server method responses
-			global.frappe.call.mockImplementation(
-				({ method, doc, callback, error }) => {
-					if (method === 'get_aggregated_assignments') {
-						if (callback) {
-							callback({
-								message: [
-									{
-										role: 'Event Coordinator',
-										source_type: 'Activity',
-										source_doctype_display: 'Activity',
-										source_name_display: 'Test Activity',
-										source_link: '/app/activity/test-activity',
-										start_date: '2024-01-01',
-										end_date: null,
-										editable: true
-									}
-								]
-							});
-						}
+			global.frappe.call.mockImplementation(({ method, doc, callback, error }) => {
+				if (method === 'get_aggregated_assignments') {
+					if (callback) {
+						callback({
+							message: [
+								{
+									role: 'Event Coordinator',
+									source_type: 'Activity',
+									source_doctype_display: 'Activity',
+									source_name_display: 'Test Activity',
+									source_link: '/app/activity/test-activity',
+									start_date: '2024-01-01',
+									end_date: null,
+									editable: true
+								}
+							]
+						});
 					}
 				}
-			);
+			});
 
 			// Ensure datetime mocks are properly set for each test
 			global.frappe.datetime = {
@@ -521,9 +470,7 @@ describe('Real Volunteer Controller', () => {
 			});
 
 			// Find and execute the View Member button callback
-			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('View Member')
-			);
+			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('View Member'));
 			expect(viewMemberCall).toBeDefined();
 
 			const buttonCallback = viewMemberCall[1];
@@ -532,11 +479,7 @@ describe('Real Volunteer Controller', () => {
 			// Execute the button callback
 			buttonCallback();
 
-			expect(global.frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Member',
-				'MEM-2024-001'
-			);
+			expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'Member', 'MEM-2024-001');
 		});
 	});
 

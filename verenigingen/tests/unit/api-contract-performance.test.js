@@ -21,8 +21,7 @@ describe('API Contract Performance Tests', () => {
 
 	describe('Validator Caching', () => {
 		it('should cache compiled validators for repeated use', () => {
-			const method
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const method = 'verenigingen.verenigingen.doctype.member.member.process_payment';
 			const validArgs = {
 				member_id: 'Assoc-Member-2025-07-0001',
 				payment_amount: 25.0,
@@ -43,8 +42,7 @@ describe('API Contract Performance Tests', () => {
 		});
 
 		it('should show significant performance improvement with caching', () => {
-			const method
-        = 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban';
+			const method = 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban';
 			const validArgs = { iban: 'NL91ABNA0417164300' };
 
 			// Measure performance without cache (first call)
@@ -68,10 +66,8 @@ describe('API Contract Performance Tests', () => {
 		});
 
 		it('should maintain separate cache entries for different methods', () => {
-			const method1
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
-			const method2
-        = 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban';
+			const method1 = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const method2 = 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban';
 
 			const args1 = {
 				member_id: 'Assoc-Member-2025-07-0001',
@@ -94,8 +90,7 @@ describe('API Contract Performance Tests', () => {
 
 	describe('Performance Metrics', () => {
 		it('should track overall performance metrics', () => {
-			const method
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const method = 'verenigingen.verenigingen.doctype.member.member.process_payment';
 			const validArgs = {
 				member_id: 'Assoc-Member-2025-07-0001',
 				payment_amount: 25.0,
@@ -116,8 +111,7 @@ describe('API Contract Performance Tests', () => {
 		});
 
 		it('should track per-method performance metrics', () => {
-			const method
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const method = 'verenigingen.verenigingen.doctype.member.member.process_payment';
 			const validArgs = {
 				member_id: 'Assoc-Member-2025-07-0001',
 				payment_amount: 25.0,
@@ -140,8 +134,7 @@ describe('API Contract Performance Tests', () => {
 		});
 
 		it('should clear cache and reset metrics', () => {
-			const method
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const method = 'verenigingen.verenigingen.doctype.member.member.process_payment';
 			const validArgs = {
 				member_id: 'Assoc-Member-2025-07-0001',
 				payment_amount: 25.0,
@@ -179,10 +172,10 @@ describe('API Contract Performance Tests', () => {
 					payment_amount: 25.0,
 					payment_method: 'SEPA Direct Debit'
 				},
-				'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details':
-          { member: 'ASSOC-MEMBER-2025-002' },
-				'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban':
-          { iban: 'NL91ABNA0417164300' }
+				'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details': {
+					member: 'ASSOC-MEMBER-2025-002'
+				},
+				'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban': { iban: 'NL91ABNA0417164300' }
 			};
 
 			// Perform initial validations (cache misses)
@@ -213,8 +206,7 @@ describe('API Contract Performance Tests', () => {
 		});
 
 		it('should maintain performance under load', () => {
-			const method
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const method = 'verenigingen.verenigingen.doctype.member.member.process_payment';
 			const validArgs = {
 				member_id: 'Assoc-Member-2025-07-0001',
 				payment_amount: 25.0,
@@ -242,9 +234,7 @@ describe('API Contract Performance Tests', () => {
 			console.log('📊 Load Performance Results:');
 			console.log(`   Total validations: ${iterations}`);
 			console.log(`   Total time: ${totalTime.toFixed(3)}ms`);
-			console.log(
-				`   Average per validation: ${avgTimePerValidation.toFixed(3)}ms`
-			);
+			console.log(`   Average per validation: ${avgTimePerValidation.toFixed(3)}ms`);
 			console.log(`   Cache hit rate: ${metrics.overall.cacheHitRate}`);
 		});
 	});
@@ -252,8 +242,7 @@ describe('API Contract Performance Tests', () => {
 	describe('Enhanced Error Messages', () => {
 		it('should provide similar method suggestions for unknown methods', () => {
 			const result = tester.validateFrappeCall({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.process_payments', // Wrong: 'payments' instead of 'payment'
+				method: 'verenigingen.verenigingen.doctype.member.member.process_payments', // Wrong: 'payments' instead of 'payment'
 				args: {
 					member_id: 'Assoc-Member-2025-07-0001',
 					payment_amount: 25.0,
@@ -264,15 +253,12 @@ describe('API Contract Performance Tests', () => {
 			expect(result.valid).toBe(false);
 			expect(result.errors[0].message).toContain('No API schema defined');
 			expect(result.errors[0].availableMethods).toBeInstanceOf(Array);
-			expect(result.errors[0].suggestion).toBe(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			expect(result.errors[0].suggestion).toBe('verenigingen.verenigingen.doctype.member.member.process_payment');
 		});
 
 		it('should include performance data in validation results', () => {
 			const result = tester.validateFrappeCall({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.process_payment',
+				method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
 				args: {
 					member_id: 'Assoc-Member-2025-07-0001',
 					payment_amount: 25.0,

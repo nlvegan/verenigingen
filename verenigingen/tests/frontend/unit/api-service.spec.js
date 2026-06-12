@@ -232,10 +232,7 @@ describe('API Service', () => {
 		},
 
 		async submitMembershipApplication(data) {
-			return this.callAPI(
-				'verenigingen.api.membership_application.submit_application',
-				{ data }
-			);
+			return this.callAPI('verenigingen.api.membership_application.submit_application', { data });
 		},
 
 		async updateMemberStatus(memberName, status) {
@@ -274,9 +271,7 @@ describe('API Service', () => {
 			const error = new Error('API Error');
 			mockFrappe.call.mockRejectedValue(error);
 
-			await expect(apiService.callAPI('test.method')).rejects.toThrow(
-				'API Error'
-			);
+			await expect(apiService.callAPI('test.method')).rejects.toThrow('API Error');
 
 			expect(mockFrappe.msgprint).toHaveBeenCalledWith({
 				title: 'Error',
@@ -311,8 +306,7 @@ describe('API Service', () => {
 				message: { success: true, member_id: 'MEM-001' }
 			});
 
-			const result
-        = await apiService.submitMembershipApplication(applicationData);
+			const result = await apiService.submitMembershipApplication(applicationData);
 
 			expect(mockFrappe.call).toHaveBeenCalledWith({
 				method: 'verenigingen.api.membership_application.submit_application',

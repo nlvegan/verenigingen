@@ -24,10 +24,7 @@ module.exports = {
 	],
 
 	// Setup files for API contract testing
-	setupFilesAfterEnv: [
-		'<rootDir>/tests/setup/frappe-mocks.js',
-		'<rootDir>/tests/setup/api-contract-setup.js'
-	],
+	setupFilesAfterEnv: ['<rootDir>/tests/setup/frappe-mocks.js', '<rootDir>/tests/setup/api-contract-setup.js'],
 
 	// Test environment with network mocking support
 	testEnvironment: 'node',

@@ -56,17 +56,26 @@ describe('APIService', () => {
 		});
 
 		test('validatePostalCode requires a value', async () => {
-			await expect(api.validatePostalCode('')).resolves.toEqual({ valid: false, message: 'Postal code is required' });
+			await expect(api.validatePostalCode('')).resolves.toEqual({
+				valid: false,
+				message: 'Postal code is required'
+			});
 			expect(frappe.call).not.toHaveBeenCalled();
 		});
 
 		test('validatePhoneNumber treats an empty number as optional/valid', async () => {
-			await expect(api.validatePhoneNumber('')).resolves.toEqual({ valid: true, message: 'Phone number is optional' });
+			await expect(api.validatePhoneNumber('')).resolves.toEqual({
+				valid: true,
+				message: 'Phone number is optional'
+			});
 			expect(frappe.call).not.toHaveBeenCalled();
 		});
 
 		test('validateBirthDate requires a value', async () => {
-			await expect(api.validateBirthDate('')).resolves.toEqual({ valid: false, message: 'Birth date is required' });
+			await expect(api.validateBirthDate('')).resolves.toEqual({
+				valid: false,
+				message: 'Birth date is required'
+			});
 		});
 
 		test('validateCustomAmount requires both type and amount', async () => {

@@ -13,9 +13,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -40,7 +38,7 @@ global.$ = jest.fn((selector) => ({
 const sepaConfig = {
 	doctype: 'SEPA Mandate',
 	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js',
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js',
 	expectedHandlers: ['refresh', 'member', 'status'],
 	defaultDoc: {
 		mandate_id: 'MAND-2024-001',
@@ -78,30 +76,21 @@ const customSEPATests = {
 	'SEPA Banking Compliance': (getControllerTest) => {
 		it('should validate Dutch IBAN correctly', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(
-				controllerTest,
-				'financial'
-			);
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate Dutch IBAN correctly']();
 		});
 
 		it('should validate BIC codes correctly', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(
-				controllerTest,
-				'financial'
-			);
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate BIC codes correctly']();
 		});
 
 		it('should handle European banking compliance', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(
-				controllerTest,
-				'financial'
-			);
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should handle European banking compliance']();
 		});
@@ -116,42 +105,36 @@ const customSEPATests = {
 			// Test passes if no errors thrown during normalization
 			expect(getControllerTest().mockForm.doc.iban).toBeDefined();
 		}),
-		it('should support SEPA zone countries', () => {
-			const sepaIBANs = [
-				'NL91ABNA0417164300', // Netherlands
-				'DE89370400440532013000', // Germany
-				'FR1420041010050500013M02606', // France
-				'ES9121000418450200051332', // Spain
-				'IT60X0542811101000000123456' // Italy
-			];
+			it('should support SEPA zone countries', () => {
+				const sepaIBANs = [
+					'NL91ABNA0417164300', // Netherlands
+					'DE89370400440532013000', // Germany
+					'FR1420041010050500013M02606', // France
+					'ES9121000418450200051332', // Spain
+					'IT60X0542811101000000123456' // Italy
+				];
 
-			sepaIBANs.forEach((iban) => {
-				getControllerTest().mockForm.doc.iban = iban;
+				sepaIBANs.forEach((iban) => {
+					getControllerTest().mockForm.doc.iban = iban;
 
-				expect(() => {
-					getControllerTest().testEvent('refresh');
-				}).not.toThrow();
-			});
-		}));
+					expect(() => {
+						getControllerTest().testEvent('refresh');
+					}).not.toThrow();
+				});
+			}));
 	},
 
 	'Mandate Status Workflow': (getControllerTest) => {
 		it('should handle mandate status transitions', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(
-				controllerTest,
-				'financial'
-			);
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const mandateTests = financialBuilder.createMandateTests();
 			mandateTests['should handle mandate status transitions']();
 		});
 
 		it('should validate mandate authorization', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(
-				controllerTest,
-				'financial'
-			);
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const mandateTests = financialBuilder.createMandateTests();
 			mandateTests['should validate mandate authorization']();
 		});
@@ -299,10 +282,7 @@ const customSEPATests = {
 };
 
 // Create and export the test suite
-describe(
-	'SEPA Mandate Controller (Refactored)',
-	createControllerTestSuite(sepaConfig, customSEPATests)
-);
+describe('SEPA Mandate Controller (Refactored)', createControllerTestSuite(sepaConfig, customSEPATests));
 
 // Export test utilities for reuse
 module.exports = {

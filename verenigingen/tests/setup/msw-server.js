@@ -11,11 +11,7 @@
  */
 
 const { setupServer } = require('msw/node');
-const {
-	mollieHandlers,
-	errorHandlers,
-	networkHandlers
-} = require('./msw-handlers');
+const { mollieHandlers, errorHandlers, networkHandlers } = require('./msw-handlers');
 
 /**
  * MSW server instance with all Mollie API handlers
@@ -25,10 +21,6 @@ const {
  * - Error simulation handlers
  * - Network condition handlers
  */
-const server = setupServer(
-	...errorHandlers,
-	...networkHandlers,
-	...mollieHandlers
-);
+const server = setupServer(...errorHandlers, ...networkHandlers, ...mollieHandlers);
 
 module.exports = { server };

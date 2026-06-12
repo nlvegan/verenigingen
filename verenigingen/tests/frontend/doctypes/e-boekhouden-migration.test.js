@@ -94,17 +94,9 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			legacyFields.forEach((field) => {
-				expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-					field,
-					'hidden',
-					1
-				);
+				expect(mockFrm.set_df_property).toHaveBeenCalledWith(field, 'hidden', 1);
 			});
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'migration_scope_section',
-				'hidden',
-				1
-			);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('migration_scope_section', 'hidden', 1);
 		});
 
 		test('should display migration guide with proper instructions', () => {
@@ -116,12 +108,8 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			eBoekhouden.refresh(mockFrm);
 
 			// Assert
-			expect(global.$.fn.html).toHaveBeenCalledWith(
-				expect.stringContaining('Setup Chart of Accounts')
-			);
-			expect(global.$.fn.html).toHaveBeenCalledWith(
-				expect.stringContaining('Import Transactions')
-			);
+			expect(global.$.fn.html).toHaveBeenCalledWith(expect.stringContaining('Setup Chart of Accounts'));
+			expect(global.$.fn.html).toHaveBeenCalledWith(expect.stringContaining('Import Transactions'));
 		});
 
 		test('should set migration defaults for new documents', () => {
@@ -148,10 +136,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			eBoekhouden.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'1. Setup Chart of Accounts',
-				expect.any(Function)
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('1. Setup Chart of Accounts', expect.any(Function));
 		});
 
 		test('should handle chart of accounts setup workflow', async () => {
@@ -205,10 +190,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			eBoekhouden.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'2. Import Transactions',
-				expect.any(Function)
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('2. Import Transactions', expect.any(Function));
 		});
 
 		test('should handle full transaction import workflow', async () => {
@@ -277,11 +259,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			eBoekhouden.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Test Connection',
-				expect.any(Function),
-				'Tools'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Test Connection', expect.any(Function), 'Tools');
 		});
 
 		test('should handle SOAP API fallback gracefully', async () => {
@@ -302,9 +280,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			const eBoekhouden = require('../../../../../../e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.js');
 
 			// Simulate test connection
-			const testButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Test Connection'
-			);
+			const testButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Test Connection');
 			if (testButton) {
 				await testButton[1]();
 			}
@@ -331,9 +307,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			const eBoekhouden = require('../../../../../../e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.js');
 
 			// Simulate REST API test
-			const testButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Test Connection'
-			);
+			const testButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Test Connection');
 			if (testButton) {
 				await testButton[1]();
 			}
@@ -398,10 +372,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			eBoekhouden.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Import Opening Balances',
-				expect.any(Function)
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Import Opening Balances', expect.any(Function));
 		});
 
 		test('should handle opening balance workflow', async () => {
@@ -507,9 +478,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Should not throw when handling auth errors
 			expect(async () => {
-				const testButton = mockFrm.add_custom_button.mock.calls.find(
-					(call) => call[0] === 'Test Connection'
-				);
+				const testButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Test Connection');
 				if (testButton) {
 					await testButton[1]();
 				}

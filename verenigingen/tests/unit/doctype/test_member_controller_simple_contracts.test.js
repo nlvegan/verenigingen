@@ -11,13 +11,8 @@
  * @version 1.0.0
  */
 
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
-const {
-	SimpleAPIContractTester,
-	createSimpleAPIContractMatcher
-} = require('../../setup/api-contract-simple');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const { SimpleAPIContractTester, createSimpleAPIContractMatcher } = require('../../setup/api-contract-simple');
 
 require('../../setup/frappe-mocks').setupTestMocks();
 
@@ -27,16 +22,8 @@ expect.extend(createSimpleAPIContractMatcher());
 // Configuration for Member controller with API contract testing
 const memberControllerConfig = {
 	doctype: 'Member',
-	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js',
-	expectedHandlers: [
-		'refresh',
-		'validate',
-		'member_since',
-		'first_name',
-		'tussenvoegsel',
-		'last_name'
-	],
+	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js',
+	expectedHandlers: ['refresh', 'validate', 'member_since', 'first_name', 'tussenvoegsel', 'last_name'],
 	defaultDoc: {
 		name: 'ASSOC-MEMBER-2025-001',
 		status: 'Active',
@@ -85,10 +72,7 @@ describe('Member Controller Simple API Contract Integration', () => {
 					}
 				}
 			} catch (contractError) {
-				console.warn(
-					`⚠️  API Contract Error for ${options.method}:`,
-					contractError.message
-				);
+				console.warn(`⚠️  API Contract Error for ${options.method}:`, contractError.message);
 			}
 
 			// Call original behavior for controller functionality
@@ -147,13 +131,9 @@ describe('Member Controller Simple API Contract Integration', () => {
 				});
 
 				// Log contract validation results for visibility
-				const validatedCalls = capturedApiCalls.filter((call) =>
-					apiTester.getMethodSchema(call.method)
-				);
+				const validatedCalls = capturedApiCalls.filter((call) => apiTester.getMethodSchema(call.method));
 
-				console.log(
-					`✅ Validated ${validatedCalls.length} API calls against contracts`
-				);
+				console.log(`✅ Validated ${validatedCalls.length} API calls against contracts`);
 			});
 
 			it('should use contract-compliant test data', () => {
@@ -169,8 +149,7 @@ describe('Member Controller Simple API Contract Integration', () => {
 				);
 
 				// Update controller with valid test data
-				controllerTest.mockForm.doc.name
-          = memberTestData.member_id || memberTestData.member;
+				controllerTest.mockForm.doc.name = memberTestData.member_id || memberTestData.member;
 				controllerTest.mockForm.doc.iban = ibanTestData.iban;
 
 				// Controller should work with contract-compliant data
@@ -180,12 +159,8 @@ describe('Member Controller Simple API Contract Integration', () => {
 
 				// Verify data format compliance
 				expect(controllerTest.mockForm.doc.name).toBeDefined();
-				expect(controllerTest.mockForm.doc.name).toMatch(
-					/^(Assoc-)?Member-\d{4}-\d{2}-\d{4}$/
-				);
-				expect(controllerTest.mockForm.doc.iban).toMatch(
-					/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{10}$/
-				);
+				expect(controllerTest.mockForm.doc.name).toMatch(/^(Assoc-)?Member-\d{4}-\d{2}-\d{4}$/);
+				expect(controllerTest.mockForm.doc.iban).toMatch(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{10}$/);
 			});
 
 			it('should detect parameter mismatches in API calls', () => {
@@ -213,8 +188,7 @@ describe('Member Controller Simple API Contract Integration', () => {
 
 				// Simulate API call with wrong parameter names
 				global.frappe.call({
-					method:
-            'verenigingen.verenigingen.doctype.member.member.process_payment',
+					method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
 					args: { member_id: 'WRONG-PARAM-NAME' } // Should be 'member' not 'member_id'
 				});
 
@@ -268,14 +242,9 @@ describe('Member Controller Simple API Contract Integration', () => {
 
 				// Get all available API methods with schemas
 				const availableMethods = apiTester.getAvailableMethods();
-				const memberRelatedMethods = availableMethods.filter((method) =>
-					method.includes('member.member')
-				);
+				const memberRelatedMethods = availableMethods.filter((method) => method.includes('member.member'));
 
-				console.log(
-					'📊 Available Member API Contract Methods:',
-					memberRelatedMethods.length
-				);
+				console.log('📊 Available Member API Contract Methods:', memberRelatedMethods.length);
 				memberRelatedMethods.forEach((method) => {
 					console.log(`   - ${method}`);
 				});
@@ -285,16 +254,12 @@ describe('Member Controller Simple API Contract Integration', () => {
 
 				// Analyze which contracts are actually used vs available
 				const usedMethods = capturedApiCalls.map((call) => call.method);
-				const contractCovered = usedMethods.filter((method) =>
-					memberRelatedMethods.includes(method)
-				);
+				const contractCovered = usedMethods.filter((method) => memberRelatedMethods.includes(method));
 
 				console.log('📈 Contract Coverage Report:');
 				console.log(`   Used Methods: ${usedMethods.length}`);
 				console.log(`   Contract Covered: ${contractCovered.length}`);
-				console.log(
-					`   Coverage Rate: ${((contractCovered.length / usedMethods.length) * 100).toFixed(1)}%`
-				);
+				console.log(`   Coverage Rate: ${((contractCovered.length / usedMethods.length) * 100).toFixed(1)}%`);
 
 				// Ensure at least some contract coverage
 				expect(memberRelatedMethods.length).toBeGreaterThan(0);

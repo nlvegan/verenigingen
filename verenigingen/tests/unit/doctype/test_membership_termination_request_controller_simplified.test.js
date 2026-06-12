@@ -10,9 +10,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 
 // Initialize test environment
 require('../../setup/frappe-mocks').setupTestMocks();
@@ -21,14 +19,8 @@ require('../../setup/frappe-mocks').setupTestMocks();
 const membershipTerminationConfig = {
 	doctype: 'Membership Termination Request',
 	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.js',
-	expectedHandlers: [
-		'refresh',
-		'onload',
-		'termination_type',
-		'member',
-		'before_save'
-	],
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.js',
+	expectedHandlers: ['refresh', 'onload', 'termination_type', 'member', 'before_save'],
 	defaultDoc: {
 		doctype: 'Membership Termination Request',
 		name: 'MTR-2024-TEST-001',
@@ -116,19 +108,13 @@ const customTerminationTests = {
 		it('should set audit trail as read-only on refresh', () => {
 			getControllerTest().testEvent('refresh');
 
-			expect(getControllerTest().mockForm.set_df_property).toHaveBeenCalledWith(
-				'audit_trail',
-				'read_only',
-				1
-			);
+			expect(getControllerTest().mockForm.set_df_property).toHaveBeenCalledWith('audit_trail', 'read_only', 1);
 		});
 
 		it('should clear custom buttons on refresh', () => {
 			getControllerTest().testEvent('refresh');
 
-			expect(
-				getControllerTest().mockForm.clear_custom_buttons
-			).toHaveBeenCalled();
+			expect(getControllerTest().mockForm.clear_custom_buttons).toHaveBeenCalled();
 		});
 	},
 
@@ -229,10 +215,7 @@ const customTerminationTests = {
 // Create and export the test suite
 describe(
 	'Membership Termination Request Controller (Simplified)',
-	createControllerTestSuite(
-		membershipTerminationConfig,
-		customTerminationTests
-	)
+	createControllerTestSuite(membershipTerminationConfig, customTerminationTests)
 );
 
 // Export test utilities for reuse

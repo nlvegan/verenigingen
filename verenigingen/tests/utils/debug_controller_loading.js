@@ -27,17 +27,14 @@
  * @since 2025-01-20
  */
 
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../setup/controller-loader');
+const { loadFrappeController, testFormEvent } = require('../setup/controller-loader');
 
 console.log('Testing controller loading...');
 
 try {
 	// Load the volunteer controller
-	const controllerPath
-    = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
+	const controllerPath =
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
 	console.log(`Loading controller: ${controllerPath}`);
 
 	const handlers = loadFrappeController(controllerPath);

@@ -3,10 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Read and evaluate the sepa-utils.js file
-const sepaUtilsPath = path.join(
-	__dirname,
-	'../../verenigingen/public/js/member/js_modules/sepa-utils.js'
-);
+const sepaUtilsPath = path.join(__dirname, '../../verenigingen/public/js/member/js_modules/sepa-utils.js');
 const sepaUtilsCode = fs.readFileSync(sepaUtilsPath, 'utf8');
 
 // Extract just the functions we want to test. The source module attaches its

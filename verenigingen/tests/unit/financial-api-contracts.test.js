@@ -19,8 +19,7 @@ describe('Financial API Contract Tests', () => {
 
 	describe('SEPA Mandate APIs', () => {
 		describe('create_sepa_mandate', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate';
+			const apiName = 'verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate';
 
 			test('validates valid SEPA mandate creation request', () => {
 				const validRequest = {
@@ -44,11 +43,7 @@ describe('Financial API Contract Tests', () => {
 					debtor_name: 'Jan de Vries'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					invalidRequest,
-					'request'
-				);
+				const result = tester.validateAPICall(apiName, invalidRequest, 'request');
 				expect(result.valid).toBe(false);
 				expect(result.errors).toContainEqual(
 					expect.objectContaining({
@@ -67,11 +62,7 @@ describe('Financial API Contract Tests', () => {
 					audit_log_id: 'AL-2024-001'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					validResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, validResponse, 'response');
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -82,16 +73,12 @@ describe('Financial API Contract Tests', () => {
 					// Missing mandate_reference
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					invalidResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, invalidResponse, 'response');
 				expect(result.valid).toBe(false);
 				expect(result.errors).toContainEqual(
 					expect.objectContaining({
 						instancePath: '',
-						message: 'must have required property \'mandate_reference\''
+						message: "must have required property 'mandate_reference'"
 					})
 				);
 			});
@@ -104,18 +91,13 @@ describe('Financial API Contract Tests', () => {
 					debtor_name: 'Anna van der Berg'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					dutchIbanRequest,
-					'request'
-				);
+				const result = tester.validateAPICall(apiName, dutchIbanRequest, 'request');
 				expect(result.valid).toBe(true);
 			});
 		});
 
 		describe('validate_iban', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.utils.iban_validator.validate_iban';
+			const apiName = 'verenigingen.verenigingen_payments.utils.iban_validator.validate_iban';
 
 			test('validates IBAN validation request', () => {
 				const validRequest = {
@@ -139,11 +121,7 @@ describe('Financial API Contract Tests', () => {
 					formatted_iban: 'NL91 ABNA 0417 1643 00'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					validResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, validResponse, 'response');
 				expect(result.valid).toBe(true);
 			});
 
@@ -155,18 +133,13 @@ describe('Financial API Contract Tests', () => {
 					error: 'Invalid IBAN check digits'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					invalidIbanResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, invalidIbanResponse, 'response');
 				expect(result.valid).toBe(true);
 			});
 		});
 
 		describe('create_dd_batch', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch';
+			const apiName = 'verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch';
 
 			test('validates direct debit batch creation request', () => {
 				const validRequest = {
@@ -209,11 +182,7 @@ describe('Financial API Contract Tests', () => {
 					]
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					responseWithErrors,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, responseWithErrors, 'response');
 				expect(result.valid).toBe(true);
 			});
 		});
@@ -221,8 +190,7 @@ describe('Financial API Contract Tests', () => {
 
 	describe('Mollie Payment APIs', () => {
 		describe('make_payment', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment';
+			const apiName = 'verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment';
 
 			test('validates Mollie payment creation request', () => {
 				const validRequest = {
@@ -259,11 +227,7 @@ describe('Financial API Contract Tests', () => {
 					reference_docname: 'SI-2024-001'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					invalidRequest,
-					'request'
-				);
+				const result = tester.validateAPICall(apiName, invalidRequest, 'request');
 				expect(result.valid).toBe(false);
 				expect(result.errors).toContainEqual(
 					expect.objectContaining({
@@ -277,17 +241,12 @@ describe('Financial API Contract Tests', () => {
 				const validResponse = {
 					success: true,
 					payment_id: 'tr_WDqYK6vllg',
-					checkout_url:
-            'https://www.mollie.com/payscreen/select-method/WDqYK6vllg',
+					checkout_url: 'https://www.mollie.com/payscreen/select-method/WDqYK6vllg',
 					status: 'open',
 					expires_at: '2024-07-15T14:30:00Z'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					validResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, validResponse, 'response');
 				expect(result.valid).toBe(true);
 			});
 		});
@@ -295,8 +254,7 @@ describe('Financial API Contract Tests', () => {
 
 	describe('Member Lifecycle APIs', () => {
 		describe('create_member', () => {
-			const apiName
-        = 'verenigingen.verenigingen.doctype.member.member.create_member';
+			const apiName = 'verenigingen.verenigingen.doctype.member.member.create_member';
 
 			test('validates complete member creation request', () => {
 				const validRequest = {
@@ -339,11 +297,7 @@ describe('Financial API Contract Tests', () => {
 					postal_code: '12345' // Invalid format
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					invalidRequest,
-					'request'
-				);
+				const result = tester.validateAPICall(apiName, invalidRequest, 'request');
 				expect(result.valid).toBe(false);
 				expect(result.errors).toContainEqual(
 					expect.objectContaining({
@@ -370,18 +324,13 @@ describe('Financial API Contract Tests', () => {
 					]
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					responseWithWarnings,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, responseWithWarnings, 'response');
 				expect(result.valid).toBe(true);
 			});
 		});
 
 		describe('process_payment', () => {
-			const apiName
-        = 'verenigingen.verenigingen.doctype.member.member.process_payment';
+			const apiName = 'verenigingen.verenigingen.doctype.member.member.process_payment';
 
 			test('validates payment processing request', () => {
 				const validRequest = {
@@ -408,18 +357,13 @@ describe('Financial API Contract Tests', () => {
 					next_payment_due: '2024-08-15'
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					validResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, validResponse, 'response');
 				expect(result.valid).toBe(true);
 			});
 		});
 
 		describe('get_payment_history', () => {
-			const apiName
-        = 'verenigingen.verenigingen.doctype.member.member.get_payment_history';
+			const apiName = 'verenigingen.verenigingen.doctype.member.member.get_payment_history';
 
 			test('validates payment history request with filters', () => {
 				const validRequest = {
@@ -459,11 +403,7 @@ describe('Financial API Contract Tests', () => {
 					]
 				};
 
-				const result = tester.validateAPICall(
-					apiName,
-					validResponse,
-					'response'
-				);
+				const result = tester.validateAPICall(apiName, validResponse, 'response');
 				expect(result.valid).toBe(true);
 			});
 		});
@@ -471,8 +411,7 @@ describe('Financial API Contract Tests', () => {
 
 	describe('Performance and Caching', () => {
 		test('validates caching works correctly', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.utils.iban_validator.validate_iban';
+			const apiName = 'verenigingen.verenigingen_payments.utils.iban_validator.validate_iban';
 			const validRequest = { iban: 'NL91ABNA0417164300' };
 
 			// First call
@@ -490,8 +429,7 @@ describe('Financial API Contract Tests', () => {
 		});
 
 		test('measures validation performance', () => {
-			const apiName
-        = 'verenigingen.verenigingen.doctype.member.member.create_member';
+			const apiName = 'verenigingen.verenigingen.doctype.member.member.create_member';
 			const validRequest = {
 				first_name: 'Performance',
 				last_name: 'Test',
@@ -512,14 +450,12 @@ describe('Financial API Contract Tests', () => {
 		test('handles malformed schema gracefully', () => {
 			const result = tester.validateAPICall('non.existent.api', {}, 'request');
 			expect(result.valid).toBe(false);
-			expect(result.errors[0].message).toContain(
-				'No API schema defined for method'
-			);
+			expect(result.errors[0].message).toContain('No API schema defined for method');
 		});
 
 		test('validates complex nested objects', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement';
+			const apiName =
+				'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement';
 			const complexRequest = {
 				bank_account: 'NL-Bank-Account-001',
 				statement_data: 'base64encodeddata==',
@@ -535,8 +471,8 @@ describe('Financial API Contract Tests', () => {
 		});
 
 		test('validates comprehensive reconciliation response', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement';
+			const apiName =
+				'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement';
 			const complexResponse = {
 				success: true,
 				transactions_imported: 25,
@@ -558,11 +494,7 @@ describe('Financial API Contract Tests', () => {
 				]
 			};
 
-			const result = tester.validateAPICall(
-				apiName,
-				complexResponse,
-				'response'
-			);
+			const result = tester.validateAPICall(apiName, complexResponse, 'response');
 			expect(result.valid).toBe(true);
 		});
 	});

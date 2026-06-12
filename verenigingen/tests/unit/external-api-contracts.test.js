@@ -9,9 +9,7 @@
  * @version 1.0.0
  */
 
-const {
-	ExternalAPIContractTester
-} = require('../setup/external-api-contracts');
+const { ExternalAPIContractTester } = require('../setup/external-api-contracts');
 
 describe('External API Contracts', () => {
 	let tester;
@@ -37,10 +35,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_customer',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_customer', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -54,14 +49,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_customer',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_customer', invalidData);
 				expect(result.valid).toBe(false);
-				expect(
-					result.errors.some((err) => err.field.includes('Postcode'))
-				).toBe(true);
+				expect(result.errors.some((err) => err.field.includes('Postcode'))).toBe(true);
 			});
 
 			it('should reject invalid Dutch IBAN', () => {
@@ -73,14 +63,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_customer',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_customer', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('IBAN'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('IBAN'))).toBe(true);
 			});
 
 			it('should reject invalid Dutch VAT number', () => {
@@ -92,14 +77,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_customer',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_customer', invalidData);
 				expect(result.valid).toBe(false);
-				expect(
-					result.errors.some((err) => err.field.includes('BTWNummer'))
-				).toBe(true);
+				expect(result.errors.some((err) => err.field.includes('BTWNummer'))).toBe(true);
 			});
 		});
 
@@ -131,10 +111,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_invoice',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_invoice', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -155,17 +132,10 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_invoice',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_invoice', invalidData);
 				expect(result.valid).toBe(false);
 				expect(
-					result.errors.some(
-						(err) =>
-							err.field.includes('BTWPercentage')
-              || err.message.includes('enum')
-					)
+					result.errors.some((err) => err.field.includes('BTWPercentage') || err.message.includes('enum'))
 				).toBe(true);
 			});
 
@@ -184,14 +154,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_invoice',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_invoice', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('Datum'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('Datum'))).toBe(true);
 			});
 
 			it('should reject invalid booking period format', () => {
@@ -210,14 +175,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.create_invoice',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.create_invoice', invalidData);
 				expect(result.valid).toBe(false);
-				expect(
-					result.errors.some((err) => err.field.includes('Boekingsperiode'))
-				).toBe(true);
+				expect(result.errors.some((err) => err.field.includes('Boekingsperiode'))).toBe(true);
 			});
 		});
 
@@ -234,10 +194,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.process_payment',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.process_payment', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -254,10 +211,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.e_boekhouden.api.process_payment',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.e_boekhouden.api.process_payment', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -280,10 +234,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_customer',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_customer', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -297,14 +248,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_customer',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_customer', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('locale'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('locale'))).toBe(true);
 			});
 
 			it('should reject invalid email format', () => {
@@ -315,14 +261,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_customer',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_customer', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('email'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('email'))).toBe(true);
 			});
 		});
 
@@ -339,7 +280,7 @@ describe('External API Contracts', () => {
 						description: 'Maandelijkse lidmaatschapsbijdrage',
 						method: ['directdebit'],
 						webhookUrl:
-              'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
+							'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
 						metadata: {
 							member_id: 'ASSOC-MEMBER-2025-001',
 							billing_cycle: 'monthly'
@@ -347,10 +288,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_subscription',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_subscription', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -369,10 +307,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_subscription',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_subscription', validData);
 				expect(result.valid).toBe(true);
 			});
 
@@ -386,14 +321,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_subscription',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_subscription', invalidData);
 				expect(result.valid).toBe(false);
-				expect(
-					result.errors.some((err) => err.field.includes('customer_id'))
-				).toBe(true);
+				expect(result.errors.some((err) => err.field.includes('customer_id'))).toBe(true);
 			});
 
 			it('should reject invalid amount format', () => {
@@ -409,14 +339,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_subscription',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_subscription', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('value'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('value'))).toBe(true);
 			});
 
 			it('should reject invalid subscription interval', () => {
@@ -429,14 +354,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_subscription',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_subscription', invalidData);
 				expect(result.valid).toBe(false);
-				expect(
-					result.errors.some((err) => err.field.includes('interval'))
-				).toBe(true);
+				expect(result.errors.some((err) => err.field.includes('interval'))).toBe(true);
 			});
 		});
 
@@ -451,7 +371,7 @@ describe('External API Contracts', () => {
 						description: 'Eenmalige donatie klimaatactie',
 						redirectUrl: 'https://dev.veganisme.net/donation/success',
 						webhookUrl:
-              'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
+							'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
 						method: 'ideal',
 						locale: 'nl_NL',
 						metadata: {
@@ -462,10 +382,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_payment',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_payment', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -482,10 +399,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_payment',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_payment', validData);
 				expect(result.valid).toBe(true);
 			});
 
@@ -499,14 +413,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_payment',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_payment', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('method'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('method'))).toBe(true);
 			});
 
 			it('should reject invalid URL format', () => {
@@ -518,14 +427,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.create_payment',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.create_payment', invalidData);
 				expect(result.valid).toBe(false);
-				expect(
-					result.errors.some((err) => err.field.includes('redirectUrl'))
-				).toBe(true);
+				expect(result.errors.some((err) => err.field.includes('redirectUrl'))).toBe(true);
 			});
 		});
 
@@ -537,10 +441,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.process_webhook',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.process_webhook', validData);
 				expect(result.valid).toBe(true);
 				expect(result.errors).toHaveLength(0);
 			});
@@ -552,10 +453,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.process_webhook',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.process_webhook', validData);
 				expect(result.valid).toBe(true);
 			});
 
@@ -566,10 +464,7 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.process_webhook',
-					validData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.process_webhook', validData);
 				expect(result.valid).toBe(true);
 			});
 
@@ -580,14 +475,9 @@ describe('External API Contracts', () => {
 					}
 				};
 
-				const result = tester.validateArgs(
-					'verenigingen.mollie_integration.process_webhook',
-					invalidData
-				);
+				const result = tester.validateArgs('verenigingen.mollie_integration.process_webhook', invalidData);
 				expect(result.valid).toBe(false);
-				expect(result.errors.some((err) => err.field.includes('id'))).toBe(
-					true
-				);
+				expect(result.errors.some((err) => err.field.includes('id'))).toBe(true);
 			});
 		});
 	});
@@ -622,24 +512,16 @@ describe('External API Contracts', () => {
 		});
 
 		it('should generate Dutch-compliant test data', () => {
-			const customerData = tester.generateValidTestData(
-				'verenigingen.e_boekhouden.api.create_customer'
-			);
+			const customerData = tester.generateValidTestData('verenigingen.e_boekhouden.api.create_customer');
 
 			// Verify Dutch postal code format
-			expect(customerData.customer_data.Postcode).toMatch(
-				/^[1-9][0-9]{3}\s[A-Z]{2}$/
-			);
+			expect(customerData.customer_data.Postcode).toMatch(/^[1-9][0-9]{3}\s[A-Z]{2}$/);
 
 			// Verify Dutch IBAN format
-			expect(customerData.customer_data.IBAN).toMatch(
-				/^NL[0-9]{2}[A-Z]{4}[0-9]{10}$/
-			);
+			expect(customerData.customer_data.IBAN).toMatch(/^NL[0-9]{2}[A-Z]{4}[0-9]{10}$/);
 
 			// Verify Dutch VAT number format
-			expect(customerData.customer_data.BTWNummer).toMatch(
-				/^NL[0-9]{9}B[0-9]{2}$/
-			);
+			expect(customerData.customer_data.BTWNummer).toMatch(/^NL[0-9]{9}B[0-9]{2}$/);
 		});
 	});
 
@@ -661,31 +543,21 @@ describe('External API Contracts', () => {
 		it('should cover both eBoekhouden and Mollie integrations', () => {
 			const methods = tester.getAvailableMethods();
 
-			const eBoekhoudentMethods = methods.filter((m) =>
-				m.includes('e_boekhouden')
-			);
-			const mollieMethods = methods.filter((m) =>
-				m.includes('mollie_integration')
-			);
+			const eBoekhoudentMethods = methods.filter((m) => m.includes('e_boekhouden'));
+			const mollieMethods = methods.filter((m) => m.includes('mollie_integration'));
 
 			expect(eBoekhoudentMethods.length).toBeGreaterThanOrEqual(3);
 			expect(mollieMethods.length).toBeGreaterThanOrEqual(4);
 		});
 
 		it('should provide detailed schema information', () => {
-			const customerSchema = tester.getMethodSchema(
-				'verenigingen.e_boekhouden.api.create_customer'
-			);
+			const customerSchema = tester.getMethodSchema('verenigingen.e_boekhouden.api.create_customer');
 
 			expect(customerSchema).toBeDefined();
 			expect(customerSchema.args).toBeDefined();
 			expect(customerSchema.response).toBeDefined();
-			expect(customerSchema.args.properties.customer_data.required).toContain(
-				'Naam'
-			);
-			expect(customerSchema.args.properties.customer_data.required).toContain(
-				'Email'
-			);
+			expect(customerSchema.args.properties.customer_data.required).toContain('Naam');
+			expect(customerSchema.args.properties.customer_data.required).toContain('Email');
 		});
 	});
 });

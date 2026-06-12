@@ -365,10 +365,7 @@ class ChapterDashboard {
 	}
 
 	renderStats(stats) {
-		const percentage = (
-			(stats.active_members / stats.total_members)
-      * 100
-		).toFixed(0);
+		const percentage = ((stats.active_members / stats.total_members) * 100).toFixed(0);
 		document.querySelector('.stats-section').innerHTML = `
             <div class="stat-total">${stats.total_members}</div>
             <div class="stat-active">${stats.active_members} (${percentage}%)</div>
@@ -389,19 +386,13 @@ class ChapterDashboard {
 	selectMember(memberId) {
 		if (!this.selectedMembers.includes(memberId)) {
 			this.selectedMembers.push(memberId);
-			document
-				.querySelector(`[data-member-id="${memberId}"]`)
-				.classList.add('selected');
+			document.querySelector(`[data-member-id="${memberId}"]`).classList.add('selected');
 		}
 	}
 
 	filterMembers(members, searchTerm) {
 		const term = searchTerm.toLowerCase();
-		return members.filter(
-			(m) =>
-				m.full_name.toLowerCase().includes(term)
-        || m.email.toLowerCase().includes(term)
-		);
+		return members.filter((m) => m.full_name.toLowerCase().includes(term) || m.email.toLowerCase().includes(term));
 	}
 
 	filterByStatus(members, status) {

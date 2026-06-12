@@ -23,16 +23,8 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import test setup utilities
-const {
-	setupTestMocks,
-	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
-} = require('../../setup/frappe-mocks');
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../../setup/controller-loader');
+const { setupTestMocks, cleanupTestMocks, createMockForm, dutchTestData } = require('../../setup/frappe-mocks');
+const { loadFrappeController, testFormEvent } = require('../../setup/controller-loader');
 const { validateDutchPostalCode } = require('../../setup/dutch-validators');
 
 // Initialize test environment
@@ -70,8 +62,8 @@ describe('Real Chapter Controller', () => {
 
 	beforeAll(() => {
 		// Load the real Chapter controller
-		const controllerPath
-      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/chapter/chapter.js';
+		const controllerPath =
+			'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/chapter/chapter.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		chapterHandlers = allHandlers['Chapter'];
 
@@ -111,8 +103,7 @@ describe('Real Chapter Controller', () => {
 				region: 'Noord-Holland',
 				cost_center: 'Amsterdam - CC',
 				postal_codes: '1000-1099, 1100-1199',
-				introduction:
-          'Welcome to Amsterdam Chapter - serving the capital and surrounding areas.',
+				introduction: 'Welcome to Amsterdam Chapter - serving the capital and surrounding areas.',
 				address: 'Damrak 1, 1012 LG Amsterdam',
 				published: 1,
 				route: 'chapter/amsterdam',
@@ -157,11 +148,11 @@ describe('Real Chapter Controller', () => {
 					get_data: jest.fn(() => frm.doc.board_members),
 					get_field: jest.fn((fieldname) => ({
 						get_query:
-              fieldname === 'volunteer'
-              	? jest.fn(() => ({
-              		filters: { status: ['in', ['Active', 'New']] }
-              	}))
-              	: jest.fn(() => ({ filters: { is_active: 1 } }))
+							fieldname === 'volunteer'
+								? jest.fn(() => ({
+										filters: { status: ['in', ['Active', 'New']] }
+									}))
+								: jest.fn(() => ({ filters: { is_active: 1 } }))
 					}))
 				}
 			},
@@ -214,11 +205,7 @@ describe('Real Chapter Controller', () => {
 
 		// Mock user permissions for chapter operations
 		global.frappe.user.has_role.mockImplementation((role) => {
-			return [
-				'System Manager',
-				'Verenigingen Administrator',
-				'Chapter Manager'
-			].includes(role);
+			return ['System Manager', 'Verenigingen Administrator', 'Chapter Manager'].includes(role);
 		});
 	});
 
@@ -709,13 +696,7 @@ describe('Real Chapter Controller', () => {
 		});
 
 		it('should validate board member roles', () => {
-			const validRoles = [
-				'Chapter Chair',
-				'Vice Chair',
-				'Secretary',
-				'Treasurer',
-				'Board Member'
-			];
+			const validRoles = ['Chapter Chair', 'Vice Chair', 'Secretary', 'Treasurer', 'Board Member'];
 
 			validRoles.forEach((role) => {
 				frm.doc.board_members[0].chapter_role = role;
@@ -733,9 +714,7 @@ describe('Real Chapter Controller', () => {
 			const futureDate = new Date();
 			futureDate.setFullYear(currentDate.getFullYear() + 1);
 
-			frm.doc.board_members[0].from_date = currentDate
-				.toISOString()
-				.split('T')[0];
+			frm.doc.board_members[0].from_date = currentDate.toISOString().split('T')[0];
 			frm.doc.board_members[0].to_date = futureDate.toISOString().split('T')[0];
 
 			expect(() => {
@@ -872,9 +851,7 @@ describe('Real Chapter Controller', () => {
 				});
 			}).not.toThrow();
 
-			expect(global.frappe.msgprint).toHaveBeenCalledWith(
-				expect.stringMatching(/postal code|validation/i)
-			);
+			expect(global.frappe.msgprint).toHaveBeenCalledWith(expect.stringMatching(/postal code|validation/i));
 		});
 
 		it('should handle network timeouts gracefully', () => {
@@ -974,6 +951,5 @@ describe('Real Chapter Controller', () => {
 
 // Export test utilities for reuse
 module.exports = {
-	testChapterHandler: (event, mockForm) =>
-		testFormEvent('Chapter', event, mockForm, { Chapter: chapterHandlers })
+	testChapterHandler: (event, mockForm) => testFormEvent('Chapter', event, mockForm, { Chapter: chapterHandlers })
 };

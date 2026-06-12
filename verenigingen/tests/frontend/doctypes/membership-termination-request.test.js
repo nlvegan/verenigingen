@@ -71,14 +71,8 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.onload(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'request_date',
-				expect.any(String)
-			);
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'requested_by',
-				'test@example.com'
-			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('request_date', expect.any(String));
+			expect(mockFrm.set_value).toHaveBeenCalledWith('requested_by', 'test@example.com');
 			expect(mockFrm.set_value).toHaveBeenCalledWith('status', 'Draft');
 		});
 
@@ -91,10 +85,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.page.set_indicator).toHaveBeenCalledWith(
-				'Pending',
-				'yellow'
-			);
+			expect(mockFrm.page.set_indicator).toHaveBeenCalledWith('Pending', 'yellow');
 		});
 
 		test('should add view member button when member is specified', () => {
@@ -107,11 +98,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'View Member',
-				expect.any(Function),
-				'View'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('View Member', expect.any(Function), 'View');
 		});
 
 		test('should make audit trail read-only', () => {
@@ -120,11 +107,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'audit_trail',
-				'read_only',
-				1
-			);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('audit_trail', 'read_only', 1);
 		});
 	});
 
@@ -138,22 +121,10 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
-				'disciplinary_documentation',
-				true
-			);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
-				'disciplinary_documentation',
-				true
-			);
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
-				'secondary_approver',
-				true
-			);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
-				'secondary_approver',
-				true
-			);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith('disciplinary_documentation', true);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('disciplinary_documentation', true);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith('secondary_approver', true);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('secondary_approver', true);
 		});
 
 		test('should hide disciplinary fields for voluntary terminations', () => {
@@ -165,22 +136,10 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
-				'disciplinary_documentation',
-				false
-			);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
-				'disciplinary_documentation',
-				false
-			);
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
-				'secondary_approver',
-				false
-			);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
-				'secondary_approver',
-				false
-			);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith('disciplinary_documentation', false);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('disciplinary_documentation', false);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith('secondary_approver', false);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('secondary_approver', false);
 		});
 
 		test('should set immediate termination date for disciplinary actions', () => {
@@ -193,10 +152,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'termination_date',
-				expect.any(String)
-			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('termination_date', expect.any(String));
 			expect(mockFrm.set_value).toHaveBeenCalledWith('grace_period_end', null);
 		});
 
@@ -211,14 +167,8 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'termination_date',
-				expect.any(String)
-			);
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'grace_period_end',
-				expect.any(String)
-			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('termination_date', expect.any(String));
+			expect(mockFrm.set_value).toHaveBeenCalledWith('grace_period_end', expect.any(String));
 		});
 	});
 
@@ -249,16 +199,8 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Approve',
-				expect.any(Function),
-				'Actions'
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Reject',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Approve', expect.any(Function), 'Actions');
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Reject', expect.any(Function), 'Actions');
 		});
 
 		test('should show execute termination button in approved status', () => {
@@ -290,9 +232,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 
 			// Find submit button and execute
 			terminationRequest.refresh(mockFrm);
-			const submitButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Submit for Approval'
-			);
+			const submitButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Submit for Approval');
 			if (submitButton) {
 				await submitButton[1](); // Execute the callback
 			}
@@ -341,10 +281,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.onload(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_query).toHaveBeenCalledWith(
-				'secondary_approver',
-				expect.any(Function)
-			);
+			expect(mockFrm.set_query).toHaveBeenCalledWith('secondary_approver', expect.any(Function));
 		});
 
 		test('should check approval authorization for disciplinary terminations', () => {
@@ -363,10 +300,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 				if (userRoles.includes('System Manager')) {
 					return true;
 				}
-				if (
-					userRoles.includes('Verenigingen Administrator')
-          && frm.doc.requires_secondary_approval
-				) {
+				if (userRoles.includes('Verenigingen Administrator') && frm.doc.requires_secondary_approval) {
 					return true;
 				}
 				return frm.doc.secondary_approver === frappe.session.user;
@@ -410,9 +344,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 
 			// Assert confirmation dialog is shown
 			expect(frappe.confirm).toHaveBeenCalledWith(
-				expect.stringContaining(
-					'Are you sure you want to execute this termination'
-				),
+				expect.stringContaining('Are you sure you want to execute this termination'),
 				expect.any(Function)
 			);
 		});
@@ -563,9 +495,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert no approval buttons are shown
-			const approveButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Approve'
-			);
+			const approveButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Approve');
 			expect(approveButton).toBeUndefined();
 		});
 
@@ -637,11 +567,7 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 
 	test('should format disciplinary termination types with red indicator', () => {
 		// Arrange
-		const disciplinaryTypes = [
-			'Policy Violation',
-			'Disciplinary Action',
-			'Expulsion'
-		];
+		const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
 
 		disciplinaryTypes.forEach((type) => {
 			// Act
@@ -696,11 +622,7 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 		listSettings.button.action(docData);
 
 		// Assert
-		expect(frappe.set_route).toHaveBeenCalledWith(
-			'Form',
-			'Membership Termination Request',
-			'MTR-2025-001'
-		);
+		expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Membership Termination Request', 'MTR-2025-001');
 	});
 
 	test('should add custom menu items on list load', () => {
@@ -719,14 +641,8 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 		listSettings.onload(mockListview);
 
 		// Assert
-		expect(mockListview.page.add_menu_item).toHaveBeenCalledWith(
-			'Generate Expulsion Report',
-			expect.any(Function)
-		);
-		expect(mockListview.page.add_menu_item).toHaveBeenCalledWith(
-			'Bulk Process Terminations',
-			expect.any(Function)
-		);
+		expect(mockListview.page.add_menu_item).toHaveBeenCalledWith('Generate Expulsion Report', expect.any(Function));
+		expect(mockListview.page.add_menu_item).toHaveBeenCalledWith('Bulk Process Terminations', expect.any(Function));
 	});
 
 	test('should handle expulsion report generation dialog', () => {
@@ -784,13 +700,11 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 		const listSettings = require('../../../../verenigingen/doctype/membership_termination_request/membership_termination_request_list.js');
 
 		// Simulate bulk process menu click
-		mockListview.page.add_menu_item.mockImplementationOnce(
-			(label, callback) => {
-				if (label === 'Bulk Process Terminations') {
-					callback();
-				}
+		mockListview.page.add_menu_item.mockImplementationOnce((label, callback) => {
+			if (label === 'Bulk Process Terminations') {
+				callback();
 			}
-		);
+		});
 
 		listSettings.onload(mockListview);
 

@@ -14,11 +14,7 @@
  * @version 1.0.0
  */
 
-const {
-	APIContractTestServer,
-	APIContractTester,
-	createAPIContractMatcher
-} = require('./api-contract-testing');
+const { APIContractTestServer, APIContractTester, createAPIContractMatcher } = require('./api-contract-testing');
 
 require('./frappe-mocks').setupTestMocks();
 
@@ -49,9 +45,7 @@ describe('API Contract Testing Examples', () => {
 				member: 'ASSOC-MEMBER-2025-001'
 			};
 
-			expect(validArgs).toMatchAPIContract(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			expect(validArgs).toMatchAPIContract('verenigingen.verenigingen.doctype.member.member.process_payment');
 		});
 
 		it('should reject invalid member format', () => {
@@ -139,9 +133,7 @@ describe('API Contract Testing Examples', () => {
 				anbi_consent: true
 			};
 
-			expect(validDonation).toMatchAPIContract(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			expect(validDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 		});
 
 		it('should validate recurring donation type', () => {
@@ -152,9 +144,7 @@ describe('API Contract Testing Examples', () => {
 				donation_type: 'recurring'
 			};
 
-			expect(recurringDonation).toMatchAPIContract(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			expect(recurringDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 		});
 
 		it('should reject invalid email format', () => {
@@ -165,9 +155,7 @@ describe('API Contract Testing Examples', () => {
 			};
 
 			expect(() => {
-				expect(invalidEmailDonation).toMatchAPIContract(
-					'verenigingen.templates.pages.donate.submit_donation'
-				);
+				expect(invalidEmailDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 			}).toThrow();
 		});
 
@@ -179,9 +167,7 @@ describe('API Contract Testing Examples', () => {
 			};
 
 			expect(() => {
-				expect(negativeDonation).toMatchAPIContract(
-					'verenigingen.templates.pages.donate.submit_donation'
-				);
+				expect(negativeDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 			}).toThrow();
 		});
 	});
@@ -228,9 +214,7 @@ describe('API Contract Testing Examples', () => {
 		});
 
 		it('should generate valid donation test data', () => {
-			const testData = tester.generateValidTestData(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			const testData = tester.generateValidTestData('verenigingen.templates.pages.donate.submit_donation');
 
 			expect(testData).toHaveProperty('donor_name');
 			expect(testData).toHaveProperty('email');
@@ -244,22 +228,16 @@ describe('API Contract Testing Examples', () => {
 		it('should list all available API methods for testing', () => {
 			const methods = tester.getAvailableMethods();
 
-			expect(methods).toContain(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			expect(methods).toContain('verenigingen.verenigingen.doctype.member.member.process_payment');
 			expect(methods).toContain(
 				'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup'
 			);
-			expect(methods).toContain(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			expect(methods).toContain('verenigingen.templates.pages.donate.submit_donation');
 			expect(methods.length).toBeGreaterThan(5);
 		});
 
 		it('should provide schema details for specific methods', () => {
-			const schema = tester.getMethodSchema(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			const schema = tester.getMethodSchema('verenigingen.verenigingen.doctype.member.member.process_payment');
 
 			expect(schema).toHaveProperty('args');
 			expect(schema).toHaveProperty('response');

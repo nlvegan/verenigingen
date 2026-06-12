@@ -57,21 +57,9 @@ describe('Periodic Donation Agreement DocType - Comprehensive Test Suite', () =>
 			const agreement = require('../../../../verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.js');
 			agreement.refresh(mockFrm);
 
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Link Donation',
-				expect.any(Function),
-				'Actions'
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Cancel Agreement',
-				expect.any(Function),
-				'Actions'
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Generate PDF',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Link Donation', expect.any(Function), 'Actions');
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Cancel Agreement', expect.any(Function), 'Actions');
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Generate PDF', expect.any(Function), 'Actions');
 		});
 
 		test('should add activate button for draft agreements', () => {
@@ -173,9 +161,7 @@ describe('Periodic Donation Agreement DocType - Comprehensive Test Suite', () =>
 			const agreement = require('../../../../verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.js');
 			agreement.refresh(mockFrm);
 
-			const linkButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Link Donation'
-			);
+			const linkButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Link Donation');
 			if (linkButton) {
 				linkButton[1]();
 			}

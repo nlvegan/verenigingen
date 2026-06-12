@@ -13,9 +13,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -47,7 +45,7 @@ global.window = {
 const batchConfig = {
 	doctype: 'Direct Debit Batch',
 	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js',
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js',
 	expectedHandlers: ['refresh'],
 	defaultDoc: {
 		batch_id: 'BATCH-2024-001',
@@ -97,22 +95,20 @@ const customBatchTests = {
 	'Batch Processing Workflow': (getControllerTest) => {
 		beforeEach(() => {
 			// Mock batch item data
-			getControllerTest().mockForm.fields_dict.batch_items.grid.get_data.mockReturnValue(
-				[
-					{
-						mandate: 'SEPA-2024-001',
-						member: 'MEM-2024-001',
-						amount: 25.0,
-						description: 'Monthly membership fee'
-					},
-					{
-						mandate: 'SEPA-2024-002',
-						member: 'MEM-2024-002',
-						amount: 50.0,
-						description: 'Annual membership fee'
-					}
-				]
-			);
+			getControllerTest().mockForm.fields_dict.batch_items.grid.get_data.mockReturnValue([
+				{
+					mandate: 'SEPA-2024-001',
+					member: 'MEM-2024-001',
+					amount: 25.0,
+					description: 'Monthly membership fee'
+				},
+				{
+					mandate: 'SEPA-2024-002',
+					member: 'MEM-2024-002',
+					amount: 50.0,
+					description: 'Annual membership fee'
+				}
+			]);
 		});
 
 		it('should handle draft batch refresh without errors', () => {
@@ -138,13 +134,7 @@ const customBatchTests = {
 		});
 
 		it('should handle different batch statuses', () => {
-			const statuses = [
-				'Draft',
-				'Generated',
-				'Submitted',
-				'Processed',
-				'Failed'
-			];
+			const statuses = ['Draft', 'Generated', 'Submitted', 'Processed', 'Failed'];
 
 			statuses.forEach((status) => {
 				getControllerTest().mockForm.doc.status = status;
@@ -192,10 +182,7 @@ const customBatchTests = {
 
 		it('should support Dutch bank format requirements', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(
-				controllerTest,
-				'financial'
-			);
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should handle European banking compliance']();
 		});
@@ -204,33 +191,31 @@ const customBatchTests = {
 	'Mandate Integration': (getControllerTest) => {
 		beforeEach(() => {
 			// Mock mandate validation API calls
-			global.frappe.call.mockImplementation(
-				({ method, args, callback, error }) => {
-					if (method === 'validate_mandates') {
-						if (callback) {
-							callback({
-								message: {
-									valid_mandates: 4,
-									invalid_mandates: 1,
-									validation_errors: ['Mandate SEPA-2024-003 is expired']
+			global.frappe.call.mockImplementation(({ method, args, callback, error }) => {
+				if (method === 'validate_mandates') {
+					if (callback) {
+						callback({
+							message: {
+								valid_mandates: 4,
+								invalid_mandates: 1,
+								validation_errors: ['Mandate SEPA-2024-003 is expired']
+							}
+						});
+					}
+				} else if (method === 'get_batch_items') {
+					if (callback) {
+						callback({
+							message: [
+								{
+									mandate: 'SEPA-2024-001',
+									member: 'MEM-2024-001',
+									amount: 25.0
 								}
-							});
-						}
-					} else if (method === 'get_batch_items') {
-						if (callback) {
-							callback({
-								message: [
-									{
-										mandate: 'SEPA-2024-001',
-										member: 'MEM-2024-001',
-										amount: 25.0
-									}
-								]
-							});
-						}
+							]
+						});
 					}
 				}
-			);
+			});
 		});
 
 		it('should validate all mandates in the batch', () => {
@@ -283,25 +268,21 @@ const customBatchTests = {
 
 		it('should handle file URL references correctly', () => {
 			getControllerTest().mockForm.doc.status = 'Generated';
-			getControllerTest().mockForm.doc.sepa_file_url
-        = '/files/sepa_batch_001.xml';
+			getControllerTest().mockForm.doc.sepa_file_url = '/files/sepa_batch_001.xml';
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
 			}).not.toThrow();
 
 			// File URL should be preserved
-			expect(getControllerTest().mockForm.doc.sepa_file_url).toBe(
-				'/files/sepa_batch_001.xml'
-			);
+			expect(getControllerTest().mockForm.doc.sepa_file_url).toBe('/files/sepa_batch_001.xml');
 		});
 	},
 
 	'Error Handling and Recovery': (getControllerTest) => {
 		it('should handle batch processing errors gracefully', () => {
 			getControllerTest().mockForm.doc.status = 'Failed';
-			getControllerTest().mockForm.doc.error_message
-        = 'Bank connection timeout';
+			getControllerTest().mockForm.doc.error_message = 'Bank connection timeout';
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
@@ -323,9 +304,7 @@ const customBatchTests = {
 			const futureDate = new Date(today);
 			futureDate.setDate(today.getDate() + 3);
 
-			getControllerTest().mockForm.doc.collection_date = futureDate
-				.toISOString()
-				.split('T')[0];
+			getControllerTest().mockForm.doc.collection_date = futureDate.toISOString().split('T')[0];
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
@@ -358,10 +337,7 @@ const customBatchTests = {
 };
 
 // Create and export the test suite
-describe(
-	'Direct Debit Batch Controller (Refactored)',
-	createControllerTestSuite(batchConfig, customBatchTests)
-);
+describe('Direct Debit Batch Controller (Refactored)', createControllerTestSuite(batchConfig, customBatchTests));
 
 // Export test utilities for reuse
 module.exports = {

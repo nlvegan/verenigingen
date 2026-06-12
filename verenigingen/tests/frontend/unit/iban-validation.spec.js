@@ -166,10 +166,7 @@ describe('IBAN Validation in Membership Application', () => {
 
 				// Perform mod-97 checksum validation
 				const rearranged = cleanIBAN.substring(4) + cleanIBAN.substring(0, 4);
-				const numeric = rearranged.replace(
-					/[A-Z]/g,
-					(char) => char.charCodeAt(0) - 55
-				);
+				const numeric = rearranged.replace(/[A-Z]/g, (char) => char.charCodeAt(0) - 55);
 				const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
 					return (parseInt(acc + chunk) % 97).toString();
 				}, '');
@@ -256,9 +253,7 @@ describe('IBAN Validation in Membership Application', () => {
 
 				if (!validation.valid) {
 					ibanField.removeClass('is-valid').addClass('is-invalid');
-					ibanField.after(
-						`<div class="invalid-feedback">${validation.error}</div>`
-					);
+					ibanField.after(`<div class="invalid-feedback">${validation.error}</div>`);
 					$('#bic').val('');
 				} else {
 					ibanField.removeClass('is-invalid').addClass('is-valid');
@@ -266,9 +261,7 @@ describe('IBAN Validation in Membership Application', () => {
 
 					const bankName = this.getBankNameFromIBAN(iban);
 					if (bankName) {
-						ibanField.after(
-							`<div class="valid-feedback">Valid ${bankName} IBAN</div>`
-						);
+						ibanField.after(`<div class="valid-feedback">Valid ${bankName} IBAN</div>`);
 					} else {
 						ibanField.after('<div class="valid-feedback">Valid IBAN</div>');
 					}
@@ -294,17 +287,13 @@ describe('IBAN Validation in Membership Application', () => {
 		it('should reject IBANs with invalid checksum', () => {
 			const result = membershipApp.performIBANValidation('NL91ABNA0417164301');
 			expect(result.valid).toBe(false);
-			expect(result.error).toBe(
-				'Invalid IBAN checksum - please check for typos'
-			);
+			expect(result.error).toBe('Invalid IBAN checksum - please check for typos');
 		});
 
 		it('should validate country-specific lengths', () => {
 			const result = membershipApp.performIBANValidation('NL91ABNA041716430');
 			expect(result.valid).toBe(false);
-			expect(result.error).toBe(
-				'Dutch IBAN must be 18 characters (you have 17)'
-			);
+			expect(result.error).toBe('Dutch IBAN must be 18 characters (you have 17)');
 		});
 
 		it('should handle lowercase input', () => {
@@ -314,9 +303,7 @@ describe('IBAN Validation in Membership Application', () => {
 		});
 
 		it('should handle IBANs with spaces', () => {
-			const result = membershipApp.performIBANValidation(
-				'NL91 ABNA 0417 1643 00'
-			);
+			const result = membershipApp.performIBANValidation('NL91 ABNA 0417 1643 00');
 			expect(result.valid).toBe(true);
 			expect(result.formatted).toBe('NL91 ABNA 0417 1643 00');
 		});
@@ -334,9 +321,7 @@ describe('IBAN Validation in Membership Application', () => {
 		});
 
 		it('should validate German IBANs', () => {
-			const result = membershipApp.performIBANValidation(
-				'DE89370400440532013000'
-			);
+			const result = membershipApp.performIBANValidation('DE89370400440532013000');
 			expect(result.valid).toBe(true);
 			expect(result.formatted).toBe('DE89 3704 0044 0532 0130 00');
 		});
@@ -418,9 +403,7 @@ describe('IBAN Validation in Membership Application', () => {
 
 			expect(ibanField.removeClass).toHaveBeenCalledWith('is-invalid');
 			expect(ibanField.addClass).toHaveBeenCalledWith('is-valid');
-			expect(ibanField.after).toHaveBeenCalledWith(
-				expect.stringContaining('Valid ABN AMRO IBAN')
-			);
+			expect(ibanField.after).toHaveBeenCalledWith(expect.stringContaining('Valid ABN AMRO IBAN'));
 		});
 
 		it('should show error feedback for invalid IBAN', () => {
@@ -430,9 +413,7 @@ describe('IBAN Validation in Membership Application', () => {
 
 			expect(ibanField.removeClass).toHaveBeenCalledWith('is-valid');
 			expect(ibanField.addClass).toHaveBeenCalledWith('is-invalid');
-			expect(ibanField.after).toHaveBeenCalledWith(
-				expect.stringContaining('Invalid IBAN checksum')
-			);
+			expect(ibanField.after).toHaveBeenCalledWith(expect.stringContaining('Invalid IBAN checksum'));
 		});
 
 		it('should auto-fill BIC field for Dutch IBANs', () => {

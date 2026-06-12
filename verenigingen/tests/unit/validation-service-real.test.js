@@ -67,8 +67,7 @@ describe('ValidationService (real module)', () => {
 		});
 
 		test('accepts a Dutch surname with tussenvoegsel and apostrophe', async () => {
-			await expect(service.validateField('lastName', 'van der Berg-d\'Or'))
-				.resolves.toEqual({ valid: true });
+			await expect(service.validateField('lastName', "van der Berg-d'Or")).resolves.toEqual({ valid: true });
 		});
 
 		test('skips further checks for an optional empty field', async () => {
@@ -112,7 +111,13 @@ describe('ValidationService (real module)', () => {
 		test('reports valid:true when all sync fields pass', async () => {
 			const { service } = makeService();
 			const result = await service.validateFields(
-				{ firstName: 'Jan', lastName: 'Jansen', address: 'Hoofdstraat 1', city: 'Utrecht', country: 'Netherlands' },
+				{
+					firstName: 'Jan',
+					lastName: 'Jansen',
+					address: 'Hoofdstraat 1',
+					city: 'Utrecht',
+					country: 'Netherlands'
+				},
 				['firstName', 'lastName', 'address', 'city', 'country']
 			);
 			expect(result.valid).toBe(true);
@@ -239,7 +244,7 @@ describe('ValidationService (real module)', () => {
 			({ service, api } = makeService());
 		});
 
-		test.each(['Pieter', 'Jan-Willem', 'O\'Connor', 'José', 'Anne-Marie'])(
+		test.each(['Pieter', 'Jan-Willem', "O'Connor", 'José', 'Anne-Marie'])(
 			'accepts Dutch/international first name %p',
 			async (name) => {
 				await expect(service.validateField('firstName', name)).resolves.toEqual({ valid: true });
@@ -309,8 +314,7 @@ describe('ValidationService (real module)', () => {
 			await service._performAPIValidation('phone', '+31612345678', { country: 'Netherlands' });
 			expect(api.validatePhoneNumber).toHaveBeenCalledWith('+31612345678', 'Netherlands');
 
-			await expect(service._performAPIValidation('somethingElse', 'x', {}))
-				.resolves.toEqual({ valid: true });
+			await expect(service._performAPIValidation('somethingElse', 'x', {})).resolves.toEqual({ valid: true });
 		});
 	});
 

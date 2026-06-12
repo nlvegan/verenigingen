@@ -13,9 +13,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -24,8 +22,7 @@ require('../../setup/frappe-mocks').setupTestMocks();
 // Controller configuration
 const donorConfig = {
 	doctype: 'Donor',
-	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donor/donor.js',
+	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donor/donor.js',
 	expectedHandlers: ['refresh', 'donor_type', 'bsn_rsin'],
 	defaultDoc: {
 		donor_name: 'Jan van der Berg',
@@ -109,10 +106,7 @@ const customDonorTests = {
 		});
 
 		it('should validate Dutch postal codes', () => {
-			const associationBuilder = createDomainTestBuilder(
-				getControllerTest(),
-				'association'
-			);
+			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch postal codes']();
 		});
@@ -240,10 +234,7 @@ const customDonorTests = {
 
 	'Contact Information Management': (getControllerTest) => {
 		it('should validate email format', () => {
-			const associationBuilder = createDomainTestBuilder(
-				getControllerTest(),
-				'association'
-			);
+			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch email format']();
 		});
@@ -316,10 +307,7 @@ const customDonorTests = {
 };
 
 // Create and export the test suite
-describe(
-	'Donor Controller (New Infrastructure)',
-	createControllerTestSuite(donorConfig, customDonorTests)
-);
+describe('Donor Controller (New Infrastructure)', createControllerTestSuite(donorConfig, customDonorTests));
 
 // Export test utilities for reuse
 module.exports = {

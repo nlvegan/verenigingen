@@ -141,9 +141,7 @@ describe('Chapter Form', () => {
 		});
 
 		it('should prevent duplicate board member roles', async () => {
-			frm.doc.board_members = [
-				{ member_name: 'John Doe', role: 'Chair', is_active: 1 }
-			];
+			frm.doc.board_members = [{ member_name: 'John Doe', role: 'Chair', is_active: 1 }];
 
 			frappe.prompt.mockImplementation((fields, callback) => {
 				callback({
@@ -188,11 +186,7 @@ describe('Chapter Form', () => {
 
 	describe('Postal Code Management', () => {
 		it('should validate postal code regex pattern', () => {
-			const validPatterns = [
-				'^10[0-9]{2}',
-				'^(10|11|12)[0-9]{2}',
-				'^[1-9][0-9]{3}'
-			];
+			const validPatterns = ['^10[0-9]{2}', '^(10|11|12)[0-9]{2}', '^[1-9][0-9]{3}'];
 
 			const invalidPatterns = [
 				'1234', // No regex markers
@@ -225,10 +219,7 @@ describe('Chapter Form', () => {
 					method: expect.stringContaining('suggest_postal_codes_for_region')
 				})
 			);
-			expect(frm.set_value).toHaveBeenCalledWith(
-				'postal_code_regex',
-				'^101[0-9]'
-			);
+			expect(frm.set_value).toHaveBeenCalledWith('postal_code_regex', '^101[0-9]');
 		});
 
 		it('should show postal code distribution', async () => {
@@ -324,11 +315,7 @@ describe('Chapter Form', () => {
 			chapterForm.create_volunteer_for_board_member(frm, 'John Doe');
 
 			expect(frappe.route_options.volunteer_name).toBe('John Doe');
-			expect(frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Volunteer',
-				'New Volunteer'
-			);
+			expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Volunteer', 'New Volunteer');
 		});
 
 		it('should sync board member with volunteer system', async () => {
@@ -368,8 +355,6 @@ function validateBoardMemberDates(member) {
 }
 
 function validateChapterHeadAssignment(frm, memberName) {
-	const existingHead = frm.doc.members.find(
-		(m) => m.is_chapter_head && m.is_active && m.member !== memberName
-	);
+	const existingHead = frm.doc.members.find((m) => m.is_chapter_head && m.is_active && m.member !== memberName);
 	return !existingHead;
 }

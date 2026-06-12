@@ -78,10 +78,7 @@ describe('Membership Form', () => {
 			frm.doc.enable_razorpay = 1; // Enable custom amount
 			membershipEvents.enable_razorpay(frm);
 
-			expect(frm.toggle_display).toHaveBeenCalledWith(
-				'razorpay_details_section',
-				1
-			);
+			expect(frm.toggle_display).toHaveBeenCalledWith('razorpay_details_section', 1);
 			expect(frm.toggle_reqd).toHaveBeenCalledWith('payment_url', 1);
 		});
 
@@ -125,10 +122,7 @@ describe('Membership Form', () => {
 			membershipEvents.set_renewal_date(frm);
 
 			// Should set to_date to one month from start
-			expect(frm.set_value).toHaveBeenCalledWith(
-				'to_date',
-				expect.stringMatching(/2024-02-1[45]/)
-			);
+			expect(frm.set_value).toHaveBeenCalledWith('to_date', expect.stringMatching(/2024-02-1[45]/));
 		});
 
 		it('should handle lifetime membership with no end date', () => {
@@ -223,10 +217,7 @@ describe('Membership Form', () => {
 			frm.doc.auto_renew = 1;
 			membershipEvents.auto_renew(frm);
 
-			expect(frm.toggle_display).toHaveBeenCalledWith(
-				'auto_renewal_settings',
-				1
-			);
+			expect(frm.toggle_display).toHaveBeenCalledWith('auto_renewal_settings', 1);
 			expect(frm.toggle_reqd).toHaveBeenCalledWith('renewal_period', 1);
 		});
 

@@ -63,17 +63,11 @@ describe('Business Workflows - Integration Test Suite', () => {
 			const workflow = new MemberOnboardingWorkflow();
 
 			// Step 1: Submit application
-			const application = await workflow.submitApplication(
-				memberData,
-				addressData
-			);
+			const application = await workflow.submitApplication(memberData, addressData);
 			expect(application.status).toBe('Pending');
 
 			// Step 2: Assign to chapter based on postal code
-			const chapterAssignment = await workflow.assignToChapter(
-				application,
-				chapterData
-			);
+			const chapterAssignment = await workflow.assignToChapter(application, chapterData);
 			expect(chapterAssignment.success).toBe(true);
 			expect(chapterAssignment.assignedChapter).toBe(chapterData.name);
 
@@ -82,10 +76,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 				iban: memberData.iban,
 				bank_account_name: memberData.bank_account_name
 			});
-			const mandateCreation = await workflow.createSEPAMandate(
-				application,
-				mandateData
-			);
+			const mandateCreation = await workflow.createSEPAMandate(application, mandateData);
 			expect(mandateCreation.mandate_id).toBeDefined();
 
 			// Step 4: Approve membership
@@ -94,10 +85,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 
 			// Step 5: Create membership record
 			const membershipData = testFactory.createMembershipData(application.name);
-			const membership = await workflow.createMembership(
-				application,
-				membershipData
-			);
+			const membership = await workflow.createMembership(application, membershipData);
 			expect(membership.status).toBe('Active');
 
 			// Assert - Complete workflow validation
@@ -123,9 +111,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 			const workflow = new MemberOnboardingWorkflow();
 
 			// Assert - Should fail validation
-			await expect(
-				workflow.submitApplication(invalidMemberData)
-			).rejects.toThrow('Validation failed');
+			await expect(workflow.submitApplication(invalidMemberData)).rejects.toThrow('Validation failed');
 		});
 
 		test('should handle chapter assignment for members outside coverage', async () => {
@@ -142,10 +128,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 
 			// Act
 			const workflow = new MemberOnboardingWorkflow();
-			const assignment = await workflow.findMatchingChapter(
-				memberData,
-				chapters
-			);
+			const assignment = await workflow.findMatchingChapter(memberData, chapters);
 
 			// Assert
 			expect(assignment.hasMatch).toBe(false);
@@ -176,10 +159,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 			const paymentWorkflow = new PaymentProcessingWorkflow();
 
 			// Step 1: Generate quarterly invoice
-			const invoice = await paymentWorkflow.generateQuarterlyInvoice(
-				member,
-				membership
-			);
+			const invoice = await paymentWorkflow.generateQuarterlyInvoice(member, membership);
 			expect(invoice.outstanding_amount).toBe(25.0); // 100/4
 			expect(invoice.due_date).toBeDefined();
 
@@ -191,11 +171,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 			expect(batch.status).toBe('Draft');
 
 			// Step 3: Add invoice to batch
-			const batchEntry = await paymentWorkflow.addInvoiceToBatch(
-				batch,
-				invoice,
-				mandate
-			);
+			const batchEntry = await paymentWorkflow.addInvoiceToBatch(batch, invoice, mandate);
 			expect(batchEntry.amount).toBe(25.0);
 			expect(batchEntry.mandate_id).toBe(mandate.mandate_id);
 
@@ -209,11 +185,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 			expect(bankSubmission.status).toBe('Submitted');
 
 			// Step 6: Process successful payment
-			const paymentProcessing = await paymentWorkflow.processSuccessfulPayment(
-				batch,
-				invoice,
-				member
-			);
+			const paymentProcessing = await paymentWorkflow.processSuccessfulPayment(batch, invoice, member);
 			expect(paymentProcessing.paymentEntry).toBeDefined();
 			expect(paymentProcessing.invoiceStatus).toBe('Paid');
 
@@ -261,11 +233,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 
 			// Act - Cancel mandate with active batch
 			const paymentWorkflow = new PaymentProcessingWorkflow();
-			const cancellation = await paymentWorkflow.handleMandateCancellation(
-				mandate,
-				member,
-				[activeBatch]
-			);
+			const cancellation = await paymentWorkflow.handleMandateCancellation(mandate, member, [activeBatch]);
 
 			// Assert
 			expect(cancellation.mandateCancelled).toBe(true);
@@ -300,23 +268,16 @@ describe('Business Workflows - Integration Test Suite', () => {
 			expect(chapter.status).toBe('Pending');
 
 			// Step 2: Find eligible members
-			const eligibleMemberSearch
-        = await chapterWorkflow.findEligibleMembers(chapter);
+			const eligibleMemberSearch = await chapterWorkflow.findEligibleMembers(chapter);
 			expect(eligibleMemberSearch.members.length).toBe(15);
 
 			// Step 3: Assign members to chapter
-			const memberAssignment = await chapterWorkflow.assignMembers(
-				chapter,
-				eligibleMemberSearch.members
-			);
+			const memberAssignment = await chapterWorkflow.assignMembers(chapter, eligibleMemberSearch.members);
 			expect(memberAssignment.assignedCount).toBe(15);
 
 			// Step 4: Recruit board members
 			const boardCandidates = eligibleMembers.slice(0, 5);
-			const boardRecruitment = await chapterWorkflow.recruitBoardMembers(
-				chapter,
-				boardCandidates
-			);
+			const boardRecruitment = await chapterWorkflow.recruitBoardMembers(chapter, boardCandidates);
 			expect(boardRecruitment.boardSize).toBeGreaterThanOrEqual(3);
 
 			// Step 5: Activate chapter
@@ -370,15 +331,11 @@ describe('Business Workflows - Integration Test Suite', () => {
 
 			// Step 1: Create volunteer profile
 			const volunteerData = testFactory.createVolunteerData(member.name);
-			const volunteer = await volunteerWorkflow.createVolunteerProfile(
-				member,
-				volunteerData
-			);
+			const volunteer = await volunteerWorkflow.createVolunteerProfile(member, volunteerData);
 			expect(volunteer.status).toBe('Active');
 
 			// Step 2: Skills assessment
-			const skillsAssessment
-        = await volunteerWorkflow.conductSkillsAssessment(volunteer);
+			const skillsAssessment = await volunteerWorkflow.conductSkillsAssessment(volunteer);
 			expect(skillsAssessment.skillsIdentified).toBeGreaterThan(0);
 
 			// Step 3: Match with opportunities
@@ -387,18 +344,11 @@ describe('Business Workflows - Integration Test Suite', () => {
 				{ role: 'Communications Manager', skills_required: ['Social Media'] }
 			];
 
-			const matching = await volunteerWorkflow.matchWithOpportunities(
-				volunteer,
-				opportunities
-			);
+			const matching = await volunteerWorkflow.matchWithOpportunities(volunteer, opportunities);
 			expect(matching.matches.length).toBeGreaterThan(0);
 
 			// Step 4: Assign to chapter board
-			const boardAssignment = await volunteerWorkflow.assignToBoardRole(
-				volunteer,
-				chapter,
-				'Secretary'
-			);
+			const boardAssignment = await volunteerWorkflow.assignToBoardRole(volunteer, chapter, 'Secretary');
 			expect(boardAssignment.success).toBe(true);
 
 			// Assert - Complete volunteer workflow
@@ -419,10 +369,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 
 			// Act - Check workload capacity
 			const volunteerWorkflow = new VolunteerManagementWorkflow();
-			const workloadCheck = await volunteerWorkflow.checkWorkloadCapacity(
-				volunteer,
-				assignments
-			);
+			const workloadCheck = await volunteerWorkflow.checkWorkloadCapacity(volunteer, assignments);
 
 			// Assert
 			expect(workloadCheck.totalHours).toBe(13);
@@ -450,22 +397,15 @@ describe('Business Workflows - Integration Test Suite', () => {
 			const financialWorkflow = new FinancialOperationsWorkflow();
 
 			// Step 1: Generate annual invoices
-			const invoiceGeneration = await financialWorkflow.generateAnnualInvoices(
-				members,
-				memberships
-			);
+			const invoiceGeneration = await financialWorkflow.generateAnnualInvoices(members, memberships);
 			expect(invoiceGeneration.invoicesCreated).toBe(3);
 
 			// Step 2: Process SEPA payments
-			const sepaPayments = await financialWorkflow.processSEPAPayments(
-				invoiceGeneration.sepaInvoices
-			);
+			const sepaPayments = await financialWorkflow.processSEPAPayments(invoiceGeneration.sepaInvoices);
 			expect(sepaPayments.batchCreated).toBe(true);
 
 			// Step 3: Handle manual payments
-			const manualPayments = await financialWorkflow.processManualPayments(
-				invoiceGeneration.manualInvoices
-			);
+			const manualPayments = await financialWorkflow.processManualPayments(invoiceGeneration.manualInvoices);
 			expect(manualPayments.remindersScheduled).toBe(2);
 
 			// Step 4: Reconcile payments
@@ -517,26 +457,19 @@ describe('Business Workflows - Integration Test Suite', () => {
 			const terminationWorkflow = new TerminationWorkflow();
 
 			// Step 1: Submit termination request
-			const terminationRequest
-        = await terminationWorkflow.submitTerminationRequest(
-        	member,
-        	'Personal reasons'
-        );
+			const terminationRequest = await terminationWorkflow.submitTerminationRequest(member, 'Personal reasons');
 			expect(terminationRequest.status).toBe('Pending');
 
 			// Step 2: Review and approve
-			const review
-        = await terminationWorkflow.reviewTerminationRequest(terminationRequest);
+			const review = await terminationWorkflow.reviewTerminationRequest(terminationRequest);
 			expect(review.approved).toBe(true);
 
 			// Step 3: Cancel SEPA mandate
-			const mandateCancellation
-        = await terminationWorkflow.cancelSEPAMandate(mandate);
+			const mandateCancellation = await terminationWorkflow.cancelSEPAMandate(mandate);
 			expect(mandateCancellation.status).toBe('Cancelled');
 
 			// Step 4: Close membership
-			const membershipClosure
-        = await terminationWorkflow.closeMembership(membership);
+			const membershipClosure = await terminationWorkflow.closeMembership(membership);
 			expect(membershipClosure.status).toBe('Quit');
 
 			// Step 5: Update member status
@@ -544,8 +477,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 			expect(memberUpdate.status).toBe('Quit');
 
 			// Step 6: Process final settlement
-			const settlement
-        = await terminationWorkflow.processFinalSettlement(member);
+			const settlement = await terminationWorkflow.processFinalSettlement(member);
 			expect(settlement.balanceCleared).toBe(true);
 
 			// Assert - Complete termination workflow
@@ -562,11 +494,10 @@ describe('Business Workflows - Integration Test Suite', () => {
 
 			// Act - Process termination with outstanding payments
 			const terminationWorkflow = new TerminationWorkflow();
-			const terminationWithDebt
-        = await terminationWorkflow.processTerminationWithOutstanding(
-        	member,
-        	outstandingInvoices
-        );
+			const terminationWithDebt = await terminationWorkflow.processTerminationWithOutstanding(
+				member,
+				outstandingInvoices
+			);
 
 			// Assert
 			expect(terminationWithDebt.requiresSettlement).toBe(true);
@@ -746,17 +677,11 @@ describe('Business Workflows - Integration Test Suite', () => {
 		}
 
 		async checkWorkloadCapacity(volunteer, assignments) {
-			const totalHours = assignments.reduce(
-				(sum, a) => sum + a.hours_per_week,
-				0
-			);
+			const totalHours = assignments.reduce((sum, a) => sum + a.hours_per_week, 0);
 			return {
 				totalHours,
 				exceedsCapacity: totalHours > volunteer.max_hours_per_week,
-				recommendedAction:
-          totalHours > volunteer.max_hours_per_week
-          	? 'reduce_assignments'
-          	: 'ok'
+				recommendedAction: totalHours > volunteer.max_hours_per_week ? 'reduce_assignments' : 'ok'
 			};
 		}
 
@@ -773,12 +698,8 @@ describe('Business Workflows - Integration Test Suite', () => {
 		async generateAnnualInvoices(members, memberships) {
 			return {
 				invoicesCreated: members.length,
-				sepaInvoices: members.filter(
-					(m) => m.payment_method === 'SEPA Direct Debit'
-				),
-				manualInvoices: members.filter(
-					(m) => m.payment_method !== 'SEPA Direct Debit'
-				)
+				sepaInvoices: members.filter((m) => m.payment_method === 'SEPA Direct Debit'),
+				manualInvoices: members.filter((m) => m.payment_method !== 'SEPA Direct Debit')
 			};
 		}
 
@@ -839,10 +760,7 @@ describe('Business Workflows - Integration Test Suite', () => {
 		}
 
 		async processTerminationWithOutstanding(member, invoices) {
-			const totalOutstanding = invoices.reduce(
-				(sum, inv) => sum + inv.amount,
-				0
-			);
+			const totalOutstanding = invoices.reduce((sum, inv) => sum + inv.amount, 0);
 			return {
 				requiresSettlement: true,
 				totalOutstanding,

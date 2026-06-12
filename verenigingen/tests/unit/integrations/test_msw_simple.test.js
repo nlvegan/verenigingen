@@ -2,10 +2,7 @@
  * Simple MSW test to verify setup
  */
 
-const {
-	setupTestMocks,
-	cleanupTestMocks
-} = require('../../setup/frappe-mocks');
+const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
 
 // Initialize test environment
 setupTestMocks();

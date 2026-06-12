@@ -128,17 +128,13 @@ describe('Donor DocType Controller', () => {
 					message: { valid: true, formatted_bsn: '123456782' }
 				});
 
-				const {
-					validate_bsn_dialog
-				} = require('../../../verenigingen/doctype/donor/donor.js');
+				const { validate_bsn_dialog } = require('../../../verenigingen/doctype/donor/donor.js');
 
 				validate_bsn_dialog(mockForm);
 
 				expect(mockFrappe.ui.Dialog).toHaveBeenCalledWith({
 					title: 'Validate BSN',
-					fields: expect.arrayContaining([
-						expect.objectContaining({ fieldname: 'bsn_input' })
-					])
+					fields: expect.arrayContaining([expect.objectContaining({ fieldname: 'bsn_input' })])
 				});
 			});
 		});
@@ -225,15 +221,12 @@ describe('Donor DocType Controller', () => {
 					message: { donations: mockDonations, total: 150.0 }
 				});
 
-				const {
-					sync_donation_history
-				} = require('../../../verenigingen/doctype/donor/donor.js');
+				const { sync_donation_history } = require('../../../verenigingen/doctype/donor/donor.js');
 
 				await sync_donation_history(mockForm);
 
 				expect(mockFrappe.call).toHaveBeenCalledWith({
-					method:
-            'verenigingen.verenigingen.doctype.donor.donor.get_donation_history',
+					method: 'verenigingen.verenigingen.doctype.donor.donor.get_donation_history',
 					args: { donor_name: 'DON-2025-001' }
 				});
 			});
@@ -241,9 +234,7 @@ describe('Donor DocType Controller', () => {
 			test('should handle donation sync errors gracefully', async () => {
 				mockFrappe.call.mockRejectedValue(new Error('API Error'));
 
-				const {
-					sync_donation_history
-				} = require('../../../verenigingen/doctype/donor/donor.js');
+				const { sync_donation_history } = require('../../../verenigingen/doctype/donor/donor.js');
 
 				await sync_donation_history(mockForm);
 
@@ -346,14 +337,8 @@ describe('Donor DocType Controller', () => {
 
 				await sync_donor_address(mockForm, 'ADDR-2025-001');
 
-				expect(mockForm.set_value).toHaveBeenCalledWith(
-					'address_line1',
-					mockAddress.address_line1
-				);
-				expect(mockForm.set_value).toHaveBeenCalledWith(
-					'city',
-					mockAddress.city
-				);
+				expect(mockForm.set_value).toHaveBeenCalledWith('address_line1', mockAddress.address_line1);
+				expect(mockForm.set_value).toHaveBeenCalledWith('city', mockAddress.city);
 			});
 
 			test('should handle missing address data', async () => {
@@ -361,19 +346,13 @@ describe('Donor DocType Controller', () => {
 
 				await sync_donor_address(mockForm, 'INVALID-ADDR');
 
-				expect(mockFrappe.msgprint).toHaveBeenCalledWith(
-					expect.stringContaining('Address not found')
-				);
+				expect(mockFrappe.msgprint).toHaveBeenCalledWith(expect.stringContaining('Address not found'));
 			});
 		});
 
 		describe('Contact Validation', () => {
 			test('should validate email format', () => {
-				const validEmails = [
-					'test@example.nl',
-					'donor@vereniging.org',
-					'jan.de.vries@example.com'
-				];
+				const validEmails = ['test@example.nl', 'donor@vereniging.org', 'jan.de.vries@example.com'];
 
 				const invalidEmails = ['invalid-email', 'test@', '@example.com'];
 
@@ -412,15 +391,12 @@ describe('Donor DocType Controller', () => {
 				anbi_qualified: 1
 			};
 
-			const {
-				create_donation_agreement
-			} = require('../../../verenigingen/doctype/donor/donor.js');
+			const { create_donation_agreement } = require('../../../verenigingen/doctype/donor/donor.js');
 
 			create_donation_agreement(mockForm, agreementData);
 
 			expect(mockFrappe.call).toHaveBeenCalledWith({
-				method:
-          'verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement.create_from_donor',
+				method: 'verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement.create_from_donor',
 				args: expect.objectContaining(agreementData)
 			});
 		});
@@ -488,9 +464,7 @@ describe('Donor DocType Controller', () => {
 		});
 
 		test('should prevent duplicate donation records', async () => {
-			mockFrappe.db.get_list.mockResolvedValue([
-				{ name: 'DON-REC-001', date: '2025-01-01', amount: 100 }
-			]);
+			mockFrappe.db.get_list.mockResolvedValue([{ name: 'DON-REC-001', date: '2025-01-01', amount: 100 }]);
 
 			const isDuplicate = await check_duplicate_donation({
 				donor: 'DON-2025-001',
@@ -532,10 +506,7 @@ function calculate_bsn_checksum(bsn) {
 	const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
 	const digits = bsn.split('').map(Number);
 
-	const sum = digits.reduce(
-		(total, digit, index) => total + digit * weights[index],
-		0
-	);
+	const sum = digits.reduce((total, digit, index) => total + digit * weights[index], 0);
 
 	return sum % 11;
 }
@@ -568,9 +539,7 @@ function calculate_donation_statistics(donations) {
 }
 
 function calculate_tax_deductible_amount(donations) {
-	return donations
-		.filter((d) => d.tax_deductible)
-		.reduce((sum, d) => sum + d.amount, 0);
+	return donations.filter((d) => d.tax_deductible).reduce((sum, d) => sum + d.amount, 0);
 }
 
 function encrypt_tax_identifier(identifier) {
@@ -580,10 +549,7 @@ function encrypt_tax_identifier(identifier) {
 
 function decrypt_tax_identifier(encrypted) {
 	try {
-		return Buffer.from(
-			encrypted.replace('encrypted_', ''),
-			'base64'
-		).toString();
+		return Buffer.from(encrypted.replace('encrypted_', ''), 'base64').toString();
 	} catch (error) {
 		throw new Error('Decryption failed');
 	}
@@ -631,12 +597,8 @@ function validate_agreement_eligibility(donor) {
 function mask_sensitive_data(data) {
 	return {
 		...data,
-		bsn: data.bsn
-			? `${data.bsn.substring(0, 3)}***${data.bsn.substring(6)}`
-			: null,
-		email: data.email
-			? `${data.email.charAt(0)}***@${data.email.split('@')[1]}`
-			: null
+		bsn: data.bsn ? `${data.bsn.substring(0, 3)}***${data.bsn.substring(6)}` : null,
+		email: data.email ? `${data.email.charAt(0)}***@${data.email.split('@')[1]}` : null
 	};
 }
 

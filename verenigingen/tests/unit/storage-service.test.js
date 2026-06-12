@@ -87,7 +87,11 @@ describe('StorageService', () => {
 		});
 
 		test('degrades gracefully to local-only when the server save throws', async () => {
-			const api = { saveDraft: jest.fn(async () => { throw new Error('offline'); }) };
+			const api = {
+				saveDraft: jest.fn(async () => {
+					throw new Error('offline');
+				})
+			};
 			const storage = makeStorage(api);
 
 			const result = await storage.saveDraft({ firstName: 'Jan' }, true);
@@ -129,7 +133,11 @@ describe('StorageService', () => {
 		});
 
 		test('falls back to local storage when the server load throws', async () => {
-			const api = { loadDraft: jest.fn(async () => { throw new Error('boom'); }) };
+			const api = {
+				loadDraft: jest.fn(async () => {
+					throw new Error('boom');
+				})
+			};
 			const storage = makeStorage(api);
 			await storage.saveDraft({ local: true }, false);
 
@@ -343,7 +351,9 @@ describe('StorageService', () => {
 		test('_saveToLocalStorage returns an error result when setItem throws', () => {
 			const storage = makeStorage();
 			const original = window.localStorage.setItem;
-			window.localStorage.setItem = jest.fn(() => { throw new Error('QuotaExceeded'); });
+			window.localStorage.setItem = jest.fn(() => {
+				throw new Error('QuotaExceeded');
+			});
 			try {
 				const result = storage._saveToLocalStorage({ x: 1 });
 				expect(result.success).toBe(false);
@@ -356,7 +366,9 @@ describe('StorageService', () => {
 		test('_storageAvailable returns false when the backend throws', () => {
 			const storage = makeStorage();
 			const original = window.localStorage.setItem;
-			window.localStorage.setItem = jest.fn(() => { throw new Error('disabled'); });
+			window.localStorage.setItem = jest.fn(() => {
+				throw new Error('disabled');
+			});
 			try {
 				expect(storage._storageAvailable('localStorage')).toBe(false);
 			} finally {

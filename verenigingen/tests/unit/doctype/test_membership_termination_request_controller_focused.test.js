@@ -14,10 +14,7 @@
 
 // Import test infrastructure
 const { BaseControllerTest } = require('../../setup/controller-test-base');
-const {
-	setupTestMocks,
-	cleanupTestMocks
-} = require('../../setup/frappe-mocks');
+const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
 
 // Initialize test environment
 setupTestMocks();
@@ -26,14 +23,8 @@ setupTestMocks();
 const membershipTerminationConfig = {
 	doctype: 'Membership Termination Request',
 	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.js',
-	expectedHandlers: [
-		'refresh',
-		'onload',
-		'termination_type',
-		'member',
-		'before_save'
-	],
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.js',
+	expectedHandlers: ['refresh', 'onload', 'termination_type', 'member', 'before_save'],
 	defaultDoc: {
 		doctype: 'Membership Termination Request',
 		name: 'MTR-2024-TEST-001',
@@ -144,8 +135,7 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 
 		it('should allow disciplinary termination with proper documentation', () => {
 			controllerTest.mockForm.doc.termination_type = 'Policy Violation';
-			controllerTest.mockForm.doc.disciplinary_documentation
-        = 'Required documentation provided';
+			controllerTest.mockForm.doc.disciplinary_documentation = 'Required documentation provided';
 			controllerTest.mockForm.doc.secondary_approver = 'approver@example.com';
 			controllerTest.mockForm.doc.status = 'Draft'; // Not pending yet
 
@@ -168,18 +158,9 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 			controllerTest.testEvent('onload');
 
 			// Verify set_value was called with appropriate defaults
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
-				'request_date',
-				'2024-01-15'
-			);
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
-				'requested_by',
-				'test@example.com'
-			);
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
-				'status',
-				'Draft'
-			);
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('request_date', '2024-01-15');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('requested_by', 'test@example.com');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('status', 'Draft');
 		});
 
 		it('should not override existing values for saved documents', () => {
@@ -191,10 +172,7 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 			controllerTest.testEvent('onload');
 
 			// Verify set_value was not called for request_date since document exists
-			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith(
-				'request_date',
-				expect.any(String)
-			);
+			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith('request_date', expect.any(String));
 		});
 
 		it('should clear member_name when member is cleared', () => {
@@ -202,10 +180,7 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 
 			controllerTest.testEvent('member');
 
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
-				'member_name',
-				''
-			);
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('member_name', '');
 		});
 	});
 
@@ -271,11 +246,7 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 		});
 
 		it('should distinguish between disciplinary and non-disciplinary types', () => {
-			const disciplinaryTypes = [
-				'Policy Violation',
-				'Disciplinary Action',
-				'Expulsion'
-			];
+			const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
 			const nonDisciplinaryTypes = ['Voluntary', 'Non-payment', 'Deceased'];
 
 			// Test disciplinary types - NEW documents only
@@ -286,10 +257,7 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 				controllerTest.testEvent('termination_type');
 
 				// Should set requires_secondary_approval to 1 for new docs
-				expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
-					'requires_secondary_approval',
-					1
-				);
+				expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('requires_secondary_approval', 1);
 			});
 
 			// Reset mock
@@ -303,10 +271,7 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 				controllerTest.testEvent('termination_type');
 
 				// Should set requires_secondary_approval to 0 for new docs
-				expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
-					'requires_secondary_approval',
-					0
-				);
+				expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('requires_secondary_approval', 0);
 			});
 		});
 	});
@@ -316,20 +281,13 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 			controllerTest.testEvent('onload');
 
 			// Should have set up query filter
-			expect(controllerTest.mockForm.set_query).toHaveBeenCalledWith(
-				'secondary_approver',
-				expect.any(Function)
-			);
+			expect(controllerTest.mockForm.set_query).toHaveBeenCalledWith('secondary_approver', expect.any(Function));
 		});
 
 		it('should make audit_trail read-only on refresh', () => {
 			controllerTest.testEvent('refresh');
 
-			expect(controllerTest.mockForm.set_df_property).toHaveBeenCalledWith(
-				'audit_trail',
-				'read_only',
-				1
-			);
+			expect(controllerTest.mockForm.set_df_property).toHaveBeenCalledWith('audit_trail', 'read_only', 1);
 		});
 
 		it('should add View Member button when member is set', () => {

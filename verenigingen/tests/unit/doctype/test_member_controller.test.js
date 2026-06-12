@@ -21,20 +21,9 @@
  */
 
 // Import test setup utilities
-const {
-	setupTestMocks,
-	cleanupTestMocks,
-	createMockForm
-} = require('../../setup/frappe-mocks');
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../../setup/controller-loader');
-const {
-	validateDutchIBAN,
-	validateDutchPostalCode,
-	validateDutchEmail
-} = require('../../setup/dutch-validators');
+const { setupTestMocks, cleanupTestMocks, createMockForm } = require('../../setup/frappe-mocks');
+const { loadFrappeController, testFormEvent } = require('../../setup/controller-loader');
+const { validateDutchIBAN, validateDutchPostalCode, validateDutchEmail } = require('../../setup/dutch-validators');
 
 // Initialize test environment
 setupTestMocks();
@@ -60,8 +49,8 @@ describe('Real Member Controller', () => {
 
 	beforeAll(() => {
 		// Load the real Member controller
-		const controllerPath
-      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js';
+		const controllerPath =
+			'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		memberHandlers = allHandlers.Member;
 

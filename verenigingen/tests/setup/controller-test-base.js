@@ -35,8 +35,8 @@ class BaseControllerTest {
 	}
 
 	/**
-   * Load the controller and validate expected handlers exist
-   */
+	 * Load the controller and validate expected handlers exist
+	 */
 	loadController() {
 		const allHandlers = loadFrappeController(this.controllerPath);
 		this.handlers = allHandlers[this.doctype];
@@ -48,9 +48,7 @@ class BaseControllerTest {
 		// Validate expected handlers exist
 		for (const expectedHandler of this.expectedHandlers) {
 			if (!this.handlers[expectedHandler]) {
-				console.warn(
-					`Expected handler '${expectedHandler}' not found in ${this.doctype} controller`
-				);
+				console.warn(`Expected handler '${expectedHandler}' not found in ${this.doctype} controller`);
 			}
 		}
 
@@ -58,8 +56,8 @@ class BaseControllerTest {
 	}
 
 	/**
-   * Create standardized mock form with common field structures
-   */
+	 * Create standardized mock form with common field structures
+	 */
 	createMockForm(overrides = {}) {
 		const baseDoc = {
 			name: `${this.doctype.toUpperCase()}-TEST-001`,
@@ -86,8 +84,8 @@ class BaseControllerTest {
 	}
 
 	/**
-   * Get common field structures used across controllers
-   */
+	 * Get common field structures used across controllers
+	 */
 	getCommonFields() {
 		return {
 			// Address and contact fields
@@ -103,26 +101,20 @@ class BaseControllerTest {
 	}
 
 	/**
-   * Test a specific form event handler
-   */
+	 * Test a specific form event handler
+	 */
 	testEvent(eventName, mockForm = null, ...args) {
 		const frm = mockForm || this.mockForm;
 		if (!frm) {
 			throw new Error('No mock form available. Call createMockForm() first.');
 		}
 
-		return testFormEvent(
-			this.doctype,
-			eventName,
-			frm,
-			{ [this.doctype]: this.handlers },
-			...args
-		);
+		return testFormEvent(this.doctype, eventName, frm, { [this.doctype]: this.handlers }, ...args);
 	}
 
 	/**
-   * Generate standard test suite for common controller patterns
-   */
+	 * Generate standard test suite for common controller patterns
+	 */
 	generateStandardTests() {
 		const tests = {};
 
@@ -181,16 +173,16 @@ class BaseControllerTest {
 	}
 
 	/**
-   * Setup test environment
-   */
+	 * Setup test environment
+	 */
 	setup() {
 		setupTestMocks();
 		this.loadController();
 	}
 
 	/**
-   * Cleanup test environment
-   */
+	 * Cleanup test environment
+	 */
 	cleanup() {
 		cleanupTestMocks();
 		this.mockForm = null;
@@ -214,8 +206,7 @@ function createControllerTestSuite(config, customTests = {}) {
 			if (controllerTest) {
 				// Use custom createMockForm if provided, otherwise use default
 				if (controllerTest.customCreateMockForm) {
-					controllerTest.mockForm
-            = controllerTest.customCreateMockForm(controllerTest);
+					controllerTest.mockForm = controllerTest.customCreateMockForm(controllerTest);
 				} else {
 					controllerTest.createMockForm();
 				}

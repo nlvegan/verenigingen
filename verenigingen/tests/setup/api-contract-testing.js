@@ -45,27 +45,26 @@ const API_SCHEMAS = {
 		}
 	},
 
-	'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			member: { type: 'string', pattern: '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$' }
-    		},
-    		required: ['member'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			has_schedule: { type: 'boolean' },
-    			schedule_name: { type: 'string' },
-    			dues_rate: { type: 'number' },
-    			frequency: { type: 'string' }
-    		},
-    		required: ['has_schedule']
-    	}
-    },
+	'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details': {
+		args: {
+			type: 'object',
+			properties: {
+				member: { type: 'string', pattern: '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$' }
+			},
+			required: ['member'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				has_schedule: { type: 'boolean' },
+				schedule_name: { type: 'string' },
+				dues_rate: { type: 'number' },
+				frequency: { type: 'string' }
+			},
+			required: ['has_schedule']
+		}
+	},
 
 	'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban': {
 		args: {
@@ -115,28 +114,27 @@ const API_SCHEMAS = {
 	},
 
 	// Chapter API Methods
-	'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			member: { type: 'string' },
-    			chapter: { type: 'string' },
-    			note: { type: 'string' }
-    		},
-    		required: ['member', 'chapter'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			message: { type: 'string' },
-    			previous_chapters: { type: 'array' }
-    		},
-    		required: ['success']
-    	}
-    },
+	'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup': {
+		args: {
+			type: 'object',
+			properties: {
+				member: { type: 'string' },
+				chapter: { type: 'string' },
+				note: { type: 'string' }
+			},
+			required: ['member', 'chapter'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				message: { type: 'string' },
+				previous_chapters: { type: 'array' }
+			},
+			required: ['success']
+		}
+	},
 
 	// Donation API Methods
 	'verenigingen.templates.pages.donate.submit_donation': {
@@ -164,46 +162,45 @@ const API_SCHEMAS = {
 	},
 
 	// E-Boekhouden API Methods
-	'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {},
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			message: { type: 'string' },
-    			connection_details: { type: 'object' }
-    		},
-    		required: ['success', 'message']
-    	}
-    },
+	'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection': {
+		args: {
+			type: 'object',
+			properties: {},
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				message: { type: 'string' },
+				connection_details: { type: 'object' }
+			},
+			required: ['success', 'message']
+		}
+	},
 
 	// Termination API Methods
 	'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_termination_impact_preview':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			member: { type: 'string' }
-    		},
-    		required: ['member'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			financial_impact: { type: 'object' },
-    			volunteer_assignments: { type: 'array' },
-    			chapter_memberships: { type: 'array' },
-    			warnings: { type: 'array' }
-    		},
-    		required: ['financial_impact']
-    	}
-    }
+		{
+			args: {
+				type: 'object',
+				properties: {
+					member: { type: 'string' }
+				},
+				required: ['member'],
+				additionalProperties: false
+			},
+			response: {
+				type: 'object',
+				properties: {
+					financial_impact: { type: 'object' },
+					volunteer_assignments: { type: 'array' },
+					chapter_memberships: { type: 'array' },
+					warnings: { type: 'array' }
+				},
+				required: ['financial_impact']
+			}
+		}
 };
 
 /**
@@ -233,9 +230,7 @@ class APIContractTestServer {
 		handlers.push(
 			rest.post('/api/method/*', (req, res, ctx) => {
 				const method = req.url.pathname.replace('/api/method/', '');
-				console.warn(
-					`API Contract Test: Unknown method ${method} - add schema for validation`
-				);
+				console.warn(`API Contract Test: Unknown method ${method} - add schema for validation`);
 
 				return res(
 					ctx.json({
@@ -265,9 +260,7 @@ class APIContractTestServer {
 		const argsValid = argsValidator(requestBody);
 
 		if (!argsValid) {
-			const errors = argsValidator.errors
-				.map((error) => `${error.instancePath} ${error.message}`)
-				.join(', ');
+			const errors = argsValidator.errors.map((error) => `${error.instancePath} ${error.message}`).join(', ');
 
 			return res(
 				ctx.status(417),
@@ -351,8 +344,8 @@ class APIContractTester {
 	}
 
 	/**
-   * Validate a frappe.call() against expected schema
-   */
+	 * Validate a frappe.call() against expected schema
+	 */
 	validateFrappeCall(callArgs) {
 		const { method, args = {} } = callArgs;
 
@@ -374,8 +367,8 @@ class APIContractTester {
 	}
 
 	/**
-   * Generate test data that matches a schema
-   */
+	 * Generate test data that matches a schema
+	 */
 	generateValidTestData(method) {
 		if (!API_SCHEMAS[method]) {
 			throw new Error(`No API schema defined for method: ${method}`);
@@ -425,15 +418,15 @@ class APIContractTester {
 	}
 
 	/**
-   * Get all available API methods for testing
-   */
+	 * Get all available API methods for testing
+	 */
 	getAvailableMethods() {
 		return Object.keys(API_SCHEMAS);
 	}
 
 	/**
-   * Get schema for a specific method
-   */
+	 * Get schema for a specific method
+	 */
 	getMethodSchema(method) {
 		return API_SCHEMAS[method];
 	}
@@ -457,16 +450,14 @@ function createAPIContractMatcher() {
 					pass: true
 				};
 			} else {
-				const errors = result.errors
-					.map((error) => `${error.instancePath} ${error.message}`)
-					.join('\n  ');
+				const errors = result.errors.map((error) => `${error.instancePath} ${error.message}`).join('\n  ');
 
 				return {
 					message: () =>
-						`Expected ${method} to match API contract.\n\n`
-            + `Validation errors:\n  ${errors}\n\n`
-            + `Received: ${JSON.stringify(received, null, 2)}\n`
-            + `Schema: ${JSON.stringify(result.schema, null, 2)}`,
+						`Expected ${method} to match API contract.\n\n` +
+						`Validation errors:\n  ${errors}\n\n` +
+						`Received: ${JSON.stringify(received, null, 2)}\n` +
+						`Schema: ${JSON.stringify(result.schema, null, 2)}`,
 					pass: false
 				};
 			}

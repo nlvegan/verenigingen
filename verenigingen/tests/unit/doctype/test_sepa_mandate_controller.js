@@ -22,20 +22,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import test setup utilities
-const {
-	setupTestMocks,
-	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
-} = require('../../setup/frappe-mocks');
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../../setup/controller-loader');
-const {
-	validateDutchIBAN,
-	validateBIC
-} = require('../../setup/dutch-validators');
+const { setupTestMocks, cleanupTestMocks, createMockForm, dutchTestData } = require('../../setup/frappe-mocks');
+const { loadFrappeController, testFormEvent } = require('../../setup/controller-loader');
+const { validateDutchIBAN, validateBIC } = require('../../setup/dutch-validators');
 
 // Initialize test environment
 setupTestMocks();
@@ -61,8 +50,8 @@ describe('Real SEPA Mandate Controller', () => {
 
 	beforeAll(() => {
 		// Load the real SEPA Mandate controller
-		const controllerPath
-      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js';
+		const controllerPath =
+			'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		sepaHandlers = allHandlers['SEPA Mandate'];
 

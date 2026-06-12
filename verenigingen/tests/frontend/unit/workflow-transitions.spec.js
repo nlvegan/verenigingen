@@ -130,18 +130,9 @@ describe('Workflow Transitions', () => {
 
 			getRequiredRoles(fromState, toState) {
 				const roleMap = {
-					'Applied->Under Review': [
-						'Chapter Coordinator',
-						'Verenigingen Chapter Manager'
-					],
-					'Under Review->Approved': [
-						'Verenigingen Chapter Manager',
-						'Verenigingen Chapter Board Member'
-					],
-					'Under Review->Rejected': [
-						'Verenigingen Chapter Manager',
-						'Verenigingen Chapter Board Member'
-					],
+					'Applied->Under Review': ['Chapter Coordinator', 'Verenigingen Chapter Manager'],
+					'Under Review->Approved': ['Verenigingen Chapter Manager', 'Verenigingen Chapter Board Member'],
+					'Under Review->Rejected': ['Verenigingen Chapter Manager', 'Verenigingen Chapter Board Member'],
 					'Approved->Active': ['System', 'Chapter Coordinator'],
 					'Active->Inactive': ['Verenigingen Chapter Manager', 'System'],
 					'Inactive->Active': ['Verenigingen Chapter Manager']
@@ -152,32 +143,20 @@ describe('Workflow Transitions', () => {
 		};
 
 		it('should validate state transitions', () => {
-			const result1 = ChapterWorkflow.canTransition('Applied', 'Under Review', [
-				'Chapter Coordinator'
-			]);
+			const result1 = ChapterWorkflow.canTransition('Applied', 'Under Review', ['Chapter Coordinator']);
 			expect(result1.allowed).toBe(true);
 
-			const result2 = ChapterWorkflow.canTransition('Applied', 'Active', [
-				'Chapter Coordinator'
-			]);
+			const result2 = ChapterWorkflow.canTransition('Applied', 'Active', ['Chapter Coordinator']);
 			expect(result2.allowed).toBe(false);
 			expect(result2.reason).toBe('Invalid state transition');
 		});
 
 		it('should check role permissions for transitions', () => {
-			const result1 = ChapterWorkflow.canTransition(
-				'Under Review',
-				'Approved',
-				['Member']
-			);
+			const result1 = ChapterWorkflow.canTransition('Under Review', 'Approved', ['Member']);
 			expect(result1.allowed).toBe(false);
 			expect(result1.reason).toBe('Insufficient permissions');
 
-			const result2 = ChapterWorkflow.canTransition(
-				'Under Review',
-				'Approved',
-				['Verenigingen Chapter Manager']
-			);
+			const result2 = ChapterWorkflow.canTransition('Under Review', 'Approved', ['Verenigingen Chapter Manager']);
 			expect(result2.allowed).toBe(true);
 		});
 
@@ -195,18 +174,8 @@ describe('Workflow Transitions', () => {
 				});
 			};
 
-			recordTransition(
-				'CHAP-MEM-001',
-				'Applied',
-				'Under Review',
-				'Initial review started'
-			);
-			recordTransition(
-				'CHAP-MEM-001',
-				'Under Review',
-				'Approved',
-				'All requirements met'
-			);
+			recordTransition('CHAP-MEM-001', 'Applied', 'Under Review', 'Initial review started');
+			recordTransition('CHAP-MEM-001', 'Under Review', 'Approved', 'All requirements met');
 
 			expect(workflowHistory).toHaveLength(2);
 			expect(workflowHistory[1].to_state).toBe('Approved');
@@ -240,10 +209,7 @@ describe('Workflow Transitions', () => {
 				}
 
 				// Check effective date
-				const minEffectiveDate = frappe.datetime.add_days(
-					frappe.datetime.nowdate(),
-					workflow.coolingOffPeriod
-				);
+				const minEffectiveDate = frappe.datetime.add_days(frappe.datetime.nowdate(), workflow.coolingOffPeriod);
 
 				if (request.effective_date < minEffectiveDate) {
 					return {
@@ -282,8 +248,7 @@ describe('Workflow Transitions', () => {
 				reason: 'Personal reasons'
 			};
 
-			const result1
-        = TerminationWorkflow.validateTerminationRequest(voluntaryRequest);
+			const result1 = TerminationWorkflow.validateTerminationRequest(voluntaryRequest);
 			expect(result1.valid).toBe(true);
 
 			const invalidRequest = {
@@ -292,8 +257,7 @@ describe('Workflow Transitions', () => {
 				reason: 'Personal reasons'
 			};
 
-			const result2
-        = TerminationWorkflow.validateTerminationRequest(invalidRequest);
+			const result2 = TerminationWorkflow.validateTerminationRequest(invalidRequest);
 			expect(result2.valid).toBe(false);
 			expect(result2.error).toContain('14 days from today');
 		});
@@ -305,22 +269,15 @@ describe('Workflow Transitions', () => {
 				// Missing approval_notes
 			};
 
-			const result
-        = TerminationWorkflow.validateTerminationRequest(nonPaymentRequest);
+			const result = TerminationWorkflow.validateTerminationRequest(nonPaymentRequest);
 			expect(result.valid).toBe(false);
 			expect(result.error).toBe('Approval notes required');
 		});
 
 		it('should track workflow progression', () => {
-			expect(
-				TerminationWorkflow.getNextStep('Voluntary', 'Request Submitted')
-			).toBe('Confirmed');
-			expect(
-				TerminationWorkflow.getNextStep('Non-payment', 'Warning Sent')
-			).toBe('Final Notice');
-			expect(TerminationWorkflow.getNextStep('Voluntary', 'Processed')).toBe(
-				null
-			);
+			expect(TerminationWorkflow.getNextStep('Voluntary', 'Request Submitted')).toBe('Confirmed');
+			expect(TerminationWorkflow.getNextStep('Non-payment', 'Warning Sent')).toBe('Final Notice');
+			expect(TerminationWorkflow.getNextStep('Voluntary', 'Processed')).toBe(null);
 		});
 
 		it('should handle termination impact preview', () => {
@@ -336,8 +293,7 @@ describe('Workflow Transitions', () => {
 				// Check active memberships
 				if (member.active_membership) {
 					const daysRemaining = Math.floor(
-						(new Date(member.membership_end_date) - new Date())
-              / (1000 * 60 * 60 * 24)
+						(new Date(member.membership_end_date) - new Date()) / (1000 * 60 * 60 * 24)
 					);
 					const refund = (member.membership_fee / 365) * daysRemaining;
 
@@ -453,9 +409,7 @@ describe('Workflow Transitions', () => {
 				const stageApprovers = stageConfig.approvers;
 
 				// Check if user has any of the required roles for this stage
-				const hasStageRole = stageApprovers.some((role) =>
-					userRoles.includes(role)
-				);
+				const hasStageRole = stageApprovers.some((role) => userRoles.includes(role));
 
 				if (!hasStageRole) {
 					return { allowed: false, reason: 'Insufficient permissions' };
@@ -463,9 +417,7 @@ describe('Workflow Transitions', () => {
 
 				// Now check amount limits for the roles the user has
 				if (template.limits && amount > 0) {
-					const userRolesForStage = userRoles.filter((role) =>
-						stageApprovers.includes(role)
-					);
+					const userRolesForStage = userRoles.filter((role) => stageApprovers.includes(role));
 					const userLimits = userRolesForStage
 						.filter((role) => template.limits[role] !== undefined)
 						.map((role) => template.limits[role]);
@@ -486,28 +438,15 @@ describe('Workflow Transitions', () => {
 		};
 
 		it('should determine approvers based on stage', () => {
-			const approvers = ApprovalWorkflow.getApprovers(
-				'expense_claim',
-				'Submitted'
-			);
+			const approvers = ApprovalWorkflow.getApprovers('expense_claim', 'Submitted');
 			expect(approvers).toContain('Expense Approver');
 		});
 
 		it('should enforce approval limits', () => {
-			const result1 = ApprovalWorkflow.canApprove(
-				'expense_claim',
-				'Submitted',
-				['Expense Approver'],
-				400
-			);
+			const result1 = ApprovalWorkflow.canApprove('expense_claim', 'Submitted', ['Expense Approver'], 400);
 			expect(result1.allowed).toBe(true);
 
-			const result2 = ApprovalWorkflow.canApprove(
-				'expense_claim',
-				'Submitted',
-				['Expense Approver'],
-				600
-			);
+			const result2 = ApprovalWorkflow.canApprove('expense_claim', 'Submitted', ['Expense Approver'], 600);
 			expect(result2.allowed).toBe(false);
 			expect(result2.reason).toBe('Amount exceeds approval limit');
 		});
@@ -515,9 +454,7 @@ describe('Workflow Transitions', () => {
 		it('should handle multi-stage approvals', () => {
 			const processApproval = (doc, currentStage, approverRole) => {
 				const template = ApprovalWorkflow.templates[doc.doctype];
-				const stageIndex = template.stages.findIndex(
-					(s) => s.name === currentStage
-				);
+				const stageIndex = template.stages.findIndex((s) => s.name === currentStage);
 
 				if (stageIndex === -1 || stageIndex === template.stages.length - 1) {
 					return {
@@ -558,11 +495,7 @@ describe('Workflow Transitions', () => {
 				amount: 300
 			};
 
-			const result = processApproval(
-				expenseClaim,
-				'Submitted',
-				'Expense Approver'
-			);
+			const result = processApproval(expenseClaim, 'Submitted', 'Expense Approver');
 			expect(result.success).toBe(true);
 			expect(result.newStage).toBe('Approved');
 		});
@@ -582,25 +515,11 @@ describe('Workflow Transitions', () => {
 				});
 			};
 
-			recordApproval(
-				'EXP-001',
-				'Submitted',
-				'john@example.com',
-				'Approved',
-				'Valid expense'
-			);
-			recordApproval(
-				'EXP-001',
-				'Approved',
-				'jane@example.com',
-				'Approved',
-				'Within budget'
-			);
+			recordApproval('EXP-001', 'Submitted', 'john@example.com', 'Approved', 'Valid expense');
+			recordApproval('EXP-001', 'Approved', 'jane@example.com', 'Approved', 'Within budget');
 
 			expect(approvalHistory).toHaveLength(2);
-			expect(approvalHistory.every((h) => h.decision === 'Approved')).toBe(
-				true
-			);
+			expect(approvalHistory.every((h) => h.decision === 'Approved')).toBe(true);
 		});
 	});
 
@@ -620,9 +539,7 @@ describe('Workflow Transitions', () => {
 
 			transition(targetState, metadata = {}) {
 				if (!this.canTransitionTo(targetState)) {
-					throw new Error(
-						`Cannot transition from ${this.currentState} to ${targetState}`
-					);
+					throw new Error(`Cannot transition from ${this.currentState} to ${targetState}`);
 				}
 
 				const previousState = this.currentState;

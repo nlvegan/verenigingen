@@ -254,12 +254,7 @@ describe('Member Form Validations', () => {
 	});
 
 	describe('Membership Type Validation', () => {
-		const validMembershipTypes = [
-			'Regular Member',
-			'Student Member',
-			'Senior Member',
-			'Honorary Member'
-		];
+		const validMembershipTypes = ['Regular Member', 'Student Member', 'Senior Member', 'Honorary Member'];
 
 		const validateMembershipType = (type) => {
 			return validMembershipTypes.includes(type);
@@ -283,10 +278,7 @@ describe('Member Form Validations', () => {
 			const birth = new Date(birthDate);
 			let age = today.getFullYear() - birth.getFullYear();
 			const monthDiff = today.getMonth() - birth.getMonth();
-			if (
-				monthDiff < 0
-        || (monthDiff === 0 && today.getDate() < birth.getDate())
-			) {
+			if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
 				age--;
 			}
 			return age;
@@ -298,9 +290,7 @@ describe('Member Form Validations', () => {
 
 		it('should calculate age correctly', () => {
 			// Mock current date
-			jest
-				.spyOn(Date, 'now')
-				.mockImplementation(() => new Date('2025-01-05').getTime());
+			jest.spyOn(Date, 'now').mockImplementation(() => new Date('2025-01-05').getTime());
 
 			expect(calculateAge('2000-01-01')).toBe(25);
 			expect(calculateAge('2008-01-06')).toBe(17); // Not 18 yet
@@ -310,9 +300,7 @@ describe('Member Form Validations', () => {
 		});
 
 		it('should validate minimum age requirement', () => {
-			jest
-				.spyOn(Date, 'now')
-				.mockImplementation(() => new Date('2025-01-05').getTime());
+			jest.spyOn(Date, 'now').mockImplementation(() => new Date('2025-01-05').getTime());
 
 			expect(validateAge('2000-01-01', 18)).toBe(true);
 			expect(validateAge('2010-01-01', 18)).toBe(false);

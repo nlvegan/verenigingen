@@ -136,9 +136,7 @@ describe('Member Lifecycle - Client Side', () => {
 
 			const result = validateApplicationForm(underageData);
 			expect(result.valid).toBe(false);
-			expect(result.errors).toContain(
-				'Applicant must be at least 18 years old'
-			);
+			expect(result.errors).toContain('Applicant must be at least 18 years old');
 		});
 
 		it('should validate IBAN for Direct Debit payments', () => {
@@ -202,8 +200,7 @@ describe('Member Lifecycle - Client Side', () => {
 				primary_action_label: 'Submit Review',
 				primary_action: async (values) => {
 					await frappe.call({
-						method:
-              'verenigingen.api.membership_application.review_application',
+						method: 'verenigingen.api.membership_application.review_application',
 						args: {
 							application: frm.doc.name,
 							action: values.action,
@@ -245,9 +242,7 @@ describe('Member Lifecycle - Client Side', () => {
 			};
 
 			expect(validateReview({ action: 'Approve' }).valid).toBe(false);
-			expect(
-				validateReview({ review_notes: 'Looks good', action: 'Approve' }).valid
-			).toBe(true);
+			expect(validateReview({ review_notes: 'Looks good', action: 'Approve' }).valid).toBe(true);
 		});
 	});
 
@@ -346,16 +341,13 @@ describe('Member Lifecycle - Client Side', () => {
 
 			const processPayment = async (data) => {
 				return new Promise((resolve) => {
-					frappe.confirm(
-						`Process payment of €${data.amount} for ${data.member}?`,
-						async () => {
-							const result = await frappe.call({
-								method: 'verenigingen.api.payment.process_membership_payment',
-								args: data
-							});
-							resolve(result.message);
-						}
-					);
+					frappe.confirm(`Process payment of €${data.amount} for ${data.member}?`, async () => {
+						const result = await frappe.call({
+							method: 'verenigingen.api.payment.process_membership_payment',
+							args: data
+						});
+						resolve(result.message);
+					});
 				});
 			};
 
@@ -432,10 +424,7 @@ describe('Member Lifecycle - Client Side', () => {
 	describe('Stage 6: Volunteer Creation', () => {
 		it('should validate volunteer interest before creation', () => {
 			const shouldCreateVolunteer = (member) => {
-				return (
-					member.interested_in_volunteering === 1
-          && member.application_status === 'Approved'
-				);
+				return member.interested_in_volunteering === 1 && member.application_status === 'Approved';
 			};
 
 			expect(
@@ -493,10 +482,7 @@ describe('Member Lifecycle - Client Side', () => {
 					errors.push('Role selection is required');
 				}
 
-				if (
-					assignmentData.role === 'Team Lead'
-          && !assignmentData.approval_notes
-				) {
+				if (assignmentData.role === 'Team Lead' && !assignmentData.approval_notes) {
 					errors.push('Approval notes required for Team Lead role');
 				}
 
@@ -510,9 +496,7 @@ describe('Member Lifecycle - Client Side', () => {
 
 			const result = validateTeamAssignment(invalidAssignment);
 			expect(result.valid).toBe(false);
-			expect(result.errors).toContain(
-				'Approval notes required for Team Lead role'
-			);
+			expect(result.errors).toContain('Approval notes required for Team Lead role');
 		});
 
 		it('should track member activity history', () => {
@@ -547,19 +531,17 @@ describe('Member Lifecycle - Client Side', () => {
 			const isEligibleForRenewal = (membership) => {
 				const today = new Date(frappe.datetime.nowdate());
 				const expiryDate = new Date(membership.to_date);
-				const daysUntilExpiry = Math.ceil(
-					(expiryDate - today) / (1000 * 60 * 60 * 24)
-				);
+				const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
 
 				return {
 					eligible: daysUntilExpiry <= 30 && daysUntilExpiry >= -30,
 					daysUntilExpiry,
 					message:
-            daysUntilExpiry > 30
-            	? 'Too early to renew'
-            	: daysUntilExpiry < -30
-            		? 'Membership expired'
-            		: 'Eligible for renewal'
+						daysUntilExpiry > 30
+							? 'Too early to renew'
+							: daysUntilExpiry < -30
+								? 'Membership expired'
+								: 'Eligible for renewal'
 				};
 			};
 
@@ -675,13 +657,7 @@ describe('Member Lifecycle - Client Side', () => {
 		it('should validate termination request', () => {
 			const validateTerminationRequest = (request) => {
 				const errors = [];
-				const validReasons = [
-					'Voluntary',
-					'Non-payment',
-					'Code of Conduct Violation',
-					'Deceased',
-					'Other'
-				];
+				const validReasons = ['Voluntary', 'Non-payment', 'Code of Conduct Violation', 'Deceased', 'Other'];
 
 				if (!validReasons.includes(request.reason)) {
 					errors.push('Invalid termination reason');
@@ -689,19 +665,12 @@ describe('Member Lifecycle - Client Side', () => {
 
 				if (!request.effective_date) {
 					errors.push('Effective date is required');
-				} else if (
-					new Date(request.effective_date) < new Date(frappe.datetime.nowdate())
-				) {
+				} else if (new Date(request.effective_date) < new Date(frappe.datetime.nowdate())) {
 					errors.push('Effective date must be today or in the future');
 				}
 
-				if (
-					request.reason === 'Other'
-          && (!request.details || request.details.length < 20)
-				) {
-					errors.push(
-						'Detailed explanation required for "Other" reason (min 20 characters)'
-					);
+				if (request.reason === 'Other' && (!request.details || request.details.length < 20)) {
+					errors.push('Detailed explanation required for "Other" reason (min 20 characters)');
 				}
 
 				return { valid: errors.length === 0, errors };
@@ -735,13 +704,9 @@ describe('Member Lifecycle - Client Side', () => {
 				};
 
 				// Check for unused membership period
-				if (
-					member.membership_to_date
-          && new Date(member.membership_to_date) > new Date(terminationDate)
-				) {
+				if (member.membership_to_date && new Date(member.membership_to_date) > new Date(terminationDate)) {
 					const daysRemaining = Math.floor(
-						(new Date(member.membership_to_date) - new Date(terminationDate))
-              / (1000 * 60 * 60 * 24)
+						(new Date(member.membership_to_date) - new Date(terminationDate)) / (1000 * 60 * 60 * 24)
 					);
 					const dailyRate = member.membership_fee / 365;
 					const refundAmount = daysRemaining * dailyRate;
@@ -762,14 +727,8 @@ describe('Member Lifecycle - Client Side', () => {
 				}
 
 				// Calculate total
-				const totalRefunds = settlement.refunds.reduce(
-					(sum, r) => sum + r.amount,
-					0
-				);
-				const totalOutstanding = settlement.outstanding.reduce(
-					(sum, o) => sum + o.amount,
-					0
-				);
+				const totalRefunds = settlement.refunds.reduce((sum, r) => sum + r.amount, 0);
+				const totalOutstanding = settlement.outstanding.reduce((sum, o) => sum + o.amount, 0);
 				settlement.total = totalRefunds - totalOutstanding;
 
 				return settlement;
@@ -805,9 +764,7 @@ describe('Member Lifecycle - Client Side', () => {
 				},
 
 				canProceed() {
-					const currentStepIndex = this.steps.findIndex(
-						(s) => s.status === 'pending'
-					);
+					const currentStepIndex = this.steps.findIndex((s) => s.status === 'pending');
 					if (currentStepIndex === 0) {
 						return true;
 					}

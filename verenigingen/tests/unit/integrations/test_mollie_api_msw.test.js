@@ -17,16 +17,8 @@
  * @version 2025-08-26
  */
 
-const {
-	setupTestMocks,
-	cleanupTestMocks
-} = require('../../setup/frappe-mocks');
-const {
-	setupMSW,
-	resetMSW,
-	teardownMSW,
-	server
-} = require('../../setup/msw-setup');
+const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
+const { setupMSW, resetMSW, teardownMSW, server } = require('../../setup/msw-setup');
 const {
 	mollieHandlers,
 	errorHandlers,
@@ -50,8 +42,8 @@ class TestMollieClient {
 	}
 
 	/**
-   * Make HTTP request using fetch (which MSW will intercept)
-   */
+	 * Make HTTP request using fetch (which MSW will intercept)
+	 */
 	async request(method, endpoint, data = null) {
 		const url = `${this.baseUrl}${endpoint}`;
 		const options = {
@@ -117,9 +109,7 @@ class TestMollieClient {
 		const queryString = Object.entries(params)
 			.map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
 			.join('&');
-		const endpoint = queryString
-			? `/settlements?${queryString}`
-			: '/settlements';
+		const endpoint = queryString ? `/settlements?${queryString}` : '/settlements';
 		return this.request('GET', endpoint);
 	}
 
@@ -153,12 +143,9 @@ describe('Mollie API Integration with MSW', () => {
 
 	describe('Payment Operations', () => {
 		it('should create a payment successfully', async () => {
-			const paymentData = await mollieClient.createPayment(
-				'25.00',
-				'EUR',
-				'Membership dues payment',
-				{ member_id: 'Assoc-Member-2024-001' }
-			);
+			const paymentData = await mollieClient.createPayment('25.00', 'EUR', 'Membership dues payment', {
+				member_id: 'Assoc-Member-2024-001'
+			});
 
 			expect(paymentData).toHaveProperty('resource', 'payment');
 			expect(paymentData).toHaveProperty('id');
@@ -167,9 +154,7 @@ describe('Mollie API Integration with MSW', () => {
 			expect(paymentData.amount.value).toBe('25.00');
 			expect(paymentData.amount.currency).toBe('EUR');
 			expect(paymentData.description).toBe('Membership dues payment');
-			expect(paymentData._links.self.href).toContain(
-				'https://api.mollie.com/v2/payments/'
-			);
+			expect(paymentData._links.self.href).toContain('https://api.mollie.com/v2/payments/');
 		});
 
 		it('should get payment status - paid', async () => {
@@ -181,9 +166,7 @@ describe('Mollie API Integration with MSW', () => {
 			expect(payment.paidAt).toBeTruthy();
 			expect(payment.details).toBeTruthy();
 			expect(payment.details.consumerName).toBe('Jan de Vries');
-			expect(payment.details.consumerAccount).toMatch(
-				/^NL\d{2}[A-Z]{4}\d{10}$/
-			);
+			expect(payment.details.consumerAccount).toMatch(/^NL\d{2}[A-Z]{4}\d{10}$/);
 		});
 
 		it('should get payment status - failed', async () => {
@@ -213,12 +196,8 @@ describe('Mollie API Integration with MSW', () => {
 			expect(payment.status).toBe('paid');
 			expect(payment.method).toBe('directdebit');
 			expect(payment.details.creditorIdentifier).toMatch(/^NL\d{2}ZZZ\d{12}$/);
-			expect(payment.details.transferReference).toMatch(
-				/^RF\d{2}\s\d{4}\s\d{4}\s\d{4}$/
-			);
-			expect(payment.details.consumerAccount).toMatch(
-				/^NL\d{2}[A-Z]{4}\d{10}$/
-			);
+			expect(payment.details.transferReference).toMatch(/^RF\d{2}\s\d{4}\s\d{4}\s\d{4}$/);
+			expect(payment.details.consumerAccount).toMatch(/^NL\d{2}[A-Z]{4}\d{10}$/);
 			expect(payment.sequenceType).toBe('recurring');
 			expect(payment.mandateId).toMatch(/^mdt_test_/);
 		});
@@ -242,12 +221,8 @@ describe('Mollie API Integration with MSW', () => {
 			expect(response._embedded.balances).toHaveLength(2);
 			expect(response.count).toBe(2);
 
-			const primaryBalance = response._embedded.balances.find(
-				(b) => b.id === 'primary'
-			);
-			const secondaryBalance = response._embedded.balances.find(
-				(b) => b.id === 'secondary'
-			);
+			const primaryBalance = response._embedded.balances.find((b) => b.id === 'primary');
+			const secondaryBalance = response._embedded.balances.find((b) => b.id === 'secondary');
 
 			expect(primaryBalance).toBeTruthy();
 			expect(secondaryBalance).toBeTruthy();
@@ -301,9 +276,7 @@ describe('Mollie API Integration with MSW', () => {
 				expect(error.status).toBe(401);
 				expect(error.data.title).toBe('Unauthorized Request');
 				expect(error.data.detail).toContain('Missing or invalid API key');
-				expect(error.data._links.documentation.href).toContain(
-					'authentication'
-				);
+				expect(error.data._links.documentation.href).toContain('authentication');
 			}
 		});
 
@@ -393,24 +366,16 @@ describe('Mollie API Integration with MSW', () => {
 	describe('Integration Test Scenarios', () => {
 		it('should test complete payment workflow', async () => {
 			// 1. Create payment
-			const createdPayment = await mollieClient.createPayment(
-				'30.00',
-				'EUR',
-				'Monthly membership dues',
-				{
-					member_id: 'Assoc-Member-2024-002',
-					dues_schedule_id: 'MDS-2024-002'
-				}
-			);
+			const createdPayment = await mollieClient.createPayment('30.00', 'EUR', 'Monthly membership dues', {
+				member_id: 'Assoc-Member-2024-002',
+				dues_schedule_id: 'MDS-2024-002'
+			});
 
 			expect(createdPayment.status).toBe('open');
 			expect(createdPayment._links.checkout).toBeTruthy();
 
 			// 2. Check payment status (simulate as paid)
-			const paidPaymentId = createdPayment.id.replace(
-				'tr_test_',
-				'tr_test_paid_'
-			);
+			const paidPaymentId = createdPayment.id.replace('tr_test_', 'tr_test_paid_');
 			const paidPayment = await mollieClient.getPayment(paidPaymentId);
 
 			expect(paidPayment.status).toBe('paid');
@@ -435,12 +400,9 @@ describe('Mollie API Integration with MSW', () => {
 			expect(settlements._embedded.settlements.length).toBeGreaterThan(0);
 
 			// 3. Verify settlement amounts are reasonable
-			const totalSettled = settlements._embedded.settlements.reduce(
-				(total, settlement) => {
-					return total + parseFloat(settlement.amount.value);
-				},
-				0
-			);
+			const totalSettled = settlements._embedded.settlements.reduce((total, settlement) => {
+				return total + parseFloat(settlement.amount.value);
+			}, 0);
 
 			expect(totalSettled).toBeGreaterThan(0);
 		});
@@ -457,44 +419,31 @@ describe('Mollie API Integration with MSW', () => {
 
 	describe('Dutch Business Logic Validation', () => {
 		it('should validate EUR currency requirement', async () => {
-			const payment = await mollieClient.createPayment(
-				'25.00',
-				'EUR',
-				'Test payment'
-			);
+			const payment = await mollieClient.createPayment('25.00', 'EUR', 'Test payment');
 
 			expect(payment.amount.currency).toBe('EUR');
 			// All generated payments should be in EUR for Dutch association
 		});
 
 		it('should validate SEPA direct debit details', async () => {
-			const payment = await mollieClient.getPayment(
-				'tr_test_paid_sepa_validation'
-			);
+			const payment = await mollieClient.getPayment('tr_test_paid_sepa_validation');
 
 			expect(payment.method).toBe('directdebit');
 			expect(payment.sequenceType).toBe('recurring');
 
 			// Dutch SEPA validation
 			expect(payment.details.creditorIdentifier).toMatch(/^NL\d{2}ZZZ\d{12}$/);
-			expect(payment.details.consumerAccount).toMatch(
-				/^NL\d{2}[A-Z]{4}\d{10}$/
-			);
+			expect(payment.details.consumerAccount).toMatch(/^NL\d{2}[A-Z]{4}\d{10}$/);
 			expect(payment.mandateId).toMatch(/^mdt_test_/);
 		});
 
 		it('should handle membership-specific metadata', async () => {
-			const payment = await mollieClient.createPayment(
-				'25.00',
-				'EUR',
-				'Membership dues',
-				{
-					member_id: 'Assoc-Member-2024-001',
-					dues_schedule_id: 'MDS-2024-001',
-					invoice_number: 'SINV-2024-001',
-					member_type: 'regular'
-				}
-			);
+			const payment = await mollieClient.createPayment('25.00', 'EUR', 'Membership dues', {
+				member_id: 'Assoc-Member-2024-001',
+				dues_schedule_id: 'MDS-2024-001',
+				invoice_number: 'SINV-2024-001',
+				member_type: 'regular'
+			});
 
 			expect(payment.metadata.member_id).toBe('Assoc-Member-2024-001');
 			expect(payment.metadata.dues_schedule_id).toBe('MDS-2024-001');
@@ -509,9 +458,7 @@ describe('Mollie API Integration with MSW', () => {
 
 			// Create multiple payment requests simultaneously
 			for (let i = 0; i < paymentCount; i++) {
-				promises.push(
-					mollieClient.createPayment(`${25 + i}.00`, 'EUR', `Payment ${i}`)
-				);
+				promises.push(mollieClient.createPayment(`${25 + i}.00`, 'EUR', `Payment ${i}`));
 			}
 
 			const results = await Promise.all(promises);
@@ -551,11 +498,7 @@ describe('Mollie API Integration with MSW', () => {
 
 describe('MSW Handler Validation', () => {
 	it('should provide realistic payment data structure', () => {
-		const payment = generateMolliePayment(
-			'tr_test_validation',
-			'paid',
-			'35.75'
-		);
+		const payment = generateMolliePayment('tr_test_validation', 'paid', '35.75');
 
 		// Validate required Mollie payment fields
 		expect(payment).toHaveProperty('resource', 'payment');

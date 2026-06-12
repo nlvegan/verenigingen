@@ -12,16 +12,8 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import test setup utilities
-const {
-	setupTestMocks,
-	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
-} = require('../../setup/frappe-mocks');
-const {
-	loadFrappeController,
-	testFormEvent
-} = require('../../setup/controller-loader');
+const { setupTestMocks, cleanupTestMocks, createMockForm, dutchTestData } = require('../../setup/frappe-mocks');
+const { loadFrappeController, testFormEvent } = require('../../setup/controller-loader');
 const { validateDutchEmail } = require('../../setup/dutch-validators');
 
 // Initialize test environment
@@ -48,8 +40,8 @@ describe('Volunteer DocType Controller', () => {
 
 	beforeAll(() => {
 		// Load the real volunteer controller
-		const controllerPath
-      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
+		const controllerPath =
+			'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		volunteerHandlers = allHandlers.Volunteer;
 
@@ -235,9 +227,10 @@ describe('Volunteer DocType Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				frm.fields_dict.skills_and_qualifications.grid.add_custom_button
-			).toHaveBeenCalledWith('Add Skill', expect.any(Function));
+			expect(frm.fields_dict.skills_and_qualifications.grid.add_custom_button).toHaveBeenCalledWith(
+				'Add Skill',
+				expect.any(Function)
+			);
 		});
 
 		it('should handle missing skills grid gracefully', () => {
@@ -260,9 +253,7 @@ describe('Volunteer DocType Controller', () => {
 			});
 
 			// Check for View Timeline button
-			const viewTimelineCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('View Timeline')
-			);
+			const viewTimelineCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('View Timeline'));
 			expect(viewTimelineCall).toBeDefined();
 			expect(viewTimelineCall[2]).toBe('View');
 		});
@@ -275,9 +266,7 @@ describe('Volunteer DocType Controller', () => {
 			});
 
 			// Check for Volunteer Report button
-			const reportCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('Volunteer Report')
-			);
+			const reportCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('Volunteer Report'));
 			expect(reportCall).toBeDefined();
 			expect(reportCall[2]).toBe('View');
 		});
@@ -340,9 +329,7 @@ describe('Volunteer DocType Controller', () => {
 			});
 
 			// Check that View Member button was added
-			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) =>
-				call[0].includes('View Member')
-			);
+			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) => call[0].includes('View Member'));
 			expect(viewMemberCall).toBeDefined();
 			expect(viewMemberCall[2]).toBe('Links');
 		});
@@ -354,16 +341,11 @@ describe('Volunteer DocType Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(frm.set_query).toHaveBeenCalledWith(
-				'reference_doctype',
-				'assignment_history',
-				expect.any(Function)
-			);
+			expect(frm.set_query).toHaveBeenCalledWith('reference_doctype', 'assignment_history', expect.any(Function));
 
 			// Test the query function
 			const queryCall = frm.set_query.mock.calls.find(
-				(call) =>
-					call[0] === 'reference_doctype' && call[1] === 'assignment_history'
+				(call) => call[0] === 'reference_doctype' && call[1] === 'assignment_history'
 			);
 			expect(queryCall).toBeDefined();
 
@@ -372,10 +354,7 @@ describe('Volunteer DocType Controller', () => {
 
 			expect(result).toEqual({
 				filters: {
-					name: [
-						'in',
-						['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']
-					]
+					name: ['in', ['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']]
 				}
 			});
 		});
@@ -387,10 +366,7 @@ describe('Volunteer DocType Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(frm.toggle_display).toHaveBeenCalledWith(
-				['address_html', 'contact_html'],
-				true
-			);
+			expect(frm.toggle_display).toHaveBeenCalledWith(['address_html', 'contact_html'], true);
 		});
 
 		it('should render address and contact for saved records', () => {
@@ -400,9 +376,7 @@ describe('Volunteer DocType Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				global.frappe.contacts.render_address_and_contact
-			).toHaveBeenCalledWith(frm);
+			expect(global.frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(frm);
 		});
 
 		it('should clear address and contact for new records', () => {
@@ -412,9 +386,7 @@ describe('Volunteer DocType Controller', () => {
 				Volunteer: volunteerHandlers
 			});
 
-			expect(
-				global.frappe.contacts.clear_address_and_contact
-			).toHaveBeenCalledWith(frm);
+			expect(global.frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(frm);
 		});
 	});
 

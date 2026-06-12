@@ -96,127 +96,118 @@ const API_SCHEMAS = {
 		}
 	},
 
-	'verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			collection_date: { type: 'string', format: 'date' },
-    			batch_type: {
-    				type: 'string',
-    				enum: ['FRST', 'RCUR', 'FNAL', 'OOFF']
-    			},
-    			invoice_filters: {
-    				type: 'object',
-    				properties: {
-    					membership_type: { type: 'array', items: { type: 'string' } },
-    					due_date_range: {
-    						type: 'object',
-    						properties: {
-    							from: { type: 'string', format: 'date' },
-    							to: { type: 'string', format: 'date' }
-    						}
-    					},
-    					max_amount: { type: 'number', minimum: 0.01, maximum: 999999.99 }
-    				}
-    			},
-    			test_mode: { type: 'boolean', default: false }
-    		},
-    		required: ['collection_date', 'batch_type'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			batch_id: { type: 'string', pattern: '^DD-BATCH-\\d{8}-\\d{4}$' },
-    			transaction_count: { type: 'integer', minimum: 0 },
-    			total_amount: { type: 'number', minimum: 0 },
-    			status: {
-    				type: 'string',
-    				enum: [
-    					'Draft',
-    					'Submitted',
-    					'Processing',
-    					'Completed',
-    					'Failed',
-    					'Cancelled'
-    				]
-    			},
-    			xml_file: { type: 'string' },
-    			validation_errors: {
-    				type: 'array',
-    				items: {
-    					type: 'object',
-    					properties: {
-    						invoice: { type: 'string' },
-    						error: { type: 'string' },
-    						severity: { type: 'string', enum: ['warning', 'error'] }
-    					}
-    				}
-    			}
-    		},
-    		required: ['success', 'batch_id', 'transaction_count', 'total_amount']
-    	}
-    },
+	'verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch': {
+		args: {
+			type: 'object',
+			properties: {
+				collection_date: { type: 'string', format: 'date' },
+				batch_type: {
+					type: 'string',
+					enum: ['FRST', 'RCUR', 'FNAL', 'OOFF']
+				},
+				invoice_filters: {
+					type: 'object',
+					properties: {
+						membership_type: { type: 'array', items: { type: 'string' } },
+						due_date_range: {
+							type: 'object',
+							properties: {
+								from: { type: 'string', format: 'date' },
+								to: { type: 'string', format: 'date' }
+							}
+						},
+						max_amount: { type: 'number', minimum: 0.01, maximum: 999999.99 }
+					}
+				},
+				test_mode: { type: 'boolean', default: false }
+			},
+			required: ['collection_date', 'batch_type'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				batch_id: { type: 'string', pattern: '^DD-BATCH-\\d{8}-\\d{4}$' },
+				transaction_count: { type: 'integer', minimum: 0 },
+				total_amount: { type: 'number', minimum: 0 },
+				status: {
+					type: 'string',
+					enum: ['Draft', 'Submitted', 'Processing', 'Completed', 'Failed', 'Cancelled']
+				},
+				xml_file: { type: 'string' },
+				validation_errors: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							invoice: { type: 'string' },
+							error: { type: 'string' },
+							severity: { type: 'string', enum: ['warning', 'error'] }
+						}
+					}
+				}
+			},
+			required: ['success', 'batch_id', 'transaction_count', 'total_amount']
+		}
+	},
 
 	// Mollie Payment APIs
-	'verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			data: {
-    				type: 'object',
-    				properties: {
-    					amount: {
-    						type: 'object',
-    						properties: {
-    							value: { type: 'string', pattern: '^[0-9]+\\.[0-9]{2}$' },
-    							currency: {
-    								type: 'string',
-    								pattern: '^[A-Z]{3}$',
-    								default: 'EUR'
-    							}
-    						},
-    						required: ['value', 'currency']
-    					},
-    					description: { type: 'string', minLength: 1, maxLength: 255 },
-    					metadata: {
-    						type: 'object',
-    						properties: {
-    							member_id: { type: 'string' },
-    							membership_type: { type: 'string' }
-    						}
-    					}
-    				},
-    				required: ['amount', 'description']
-    			},
-    			reference_doctype: {
-    				type: 'string',
-    				enum: ['Sales Invoice', 'Donation', 'Event Registration']
-    			},
-    			reference_docname: { type: 'string', pattern: '^[A-Z\\-0-9]+$' },
-    			gateway_name: { type: 'string', default: 'Default' }
-    		},
-    		required: ['data', 'reference_doctype', 'reference_docname'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			payment_id: { type: 'string', pattern: '^tr_[A-Za-z0-9]+$' },
-    			checkout_url: { type: 'string', format: 'uri' },
-    			status: {
-    				type: 'string',
-    				enum: ['open', 'canceled', 'pending', 'paid', 'expired', 'failed']
-    			},
-    			expires_at: { type: 'string', format: 'date-time' }
-    		},
-    		required: ['success', 'payment_id', 'checkout_url']
-    	}
-    },
+	'verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment': {
+		args: {
+			type: 'object',
+			properties: {
+				data: {
+					type: 'object',
+					properties: {
+						amount: {
+							type: 'object',
+							properties: {
+								value: { type: 'string', pattern: '^[0-9]+\\.[0-9]{2}$' },
+								currency: {
+									type: 'string',
+									pattern: '^[A-Z]{3}$',
+									default: 'EUR'
+								}
+							},
+							required: ['value', 'currency']
+						},
+						description: { type: 'string', minLength: 1, maxLength: 255 },
+						metadata: {
+							type: 'object',
+							properties: {
+								member_id: { type: 'string' },
+								membership_type: { type: 'string' }
+							}
+						}
+					},
+					required: ['amount', 'description']
+				},
+				reference_doctype: {
+					type: 'string',
+					enum: ['Sales Invoice', 'Donation', 'Event Registration']
+				},
+				reference_docname: { type: 'string', pattern: '^[A-Z\\-0-9]+$' },
+				gateway_name: { type: 'string', default: 'Default' }
+			},
+			required: ['data', 'reference_doctype', 'reference_docname'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				payment_id: { type: 'string', pattern: '^tr_[A-Za-z0-9]+$' },
+				checkout_url: { type: 'string', format: 'uri' },
+				status: {
+					type: 'string',
+					enum: ['open', 'canceled', 'pending', 'paid', 'expired', 'failed']
+				},
+				expires_at: { type: 'string', format: 'date-time' }
+			},
+			required: ['success', 'payment_id', 'checkout_url']
+		}
+	},
 
 	// Member Lifecycle APIs
 	'verenigingen.verenigingen.doctype.member.member.process_payment': {
@@ -235,13 +226,7 @@ const API_SCHEMAS = {
 				},
 				payment_method: {
 					type: 'string',
-					enum: [
-						'SEPA Direct Debit',
-						'Mollie',
-						'Bank Transfer',
-						'Cash',
-						'Other'
-					]
+					enum: ['SEPA Direct Debit', 'Mollie', 'Bank Transfer', 'Cash', 'Other']
 				},
 				payment_date: { type: 'string', format: 'date' },
 				reference: { type: 'string', maxLength: 100 },
@@ -280,19 +265,19 @@ const API_SCHEMAS = {
 					type: 'string',
 					minLength: 1,
 					maxLength: 50,
-					pattern: '^[A-Za-z\\s\\-\']+$'
+					pattern: "^[A-Za-z\\s\\-']+$"
 				},
 				last_name: {
 					type: 'string',
 					minLength: 1,
 					maxLength: 50,
-					pattern: '^[A-Za-z\\s\\-\']+$'
+					pattern: "^[A-Za-z\\s\\-']+$"
 				},
 				tussenvoegsel: {
 					type: 'string',
 					maxLength: 15,
 					pattern:
-            '^(van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des)?( (van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des))*$'
+						'^(van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des)?( (van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des))*$'
 				},
 				email: { type: 'string', format: 'email' },
 				birth_date: { type: 'string', format: 'date' },
@@ -301,14 +286,7 @@ const API_SCHEMAS = {
 				phone: { type: 'string', pattern: '^(\\+31|0)[1-9][0-9]{8}$' },
 				membership_type: {
 					type: 'string',
-					enum: [
-						'Regular',
-						'Student',
-						'Senior',
-						'Family',
-						'Corporate',
-						'Honorary'
-					]
+					enum: ['Regular', 'Student', 'Senior', 'Family', 'Corporate', 'Honorary']
 				},
 				chapter: { type: 'string' },
 				preferred_language: {
@@ -354,42 +332,41 @@ const API_SCHEMAS = {
 		}
 	},
 
-	'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			member: {
-    				type: 'string',
-    				pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$'
-    			}
-    		},
-    		required: ['member'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			schedule_id: {
-    				type: 'string',
-    				pattern: '^MDS-\\d{4}-\\d{2}-\\d{4}$'
-    			},
-    			dues_rate: { type: 'number', minimum: 0, maximum: 999999.99 },
-    			frequency: {
-    				type: 'string',
-    				enum: ['Monthly', 'Quarterly', 'Semi-annually', 'Annually']
-    			},
-    			next_invoice_date: { type: 'string', format: 'date' },
-    			status: { type: 'string', enum: ['Active', 'Paused', 'Quit'] },
-    			payment_method: {
-    				type: 'string',
-    				enum: ['SEPA Direct Debit', 'Mollie', 'Manual']
-    			}
-    		},
-    		required: ['success']
-    	}
-    },
+	'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details': {
+		args: {
+			type: 'object',
+			properties: {
+				member: {
+					type: 'string',
+					pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$'
+				}
+			},
+			required: ['member'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				schedule_id: {
+					type: 'string',
+					pattern: '^MDS-\\d{4}-\\d{2}-\\d{4}$'
+				},
+				dues_rate: { type: 'number', minimum: 0, maximum: 999999.99 },
+				frequency: {
+					type: 'string',
+					enum: ['Monthly', 'Quarterly', 'Semi-annually', 'Annually']
+				},
+				next_invoice_date: { type: 'string', format: 'date' },
+				status: { type: 'string', enum: ['Active', 'Paused', 'Quit'] },
+				payment_method: {
+					type: 'string',
+					enum: ['SEPA Direct Debit', 'Mollie', 'Manual']
+				}
+			},
+			required: ['success']
+		}
+	},
 
 	'verenigingen.verenigingen.doctype.member.member.update_member_status': {
 		args: {
@@ -479,28 +456,27 @@ const API_SCHEMAS = {
 	},
 
 	// Chapter API Methods
-	'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			member: { type: 'string' },
-    			chapter: { type: 'string' },
-    			note: { type: 'string' }
-    		},
-    		required: ['member', 'chapter'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			message: { type: 'string' },
-    			previous_chapters: { type: 'array' }
-    		},
-    		required: ['success']
-    	}
-    },
+	'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup': {
+		args: {
+			type: 'object',
+			properties: {
+				member: { type: 'string' },
+				chapter: { type: 'string' },
+				note: { type: 'string' }
+			},
+			required: ['member', 'chapter'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				message: { type: 'string' },
+				previous_chapters: { type: 'array' }
+			},
+			required: ['success']
+		}
+	},
 
 	// Donation API Methods
 	'verenigingen.templates.pages.donate.submit_donation': {
@@ -576,126 +552,117 @@ const API_SCHEMAS = {
 	},
 
 	// Membership Dues Schedule APIs
-	'verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.create_dues_schedule':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			member: {
-    				type: 'string',
-    				pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$'
-    			},
-    			membership_type: {
-    				type: 'string',
-    				enum: [
-    					'Regular',
-    					'Student',
-    					'Senior',
-    					'Family',
-    					'Corporate',
-    					'Honorary'
-    				]
-    			},
-    			dues_rate: {
-    				type: 'number',
-    				minimum: 0,
-    				maximum: 999999.99,
-    				multipleOf: 0.01
-    			},
-    			frequency: {
-    				type: 'string',
-    				enum: ['Monthly', 'Quarterly', 'Semi-annually', 'Annually']
-    			},
-    			start_date: { type: 'string', format: 'date' },
-    			payment_method: {
-    				type: 'string',
-    				enum: ['SEPA Direct Debit', 'Mollie', 'Manual']
-    			}
-    		},
-    		required: ['member', 'membership_type', 'dues_rate', 'frequency'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			schedule_id: {
-    				type: 'string',
-    				pattern: '^MDS-\\d{4}-\\d{2}-\\d{4}$'
-    			},
-    			next_invoice_date: { type: 'string', format: 'date' },
-    			annual_amount: { type: 'number', minimum: 0 },
-    			status: { type: 'string', enum: ['Active', 'Paused', 'Quit'] }
-    		},
-    		required: ['success', 'schedule_id', 'next_invoice_date']
-    	}
-    },
+	'verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.create_dues_schedule': {
+		args: {
+			type: 'object',
+			properties: {
+				member: {
+					type: 'string',
+					pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$'
+				},
+				membership_type: {
+					type: 'string',
+					enum: ['Regular', 'Student', 'Senior', 'Family', 'Corporate', 'Honorary']
+				},
+				dues_rate: {
+					type: 'number',
+					minimum: 0,
+					maximum: 999999.99,
+					multipleOf: 0.01
+				},
+				frequency: {
+					type: 'string',
+					enum: ['Monthly', 'Quarterly', 'Semi-annually', 'Annually']
+				},
+				start_date: { type: 'string', format: 'date' },
+				payment_method: {
+					type: 'string',
+					enum: ['SEPA Direct Debit', 'Mollie', 'Manual']
+				}
+			},
+			required: ['member', 'membership_type', 'dues_rate', 'frequency'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				schedule_id: {
+					type: 'string',
+					pattern: '^MDS-\\d{4}-\\d{2}-\\d{4}$'
+				},
+				next_invoice_date: { type: 'string', format: 'date' },
+				annual_amount: { type: 'number', minimum: 0 },
+				status: { type: 'string', enum: ['Active', 'Paused', 'Quit'] }
+			},
+			required: ['success', 'schedule_id', 'next_invoice_date']
+		}
+	},
 
 	// Bank Reconciliation APIs
-	'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			bank_account: { type: 'string' },
-    			statement_data: {
-    				type: 'string',
-    				description: 'Base64 encoded CAMT.053 file or JSON'
-    			},
-    			auto_reconcile: { type: 'boolean', default: true },
-    			reconciliation_rules: {
-    				type: 'object',
-    				properties: {
-    					match_threshold: {
-    						type: 'number',
-    						minimum: 0,
-    						maximum: 1,
-    						default: 0.95
-    					},
-    					date_tolerance_days: {
-    						type: 'integer',
-    						minimum: 0,
-    						maximum: 30,
-    						default: 3
-    					}
-    				}
-    			}
-    		},
-    		required: ['bank_account', 'statement_data'],
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			transactions_imported: { type: 'integer' },
-    			reconciliation_status: {
-    				type: 'object',
-    				properties: {
-    					matched: { type: 'integer' },
-    					unmatched: { type: 'integer' },
-    					manual_review: { type: 'integer' }
-    				}
-    			},
-    			bank_transactions: {
-    				type: 'array',
-    				items: {
-    					type: 'object',
-    					properties: {
-    						transaction_id: { type: 'string' },
-    						date: { type: 'string', format: 'date' },
-    						amount: { type: 'number' },
-    						description: { type: 'string' },
-    						reference: { type: 'string' },
-    						matched_invoice: { type: 'string' },
-    						confidence_score: { type: 'number' }
-    					}
-    				}
-    			}
-    		},
-    		required: ['success', 'transactions_imported', 'reconciliation_status']
-    	}
-    }
+	'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement': {
+		args: {
+			type: 'object',
+			properties: {
+				bank_account: { type: 'string' },
+				statement_data: {
+					type: 'string',
+					description: 'Base64 encoded CAMT.053 file or JSON'
+				},
+				auto_reconcile: { type: 'boolean', default: true },
+				reconciliation_rules: {
+					type: 'object',
+					properties: {
+						match_threshold: {
+							type: 'number',
+							minimum: 0,
+							maximum: 1,
+							default: 0.95
+						},
+						date_tolerance_days: {
+							type: 'integer',
+							minimum: 0,
+							maximum: 30,
+							default: 3
+						}
+					}
+				}
+			},
+			required: ['bank_account', 'statement_data'],
+			additionalProperties: false
+		},
+		response: {
+			type: 'object',
+			properties: {
+				success: { type: 'boolean' },
+				transactions_imported: { type: 'integer' },
+				reconciliation_status: {
+					type: 'object',
+					properties: {
+						matched: { type: 'integer' },
+						unmatched: { type: 'integer' },
+						manual_review: { type: 'integer' }
+					}
+				},
+				bank_transactions: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							transaction_id: { type: 'string' },
+							date: { type: 'string', format: 'date' },
+							amount: { type: 'number' },
+							description: { type: 'string' },
+							reference: { type: 'string' },
+							matched_invoice: { type: 'string' },
+							confidence_score: { type: 'number' }
+						}
+					}
+				}
+			},
+			required: ['success', 'transactions_imported', 'reconciliation_status']
+		}
+	}
 };
 
 /**
@@ -719,8 +686,8 @@ class SimpleAPIContractTester {
 	}
 
 	/**
-   * Validate a frappe.call() against expected schema (with caching)
-   */
+	 * Validate a frappe.call() against expected schema (with caching)
+	 */
 	validateFrappeCall(callArgs) {
 		const { method, args = {} } = callArgs;
 
@@ -800,8 +767,8 @@ class SimpleAPIContractTester {
 	}
 
 	/**
-   * Generate test data that matches a schema
-   */
+	 * Generate test data that matches a schema
+	 */
 	generateValidTestData(method) {
 		if (!API_SCHEMAS[method]) {
 			throw new Error(`No API schema defined for method: ${method}`);
@@ -825,18 +792,14 @@ class SimpleAPIContractTester {
 		switch (schema.type) {
 			case 'string':
 				// Member ID patterns
-				if (
-					schema.pattern
-          && schema.pattern.includes('Member-\\d{4}-\\d{2}-\\d{4}')
-				) {
+				if (schema.pattern && schema.pattern.includes('Member-\\d{4}-\\d{2}-\\d{4}')) {
 					return 'Member-2024-01-0001';
 				}
 				// IBAN patterns (using standard pattern)
 				if (
-					schema.pattern === STANDARD_PATTERNS.IBAN
-          || (schema.pattern
-            && (schema.pattern.includes('[A-Z]{2}[0-9]{2}[A-Z0-9]')
-              || schema.pattern.includes('IBAN')))
+					schema.pattern === STANDARD_PATTERNS.IBAN ||
+					(schema.pattern &&
+						(schema.pattern.includes('[A-Z]{2}[0-9]{2}[A-Z0-9]') || schema.pattern.includes('IBAN')))
 				) {
 					return 'NL91ABNA0417164300';
 				}
@@ -845,31 +808,19 @@ class SimpleAPIContractTester {
 					return 'ABNANL2A';
 				}
 				// Invoice ID patterns
-				if (
-					schema.pattern
-          && schema.pattern.includes('SI-\\d{4}-\\d{2}-\\d{4}')
-				) {
+				if (schema.pattern && schema.pattern.includes('SI-\\d{4}-\\d{2}-\\d{4}')) {
 					return 'SI-2024-01-0001';
 				}
 				// Payment Entry patterns
-				if (
-					schema.pattern
-          && schema.pattern.includes('PE-\\d{4}-\\d{2}-\\d{4}')
-				) {
+				if (schema.pattern && schema.pattern.includes('PE-\\d{4}-\\d{2}-\\d{4}')) {
 					return 'PE-2024-01-0001';
 				}
 				// SEPA Mandate patterns
-				if (
-					schema.pattern
-          && schema.pattern.includes('SEPA-\\d{4}-\\d{2}-\\d{4}')
-				) {
+				if (schema.pattern && schema.pattern.includes('SEPA-\\d{4}-\\d{2}-\\d{4}')) {
 					return 'SEPA-2024-01-0001';
 				}
 				// Direct Debit Batch patterns
-				if (
-					schema.pattern
-          && schema.pattern.includes('DD-BATCH-\\d{8}-\\d{4}')
-				) {
+				if (schema.pattern && schema.pattern.includes('DD-BATCH-\\d{8}-\\d{4}')) {
 					return 'DD-BATCH-20240101-0001';
 				}
 				// Mollie transaction patterns
@@ -889,21 +840,15 @@ class SimpleAPIContractTester {
 					return 'REF-DOC-001';
 				}
 				// Dutch postal codes
-				if (
-					schema.pattern
-          && schema.pattern.includes('[1-9][0-9]{3}\\s?[A-Z]{2}')
-				) {
+				if (schema.pattern && schema.pattern.includes('[1-9][0-9]{3}\\s?[A-Z]{2}')) {
 					return '1012 AB';
 				}
 				// Dutch phone numbers
-				if (
-					schema.pattern
-          && schema.pattern.includes('(\\+31|0)[1-9][0-9]{8}')
-				) {
+				if (schema.pattern && schema.pattern.includes('(\\+31|0)[1-9][0-9]{8}')) {
 					return '0612345678';
 				}
 				// Name patterns
-				if (schema.pattern && schema.pattern.includes('[A-Za-z\\s\\-\']+')) {
+				if (schema.pattern && schema.pattern.includes("[A-Za-z\\s\\-']+")) {
 					return 'Test Name';
 				}
 				// Date format
@@ -959,8 +904,8 @@ class SimpleAPIContractTester {
 	}
 
 	/**
-   * Validate API response against expected schema
-   */
+	 * Validate API response against expected schema
+	 */
 	validateAPIResponse(method, responseData) {
 		const validationStartTime = performance.now();
 		this.totalValidations++;
@@ -1047,37 +992,35 @@ class SimpleAPIContractTester {
 	}
 
 	/**
-   * Generic API validation for both request and response
-   */
+	 * Generic API validation for both request and response
+	 */
 	validateAPICall(method, data, type = 'request') {
 		if (type === 'request') {
 			return this.validateFrappeCall({ method, args: data });
 		} else if (type === 'response') {
 			return this.validateAPIResponse(method, data);
 		} else {
-			throw new Error(
-				`Invalid validation type: ${type}. Must be 'request' or 'response'`
-			);
+			throw new Error(`Invalid validation type: ${type}. Must be 'request' or 'response'`);
 		}
 	}
 
 	/**
-   * Get all available API methods for testing
-   */
+	 * Get all available API methods for testing
+	 */
 	getAvailableMethods() {
 		return Object.keys(API_SCHEMAS);
 	}
 
 	/**
-   * Get schema for a specific method
-   */
+	 * Get schema for a specific method
+	 */
 	getMethodSchema(method) {
 		return API_SCHEMAS[method];
 	}
 
 	/**
-   * Find similar method name for better error messages
-   */
+	 * Find similar method name for better error messages
+	 */
 	findSimilarMethod(method) {
 		const availableMethods = this.getAvailableMethods();
 		const methodParts = method.split('.');
@@ -1088,9 +1031,7 @@ class SimpleAPIContractTester {
 			const availableParts = available.split('.');
 			const availableLastPart = availableParts[availableParts.length - 1];
 			return (
-				availableLastPart === lastPart
-        || available.includes(lastPart)
-        || lastPart.includes(availableLastPart)
+				availableLastPart === lastPart || available.includes(lastPart) || lastPart.includes(availableLastPart)
 			);
 		});
 
@@ -1098,31 +1039,23 @@ class SimpleAPIContractTester {
 	}
 
 	/**
-   * Get performance metrics for monitoring
-   */
+	 * Get performance metrics for monitoring
+	 */
 	getPerformanceMetrics() {
-		const cacheHitRate
-      = this.totalValidations > 0
-      	? ((this.cacheHits / this.totalValidations) * 100).toFixed(2)
-      	: 0;
+		const cacheHitRate =
+			this.totalValidations > 0 ? ((this.cacheHits / this.totalValidations) * 100).toFixed(2) : 0;
 
-		const avgValidationTime
-      = this.totalValidations > 0
-      	? (this.totalValidationTime / this.totalValidations).toFixed(3)
-      	: 0;
+		const avgValidationTime =
+			this.totalValidations > 0 ? (this.totalValidationTime / this.totalValidations).toFixed(3) : 0;
 
 		const methodMetrics = {};
 		this.validationMetrics.forEach((metrics, method) => {
 			methodMetrics[method] = {
 				...metrics,
 				avgValidationTime:
-          metrics.validations > 0
-          	? (metrics.totalValidationTime / metrics.validations).toFixed(3)
-          	: 0,
+					metrics.validations > 0 ? (metrics.totalValidationTime / metrics.validations).toFixed(3) : 0,
 				cacheHitRate:
-          metrics.validations > 0
-          	? `${((metrics.cacheHits / metrics.validations) * 100).toFixed(2)}%`
-          	: '0%'
+					metrics.validations > 0 ? `${((metrics.cacheHits / metrics.validations) * 100).toFixed(2)}%` : '0%'
 			};
 		});
 
@@ -1141,12 +1074,12 @@ class SimpleAPIContractTester {
 	}
 
 	/**
-   * Clear cache and reset metrics (for testing)
-   */
+	 * Clear cache and reset metrics (for testing)
+	 */
 	/**
-   * Add validator to cache with LRU eviction to prevent memory leaks
-   * @private
-   */
+	 * Add validator to cache with LRU eviction to prevent memory leaks
+	 * @private
+	 */
 	_addToCache(key, validator) {
 		// If cache is at max size, remove oldest entry (LRU)
 		if (this.compiledValidators.size >= this.MAX_CACHE_SIZE) {
@@ -1186,16 +1119,14 @@ function createSimpleAPIContractMatcher() {
 					pass: true
 				};
 			} else {
-				const errors = result.errors
-					.map((error) => `${error.instancePath} ${error.message}`)
-					.join('\n  ');
+				const errors = result.errors.map((error) => `${error.instancePath} ${error.message}`).join('\n  ');
 
 				return {
 					message: () =>
-						`Expected ${method} to match API contract.\n\n`
-            + `Validation errors:\n  ${errors}\n\n`
-            + `Received: ${JSON.stringify(received, null, 2)}\n`
-            + `Schema: ${JSON.stringify(result.schema, null, 2)}`,
+						`Expected ${method} to match API contract.\n\n` +
+						`Validation errors:\n  ${errors}\n\n` +
+						`Received: ${JSON.stringify(received, null, 2)}\n` +
+						`Schema: ${JSON.stringify(result.schema, null, 2)}`,
 					pass: false
 				};
 			}

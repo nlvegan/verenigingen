@@ -102,14 +102,8 @@ describe('Volunteer Form', () => {
 				})
 			);
 
-			expect(frm.set_value).toHaveBeenCalledWith(
-				'volunteer_name',
-				'Jane Smith'
-			);
-			expect(frm.set_value).toHaveBeenCalledWith(
-				'personal_email',
-				'jane@example.com'
-			);
+			expect(frm.set_value).toHaveBeenCalledWith('volunteer_name', 'Jane Smith');
+			expect(frm.set_value).toHaveBeenCalledWith('personal_email', 'jane@example.com');
 		});
 
 		it('should generate organization email from member name', () => {
@@ -248,11 +242,7 @@ describe('Volunteer Form', () => {
 	describe('Skills Management', () => {
 		it('should add new skill', () => {
 			const addSkill = (testFrm, skill, proficiency) => {
-				const newSkill = frappe.model.add_child(
-					testFrm.doc,
-					'Volunteer Skill',
-					'skills'
-				);
+				const newSkill = frappe.model.add_child(testFrm.doc, 'Volunteer Skill', 'skills');
 				newSkill.skill = skill;
 				newSkill.proficiency_level = proficiency;
 				testFrm.refresh_field('skills');
@@ -385,9 +375,7 @@ describe('Volunteer Form', () => {
 			const volunteerForm = require('./volunteer').VolunteerForm;
 			await volunteerForm.export_volunteer_data(frm);
 
-			expect(window.open).toHaveBeenCalledWith(
-				expect.stringContaining('/api/method/export_volunteer_data')
-			);
+			expect(window.open).toHaveBeenCalledWith(expect.stringContaining('/api/method/export_volunteer_data'));
 		});
 	});
 
@@ -396,16 +384,9 @@ describe('Volunteer Form', () => {
 			const volunteerEvents = require('./volunteer').volunteerFormEvents;
 			volunteerEvents.refresh(frm);
 
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Add Activity',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Add Activity', expect.any(Function), 'Actions');
 
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Generate Report',
-				expect.any(Function)
-			);
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Generate Report', expect.any(Function));
 		});
 
 		it('should show deactivate button for active volunteers', () => {
@@ -414,10 +395,7 @@ describe('Volunteer Form', () => {
 			const volunteerEvents = require('./volunteer').volunteerFormEvents;
 			volunteerEvents.refresh(frm);
 
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Deactivate Volunteer',
-				expect.any(Function)
-			);
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Deactivate Volunteer', expect.any(Function));
 		});
 
 		it('should show reactivate button for inactive volunteers', () => {
@@ -426,10 +404,7 @@ describe('Volunteer Form', () => {
 			const volunteerEvents = require('./volunteer').volunteerFormEvents;
 			volunteerEvents.refresh(frm);
 
-			expect(frm.add_custom_button).toHaveBeenCalledWith(
-				'Reactivate Volunteer',
-				expect.any(Function)
-			);
+			expect(frm.add_custom_button).toHaveBeenCalledWith('Reactivate Volunteer', expect.any(Function));
 		});
 	});
 

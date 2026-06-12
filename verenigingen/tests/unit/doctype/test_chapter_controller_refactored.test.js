@@ -13,9 +13,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -24,8 +22,7 @@ require('../../setup/frappe-mocks').setupTestMocks();
 // Controller configuration
 const chapterConfig = {
 	doctype: 'Chapter',
-	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/chapter/chapter.js',
+	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/chapter/chapter.js',
 	expectedHandlers: [
 		'onload',
 		'refresh',
@@ -44,8 +41,7 @@ const chapterConfig = {
 		region: 'Noord-Holland',
 		cost_center: 'Amsterdam - CC',
 		postal_codes: '1000-1099, 1100-1199',
-		introduction:
-      'Welcome to Amsterdam Chapter - serving the capital and surrounding areas.',
+		introduction: 'Welcome to Amsterdam Chapter - serving the capital and surrounding areas.',
 		address: 'Damrak 1, 1012 LG Amsterdam',
 		published: 1,
 		route: 'chapter/amsterdam'
@@ -142,8 +138,7 @@ const customChapterTests = {
 
 		it('should handle form validation', () => {
 			getControllerTest().mockForm.doc.name = 'Amsterdam';
-			getControllerTest().mockForm.doc.chapter_head
-        = 'Assoc-Member-2024-01-001';
+			getControllerTest().mockForm.doc.chapter_head = 'Assoc-Member-2024-01-001';
 
 			expect(() => {
 				getControllerTest().testEvent('validate');
@@ -182,8 +177,7 @@ const customChapterTests = {
 		});
 
 		it('should handle chapter head changes', () => {
-			getControllerTest().mockForm.doc.chapter_head
-        = 'Assoc-Member-2024-01-002';
+			getControllerTest().mockForm.doc.chapter_head = 'Assoc-Member-2024-01-002';
 
 			expect(() => {
 				getControllerTest().testEvent('chapter_head');
@@ -191,8 +185,7 @@ const customChapterTests = {
 		});
 
 		it('should manage board member grid operations', () => {
-			const boardGrid
-        = getControllerTest().mockForm.fields_dict.board_members.grid;
+			const boardGrid = getControllerTest().mockForm.fields_dict.board_members.grid;
 
 			expect(boardGrid.add_custom_button).toBeDefined();
 			expect(boardGrid.get_data).toBeDefined();
@@ -203,13 +196,7 @@ const customChapterTests = {
 		});
 
 		it('should validate board member roles', () => {
-			const roles = [
-				'Chapter Chair',
-				'Vice Chair',
-				'Secretary',
-				'Treasurer',
-				'Board Member'
-			];
+			const roles = ['Chapter Chair', 'Vice Chair', 'Secretary', 'Treasurer', 'Board Member'];
 
 			roles.forEach((role) => {
 				getControllerTest().mockForm.doc.board_members[0].chapter_role = role;
@@ -223,14 +210,7 @@ const customChapterTests = {
 
 	'Regional Organization': (getControllerTest) => {
 		it('should handle region changes', () => {
-			const dutchRegions = [
-				'Noord-Holland',
-				'Zuid-Holland',
-				'Utrecht',
-				'Gelderland',
-				'Noord-Brabant',
-				'Limburg'
-			];
+			const dutchRegions = ['Noord-Holland', 'Zuid-Holland', 'Utrecht', 'Gelderland', 'Noord-Brabant', 'Limburg'];
 
 			dutchRegions.forEach((region) => {
 				getControllerTest().mockForm.doc.region = region;
@@ -251,10 +231,7 @@ const customChapterTests = {
 
 		it('should handle postal code format validation', () => {
 			const controllerTest = getControllerTest();
-			const associationBuilder = createDomainTestBuilder(
-				controllerTest,
-				'association'
-			);
+			const associationBuilder = createDomainTestBuilder(controllerTest, 'association');
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch postal codes']();
 		});
@@ -329,12 +306,7 @@ const customChapterTests = {
 		});
 
 		it('should validate route format', () => {
-			const routes = [
-				'chapter/amsterdam',
-				'chapter/rotterdam',
-				'chapter/den-haag',
-				'chapter/utrecht'
-			];
+			const routes = ['chapter/amsterdam', 'chapter/rotterdam', 'chapter/den-haag', 'chapter/utrecht'];
 
 			routes.forEach((route) => {
 				getControllerTest().mockForm.doc.route = route;
@@ -372,8 +344,7 @@ const customChapterTests = {
 		});
 
 		it('should manage chapter introduction content', () => {
-			getControllerTest().mockForm.doc.introduction
-        = '<p>Welcome to our chapter!</p>';
+			getControllerTest().mockForm.doc.introduction = '<p>Welcome to our chapter!</p>';
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
@@ -391,12 +362,7 @@ const customChapterTests = {
 		});
 
 		it('should validate cost center format', () => {
-			const costCenters = [
-				'Amsterdam - CC',
-				'Rotterdam - CC',
-				'Den Haag - CC',
-				'Utrecht - CC'
-			];
+			const costCenters = ['Amsterdam - CC', 'Rotterdam - CC', 'Den Haag - CC', 'Utrecht - CC'];
 
 			costCenters.forEach((cc) => {
 				getControllerTest().mockForm.doc.cost_center = cc;
@@ -433,10 +399,7 @@ const customChapterTests = {
 };
 
 // Create and export the test suite
-describe(
-	'Chapter Controller (Refactored)',
-	createControllerTestSuite(chapterConfig, customChapterTests)
-);
+describe('Chapter Controller (Refactored)', createControllerTestSuite(chapterConfig, customChapterTests));
 
 // Export test utilities for reuse
 module.exports = {

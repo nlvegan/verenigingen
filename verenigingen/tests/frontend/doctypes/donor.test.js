@@ -77,9 +77,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 				fieldname: 'name',
 				doctype: 'Donor'
 			});
-			expect(frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(
-				mockFrm
-			);
+			expect(frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(mockFrm);
 		});
 
 		test('should hide address and contact fields for new donors', () => {
@@ -91,13 +89,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
-				['address_html', 'contact_html'],
-				false
-			);
-			expect(frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(
-				mockFrm
-			);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(['address_html', 'contact_html'], false);
+			expect(frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(mockFrm);
 		});
 
 		test('should setup donation history and ANBI features for existing donors', () => {
@@ -115,11 +108,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 				expect.any(Function),
 				'Actions'
 			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'New Donation',
-				expect.any(Function),
-				'Create'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('New Donation', expect.any(Function), 'Create');
 		});
 	});
 
@@ -133,16 +122,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.donor_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'bsn_citizen_service_number',
-				'hidden',
-				0
-			);
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'rsin_organization_tax_number',
-				'hidden',
-				1
-			);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('bsn_citizen_service_number', 'hidden', 0);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('rsin_organization_tax_number', 'hidden', 1);
 		});
 
 		test('should show RSIN field for organization donors', () => {
@@ -154,16 +135,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.donor_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'bsn_citizen_service_number',
-				'hidden',
-				1
-			);
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'rsin_organization_tax_number',
-				'hidden',
-				0
-			);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('bsn_citizen_service_number', 'hidden', 1);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('rsin_organization_tax_number', 'hidden', 0);
 		});
 
 		test('should handle donor type change with appropriate field visibility', () => {
@@ -180,11 +153,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.donor_type(mockFrm);
 
 			// Assert individual fields are shown
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'bsn_citizen_service_number',
-				'hidden',
-				0
-			);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('bsn_citizen_service_number', 'hidden', 0);
 		});
 	});
 
@@ -200,16 +169,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Validate BSN',
-				expect.any(Function),
-				'ANBI'
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Update Tax ID',
-				expect.any(Function),
-				'ANBI'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Validate BSN', expect.any(Function), 'ANBI');
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Update Tax ID', expect.any(Function), 'ANBI');
 		});
 
 		test('should set identification verification date when verified', () => {
@@ -222,10 +183,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.identification_verified(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'identification_verification_date',
-				expect.any(String)
-			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('identification_verification_date', expect.any(String));
 		});
 
 		test('should set ANBI consent date when consent is given', () => {
@@ -238,10 +196,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.anbi_consent(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'anbi_consent_date',
-				expect.any(String)
-			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('anbi_consent_date', expect.any(String));
 		});
 
 		test('should validate BSN when field changes', async () => {
@@ -292,17 +247,14 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Find sync button and execute
 			donor.refresh(mockFrm);
-			const syncButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Sync Donation History'
-			);
+			const syncButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Sync Donation History');
 			if (syncButton) {
 				await syncButton[1](); // Execute the callback
 			}
 
 			// Assert
 			expect(frappe.call).toHaveBeenCalledWith({
-				method:
-          'verenigingen.utils.donation_history_manager.sync_donor_history',
+				method: 'verenigingen.utils.donation_history_manager.sync_donor_history',
 				args: {
 					donor_name: donorName
 				},
@@ -328,9 +280,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Find sync button and execute
 			donor.refresh(mockFrm);
-			const syncButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Sync Donation History'
-			);
+			const syncButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Sync Donation History');
 			if (syncButton) {
 				await syncButton[1]();
 			}
@@ -353,9 +303,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Find new donation button and execute
-			const newDonationButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'New Donation'
-			);
+			const newDonationButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'New Donation');
 			if (newDonationButton) {
 				newDonationButton[1](); // Execute the callback
 			}
@@ -426,11 +374,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			const validateBSNFormat = (dialog, bsn) => {
 				const cleanBSN = bsn.replace(/\D/g, '');
 				if (cleanBSN.length !== 9) {
-					dialog.set_df_property(
-						'bsn',
-						'description',
-						'Invalid: BSN must be exactly 9 digits'
-					);
+					dialog.set_df_property('bsn', 'description', 'Invalid: BSN must be exactly 9 digits');
 					return false;
 				}
 				return true;
@@ -454,11 +398,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			const validateBSNFormat = (dialog, bsn) => {
 				const cleanBSN = bsn.replace(/\D/g, '');
 				if (cleanBSN === '111111111') {
-					dialog.set_df_property(
-						'bsn',
-						'description',
-						'Invalid: BSN cannot be all the same digit'
-					);
+					dialog.set_df_property('bsn', 'description', 'Invalid: BSN cannot be all the same digit');
 					return false;
 				}
 				return true;
@@ -492,9 +432,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Find BSN validation button and execute
-			const bsnButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Validate BSN'
-			);
+			const bsnButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Validate BSN');
 			if (bsnButton) {
 				bsnButton[1](); // Execute the callback
 			}
@@ -523,9 +461,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Find tax ID update button and execute
-			const taxIdButton = mockFrm.add_custom_button.mock.calls.find(
-				(call) => call[0] === 'Update Tax ID'
-			);
+			const taxIdButton = mockFrm.add_custom_button.mock.calls.find((call) => call[0] === 'Update Tax ID');
 			if (taxIdButton) {
 				taxIdButton[1](); // Execute the callback
 			}
@@ -562,13 +498,10 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			}
 
 			// Assert
-			expect(frappe.new_doc).toHaveBeenCalledWith(
-				'Periodic Donation Agreement',
-				{
-					donor: mockDoc.name,
-					donor_name: mockDoc.donor_name
-				}
-			);
+			expect(frappe.new_doc).toHaveBeenCalledWith('Periodic Donation Agreement', {
+				donor: mockDoc.name,
+				donor_name: mockDoc.donor_name
+			});
 		});
 	});
 
@@ -597,8 +530,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			// Simulate tax ID update
 			const updateTaxIdentifiers = (frm, values) => {
 				return frappe.call({
-					method:
-            'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
+					method: 'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
 					args: {
 						donor: frm.doc.name,
 						bsn: values.bsn || null,
@@ -644,8 +576,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			// Simulate failed tax ID update
 			const updateTaxIdentifiers = (frm, values) => {
 				return frappe.call({
-					method:
-            'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
+					method: 'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
 					args: {
 						donor: frm.doc.name,
 						bsn: values.bsn || null,
@@ -779,10 +710,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.anbi_consent(mockFrm);
 
 			// Assert ANBI consent date is set
-			expect(mockFrm.set_value).toHaveBeenCalledWith(
-				'anbi_consent_date',
-				expect.any(String)
-			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('anbi_consent_date', expect.any(String));
 		});
 
 		test('should validate Dutch organization tax numbers (RSIN)', () => {
@@ -799,11 +727,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.donor_type(mockFrm);
 
 			// Assert RSIN field is shown for organizations
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
-				'rsin_organization_tax_number',
-				'hidden',
-				0
-			);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith('rsin_organization_tax_number', 'hidden', 0);
 		});
 	});
 });
@@ -826,11 +750,7 @@ describe('Donor List View - Field Display', () => {
 		const listSettings = require('../../../../verenigingen/doctype/donor/donor_list.js');
 
 		// Assert
-		expect(listSettings.add_fields).toEqual([
-			'donor_name',
-			'donor_type',
-			'image'
-		]);
+		expect(listSettings.add_fields).toEqual(['donor_name', 'donor_type', 'image']);
 	});
 
 	test('should support donor identification in list view', () => {

@@ -44,11 +44,7 @@ describe('Donation DocType - Comprehensive Test Suite', () => {
 			const donation = require('../../../../verenigingen/doctype/donation/donation.js');
 			donation.refresh(mockFrm);
 
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Generate Receipt',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Generate Receipt', expect.any(Function), 'Actions');
 		});
 	});
 

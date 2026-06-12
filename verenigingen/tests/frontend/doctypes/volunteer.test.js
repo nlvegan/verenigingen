@@ -58,20 +58,14 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 				status: 'Active'
 			});
 
-			const volunteerData = testFactory.createVolunteerData(
-				eligibleMember.name,
-				{
-					skills: 'Event Planning, Public Speaking',
-					interests: 'Community Outreach, Education',
-					max_hours_per_week: 10
-				}
-			);
+			const volunteerData = testFactory.createVolunteerData(eligibleMember.name, {
+				skills: 'Event Planning, Public Speaking',
+				interests: 'Community Outreach, Education',
+				max_hours_per_week: 10
+			});
 
 			// Act
-			const creation = await createVolunteerProfile(
-				eligibleMember,
-				volunteerData
-			);
+			const creation = await createVolunteerProfile(eligibleMember, volunteerData);
 
 			// Assert
 			expect(creation.success).toBe(true);
@@ -87,9 +81,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act & Assert
-			await expect(createVolunteerProfile(underageMember, {})).rejects.toThrow(
-				'Minimum age requirement not met'
-			);
+			await expect(createVolunteerProfile(underageMember, {})).rejects.toThrow('Minimum age requirement not met');
 		});
 
 		test('should handle volunteer status transitions correctly', () => {
@@ -123,14 +115,8 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			refreshHandler(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Update Skills',
-				expect.any(Function)
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Log Hours',
-				expect.any(Function)
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Update Skills', expect.any(Function));
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Log Hours', expect.any(Function));
 			expect(mockFrm.toggle_display).toHaveBeenCalled();
 		});
 
@@ -149,8 +135,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act
-			const incompleteValidation
-        = validateProfileCompleteness(incompleteProfile);
+			const incompleteValidation = validateProfileCompleteness(incompleteProfile);
 			const completeValidation = validateProfileCompleteness(completeProfile);
 
 			// Assert
@@ -400,11 +385,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			};
 
 			// Act
-			const availability = checkVolunteerAvailability(
-				volunteer,
-				unavailabilityPeriods,
-				proposedAssignment
-			);
+			const availability = checkVolunteerAvailability(volunteer, unavailabilityPeriods, proposedAssignment);
 
 			// Assert
 			expect(availability.available).toBe(false);
@@ -431,11 +412,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			};
 
 			// Act
-			const assignment = await assignToBoardPosition(
-				volunteer,
-				chapter,
-				boardRole
-			);
+			const assignment = await assignToBoardPosition(volunteer, chapter, boardRole);
 
 			// Assert
 			expect(assignment.success).toBe(true);
@@ -452,19 +429,15 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 				volunteer_since: '2023-01-01' // 2+ years experience
 			});
 
-			const ineligibleVolunteer = testFactory.createVolunteerData(
-				'Member-002',
-				{
-					status: 'On Break',
-					experience_level: 'Beginner',
-					volunteer_since: '2024-12-01' // Recent volunteer
-				}
-			);
+			const ineligibleVolunteer = testFactory.createVolunteerData('Member-002', {
+				status: 'On Break',
+				experience_level: 'Beginner',
+				volunteer_since: '2024-12-01' // Recent volunteer
+			});
 
 			// Act
 			const eligibleValidation = validateBoardEligibility(eligibleVolunteer);
-			const ineligibleValidation
-        = validateBoardEligibility(ineligibleVolunteer);
+			const ineligibleValidation = validateBoardEligibility(ineligibleVolunteer);
 
 			// Assert
 			expect(eligibleValidation.eligible).toBe(true);
@@ -667,10 +640,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		const birth = new Date(birthDate);
 		let age = today.getFullYear() - birth.getFullYear();
 		const monthDiff = today.getMonth() - birth.getMonth();
-		if (
-			monthDiff < 0
-      || (monthDiff === 0 && today.getDate() < birth.getDate())
-		) {
+		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
 			age--;
 		}
 		return age;
@@ -724,17 +694,15 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 
 		return opportunities
 			.map((opp) => {
-				const requiredMatches = opp.required_skills.filter((skill) =>
-					volunteerSkills.includes(skill)
-				).length;
+				const requiredMatches = opp.required_skills.filter((skill) => volunteerSkills.includes(skill)).length;
 
 				const preferredMatches = (opp.preferred_skills || []).filter((skill) =>
 					volunteerSkills.includes(skill)
 				).length;
 
-				const matchScore
-          = requiredMatches / opp.required_skills.length
-          + (preferredMatches / (opp.preferred_skills?.length || 1)) * 0.5;
+				const matchScore =
+					requiredMatches / opp.required_skills.length +
+					(preferredMatches / (opp.preferred_skills?.length || 1)) * 0.5;
 
 				return {
 					role: opp.role,
@@ -769,10 +737,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		let skillsImproved = 0;
 		Object.values(skillProgressions).forEach((progression) => {
 			progression.sort((a, b) => new Date(a.date) - new Date(b.date));
-			if (
-				progression.length > 1
-        && progression[progression.length - 1].level > progression[0].level
-			) {
+			if (progression.length > 1 && progression[progression.length - 1].level > progression[0].level) {
 				skillsImproved++;
 			}
 		});
@@ -845,14 +810,11 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 
 		return {
 			has_conflicts:
-        totalHours > volunteer.max_hours_per_week
-        || Object.values(dayGroups).some((count) => count > 1),
+				totalHours > volunteer.max_hours_per_week || Object.values(dayGroups).some((count) => count > 1),
 			total_hours: totalHours,
 			day_conflicts: dayGroups,
 			recommended_action:
-        totalHours > volunteer.max_hours_per_week
-        	? 'reduce assignments'
-        	: 'reschedule conflicts'
+				totalHours > volunteer.max_hours_per_week ? 'reduce assignments' : 'reschedule conflicts'
 		};
 	});
 
@@ -862,9 +824,9 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		tasks.forEach((task) => {
 			const suitableVolunteer = volunteers.find(
 				(v) =>
-					(v.skills.includes(task.required_skill)
-            && v.availability.toLowerCase().includes(task.day.toLowerCase()))
-          || v.availability === 'Flexible'
+					(v.skills.includes(task.required_skill) &&
+						v.availability.toLowerCase().includes(task.day.toLowerCase())) ||
+					v.availability === 'Flexible'
 			);
 
 			if (suitableVolunteer) {
@@ -883,38 +845,32 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		};
 	});
 
-	const checkVolunteerAvailability = jest.fn(
-		(volunteer, unavailabilityPeriods, assignment) => {
-			const assignmentStart = new Date(assignment.start_date);
-			const assignmentEnd = new Date(assignment.end_date);
+	const checkVolunteerAvailability = jest.fn((volunteer, unavailabilityPeriods, assignment) => {
+		const assignmentStart = new Date(assignment.start_date);
+		const assignmentEnd = new Date(assignment.end_date);
 
-			const conflict = unavailabilityPeriods.find((period) => {
-				const periodStart = new Date(period.start_date);
-				const periodEnd = new Date(period.end_date);
+		const conflict = unavailabilityPeriods.find((period) => {
+			const periodStart = new Date(period.start_date);
+			const periodEnd = new Date(period.end_date);
 
-				return assignmentStart <= periodEnd && assignmentEnd >= periodStart;
-			});
+			return assignmentStart <= periodEnd && assignmentEnd >= periodStart;
+		});
 
-			return {
-				available: !conflict,
-				conflict_reason: conflict ? conflict.reason : null,
-				alternative_dates: conflict
-					? [{ start: '2025-02-16', end: '2025-02-21' }]
-					: null
-			};
-		}
-	);
+		return {
+			available: !conflict,
+			conflict_reason: conflict ? conflict.reason : null,
+			alternative_dates: conflict ? [{ start: '2025-02-16', end: '2025-02-21' }] : null
+		};
+	});
 
-	const assignToBoardPosition = jest.fn(
-		async (volunteer, chapter, boardRole) => {
-			return {
-				success: true,
-				position: boardRole.position,
-				start_date: new Date().toISOString().split('T')[0],
-				term_length: '1 year'
-			};
-		}
-	);
+	const assignToBoardPosition = jest.fn(async (volunteer, chapter, boardRole) => {
+		return {
+			success: true,
+			position: boardRole.position,
+			start_date: new Date().toISOString().split('T')[0],
+			term_length: '1 year'
+		};
+	});
 
 	const validateBoardEligibility = jest.fn((volunteer) => {
 		const reasons = [];
@@ -927,8 +883,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		}
 
 		const volunteerSince = new Date(volunteer.volunteer_since);
-		const yearsOfExperience
-      = (new Date() - volunteerSince) / (1000 * 60 * 60 * 24 * 365);
+		const yearsOfExperience = (new Date() - volunteerSince) / (1000 * 60 * 60 * 24 * 365);
 		if (yearsOfExperience < 1) {
 			reasons.push('tenure');
 		}
@@ -957,10 +912,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 	const assignVolunteerToProjects = jest.fn(async (volunteer, projects) => {
 		return {
 			successful_assignments: projects.length,
-			total_estimated_hours: projects.reduce(
-				(sum, p) => sum + p.hours_estimate,
-				0
-			),
+			total_estimated_hours: projects.reduce((sum, p) => sum + p.hours_estimate, 0),
 			scheduling_conflicts: 0
 		};
 	});
@@ -974,9 +926,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			Poor: 2,
 			'Very Poor': 1
 		};
-		const averageRating
-      = activities.reduce((sum, a) => sum + ratings[a.feedback], 0)
-      / activities.length;
+		const averageRating = activities.reduce((sum, a) => sum + ratings[a.feedback], 0) / activities.length;
 
 		return {
 			total_hours: totalHours,

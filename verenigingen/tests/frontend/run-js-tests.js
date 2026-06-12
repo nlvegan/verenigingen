@@ -24,27 +24,17 @@ const runTests = (testSuite) => {
 				break;
 			case 'integration':
 				console.log('⚠️  Integration tests are currently under development.');
-				console.log(
-					'📋 The doctype integration tests require additional module setup.'
-				);
-				console.log(
-					'✅ Unit tests are fully functional - use: node tests/run-js-tests.js unit'
-				);
+				console.log('📋 The doctype integration tests require additional module setup.');
+				console.log('✅ Unit tests are fully functional - use: node tests/run-js-tests.js unit');
 				process.exit(0);
 				break;
 			case 'chapter':
 			case 'member':
 			case 'membership':
 			case 'volunteer':
-				console.log(
-					'⚠️  Individual doctype tests are currently under development.'
-				);
-				console.log(
-					'📋 These tests require JavaScript module setup and mock implementations.'
-				);
-				console.log(
-					'✅ Unit tests are fully functional - use: node tests/run-js-tests.js unit'
-				);
+				console.log('⚠️  Individual doctype tests are currently under development.');
+				console.log('📋 These tests require JavaScript module setup and mock implementations.');
+				console.log('✅ Unit tests are fully functional - use: node tests/run-js-tests.js unit');
 				process.exit(0);
 				break;
 			default:

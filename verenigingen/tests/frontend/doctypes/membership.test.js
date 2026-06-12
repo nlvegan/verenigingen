@@ -68,9 +68,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			mockDoc.member = testFactory.createMemberName();
 
 			// Mock dues schedule query to return active schedule
-			const mockDuesSchedule = testFactory.createDuesScheduleData(
-				mockDoc.member
-			);
+			const mockDuesSchedule = testFactory.createDuesScheduleData(mockDoc.member);
 			frappe.db.get_value.mockResolvedValueOnce({
 				message: { name: mockDuesSchedule.name }
 			});
@@ -97,9 +95,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			mockDoc.docstatus = 1;
 			mockDoc.member = testFactory.createMemberName();
-			const mockDuesSchedule = testFactory.createDuesScheduleData(
-				mockDoc.member
-			);
+			const mockDuesSchedule = testFactory.createDuesScheduleData(mockDoc.member);
 
 			frappe.db.get_value.mockResolvedValueOnce({
 				message: { name: mockDuesSchedule.name }
@@ -153,15 +149,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			mockDoc.docstatus = 1;
 			mockDoc.member = testFactory.createMemberName();
-			mockDoc.membership_type = testFactory.randomChoice([
-				'Regular',
-				'Student',
-				'Senior'
-			]);
+			mockDoc.membership_type = testFactory.randomChoice(['Regular', 'Student', 'Senior']);
 
-			const mockDuesSchedule = testFactory.createDuesScheduleData(
-				mockDoc.member
-			);
+			const mockDuesSchedule = testFactory.createDuesScheduleData(mockDoc.member);
 			mockFrm.call.mockResolvedValueOnce({
 				message: mockDuesSchedule.name
 			});
@@ -171,12 +161,8 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.create_dues_schedule(mockFrm);
 
 			// Assert
-			expect(mockFrm.call).toHaveBeenCalledWith(
-				'create_dues_schedule_from_membership'
-			);
-			expect(frappe.msgprint).toHaveBeenCalledWith(
-				'Dues schedule created successfully'
-			);
+			expect(mockFrm.call).toHaveBeenCalledWith('create_dues_schedule_from_membership');
+			expect(frappe.msgprint).toHaveBeenCalledWith('Dues schedule created successfully');
 			expect(mockFrm.reload_doc).toHaveBeenCalled();
 		});
 
@@ -190,9 +176,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.create_dues_schedule(mockFrm);
 
 			// Assert
-			expect(mockFrm.call).toHaveBeenCalledWith(
-				'create_dues_schedule_from_membership'
-			);
+			expect(mockFrm.call).toHaveBeenCalledWith('create_dues_schedule_from_membership');
 			expect(frappe.msgprint).not.toHaveBeenCalled();
 			expect(mockFrm.reload_doc).not.toHaveBeenCalled();
 		});
@@ -207,11 +191,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.view_dues_schedule(mockFrm);
 
 			// Assert
-			expect(frappe.set_route).toHaveBeenCalledWith(
-				'Form',
-				'Membership Dues Schedule',
-				duesScheduleName
-			);
+			expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Membership Dues Schedule', duesScheduleName);
 		});
 
 		test('should refresh dues schedule info when membership type changes', () => {
@@ -223,9 +203,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.trigger).toHaveBeenCalledWith(
-				'refresh_dues_schedule_info'
-			);
+			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
 		});
 	});
 
@@ -351,9 +329,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.view_payments(mockFrm);
 
 			// Assert
-			expect(
-				mockDialog.fields_dict.payment_history.$wrapper.html
-			).toHaveBeenCalledWith(
+			expect(mockDialog.fields_dict.payment_history.$wrapper.html).toHaveBeenCalledWith(
 				'<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr></table>'
 			);
 		});
@@ -382,9 +358,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.trigger).toHaveBeenCalledWith(
-				'refresh_dues_schedule_info'
-			);
+			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
 		});
 	});
 
@@ -457,9 +431,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert business rule validation is triggered
-			expect(mockFrm.trigger).toHaveBeenCalledWith(
-				'refresh_dues_schedule_info'
-			);
+			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
 		});
 
 		test('should handle student membership with appropriate validation', () => {
@@ -475,9 +447,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.trigger).toHaveBeenCalledWith(
-				'refresh_dues_schedule_info'
-			);
+			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
 		});
 
 		test('should validate SEPA mandate requirements for Dutch members', () => {

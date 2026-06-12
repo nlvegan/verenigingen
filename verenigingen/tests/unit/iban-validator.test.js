@@ -98,9 +98,7 @@ describe('IBAN Validator - Real Banking Scenarios', () => {
 			});
 
 			test('should handle IBAN with spaces correctly', () => {
-				const result = IBANValidator.validate(
-					'  NL61   INGB  0417  1643  00  '
-				);
+				const result = IBANValidator.validate('  NL61   INGB  0417  1643  00  ');
 
 				expect(result.valid).toBe(true);
 				expect(result.formatted).toBe('NL61 INGB 0417 1643 00');
@@ -125,9 +123,7 @@ describe('IBAN Validator - Real Banking Scenarios', () => {
 			});
 
 			test('should validate French IBAN', () => {
-				const result = IBANValidator.validate(
-					'FR14 2004 1010 0505 0001 3M02 606'
-				);
+				const result = IBANValidator.validate('FR14 2004 1010 0505 0001 3M02 606');
 
 				expect(result.valid).toBe(true);
 				expect(result.formatted).toBe('FR14 2004 1010 0505 0001 3M02 606');

@@ -9,12 +9,7 @@
  * @version 1.0.0
  */
 
-const {
-	validateDutchIBAN,
-	validateDutchPostalCode,
-	validateDutchEmail,
-	validateBIC
-} = require('./dutch-validators');
+const { validateDutchIBAN, validateDutchPostalCode, validateDutchEmail, validateBIC } = require('./dutch-validators');
 
 /**
  * Financial Controller Test Builder
@@ -26,8 +21,8 @@ class FinancialControllerTestBuilder {
 	}
 
 	/**
-   * Generate SEPA compliance tests
-   */
+	 * Generate SEPA compliance tests
+	 */
 	createSEPATests() {
 		return {
 			'should validate Dutch IBAN correctly': () => {
@@ -79,8 +74,8 @@ class FinancialControllerTestBuilder {
 	}
 
 	/**
-   * Generate payment integration tests
-   */
+	 * Generate payment integration tests
+	 */
 	createPaymentTests() {
 		return {
 			'should handle payment method configuration': () => {
@@ -108,8 +103,8 @@ class FinancialControllerTestBuilder {
 	}
 
 	/**
-   * Generate mandate and authorization tests
-   */
+	 * Generate mandate and authorization tests
+	 */
 	createMandateTests() {
 		return {
 			'should handle mandate status transitions': () => {
@@ -131,8 +126,7 @@ class FinancialControllerTestBuilder {
 			'should validate mandate authorization': () => {
 				this.controllerTest.mockForm.doc.status = 'Active';
 				this.controllerTest.mockForm.doc.iban = 'NL91ABNA0417164300';
-				this.controllerTest.mockForm.doc.account_holder_name
-          = 'Jan van der Berg';
+				this.controllerTest.mockForm.doc.account_holder_name = 'Jan van der Berg';
 				this.controllerTest.mockForm.doc.mandate_date = '2024-01-15';
 
 				expect(() => {
@@ -153,8 +147,8 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-   * Generate Dutch business logic tests
-   */
+	 * Generate Dutch business logic tests
+	 */
 	createDutchValidationTests() {
 		return {
 			'should validate Dutch postal codes': () => {
@@ -207,18 +201,12 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-   * Generate membership lifecycle tests
-   */
+	 * Generate membership lifecycle tests
+	 */
 	createMembershipTests() {
 		return {
 			'should handle membership status transitions': () => {
-				const statuses = [
-					'Pending',
-					'Active',
-					'Inactive',
-					'Quit',
-					'Suspended'
-				];
+				const statuses = ['Pending', 'Active', 'Inactive', 'Quit', 'Suspended'];
 
 				statuses.forEach((status) => {
 					this.controllerTest.mockForm.doc.status = status;
@@ -229,13 +217,7 @@ class AssociationControllerTestBuilder {
 			},
 
 			'should handle membership types': () => {
-				const membershipTypes = [
-					'Regular',
-					'Student',
-					'Senior',
-					'Family',
-					'Honorary'
-				];
+				const membershipTypes = ['Regular', 'Student', 'Senior', 'Family', 'Honorary'];
 
 				membershipTypes.forEach((type) => {
 					this.controllerTest.mockForm.doc.membership_type = type;
@@ -259,8 +241,8 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-   * Generate geographical organization tests
-   */
+	 * Generate geographical organization tests
+	 */
 	createGeographicalTests() {
 		return {
 			'should handle chapter assignment': () => {
@@ -294,17 +276,12 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-   * Generate volunteer management tests
-   */
+	 * Generate volunteer management tests
+	 */
 	createVolunteerTests() {
 		return {
 			'should handle volunteer roles': () => {
-				const volunteerRoles = [
-					'Board Member',
-					'Event Coordinator',
-					'Communications',
-					'Treasurer'
-				];
+				const volunteerRoles = ['Board Member', 'Event Coordinator', 'Communications', 'Treasurer'];
 
 				volunteerRoles.forEach((role) => {
 					this.controllerTest.mockForm.doc.volunteer_role = role;
@@ -344,18 +321,12 @@ class WorkflowControllerTestBuilder {
 	}
 
 	/**
-   * Generate workflow state tests
-   */
+	 * Generate workflow state tests
+	 */
 	createWorkflowTests() {
 		return {
 			'should handle document state transitions': () => {
-				const states = [
-					'Draft',
-					'Pending Approval',
-					'Approved',
-					'Rejected',
-					'Cancelled'
-				];
+				const states = ['Draft', 'Pending Approval', 'Approved', 'Rejected', 'Cancelled'];
 
 				states.forEach((state) => {
 					this.controllerTest.mockForm.doc.workflow_state = state;
@@ -382,8 +353,8 @@ class WorkflowControllerTestBuilder {
  */
 class TestDataFactory {
 	/**
-   * Create donation test data
-   */
+	 * Create donation test data
+	 */
 	createDonationData(overrides = {}) {
 		return {
 			doctype: 'Donation',
@@ -402,8 +373,8 @@ class TestDataFactory {
 	}
 
 	/**
-   * Create member test data
-   */
+	 * Create member test data
+	 */
 	createMemberData(overrides = {}) {
 		return {
 			doctype: 'Member',
@@ -425,8 +396,8 @@ class TestDataFactory {
 	}
 
 	/**
-   * Create volunteer expense test data
-   */
+	 * Create volunteer expense test data
+	 */
 	createVolunteerExpenseData(overrides = {}) {
 		return {
 			doctype: 'Volunteer Expense',
@@ -452,11 +423,9 @@ function createDomainTestBuilder(controllerTest, domain) {
 
 	// Add data factory methods directly to the builder
 	const builder = {
-		createDonationData: (overrides) =>
-			dataFactory.createDonationData(overrides),
+		createDonationData: (overrides) => dataFactory.createDonationData(overrides),
 		createMemberData: (overrides) => dataFactory.createMemberData(overrides),
-		createVolunteerExpenseData: (overrides) =>
-			dataFactory.createVolunteerExpenseData(overrides)
+		createVolunteerExpenseData: (overrides) => dataFactory.createVolunteerExpenseData(overrides)
 	};
 
 	let domainBuilder;

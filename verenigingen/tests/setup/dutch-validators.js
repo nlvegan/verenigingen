@@ -303,9 +303,7 @@ function validateDutchEmail(email) {
 
 	// Check for common Dutch domains
 	const dutchDomains = ['.nl', '.eu'];
-	const hasDutchDomain = dutchDomains.some((domain) =>
-		lowerEmail.endsWith(domain)
-	);
+	const hasDutchDomain = dutchDomains.some((domain) => lowerEmail.endsWith(domain));
 
 	return {
 		valid: true,
@@ -363,9 +361,9 @@ function generateDutchOrganizationEmail(fullName, domain = 'example.org') {
  */
 const dutchTestDataGenerators = {
 	/**
-   * Generates valid BSN numbers for testing
-   * @returns {Array<string>} Array of valid BSN numbers
-   */
+	 * Generates valid BSN numbers for testing
+	 * @returns {Array<string>} Array of valid BSN numbers
+	 */
 	validBSNs: [
 		'123456782', // Standard test BSN
 		'111222333', // Pattern-based test BSN
@@ -373,9 +371,9 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-   * Generates invalid BSN numbers for testing
-   * @returns {Array<Object>} Array of invalid BSN test cases
-   */
+	 * Generates invalid BSN numbers for testing
+	 * @returns {Array<Object>} Array of invalid BSN test cases
+	 */
 	invalidBSNs: [
 		{ value: '123456789', error: 'Invalid BSN checksum' },
 		{ value: '12345678', error: 'BSN must be exactly 9 digits' },
@@ -393,19 +391,15 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-   * Generates valid Dutch IBANs for testing
-   * @returns {Array<string>} Array of valid Dutch IBANs
-   */
-	validIBANs: [
-		'NL91 ABNA 0417 1643 00',
-		'NL02 RABO 0123 4567 89',
-		'NL39 INGB 0001 2345 67'
-	],
+	 * Generates valid Dutch IBANs for testing
+	 * @returns {Array<string>} Array of valid Dutch IBANs
+	 */
+	validIBANs: ['NL91 ABNA 0417 1643 00', 'NL02 RABO 0123 4567 89', 'NL39 INGB 0001 2345 67'],
 
 	/**
-   * Generates invalid Dutch IBANs for testing
-   * @returns {Array<Object>} Array of invalid IBAN test cases
-   */
+	 * Generates invalid Dutch IBANs for testing
+	 * @returns {Array<Object>} Array of invalid IBAN test cases
+	 */
 	invalidIBANs: [
 		{ value: 'NL91 ABNA 0417 1643 01', error: 'Invalid IBAN checksum' },
 		{ value: 'DE91 ABNA 0417 1643 00', error: 'Dutch IBAN must start with NL' },
@@ -430,15 +424,15 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-   * Generates valid Dutch postal codes for testing
-   * @returns {Array<string>} Array of valid postal codes
-   */
+	 * Generates valid Dutch postal codes for testing
+	 * @returns {Array<string>} Array of valid postal codes
+	 */
 	validPostalCodes: ['1012 AB', '2011 CD', '3511 EF', '9999 ZZ'],
 
 	/**
-   * Generates invalid Dutch postal codes for testing
-   * @returns {Array<Object>} Array of invalid postal code test cases
-   */
+	 * Generates invalid Dutch postal codes for testing
+	 * @returns {Array<Object>} Array of invalid postal code test cases
+	 */
 	invalidPostalCodes: [
 		{ value: '0123 AB', error: 'Postal code cannot start with 0' },
 		{
@@ -495,9 +489,9 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-   * Generates test data for Dutch name email generation
-   * @returns {Array<Object>} Array of name processing test cases
-   */
+	 * Generates test data for Dutch name email generation
+	 * @returns {Array<Object>} Array of name processing test cases
+	 */
 	dutchNameTestCases: [
 		{
 			input: 'Jan van der Berg',
@@ -510,7 +504,7 @@ const dutchTestDataGenerators = {
 			description: 'Name with single particle'
 		},
 		{
-			input: 'Peter van \'t Hof',
+			input: "Peter van 't Hof",
 			expected: 'peter.van.t.hof@example.org',
 			description: 'Name with apostrophe'
 		},
@@ -525,7 +519,7 @@ const dutchTestDataGenerators = {
 			description: 'Hyphenated compound name'
 		},
 		{
-			input: 'Jos van \'t Veld',
+			input: "Jos van 't Veld",
 			expected: 'jos.van.t.veld@example.org',
 			description: 'Name with contracted particle'
 		},

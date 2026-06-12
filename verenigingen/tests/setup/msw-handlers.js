@@ -25,11 +25,7 @@ const { rest } = require('msw');
  * @param {string} amount Amount value
  * @returns {Object} Payment object
  */
-function generateMolliePayment(
-	id = 'tr_test_12345',
-	status = 'paid',
-	amount = '25.00'
-) {
+function generateMolliePayment(id = 'tr_test_12345', status = 'paid', amount = '25.00') {
 	return {
 		resource: 'payment',
 		id,
@@ -47,14 +43,14 @@ function generateMolliePayment(
 			invoice_number: 'SINV-2024-001'
 		},
 		details:
-      status === 'paid'
-      	? {
-      		transferReference: 'RF18 5390 0754 7034',
-      		creditorIdentifier: 'NL08ZZZ123456780000',
-      		consumerName: 'Jan de Vries',
-      		consumerAccount: 'NL55RABO0123456789'
-      	}
-      	: null,
+			status === 'paid'
+				? {
+						transferReference: 'RF18 5390 0754 7034',
+						creditorIdentifier: 'NL08ZZZ123456780000',
+						consumerName: 'Jan de Vries',
+						consumerAccount: 'NL55RABO0123456789'
+					}
+				: null,
 		profileId: 'pfl_test_12345',
 		sequenceType: 'recurring',
 		subscriptionId: 'sub_test_67890',
@@ -69,12 +65,12 @@ function generateMolliePayment(
 				type: 'application/hal+json'
 			},
 			checkout:
-        status === 'open'
-        	? {
-        		href: `https://www.mollie.com/checkout/select-method/${id}`,
-        		type: 'text/html'
-        	}
-        	: null
+				status === 'open'
+					? {
+							href: `https://www.mollie.com/checkout/select-method/${id}`,
+							type: 'text/html'
+						}
+					: null
 		}
 	};
 }
@@ -86,11 +82,7 @@ function generateMolliePayment(
  * @param {string} pendingAmount Pending amount
  * @returns {Object} Balance object
  */
-function generateMollieBalance(
-	id = 'primary',
-	availableAmount = '150.00',
-	pendingAmount = '25.00'
-) {
+function generateMollieBalance(id = 'primary', availableAmount = '150.00', pendingAmount = '25.00') {
 	return {
 		resource: 'balance',
 		id,
@@ -124,11 +116,7 @@ function generateMollieBalance(
  * @param {string} amount Settlement amount
  * @returns {Object} Settlement object
  */
-function generateMollieSettlement(
-	id = 'stl_test_12345',
-	status = 'paidout',
-	amount = '123.45'
-) {
+function generateMollieSettlement(id = 'stl_test_12345', status = 'paidout', amount = '123.45') {
 	return {
 		resource: 'settlement',
 		id,
@@ -215,9 +203,7 @@ const mollieHandlers = [
 	// Balance endpoints
 	rest.get('https://api.mollie.com/v2/balances/:balanceId', (req, res, ctx) => {
 		const { balanceId } = req.params;
-		return res(
-			ctx.json(generateMollieBalance(balanceId, '150.00', '25.00'))
-		);
+		return res(ctx.json(generateMollieBalance(balanceId, '150.00', '25.00')));
 	}),
 
 	rest.get('https://api.mollie.com/v2/balances', (req, res, ctx) => {
@@ -241,17 +227,10 @@ const mollieHandlers = [
 	}),
 
 	// Settlement endpoints
-	rest.get(
-		'https://api.mollie.com/v2/settlements/:settlementId',
-		(req, res, ctx) => {
-			const { settlementId } = req.params;
-			return res(
-				ctx.json(
-					generateMollieSettlement(settlementId, 'paidout', '123.45')
-				)
-			);
-		}
-	),
+	rest.get('https://api.mollie.com/v2/settlements/:settlementId', (req, res, ctx) => {
+		const { settlementId } = req.params;
+		return res(ctx.json(generateMollieSettlement(settlementId, 'paidout', '123.45')));
+	}),
 
 	rest.get('https://api.mollie.com/v2/settlements', (req, res, ctx) => {
 		const url = new URL(req.url);
@@ -293,8 +272,7 @@ const mollieHandlers = [
 							minimumAmount: { value: '0.01', currency: 'EUR' },
 							maximumAmount: { value: '50000.00', currency: 'EUR' },
 							image: {
-								size1x:
-                  'https://www.mollie.com/external/icons/payment-methods/ideal.png'
+								size1x: 'https://www.mollie.com/external/icons/payment-methods/ideal.png'
 							}
 						}
 					]
@@ -360,8 +338,7 @@ const errorHandlers = [
 			ctx.json({
 				status: 500,
 				title: 'Internal Server Error',
-				detail:
-          'An internal server error occurred while processing your request.'
+				detail: 'An internal server error occurred while processing your request.'
 			})
 		);
 	})
@@ -375,13 +352,7 @@ const networkHandlers = [
 	rest.get('https://api.mollie.com/v2/payments/tr_slow_network', (req, res, ctx) => {
 		return new Promise((resolve) => {
 			setTimeout(() => {
-				resolve(
-					res(
-						ctx.json(
-							generateMolliePayment('tr_slow_network', 'paid', '25.00')
-						)
-					)
-				);
+				resolve(res(ctx.json(generateMolliePayment('tr_slow_network', 'paid', '25.00'))));
 			}, 2000); // 2 second delay
 		});
 	}),
@@ -390,11 +361,7 @@ const networkHandlers = [
 	rest.get('https://api.mollie.com/v2/payments/tr_flaky_network', (req, res, ctx) => {
 		// Randomly succeed or fail
 		if (Math.random() > 0.5) {
-			return res(
-				ctx.json(
-					generateMolliePayment('tr_flaky_network', 'paid', '25.00')
-				)
-			);
+			return res(ctx.json(generateMolliePayment('tr_flaky_network', 'paid', '25.00')));
 		} else {
 			return res(ctx.status(503));
 		}

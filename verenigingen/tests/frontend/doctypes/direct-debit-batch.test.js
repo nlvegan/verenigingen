@@ -60,18 +60,9 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			refreshHandler(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Load Invoices',
-				expect.any(Function)
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Generate SEPA XML',
-				expect.any(Function)
-			);
-			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(
-				['collection_date'],
-				true
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Load Invoices', expect.any(Function));
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Generate SEPA XML', expect.any(Function));
+			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(['collection_date'], true);
 		});
 
 		test('should show correct buttons for generated batch', () => {
@@ -88,18 +79,9 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			refreshHandler(mockFrm);
 
 			// Assert
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Download SEPA XML',
-				expect.any(Function)
-			);
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
-				'Submit to Bank',
-				expect.any(Function)
-			);
-			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(
-				['collection_date'],
-				false
-			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Download SEPA XML', expect.any(Function));
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Submit to Bank', expect.any(Function));
+			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(['collection_date'], false);
 		});
 
 		test('should display status indicators correctly', () => {
@@ -121,10 +103,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 				displayBatchStatus(mockFrm);
 
 				// Assert
-				expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(
-					text,
-					color
-				);
+				expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(text, color);
 			});
 		});
 
@@ -194,8 +173,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method:
-          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
 				args: { batch_name: batchWithEntries.name }
 			});
 
@@ -205,11 +183,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 		test('should validate IBAN format in batch entries', () => {
 			// Arrange
-			const validIBANs = [
-				'NL91 ABNA 0417 1643 00',
-				'DE89 3704 0044 0532 0130 00',
-				'BE71 0961 2345 6769'
-			];
+			const validIBANs = ['NL91 ABNA 0417 1643 00', 'DE89 3704 0044 0532 0130 00', 'BE71 0961 2345 6769'];
 
 			const invalidIBANs = [
 				'NL91ABNA041716430', // Too short
@@ -247,12 +221,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 		test('should calculate correct control sum for batch', () => {
 			// Arrange
-			const entries = [
-				{ amount: 25.0 },
-				{ amount: 50.0 },
-				{ amount: 75.0 },
-				{ amount: 100.0 }
-			];
+			const entries = [{ amount: 25.0 }, { amount: 50.0 }, { amount: 75.0 }, { amount: 100.0 }];
 
 			// Act
 			const controlSum = calculateBatchControlSum(entries);
@@ -312,8 +281,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method:
-          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
 				args: { collection_date: draftBatch.collection_date }
 			});
 
@@ -344,8 +312,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method:
-          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
 				args: {
 					batch_name: processedBatch.name,
 					returns: returnData
@@ -383,8 +350,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method:
-          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
 				args: { batch_name: generatedBatch.name }
 			});
 
@@ -457,9 +423,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			mockFrm.call.mockRejectedValue(bankError);
 
 			// Act & Assert
-			await expect(submitBatchToBank(mockFrm)).rejects.toThrow(
-				'Bank connection timeout'
-			);
+			await expect(submitBatchToBank(mockFrm)).rejects.toThrow('Bank connection timeout');
 
 			expect(frappe.msgprint).toHaveBeenCalledWith(
 				expect.stringContaining('bank error'),
@@ -512,9 +476,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act
-			const validation = checkForDuplicateBatch(duplicateBatch, [
-				existingBatch
-			]);
+			const validation = checkForDuplicateBatch(duplicateBatch, [existingBatch]);
 
 			// Assert
 			expect(validation.isDuplicate).toBe(true);
@@ -693,9 +655,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	const validateSEPANotice = jest.fn((frm) => {
 		const collectionDate = new Date(frm.doc.collection_date);
 		const today = new Date();
-		const daysDiff = Math.ceil(
-			(collectionDate - today) / (1000 * 60 * 60 * 24)
-		);
+		const daysDiff = Math.ceil((collectionDate - today) / (1000 * 60 * 60 * 24));
 
 		const requiredDays = frm.doc.sequence_type === 'FRST' ? 5 : 2;
 
@@ -711,8 +671,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const generateSEPAXML = jest.fn(async (frm) => {
 		await frm.call({
-			method:
-        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
+			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
 			args: { batch_name: frm.doc.name }
 		});
 
@@ -759,16 +718,12 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const loadOutstandingInvoices = jest.fn(async (frm) => {
 		const result = await frm.call({
-			method:
-        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
+			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
 			args: { collection_date: frm.doc.collection_date }
 		});
 
 		if (result.message) {
-			const totalAmount = result.message.reduce(
-				(sum, inv) => sum + inv.outstanding_amount,
-				0
-			);
+			const totalAmount = result.message.reduce((sum, inv) => sum + inv.outstanding_amount, 0);
 			frm.set_value('total_amount', totalAmount);
 			frm.set_value('total_entries', result.message.length);
 		}
@@ -776,8 +731,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const processPaymentReturns = jest.fn(async (frm, returnData) => {
 		return frm.call({
-			method:
-        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
+			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
 			args: {
 				batch_name: frm.doc.name,
 				returns: returnData
@@ -791,8 +745,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const submitBatchToBank = jest.fn(async (frm) => {
 		await frm.call({
-			method:
-        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
+			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
 			args: { batch_name: frm.doc.name }
 		});
 
@@ -800,9 +753,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	});
 
 	const calculateProcessingProgress = jest.fn((batch) => {
-		const percentage = Math.floor(
-			(batch.processed_entries / batch.total_entries) * 100
-		);
+		const percentage = Math.floor((batch.processed_entries / batch.total_entries) * 100);
 		return {
 			percentage,
 			completed: batch.processed_entries,
@@ -831,16 +782,12 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const checkForDuplicateBatch = jest.fn((newBatch, existingBatches) => {
 		const duplicate = existingBatches.find(
-			(batch) =>
-				batch.collection_date === newBatch.collection_date
-        && batch.status !== 'Cancelled'
+			(batch) => batch.collection_date === newBatch.collection_date && batch.status !== 'Cancelled'
 		);
 
 		return {
 			isDuplicate: !!duplicate,
-			message: duplicate
-				? 'An existing batch already exists for this collection date'
-				: ''
+			message: duplicate ? 'An existing batch already exists for this collection date' : ''
 		};
 	});
 
@@ -885,10 +832,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 		return {
 			success: true,
 			linkedInvoices: invoices.length,
-			totalAmount: invoices.reduce(
-				(sum, inv) => sum + inv.outstanding_amount,
-				0
-			)
+			totalAmount: invoices.reduce((sum, inv) => sum + inv.outstanding_amount, 0)
 		};
 	});
 

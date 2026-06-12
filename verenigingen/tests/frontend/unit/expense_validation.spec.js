@@ -72,7 +72,7 @@ describe('Expense Validation', () => {
 			}).toThrow('Expense date cannot be in the future');
 		});
 
-		it('should allow today\'s date', () => {
+		it("should allow today's date", () => {
 			const today = new Date().toISOString().split('T')[0];
 			const expense = { expense_date: today };
 

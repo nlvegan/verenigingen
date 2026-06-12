@@ -13,9 +13,7 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const {
-	createControllerTestSuite
-} = require('../../setup/controller-test-base');
+const { createControllerTestSuite } = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -40,7 +38,7 @@ global.$ = jest.fn((selector) => ({
 const volunteerConfig = {
 	doctype: 'Volunteer',
 	controllerPath:
-    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js',
+		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js',
 	expectedHandlers: ['refresh', 'member', 'availability'],
 	defaultDoc: {
 		member: 'MEM-2024-001',
@@ -130,12 +128,7 @@ const customVolunteerTests = {
 		});
 
 		it('should handle volunteer availability updates', () => {
-			const availabilityOptions = [
-				'Weekdays',
-				'Weekends',
-				'Evenings',
-				'Flexible'
-			];
+			const availabilityOptions = ['Weekdays', 'Weekends', 'Evenings', 'Flexible'];
 
 			availabilityOptions.forEach((availability) => {
 				getControllerTest().mockForm.doc.availability = availability;
@@ -167,12 +160,7 @@ const customVolunteerTests = {
 		});
 
 		it('should track volunteer experience levels', () => {
-			const experienceLevels = [
-				'Beginner',
-				'Intermediate',
-				'Advanced',
-				'Expert'
-			];
+			const experienceLevels = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
 
 			experienceLevels.forEach((level) => {
 				getControllerTest().mockForm.doc.experience_level = level;
@@ -297,10 +285,7 @@ const customVolunteerTests = {
 };
 
 // Create and export the test suite
-describe(
-	'Volunteer Controller (Refactored)',
-	createControllerTestSuite(volunteerConfig, customVolunteerTests)
-);
+describe('Volunteer Controller (Refactored)', createControllerTestSuite(volunteerConfig, customVolunteerTests));
 
 // Export test utilities for reuse
 module.exports = {

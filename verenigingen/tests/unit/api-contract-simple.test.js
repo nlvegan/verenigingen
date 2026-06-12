@@ -8,10 +8,7 @@
  * @version 1.0.0
  */
 
-const {
-	SimpleAPIContractTester,
-	createSimpleAPIContractMatcher
-} = require('../setup/api-contract-simple');
+const { SimpleAPIContractTester, createSimpleAPIContractMatcher } = require('../setup/api-contract-simple');
 
 require('../setup/frappe-mocks').setupTestMocks();
 
@@ -33,9 +30,7 @@ describe('Simple API Contract Testing', () => {
 				payment_method: 'SEPA Direct Debit'
 			};
 
-			expect(validArgs).toMatchAPIContract(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			expect(validArgs).toMatchAPIContract('verenigingen.verenigingen.doctype.member.member.process_payment');
 		});
 
 		it('should reject invalid member format', () => {
@@ -124,9 +119,7 @@ describe('Simple API Contract Testing', () => {
 				anbi_consent: true
 			};
 
-			expect(validDonation).toMatchAPIContract(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			expect(validDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 		});
 
 		it('should reject invalid email format', () => {
@@ -137,9 +130,7 @@ describe('Simple API Contract Testing', () => {
 			};
 
 			expect(() => {
-				expect(invalidEmailDonation).toMatchAPIContract(
-					'verenigingen.templates.pages.donate.submit_donation'
-				);
+				expect(invalidEmailDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 			}).toThrow();
 		});
 
@@ -151,9 +142,7 @@ describe('Simple API Contract Testing', () => {
 			};
 
 			expect(() => {
-				expect(negativeDonation).toMatchAPIContract(
-					'verenigingen.templates.pages.donate.submit_donation'
-				);
+				expect(negativeDonation).toMatchAPIContract('verenigingen.templates.pages.donate.submit_donation');
 			}).toThrow();
 		});
 	});
@@ -180,9 +169,7 @@ describe('Simple API Contract Testing', () => {
 		});
 
 		it('should generate valid donation test data', () => {
-			const testData = tester.generateValidTestData(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			const testData = tester.generateValidTestData('verenigingen.templates.pages.donate.submit_donation');
 
 			expect(testData).toHaveProperty('donor_name');
 			expect(testData).toHaveProperty('email');
@@ -196,22 +183,16 @@ describe('Simple API Contract Testing', () => {
 		it('should list all available API methods', () => {
 			const methods = tester.getAvailableMethods();
 
-			expect(methods).toContain(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			expect(methods).toContain('verenigingen.verenigingen.doctype.member.member.process_payment');
 			expect(methods).toContain(
 				'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup'
 			);
-			expect(methods).toContain(
-				'verenigingen.templates.pages.donate.submit_donation'
-			);
+			expect(methods).toContain('verenigingen.templates.pages.donate.submit_donation');
 			expect(methods.length).toBeGreaterThan(3);
 		});
 
 		it('should provide schema details for specific methods', () => {
-			const schema = tester.getMethodSchema(
-				'verenigingen.verenigingen.doctype.member.member.process_payment'
-			);
+			const schema = tester.getMethodSchema('verenigingen.verenigingen.doctype.member.member.process_payment');
 
 			expect(schema).toHaveProperty('args');
 			expect(schema).toHaveProperty('response');
@@ -222,8 +203,7 @@ describe('Simple API Contract Testing', () => {
 	describe('Direct Validation Testing', () => {
 		it('should validate API calls directly', () => {
 			const result = tester.validateFrappeCall({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.process_payment',
+				method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
 				args: {
 					member_id: 'Assoc-Member-2025-07-0001',
 					payment_amount: 25.0,
@@ -237,8 +217,7 @@ describe('Simple API Contract Testing', () => {
 
 		it('should detect parameter name mismatches', () => {
 			const result = tester.validateFrappeCall({
-				method:
-          'verenigingen.verenigingen.doctype.member.member.process_payment',
+				method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
 				args: { member: 'Assoc-Member-2025-07-0001' } // Wrong parameter name (should be member_id)
 			});
 
@@ -257,9 +236,7 @@ describe('Simple API Contract Testing', () => {
 			});
 
 			expect(result.valid).toBe(false);
-			expect(result.errors.some((err) => err.message.includes('number'))).toBe(
-				true
-			);
+			expect(result.errors.some((err) => err.message.includes('number'))).toBe(true);
 		});
 	});
 });

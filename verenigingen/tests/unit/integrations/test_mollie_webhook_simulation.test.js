@@ -18,10 +18,7 @@
  * @version 2025-08-26
  */
 
-const {
-	setupTestMocks,
-	cleanupTestMocks
-} = require('../../setup/frappe-mocks');
+const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
 const { setupMSW, resetMSW, teardownMSW } = require('../../setup/msw-setup');
 
 // Initialize test environment
@@ -37,24 +34,21 @@ class WebhookSignatureGenerator {
 	}
 
 	/**
-   * Generate webhook signature for payload
-   * @param {string} body - Raw webhook body
-   * @returns {string} Signature hash
-   */
+	 * Generate webhook signature for payload
+	 * @param {string} body - Raw webhook body
+	 * @returns {string} Signature hash
+	 */
 	generateSignature(body) {
 		const crypto = require('crypto');
-		return crypto
-			.createHmac('sha256', this.secret)
-			.update(body, 'utf8')
-			.digest('hex');
+		return crypto.createHmac('sha256', this.secret).update(body, 'utf8').digest('hex');
 	}
 
 	/**
-   * Validate webhook signature
-   * @param {string} body - Raw webhook body
-   * @param {string} signature - Signature to validate
-   * @returns {boolean} Whether signature is valid
-   */
+	 * Validate webhook signature
+	 * @param {string} body - Raw webhook body
+	 * @param {string} signature - Signature to validate
+	 * @returns {boolean} Whether signature is valid
+	 */
 	validateSignature(body, signature) {
 		const expectedSignature = this.generateSignature(body);
 		return signature === expectedSignature;
@@ -66,8 +60,8 @@ class WebhookSignatureGenerator {
  */
 class MollieWebhookPayloadGenerator {
 	/**
-   * Generate payment webhook payload
-   */
+	 * Generate payment webhook payload
+	 */
 	static generatePaymentWebhook(paymentId, status = 'paid', amount = '25.00') {
 		const basePayload = {
 			id: paymentId,
@@ -111,8 +105,8 @@ class MollieWebhookPayloadGenerator {
 	}
 
 	/**
-   * Generate subscription webhook payload
-   */
+	 * Generate subscription webhook payload
+	 */
 	static generateSubscriptionWebhook(subscriptionId, status = 'active') {
 		return {
 			id: subscriptionId,
@@ -140,8 +134,8 @@ class MollieWebhookPayloadGenerator {
 	}
 
 	/**
-   * Generate chargeback webhook payload
-   */
+	 * Generate chargeback webhook payload
+	 */
 	static generateChargebackWebhook(paymentId, chargebackId) {
 		return {
 			id: chargebackId,
@@ -166,8 +160,8 @@ class MollieWebhookPayloadGenerator {
 	}
 
 	/**
-   * Generate refund webhook payload
-   */
+	 * Generate refund webhook payload
+	 */
 	static generateRefundWebhook(paymentId, refundId, amount = '25.00') {
 		return {
 			id: refundId,
@@ -202,8 +196,8 @@ class MockWebhookHandler {
 	}
 
 	/**
-   * Process incoming webhook (simulates our actual webhook endpoint)
-   */
+	 * Process incoming webhook (simulates our actual webhook endpoint)
+	 */
 	async processWebhook(payload, signature) {
 		try {
 			const body = JSON.stringify(payload);
@@ -239,8 +233,8 @@ class MockWebhookHandler {
 	}
 
 	/**
-   * Handle payment webhook events
-   */
+	 * Handle payment webhook events
+	 */
 	async handlePaymentWebhook(payload) {
 		const event = {
 			type: 'payment',
@@ -287,8 +281,8 @@ class MockWebhookHandler {
 	}
 
 	/**
-   * Handle subscription webhook events
-   */
+	 * Handle subscription webhook events
+	 */
 	async handleSubscriptionWebhook(payload) {
 		const event = {
 			type: 'subscription',
@@ -312,8 +306,8 @@ class MockWebhookHandler {
 	}
 
 	/**
-   * Handle chargeback webhook events
-   */
+	 * Handle chargeback webhook events
+	 */
 	async handleChargebackWebhook(payload) {
 		const event = {
 			type: 'chargeback',
@@ -348,8 +342,8 @@ class MockWebhookHandler {
 	}
 
 	/**
-   * Handle refund webhook events
-   */
+	 * Handle refund webhook events
+	 */
 	async handleRefundWebhook(payload) {
 		const event = {
 			type: 'refund',
@@ -376,23 +370,21 @@ class MockWebhookHandler {
 	}
 
 	/**
-   * Get processing statistics
-   */
+	 * Get processing statistics
+	 */
 	getStats() {
 		return {
 			webhooks_received: this.receivedWebhooks.length,
 			events_processed: this.processedEvents.length,
 			errors: this.errors.length,
 			success_rate:
-        this.errors.length === 0
-        	? 100
-        	: (this.processedEvents.length / this.receivedWebhooks.length) * 100
+				this.errors.length === 0 ? 100 : (this.processedEvents.length / this.receivedWebhooks.length) * 100
 		};
 	}
 
 	/**
-   * Reset handler state
-   */
+	 * Reset handler state
+	 */
 	reset() {
 		this.receivedWebhooks = [];
 		this.processedEvents = [];
@@ -443,9 +435,7 @@ describe('Mollie Webhook Simulation with MSW', () => {
 			expect(result.event.amount).toBe('30.00');
 			expect(result.event.paymentEntry).toBeTruthy();
 			expect(result.event.paymentEntry.paid_amount).toBe(30.0);
-			expect(result.event.paymentEntry.reference_no).toBe(
-				'tr_webhook_test_001'
-			);
+			expect(result.event.paymentEntry.reference_no).toBe('tr_webhook_test_001');
 		});
 
 		it('should process failed payment webhook', async () => {
@@ -464,9 +454,7 @@ describe('Mollie Webhook Simulation with MSW', () => {
 			expect(result.event.action).toBe('failed');
 			expect(result.event.failureRecord).toBeTruthy();
 			expect(result.event.failureRecord.payment_id).toBe('tr_webhook_test_002');
-			expect(result.event.failureRecord.failure_reason).toBe(
-				'insufficient_funds'
-			);
+			expect(result.event.failureRecord.failure_reason).toBe('insufficient_funds');
 		});
 
 		it('should handle payment webhook with invoice allocation', async () => {
@@ -505,12 +493,8 @@ describe('Mollie Webhook Simulation with MSW', () => {
 
 			// Validate Dutch SEPA details in payload
 			expect(payload.details.creditorIdentifier).toMatch(/^NL\d{2}ZZZ\d{12}$/);
-			expect(payload.details.consumerAccount).toMatch(
-				/^NL\d{2}[A-Z]{4}\d{10}$/
-			);
-			expect(payload.details.consumerBic).toMatch(
-				/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/
-			);
+			expect(payload.details.consumerAccount).toMatch(/^NL\d{2}[A-Z]{4}\d{10}$/);
+			expect(payload.details.consumerBic).toMatch(/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/);
 			expect(payload.mandateId).toMatch(/^mdt_test_/);
 			expect(payload.method).toBe('directdebit');
 		});
@@ -518,10 +502,7 @@ describe('Mollie Webhook Simulation with MSW', () => {
 
 	describe('Subscription Webhook Simulation', () => {
 		it('should process active subscription webhook', async () => {
-			const payload = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(
-				'sub_webhook_test_001',
-				'active'
-			);
+			const payload = MollieWebhookPayloadGenerator.generateSubscriptionWebhook('sub_webhook_test_001', 'active');
 			const body = JSON.stringify(payload);
 			const signature = signatureGenerator.generateSignature(body);
 
@@ -572,12 +553,8 @@ describe('Mollie Webhook Simulation with MSW', () => {
 			// Validate journal entry creation
 			expect(result.event.journalEntry).toBeTruthy();
 			expect(result.event.journalEntry.accounts).toHaveLength(2);
-			expect(result.event.journalEntry.accounts[0].account).toBe(
-				'Chargebacks - VNL'
-			);
-			expect(
-				result.event.journalEntry.accounts[0].debit_in_account_currency
-			).toBe(25.0);
+			expect(result.event.journalEntry.accounts[0].account).toBe('Chargebacks - VNL');
+			expect(result.event.journalEntry.accounts[0].debit_in_account_currency).toBe(25.0);
 		});
 	});
 
@@ -605,11 +582,7 @@ describe('Mollie Webhook Simulation with MSW', () => {
 
 	describe('Webhook Security and Validation', () => {
 		it('should reject webhook with invalid signature', async () => {
-			const payload = MollieWebhookPayloadGenerator.generatePaymentWebhook(
-				'tr_invalid_sig_001',
-				'paid',
-				'25.00'
-			);
+			const payload = MollieWebhookPayloadGenerator.generatePaymentWebhook('tr_invalid_sig_001', 'paid', '25.00');
 			const invalidSignature = 'invalid_signature_hash';
 
 			try {
@@ -655,9 +628,7 @@ describe('Mollie Webhook Simulation with MSW', () => {
 				await webhookHandler.processWebhook(unknownPayload, signature);
 				fail('Should have thrown unknown resource error');
 			} catch (error) {
-				expect(error.message).toBe(
-					'Unknown resource type: unknown_resource_type'
-				);
+				expect(error.message).toBe('Unknown resource type: unknown_resource_type');
 			}
 
 			expect(webhookHandler.errors).toHaveLength(1);
@@ -705,11 +676,7 @@ describe('Mollie Webhook Simulation with MSW', () => {
 		});
 
 		it('should support webhook replay for failed processing', async () => {
-			const payload = MollieWebhookPayloadGenerator.generatePaymentWebhook(
-				'tr_replay_test',
-				'paid',
-				'25.00'
-			);
+			const payload = MollieWebhookPayloadGenerator.generatePaymentWebhook('tr_replay_test', 'paid', '25.00');
 			const body = JSON.stringify(payload);
 			const signature = signatureGenerator.generateSignature(body);
 
@@ -732,36 +699,22 @@ describe('Mollie Webhook Simulation with MSW', () => {
 			const memberId = 'Assoc-Member-2024-001';
 
 			// 1. Payment created (open status)
-			const openPayload = MollieWebhookPayloadGenerator.generatePaymentWebhook(
-				paymentId,
-				'open',
-				'30.00'
-			);
+			const openPayload = MollieWebhookPayloadGenerator.generatePaymentWebhook(paymentId, 'open', '30.00');
 			openPayload.metadata.member_id = memberId;
 			let body = JSON.stringify(openPayload);
 			let signature = signatureGenerator.generateSignature(body);
 
-			const openResult = await webhookHandler.processWebhook(
-				openPayload,
-				signature
-			);
+			const openResult = await webhookHandler.processWebhook(openPayload, signature);
 			expect(openResult.event.action).toBe('open');
 
 			// 2. Payment completed (paid status)
-			const paidPayload = MollieWebhookPayloadGenerator.generatePaymentWebhook(
-				paymentId,
-				'paid',
-				'30.00'
-			);
+			const paidPayload = MollieWebhookPayloadGenerator.generatePaymentWebhook(paymentId, 'paid', '30.00');
 			paidPayload.metadata.member_id = memberId;
 			paidPayload.metadata.invoice_number = 'SINV-2024-001';
 			body = JSON.stringify(paidPayload);
 			signature = signatureGenerator.generateSignature(body);
 
-			const paidResult = await webhookHandler.processWebhook(
-				paidPayload,
-				signature
-			);
+			const paidResult = await webhookHandler.processWebhook(paidPayload, signature);
 			expect(paidResult.event.action).toBe('paid');
 			expect(paidResult.event.paymentEntry).toBeTruthy();
 			expect(paidResult.event.invoiceAllocation).toBeTruthy();
@@ -777,51 +730,36 @@ describe('Mollie Webhook Simulation with MSW', () => {
 			const memberId = 'Assoc-Member-2024-002';
 
 			// 1. Subscription activated
-			const activePayload
-        = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(
-        	subscriptionId,
-        	'active'
-        );
+			const activePayload = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(subscriptionId, 'active');
 			activePayload.metadata.member_id = memberId;
 			let body = JSON.stringify(activePayload);
 			let signature = signatureGenerator.generateSignature(body);
 
-			const activeResult = await webhookHandler.processWebhook(
-				activePayload,
-				signature
-			);
+			const activeResult = await webhookHandler.processWebhook(activePayload, signature);
 			expect(activeResult.event.action).toBe('active');
 
 			// 2. Subscription suspended
-			const suspendedPayload
-        = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(
-        	subscriptionId,
-        	'suspended'
-        );
+			const suspendedPayload = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(
+				subscriptionId,
+				'suspended'
+			);
 			suspendedPayload.metadata.member_id = memberId;
 			body = JSON.stringify(suspendedPayload);
 			signature = signatureGenerator.generateSignature(body);
 
-			const suspendedResult = await webhookHandler.processWebhook(
-				suspendedPayload,
-				signature
-			);
+			const suspendedResult = await webhookHandler.processWebhook(suspendedPayload, signature);
 			expect(suspendedResult.event.action).toBe('suspended');
 
 			// 3. Subscription canceled
-			const canceledPayload
-        = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(
-        	subscriptionId,
-        	'canceled'
-        );
+			const canceledPayload = MollieWebhookPayloadGenerator.generateSubscriptionWebhook(
+				subscriptionId,
+				'canceled'
+			);
 			canceledPayload.metadata.member_id = memberId;
 			body = JSON.stringify(canceledPayload);
 			signature = signatureGenerator.generateSignature(body);
 
-			const canceledResult = await webhookHandler.processWebhook(
-				canceledPayload,
-				signature
-			);
+			const canceledResult = await webhookHandler.processWebhook(canceledPayload, signature);
 			expect(canceledResult.event.action).toBe('canceled');
 
 			// Verify complete subscription lifecycle
