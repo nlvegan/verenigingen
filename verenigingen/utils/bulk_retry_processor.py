@@ -176,6 +176,8 @@ def should_retry_now(tracker) -> bool:
     return elapsed_hours >= required_hours
 
 
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def manual_retry_failed_requests(tracker_name: str) -> Dict:
     """
     Manually trigger retry processing for a specific tracker.

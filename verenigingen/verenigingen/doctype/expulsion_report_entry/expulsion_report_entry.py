@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, now, today
+from frappe.utils import cint, getdate, now, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -313,8 +313,14 @@ def get_expulsion_statistics(filters=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def generate_expulsion_governance_report(date_range=None, chapter=None):
-    """Generate comprehensive governance report for expulsions"""
+def generate_expulsion_governance_report(date_range=None, chapter=None, include_appeals=True):
+    """Generate comprehensive governance report for expulsions.
+
+    Args:
+        include_appeals: When falsy (the report dialog's "Include Appeals Data"
+            toggle is off), the per-expulsion appeals fields are omitted from
+            the detailed rows.
+    """
 
     filters = {}
     if date_range:
@@ -376,6 +382,13 @@ def generate_expulsion_governance_report(date_range=None, chapter=None):
     """
 
     detailed_data = frappe.db.sql(detailed_query, values, as_dict=True)
+
+    # Honor the report dialog's "Include Appeals Data" toggle.
+    if not cint(include_appeals):
+        appeal_fields = ("under_appeal", "appeal_date", "has_appeal", "appeal_status", "decision_outcome")
+        for row in detailed_data:
+            for fieldname in appeal_fields:
+                row.pop(fieldname, None)
 
     # Generate compliance analysis
     compliance_issues = []
