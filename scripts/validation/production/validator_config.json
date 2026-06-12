@@ -1,4 +1,10 @@
 {
+    "framework_app_prefixes": [
+        "frappe.",
+        "erpnext.",
+        "hrms.",
+        "payments."
+    ],
     "framework_methods": [
         "frappe.client.get",
         "frappe.client.get_list",

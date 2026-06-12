@@ -57,12 +57,6 @@ JS_PYTHON_PATTERNS = [
     r'method:\s*[\'"]([^\'"]+)[\'"]',
 ]
 
-# Parameter extraction patterns
-ARGS_PATTERNS = [
-    r'args:\s*\{([^}]+)\}',
-    r'[\'"]args[\'"]:\s*\{([^}]+)\}',
-]
-
 @dataclass
 class JSCall:
     """Represents a JavaScript call to a Python method"""
@@ -86,6 +80,7 @@ class PythonFunction:
     docstring: Optional[str] = None
     has_kwargs: bool = False
     has_args: bool = False
+    is_method: bool = False  # True if defined inside a class (not module-level)
 
 @dataclass
 class ValidationIssue:
@@ -123,6 +118,14 @@ class EnhancedJSPythonParameterValidator:
         # Check framework methods
         framework_methods = self.config.get('framework_methods', [])
         if method_name in framework_methods:
+            return True
+
+        # Methods in other installed apps (frappe./erpnext./hrms./payments.) live
+        # outside this app's index, so they can't be resolved here. Treat any
+        # dotted path under a known framework app prefix as a framework method to
+        # avoid false "method not found" findings for real cross-app endpoints.
+        framework_app_prefixes = self.config.get('framework_app_prefixes', [])
+        if any(method_name.startswith(prefix) for prefix in framework_app_prefixes):
             return True
 
         # Check HTTP methods (GET, POST, etc.)
@@ -310,7 +313,7 @@ class EnhancedJSPythonParameterValidator:
                         context = '\n'.join(context_lines)
                         
                         # Extract arguments
-                        args = self._extract_args_from_context(context)
+                        args = self._extract_args_from_context(context, method_name)
                         
                         # Determine call type
                         call_type = self._determine_call_type(line)
@@ -330,42 +333,208 @@ class EnhancedJSPythonParameterValidator:
         except Exception as e:
             print(f"Error analyzing JS file {file_path}: {e}")
     
-    def _extract_args_from_context(self, context: str) -> Dict[str, Any]:
-        """Extract arguments from JavaScript context"""
+    def _extract_args_from_context(self, context: str, method_name: str = None) -> Dict[str, Any]:
+        """Extract the keys passed in a frappe.call ``args`` object.
+
+        Only TOP-LEVEL keys of the nearest ``args: { ... }`` object are returned:
+        - nested object/array contents are ignored, so a ``filters: {...}``
+          wrapper yields just ``filters`` (not its inner keys);
+        - value tokens are never mistaken for keys, so ``key: someVar`` yields
+          ``key`` (not ``someVar``) and ``days_overdue: 7`` yields ``days_overdue``
+          (not ``7``).
+
+        This replaces the previous naive ``\\{[^}]+\\}`` capture, which truncated
+        on the first nested ``}`` and let the ES6-shorthand pass match value
+        identifiers/numbers — the source of most false positives.
+        """
         args = {}
 
-        for pattern in ARGS_PATTERNS:
-            match = re.search(pattern, context, re.DOTALL)
-            if match:
-                args_str = match.group(1)
+        # Strip JS comments first so a trailing `// note` can't glue onto the
+        # next key segment (which previously dropped real keys).
+        context = self._strip_js_comments(context)
 
-                # Parse key: value pairs (traditional syntax)
-                key_value_pattern = r'[\'"]?(\w+)[\'"]?\s*:\s*([^,}]+)'
-                for kv_match in re.finditer(key_value_pattern, args_str):
-                    key = kv_match.group(1).strip('\'"')
-                    value = kv_match.group(2).strip().rstrip(',')
-                    args[key] = value
+        # Find `args:` / 'args': / "args": immediately followed by an object
+        # literal (word-boundary guarded so it doesn't match e.g. `myargs:`).
+        match = re.search(r"""(?<![\w$])(?:'args'|"args"|args)\s*:\s*\{""", context)
+        if match:
+            obj_body = self._extract_balanced(context, match.end() - 1)
+            if obj_body is not None:
+                for key in self._parse_top_level_keys(obj_body):
+                    args[key] = key
+                return args
 
-                # Also parse ES6 shorthand property syntax (e.g., { chapter_name, segment })
-                # These are variable names used directly as properties
-                # Match word at start of line or after comma/brace, followed by comma/newline/brace
-                es6_shorthand_pattern = r'(?:^|[,{\s])(\w+)(?=\s*(?:[,}\n]|$))'
-                for shorthand_match in re.finditer(es6_shorthand_pattern, args_str, re.MULTILINE):
-                    key = shorthand_match.group(1).strip()
-                    # Skip if already found via key: value pattern or if it's a common keyword
-                    if key not in args and key not in ('true', 'false', 'null', 'undefined'):
-                        args[key] = key  # In shorthand, key and value are the same
-                break
+        # Positional object argument: this.call('method', { ... }) /
+        # api.call('method', { ... }) pass args as the 2nd positional arg with
+        # no `args:` key. Bind to THIS method name so we don't pick up a
+        # following call's object from the shared context window.
+        method_token = re.escape(method_name) if method_name else r"[^'\"]+"
+        positional = re.search(
+            r"""\.call\(\s*['"]""" + method_token + r"""['"]\s*,\s*\{""", context
+        )
+        if positional:
+            obj_body = self._extract_balanced(context, positional.end() - 1)
+            if obj_body is not None:
+                for key in self._parse_top_level_keys(obj_body):
+                    args[key] = key
+                return args
 
-        # Handle variable args references (e.g., args: filters, args: values)
-        if not args:
-            var_args_match = re.search(r"args:\s*(\w+)", context)
-            if var_args_match:
-                var_name = var_args_match.group(1)
-                if var_name not in ("true", "false", "null", "undefined", "this"):
-                    args["__variable_args__"] = var_name
+        # Variable args reference: `args: someVar` or shorthand `args,` (e.g.
+        # frappe.call({ method, args, callback })) — the args object is built in
+        # a variable and can't be resolved statically, so skip param checks.
+        var_args_match = re.search(r"args\s*:\s*([A-Za-z_$][\w$]*)", context)
+        if var_args_match:
+            var_name = var_args_match.group(1)
+            if var_name not in ("true", "false", "null", "undefined", "this"):
+                args["__variable_args__"] = var_name
+                return args
+        if re.search(r"(?<![\w$])args\s*[,}\n]", context):
+            args["__variable_args__"] = "args"
 
         return args
+
+    @staticmethod
+    def _strip_js_comments(text: str) -> str:
+        """Remove ``//`` and ``/* */`` comments, preserving string literals.
+
+        Line comments stop at (but keep) the newline so line structure is
+        retained; string/template contents — including ``//`` inside a URL — are
+        left intact.
+        """
+        out = []
+        quote = None
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if quote:
+                out.append(ch)
+                if ch == "\\" and i + 1 < n:
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+                i += 1
+                continue
+            if ch in ("'", '"', "`"):
+                quote = ch
+                out.append(ch)
+            elif ch == "/" and i + 1 < n and text[i + 1] == "/":
+                while i < n and text[i] != "\n":
+                    i += 1
+                continue
+            elif ch == "/" and i + 1 < n and text[i + 1] == "*":
+                i += 2
+                while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                    i += 1
+                i += 2
+                continue
+            else:
+                out.append(ch)
+            i += 1
+        return "".join(out)
+
+    @staticmethod
+    def _extract_balanced(text: str, open_index: int) -> Optional[str]:
+        """Return the contents between the ``{`` at ``open_index`` and its match.
+
+        Tracks ``'`` ``"`` `` ` `` string literals so braces inside strings are
+        ignored. Returns None if no matching close brace is found.
+        """
+        if open_index >= len(text) or text[open_index] != "{":
+            return None
+        depth = 0
+        quote = None
+        i = open_index
+        while i < len(text):
+            ch = text[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"', "`"):
+                quote = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[open_index + 1 : i]
+            i += 1
+        return None
+
+    @classmethod
+    def _parse_top_level_keys(cls, obj_body: str) -> List[str]:
+        """Parse the top-level keys of a JS object-literal body.
+
+        Splits on depth-0 commas, takes the text before the first depth-0 colon
+        as each key (or the whole segment for shorthand), and keeps only plain
+        identifiers — numeric literals, computed keys, spreads and value
+        expressions are skipped.
+        """
+        keys = []
+        for segment in cls._split_top_level(obj_body):
+            key_part = cls._segment_key(segment)
+            if key_part and re.fullmatch(r"[A-Za-z_$][\w$]*", key_part):
+                keys.append(key_part)
+        return keys
+
+    @staticmethod
+    def _split_top_level(body: str) -> List[str]:
+        """Split an object body on commas at brace/bracket/paren depth 0."""
+        segments = []
+        depth = 0
+        quote = None
+        start = 0
+        i = 0
+        while i < len(body):
+            ch = body[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"', "`"):
+                quote = ch
+            elif ch in "{[(":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                segments.append(body[start:i])
+                start = i + 1
+            i += 1
+        segments.append(body[start:])
+        return segments
+
+    @staticmethod
+    def _segment_key(segment: str) -> Optional[str]:
+        """Return the key of a single ``key: value`` (or shorthand) segment."""
+        depth = 0
+        quote = None
+        i = 0
+        while i < len(segment):
+            ch = segment[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"', "`"):
+                quote = ch
+            elif ch in "{[(":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == ":" and depth == 0:
+                return segment[:i].strip().strip("'\"`").strip()
+            i += 1
+        # No top-level colon -> shorthand property; the whole token is the key.
+        return segment.strip().strip("'\"`").strip()
     
     def _determine_call_type(self, line: str) -> str:
         """Determine the type of JavaScript call"""
@@ -417,6 +586,19 @@ class EnhancedJSPythonParameterValidator:
                 self._analyze_py_file_regex(file_path, lines)
                 return
             
+            # Collect ids of functions defined inside a class (instance/static
+            # methods). These are NOT reachable via a full dotted-path
+            # frappe.call, so when an instance method and a module-level
+            # function share a name (same computed path), the module-level one
+            # must win — otherwise the method (with `self`) shadows it and
+            # produces spurious extra/missing-parameter findings.
+            method_node_ids = set()
+            for klass in ast.walk(tree):
+                if isinstance(klass, ast.ClassDef):
+                    for child in ast.iter_child_nodes(klass):
+                        if isinstance(child, ast.FunctionDef):
+                            method_node_ids.add(id(child))
+
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
                     # Check if function has @frappe.whitelist() decorator
@@ -425,11 +607,15 @@ class EnhancedJSPythonParameterValidator:
                         if self._is_whitelist_decorator(decorator):
                             is_whitelisted = True
                             break
-                    
+
                     if is_whitelisted:
                         python_func = self._create_python_function(file_path, node, lines)
                         if python_func:
-                            self.python_functions[python_func.full_method_path] = python_func
+                            python_func.is_method = id(node) in method_node_ids
+                            existing = self.python_functions.get(python_func.full_method_path)
+                            # On a path collision, keep the module-level function.
+                            if existing is None or (existing.is_method and not python_func.is_method):
+                                self.python_functions[python_func.full_method_path] = python_func
                             # Index by function name for better lookup
                             self.function_name_index[python_func.function_name].append(python_func)
                             self.stats['python_functions_found'] += 1
