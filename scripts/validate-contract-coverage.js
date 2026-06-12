@@ -110,7 +110,7 @@ class ContractCoverageValidator {
 			passed,
 			issues,
 			methods,
-			criticalMethods
+			criticalMethodsList: criticalMethods
 		};
 
 		fs.writeFileSync('reports/coverage/contract-coverage-report.json', JSON.stringify(report, null, 2));
