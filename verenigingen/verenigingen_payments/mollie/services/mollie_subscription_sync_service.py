@@ -17,8 +17,8 @@ from ..utils.common_helpers import format_mollie_amount
 from .subscription_description import get_member_subscription_description
 from .subscription_service import SubscriptionService
 
-# One cent expressed as a strict-comparison threshold: differences at or
-# above EUR 0.01 are real mismatches; anything smaller is float noise.
+# Half a cent: any difference of EUR 0.01 or more (the smallest real
+# currency step) is a genuine mismatch; anything below is float noise.
 AMOUNT_MATCH_TOLERANCE = 0.005
 
 # Billing interval mapping to Mollie format

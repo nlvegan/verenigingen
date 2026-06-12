@@ -96,6 +96,10 @@ class _FakeSubscription:
         self.canceled_at = None
         self.cancelled_at = None
         self.metadata = {}
+        # Parity with the real SDK object: get_subscription_status reads
+        # these unconditionally, so the fake must carry them.
+        self.webhook_url = ""
+        self.customer_id = None
         # The MollieDebugService success responses read these fields directly
         # (not via getattr), so the fake must carry them.
         self.amount = {"value": "15.00", "currency": "EUR"}
