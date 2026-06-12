@@ -40,14 +40,40 @@ class TestSecurityPenetration(EnhancedTestCase):
     - Data leakage prevention
     """
     
+    # Fields this suite overwrites on the LIVE Mollie Settings single. The
+    # setUpClass commit defeats the test runner's rollback, so without the
+    # snapshot/restore below a run against a production site permanently
+    # replaces real credentials with these dummies (happened on veg11,
+    # 2026-06: profile_id "pfl_sec_test" + 45-char dummy test key broke the
+    # settings page and the portal bank-account update).
+    _OVERWRITTEN_FIELDS = (
+        "test_mode",
+        "test_secret_key",
+        "profile_id",
+        "enable_backend_api",
+        "organization_access_token",
+        "backend_webhook_secret",
+    )
+    _PASSWORD_FIELDS = ("test_secret_key", "organization_access_token", "backend_webhook_secret")
+
     @classmethod
     def setUpClass(cls):
         """Set up security test environment"""
         super().setUpClass()
-        
+
         # Mollie Settings is a Single DocType. Configure it for testing: test mode
         # requires test_secret_key + profile_id (validate_mollie_credentials).
         settings = frappe.get_single("Mollie Settings")
+
+        # Snapshot the real values (decrypted for password fields) so
+        # tearDownClass can put them back.
+        cls._original_settings = {}
+        for field in cls._OVERWRITTEN_FIELDS:
+            if field in cls._PASSWORD_FIELDS:
+                cls._original_settings[field] = settings.get_password(field, raise_exception=False)
+            else:
+                cls._original_settings[field] = settings.get(field)
+
         settings.test_mode = 1
         settings.test_secret_key = "test_sec_key_" + "x" * 32
         settings.profile_id = "pfl_sec_test"
@@ -59,6 +85,24 @@ class TestSecurityPenetration(EnhancedTestCase):
         settings.flags.ignore_validate = True
         settings.save(ignore_permissions=True)
         frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        """Restore the Mollie Settings values this suite overwrote."""
+        from frappe.utils.password import remove_encrypted_password
+
+        settings = frappe.get_single("Mollie Settings")
+        for field, value in cls._original_settings.items():
+            settings.set(field, value)
+        settings.flags.ignore_validate = True
+        settings.save(ignore_permissions=True)
+        # A falsy password is skipped by save (it would not overwrite the
+        # dummy), so drop the stored secret explicitly when there was none.
+        for field in cls._PASSWORD_FIELDS:
+            if not cls._original_settings.get(field):
+                remove_encrypted_password("Mollie Settings", "Mollie Settings", field)
+        frappe.db.commit()
+        super().tearDownClass()
 
     def setUp(self):
         """Set up test case"""
