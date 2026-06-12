@@ -122,9 +122,14 @@ function show_expulsion_report_dialog() {
 		primary_action(values) {
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.generate_expulsion_report',
+				// Python expects a single `filters` dict (from_date/to_date/chapter);
+				// the DateRange field yields a [from, to] array.
 				args: {
-					date_range: values.date_range,
-					chapter: values.chapter
+					filters: {
+						from_date: values.date_range ? values.date_range[0] : null,
+						to_date: values.date_range ? values.date_range[1] : null,
+						chapter: values.chapter
+					}
 				},
 				callback(r) {
 					if (r.message && r.message.length) {
@@ -233,7 +238,7 @@ function show_bulk_process_dialog(listview) {
 
 			approved_items.forEach((item, index) => {
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.execute_termination',
+					method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.execute_termination_request',
 					args: {
 						request_name: item.name
 					},

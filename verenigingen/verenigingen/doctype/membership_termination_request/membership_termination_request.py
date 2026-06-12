@@ -316,6 +316,24 @@ def handle_status_change(doc, method=None):
 
 # Public API methods that can be called from outside
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def execute_termination_request(request_name: str):
+    """Execute a termination request by name.
+
+    The single-record form calls the `execute_termination` doc method via
+    `frm.call()` (run_doc_method). List-view bulk actions have no form context,
+    so they call this module-level wrapper. It delegates to the same
+    TerminationExecutionService the doc method uses — calling the service
+    directly (rather than the decorated doc method) avoids nesting
+    @critical_api inside this already-ADMIN-gated endpoint.
+    """
+    from verenigingen.services.termination import TerminationExecutionService
+
+    doc = frappe.get_doc("Membership Termination Request", request_name)
+    return TerminationExecutionService().execute_from_api(doc)
+
+
+@frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_termination_impact_preview(member):
     """Public API to get termination impact preview"""

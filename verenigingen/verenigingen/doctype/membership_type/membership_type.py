@@ -393,6 +393,20 @@ def get_membership_contribution_options(membership_type_name: str):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+def create_dues_schedule_template(membership_type_name: str):
+    """Whitelisted wrapper around the `create_dues_schedule_template` doc method.
+
+    The form's "Create Dues Schedule Template" button calls this module-level
+    endpoint by name. The doc method itself is left undecorated because it also
+    runs internally during validate (after_insert); decorating it would impose
+    API security checks on that internal call.
+    """
+    membership_type = frappe.get_doc("Membership Type", membership_type_name)
+    return membership_type.create_dues_schedule_template()
+
+
+@frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
 def get_template_query():
     """Query function for dues schedule template filter"""

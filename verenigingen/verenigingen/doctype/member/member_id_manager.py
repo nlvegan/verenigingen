@@ -295,6 +295,31 @@ def reset_member_id_counter(counter_value):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def migrate_member_id_counter():
+    """Migrate the legacy Verenigingen Settings counter to the Member-based
+    counter system.
+
+    One-off upgrade tool exposed by the Member Counter page. Delegates to
+    MemberIDManager.sync_counter_with_settings(), which raises the new counter
+    to the Verenigingen Settings start value when the latter is higher.
+    """
+    if not frappe.has_permission("Member", "write"):
+        frappe.throw(_("Insufficient permissions"))
+
+    if not frappe.user.has_role(Roles.SYSTEM_MANAGER):
+        frappe.throw(_("Only System Managers can run the member ID counter migration"))
+
+    MemberIDManager.sync_counter_with_settings()
+
+    current_counter = cint(frappe.cache().get("member_id_counter"))
+    return {
+        "success": True,
+        "message": _("Member ID counter migration complete. Current counter: {0}").format(current_counter),
+    }
+
+
+@frappe.whitelist()
 @critical_api(operation_type=OperationType.MEMBER_DATA)
 def get_next_member_id_preview():
     """Get the next member ID that would be assigned"""

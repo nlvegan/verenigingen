@@ -355,7 +355,7 @@ function show_migration_tools_dialog() {
 				__('Run member ID counter migration? This should only be done once during system upgrade.'),
 				() => {
 					frappe.call({
-						method: 'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
+						method: 'verenigingen.verenigingen.doctype.member.member_id_manager.migrate_member_id_counter',
 						freeze: true,
 						freeze_message: __('Running migration...'),
 						callback(r) {
@@ -473,7 +473,7 @@ function migrate_member_id_system() {
 	console.log('Starting member ID system migration...');
 
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
+		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.migrate_member_id_counter',
 		callback(r) {
 			const data = unwrapOperationResult(r.message);
 			if (data && data.success !== false) {
