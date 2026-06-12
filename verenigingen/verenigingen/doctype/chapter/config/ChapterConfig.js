@@ -224,7 +224,7 @@ export const ChapterConfig = {
 	validation: {
 		namePattern: /^[a-zA-Z0-9\s\-_]+$/,
 		emailPattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-		phonePattern: /^[\d\s\-\+\(\)]+$/,
+		phonePattern: /^[\d\s\-+()]+$/,
 		urlPattern: /^https?:\/\/.+$/,
 		maxFieldLengths: {
 			name: 100,

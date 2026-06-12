@@ -1083,7 +1083,7 @@ function add_administrative_buttons(frm) {
 	}
 
 	// Member ID management
-	add_member_id_management_buttons(frm);
+	add_member_id_management_buttons();
 
 	// Debug tools for System Managers
 	if (isSystemManager && frappe.boot.developer_mode) {
@@ -1493,17 +1493,9 @@ function add_suspension_action_button(frm) {
 	});
 }
 
-function add_member_id_management_buttons(frm) {
-	const user_roles = frappe.user_roles || [];
-	const can_manage_member_ids
-    = user_roles.includes('System Manager')
-;
-
-	if (!can_manage_member_ids) {
-
-	}
-
-	// Member ID Statistics, Preview Next ID, and Assign Member ID buttons removed as requested
+function add_member_id_management_buttons() {
+	// Member ID Statistics, Preview Next ID, and Assign Member ID buttons removed as requested.
+	// Kept as a no-op placeholder so the refresh-handler call site stays stable.
 }
 
 function create_user_account_dialog(frm) {

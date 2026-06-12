@@ -642,10 +642,11 @@ export class CommunicationManager {
 				case __('Board Members Only'):
 					recipients = this.getActiveBoardMembersWithEmail();
 					break;
-				case __('Active Members Only'):
+				case __('Active Members Only'): {
 					const members = await this.getChapterMembersWithEmail();
 					recipients = members.filter((m) => m.status === 'Active');
 					break;
+				}
 				case __('Custom Selection'):
 					recipients = values.custom_recipients
 						.split(',')

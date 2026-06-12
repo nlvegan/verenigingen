@@ -28,7 +28,7 @@ frappe.query_reports['Database Table Size Analysis'] = {
 		value = default_formatter(value, row, column, data);
 
 		// Color code the percentage column
-		if (column.fieldname == 'percentage') {
+		if (column.fieldname === 'percentage') {
 			if (data.percentage > 10) {
 				value = `<span style="color: red; font-weight: bold;">${value}</span>`;
 			} else if (data.percentage > 5) {
@@ -39,7 +39,7 @@ frappe.query_reports['Database Table Size Analysis'] = {
 		}
 
 		// Color code total size
-		if (column.fieldname == 'total_size_mb') {
+		if (column.fieldname === 'total_size_mb') {
 			if (data.total_size_mb > 100) {
 				value = `<span style="color: red; font-weight: bold;">${value}</span>`;
 			} else if (data.total_size_mb > 50) {
@@ -50,7 +50,7 @@ frappe.query_reports['Database Table Size Analysis'] = {
 		}
 
 		// Add visual bar for percentage
-		if (column.fieldname == 'table_name' && data.percentage) {
+		if (column.fieldname === 'table_name' && data.percentage) {
 			const barWidth = Math.min(data.percentage * 2, 100);
 			const barColor = data.percentage > 10 ? '#ff4757'
 			                 : data.percentage > 5 ? '#ffa502'

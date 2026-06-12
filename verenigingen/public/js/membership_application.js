@@ -2063,7 +2063,6 @@ class _MembershipApplication {
 			}
 
 			let displayAmount;
-			let displayFrequency;
 
 			// Map billing frequency to display text
 			const frequencyDisplayMap = {
@@ -2072,7 +2071,7 @@ class _MembershipApplication {
 				Annual: '/year',
 				Annually: '/year'
 			};
-			displayFrequency = frequencyDisplayMap[billingFrequency] || '/year';
+			const displayFrequency = frequencyDisplayMap[billingFrequency] || '/year';
 
 			// Check which mode we're in
 			if (self.calculatorMode === 'Progressive' && self.progressiveConfig) {

@@ -246,7 +246,7 @@ function render_comparison_table(changed_fields, frappe_data) {
 		const current_str = String(current || '');
 		const already_applied = proposed_str === current_str;
 
-		var status_html;
+		let status_html;
 		if (already_applied) {
 			status_html = '<span class="indicator-pill green">Already applied</span>';
 		} else {

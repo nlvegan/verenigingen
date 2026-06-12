@@ -57,18 +57,18 @@ frappe.query_reports['Volunteer Activity by Tag'] = {
 		value = default_formatter(value, row, column, data);
 
 		// Highlight different activity scopes with colors
-		if (column.fieldname == 'activity_scope' && data) {
-			if (data.activity_scope == 'External') {
+		if (column.fieldname === 'activity_scope' && data) {
+			if (data.activity_scope === 'External') {
 				value = `<span style="color: #5e64ff; font-weight: 500;">${data.activity_scope}</span>`;
-			} else if (data.activity_scope == 'Collaborative') {
+			} else if (data.activity_scope === 'Collaborative') {
 				value = `<span style="color: #ff6b6b; font-weight: 500;">${data.activity_scope}</span>`;
-			} else if (data.activity_scope == 'Internal') {
+			} else if (data.activity_scope === 'Internal') {
 				value = `<span style="color: #51cf66;">${data.activity_scope}</span>`;
 			}
 		}
 
 		// Color-code status
-		if (column.fieldname == 'status' && data) {
+		if (column.fieldname === 'status' && data) {
 			const status_colors = {
 				Active: '#51cf66',
 				Completed: '#868e96',
