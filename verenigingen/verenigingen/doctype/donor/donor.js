@@ -323,6 +323,17 @@ function setup_anbi_features(frm) {
 			__('ANBI')
 		);
 
+		// Generate ANBI (Belastingdienst) report. Gated on permlevel-1 read like
+		// the other ANBI actions; the backend additionally enforces the BSN/RSIN
+		// export permission when "Include BSN/RSIN" is checked.
+		frm.add_custom_button(
+			__('Generate ANBI Report'),
+			() => {
+				generate_anbi_report(frm);
+			},
+			__('ANBI')
+		);
+
 		// Add visual indicators for ANBI compliance
 		add_anbi_indicators(frm);
 	}
@@ -530,9 +541,9 @@ function validate_bsn_field(frm) {
 	}
 }
 
-// TODO: entry point for the ANBI-report dialog flow (-> show_anbi_report ->
-// download_anbi_report). Not currently wired to any button/trigger.
-// eslint-disable-next-line no-unused-vars
+// Entry point for the ANBI-report dialog flow (-> show_anbi_report ->
+// download_anbi_report). Wired to the "Generate ANBI Report" button in
+// setup_anbi_features().
 function generate_anbi_report(frm) {
 	const d = new frappe.ui.Dialog({
 		title: __('Generate ANBI Report'),
