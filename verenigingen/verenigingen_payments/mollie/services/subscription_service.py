@@ -76,6 +76,8 @@ class SubscriptionService:
             "is_canceled": subscription.status in ["canceled", "suspended", "completed"],
             "description": subscription.description,
             "metadata": subscription.metadata,
+            "webhook_url": subscription.webhook_url,
+            "mandate_id": subscription.mandate_id,
         }
 
     def cancel_subscription(self, customer_id: str, subscription_id: str, reason: str = "") -> Dict[str, Any]:

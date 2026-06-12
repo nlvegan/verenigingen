@@ -38,6 +38,7 @@ class _FakeSubscription:
         webhook_url="",
         mandate_id=None,
         next_payment_date="2026-07-01",
+        customer_id=None,
     ):
         self.id = subscription_id
         self.status = status
@@ -47,6 +48,7 @@ class _FakeSubscription:
         self.webhook_url = webhook_url
         self.mandate_id = mandate_id
         self.next_payment_date = next_payment_date
+        self.customer_id = customer_id
         self.metadata = {}
 
 
@@ -210,6 +212,23 @@ class TestAmendmentSubscriptionSync(EnhancedTestCase):
             [("sub_LIVE", {"amount": {"value": "26.50", "currency": "EUR"}})],
         )
         self.assertEqual(result.amount, {"value": "26.50", "currency": "EUR"})
+
+    def test_get_subscription_status_exposes_webhook_and_mandate(self):
+        from verenigingen.verenigingen_payments.mollie.services.subscription_service import (
+            SubscriptionService,
+        )
+
+        sdk = FakeSDKClient(
+            live_subscription=_FakeSubscription(
+                webhook_url="https://old.example/hook", mandate_id="mdt_LIVE"
+            )
+        )
+        service = SubscriptionService(_make_mollie_client(sdk))
+
+        status = service.get_subscription_status("cst_SYNC", "sub_LIVE")
+
+        self.assertEqual(status["webhook_url"], "https://old.example/hook")
+        self.assertEqual(status["mandate_id"], "mdt_LIVE")
 
 
 class TestSubscriptionDescription(EnhancedTestCase):
