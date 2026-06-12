@@ -128,3 +128,46 @@ class TestAmendmentSubscriptionSync(EnhancedTestCase):
         )
 
         self.assertNotIn("startDate", sdk.subscriptions_created[0])
+
+
+class TestSubscriptionDescription(EnhancedTestCase):
+    """Canonical member-subscription description from Verenigingen Payments Settings."""
+
+    def _member(self):
+        token = frappe.generate_hash(length=8)
+        return self.create_test_member(
+            first_name="Desc",
+            last_name=f"Helper{token}",
+            email=f"desc-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+
+    def test_description_uses_default_template(self):
+        from verenigingen.verenigingen_payments.mollie.services.subscription_description import (
+            get_member_subscription_description,
+        )
+
+        frappe.db.set_single_value(
+            "Verenigingen Payments Settings", "mollie_subscription_description_template", ""
+        )
+        member = self._member()
+        self.assertEqual(
+            get_member_subscription_description(member),
+            f"Contribution payment for member {member.member_id}",
+        )
+
+    def test_description_substitutes_custom_template(self):
+        from verenigingen.verenigingen_payments.mollie.services.subscription_description import (
+            get_member_subscription_description,
+        )
+
+        frappe.db.set_single_value(
+            "Verenigingen Payments Settings",
+            "mollie_subscription_description_template",
+            "Dues MEMBER_NAME (MEMBER_ID)",
+        )
+        member = self._member()
+        self.assertEqual(
+            get_member_subscription_description(member),
+            f"Dues {member.full_name} ({member.member_id})",
+        )
