@@ -142,9 +142,6 @@ frappe.ui.form.on('Event Contact Campaign', {
 			callback(r) {
 				if (r.message) {
 					const members = r.message;
-					const existing_count = frm.doc.contact_list
-						? frm.doc.contact_list.length
-						: 0;
 					const new_count = members.filter(
 						(m) =>
 							!frm.doc.contact_list

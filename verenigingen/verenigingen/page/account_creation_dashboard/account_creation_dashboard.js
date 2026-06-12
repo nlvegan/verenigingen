@@ -340,6 +340,9 @@ function render_action_buttons(req) {
 	return buttons;
 }
 
+// Invoked from onclick= handlers in the HTML strings built above, which
+// ESLint can't see; it is intentionally a global page handler.
+// eslint-disable-next-line no-unused-vars
 function retry_request(request_name) {
 	frappe.confirm('Retry this account creation request?', () => {
 		frappe.call({
@@ -365,6 +368,9 @@ function retry_request(request_name) {
 	});
 }
 
+// Invoked from onclick= handlers in the HTML strings built above, which
+// ESLint can't see; it is intentionally a global page handler.
+// eslint-disable-next-line no-unused-vars
 function queue_request(request_name) {
 	frappe.call({
 		method: 'frappe.client.set_value',
@@ -393,6 +399,9 @@ function queue_request(request_name) {
 	});
 }
 
+// Invoked from onclick= handlers in the HTML strings built above, which
+// ESLint can't see; it is intentionally a global page handler.
+// eslint-disable-next-line no-unused-vars
 function cancel_request(request_name) {
 	frappe.prompt('Cancellation reason:', (data) => {
 		frappe.call({

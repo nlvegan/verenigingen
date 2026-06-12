@@ -195,6 +195,8 @@ function render_issue_members(issue_type, members) {
 	return html;
 }
 
+// Invoked from onclick= handlers in the diagnostics HTML built above.
+// eslint-disable-next-line no-unused-vars
 function fix_single_member(member_id) {
 	frappe.show_progress(__('Fixing...'), 0, 1, __('Fixing mandate issues for member'));
 
@@ -222,6 +224,8 @@ function fix_single_member(member_id) {
 	});
 }
 
+// Invoked from onclick= handlers in the diagnostics HTML built above.
+// eslint-disable-next-line no-unused-vars
 function fix_all_for_issue(issue_type) {
 	frappe.confirm(
 		__('This will fix all members with this issue type. Continue?'),

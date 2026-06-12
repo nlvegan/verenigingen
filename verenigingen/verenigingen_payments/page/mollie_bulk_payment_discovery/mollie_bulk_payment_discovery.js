@@ -123,7 +123,7 @@ function run_discovery(page) {
 	});
 }
 
-function render_results(page, data, filters) {
+function render_results(page, data, _filters) {
 	const $container = $(page.body).find('.mollie-discovery-container');
 	const $summary = $container.find('.results-summary');
 	const $table = $container.find('.results-table');
@@ -411,6 +411,8 @@ function format_status(status) {
 	return `<span class="badge badge-${color}">${status}</span>`;
 }
 
+// TODO: column formatter helper, not currently referenced by any table config.
+// eslint-disable-next-line no-unused-vars
 function format_processed(value) {
 	if (value === 'Yes') {
 		return '<span style="color: #6c757d;">✓ Yes</span>';

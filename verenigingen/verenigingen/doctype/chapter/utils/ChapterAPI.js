@@ -445,7 +445,7 @@ export class ChapterAPI {
    * @param {Object} options - Additional options
    * @returns {Promise} Upload result
    */
-	async uploadFile(file, params = {}, options = {}) {
+	async uploadFile(file, params = {}, _options = {}) {
 		const formData = new FormData();
 		formData.append('file', file);
 		formData.append('is_private', params.is_private || 0);

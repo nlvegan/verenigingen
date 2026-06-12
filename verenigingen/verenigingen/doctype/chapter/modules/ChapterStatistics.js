@@ -1173,7 +1173,7 @@ export class ChapterStatistics {
 			.join('');
 	}
 
-	generateEventListHTML(events) {
+	generateEventListHTML(_events) {
 		// Placeholder implementation
 		return `<p class="text-muted">${__('No upcoming events')}</p>`;
 	}

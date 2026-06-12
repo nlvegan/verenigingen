@@ -135,7 +135,7 @@ function validate_link_fields(frm) {
 							console.warn(`${link_doctype} record '${link_value}' not found in field '${fieldname}', clearing link`);
 							frm.set_value(fieldname, null);
 						}
-					}).catch(err => {
+					}).catch(_err => {
 						// Silently handle permission errors
 						console.log(`Skipping validation for ${link_doctype} due to permission restrictions`);
 					});
@@ -1601,55 +1601,6 @@ function setup_organization_user_creation(frm) {
 	});
 }
 
-function add_member_id_buttons(_frm) {
-	// Check if user has permission to manage member IDs
-	const user_roles = frappe.user_roles || [];
-	const can_manage_member_ids
-    = user_roles.includes('System Manager')
-;
-
-	if (!can_manage_member_ids) {
-		return; // User doesn't have permission
-	}
-
-	// Member ID Statistics, Preview Next ID, and Assign Member ID buttons removed as requested
-
-	// Add force assign button for System Managers
-	if (user_roles.includes('System Manager')) {
-		frm.add_custom_button(
-			__('Force Assign Member ID'),
-			() => {
-				frappe.confirm(
-					__(
-						'Force assign a member ID to {0}? This bypasses normal assignment rules.',
-						[frm.doc.full_name]
-					),
-					() => {
-						frm.call({
-							method: 'force_assign_member_id',
-							doc: frm.doc,
-							callback(r) {
-								if (r.message && r.message.success) {
-									frm.reload_doc();
-									frappe.show_alert(
-										{
-											message: r.message.message,
-											indicator: 'green'
-										},
-										5
-									);
-								} else if (r.message && r.message.message) {
-									frappe.msgprint(r.message.message);
-								}
-							}
-						});
-					}
-				);
-			},
-			__('Member ID')
-		);
-	}
-}
 
 // show_member_id_statistics_dialog function removed as the button was removed
 
@@ -1954,31 +1905,6 @@ function refresh_fee_change_history(frm) {
 	});
 }
 
-function refresh_dues_schedule_summary(_frm) {
-	// Updated to use dues schedule system
-	frappe.call({
-		method:
-      'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
-		args: {
-			member: frm.doc.name
-		},
-		callback(r) {
-			if (r.message) {
-				if (r.message.has_schedule && r.message.schedule_name) {
-					frm.set_value('current_dues_schedule', r.message.schedule_name);
-					frm.set_value('dues_rate', r.message.dues_rate || 0);
-				}
-				frappe.show_alert(
-					{
-						message: 'Dues schedule summary refreshed',
-						indicator: 'green'
-					},
-					3
-				);
-			}
-		}
-	});
-}
 
 function display_termination_status(frm) {
 	if (!frm.doc.name) {
@@ -2150,16 +2076,6 @@ function load_dues_schedule_summary(frm) {
 }
 
 // Subscription display functions removed - using dues schedule system
-function update_dues_schedule_summary_display(_frm, _dues_schedule_data) {
-	// Dues schedule system implementation
-	const html
-    = '<div class="alert alert-info">Membership Dues Schedule system is active.</div>';
-
-	// Update any remaining legacy summary fields
-	if (frm.fields_dict.current_legacy_summary) {
-		frm.fields_dict.current_legacy_summary.html(html);
-	}
-}
 
 // ==================== NAME HANDLING FUNCTIONS ====================
 
@@ -2192,79 +2108,6 @@ function update_full_name_from_components(frm) {
 
 // ==================== SUSPENSION FUNCTIONS ====================
 
-function add_suspension_buttons(_frm) {
-	if (!frm.doc.name) {
-		return;
-	}
-
-	// Check if user can perform suspension actions
-	frappe.call({
-		method: 'verenigingen.api.suspension_api.can_suspend_member',
-		args: {
-			member_name: frm.doc.name
-		},
-		callback(perm_result) {
-			const permData = unwrapOperationResult(perm_result.message);
-			const can_suspend = permData && permData.can_suspend;
-
-			if (!can_suspend) {
-				return; // No permission, don't show buttons
-			}
-
-			// Get current suspension status
-			frappe.call({
-				method: 'verenigingen.api.suspension_api.get_suspension_status_safe',
-				args: {
-					member_name: frm.doc.name
-				},
-				callback(status_result) {
-					// Handle OperationResult format - check for failure
-					if (isOperationResultFailed(status_result.message)) {
-						const errorData = status_result.message.data || {};
-						if (errorData.access_denied) {
-							return; // Silent fail for permission errors
-						}
-						console.warn(
-							'Suspension status check failed:',
-							status_result.message.message
-						);
-						return;
-					}
-					const status = unwrapOperationResult(status_result.message);
-					if (status) {
-						if (status.is_suspended) {
-							// Member is suspended - show unsuspend button
-							const btn = frm.add_custom_button(
-								__('Unsuspend Member'),
-								() => {
-									show_unsuspension_dialog(frm);
-								},
-								__('Actions')
-							);
-
-							if (btn && btn.addClass) {
-								btn.addClass('btn-success suspension-button');
-							}
-						} else {
-							// Member is not suspended - show suspend button
-							const btn = frm.add_custom_button(
-								__('Suspend Member'),
-								() => {
-									show_suspension_dialog(frm);
-								},
-								__('Actions')
-							);
-
-							if (btn && btn.addClass) {
-								btn.addClass('btn-warning suspension-button');
-							}
-						}
-					}
-				}
-			});
-		}
-	});
-}
 
 function show_suspension_dialog(frm) {
 	// First get suspension preview
@@ -2651,19 +2494,6 @@ function check_sepa_mandate_status_debounced(frm) {
 	}, 300);
 }
 
-function check_sepa_mandate_and_prompt_creation(_frm, _context = 'general') {
-	// Simplified function - only update UI, no more real-time prompting
-	// SEPA mandate discrepancy checking is now handled by scheduled task
-
-	if (!frm.doc.iban || frm.doc.payment_method !== 'SEPA Direct Debit') {
-		return;
-	}
-
-	// Just update the UI to show current SEPA status
-	if (window.SepaUtils && window.SepaUtils.check_sepa_mandate_status) {
-		SepaUtils.check_sepa_mandate_status(frm);
-	}
-}
 
 // ==================== APPLICATION REVIEW FUNCTIONS ====================
 

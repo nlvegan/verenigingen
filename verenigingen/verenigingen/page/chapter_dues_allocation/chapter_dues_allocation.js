@@ -21,8 +21,6 @@ class ChapterDuesAllocationTool {
 	}
 
 	make_form() {
-		const me = this;
-
 		this.form_container = $('<div class="frappe-control">').appendTo(this.page.main);
 
 		this.from_date = frappe.ui.form.make_control({
@@ -187,8 +185,6 @@ class ChapterDuesAllocationTool {
 	}
 
 	render_preview(data) {
-		const me = this;
-
 		// Validate data structure
 		if (!data || typeof data !== 'object') {
 			throw new Error('Invalid data structure: expected object');

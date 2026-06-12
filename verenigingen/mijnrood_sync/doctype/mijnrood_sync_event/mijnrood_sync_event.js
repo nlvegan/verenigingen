@@ -449,14 +449,11 @@ function compute_implications(event_type, table, new_data, changed_fields) {
 		if (!Array.isArray(changed_fields) || !changed_fields.length) { return items; }
 
 		if (table === 'admin_member') {
-			let has_status_change = false;
-			let has_division_change = false;
 			let other_field_count = 0;
 
 			for (let i = 0; i < changed_fields.length; i++) {
 				const c = changed_fields[i];
 				if (c.field === 'current_membership_status_id') {
-					has_status_change = true;
 					const new_id = parseInt(c.new, 10);
 					if (is_terminated_status(new_id)) {
 						const type_label = get_status_label(new_id);
@@ -466,7 +463,6 @@ function compute_implications(event_type, table, new_data, changed_fields) {
 						items.push(`Will update membership status to ${new_label}`);
 					}
 				} else if (c.field === 'division_id') {
-					has_division_change = true;
 					const chapter_name = c.new_display || (`Division ID ${c.new}`);
 					items.push(`Will transfer member to chapter '${chapter_name}'`);
 				} else {
@@ -477,13 +473,11 @@ function compute_implications(event_type, table, new_data, changed_fields) {
 				items.push(`Will update ${other_field_count} member field(s) via import service`);
 			}
 		} else if (table === 'admin_membership_application') {
-			let has_div_change = false;
 			let app_field_count = 0;
 
 			for (let j = 0; j < changed_fields.length; j++) {
 				const cf = changed_fields[j];
 				if (cf.field === 'preferred_division_id') {
-					has_div_change = true;
 					const ch_name = cf.new_display || (`Division ID ${cf.new}`);
 					items.push(`Will reassign to preferred chapter '${ch_name}'`);
 				} else {

@@ -118,7 +118,6 @@ frappe.listview_settings['MijnRood Sync Event'] = {
  */
 function _show_batch_progress_dialog(listview, message, progress_event, complete_event, title) {
 	const batch_id = message.batch_id;
-	const total = message.total;
 	const dialog = new frappe.ui.Dialog({
 		title,
 		fields: [

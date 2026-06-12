@@ -545,7 +545,6 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		// Helper function to show hierarchy reorganization preview
 		frm.show_hierarchy_preview = function (results) {
 			const moves_to_show = results.changes.filter(c => c.status === 'would_move');
-			const skipped = results.changes.filter(c => c.status === 'skipped');
 			const groups_to_create = results.groups.filter(g => g.status === 'would_create');
 
 			const preview_html = `

@@ -503,7 +503,6 @@ export class ChapterValidation {
 
 		// Check attachment size
 		if (data.attachments) {
-			const maxSize = ChapterConfig.communication.maxAttachmentSize;
 			// This would need actual file size checking
 			// For now, just placeholder
 		}

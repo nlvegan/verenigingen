@@ -563,6 +563,9 @@ function validate_bsn_field(frm) {
 	}
 }
 
+// TODO: entry point for the ANBI-report dialog flow (-> show_anbi_report ->
+// download_anbi_report). Not currently wired to any button/trigger.
+// eslint-disable-next-line no-unused-vars
 function generate_anbi_report(frm) {
 	const d = new frappe.ui.Dialog({
 		title: __('Generate ANBI Report'),
