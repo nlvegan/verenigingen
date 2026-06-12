@@ -152,7 +152,7 @@
   },
   {
    "default": "Contribution payment for member MEMBER_ID",
-   "description": "Template for Mollie subscription description. Use MEMBER_ID as placeholder for member ID (e.g., 'Contribution payment for member MEMBER_ID')",
+   "description": "Template for Mollie subscription description. Available placeholders: MEMBER_ID (member ID number), MEMBER_NAME (full name)",
    "fieldname": "mollie_subscription_description_template",
    "fieldtype": "Data",
    "label": "Mollie Subscription Description Template"

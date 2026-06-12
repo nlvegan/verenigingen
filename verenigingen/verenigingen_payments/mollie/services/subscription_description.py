@@ -15,7 +15,14 @@ DEFAULT_TEMPLATE = "Contribution payment for member MEMBER_ID"
 
 
 def get_member_subscription_description(member) -> str:
-    """Render the canonical subscription description for a Member document."""
+    """Render the canonical subscription description for a Member document.
+
+    Placeholders:
+    - ``MEMBER_NAME``: replaced with ``member.full_name``; renders as an empty
+      string when ``full_name`` is ``None``.
+    - ``MEMBER_ID``: replaced with ``member.member_id``; falls back to
+      ``member.name`` when ``member_id`` is unset.
+    """
     template = (
         frappe.db.get_single_value(
             "Verenigingen Payments Settings", "mollie_subscription_description_template"

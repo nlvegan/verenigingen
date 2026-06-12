@@ -19,6 +19,9 @@ from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
     MollieSubscriptionSyncService,
 )
+from verenigingen.verenigingen_payments.mollie.services.subscription_description import (
+    get_member_subscription_description,
+)
 
 
 # Mock justified: the Mollie SDK is a third-party HTTP client for an external
@@ -133,6 +136,18 @@ class TestAmendmentSubscriptionSync(EnhancedTestCase):
 class TestSubscriptionDescription(EnhancedTestCase):
     """Canonical member-subscription description from Verenigingen Payments Settings."""
 
+    def setUp(self):
+        super().setUp()
+        original = frappe.db.get_single_value(
+            "Verenigingen Payments Settings", "mollie_subscription_description_template"
+        )
+        self.addCleanup(
+            frappe.db.set_single_value,
+            "Verenigingen Payments Settings",
+            "mollie_subscription_description_template",
+            original or "",
+        )
+
     def _member(self):
         token = frappe.generate_hash(length=8)
         return self.create_test_member(
@@ -143,10 +158,6 @@ class TestSubscriptionDescription(EnhancedTestCase):
         )
 
     def test_description_uses_default_template(self):
-        from verenigingen.verenigingen_payments.mollie.services.subscription_description import (
-            get_member_subscription_description,
-        )
-
         frappe.db.set_single_value(
             "Verenigingen Payments Settings", "mollie_subscription_description_template", ""
         )
@@ -157,10 +168,6 @@ class TestSubscriptionDescription(EnhancedTestCase):
         )
 
     def test_description_substitutes_custom_template(self):
-        from verenigingen.verenigingen_payments.mollie.services.subscription_description import (
-            get_member_subscription_description,
-        )
-
         frappe.db.set_single_value(
             "Verenigingen Payments Settings",
             "mollie_subscription_description_template",
