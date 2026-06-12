@@ -417,15 +417,6 @@ function format_status(status) {
 	return `<span class="badge badge-${color}">${status}</span>`;
 }
 
-// TODO: column formatter helper, not currently referenced by any table config.
-// eslint-disable-next-line no-unused-vars
-function format_processed(value) {
-	if (value === 'Yes') {
-		return '<span style="color: #6c757d;">✓ Yes</span>';
-	}
-	return '<span style="color: #17a2b8; font-weight: bold;">○ No</span>';
-}
-
 function format_processable(value) {
 	if (value === 'Yes') {
 		return '<span style="color: #28a745; font-weight: bold;">✓ Yes</span>';
