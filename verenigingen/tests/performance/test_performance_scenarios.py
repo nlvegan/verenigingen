@@ -85,65 +85,10 @@ class TestPerformanceScenarios(EnhancedTestCase):
         self.settings_name = "Performance Test"
         self.performance_results = []
     
-    def test_webhook_processing_throughput(self):
-        """Test webhook processing throughput capacity"""
-        
-        from verenigingen.verenigingen_payments.core.security.webhook_validator import WebhookValidator
-        
-        validator = WebhookValidator(self.settings_name)
-        
-        # Prepare test webhooks
-        num_webhooks = 1000
-        webhooks = []
-        
-        for i in range(num_webhooks):
-            body = json.dumps({
-                "id": f"webhook_{i}",
-                "resource": "payment",
-                "amount": {"value": f"{random.uniform(10, 1000):.2f}", "currency": "EUR"}
-            }).encode()
-            
-            signature = validator._compute_signature(body, b"test_secret")
-            webhooks.append((body, signature))
-        
-        # Measure throughput
-        start_time = time.time()
-        successful = 0
-        failed = 0
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = [
-                executor.submit(validator.validate_webhook, body, sig)
-                for body, sig in webhooks
-            ]
-            
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    if future.result():
-                        successful += 1
-                    else:
-                        failed += 1
-                except Exception:
-                    failed += 1
-        
-        elapsed = time.time() - start_time
-        throughput = num_webhooks / elapsed
-        
-        # Performance assertions
-        self.assertGreater(throughput, 100, "Webhook throughput below 100/second")
-        self.assertLess(elapsed, 20, "Processing 1000 webhooks took more than 20 seconds")
-        self.assertGreater(successful / num_webhooks, 0.99, "Success rate below 99%")
-        
-        # Record results
-        self.performance_results.append({
-            "test": "webhook_throughput",
-            "total": num_webhooks,
-            "successful": successful,
-            "failed": failed,
-            "elapsed": elapsed,
-            "throughput": throughput
-        })
-    
+    # NOTE: test_webhook_processing_throughput was removed along with the unused
+    # core/security WebhookValidator. Webhook handling throughput on the live
+    # path can be re-added against verenigingen_payments/utils/webhook_security.
+
     def test_reconciliation_batch_performance(self):
         """Test reconciliation performance with large batches"""
         

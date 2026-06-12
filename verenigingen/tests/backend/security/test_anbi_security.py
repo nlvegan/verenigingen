@@ -36,27 +36,11 @@ class TestANBISecurity(FrappeTestCase):
         # the same way Member.update_full_name would.
         self.test_member.update_full_name()
         
-    def test_bsn_encryption_decryption(self):
-        """Test BSN encryption and decryption"""
-        # Test encryption
-        from verenigingen.verenigingen_payments.core.security.encryption_handler import get_encryption_handler
-        
-        # Get encryption handler
-        encryption_handler = get_encryption_handler()
+    # NOTE: test_bsn_encryption_decryption was removed together with the unused
+    # core/security EncryptionHandler. Production BSN/RSIN encryption uses
+    # Frappe's password encryption (frappe.utils.password / Donor field
+    # encryption), which is covered by the donor/ANBI field tests.
 
-        # Encrypt BSN
-        encrypted_bsn = encryption_handler.encrypt_data(self.test_bsn)
-
-        # Verify encryption
-        self.assertNotEqual(encrypted_bsn, self.test_bsn)
-        self.assertTrue(len(encrypted_bsn) > len(self.test_bsn))
-
-        # Decrypt BSN
-        decrypted_bsn = encryption_handler.decrypt_data(encrypted_bsn)
-        
-        # Verify decryption
-        self.assertEqual(decrypted_bsn, self.test_bsn)
-        
     def test_data_masking_for_different_roles(self):
         """Test data masking based on user roles"""
         # Test cases for different roles

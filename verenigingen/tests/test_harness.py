@@ -253,54 +253,16 @@ def test_resilience_patterns():
 
 
 def test_security_components():
-    """Test security components"""
-    try:
-        from verenigingen.verenigingen_payments.core.security.encryption_handler import (
-            EncryptionHandler
-        )
-        from verenigingen.verenigingen_payments.core.security.webhook_validator import (
-            WebhookValidator
-        )
-        
-        # Test Encryption
-        handler = EncryptionHandler()
-        
-        sensitive_data = "secret_api_key_12345"
-        encrypted = handler.encrypt_data(sensitive_data)
-        decrypted = handler.decrypt_data(encrypted)
-        
-        assert decrypted == sensitive_data, "Should encrypt and decrypt correctly"
-        assert encrypted != sensitive_data, "Encrypted data should be different"
-        
-        # Test Webhook Validation
-        with patch.object(WebhookValidator, '_load_settings') as mock_settings:
-            mock_settings.return_value = {
-                "webhook_secret": "test_secret_123"
-            }
-            
-            validator = WebhookValidator("Test Settings")
-            
-            # Create test webhook
-            payload = '{"id": "tr_123", "amount": "100.00"}'
-            signature = validator._compute_signature(
-                payload.encode(),
-                b"test_secret_123"
-            )
-            
-            # Validate webhook
-            is_valid = validator.validate_webhook(payload.encode(), signature)
-            assert is_valid, "Should validate correct signature"
-            
-            # Test invalid signature
-            is_valid = validator.validate_webhook(payload.encode(), "invalid_sig")
-            assert not is_valid, "Should reject invalid signature"
-        
-        print("✅ All security tests passed!")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Security test failed: {str(e)}")
-        return False
+    """Test security components.
+
+    The former core/security EncryptionHandler and WebhookValidator helpers were
+    unused in production and have been removed. The live Mollie webhook
+    validation path is exercised by the mollie webhook_security tests; secret
+    handling relies on Frappe Password fields. This harness check is now a no-op
+    placeholder so the runner sequence stays intact.
+    """
+    print("ℹ️  Security components harness check skipped (legacy helpers removed).")
+    return True
 
 
 def test_business_workflows():

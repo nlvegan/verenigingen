@@ -21,11 +21,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-from verenigingen.verenigingen_payments.core.security.encryption_handler import EncryptionHandler
 from verenigingen.verenigingen_payments.core.security.mollie_security_manager import (
     MollieSecurityManager,
 )
-from verenigingen.verenigingen_payments.core.security.webhook_validator import WebhookValidator
 
 
 class TestSecurityPenetration(EnhancedTestCase):
@@ -68,11 +66,8 @@ class TestSecurityPenetration(EnhancedTestCase):
         # Mollie Settings is a Single; its doc name is "Mollie Settings".
         self.settings_name = "Mollie Settings"
         self.settings_doc = frappe.get_single("Mollie Settings")
-        # MollieSecurityManager takes a settings doc; WebhookValidator takes the
-        # security manager.
+        # MollieSecurityManager takes a settings doc.
         self.security_manager = MollieSecurityManager(self.settings_doc)
-        self.encryption_handler = EncryptionHandler()
-        self.webhook_validator = WebhookValidator(self.security_manager)
     
     def test_sql_injection_attempts(self):
         """Test protection against SQL injection attacks"""
@@ -190,16 +185,6 @@ class TestSecurityPenetration(EnhancedTestCase):
         ]
         
         for payload in cmd_payloads:
-            # Test file operations
-            try:
-                # Attempt to use payload in file paths
-                result = self.encryption_handler.encrypt_data(payload)
-                # Should encrypt without executing
-                self.assertIsInstance(result, str)
-                
-            except Exception:
-                pass  # Expected for invalid inputs
-            
             # Test in API operations
             # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch('subprocess.run') as mock_run:
