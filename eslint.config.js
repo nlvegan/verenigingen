@@ -115,8 +115,13 @@ const mainRules = {
       args: "after-used",
       ignoreRestSiblings: false,
       varsIgnorePattern: "^(frappe|frm|cur_frm|locals|__|_)",
+      // Allow unused params that are framework-imposed signatures: Frappe form/
+      // list handlers (frm, cdt, cdn, doc, df, listview, page) and jQuery ajax
+      // callbacks (xhr, status) often carry args a given handler doesn't use.
       argsIgnorePattern:
-        "^_|^(r|e|event|state|error|response|data|result|ctx|context|idx|index)$|.*_data$|.*_response$|.*_result$",
+        "^_|^(r|e|event|state|error|response|data|result|ctx|context|idx|index|frm|cdt|cdn|doc|df|field|listview|page|xhr|status)$|.*_data$|.*_response$|.*_result$",
+      // Unused catch bindings (} catch (e) {) are idiomatic; don't flag them.
+      caughtErrorsIgnorePattern: "^(e|err|error|_)$",
     },
   ],
   "no-undef": ["error", { typeof: false }],
