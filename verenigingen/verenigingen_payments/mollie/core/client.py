@@ -237,6 +237,31 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
+    def update_subscription(self, customer_id: str, subscription_id: str, update_data: Dict[str, Any]) -> Any:
+        """
+        PATCH fields on an existing subscription (amount, description,
+        webhookUrl, ...) without replacing it.
+
+        Args:
+            customer_id: The Mollie customer ID
+            subscription_id: The subscription ID
+            update_data: Fields to update, in Mollie API shape
+
+        Returns:
+            The updated Mollie subscription object
+
+        Raises:
+            MolliePaymentError: When the subscription cannot be updated
+        """
+        try:
+            client = self._get_mollie_client()
+            customer = client.customers.get(customer_id)
+            return customer.subscriptions.update(subscription_id, update_data)
+        except Exception as e:
+            error_msg = f"Failed to update subscription {subscription_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Subscription Update")
+            raise MolliePaymentError(error_msg, original_error=e)
+
     def cancel_subscription(self, customer_id: str, subscription_id: str) -> Any:
         """
         Cancel a subscription.

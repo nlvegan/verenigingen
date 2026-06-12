@@ -28,42 +28,97 @@ from verenigingen.verenigingen_payments.mollie.services.subscription_description
 # payment API and cannot run in tests. This fake records the subscription
 # payload so the call shape can be asserted.
 class _FakeSubscription:
-    def __init__(self, subscription_id="sub_FAKE"):
+    def __init__(
+        self,
+        subscription_id="sub_FAKE",
+        status="active",
+        amount=None,
+        interval="1 month",
+        description="",
+        webhook_url="",
+        mandate_id=None,
+        next_payment_date="2026-07-01",
+    ):
         self.id = subscription_id
-        self.status = "active"
-        self.next_payment_date = "2026-07-01"
+        self.status = status
+        self.amount = amount or {"value": "25.50", "currency": "EUR"}
+        self.interval = interval
+        self.description = description
+        self.webhook_url = webhook_url
+        self.mandate_id = mandate_id
+        self.next_payment_date = next_payment_date
+        self.metadata = {}
+
+
+class _FakeMandate:
+    def __init__(self, mandate_id="mdt_FAKE", status="valid"):
+        self.id = mandate_id
+        self.status = status
+
+
+class _FakeMandates:
+    def get(self, mandate_id):
+        return _FakeMandate(mandate_id=mandate_id)
 
 
 class _FakeSubscriptions:
-    def __init__(self, recorder):
-        self._recorder = recorder
+    def __init__(self, sdk):
+        self._sdk = sdk
 
     def create(self, data=None):
-        self._recorder.append(data)
-        return _FakeSubscription()
+        self._sdk.subscriptions_created.append(data)
+        return _FakeSubscription(mandate_id=(data or {}).get("mandateId"))
+
+    def get(self, subscription_id):
+        live = self._sdk.live_subscription
+        live.id = subscription_id
+        return live
+
+    def update(self, subscription_id, data=None):
+        self._sdk.subscriptions_updated.append((subscription_id, data))
+        live = self._sdk.live_subscription
+        updated = _FakeSubscription(
+            subscription_id=subscription_id,
+            status=live.status,
+            amount=(data or {}).get("amount", live.amount),
+            interval=live.interval,
+            description=(data or {}).get("description", live.description),
+            webhook_url=(data or {}).get("webhookUrl", live.webhook_url),
+            mandate_id=live.mandate_id,
+            next_payment_date=live.next_payment_date,
+        )
+        return updated
+
+    def delete(self, subscription_id):
+        self._sdk.subscriptions_deleted.append(subscription_id)
+        return _FakeSubscription(subscription_id=subscription_id, status="canceled")
 
 
 class _FakeCustomer:
-    def __init__(self, recorder):
-        self.subscriptions = _FakeSubscriptions(recorder)
+    def __init__(self, sdk):
+        self.subscriptions = _FakeSubscriptions(sdk)
+        self.mandates = _FakeMandates()
 
 
 class _FakeCustomers:
-    def __init__(self, recorder):
-        self._recorder = recorder
+    def __init__(self, sdk):
+        self._sdk = sdk
         self.fetched = []
 
     def get(self, customer_id):
         self.fetched.append(customer_id)
-        return _FakeCustomer(self._recorder)
+        return _FakeCustomer(self._sdk)
 
 
 class FakeSDKClient:
     """Stand-in for ``mollie.api.client.Client``."""
 
-    def __init__(self):
+    def __init__(self, live_subscription=None):
         self.subscriptions_created = []
-        self.customers = _FakeCustomers(self.subscriptions_created)
+        self.subscriptions_updated = []
+        self.subscriptions_deleted = []
+        self.live_subscription = live_subscription or _FakeSubscription()
+        self.customers = _FakeCustomers(self)
 
 
 def _make_mollie_client(sdk):
@@ -131,6 +186,20 @@ class TestAmendmentSubscriptionSync(EnhancedTestCase):
         )
 
         self.assertNotIn("startDate", sdk.subscriptions_created[0])
+
+    def test_client_update_subscription_patches_via_sdk(self):
+        sdk = FakeSDKClient()
+        client = _make_mollie_client(sdk)
+
+        result = client.update_subscription(
+            "cst_SYNC", "sub_LIVE", {"amount": {"value": "26.50", "currency": "EUR"}}
+        )
+
+        self.assertEqual(
+            sdk.subscriptions_updated,
+            [("sub_LIVE", {"amount": {"value": "26.50", "currency": "EUR"}})],
+        )
+        self.assertEqual(result.amount, {"value": "26.50", "currency": "EUR"})
 
 
 class TestSubscriptionDescription(EnhancedTestCase):
