@@ -374,7 +374,7 @@ describe('Member Form', () => {
 
 			expect(frm.call).toHaveBeenCalledWith(
 				expect.objectContaining({
-					method: 'get_address_members_html',
+					method: 'get_address_members_html'
 				})
 			);
 			expect(frm.set_value).toHaveBeenCalled();

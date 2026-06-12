@@ -31,11 +31,11 @@ function getProjectRoot() {
 	const thisDir = __dirname;
 
 	// Go up from tests/setup to the app root (verenigingen/)
-	let projectRoot = path.resolve(thisDir, '..', '..', '..');
+	const projectRoot = path.resolve(thisDir, '..', '..', '..');
 
 	// Validate we found the right directory by checking for package.json or pyproject.toml
-	if (fs.existsSync(path.join(projectRoot, 'pyproject.toml')) ||
-	    fs.existsSync(path.join(projectRoot, 'package.json'))) {
+	if (fs.existsSync(path.join(projectRoot, 'pyproject.toml'))
+	    || fs.existsSync(path.join(projectRoot, 'package.json'))) {
 		return projectRoot;
 	}
 
@@ -202,7 +202,7 @@ function loadFrappeController(controllerPath) {
 			// resolve to the jest.fn() mocks the tests install — and see per-test
 			// reassignments in beforeEach. The minimal stub used previously only
 			// exposed _frappe_form_handlers, so those shims silently never fired.
-			global: global
+			global
 		});
 
 		// Execute with timeout and error handling
