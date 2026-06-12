@@ -314,7 +314,7 @@ function cancel_agreement_dialog(frm) {
 						doc: frm.doc,
 						args: {
 							reason: values.reason,
-							send_email: values.send_email ? true : false
+							send_email: !!values.send_email
 						},
 						callback(r) {
 							if (r.message) {

@@ -154,7 +154,7 @@ frappe.ui.form.on('Mijnrood CSV Import', {
 								doc: frm.doc,
 								freeze: true,
 								freeze_message: __('Retrying volunteer creations...'),
-								callback: function(r) {
+								callback(r) {
 									if (r.message && r.message.success) {
 										frappe.show_alert({
 											message: r.message.message,
@@ -186,7 +186,7 @@ frappe.ui.form.on('Mijnrood CSV Import', {
 								doc: frm.doc,
 								freeze: true,
 								freeze_message: __('Retrying account creations...'),
-								callback: function(r) {
+								callback(r) {
 									if (r.message && r.message.success) {
 										frappe.show_alert({
 											message: r.message.message,

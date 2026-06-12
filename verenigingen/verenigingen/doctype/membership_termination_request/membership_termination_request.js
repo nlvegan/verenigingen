@@ -739,7 +739,7 @@ function validateTerminationDialogInput(values) {
 
 	return {
 		valid: errors.length === 0,
-		errors: errors
+		errors
 	};
 }
 
@@ -758,8 +758,8 @@ function toggle_dialog_fields(dialog, termination_type) {
 // @deprecated Use frappe.membership_termination.show_dialog() instead
 window.show_enhanced_termination_dialog = function (member_id, member_name) {
 	console.warn(
-		'window.show_enhanced_termination_dialog() is deprecated. ' +
-		'Use frappe.membership_termination.show_dialog() instead.'
+		'window.show_enhanced_termination_dialog() is deprecated. '
+		+ 'Use frappe.membership_termination.show_dialog() instead.'
 	);
 	return frappe.membership_termination.show_dialog(member_id, member_name);
 };

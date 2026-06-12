@@ -18,7 +18,7 @@ frappe.listview_settings['Organization Document'] = {
 	onload(listview) {
 		const roles = frappe.user_roles || [];
 		const allowed = roles.includes('System Manager') || roles.includes('Verenigingen Administrator');
-		if (!allowed) return;
+		if (!allowed) { return; }
 
 		listview.page.add_actions_menu_item(__('Reclassify from MijnRood folder'), () => {
 			const items = listview.get_checked_items();
@@ -44,19 +44,19 @@ frappe.listview_settings['Organization Document'] = {
 function run_reclassify_flow_local(names, onApplied) {
 	frappe.call({
 		method: 'verenigingen.mijnrood_sync.services.document_reclassify_service.reclassify_documents',
-		args: { names: names, dry_run: true },
+		args: { names, dry_run: true },
 		freeze: true,
 		freeze_message: __('Computing reclassification preview…'),
 		callback(r) {
-			if (!r.message) return;
+			if (!r.message) { return; }
 			show_reclassify_preview_local(r.message, () => {
 				frappe.call({
 					method: 'verenigingen.mijnrood_sync.services.document_reclassify_service.reclassify_documents',
-					args: { names: names, dry_run: false },
+					args: { names, dry_run: false },
 					freeze: true,
 					freeze_message: __('Applying reclassification…'),
 					callback(r2) {
-						if (!r2.message) return;
+						if (!r2.message) { return; }
 						const errorCount = (r2.message.changes || [])
 							.reduce((n, c) => n + ((c.write_errors || []).length), 0);
 						if (errorCount > 0) {
@@ -71,7 +71,7 @@ function run_reclassify_flow_local(names, onApplied) {
 								indicator: 'green'
 							});
 						}
-						if (onApplied) onApplied();
+						if (onApplied) { onApplied(); }
 					}
 				});
 			});

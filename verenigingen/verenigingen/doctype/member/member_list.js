@@ -668,8 +668,8 @@ function show_merge_dialog(source_name, target_name, listview) {
 	frappe.call({
 		method: 'verenigingen.services.member_merge_service.get_merge_preview',
 		args: {
-			source_name: source_name,
-			target_name: target_name
+			source_name,
+			target_name
 		},
 		callback(r) {
 			if (r.message && r.message.success) {
@@ -712,7 +712,7 @@ function render_merge_dialog(preview, listview) {
 	const fields_html = fields.map(field => {
 		// Format display values with context
 		const format_value = (value, fieldname) => {
-			if (!value) return '<em>(empty)</em>';
+			if (!value) { return '<em>(empty)</em>'; }
 
 			// Format date fields for readability
 			if (fieldname === 'birth_date' && value) {
@@ -824,8 +824,8 @@ function execute_merge(source_name, target_name, field_selections, listview) {
 	frappe.call({
 		method: 'verenigingen.services.member_merge_service.execute_merge',
 		args: {
-			source_name: source_name,
-			target_name: target_name,
+			source_name,
+			target_name,
 			field_selections: JSON.stringify(field_selections)
 		},
 		freeze: true,

@@ -16,12 +16,12 @@ frappe.listview_settings['Account Creation Request'] = {
 	// Add indicator colors based on status
 	get_indicator(doc) {
 		const status_colors = {
-			'Requested': 'orange',
-			'Queued': 'blue',
-			'Processing': 'yellow',
-			'Completed': 'green',
-			'Failed': 'red',
-			'Cancelled': 'grey'
+			Requested: 'orange',
+			Queued: 'blue',
+			Processing: 'yellow',
+			Completed: 'green',
+			Failed: 'red',
+			Cancelled: 'grey'
 		};
 
 		return [__(doc.status), status_colors[doc.status] || 'gray', `status,=,${doc.status}`];
@@ -69,7 +69,7 @@ function bulk_queue_account_creation_requests(listview) {
 						// Show detailed error information
 						let error_msg = r.message.error || 'Unknown error';
 						if (r.message.errors && r.message.errors.length > 0) {
-							error_msg += '<br><br>First errors:<br>' + r.message.errors.slice(0, 5).join('<br>');
+							error_msg += `<br><br>First errors:<br>${r.message.errors.slice(0, 5).join('<br>')}`;
 						}
 						frappe.msgprint({
 							title: __('Error Queueing Requests'),
@@ -89,7 +89,7 @@ function bulk_queue_account_creation_requests(listview) {
 						try {
 							const messages = JSON.parse(r._server_messages);
 							error_detail = messages.map(m => JSON.parse(m).message).join('; ');
-						} catch(e) {
+						} catch (e) {
 							error_detail = r._server_messages;
 						}
 					}

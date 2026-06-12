@@ -60,7 +60,7 @@
 // Normally set by operation-result-helpers.js (app_include_js), but if the desk HTML
 // is served from stale cache, these may be missing. Safe no-op when already defined.
 if (!window.unwrapOperationResult) {
-	window.unwrapOperationResult = function(msg) {
+	window.unwrapOperationResult = function (msg) {
 		if (msg && typeof msg === 'object' && 'success' in msg && 'data' in msg) {
 			return msg.success ? msg.data : null;
 		}
@@ -68,15 +68,15 @@ if (!window.unwrapOperationResult) {
 	};
 }
 if (!window.escapeHtml) {
-	window.escapeHtml = function(str) {
-		if (str == null) return '';
-		var div = document.createElement('div');
+	window.escapeHtml = function (str) {
+		if (str == null) { return ''; }
+		const div = document.createElement('div');
 		div.textContent = String(str);
 		return div.innerHTML;
 	};
 }
 if (!window.getErrorMessage) {
-	window.getErrorMessage = function(msg, defaultMsg) {
+	window.getErrorMessage = function (msg, defaultMsg) {
 		if (msg && typeof msg === 'object') {
 			return msg.error_message || msg.message || defaultMsg;
 		}
@@ -380,18 +380,18 @@ frappe.ui.form.on('Member', {
 
 		// Fetch volunteer details fresh from server with explicit member name
 		if (frm.fields_dict.volunteer_details_html) {
-			frm.fields_dict.volunteer_details_html.html("");
+			frm.fields_dict.volunteer_details_html.html('');
 		}
 		if (!frm.doc.__islocal && frm.fields_dict.volunteer_details_html) {
 			const current_name = frm.doc.name;
 			frappe.call({
-				method: "verenigingen.verenigingen.doctype.member.member.get_volunteer_details_html_for_member",
+				method: 'verenigingen.verenigingen.doctype.member.member.get_volunteer_details_html_for_member',
 				args: { member_name: current_name },
 				callback: (r) => {
 					if (frm.doc.name === current_name) {
-						frm.fields_dict.volunteer_details_html.html(r.message || "");
+						frm.fields_dict.volunteer_details_html.html(r.message || '');
 					}
-				},
+				}
 			});
 		}
 
@@ -1500,7 +1500,7 @@ function add_member_id_management_buttons(frm) {
 ;
 
 	if (!can_manage_member_ids) {
-		return;
+
 	}
 
 	// Member ID Statistics, Preview Next ID, and Assign Member ID buttons removed as requested
@@ -2284,7 +2284,6 @@ function show_suspension_dialog(frm) {
 		callback(r) {
 			const preview = unwrapOperationResult(r.message);
 			if (preview) {
-
 				let preview_html = `
                     <div class="suspension-preview">
                         <h5>Suspension Impact</h5>
@@ -2689,7 +2688,7 @@ function show_approval_dialog(frm) {
 			const membership_types = r.message || [];
 
 			// Build dialog fields dynamically
-			let dialogFields = [
+			const dialogFields = [
 				{
 					fieldname: 'membership_type',
 					fieldtype: 'Select',
@@ -3121,7 +3120,7 @@ window.update_other_members_at_address = function (frm, force_refresh = false) {
 		callback(r) {
 			if (r.message) {
 				// The doctype method returns a plain HTML string
-				let html_content = typeof r.message === 'string'
+				const html_content = typeof r.message === 'string'
 					? r.message
 					: (r.message.html || null);
 

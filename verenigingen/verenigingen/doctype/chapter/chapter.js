@@ -193,7 +193,7 @@ frappe.ui.form.on('Chapter', {
 					chapter_name: frm.doc.name,
 					chapter_head: frm.doc.chapter_head
 				},
-				callback: function(r) {
+				callback(r) {
 					const data = unwrapOperationResult(r.message);
 					if (data && !data.valid && data.error) {
 						frappe.msgprint({
@@ -226,7 +226,7 @@ frappe.ui.form.on('Chapter', {
 					chapter_name: frm.doc.name,
 					region: frm.doc.region
 				},
-				callback: function(r) {
+				callback(r) {
 					const data = unwrapOperationResult(r.message);
 					if (data && data.suggestions && data.suggestions.length > 0) {
 						// Handle postal code suggestions from backend
@@ -255,7 +255,7 @@ frappe.ui.form.on('Chapter', {
 				chapter_name: frm.doc.name,
 				published: frm.doc.published ? 1 : 0
 			},
-			callback: function(r) {
+			callback(r) {
 				const data = unwrapOperationResult(r.message);
 				if (data && !data.valid && data.warning) {
 					frappe.msgprint({
@@ -1822,7 +1822,7 @@ frappe.ui.form.on('Chapter Board Document', {
 		if (row.document_file && !row.document_name) {
 			// Extract filename from URL and remove extension
 			const filename = row.document_file.split('/').pop();
-			const name_without_ext = filename.replace(/\.[^/.]+$/, "");
+			const name_without_ext = filename.replace(/\.[^/.]+$/, '');
 
 			// Clean up the name (replace hyphens/underscores with spaces, capitalize)
 			const cleaned_name = name_without_ext

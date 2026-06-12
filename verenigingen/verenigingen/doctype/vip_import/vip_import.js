@@ -26,9 +26,9 @@ frappe.ui.form.on('VIP Import', {
 		if (frm.doc.docstatus === 0) {
 			// Add validation button
 			if (
-				frm.doc.csv_file &&
-				frm.doc.name &&
-				!['Validating', 'In Progress', 'Queued'].includes(frm.doc.import_status)
+				frm.doc.csv_file
+				&& frm.doc.name
+				&& !['Validating', 'In Progress', 'Queued'].includes(frm.doc.import_status)
 			) {
 				frm.add_custom_button(__('Validate CSV'), () => {
 					validate_csv(frm);
@@ -199,7 +199,7 @@ function download_template() {
  * Render preview data
  */
 function render_preview(frm) {
-	if (!frm.doc.preview_data) return;
+	if (!frm.doc.preview_data) { return; }
 
 	try {
 		const preview = JSON.parse(frm.doc.preview_data);
@@ -301,7 +301,6 @@ function render_preview(frm) {
 		const $preview_section = frm.fields_dict.preview_data.$wrapper.parent();
 		$preview_section.find('.vip-import-preview').remove();
 		$preview_section.prepend(html);
-
 	} catch (e) {
 		console.error('Error rendering preview:', e);
 	}

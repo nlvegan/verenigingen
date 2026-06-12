@@ -27,22 +27,22 @@
  */
 
 frappe.listview_settings['API Audit Log'] = {
-	onload: function(listview) {
+	onload(listview) {
 		// Check if user has Verenigingen Administrator role
 		const has_admin_role = frappe.user_roles.includes('Verenigingen Administrator');
 
 		if (has_admin_role) {
 			// Add "Clear All Logs" button for administrators
-			listview.page.add_inner_button(__('Clear All Logs'), function() {
+			listview.page.add_inner_button(__('Clear All Logs'), () => {
 				frappe.confirm(
 					__('Are you sure you want to delete ALL API Audit Log entries? This action cannot be undone.'),
-					function() {
+					() => {
 						// User confirmed - proceed with clearing logs
 						frappe.call({
 							method: 'verenigingen.verenigingen.doctype.api_audit_log.api_audit_log.clear_all_audit_logs',
 							freeze: true,
 							freeze_message: __('Clearing all API Audit Logs...'),
-							callback: function(r) {
+							callback(r) {
 								if (r.message && r.message.success) {
 									frappe.show_alert({
 										message: __('Successfully deleted {0} audit log entries', [r.message.deleted_count]),
@@ -61,7 +61,7 @@ frappe.listview_settings['API Audit Log'] = {
 									});
 								}
 							},
-							error: function(r) {
+							error(r) {
 								frappe.msgprint({
 									title: __('Error'),
 									message: __('An error occurred while clearing audit logs: {0}', [r.message || 'Unknown error']),
@@ -70,7 +70,7 @@ frappe.listview_settings['API Audit Log'] = {
 							}
 						});
 					},
-					function() {
+					() => {
 						// User cancelled
 						frappe.show_alert({
 							message: __('Clear logs cancelled'),
@@ -83,16 +83,16 @@ frappe.listview_settings['API Audit Log'] = {
 	},
 
 	// Add severity-based color indicators in list view
-	get_indicator: function(doc) {
+	get_indicator(doc) {
 		const severity_colors = {
-			'info': 'blue',
-			'warning': 'orange',
-			'error': 'red',
-			'critical': 'purple'
+			info: 'blue',
+			warning: 'orange',
+			error: 'red',
+			critical: 'purple'
 		};
 
 		if (doc.severity) {
-			return [__(doc.severity.toUpperCase()), severity_colors[doc.severity] || 'gray', 'severity,=,' + doc.severity];
+			return [__(doc.severity.toUpperCase()), severity_colors[doc.severity] || 'gray', `severity,=,${doc.severity}`];
 		}
 	}
 };
