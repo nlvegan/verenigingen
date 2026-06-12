@@ -175,6 +175,12 @@ class MandateService:
 
         NOTE: RECURRING mandates additionally require an ``interval`` object,
         which this builder does not yet populate — associations use FLEXIBLE.
+
+        TODO(incasso): verify once Pay.nl Direct Debit contract is live. The
+        sandbox only exposes test_connection (mandate create/list/order all
+        403), so RECURRING's interval requirement is coded to spec but never
+        exercised against the live API. If RECURRING is ever needed, populate
+        and live-test the interval object before relying on it.
         """
         bank_account = {
             "iban": sepa_mandate.iban,
@@ -195,6 +201,9 @@ class MandateService:
                 "email": member.email or "",
                 # Required by Pay.nl. In the member-portal flow this is the real
                 # signer IP; fall back to a placeholder for background callers.
+                # TODO(incasso): verify once Pay.nl Direct Debit contract is
+                # live — confirm Pay.nl accepts "0.0.0.0" for background/non-
+                # request callers (scheduled debit runs have no request_ip).
                 "ipAddress": getattr(frappe.local, "request_ip", None) or "0.0.0.0",
             },
             "exchangeUrl": self._get_webhook_url("mandate"),
@@ -239,6 +248,11 @@ class MandateService:
                 process_date=process_date,
             )
 
+            # TODO(incasso): verify once Pay.nl Direct Debit contract is live.
+            # Direct debit execution is async — the live response shape (whether
+            # the debit reference arrives as "referenceId" vs "id", and whether
+            # final status comes back later via the mandate exchangeUrl webhook)
+            # is coded to spec but unconfirmed against the live API.
             reference_id = result.get("referenceId") or result.get("id")
 
             # Create transaction record to track this debit
