@@ -29,7 +29,8 @@
     "quality-gate": "npm run test:api-contracts && npm run test:controllers && npm run test:integration",
     "lint": "eslint verenigingen",
     "lint:fix": "eslint verenigingen --fix",
-    "format": "prettier --write \"**/*.{js,vue,json,css,scss,md}\"",
+    "format": "prettier --write \"**/*.{js,vue}\"",
+    "format:check": "prettier --check \"**/*.{js,vue}\"",
     "cypress:open": "cypress open",
     "cypress:run": "cypress run",
     "cypress:ci": "cypress run --record --parallel"

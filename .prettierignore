@@ -59,3 +59,9 @@ dev_scripts/
 # Cypress artifacts
 cypress/videos/
 cypress/screenshots/
+
+# Generated coverage reports (jest/istanbul output)
+coverage/
+coverage_html_report/
+coverage.json
+coverage.xml

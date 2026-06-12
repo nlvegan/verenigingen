@@ -156,6 +156,21 @@ repos:
         stages: [pre-commit]
         exclude: '^(node_modules/|archived_unused/|archived_deleted/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
 
+      - id: prettier
+        name: 🎨 Prettier formatting check (JS/Vue)
+        # Check-only on the *staged* JS/Vue files: fail the commit if any are not
+        # Prettier-formatted (dev runs `npm run format` to fix). Prettier owns
+        # formatting now (eslint-config-prettier disables the stylistic ESLint
+        # rules). Same `--` sentinel trick as the eslint hook: $0='--' so the
+        # staged filenames land in "$@" (not $0); a lone staged file would
+        # otherwise leave "$@" empty and Prettier would scan nothing.
+        # `--check` respects .prettierignore, so ignored paths are skipped.
+        entry: bash -c 'npx prettier --check "$@"' --
+        language: system
+        files: \.(js|vue)$
+        stages: [pre-commit]
+        exclude: '^(node_modules/|archived_unused/|archived_deleted/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
+
       - id: fast-method-validator
         name: Method call validation
         entry: python scripts/validation/archived/method_resolution_validator.py
