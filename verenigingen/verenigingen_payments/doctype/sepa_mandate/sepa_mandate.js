@@ -56,35 +56,35 @@
  */
 frappe.ui.form.on('SEPA Mandate', {
 	/**
-   * Form Refresh Event Handler
-   *
-   * Configures the mandate management interface based on current status and workflow stage.
-   * Manages status transition buttons, validation controls, and compliance indicators.
-   *
-   * @description Status Management Features:
-   * - Provides status transition buttons based on current state
-   * - Validates business rules for status changes
-   * - Manages mandate activation, suspension, and cancellation
-   * - Ensures compliance with SEPA regulations
-   *
-   * @description Business Rule Enforcement:
-   * - Only allows valid status transitions
-   * - Requires confirmation for permanent actions (cancellation)
-   * - Tracks status change dates and audit trail
-   * - Validates mandate requirements before activation
-   *
-   * @param {Object} frm - Frappe Form object containing mandate document
-   * @param {string} frm.doc.status - Current mandate status (Draft/Active/Suspended/Cancelled)
-   * @param {boolean} frm.doc.is_active - Active flag for mandate validity
-   * @param {number} frm.doc.docstatus - Document submission status
-   *
-   * @example
-   * // Status-based button configuration:
-   * // Draft: "Activate" button
-   * // Active: "Suspend", "Cancel" buttons
-   * // Suspended: "Reactivate" button
-   * // Cancelled: No action buttons (permanent state)
-   */
+	 * Form Refresh Event Handler
+	 *
+	 * Configures the mandate management interface based on current status and workflow stage.
+	 * Manages status transition buttons, validation controls, and compliance indicators.
+	 *
+	 * @description Status Management Features:
+	 * - Provides status transition buttons based on current state
+	 * - Validates business rules for status changes
+	 * - Manages mandate activation, suspension, and cancellation
+	 * - Ensures compliance with SEPA regulations
+	 *
+	 * @description Business Rule Enforcement:
+	 * - Only allows valid status transitions
+	 * - Requires confirmation for permanent actions (cancellation)
+	 * - Tracks status change dates and audit trail
+	 * - Validates mandate requirements before activation
+	 *
+	 * @param {Object} frm - Frappe Form object containing mandate document
+	 * @param {string} frm.doc.status - Current mandate status (Draft/Active/Suspended/Cancelled)
+	 * @param {boolean} frm.doc.is_active - Active flag for mandate validity
+	 * @param {number} frm.doc.docstatus - Document submission status
+	 *
+	 * @example
+	 * // Status-based button configuration:
+	 * // Draft: "Activate" button
+	 * // Active: "Suspend", "Cancel" buttons
+	 * // Suspended: "Reactivate" button
+	 * // Cancelled: No action buttons (permanent state)
+	 */
 	refresh(frm) {
 		// Add custom buttons based on status
 		if (frm.doc.docstatus === 0) {
@@ -120,16 +120,13 @@ frappe.ui.form.on('SEPA Mandate', {
 					__('Cancel'),
 					() => {
 						// Add confirmation dialog for cancelling
-						frappe.confirm(
-							__('Cancelling a mandate is permanent. Are you sure?'),
-							() => {
-								// On Yes
-								frm.set_value('status', 'Cancelled');
-								frm.set_value('is_active', 0);
-								frm.set_value('cancelled_date', frappe.datetime.get_today());
-								frm.save();
-							}
-						);
+						frappe.confirm(__('Cancelling a mandate is permanent. Are you sure?'), () => {
+							// On Yes
+							frm.set_value('status', 'Cancelled');
+							frm.set_value('is_active', 0);
+							frm.set_value('cancelled_date', frappe.datetime.get_today());
+							frm.save();
+						});
 					},
 					__('Status')
 				);
@@ -210,10 +207,7 @@ frappe.ui.form.on('SEPA Mandate', {
 		// Validate sign date
 		if (frm.doc.sign_date) {
 			const today = frappe.datetime.get_today();
-			if (
-				frappe.datetime.str_to_obj(frm.doc.sign_date)
-        > frappe.datetime.str_to_obj(today)
-			) {
+			if (frappe.datetime.str_to_obj(frm.doc.sign_date) > frappe.datetime.str_to_obj(today)) {
 				frappe.msgprint(__('Sign date cannot be in the future'));
 				frm.set_value('sign_date', today);
 			}

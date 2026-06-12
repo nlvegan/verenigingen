@@ -58,10 +58,7 @@ frappe.ui.form.on('SEPA Payment Retry', {
 		};
 
 		if (frm.doc.status) {
-			frm.page.set_indicator(
-				__(frm.doc.status),
-				status_colors[frm.doc.status] || 'gray'
-			);
+			frm.page.set_indicator(__(frm.doc.status), status_colors[frm.doc.status] || 'gray');
 		}
 
 		// Add retry timeline visualization
@@ -89,15 +86,13 @@ frappe.ui.form.on('SEPA Payment Retry', {
 		}
 
 		if (frm.doc.status === 'Failed' || frm.doc.status === 'Error') {
-			frm
-				.add_custom_button(
-					__('Schedule New Retry'),
-					() => {
-						schedule_new_retry(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-primary');
+			frm.add_custom_button(
+				__('Schedule New Retry'),
+				() => {
+					schedule_new_retry(frm);
+				},
+				__('Actions')
+			).addClass('btn-primary');
 		}
 
 		if (frm.doc.status === 'Escalated') {
@@ -134,8 +129,7 @@ function add_retry_timeline(frm) {
     `;
 
 	frm.doc.retry_log.forEach((attempt, idx) => {
-		const icon
-      = attempt.reason_code === 'SUCCESS' ? 'check-circle' : 'times-circle';
+		const icon = attempt.reason_code === 'SUCCESS' ? 'check-circle' : 'times-circle';
 		const color = attempt.reason_code === 'SUCCESS' ? 'success' : 'danger';
 
 		timeline_html += `
@@ -151,12 +145,12 @@ function add_retry_timeline(frm) {
                         ${attempt.reason_message || ''}
                     </div>
                     ${
-	attempt.scheduled_retry
-		? `<div class="timeline-next">
+						attempt.scheduled_retry
+							? `<div class="timeline-next">
                             ${__('Next retry scheduled for')}: ${frappe.datetime.str_to_user(attempt.scheduled_retry)}
                         </div>`
-		: ''
-}
+							: ''
+					}
                 </div>
             </div>
         `;
@@ -209,12 +203,10 @@ function add_retry_info_section(frm) {
                     <div class="info-label">${__('Next Retry')}</div>
                     <div class="info-value">
                         ${
-	frm.doc.next_retry_date
-		? frappe.datetime.str_to_user(
-			frm.doc.next_retry_date
-		)
-		: __('Not scheduled')
-}
+							frm.doc.next_retry_date
+								? frappe.datetime.str_to_user(frm.doc.next_retry_date)
+								: __('Not scheduled')
+						}
                     </div>
                 </div>
             </div>
@@ -264,37 +256,31 @@ function add_retry_info_section(frm) {
 }
 
 function retry_payment_now(frm) {
-	frappe.confirm(
-		__('Are you sure you want to retry this payment immediately?'),
-		() => {
-			frappe.call({
-				method: 'verenigingen.utils.payment_retry.execute_payment_retry',
-				args: {
-					retry_record: frm.doc.name
-				},
-				callback(r) {
-					if (!r.exc) {
-						frappe.show_alert({
-							message: __('Payment retry initiated'),
-							indicator: 'green'
-						});
-						frm.reload_doc();
-					}
+	frappe.confirm(__('Are you sure you want to retry this payment immediately?'), () => {
+		frappe.call({
+			method: 'verenigingen.utils.payment_retry.execute_payment_retry',
+			args: {
+				retry_record: frm.doc.name
+			},
+			callback(r) {
+				if (!r.exc) {
+					frappe.show_alert({
+						message: __('Payment retry initiated'),
+						indicator: 'green'
+					});
+					frm.reload_doc();
 				}
-			});
-		}
-	);
+			}
+		});
+	});
 }
 
 function cancel_retry(frm) {
-	frappe.confirm(
-		__('Are you sure you want to cancel the scheduled retry?'),
-		() => {
-			frm.set_value('status', 'Cancelled');
-			frm.set_value('next_retry_date', null);
-			frm.save();
-		}
-	);
+	frappe.confirm(__('Are you sure you want to cancel the scheduled retry?'), () => {
+		frm.set_value('status', 'Cancelled');
+		frm.set_value('next_retry_date', null);
+		frm.save();
+	});
 }
 
 function schedule_new_retry(frm) {
@@ -366,10 +352,7 @@ function mark_as_resolved(frm) {
 		primary_action_label: __('Mark Resolved'),
 		primary_action(values) {
 			frm.set_value('status', 'Resolved');
-			frm.add_comment(
-				'Comment',
-				`${__('Resolved')}: ${values.resolution_method}\n${values.resolution_notes}`
-			);
+			frm.add_comment('Comment', `${__('Resolved')}: ${values.resolution_method}\n${values.resolution_notes}`);
 			frm.save();
 			dialog.hide();
 		}

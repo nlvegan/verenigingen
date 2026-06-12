@@ -56,7 +56,9 @@ function _addActionButtons(frm) {
 
 function _cancelRun(frm) {
 	frappe.confirm(
-		__('Request cancellation for {0}? The worker stops at the next checkpoint (every 10 payments).', [frm.doc.name]),
+		__('Request cancellation for {0}? The worker stops at the next checkpoint (every 10 payments).', [
+			frm.doc.name
+		]),
 		() => {
 			frappe.call({
 				method: 'verenigingen.api.mollie_bulk_run_api.request_cancel',

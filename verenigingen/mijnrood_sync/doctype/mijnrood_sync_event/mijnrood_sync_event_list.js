@@ -12,7 +12,9 @@ frappe.listview_settings['MijnRood Sync Event'] = {
 
 	formatters: {
 		change_tags(val) {
-			if (!val) { return ''; }
+			if (!val) {
+				return '';
+			}
 			const TAG_COLORS = {
 				Status: 'red',
 				Chapter: 'orange',
@@ -28,12 +30,14 @@ frappe.listview_settings['MijnRood Sync Event'] = {
 				Deleted: 'red',
 				Other: 'grey'
 			};
-			return val.split(',').map((tag) => {
-				tag = tag.trim();
-				const color = TAG_COLORS[tag] || 'grey';
-				return `<span class="indicator-pill ${color}">${
-					frappe.utils.escape_html(tag)}</span>`;
-			}).join(' ');
+			return val
+				.split(',')
+				.map((tag) => {
+					tag = tag.trim();
+					const color = TAG_COLORS[tag] || 'grey';
+					return `<span class="indicator-pill ${color}">${frappe.utils.escape_html(tag)}</span>`;
+				})
+				.join(' ');
 		}
 	},
 
@@ -49,7 +53,9 @@ frappe.listview_settings['MijnRood Sync Event'] = {
 			if (!selected.length) {
 				frappe.throw(__('Please select at least one event'));
 			}
-			const names = selected.map((d) => { return d.name; });
+			const names = selected.map((d) => {
+				return d.name;
+			});
 			frappe.call({
 				method: 'verenigingen.mijnrood_sync.services.event_application_service.batch_approve',
 				args: { event_names: names },
@@ -66,24 +72,27 @@ frappe.listview_settings['MijnRood Sync Event'] = {
 			if (!selected.length) {
 				frappe.throw(__('Please select at least one event'));
 			}
-			const names = selected.map((d) => { return d.name; });
-			frappe.confirm(
-				__('Apply {0} selected events? This will modify member data.', [names.length]),
-				() => {
-					frappe.call({
-						method: 'verenigingen.mijnrood_sync.services.event_application_service.batch_apply',
-						args: { event_names: names },
-						callback(r) {
-							if (!r.message) { return; }
-							_show_batch_progress_dialog(
-								listview, r.message,
-								'batch_apply_progress', 'batch_apply_complete',
-								__('Applying {0} events...', [r.message.total])
-							);
+			const names = selected.map((d) => {
+				return d.name;
+			});
+			frappe.confirm(__('Apply {0} selected events? This will modify member data.', [names.length]), () => {
+				frappe.call({
+					method: 'verenigingen.mijnrood_sync.services.event_application_service.batch_apply',
+					args: { event_names: names },
+					callback(r) {
+						if (!r.message) {
+							return;
 						}
-					});
-				}
-			);
+						_show_batch_progress_dialog(
+							listview,
+							r.message,
+							'batch_apply_progress',
+							'batch_apply_complete',
+							__('Applying {0} events...', [r.message.total])
+						);
+					}
+				});
+			});
 		});
 
 		listview.page.add_action_item(__('Approve & Apply Selected'), () => {
@@ -91,7 +100,9 @@ frappe.listview_settings['MijnRood Sync Event'] = {
 			if (!selected.length) {
 				frappe.throw(__('Please select at least one event'));
 			}
-			const names = selected.map((d) => { return d.name; });
+			const names = selected.map((d) => {
+				return d.name;
+			});
 			frappe.confirm(
 				__('Approve and apply {0} selected events? This will modify member data.', [names.length]),
 				() => {
@@ -99,10 +110,14 @@ frappe.listview_settings['MijnRood Sync Event'] = {
 						method: 'verenigingen.mijnrood_sync.services.event_application_service.batch_approve_and_apply',
 						args: { event_names: names },
 						callback(r) {
-							if (!r.message) { return; }
+							if (!r.message) {
+								return;
+							}
 							_show_batch_progress_dialog(
-								listview, r.message,
-								'batch_approve_apply_progress', 'batch_approve_apply_complete',
+								listview,
+								r.message,
+								'batch_approve_apply_progress',
+								'batch_approve_apply_complete',
 								__('Approving & applying {0} events...', [r.message.total])
 							);
 						}
@@ -120,31 +135,32 @@ function _show_batch_progress_dialog(listview, message, progress_event, complete
 	const batch_id = message.batch_id;
 	const dialog = new frappe.ui.Dialog({
 		title,
-		fields: [
-			{ fieldtype: 'HTML', fieldname: 'progress_area' }
-		]
+		fields: [{ fieldtype: 'HTML', fieldname: 'progress_area' }]
 	});
 	dialog.fields_dict.progress_area.$wrapper.html(
-		`<div class="progress"><div class="progress-bar" style="width: 0%"></div></div>`
-        + `<p class="batch-status text-muted">${__('Starting...')}</p>`
+		`<div class="progress"><div class="progress-bar" style="width: 0%"></div></div>` +
+			`<p class="batch-status text-muted">${__('Starting...')}</p>`
 	);
 	dialog.show();
 	dialog.$wrapper.find('.modal-footer').hide();
 
 	function onProgress(data) {
-		if (data.batch_id !== batch_id) { return; }
+		if (data.batch_id !== batch_id) {
+			return;
+		}
 		const pct = Math.round((data.current / data.total) * 100);
+		dialog.fields_dict.progress_area.$wrapper.find('.progress-bar').css('width', `${pct}%`);
 		dialog.fields_dict.progress_area.$wrapper
-			.find('.progress-bar').css('width', `${pct}%`);
-		dialog.fields_dict.progress_area.$wrapper
-			.find('.batch-status').text(
-				__('{0}/{1} processed — {2} applied, {3} errors',
-					[data.current, data.total, data.applied, data.errors])
+			.find('.batch-status')
+			.text(
+				__('{0}/{1} processed — {2} applied, {3} errors', [data.current, data.total, data.applied, data.errors])
 			);
 	}
 
 	function onComplete(data) {
-		if (data.batch_id !== batch_id) { return; }
+		if (data.batch_id !== batch_id) {
+			return;
+		}
 		frappe.realtime.off(progress_event, onProgress);
 		frappe.realtime.off(complete_event, onComplete);
 		dialog.hide();
@@ -154,8 +170,7 @@ function _show_batch_progress_dialog(listview, message, progress_event, complete
 			});
 			frappe.msgprint({
 				title: __('Batch Results'),
-				message: __('Applied {0}/{1}. Errors:<br>{2}',
-					[data.applied, data.total, escaped_errors.join('<br>')]),
+				message: __('Applied {0}/{1}. Errors:<br>{2}', [data.applied, data.total, escaped_errors.join('<br>')]),
 				indicator: 'orange'
 			});
 		} else {

@@ -23,17 +23,13 @@ frappe.ui.form.on('Mollie Settings', {
 		// Show warning when test mode is enabled
 		if (frm.doc.test_mode) {
 			frm.dashboard.add_comment(
-				__(
-					'Test Mode is enabled. Test API key will be used and no real transactions will be processed.'
-				),
+				__('Test Mode is enabled. Test API key will be used and no real transactions will be processed.'),
 				'orange',
 				true
 			);
 		} else {
 			frm.dashboard.add_comment(
-				__(
-					'Live Mode is active. Live API key will be used for real transactions.'
-				),
+				__('Live Mode is active. Live API key will be used for real transactions.'),
 				'red',
 				true
 			);
@@ -70,9 +66,7 @@ function add_custom_buttons(frm) {
 	frm.clear_custom_buttons();
 
 	// Check if we have the required configuration for current mode
-	const has_required_key = frm.doc.test_mode
-		? frm.doc.test_secret_key
-		: frm.doc.live_secret_key;
+	const has_required_key = frm.doc.test_mode ? frm.doc.test_secret_key : frm.doc.live_secret_key;
 
 	// Add Test Connection button
 	if (frm.doc.name && frm.doc.profile_id && has_required_key) {
@@ -112,21 +106,13 @@ function setup_form_indicators(frm) {
 
 	// Show test mode indicator
 	if (frm.doc.test_mode) {
-		frm.dashboard.set_headline_alert(
-			__('Test Mode Active - No real transactions will be processed'),
-			'orange'
-		);
+		frm.dashboard.set_headline_alert(__('Test Mode Active - No real transactions will be processed'), 'orange');
 	} else {
-		frm.dashboard.set_headline_alert(
-			__('Live Mode Active - Real transactions will be processed'),
-			'red'
-		);
+		frm.dashboard.set_headline_alert(__('Live Mode Active - Real transactions will be processed'), 'red');
 	}
 
 	// Show configuration status based on current mode
-	const has_required_key = frm.doc.test_mode
-		? frm.doc.test_secret_key
-		: frm.doc.live_secret_key;
+	const has_required_key = frm.doc.test_mode ? frm.doc.test_secret_key : frm.doc.live_secret_key;
 	const mode = frm.doc.test_mode ? 'Test' : 'Live';
 
 	if (frm.doc.name && frm.doc.profile_id && has_required_key) {
@@ -146,8 +132,7 @@ function setup_form_indicators(frm) {
 
 function test_mollie_connection(_frm) {
 	frappe.call({
-		method:
-      'verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.test_mollie_connection',
+		method: 'verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.test_mollie_connection',
 		args: {
 			// For singleton, no args needed - method will use frappe.get_single()
 		},
@@ -168,8 +153,7 @@ function test_mollie_connection(_frm) {
 		},
 		error(r) {
 			frappe.show_alert({
-				message:
-          __('Error testing connection: ') + (r.message || 'Unknown error'),
+				message: __('Error testing connection: ') + (r.message || 'Unknown error'),
 				indicator: 'red'
 			});
 		}
@@ -182,25 +166,19 @@ function validate_key_format(frm, key, expected_type) {
 		if (expected_type === 'test' && !key.startsWith('test_')) {
 			frappe.msgprint({
 				title: __('Test Key Warning'),
-				message: __(
-					'This appears to be a live key, but it should be a test key (should start with "test_")'
-				),
+				message: __('This appears to be a live key, but it should be a test key (should start with "test_")'),
 				indicator: 'orange'
 			});
 		} else if (expected_type === 'live' && key.startsWith('test_')) {
 			frappe.msgprint({
 				title: __('Live Key Warning'),
-				message: __(
-					'This appears to be a test key, but it should be a live key (should start with "live_")'
-				),
+				message: __('This appears to be a test key, but it should be a live key (should start with "live_")'),
 				indicator: 'red'
 			});
 		} else if (expected_type === 'live' && !key.startsWith('live_')) {
 			frappe.msgprint({
 				title: __('Live Key Warning'),
-				message: __(
-					'Live keys should start with "live_". Please verify this is the correct key.'
-				),
+				message: __('Live keys should start with "live_". Please verify this is the correct key.'),
 				indicator: 'orange'
 			});
 		}
@@ -214,9 +192,7 @@ function validate_profile_id_format(frm) {
 	if (profile_id && !/^pfl_[a-zA-Z0-9]{10}$/.test(profile_id)) {
 		frappe.msgprint({
 			title: __('Profile ID Format'),
-			message: __(
-				'Mollie Profile ID should start with "pfl_" followed by 10 characters (e.g., pfl_v9hTwCuEmJ)'
-			),
+			message: __('Mollie Profile ID should start with "pfl_" followed by 10 characters (e.g., pfl_v9hTwCuEmJ)'),
 			indicator: 'yellow'
 		});
 	}
@@ -250,7 +226,9 @@ frappe.ui.form.on('Mollie Settings', 'before_save', (frm) => {
 
 function render_credentials_status(frm) {
 	const wrapper = frm.get_field('credentials_status')?.$wrapper;
-	if (!wrapper) { return; }
+	if (!wrapper) {
+		return;
+	}
 	const dot = (set) => `<span style="color:${set ? '#28a745' : '#adb5bd'}">●</span>`;
 	const row = (label, set) =>
 		`<div style="margin:2px 0">${dot(set)} ${label}: <b>${set ? __('set') : __('not set')}</b></div>`;
@@ -267,26 +245,38 @@ function render_credentials_status(frm) {
 }
 
 function add_credential_buttons(frm) {
-	frm.add_custom_button(__('Set API Keys'), () => {
-		open_credentials_dialog(frm, __('Set Mollie API Keys'), [
-			{ fieldname: 'test_secret_key', label: __('Test Secret Key') },
-			{ fieldname: 'live_secret_key', label: __('Live Secret Key') }
-		]);
-	}, __('Credentials'));
+	frm.add_custom_button(
+		__('Set API Keys'),
+		() => {
+			open_credentials_dialog(frm, __('Set Mollie API Keys'), [
+				{ fieldname: 'test_secret_key', label: __('Test Secret Key') },
+				{ fieldname: 'live_secret_key', label: __('Live Secret Key') }
+			]);
+		},
+		__('Credentials')
+	);
 
-	frm.add_custom_button(__('Set Webhook Secrets'), () => {
-		open_credentials_dialog(frm, __('Set Mollie Webhook Secrets'), [
-			{ fieldname: 'testing_webhook_secret_key', label: __('Testing Webhook Secret Key') },
-			{ fieldname: 'live_webhook_secret_key', label: __('Live Webhook Secret Key') }
-		]);
-	}, __('Credentials'));
+	frm.add_custom_button(
+		__('Set Webhook Secrets'),
+		() => {
+			open_credentials_dialog(frm, __('Set Mollie Webhook Secrets'), [
+				{ fieldname: 'testing_webhook_secret_key', label: __('Testing Webhook Secret Key') },
+				{ fieldname: 'live_webhook_secret_key', label: __('Live Webhook Secret Key') }
+			]);
+		},
+		__('Credentials')
+	);
 
-	frm.add_custom_button(__('Set Backend Credentials'), () => {
-		open_credentials_dialog(frm, __('Set Mollie Backend Credentials'), [
-			{ fieldname: 'organization_access_token', label: __('Organization Access Token') },
-			{ fieldname: 'backend_webhook_secret', label: __('Backend Webhook Secret') }
-		]);
-	}, __('Credentials'));
+	frm.add_custom_button(
+		__('Set Backend Credentials'),
+		() => {
+			open_credentials_dialog(frm, __('Set Mollie Backend Credentials'), [
+				{ fieldname: 'organization_access_token', label: __('Organization Access Token') },
+				{ fieldname: 'backend_webhook_secret', label: __('Backend Webhook Secret') }
+			]);
+		},
+		__('Credentials')
+	);
 }
 
 function open_credentials_dialog(frm, title, specs) {
@@ -313,7 +303,9 @@ function open_credentials_dialog(frm, title, specs) {
 					dirty = true;
 				}
 			});
-			if (dirty) { frm.dirty(); }
+			if (dirty) {
+				frm.dirty();
+			}
 			d.hide();
 			render_credentials_status(frm);
 			frappe.show_alert({
@@ -327,7 +319,9 @@ function open_credentials_dialog(frm, title, specs) {
 	// Apply anti-autofill to each password input in the dialog.
 	specs.forEach((s) => {
 		const $input = d.fields_dict[s.fieldname]?.$input;
-		if (!$input) { return; }
+		if (!$input) {
+			return;
+		}
 		const random_name = `${s.fieldname}_${Math.random().toString(36).slice(2)}`;
 		$input.attr({
 			autocomplete: 'new-password',
@@ -337,7 +331,9 @@ function open_credentials_dialog(frm, title, specs) {
 			'data-1p-ignore': 'true'
 		});
 		const clear_if_spurious = () => {
-			if (!$input.is(':focus')) { $input.val(''); }
+			if (!$input.is(':focus')) {
+				$input.val('');
+			}
 		};
 		clear_if_spurious();
 		setTimeout(clear_if_spurious, 100);

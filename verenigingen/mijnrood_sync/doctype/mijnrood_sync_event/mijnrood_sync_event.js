@@ -39,28 +39,58 @@ const FIELD_LABELS = {
 
 // Key fields to show prominently in New record summary cards
 const MEMBER_SUMMARY_FIELDS = [
-	'first_name', 'middle_name', 'last_name', 'email', 'phone',
-	'address', 'city', 'post_code', 'country',
-	'division_id', 'current_membership_status_id',
-	'contribution_per_period_in_cents', 'contribution_period', 'date_of_birth',
-	'iban', 'registration_time',
-	'mollie_customer_id', 'mollie_subscription_id',
+	'first_name',
+	'middle_name',
+	'last_name',
+	'email',
+	'phone',
+	'address',
+	'city',
+	'post_code',
+	'country',
+	'division_id',
+	'current_membership_status_id',
+	'contribution_per_period_in_cents',
+	'contribution_period',
+	'date_of_birth',
+	'iban',
+	'registration_time',
+	'mollie_customer_id',
+	'mollie_subscription_id',
 	'comments'
 ];
 
 const APPLICATION_SUMMARY_FIELDS = [
-	'first_name', 'middle_name', 'last_name', 'email', 'phone',
-	'address', 'city', 'post_code', 'country',
-	'preferred_division_id', 'contribution_per_period_in_cents', 'contribution_period',
-	'date_of_birth', 'iban', 'registration_time',
+	'first_name',
+	'middle_name',
+	'last_name',
+	'email',
+	'phone',
+	'address',
+	'city',
+	'post_code',
+	'country',
+	'preferred_division_id',
+	'contribution_per_period_in_cents',
+	'contribution_period',
+	'date_of_birth',
+	'iban',
+	'registration_time',
 	'mollie_customer_id',
-	'paid', 'has_sent_initial_email'
+	'paid',
+	'has_sent_initial_email'
 ];
 
 const DIVISION_SUMMARY_FIELDS = [
-	'name', 'city', 'email_id', 'phone',
-	'address', 'post_code',
-	'facebook', 'instagram', 'twitter',
+	'name',
+	'city',
+	'email_id',
+	'phone',
+	'address',
+	'post_code',
+	'facebook',
+	'instagram',
+	'twitter',
 	'can_be_selected_on_application'
 ];
 
@@ -88,13 +118,17 @@ function load_status_mapping(callback) {
 }
 
 function get_status_label(status_id) {
-	if (!_status_mapping_cache) { return String(status_id); }
+	if (!_status_mapping_cache) {
+		return String(status_id);
+	}
 	const entry = _status_mapping_cache[String(status_id)];
 	return entry ? entry.label : String(status_id);
 }
 
 function is_terminated_status(status_id) {
-	if (!_status_mapping_cache) { return false; }
+	if (!_status_mapping_cache) {
+		return false;
+	}
 	const entry = _status_mapping_cache[String(status_id)];
 	return entry ? entry.is_terminated : false;
 }
@@ -108,7 +142,9 @@ function get_label(field) {
  * Used in the New record card where we only have raw new_data.
  */
 function resolve_display_value(field, val) {
-	if (val === null || val === undefined || val === '') { return ''; }
+	if (val === null || val === undefined || val === '') {
+		return '';
+	}
 	if (field === 'current_membership_status_id') {
 		const int_val = parseInt(val, 10);
 		return get_status_label(int_val);
@@ -122,7 +158,9 @@ function resolve_display_value(field, val) {
 }
 
 function esc(val) {
-	if (val === null || val === undefined || val === '') { return ''; }
+	if (val === null || val === undefined || val === '') {
+		return '';
+	}
 	const s = String(val);
 	const div = document.createElement('div');
 	div.appendChild(document.createTextNode(s));
@@ -130,9 +168,13 @@ function esc(val) {
 }
 
 function truncate(val, max_len) {
-	if (!val) { return ''; }
+	if (!val) {
+		return '';
+	}
 	const s = String(val);
-	if (s.length > max_len) { return `${s.substring(0, max_len)}\u2026`; }
+	if (s.length > max_len) {
+		return `${s.substring(0, max_len)}\u2026`;
+	}
 	return s;
 }
 
@@ -145,11 +187,12 @@ function render_changed_table(changed_fields) {
 	}
 
 	let html = '<table class="table table-bordered table-sm" style="margin-top:10px">';
-	html += '<thead><tr>'
-        + '<th style="width:25%">Field</th>'
-        + '<th style="width:37%">Old Value</th>'
-        + '<th style="width:37%">New Value</th>'
-        + '</tr></thead><tbody>';
+	html +=
+		'<thead><tr>' +
+		'<th style="width:25%">Field</th>' +
+		'<th style="width:37%">Old Value</th>' +
+		'<th style="width:37%">New Value</th>' +
+		'</tr></thead><tbody>';
 
 	for (let i = 0; i < changed_fields.length; i++) {
 		const c = changed_fields[i];
@@ -157,13 +200,12 @@ function render_changed_table(changed_fields) {
 		const old_val = c.old_display || resolve_display_value(c.field, c.old);
 		const new_val = c.new_display || resolve_display_value(c.field, c.new);
 
-		html += `<tr>`
-            + `<td><strong>${esc(label)}</strong></td>`
-            + `<td style="background-color:#fff0f0; color:#a94442">${
-            	esc(truncate(old_val, 120))}</td>`
-            + `<td style="background-color:#f0fff0; color:#3c763d">${
-            	esc(truncate(new_val, 120))}</td>`
-            + `</tr>`;
+		html +=
+			`<tr>` +
+			`<td><strong>${esc(label)}</strong></td>` +
+			`<td style="background-color:#fff0f0; color:#a94442">${esc(truncate(old_val, 120))}</td>` +
+			`<td style="background-color:#f0fff0; color:#3c763d">${esc(truncate(new_val, 120))}</td>` +
+			`</tr>`;
 	}
 
 	html += '</tbody></table>';
@@ -187,33 +229,50 @@ function render_new_card(table, new_data) {
 
 	// Build name header
 	let name_parts = [];
-	if (new_data.first_name) { name_parts.push(new_data.first_name); }
-	if (new_data.middle_name) { name_parts.push(new_data.middle_name); }
-	if (new_data.last_name) { name_parts.push(new_data.last_name); }
+	if (new_data.first_name) {
+		name_parts.push(new_data.first_name);
+	}
+	if (new_data.middle_name) {
+		name_parts.push(new_data.middle_name);
+	}
+	if (new_data.last_name) {
+		name_parts.push(new_data.last_name);
+	}
 	if (table === 'admin_division' && new_data.name) {
 		name_parts = [new_data.name];
 	}
 	const display_name = name_parts.join(' ') || 'Unknown';
 
-	let html = '<div style="border:1px solid #d1d8dd; border-radius:4px; padding:15px; margin-top:10px; background:#fafbfc">';
+	let html =
+		'<div style="border:1px solid #d1d8dd; border-radius:4px; padding:15px; margin-top:10px; background:#fafbfc">';
 	html += `<h5 style="margin-top:0">${esc(display_name)}</h5>`;
 	html += '<table class="table table-sm" style="margin-bottom:0">';
 
 	for (let i = 0; i < fields.length; i++) {
 		const field = fields[i];
 		const val = new_data[field];
-		if (val === null || val === undefined || val === '') { continue; }
+		if (val === null || val === undefined || val === '') {
+			continue;
+		}
 
 		// Skip name fields already shown in header
-		if (table !== 'admin_division' && (field === 'first_name' || field === 'middle_name' || field === 'last_name')) { continue; }
-		if (table === 'admin_division' && field === 'name') { continue; }
+		if (
+			table !== 'admin_division' &&
+			(field === 'first_name' || field === 'middle_name' || field === 'last_name')
+		) {
+			continue;
+		}
+		if (table === 'admin_division' && field === 'name') {
+			continue;
+		}
 
 		const display_val = resolve_display_value(field, val);
 
-		html += `<tr>`
-            + `<td style='width:35%; color:#6c757d'><strong>${esc(get_label(field))}</strong></td>`
-            + `<td>${esc(truncate(display_val, 120))}</td>`
-            + `</tr>`;
+		html +=
+			`<tr>` +
+			`<td style='width:35%; color:#6c757d'><strong>${esc(get_label(field))}</strong></td>` +
+			`<td>${esc(truncate(display_val, 120))}</td>` +
+			`</tr>`;
 	}
 
 	html += '</table></div>';
@@ -224,16 +283,19 @@ function render_new_card(table, new_data) {
  * Build a three-column comparison table: Field | Current Frappe | Proposed MijnRood | Status
  */
 function render_comparison_table(changed_fields, frappe_data) {
-	if (!changed_fields || !changed_fields.length) { return ''; }
+	if (!changed_fields || !changed_fields.length) {
+		return '';
+	}
 
 	let html = '<h6 style="margin-top:15px">Comparison with Current Frappe Data</h6>';
 	html += '<table class="table table-bordered table-sm">';
-	html += '<thead><tr>'
-        + '<th style="width:20%">Field</th>'
-        + '<th style="width:25%">Current (Frappe)</th>'
-        + '<th style="width:25%">Proposed (MijnRood)</th>'
-        + '<th style="width:15%">Status</th>'
-        + '</tr></thead><tbody>';
+	html +=
+		'<thead><tr>' +
+		'<th style="width:20%">Field</th>' +
+		'<th style="width:25%">Current (Frappe)</th>' +
+		'<th style="width:25%">Proposed (MijnRood)</th>' +
+		'<th style="width:15%">Status</th>' +
+		'</tr></thead><tbody>';
 
 	for (let i = 0; i < changed_fields.length; i++) {
 		const c = changed_fields[i];
@@ -253,12 +315,13 @@ function render_comparison_table(changed_fields, frappe_data) {
 			status_html = '<span class="indicator-pill orange">Needs update</span>';
 		}
 
-		html += `<tr>`
-            + `<td><strong>${esc(label)}</strong></td>`
-            + `<td>${esc(truncate(current, 80))}</td>`
-            + `<td>${esc(truncate(proposed, 80))}</td>`
-            + `<td>${status_html}</td>`
-            + `</tr>`;
+		html +=
+			`<tr>` +
+			`<td><strong>${esc(label)}</strong></td>` +
+			`<td>${esc(truncate(current, 80))}</td>` +
+			`<td>${esc(truncate(proposed, 80))}</td>` +
+			`<td>${status_html}</td>` +
+			`</tr>`;
 	}
 
 	html += '</tbody></table>';
@@ -274,21 +337,34 @@ function render_deleted_card(table, old_data) {
 	}
 
 	let name_parts = [];
-	if (old_data.first_name) { name_parts.push(old_data.first_name); }
-	if (old_data.middle_name) { name_parts.push(old_data.middle_name); }
-	if (old_data.last_name) { name_parts.push(old_data.last_name); }
+	if (old_data.first_name) {
+		name_parts.push(old_data.first_name);
+	}
+	if (old_data.middle_name) {
+		name_parts.push(old_data.middle_name);
+	}
+	if (old_data.last_name) {
+		name_parts.push(old_data.last_name);
+	}
 	if (table === 'admin_division' && old_data.name) {
 		name_parts = [old_data.name];
 	}
 	const display_name = name_parts.join(' ') || 'Unknown';
 
-	let html = '<div style="border:1px solid #f5c6cb; border-radius:4px; padding:15px; margin-top:10px; background:#fff5f5">';
+	let html =
+		'<div style="border:1px solid #f5c6cb; border-radius:4px; padding:15px; margin-top:10px; background:#fff5f5">';
 	html += `<h5 style="margin-top:0; color:#a94442">Deleted: ${esc(display_name)}</h5>`;
 
 	const details = [];
-	if (old_data.email) { details.push(`Email: ${old_data.email}`); }
-	if (old_data.city) { details.push(`City: ${old_data.city}`); }
-	if (old_data.id) { details.push(`MijnRood ID: ${old_data.id}`); }
+	if (old_data.email) {
+		details.push(`Email: ${old_data.email}`);
+	}
+	if (old_data.city) {
+		details.push(`City: ${old_data.city}`);
+	}
+	if (old_data.id) {
+		details.push(`MijnRood ID: ${old_data.id}`);
+	}
 
 	if (details.length) {
 		html += `<p class="text-muted" style="margin-bottom:0">${esc(details.join(' | '))}</p>`;
@@ -299,8 +375,12 @@ function render_deleted_card(table, old_data) {
 }
 
 function safe_parse_json(val) {
-	if (!val) { return null; }
-	if (typeof val === 'object') { return val; }
+	if (!val) {
+		return null;
+	}
+	if (typeof val === 'object') {
+		return val;
+	}
 	try {
 		return JSON.parse(val);
 	} catch (e) {
@@ -308,102 +388,107 @@ function safe_parse_json(val) {
 	}
 }
 
-
 // ─── Frappe form event handlers ──────────────────────────────────
 
 frappe.ui.form.on('MijnRood Sync Event', {
 	refresh(frm) {
 		// Action buttons for Pending events
 		if (frm.doc.status === 'Pending') {
-			frm.add_custom_button(__('Approve'), () => {
-				frappe.call({
-					method: 'approve',
-					doc: frm.doc,
-					callback() {
-						frm.reload_doc();
-					}
-				});
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Approve'),
+				() => {
+					frappe.call({
+						method: 'approve',
+						doc: frm.doc,
+						callback() {
+							frm.reload_doc();
+						}
+					});
+				},
+				__('Actions')
+			);
 
-			frm.add_custom_button(__('Reject'), () => {
-				frappe.call({
-					method: 'reject',
-					doc: frm.doc,
-					callback() {
-						frm.reload_doc();
-					}
-				});
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Reject'),
+				() => {
+					frappe.call({
+						method: 'reject',
+						doc: frm.doc,
+						callback() {
+							frm.reload_doc();
+						}
+					});
+				},
+				__('Actions')
+			);
 
-			frm.add_custom_button(__('Ignore'), () => {
-				frappe.call({
-					method: 'ignore_event',
-					doc: frm.doc,
-					callback() {
-						frm.reload_doc();
-					}
-				});
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Ignore'),
+				() => {
+					frappe.call({
+						method: 'ignore_event',
+						doc: frm.doc,
+						callback() {
+							frm.reload_doc();
+						}
+					});
+				},
+				__('Actions')
+			);
 
 			frm.add_custom_button(__('Approve & Apply'), () => {
-				frappe.confirm(
-					__('Approve and immediately apply this change? This will modify member data.'),
-					() => {
-						frappe.call({
-							method: 'approve_and_apply',
-							doc: frm.doc,
-							freeze: true,
-							freeze_message: __('Approving and applying...'),
-							callback(r) {
-								if (r.message && r.message.success) {
-									frappe.show_alert({
-										message: __('Changes approved and applied'),
-										indicator: 'green'
-									});
-								} else {
-									frappe.msgprint({
-										title: __('Application Failed'),
-										indicator: 'red',
-										message: r.message ? r.message.message : __('Unknown error')
-									});
-								}
-								frm.reload_doc();
+				frappe.confirm(__('Approve and immediately apply this change? This will modify member data.'), () => {
+					frappe.call({
+						method: 'approve_and_apply',
+						doc: frm.doc,
+						freeze: true,
+						freeze_message: __('Approving and applying...'),
+						callback(r) {
+							if (r.message && r.message.success) {
+								frappe.show_alert({
+									message: __('Changes approved and applied'),
+									indicator: 'green'
+								});
+							} else {
+								frappe.msgprint({
+									title: __('Application Failed'),
+									indicator: 'red',
+									message: r.message ? r.message.message : __('Unknown error')
+								});
 							}
-						});
-					}
-				);
+							frm.reload_doc();
+						}
+					});
+				});
 			}).addClass('btn-primary');
 		}
 
 		// Apply button for Approved events
 		if (frm.doc.status === 'Approved') {
 			frm.add_custom_button(__('Apply'), () => {
-				frappe.confirm(
-					__('Apply this change to Verenigingen? This will modify member data.'),
-					() => {
-						frappe.call({
-							method: 'apply_event',
-							doc: frm.doc,
-							freeze: true,
-							freeze_message: __('Applying changes...'),
-							callback(r) {
-								if (r.message && r.message.success) {
-									frappe.show_alert({
-										message: __('Changes applied successfully'),
-										indicator: 'green'
-									});
-								} else {
-									frappe.msgprint({
-										title: __('Application Failed'),
-										indicator: 'red',
-										message: r.message ? r.message.message : __('Unknown error')
-									});
-								}
-								frm.reload_doc();
+				frappe.confirm(__('Apply this change to Verenigingen? This will modify member data.'), () => {
+					frappe.call({
+						method: 'apply_event',
+						doc: frm.doc,
+						freeze: true,
+						freeze_message: __('Applying changes...'),
+						callback(r) {
+							if (r.message && r.message.success) {
+								frappe.show_alert({
+									message: __('Changes applied successfully'),
+									indicator: 'green'
+								});
+							} else {
+								frappe.msgprint({
+									title: __('Application Failed'),
+									indicator: 'red',
+									message: r.message ? r.message.message : __('Unknown error')
+								});
 							}
-						});
-					}
-				);
+							frm.reload_doc();
+						}
+					});
+				});
 			}).addClass('btn-primary');
 		}
 
@@ -442,11 +527,13 @@ function compute_implications(event_type, table, new_data, changed_fields) {
 				items.push(`Will assign to preferred chapter (Division ID ${new_data.preferred_division_id})`);
 			}
 		} else if (table === 'admin_division') {
-			const div_name = (new_data && new_data.name) ? new_data.name : 'unknown';
+			const div_name = new_data && new_data.name ? new_data.name : 'unknown';
 			items.push(`Will create/update Chapter '${div_name}'`);
 		}
 	} else if (event_type === 'Changed') {
-		if (!Array.isArray(changed_fields) || !changed_fields.length) { return items; }
+		if (!Array.isArray(changed_fields) || !changed_fields.length) {
+			return items;
+		}
 
 		if (table === 'admin_member') {
 			let other_field_count = 0;
@@ -463,7 +550,7 @@ function compute_implications(event_type, table, new_data, changed_fields) {
 						items.push(`Will update membership status to ${new_label}`);
 					}
 				} else if (c.field === 'division_id') {
-					const chapter_name = c.new_display || (`Division ID ${c.new}`);
+					const chapter_name = c.new_display || `Division ID ${c.new}`;
 					items.push(`Will transfer member to chapter '${chapter_name}'`);
 				} else {
 					other_field_count++;
@@ -478,7 +565,7 @@ function compute_implications(event_type, table, new_data, changed_fields) {
 			for (let j = 0; j < changed_fields.length; j++) {
 				const cf = changed_fields[j];
 				if (cf.field === 'preferred_division_id') {
-					const ch_name = cf.new_display || (`Division ID ${cf.new}`);
+					const ch_name = cf.new_display || `Division ID ${cf.new}`;
 					items.push(`Will reassign to preferred chapter '${ch_name}'`);
 				} else {
 					app_field_count++;
@@ -502,7 +589,9 @@ function compute_implications(event_type, table, new_data, changed_fields) {
  */
 function render_implications(event_type, table, new_data, changed_fields) {
 	const items = compute_implications(event_type, table, new_data, changed_fields);
-	if (!items.length) { return ''; }
+	if (!items.length) {
+		return '';
+	}
 
 	let html = '<div class="alert alert-info" style="margin-top:10px; margin-bottom:10px">';
 	html += '<strong>What will happen</strong>';
@@ -516,7 +605,9 @@ function render_implications(event_type, table, new_data, changed_fields) {
 
 function render_change_details(frm) {
 	const wrapper = frm.fields_dict.change_detail_html;
-	if (!wrapper) { return; }
+	if (!wrapper) {
+		return;
+	}
 
 	const event_type = frm.doc.event_type;
 	const table = frm.doc.mijnrood_table;
@@ -534,9 +625,10 @@ function render_change_details(frm) {
 
 		// If there's a linked member, fetch comparison data
 		if (frm.doc.linked_member && changed_fields && changed_fields.length) {
-			html += '<div class="member-comparison-container">'
-                + '<p class="text-muted">Loading Frappe comparison data...</p>'
-                + '</div>';
+			html +=
+				'<div class="member-comparison-container">' +
+				'<p class="text-muted">Loading Frappe comparison data...</p>' +
+				'</div>';
 			wrapper.$wrapper.html(html);
 
 			frappe.call({
@@ -551,9 +643,9 @@ function render_change_details(frm) {
 					}
 				},
 				error() {
-					wrapper.$wrapper.find('.member-comparison-container').html(
-						'<p class="text-muted">Could not load comparison data.</p>'
-					);
+					wrapper.$wrapper
+						.find('.member-comparison-container')
+						.html('<p class="text-muted">Could not load comparison data.</p>');
 				}
 			});
 			return;

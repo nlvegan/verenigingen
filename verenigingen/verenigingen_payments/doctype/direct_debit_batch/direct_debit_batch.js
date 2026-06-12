@@ -59,34 +59,34 @@
  */
 frappe.ui.form.on('Direct Debit Batch', {
 	/**
-   * Form Refresh Event Handler
-   *
-   * Configures the batch processing interface based on current status and workflow stage.
-   * Manages status indicators, action buttons, and validation controls for SEPA processing.
-   *
-   * @description Status-Based UI Configuration:
-   * - Draft: Shows invoice loading and mandate validation controls
-   * - Generated: Enables SEPA file generation and download
-   * - Submitted: Provides bank submission and processing controls
-   * - Processed: Shows completion status and reconciliation options
-   *
-   * @description SEPA Compliance Features:
-   * - Validates mandate authorization and validity
-   * - Ensures proper SEPA XML format generation
-   * - Manages payment processing deadlines and constraints
-   * - Handles return processing and error recovery
-   *
-   * @param {Object} frm - Frappe Form object containing batch document
-   * @param {string} frm.doc.status - Current batch processing status
-   * @param {boolean} frm.doc.sepa_file_generated - SEPA file generation flag
-   * @param {Array} frm.doc.invoices - Collection of invoices in the batch
-   *
-   * @example
-   * // Status-based button configuration:
-   * // Draft: "Load Unpaid Invoices", "Validate Mandates"
-   * // Generated: "Generate SEPA File", "Download SEPA File"
-   * // Submitted: "Submit to Bank", "Process Returns"
-   */
+	 * Form Refresh Event Handler
+	 *
+	 * Configures the batch processing interface based on current status and workflow stage.
+	 * Manages status indicators, action buttons, and validation controls for SEPA processing.
+	 *
+	 * @description Status-Based UI Configuration:
+	 * - Draft: Shows invoice loading and mandate validation controls
+	 * - Generated: Enables SEPA file generation and download
+	 * - Submitted: Provides bank submission and processing controls
+	 * - Processed: Shows completion status and reconciliation options
+	 *
+	 * @description SEPA Compliance Features:
+	 * - Validates mandate authorization and validity
+	 * - Ensures proper SEPA XML format generation
+	 * - Manages payment processing deadlines and constraints
+	 * - Handles return processing and error recovery
+	 *
+	 * @param {Object} frm - Frappe Form object containing batch document
+	 * @param {string} frm.doc.status - Current batch processing status
+	 * @param {boolean} frm.doc.sepa_file_generated - SEPA file generation flag
+	 * @param {Array} frm.doc.invoices - Collection of invoices in the batch
+	 *
+	 * @example
+	 * // Status-based button configuration:
+	 * // Draft: "Load Unpaid Invoices", "Validate Mandates"
+	 * // Generated: "Generate SEPA File", "Download SEPA File"
+	 * // Submitted: "Submit to Bank", "Process Returns"
+	 */
 	refresh(frm) {
 		// Add status indicator with color
 		if (frm.doc.status) {
@@ -99,10 +99,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 				Cancelled: 'gray',
 				'Partially Processed': 'yellow'
 			};
-			frm.page.set_indicator(
-				__(frm.doc.status),
-				status_colors[frm.doc.status] || 'gray'
-			);
+			frm.page.set_indicator(__(frm.doc.status), status_colors[frm.doc.status] || 'gray');
 		}
 
 		// Set field properties based on status
@@ -128,31 +125,23 @@ frappe.ui.form.on('Direct Debit Batch', {
 		}
 
 		if (frm.doc.docstatus === 1 && !frm.doc.sepa_file_generated) {
-			frm
-				.add_custom_button(
-					__('Generate SEPA File'),
-					() => {
-						generate_sepa_file_dialog(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-primary');
+			frm.add_custom_button(
+				__('Generate SEPA File'),
+				() => {
+					generate_sepa_file_dialog(frm);
+				},
+				__('Actions')
+			).addClass('btn-primary');
 		}
 
-		if (
-			frm.doc.docstatus === 1
-      && frm.doc.sepa_file_generated
-      && frm.doc.status !== 'Processed'
-		) {
-			frm
-				.add_custom_button(
-					__('Submit to Bank'),
-					() => {
-						submit_to_bank_dialog(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-primary');
+		if (frm.doc.docstatus === 1 && frm.doc.sepa_file_generated && frm.doc.status !== 'Processed') {
+			frm.add_custom_button(
+				__('Submit to Bank'),
+				() => {
+					submit_to_bank_dialog(frm);
+				},
+				__('Actions')
+			).addClass('btn-primary');
 
 			frm.add_custom_button(__('Download SEPA File'), () => {
 				window.open(frm.doc.sepa_file);
@@ -168,15 +157,13 @@ frappe.ui.form.on('Direct Debit Batch', {
 				__('Actions')
 			);
 
-			frm
-				.add_custom_button(
-					__('Mark as Processed'),
-					() => {
-						mark_as_processed_dialog(frm);
-					},
-					__('Actions')
-				)
-				.addClass('btn-primary');
+			frm.add_custom_button(
+				__('Mark as Processed'),
+				() => {
+					mark_as_processed_dialog(frm);
+				},
+				__('Actions')
+			).addClass('btn-primary');
 		}
 
 		// Add quick filters for invoice table
@@ -211,9 +198,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 		const batch_info = {
 			FRST: {
 				help: __('First collection - Use for new mandates'),
-				warning: __(
-					'Ensure all mandates are properly signed before using FRST'
-				)
+				warning: __('Ensure all mandates are properly signed before using FRST')
 			},
 			RCUR: {
 				help: __('Recurring collection - Use for existing mandates'),
@@ -252,9 +237,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 			if (days_diff < 2) {
 				frappe.msgprint({
 					title: __('Warning'),
-					message: __(
-						'Collection date should be at least 2 business days in the future'
-					),
+					message: __('Collection date should be at least 2 business days in the future'),
 					indicator: 'orange'
 				});
 			}
@@ -264,9 +247,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 	generate_sepa_file(frm) {
 		// Handle button field trigger for SEPA file generation
 		if (frm.doc.docstatus !== 1) {
-			frappe.msgprint(
-				__('Please submit the batch before generating SEPA file')
-			);
+			frappe.msgprint(__('Please submit the batch before generating SEPA file'));
 			return;
 		}
 
@@ -282,8 +263,7 @@ frappe.ui.form.on('Direct Debit Invoice', {
 		const row = locals[cdt][cdn];
 		if (row.invoice) {
 			frappe.call({
-				method:
-          'verenigingen.verenigingen_payments.api.sepa_batch_ui.get_invoice_mandate_info',
+				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.get_invoice_mandate_info',
 				args: { invoice: row.invoice },
 				callback(r) {
 					// Unwrap OperationResult format
@@ -291,18 +271,8 @@ frappe.ui.form.on('Direct Debit Invoice', {
 					if (data) {
 						frappe.model.set_value(cdt, cdn, 'iban', data.iban);
 						frappe.model.set_value(cdt, cdn, 'bic', data.bic);
-						frappe.model.set_value(
-							cdt,
-							cdn,
-							'mandate_reference',
-							data.mandate_reference
-						);
-						frappe.model.set_value(
-							cdt,
-							cdn,
-							'mandate_date',
-							data.mandate_date
-						);
+						frappe.model.set_value(cdt, cdn, 'mandate_reference', data.mandate_reference);
+						frappe.model.set_value(cdt, cdn, 'mandate_date', data.mandate_date);
 					}
 				}
 			});
@@ -322,10 +292,7 @@ frappe.ui.form.on('Direct Debit Invoice', {
 
 // Helper function to update batch totals
 function update_batch_totals(frm) {
-	const total_amount = frm.doc.invoices.reduce(
-		(sum, invoice) => sum + (invoice.amount || 0),
-		0
-	);
+	const total_amount = frm.doc.invoices.reduce((sum, invoice) => sum + (invoice.amount || 0), 0);
 	frm.set_value('total_amount', total_amount);
 	frm.set_value('entry_count', frm.doc.invoices.length);
 }
@@ -449,9 +416,7 @@ function update_filter_counts(frm) {
 
 	$(frm.fields_dict.invoices.wrapper).find('.ready-count').text(counts.ready);
 	$(frm.fields_dict.invoices.wrapper).find('.issue-count').text(counts.issues);
-	$(frm.fields_dict.invoices.wrapper)
-		.find('.processed-count')
-		.text(counts.processed);
+	$(frm.fields_dict.invoices.wrapper).find('.processed-count').text(counts.processed);
 }
 
 function apply_invoice_filter(frm, filter) {
@@ -523,10 +488,7 @@ function load_unpaid_invoices(frm) {
 					if (data && data.length > 0) {
 						// Set defaults if new batch
 						if (!frm.doc.batch_description) {
-							frm.set_value(
-								'batch_date',
-								values.collection_date || frappe.datetime.get_today()
-							);
+							frm.set_value('batch_date', values.collection_date || frappe.datetime.get_today());
 							frm.set_value(
 								'batch_description',
 								`Membership payments batch - ${frappe.datetime.get_today()}`
@@ -537,9 +499,7 @@ function load_unpaid_invoices(frm) {
 
 						// Add invoices to batch
 						data.forEach((inv) => {
-							const exists = frm.doc.invoices.find(
-								(i) => i.invoice === inv.invoice
-							);
+							const exists = frm.doc.invoices.find((i) => i.invoice === inv.invoice);
 							if (!exists) {
 								frm.add_child('invoices', inv);
 							}
@@ -547,10 +507,7 @@ function load_unpaid_invoices(frm) {
 						frm.refresh_field('invoices');
 
 						// Update totals after adding invoices
-						const total_amount = frm.doc.invoices.reduce(
-							(sum, invoice) => sum + (invoice.amount || 0),
-							0
-						);
+						const total_amount = frm.doc.invoices.reduce((sum, invoice) => sum + (invoice.amount || 0), 0);
 						frm.set_value('total_amount', total_amount);
 						frm.set_value('entry_count', frm.doc.invoices.length);
 
@@ -615,19 +572,14 @@ function validate_mandates(frm) {
 
 	frm.doc.invoices.forEach((inv, idx) => {
 		frappe.call({
-			method:
-        'verenigingen.verenigingen_payments.api.sepa_batch_ui.validate_invoice_mandate',
+			method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.validate_invoice_mandate',
 			args: {
 				invoice: inv.invoice,
 				member: inv.member
 			},
 			callback(r) {
 				processed++;
-				frappe.show_progress(
-					__('Validating'),
-					processed,
-					frm.doc.invoices.length
-				);
+				frappe.show_progress(__('Validating'), processed, frm.doc.invoices.length);
 
 				// Unwrap OperationResult format
 				const data = unwrapOperationResult(r.message);
@@ -644,26 +596,11 @@ function validate_mandates(frm) {
 
 						frappe.model.set_value(inv.doctype, inv.name, 'iban', iban);
 						frappe.model.set_value(inv.doctype, inv.name, 'bic', data.bic);
-						frappe.model.set_value(
-							inv.doctype,
-							inv.name,
-							'mandate_reference',
-							data.mandate_reference
-						);
-						frappe.model.set_value(
-							inv.doctype,
-							inv.name,
-							'mandate_date',
-							data.mandate_date
-						);
+						frappe.model.set_value(inv.doctype, inv.name, 'mandate_reference', data.mandate_reference);
+						frappe.model.set_value(inv.doctype, inv.name, 'mandate_date', data.mandate_date);
 					} else {
 						frappe.model.set_value(inv.doctype, inv.name, 'status', 'Invalid');
-						frappe.model.set_value(
-							inv.doctype,
-							inv.name,
-							'result_message',
-							data.error
-						);
+						frappe.model.set_value(inv.doctype, inv.name, 'result_message', data.error);
 					}
 				}
 
@@ -723,26 +660,21 @@ function generate_sepa_file_dialog(frm) {
 }
 
 function submit_to_bank_dialog(frm) {
-	frappe.confirm(
-		__(
-			'Are you sure you want to submit this batch to the bank? This action cannot be undone.'
-		),
-		() => {
-			frappe.call({
-				method: 'process_batch',
-				doc: frm.doc,
-				callback(r) {
-					if (!r.exc) {
-						frm.reload_doc();
-						frappe.show_alert({
-							message: __('Batch submitted to bank successfully'),
-							indicator: 'blue'
-						});
-					}
+	frappe.confirm(__('Are you sure you want to submit this batch to the bank? This action cannot be undone.'), () => {
+		frappe.call({
+			method: 'process_batch',
+			doc: frm.doc,
+			callback(r) {
+				if (!r.exc) {
+					frm.reload_doc();
+					frappe.show_alert({
+						message: __('Batch submitted to bank successfully'),
+						indicator: 'blue'
+					});
 				}
-			});
-		}
-	);
+			}
+		});
+	});
 }
 
 function process_returns_dialog(frm) {
@@ -760,8 +692,7 @@ function process_returns_dialog(frm) {
 		primary_action_label: __('Process'),
 		primary_action(values) {
 			frappe.call({
-				method:
-          'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file',
+				method: 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file',
 				args: {
 					file_content: values.return_file,
 					file_type: 'pain.002'
@@ -770,12 +701,7 @@ function process_returns_dialog(frm) {
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data) {
-						frappe.msgprint(
-							__('Processed {0} of {1} returns', [
-								data.processed,
-								data.total
-							])
-						);
+						frappe.msgprint(__('Processed {0} of {1} returns', [data.processed, data.total]));
 						frm.reload_doc();
 						dialog.hide();
 					}
@@ -829,9 +755,7 @@ function mark_as_processed_dialog(frm) {
 					frappe.hide_progress();
 					if (!r.exc && r.message) {
 						frm.reload_doc();
-						frappe.msgprint(
-							__('Successfully processed {0} payments', [r.message])
-						);
+						frappe.msgprint(__('Successfully processed {0} payments', [r.message]));
 						dialog.hide();
 					}
 				}
@@ -928,34 +852,19 @@ function format_currency(amount) {
 // Set field properties based on batch status
 function set_field_properties(frm) {
 	// Disable editing fields after generation or submission
-	const is_generated
-    = frm.doc.status === 'Generated'
-    || frm.doc.status === 'Submitted'
-    || frm.doc.status === 'Processed';
+	const is_generated =
+		frm.doc.status === 'Generated' || frm.doc.status === 'Submitted' || frm.doc.status === 'Processed';
 
 	// Fields to disable when batch is generated/submitted
-	const fields_to_disable = [
-		'batch_date',
-		'batch_description',
-		'batch_type',
-		'currency'
-	];
+	const fields_to_disable = ['batch_date', 'batch_description', 'batch_type', 'currency'];
 
 	// Disable fields based on status
 	fields_to_disable.forEach((field) => {
-		frm.set_df_property(
-			field,
-			'read_only',
-			is_generated || frm.doc.docstatus === 1
-		);
+		frm.set_df_property(field, 'read_only', is_generated || frm.doc.docstatus === 1);
 	});
 
 	// Special handling for invoices table
-	frm.set_df_property(
-		'invoices',
-		'read_only',
-		is_generated || frm.doc.docstatus === 1
-	);
+	frm.set_df_property('invoices', 'read_only', is_generated || frm.doc.docstatus === 1);
 
 	// Disable add row button for invoices if batch is generated/submitted
 	if (is_generated || frm.doc.docstatus === 1) {

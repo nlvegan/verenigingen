@@ -57,45 +57,39 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		verenigingen.suppressPasswordAutofill(frm, ['api_token']);
 
 		// Add custom buttons for testing
-		frm
-			.add_custom_button(__('Test REST API Connection'), () => {
-				if (!frm.doc.api_token) {
-					frappe.msgprint(__('Please enter your API token first.'));
-					return;
-				}
+		frm.add_custom_button(__('Test REST API Connection'), () => {
+			if (!frm.doc.api_token) {
+				frappe.msgprint(__('Please enter your API token first.'));
+				return;
+			}
 
-				frappe.call({
-					method:
-            'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection',
-					callback(r) {
-						if (r.message && r.message.success) {
-							frappe.show_alert({
-								message: __('Connection test successful!'),
-								indicator: 'green'
-							});
-						} else {
-							frappe.show_alert({
-								message: __('Connection test failed. Check your API token.'),
-								indicator: 'red'
-							});
-						}
-						frm.reload_doc();
+			frappe.call({
+				method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection',
+				callback(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({
+							message: __('Connection test successful!'),
+							indicator: 'green'
+						});
+					} else {
+						frappe.show_alert({
+							message: __('Connection test failed. Check your API token.'),
+							indicator: 'red'
+						});
 					}
-				});
-			})
-			.addClass('btn-primary');
+					frm.reload_doc();
+				}
+			});
+		}).addClass('btn-primary');
 
 		// Group Type Mapping buttons - for re-classifying existing accounts
-		if (
-			frm.doc.group_type_mappings
-			&& frm.doc.group_type_mappings.length > 0
-		) {
+		if (frm.doc.group_type_mappings && frm.doc.group_type_mappings.length > 0) {
 			// Account Types menu (classification - root_type and account_type)
-			frm
-				.add_custom_button(__('Preview Re-classification'), () => {
+			frm.add_custom_button(
+				__('Preview Re-classification'),
+				() => {
 					frappe.call({
-						method:
-							'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings',
+						method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings',
 						args: { dry_run: true },
 						callback(r) {
 							if (r.message && r.message.success) {
@@ -109,18 +103,20 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							}
 						}
 					});
-				}, __('Account Types'));
+				},
+				__('Account Types')
+			);
 
-			frm
-				.add_custom_button(__('Apply Re-classification'), () => {
+			frm.add_custom_button(
+				__('Apply Re-classification'),
+				() => {
 					frappe.confirm(
 						__(
 							'This will update account types for existing accounts based on your group type mappings. This affects financial reporting. Continue?'
 						),
 						() => {
 							frappe.call({
-								method:
-									'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings',
+								method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reclassify_accounts_by_group_mappings',
 								args: { dry_run: false },
 								callback(r) {
 									if (r.message && r.message.success) {
@@ -136,14 +132,16 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							});
 						}
 					);
-				}, __('Account Types'));
+				},
+				__('Account Types')
+			);
 
 			// Account Hierarchy menu (parent-child organization)
-			frm
-				.add_custom_button(__('Preview Reorganization'), () => {
+			frm.add_custom_button(
+				__('Preview Reorganization'),
+				() => {
 					frappe.call({
-						method:
-							'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy',
+						method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy',
 						args: { dry_run: true },
 						callback(r) {
 							if (r.message && r.message.success) {
@@ -157,18 +155,20 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							}
 						}
 					});
-				}, __('Account Hierarchy'));
+				},
+				__('Account Hierarchy')
+			);
 
-			frm
-				.add_custom_button(__('Apply Reorganization'), () => {
+			frm.add_custom_button(
+				__('Apply Reorganization'),
+				() => {
 					frappe.confirm(
 						__(
 							'This will reorganize the Chart of Accounts hierarchy, moving accounts under their group parent accounts based on your group type mappings. Continue?'
 						),
 						() => {
 							frappe.call({
-								method:
-									'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy',
+								method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.reorganize_account_hierarchy',
 								args: { dry_run: false },
 								callback(r) {
 									if (r.message && r.message.success) {
@@ -184,67 +184,58 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							});
 						}
 					);
-				}, __('Account Hierarchy'));
+				},
+				__('Account Hierarchy')
+			);
 		}
 
 		// Phase 2: Cost Center Creation Engine buttons
-		if (
-			frm.doc.cost_center_mappings
-      && frm.doc.cost_center_mappings.length > 0
-		) {
+		if (frm.doc.cost_center_mappings && frm.doc.cost_center_mappings.length > 0) {
 			// Add preview button
-			frm
-				.add_custom_button(__('Preview Cost Center Creation'), () => {
-					frappe.call({
-						method:
-              'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.preview_cost_center_creation',
-						callback(r) {
-							if (r.message && r.message.success) {
-								frm.show_cost_center_preview(r.message);
-							} else {
-								frappe.msgprint({
-									title: 'Preview Failed',
-									message:
-                    r.message.error || 'Failed to preview cost center creation',
-									indicator: 'red'
-								});
-							}
+			frm.add_custom_button(__('Preview Cost Center Creation'), () => {
+				frappe.call({
+					method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.preview_cost_center_creation',
+					callback(r) {
+						if (r.message && r.message.success) {
+							frm.show_cost_center_preview(r.message);
+						} else {
+							frappe.msgprint({
+								title: 'Preview Failed',
+								message: r.message.error || 'Failed to preview cost center creation',
+								indicator: 'red'
+							});
 						}
-					});
-				})
-				.addClass('btn-info');
+					}
+				});
+			}).addClass('btn-info');
 
 			// Add create button
-			frm
-				.add_custom_button(__('Create Cost Centers'), () => {
-					frappe.confirm(
-						__(
-							'This will create actual Cost Centers in ERPNext based on your configuration. This action cannot be undone. Continue?'
-						),
-						() => {
-							frappe.call({
-								method:
-                  'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings',
-								callback(r) {
-									if (r.message && r.message.success) {
-										frm.show_cost_center_results(r.message);
-									} else {
-										frappe.msgprint({
-											title: 'Creation Failed',
-											message:
-                        r.message.error || 'Failed to create cost centers',
-											indicator: 'red'
-										});
-									}
+			frm.add_custom_button(__('Create Cost Centers'), () => {
+				frappe.confirm(
+					__(
+						'This will create actual Cost Centers in ERPNext based on your configuration. This action cannot be undone. Continue?'
+					),
+					() => {
+						frappe.call({
+							method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings',
+							callback(r) {
+								if (r.message && r.message.success) {
+									frm.show_cost_center_results(r.message);
+								} else {
+									frappe.msgprint({
+										title: 'Creation Failed',
+										message: r.message.error || 'Failed to create cost centers',
+										indicator: 'red'
+									});
 								}
-							});
-						},
-						() => {
-							// User cancelled
-						}
-					);
-				})
-				.addClass('btn-success');
+							}
+						});
+					},
+					() => {
+						// User cancelled
+					}
+				);
+			}).addClass('btn-success');
 		}
 
 		// Helper function for showing migration test results
@@ -310,8 +301,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							</thead>
 							<tbody>
 								${results.preview_results
-		.map(
-			(item) => `
+									.map(
+										(item) => `
 									<tr>
 										<td><code>${frm.escape_html(item.group_code)}</code><br><small class="text-muted">${frm.escape_html(item.group_name)}</small></td>
 										<td>
@@ -331,8 +322,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 										</td>
 									</tr>
 								`
-		)
-		.join('')}
+									)
+									.join('')}
 							</tbody>
 						</table>
 					</div>
@@ -357,7 +348,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 		// Helper function to escape HTML for safe rendering
 		frm.escape_html = function (str) {
-			if (!str) { return ''; }
+			if (!str) {
+				return '';
+			}
 			return String(str)
 				.replace(/&/g, '&amp;')
 				.replace(/</g, '&lt;')
@@ -368,8 +361,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 		// Helper function to show re-classification preview
 		frm.show_reclassify_preview = function (results) {
-			const changes_to_show = results.changes.filter(c => c.status === 'would_update');
-			const skipped_no_mapping = results.changes.filter(c => c.status === 'skipped' && c.reason);
+			const changes_to_show = results.changes.filter((c) => c.status === 'would_update');
+			const skipped_no_mapping = results.changes.filter((c) => c.status === 'skipped' && c.reason);
 
 			const preview_html = `
 				<div class="reclassify-preview">
@@ -400,7 +393,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							</div>
 						</div>
 					</div>
-					${changes_to_show.length > 0 ? `
+					${
+						changes_to_show.length > 0
+							? `
 						<hr>
 						<h6>Accounts to Update:</h6>
 						<div class="preview-table" style="max-height: 300px; overflow-y: auto;">
@@ -414,7 +409,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									</tr>
 								</thead>
 								<tbody>
-									${changes_to_show.map(item => `
+									${changes_to_show
+										.map(
+											(item) => `
 										<tr>
 											<td>
 												<code>${frm.escape_html(item.account)}</code><br>
@@ -428,23 +425,35 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 												<span class="text-success">${frm.escape_html(item.new_root_type || '-')}/${frm.escape_html(item.new_account_type || '-')}</span>
 											</td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : '<p class="text-muted">No accounts need updating.</p>'}
-					${skipped_no_mapping.length > 0 ? `
+					`
+							: '<p class="text-muted">No accounts need updating.</p>'
+					}
+					${
+						skipped_no_mapping.length > 0
+							? `
 						<hr>
 						<h6 class="text-warning">Skipped (No Mapping):</h6>
 						<div style="max-height: 150px; overflow-y: auto;">
 							<small class="text-muted">
-								${skipped_no_mapping.slice(0, 20).map(item =>
-		`${frm.escape_html(item.account)} (group ${frm.escape_html(item.group_code)})`
-	).join(', ')}
+								${skipped_no_mapping
+									.slice(0, 20)
+									.map(
+										(item) =>
+											`${frm.escape_html(item.account)} (group ${frm.escape_html(item.group_code)})`
+									)
+									.join(', ')}
 								${skipped_no_mapping.length > 20 ? `... and ${skipped_no_mapping.length - 20} more` : ''}
 							</small>
 						</div>
-					` : ''}
+					`
+							: ''
+					}
 				</div>
 			`;
 
@@ -453,15 +462,17 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				size: 'large',
 				fields: [{ fieldtype: 'HTML', options: preview_html }],
 				primary_action_label: 'Close',
-				primary_action() { dialog.hide(); }
+				primary_action() {
+					dialog.hide();
+				}
 			});
 			dialog.show();
 		};
 
 		// Helper function to show re-classification results
 		frm.show_reclassify_results = function (results) {
-			const updated = results.changes.filter(c => c.status === 'updated');
-			const errors = results.changes.filter(c => c.status === 'error');
+			const updated = results.changes.filter((c) => c.status === 'updated');
+			const errors = results.changes.filter((c) => c.status === 'error');
 
 			const results_html = `
 				<div class="reclassify-results">
@@ -486,7 +497,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							</div>
 						</div>
 					</div>
-					${updated.length > 0 ? `
+					${
+						updated.length > 0
+							? `
 						<hr>
 						<h6 class="text-success">Successfully Updated:</h6>
 						<div style="max-height: 250px; overflow-y: auto;">
@@ -495,33 +508,47 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									<tr><th>Account</th><th>Old Type</th><th>New Type</th></tr>
 								</thead>
 								<tbody>
-									${updated.map(item => `
+									${updated
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.account)}</code> - ${frm.escape_html(item.account_name)}</td>
 											<td><span class="text-muted">${frm.escape_html(item.old_root_type)}/${frm.escape_html(item.old_account_type || '-')}</span></td>
 											<td><span class="text-success">${frm.escape_html(item.new_root_type)}/${frm.escape_html(item.new_account_type || '-')}</span></td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
-					${errors.length > 0 ? `
+					`
+							: ''
+					}
+					${
+						errors.length > 0
+							? `
 						<hr>
 						<h6 class="text-danger">Errors:</h6>
 						<div style="max-height: 150px; overflow-y: auto;">
 							<table class="table table-sm table-bordered">
 								<tbody>
-									${errors.map(item => `
+									${errors
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.account)}</code></td>
 											<td class="text-danger">${frm.escape_html(item.error)}</td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
+					`
+							: ''
+					}
 				</div>
 			`;
 
@@ -530,7 +557,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				size: 'large',
 				fields: [{ fieldtype: 'HTML', options: results_html }],
 				primary_action_label: 'Close',
-				primary_action() { dialog.hide(); }
+				primary_action() {
+					dialog.hide();
+				}
 			});
 			dialog.show();
 
@@ -544,8 +573,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 		// Helper function to show hierarchy reorganization preview
 		frm.show_hierarchy_preview = function (results) {
-			const moves_to_show = results.changes.filter(c => c.status === 'would_move');
-			const groups_to_create = results.groups.filter(g => g.status === 'would_create');
+			const moves_to_show = results.changes.filter((c) => c.status === 'would_move');
+			const groups_to_create = results.groups.filter((g) => g.status === 'would_create');
 
 			const preview_html = `
 				<div class="hierarchy-preview">
@@ -576,7 +605,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							</div>
 						</div>
 					</div>
-					${groups_to_create.length > 0 ? `
+					${
+						groups_to_create.length > 0
+							? `
 						<hr>
 						<h6>Group Accounts to Create:</h6>
 						<div class="preview-table" style="max-height: 150px; overflow-y: auto;">
@@ -590,19 +621,27 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									</tr>
 								</thead>
 								<tbody>
-									${groups_to_create.map(item => `
+									${groups_to_create
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.group_code)}</code></td>
 											<td><strong>${frm.escape_html(item.group_name)}</strong></td>
 											<td><span class="badge badge-light">${frm.escape_html(item.root_type)}</span></td>
 											<td><small class="text-muted">${frm.escape_html(item.parent)}</small></td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
-					${moves_to_show.length > 0 ? `
+					`
+							: ''
+					}
+					${
+						moves_to_show.length > 0
+							? `
 						<hr>
 						<h6>Accounts to Move:</h6>
 						<div class="preview-table" style="max-height: 300px; overflow-y: auto;">
@@ -616,7 +655,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									</tr>
 								</thead>
 								<tbody>
-									${moves_to_show.map(item => `
+									${moves_to_show
+										.map(
+											(item) => `
 										<tr>
 											<td>
 												<code>${frm.escape_html(item.account)}</code><br>
@@ -630,11 +671,15 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 												<span class="text-success">${frm.escape_html(item.new_parent_name)}</span>
 											</td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : '<p class="text-muted">No accounts need to be moved.</p>'}
+					`
+							: '<p class="text-muted">No accounts need to be moved.</p>'
+					}
 				</div>
 			`;
 
@@ -643,16 +688,18 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				size: 'large',
 				fields: [{ fieldtype: 'HTML', options: preview_html }],
 				primary_action_label: 'Close',
-				primary_action() { dialog.hide(); }
+				primary_action() {
+					dialog.hide();
+				}
 			});
 			dialog.show();
 		};
 
 		// Helper function to show hierarchy reorganization results
 		frm.show_hierarchy_results = function (results) {
-			const moved = results.changes.filter(c => c.status === 'moved');
-			const errors = results.changes.filter(c => c.status === 'error');
-			const groups_created = results.groups.filter(g => g.status === 'created');
+			const moved = results.changes.filter((c) => c.status === 'moved');
+			const errors = results.changes.filter((c) => c.status === 'error');
+			const groups_created = results.groups.filter((g) => g.status === 'created');
 
 			const results_html = `
 				<div class="hierarchy-results">
@@ -683,7 +730,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							</div>
 						</div>
 					</div>
-					${groups_created.length > 0 ? `
+					${
+						groups_created.length > 0
+							? `
 						<hr>
 						<h6 class="text-info">Created Group Accounts:</h6>
 						<div style="max-height: 150px; overflow-y: auto;">
@@ -692,18 +741,26 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									<tr><th>Group Code</th><th>Group Name</th><th>Root Type</th></tr>
 								</thead>
 								<tbody>
-									${groups_created.map(item => `
+									${groups_created
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.group_code)}</code></td>
 											<td><strong>${frm.escape_html(item.group_name)}</strong></td>
 											<td>${frm.escape_html(item.root_type)}</td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
-					${moved.length > 0 ? `
+					`
+							: ''
+					}
+					${
+						moved.length > 0
+							? `
 						<hr>
 						<h6 class="text-success">Successfully Moved:</h6>
 						<div style="max-height: 250px; overflow-y: auto;">
@@ -712,33 +769,47 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									<tr><th>Account</th><th>Old Parent</th><th>New Parent</th></tr>
 								</thead>
 								<tbody>
-									${moved.map(item => `
+									${moved
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.account)}</code> - ${frm.escape_html(item.account_name)}</td>
 											<td><span class="text-muted">${frm.escape_html(item.old_parent || '-')}</span></td>
 											<td><span class="text-success">${frm.escape_html(item.new_parent_name)}</span></td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
-					${errors.length > 0 ? `
+					`
+							: ''
+					}
+					${
+						errors.length > 0
+							? `
 						<hr>
 						<h6 class="text-danger">Errors:</h6>
 						<div style="max-height: 150px; overflow-y: auto;">
 							<table class="table table-sm table-bordered">
 								<tbody>
-									${errors.map(item => `
+									${errors
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.account)}</code></td>
 											<td class="text-danger">${frm.escape_html(item.error)}</td>
 										</tr>
-									`).join('')}
+									`
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
+					`
+							: ''
+					}
 				</div>
 			`;
 
@@ -747,13 +818,18 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				size: 'large',
 				fields: [{ fieldtype: 'HTML', options: results_html }],
 				primary_action_label: 'Close',
-				primary_action() { dialog.hide(); }
+				primary_action() {
+					dialog.hide();
+				}
 			});
 			dialog.show();
 
 			if (results.moved > 0 || results.groups_created > 0) {
 				frappe.show_alert({
-					message: __('Reorganized hierarchy: {0} accounts moved, {1} groups created', [results.moved, results.groups_created]),
+					message: __('Reorganized hierarchy: {0} accounts moved, {1} groups created', [
+						results.moved,
+						results.groups_created
+					]),
 					indicator: 'green'
 				});
 			}
@@ -793,8 +869,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 					<hr>
 
 					${
-	results.created_count > 0
-		? `
+						results.created_count > 0
+							? `
 						<h6 class="text-success">Successfully Created Cost Centers:</h6>
 						<div class="created-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 20px;">
 							<table class="table table-sm table-bordered">
@@ -803,8 +879,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 								</thead>
 								<tbody>
 									${results.created_cost_centers
-		.map(
-			(item) => `
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.group_code)}</code></td>
 											<td>
@@ -818,18 +894,18 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 											</td>
 										</tr>
 									`
-		)
-		.join('')}
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
 					`
-		: ''
-}
+							: ''
+					}
 
 					${
-	results.skipped_count > 0
-		? `
+						results.skipped_count > 0
+							? `
 						<h6 class="text-warning">Skipped (Already Exist):</h6>
 						<div class="skipped-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 20px;">
 							<table class="table table-sm table-bordered">
@@ -838,26 +914,26 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 								</thead>
 								<tbody>
 									${results.skipped_cost_centers
-		.map(
-			(item) => `
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.group_code)}</code></td>
 											<td><strong>${frm.escape_html(item.cost_center_name)}</strong></td>
 											<td><small class="text-muted">${frm.escape_html(item.reason)}</small></td>
 										</tr>
 									`
-		)
-		.join('')}
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
 					`
-		: ''
-}
+							: ''
+					}
 
 					${
-	results.failed_count > 0
-		? `
+						results.failed_count > 0
+							? `
 						<h6 class="text-danger">Failed:</h6>
 						<div class="failed-list" style="max-height: 200px; overflow-y: auto;">
 							<table class="table table-sm table-bordered">
@@ -866,22 +942,22 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 								</thead>
 								<tbody>
 									${results.failed_cost_centers
-		.map(
-			(item) => `
+										.map(
+											(item) => `
 										<tr>
 											<td><code>${frm.escape_html(item.group_code)}</code></td>
 											<td><strong>${frm.escape_html(item.cost_center_name)}</strong></td>
 											<td><small class="text-danger">${frm.escape_html(item.error)}</small></td>
 										</tr>
 									`
-		)
-		.join('')}
+										)
+										.join('')}
 								</tbody>
 							</table>
 						</div>
 					`
-		: ''
-}
+							: ''
+					}
 				</div>
 			`;
 
@@ -904,9 +980,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			// Show summary message
 			if (results.created_count > 0) {
 				frappe.show_alert({
-					message: __('Created {0} cost centers successfully', [
-						results.created_count
-					]),
+					message: __('Created {0} cost centers successfully', [results.created_count]),
 					indicator: 'green'
 				});
 			}
@@ -916,17 +990,11 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 	default_company(frm) {
 		// Auto-set cost center when company changes
 		if (frm.doc.default_company) {
-			frappe.db
-				.get_value(
-					'Cost Center',
-					{ company: frm.doc.default_company, is_group: 0 },
-					'name'
-				)
-				.then((r) => {
-					if (r.message && r.message.name) {
-						frm.set_value('default_cost_center', r.message.name);
-					}
-				});
+			frappe.db.get_value('Cost Center', { company: frm.doc.default_company, is_group: 0 }, 'name').then((r) => {
+				if (r.message && r.message.name) {
+					frm.set_value('default_cost_center', r.message.name);
+				}
+			});
 		}
 	},
 
@@ -938,11 +1006,12 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		}
 
 		frappe.confirm(
-			__('This will reorganize all accounts under the configured group accounts (Vorderingen, Financial Accounts, Overlopende activa, Schulden, Belastingen). Continue?'),
+			__(
+				'This will reorganize all accounts under the configured group accounts (Vorderingen, Financial Accounts, Overlopende activa, Schulden, Belastingen). Continue?'
+			),
 			() => {
 				frappe.call({
-					method:
-						'verenigingen.e_boekhouden.services.account_organization_service.organize_balance_sheet_accounts',
+					method: 'verenigingen.e_boekhouden.services.account_organization_service.organize_balance_sheet_accounts',
 					args: {
 						company: frm.doc.default_company
 					},
@@ -1019,8 +1088,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		}
 
 		frappe.call({
-			method:
-        'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers',
+			method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers',
 			args: {
 				group_mappings_text: cost_center_mappings,
 				company: frm.doc.default_company
@@ -1078,16 +1146,18 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		// Helper function to actually do the parsing
 		const do_parse = (merge_mode) => {
 			frappe.call({
-				method:
-					'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings',
+				method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_type_mappings',
 				args: { merge_mode },
 				callback(r) {
 					if (r.message && r.message.success) {
 						// Show duplicate warnings if any
 						if (r.message.duplicates && r.message.duplicates.length > 0) {
-							const dup_list = r.message.duplicates.map(d =>
-								`<li>Code <code>${frm.escape_html(d.code)}</code>: "${frm.escape_html(d.name)}" duplicates "${frm.escape_html(d.existing_name)}"</li>`
-							).join('');
+							const dup_list = r.message.duplicates
+								.map(
+									(d) =>
+										`<li>Code <code>${frm.escape_html(d.code)}</code>: "${frm.escape_html(d.name)}" duplicates "${frm.escape_html(d.existing_name)}"</li>`
+								)
+								.join('');
 							frappe.msgprint({
 								title: __('Duplicate Groups Found'),
 								message: `<p>The following duplicate group codes were found in the source text and skipped:</p><ul>${dup_list}</ul>`,

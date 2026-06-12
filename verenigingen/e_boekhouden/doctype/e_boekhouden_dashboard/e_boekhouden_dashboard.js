@@ -46,24 +46,20 @@
 frappe.ui.form.on('E-Boekhouden Dashboard', {
 	refresh(frm) {
 		// Load dashboard data on form load
-		frm
-			.add_custom_button(__('Refresh Data'), () => {
-				frm.call('load_dashboard_data').then(() => {
-					frm.reload_doc();
-					frappe.show_alert({
-						message: __('Dashboard refreshed successfully'),
-						indicator: 'green'
-					});
+		frm.add_custom_button(__('Refresh Data'), () => {
+			frm.call('load_dashboard_data').then(() => {
+				frm.reload_doc();
+				frappe.show_alert({
+					message: __('Dashboard refreshed successfully'),
+					indicator: 'green'
 				});
-			})
-			.addClass('btn-primary');
+			});
+		}).addClass('btn-primary');
 
 		// Add action buttons
-		frm
-			.add_custom_button(__('New Migration'), () => {
-				frappe.new_doc('E-Boekhouden Migration');
-			})
-			.addClass('btn-success');
+		frm.add_custom_button(__('New Migration'), () => {
+			frappe.new_doc('E-Boekhouden Migration');
+		}).addClass('btn-success');
 
 		frm.add_custom_button(__('View Migrations'), () => {
 			frappe.set_route('List', 'E-Boekhouden Migration');
@@ -83,10 +79,7 @@ frappe.ui.form.on('E-Boekhouden Dashboard', {
 		}
 
 		// Load data if not loaded
-		if (
-			!frm.doc.last_sync_time
-      || new Date() - new Date(frm.doc.last_sync_time) > 300000
-		) {
+		if (!frm.doc.last_sync_time || new Date() - new Date(frm.doc.last_sync_time) > 300000) {
 			// 5 minutes
 			frm.call('load_dashboard_data').then(() => {
 				frm.reload_doc();

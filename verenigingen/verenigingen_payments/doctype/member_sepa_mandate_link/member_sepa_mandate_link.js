@@ -67,12 +67,7 @@ frappe.ui.form.on('Member SEPA Mandate Link', {
 			// Unset current on other mandates
 			frm.doc.sepa_mandates.forEach((mandate) => {
 				if (mandate.name !== cdn && mandate.is_current) {
-					frappe.model.set_value(
-						mandate.doctype,
-						mandate.name,
-						'is_current',
-						0
-					);
+					frappe.model.set_value(mandate.doctype, mandate.name, 'is_current', 0);
 				}
 			});
 		}

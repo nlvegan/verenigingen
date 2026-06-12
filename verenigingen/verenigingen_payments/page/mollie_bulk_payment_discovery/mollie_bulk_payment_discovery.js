@@ -26,9 +26,14 @@ frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function (wrapper) 
 	});
 
 	// Store bulk process button for later showing/hiding
-	page.bulk_process_btn = page.add_inner_button('Process All Processable', () => {
-		process_bulk_payments(page);
-	}, null, 'btn-success');
+	page.bulk_process_btn = page.add_inner_button(
+		'Process All Processable',
+		() => {
+			process_bulk_payments(page);
+		},
+		null,
+		'btn-success'
+	);
 
 	// Hide bulk process button initially
 	$(page.bulk_process_btn).hide();
@@ -168,7 +173,7 @@ function render_results(page, data, _filters) {
 						<tbody>
 		`;
 
-		error_details.forEach(error => {
+		error_details.forEach((error) => {
 			// Format item display based on what data is available
 			let item_display = '';
 			if (error.payment_id) {
@@ -215,8 +220,8 @@ function render_results(page, data, _filters) {
 
 	if (data.retrieval_mode === 'customer' && data.customers) {
 		// Customer mode: extract from customers array
-		data.customers.forEach(customer => {
-			customer.payments.forEach(payment => {
+		data.customers.forEach((customer) => {
+			customer.payments.forEach((payment) => {
 				const payment_data = {
 					payment_id: payment.id,
 					member: customer.member,
@@ -249,7 +254,7 @@ function render_results(page, data, _filters) {
 
 	// Add orphaned transactions
 	if (data.orphaned_transactions) {
-		data.orphaned_transactions.forEach(orphan => {
+		data.orphaned_transactions.forEach((orphan) => {
 			payments.push({
 				payment_id: orphan.payment_id,
 				member: '⚠️ ORPHANED',
@@ -275,7 +280,7 @@ function render_results(page, data, _filters) {
 	}
 
 	// Count processable payments
-	const processable_payments = payments.filter(p => p.processable === 'Yes' && p.member !== '⚠️ ORPHANED');
+	const processable_payments = payments.filter((p) => p.processable === 'Yes' && p.member !== '⚠️ ORPHANED');
 	const processable_count = processable_payments.length;
 
 	// Show/hide bulk process button based on processable count
@@ -311,7 +316,7 @@ function render_results(page, data, _filters) {
 				<tbody>
 		`;
 
-		payments.forEach(payment => {
+		payments.forEach((payment) => {
 			const is_orphaned = payment.member === '⚠️ ORPHANED';
 			const row_class = is_orphaned ? 'table-danger' : '';
 
@@ -326,12 +331,13 @@ function render_results(page, data, _filters) {
 					<td>${payment.paid_at || ''}</td>
 					<td>${format_processable(payment.processable)}</td>
 					<td>
-						${payment.processable === 'Yes' && !is_orphaned
-		? `<button class="btn btn-sm btn-primary process-payment" data-payment-id="${payment.payment_id}">
+						${
+							payment.processable === 'Yes' && !is_orphaned
+								? `<button class="btn btn-sm btn-primary process-payment" data-payment-id="${payment.payment_id}">
 								Process
 							</button>`
-		: '<span class="text-muted">N/A</span>'
-}
+								: '<span class="text-muted">N/A</span>'
+						}
 					</td>
 				</tr>
 			`;
@@ -366,7 +372,7 @@ function render_results(page, data, _filters) {
 						<tbody>
 		`;
 
-		already_processed_payments.forEach(payment => {
+		already_processed_payments.forEach((payment) => {
 			html += `
 				<tr class="table-success">
 					<td style="font-family: monospace; font-size: 0.9em;">${payment.payment_id}</td>
@@ -390,7 +396,7 @@ function render_results(page, data, _filters) {
 	$table.html(html);
 
 	// Store processable payment IDs on page for bulk processing
-	page.processable_payment_ids = processable_payments.map(p => p.payment_id);
+	page.processable_payment_ids = processable_payments.map((p) => p.payment_id);
 
 	// Attach click handlers
 	$table.find('.process-payment').on('click', function () {
@@ -430,38 +436,35 @@ function format_processable(value) {
 }
 
 function process_single_payment(payment_id, page) {
-	frappe.confirm(
-		__('Process payment {0}?', [payment_id]),
-		() => {
-			frappe.dom.freeze(__('Processing payment...'));
+	frappe.confirm(__('Process payment {0}?', [payment_id]), () => {
+		frappe.dom.freeze(__('Processing payment...'));
 
-			frappe.call({
-				method: 'verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery.process_payment',
-				args: {
-					payment_id
-				},
-				callback(r) {
-					frappe.dom.unfreeze();
+		frappe.call({
+			method: 'verenigingen.verenigingen_payments.page.mollie_bulk_payment_discovery.mollie_bulk_payment_discovery.process_payment',
+			args: {
+				payment_id
+			},
+			callback(r) {
+				frappe.dom.unfreeze();
 
-					if (r.message && r.message.success) {
-						frappe.msgprint({
-							title: __('Success'),
-							message: __('Payment processed successfully'),
-							indicator: 'green'
-						});
-						// Refresh the results
-						run_discovery(page);
-					} else {
-						frappe.msgprint({
-							title: __('Processing Failed'),
-							message: r.message.error || r.message.data.error || 'Unknown error',
-							indicator: 'red'
-						});
-					}
+				if (r.message && r.message.success) {
+					frappe.msgprint({
+						title: __('Success'),
+						message: __('Payment processed successfully'),
+						indicator: 'green'
+					});
+					// Refresh the results
+					run_discovery(page);
+				} else {
+					frappe.msgprint({
+						title: __('Processing Failed'),
+						message: r.message.error || r.message.data.error || 'Unknown error',
+						indicator: 'red'
+					});
 				}
-			});
-		}
-	);
+			}
+		});
+	});
 }
 
 function process_bulk_payments(page) {
@@ -477,7 +480,10 @@ function process_bulk_payments(page) {
 	}
 
 	frappe.confirm(
-		__('Process {0} payments in bulk?<br><br>This will create Bank Transactions and Payment Entries for all processable payments.', [payment_ids.length]),
+		__(
+			'Process {0} payments in bulk?<br><br>This will create Bank Transactions and Payment Entries for all processable payments.',
+			[payment_ids.length]
+		),
 		() => {
 			frappe.dom.freeze(__('Processing {0} payments...', [payment_ids.length]));
 
@@ -546,7 +552,7 @@ function render_bulk_results(data) {
 
 	// Show error details if any
 	if (data.errors > 0 && data.details) {
-		const error_details = data.details.filter(d => d.status === 'error');
+		const error_details = data.details.filter((d) => d.status === 'error');
 		if (error_details.length > 0) {
 			message += `
 				<div style="margin-top: 15px; max-height: 200px; overflow-y: auto;">
@@ -561,7 +567,7 @@ function render_bulk_results(data) {
 						<tbody>
 			`;
 
-			error_details.forEach(detail => {
+			error_details.forEach((detail) => {
 				message += `
 					<tr>
 						<td style="font-family: monospace; font-size: 0.9em;">${detail.payment_id}</td>
@@ -581,9 +587,8 @@ function render_bulk_results(data) {
 	message += '</div>';
 
 	const indicator = data.errors > 0 ? 'orange' : 'green';
-	const title = data.errors > 0
-		? __('Bulk Processing Completed with Errors')
-		: __('Bulk Processing Completed Successfully');
+	const title =
+		data.errors > 0 ? __('Bulk Processing Completed with Errors') : __('Bulk Processing Completed Successfully');
 
 	frappe.msgprint({
 		title,

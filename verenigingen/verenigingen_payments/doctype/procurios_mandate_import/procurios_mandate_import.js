@@ -6,16 +6,16 @@ frappe.ui.form.on('Procurios Mandate Import', {
 		// Validate CSV button — only shown before submit, when a CSV is attached
 		// and we haven't already produced a successful preview.
 		if (
-			!frm.is_new()
-            && frm.doc.docstatus === 0
-            && frm.doc.csv_file
-            && frm.doc.import_status !== 'Ready for Import'
+			!frm.is_new() &&
+			frm.doc.docstatus === 0 &&
+			frm.doc.csv_file &&
+			frm.doc.import_status !== 'Ready for Import'
 		) {
 			frm.add_custom_button(__('Validate CSV'), () => {
 				frappe.call({
 					method:
-                        'verenigingen.verenigingen_payments.doctype.procurios_mandate_import.'
-                        + 'procurios_mandate_import.validate_import_file',
+						'verenigingen.verenigingen_payments.doctype.procurios_mandate_import.' +
+						'procurios_mandate_import.validate_import_file',
 					args: { import_doc_name: frm.doc.name },
 					freeze: true,
 					freeze_message: __('Validating CSV...'),
@@ -50,8 +50,8 @@ frappe.ui.form.on('Procurios Mandate Import', {
 		if (frm.is_new()) {
 			frm.dashboard.set_headline(
 				__(
-					'Imports SEPA mandates from the Procurios mandate-export CSV. '
-                    + 'Only mandates whose Debiteur ID matches an existing Member\'s procurios_id are imported.'
+					'Imports SEPA mandates from the Procurios mandate-export CSV. ' +
+						"Only mandates whose Debiteur ID matches an existing Member's procurios_id are imported."
 				)
 			);
 		}

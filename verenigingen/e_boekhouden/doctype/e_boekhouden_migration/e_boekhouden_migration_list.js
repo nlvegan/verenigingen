@@ -20,41 +20,35 @@ frappe.listview_settings['E-Boekhouden Migration'] = {
 				return;
 			}
 
-			frappe.confirm(
-				__('Cancel {0} submitted migration(s)?', [cancellable.length]),
-				() => {
-					let cancelled = 0;
-					let failed = 0;
-					const total = cancellable.length;
+			frappe.confirm(__('Cancel {0} submitted migration(s)?', [cancellable.length]), () => {
+				let cancelled = 0;
+				let failed = 0;
+				const total = cancellable.length;
 
-					frappe.call({
-						method: 'verenigingen.e_boekhouden.api.eboekhouden_migration.mass_cancel_migrations',
-						args: { names: cancellable.map((d) => d.name) },
-						freeze: true,
-						freeze_message: __('Cancelling {0} migration(s)...', [total]),
-						callback(r) {
-							if (r.message) {
-								cancelled = r.message.cancelled || 0;
-								failed = r.message.failed || 0;
-							}
-							if (failed) {
-								frappe.msgprint(
-									__('Cancelled {0}, failed {1}. Check error log for details.', [
-										cancelled,
-										failed
-									])
-								);
-							} else {
-								frappe.show_alert({
-									message: __('{0} migration(s) cancelled.', [cancelled]),
-									indicator: 'green'
-								});
-							}
-							listview.refresh();
+				frappe.call({
+					method: 'verenigingen.e_boekhouden.api.eboekhouden_migration.mass_cancel_migrations',
+					args: { names: cancellable.map((d) => d.name) },
+					freeze: true,
+					freeze_message: __('Cancelling {0} migration(s)...', [total]),
+					callback(r) {
+						if (r.message) {
+							cancelled = r.message.cancelled || 0;
+							failed = r.message.failed || 0;
 						}
-					});
-				}
-			);
+						if (failed) {
+							frappe.msgprint(
+								__('Cancelled {0}, failed {1}. Check error log for details.', [cancelled, failed])
+							);
+						} else {
+							frappe.show_alert({
+								message: __('{0} migration(s) cancelled.', [cancelled]),
+								indicator: 'green'
+							});
+						}
+						listview.refresh();
+					}
+				});
+			});
 		});
 	}
 };

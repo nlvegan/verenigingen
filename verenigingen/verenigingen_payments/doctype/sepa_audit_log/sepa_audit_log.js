@@ -46,10 +46,7 @@ frappe.ui.form.on('SEPA Audit Log', {
 		}
 
 		// Add navigation to related records
-		if (
-			frm.doc.reference_doctype === 'SEPA Mandate'
-      && frm.doc.reference_name
-		) {
+		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
 			frm.add_custom_button(
 				__('View Mandate'),
 				() => {
@@ -59,18 +56,11 @@ frappe.ui.form.on('SEPA Audit Log', {
 			);
 		}
 
-		if (
-			frm.doc.reference_doctype === 'Direct Debit Batch'
-      && frm.doc.reference_name
-		) {
+		if (frm.doc.reference_doctype === 'Direct Debit Batch' && frm.doc.reference_name) {
 			frm.add_custom_button(
 				__('View Batch'),
 				() => {
-					frappe.set_route(
-						'Form',
-						'Direct Debit Batch',
-						frm.doc.reference_name
-					);
+					frappe.set_route('Form', 'Direct Debit Batch', frm.doc.reference_name);
 				},
 				__('Related Records')
 			);
@@ -87,22 +77,14 @@ frappe.ui.form.on('SEPA Audit Log', {
 				Cancelled: 'gray'
 			};
 
-			frm.set_indicator_label(
-				frm.doc.transaction_status,
-				statusColor[frm.doc.transaction_status] || 'gray'
-			);
+			frm.set_indicator_label(frm.doc.transaction_status, statusColor[frm.doc.transaction_status] || 'gray');
 		}
 	},
 
 	transaction_reference(frm) {
 		// Validate transaction reference format
-		if (
-			frm.doc.transaction_reference
-      && !/^[A-Z0-9]{1,35}$/.test(frm.doc.transaction_reference)
-		) {
-			frappe.msgprint(
-				__('Transaction reference must be alphanumeric and max 35 characters')
-			);
+		if (frm.doc.transaction_reference && !/^[A-Z0-9]{1,35}$/.test(frm.doc.transaction_reference)) {
+			frappe.msgprint(__('Transaction reference must be alphanumeric and max 35 characters'));
 		}
 	}
 });

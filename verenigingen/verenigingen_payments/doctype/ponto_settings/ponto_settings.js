@@ -30,10 +30,10 @@ frappe.ui.form.on('Ponto Settings', {
 								frappe.msgprint({
 									title: __('Connection Successful'),
 									indicator: 'green',
-									message: __(
-										'{0}<br>Accounts found: {1}',
-										[r.message.message, r.message.accounts_found]
-									)
+									message: __('{0}<br>Accounts found: {1}', [
+										r.message.message,
+										r.message.accounts_found
+									])
 								});
 							} else {
 								frappe.msgprint({
@@ -63,25 +63,20 @@ frappe.ui.form.on('Ponto Settings', {
 
 	update_ibanity_authorization_status(frm) {
 		// Guard: Check if form and field are available
-		if (
-			!frm.doc
-			|| !frm.fields_dict
-			|| !frm.fields_dict.ibanity_authorization_status
-		) {
+		if (!frm.doc || !frm.fields_dict || !frm.fields_dict.ibanity_authorization_status) {
 			return;
 		}
 
 		// Check and display Ibanity authorization status
 		frappe.call({
-			method:
-				'verenigingen.verenigingen_payments.ponto.api.oauth2_callback.check_authorization_status',
+			method: 'verenigingen.verenigingen_payments.ponto.api.oauth2_callback.check_authorization_status',
 			callback(r) {
 				// Guard: Verify form is still valid when callback fires
 				if (
-					!frm.doc
-					|| !frm.fields_dict
-					|| !frm.fields_dict.ibanity_authorization_status
-					|| !frm.fields_dict.ibanity_authorization_status.$wrapper
+					!frm.doc ||
+					!frm.fields_dict ||
+					!frm.fields_dict.ibanity_authorization_status ||
+					!frm.fields_dict.ibanity_authorization_status.$wrapper
 				) {
 					return;
 				}
@@ -117,8 +112,7 @@ frappe.ui.form.on('Ponto Settings', {
 		const authWindow = window.open('', '_blank');
 
 		frappe.call({
-			method:
-				'verenigingen.verenigingen_payments.ponto.api.oauth2_callback.get_authorization_url',
+			method: 'verenigingen.verenigingen_payments.ponto.api.oauth2_callback.get_authorization_url',
 			freeze: true,
 			freeze_message: __('Generating authorization URL...'),
 			callback(r) {

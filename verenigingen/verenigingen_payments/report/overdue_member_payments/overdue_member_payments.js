@@ -172,28 +172,16 @@ frappe.query_reports['Overdue Member Payments'] = {
 
 		// Add role-based chapter filter for non-admin users
 		frappe.call({
-			method:
-        'verenigingen.api.membership_application_review.get_user_chapter_access',
+			method: 'verenigingen.api.membership_application_review.get_user_chapter_access',
 			callback(r) {
-				if (
-					r.message
-          && r.message.restrict_to_chapters
-          && r.message.chapters.length === 1
-				) {
+				if (r.message && r.message.restrict_to_chapters && r.message.chapters.length === 1) {
 					// Auto-set chapter filter if user only has access to one chapter
 					report.set_filter_value('chapter', r.message.chapters[0]);
 					report.refresh();
-				} else if (
-					r.message
-          && r.message.restrict_to_chapters
-          && r.message.chapters.length > 1
-				) {
+				} else if (r.message && r.message.restrict_to_chapters && r.message.chapters.length > 1) {
 					// Add info message about user's chapter access
 					const chapter_names = r.message.chapters.join(', ');
-					report.page.set_indicator(
-						__('Filtered to your chapters: {0}', [chapter_names]),
-						'blue'
-					);
+					report.page.set_indicator(__('Filtered to your chapters: {0}', [chapter_names]), 'blue');
 				}
 			}
 		});
@@ -262,8 +250,7 @@ function show_payment_reminder_dialog(report) {
 		primary_action_label: __('Send Reminders'),
 		primary_action(values) {
 			frappe.call({
-				method:
-          'verenigingen.api.payment_processing.send_overdue_payment_reminders',
+				method: 'verenigingen.api.payment_processing.send_overdue_payment_reminders',
 				args: {
 					reminder_type: values.reminder_type,
 					include_payment_link: values.include_payment_link,
@@ -273,9 +260,7 @@ function show_payment_reminder_dialog(report) {
 				},
 				callback(r) {
 					if (r.message) {
-						frappe.msgprint(
-							__('Sent {0} payment reminders', [r.message.count])
-						);
+						frappe.msgprint(__('Sent {0} payment reminders', [r.message.count]));
 					}
 				}
 			});
@@ -301,13 +286,7 @@ function show_payment_recording_dialog(report) {
 				fieldname: 'payment_method',
 				label: __('Payment Method'),
 				fieldtype: 'Select',
-				options: [
-					'Bank Transfer',
-					'Cash',
-					'Credit Card',
-					'SEPA Direct Debit',
-					'Other'
-				],
+				options: ['Bank Transfer', 'Cash', 'Credit Card', 'SEPA Direct Debit', 'Other'],
 				reqd: 1
 			},
 			{
@@ -358,9 +337,7 @@ function export_for_collection(report) {
 			if (r.message) {
 				// Download the generated file
 				window.open(r.message.file_url, '_blank');
-				frappe.msgprint(
-					__('Export completed. {0} records exported.', [r.message.count])
-				);
+				frappe.msgprint(__('Export completed. {0} records exported.', [r.message.count]));
 			}
 		}
 	});
@@ -394,11 +371,7 @@ function show_bulk_payment_actions_dialog(report) {
 				fieldname: 'apply_to',
 				label: __('Apply To'),
 				fieldtype: 'Select',
-				options: [
-					'All Visible Records',
-					'Critical Only (>60 days)',
-					'Urgent Only (>30 days)'
-				],
+				options: ['All Visible Records', 'Critical Only (>60 days)', 'Urgent Only (>30 days)'],
 				reqd: 1,
 				default: 'All Visible Records'
 			},
@@ -416,30 +389,22 @@ function show_bulk_payment_actions_dialog(report) {
 				return;
 			}
 
-			frappe.confirm(
-				__('Are you sure you want to execute this bulk action?'),
-				() => {
-					frappe.call({
-						method:
-              'verenigingen.api.payment_processing.execute_bulk_payment_action',
-						args: {
-							action: values.action,
-							apply_to: values.apply_to,
-							filters: JSON.stringify(report.get_filter_values() || {})
-						},
-						callback(r) {
-							if (r.message) {
-								frappe.msgprint(
-									__('Bulk action completed. {0} records processed.', [
-										r.message.count
-									])
-								);
-								report.refresh();
-							}
+			frappe.confirm(__('Are you sure you want to execute this bulk action?'), () => {
+				frappe.call({
+					method: 'verenigingen.api.payment_processing.execute_bulk_payment_action',
+					args: {
+						action: values.action,
+						apply_to: values.apply_to,
+						filters: JSON.stringify(report.get_filter_values() || {})
+					},
+					callback(r) {
+						if (r.message) {
+							frappe.msgprint(__('Bulk action completed. {0} records processed.', [r.message.count]));
+							report.refresh();
 						}
-					});
-				}
-			);
+					}
+				});
+			});
 			d.hide();
 		}
 	});
