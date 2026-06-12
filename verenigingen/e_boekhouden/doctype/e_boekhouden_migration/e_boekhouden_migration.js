@@ -1647,7 +1647,7 @@ function show_transaction_import_dialog(frm) {
 			// Collect selected mutation types
 			const selected_types = [];
 			dialog.$wrapper.find('input[name="mutation_type"]:checked').each(function () {
-				selected_types.push(parseInt($(this).val()));
+				selected_types.push(parseInt($(this).val(), 10));
 			});
 
 			if (selected_types.length === 0) {

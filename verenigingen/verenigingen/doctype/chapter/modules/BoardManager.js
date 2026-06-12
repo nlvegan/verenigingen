@@ -918,7 +918,7 @@ export class BoardManager {
 		const selected = [];
 
 		this.selectedMembers.forEach((idx) => {
-			const boardMember = this.frm.doc.board_members[parseInt(idx) - 1];
+			const boardMember = this.frm.doc.board_members[parseInt(idx, 10) - 1];
 			if (boardMember) {
 				selected.push({
 					idx,

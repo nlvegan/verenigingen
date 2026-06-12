@@ -158,10 +158,12 @@ const mainRules = {
 
   // Snake_case enforcement for Frappe/ERPNext framework compatibility
   // Uses regex patterns to allow snake_case (Frappe standard), camelCase (JavaScript standard),
-  // PascalCase (classes), and CONSTANTS
+  // PascalCase (classes), and CONSTANTS. Also allows two established app conventions:
+  // leading-underscore private members (_camelCase / _snake_case) and jQuery-cached
+  // element vars prefixed with $ that may contain underscores ($snake_case).
   "id-match": [
     "error",
-    "^([a-z]+(_[a-z0-9]+)*|[a-z][a-zA-Z0-9]*|[A-Z][a-zA-Z0-9]*|[A-Z_]+|__.*__|_[a-z]+(_[a-z0-9]+)*|\\$[a-zA-Z][a-zA-Z0-9]*)$",
+    "^([a-z]+(_[a-z0-9]+)*|[a-z][a-zA-Z0-9]*|[A-Z][a-zA-Z0-9]*|[A-Z_]+|__.*__|_[a-zA-Z][a-zA-Z0-9_]*|\\$[a-zA-Z][a-zA-Z0-9_]*)$",
     {
       properties: false,
       onlyDeclarations: false,

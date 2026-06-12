@@ -89,9 +89,9 @@ frappe.pages['mollie-bulk-payment-discovery'].on_page_load = function (wrapper) 
 function run_discovery(page) {
 	const filters = {
 		retrieval_mode: $('#retrieval_mode').val() || 'balance_transactions',
-		days_back: parseInt($('#days_back').val()) || 7,
-		date_offset: parseInt($('#date_offset').val()) || 0,
-		max_members: $('#max_members').val() ? parseInt($('#max_members').val()) : null
+		days_back: parseInt($('#days_back').val(), 10) || 7,
+		date_offset: parseInt($('#date_offset').val(), 10) || 0,
+		max_members: $('#max_members').val() ? parseInt($('#max_members').val(), 10) : null
 	};
 
 	frappe.dom.freeze(__('Discovering payments...'));

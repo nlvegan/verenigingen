@@ -464,7 +464,7 @@ function apply_invoice_filter(frm, filter) {
 			return; // Skip if no index found
 		}
 
-		const row_data = frm.doc.invoices[parseInt(row_idx) - 1]; // Frappe uses 1-based indexing
+		const row_data = frm.doc.invoices[parseInt(row_idx, 10) - 1]; // Frappe uses 1-based indexing
 		if (!row_data) {
 			return; // Skip if row data not found
 		}

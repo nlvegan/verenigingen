@@ -547,7 +547,7 @@ class MembershipAnalytics {
 			this.format_currency(summary.projected_revenue)
 		);
 		// Update the label to show the actual projection year
-		const projection_year = parseInt(this.filters.year) + 1;
+		const projection_year = parseInt(this.filters.year, 10) + 1;
 		$('#projected-revenue-label').text(projection_year);
 
 		// Show comparison if available

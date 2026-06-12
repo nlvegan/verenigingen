@@ -293,7 +293,7 @@ export class ChapterValidation {
 
 			// Check if range is valid (start <= end)
 			if (start.match(/^\d+$/) && end.match(/^\d+$/)) {
-				return parseInt(start) <= parseInt(end);
+				return parseInt(start, 10) <= parseInt(end, 10);
 			}
 
 			return true;
