@@ -1,5 +1,5 @@
-frappe.pages['chapter-dues-allocation'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['chapter-dues-allocation'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Chapter Dues Allocation',
 		single_column: true
@@ -92,15 +92,15 @@ class ChapterDuesAllocationTool {
 	setup_actions() {
 		const me = this;
 
-		this.page.set_primary_action(__('Preview Allocation'), function() {
+		this.page.set_primary_action(__('Preview Allocation'), () => {
 			me.preview_allocation();
 		});
 
-		this.page.add_inner_button(__('Generate Journal Entries'), function() {
+		this.page.add_inner_button(__('Generate Journal Entries'), () => {
 			me.generate_journal_entries();
 		}, __('Actions'));
 
-		this.page.add_inner_button(__('View Chapter Dues Split Report'), function() {
+		this.page.add_inner_button(__('View Chapter Dues Split Report'), () => {
 			frappe.set_route('query-report', 'Chapter Dues Split');
 		}, __('Reports'));
 	}
@@ -138,7 +138,7 @@ class ChapterDuesAllocationTool {
 			args: filters,
 			freeze: true,
 			freeze_message: __('Loading allocation preview...'),
-			callback: function(r) {
+			callback(r) {
 				if (r.message) {
 					try {
 						me.render_preview(r.message);
@@ -158,7 +158,7 @@ class ChapterDuesAllocationTool {
 					});
 				}
 			},
-			error: function(r) {
+			error(r) {
 				console.error('API error:', r);
 
 				// Try to extract error message from response
@@ -199,11 +199,11 @@ class ChapterDuesAllocationTool {
 		}
 
 		let html = '<div class="allocation-preview">';
-		html += '<h4>' + __('Allocation Preview') + '</h4>';
+		html += `<h4>${__('Allocation Preview')}</h4>`;
 
 		if (data.allocations.length === 0) {
-			html += '<p class="text-muted">' + __('No dues invoices found for the selected period') + '</p>';
-			this.result_area.html(html + '</div>');
+			html += `<p class="text-muted">${__('No dues invoices found for the selected period')}</p>`;
+			this.result_area.html(`${html}</div>`);
 			return;
 		}
 
@@ -216,7 +216,7 @@ class ChapterDuesAllocationTool {
 		// Account configuration warning
 		if (!data.accounts.chapter_account || !data.accounts.national_account) {
 			html += '<div class="alert alert-warning">';
-			html += '<strong>' + __('Warning') + ':</strong> ';
+			html += `<strong>${__('Warning')}:</strong> `;
 			html += __('Chapter and National Dues Income Accounts are not configured in Verenigingen Settings. ');
 			html += __('Please configure these before generating journal entries.');
 			html += '</div>';
@@ -225,30 +225,30 @@ class ChapterDuesAllocationTool {
 		// Summary table
 		html += '<table class="table table-bordered">';
 		html += '<thead><tr>';
-		html += '<th>' + __('Chapter') + '</th>';
-		html += '<th class="text-right">' + __('Invoices') + '</th>';
-		html += '<th class="text-right">' + __('Total Dues') + '</th>';
-		html += '<th class="text-right">' + __('Chapter %') + '</th>';
-		html += '<th class="text-right">' + __('Chapter Amount') + '</th>';
-		html += '<th class="text-right">' + __('National Amount') + '</th>';
+		html += `<th>${__('Chapter')}</th>`;
+		html += `<th class="text-right">${__('Invoices')}</th>`;
+		html += `<th class="text-right">${__('Total Dues')}</th>`;
+		html += `<th class="text-right">${__('Chapter %')}</th>`;
+		html += `<th class="text-right">${__('Chapter Amount')}</th>`;
+		html += `<th class="text-right">${__('National Amount')}</th>`;
 		html += '</tr></thead><tbody>';
 
-		data.allocations.forEach(function(row) {
+		data.allocations.forEach((row) => {
 			html += '<tr>';
-			html += '<td>' + row.chapter + '</td>';
-			html += '<td class="text-right">' + row.invoice_count + '</td>';
-			html += '<td class="text-right">' + format_currency(row.total_amount) + '</td>';
-			html += '<td class="text-right">' + row.chapter_percentage.toFixed(1) + '%</td>';
-			html += '<td class="text-right">' + format_currency(row.chapter_amount) + '</td>';
-			html += '<td class="text-right">' + format_currency(row.national_amount) + '</td>';
+			html += `<td>${row.chapter}</td>`;
+			html += `<td class="text-right">${row.invoice_count}</td>`;
+			html += `<td class="text-right">${format_currency(row.total_amount)}</td>`;
+			html += `<td class="text-right">${row.chapter_percentage.toFixed(1)}%</td>`;
+			html += `<td class="text-right">${format_currency(row.chapter_amount)}</td>`;
+			html += `<td class="text-right">${format_currency(row.national_amount)}</td>`;
 			html += '</tr>';
 		});
 
 		// Totals row
 		html += '<tr class="font-weight-bold">';
-		html += '<td colspan="4">' + __('Grand Total') + '</td>';
-		html += '<td class="text-right">' + format_currency(data.summary.total_chapter_amount) + '</td>';
-		html += '<td class="text-right">' + format_currency(data.summary.total_national_amount) + '</td>';
+		html += `<td colspan="4">${__('Grand Total')}</td>`;
+		html += `<td class="text-right">${format_currency(data.summary.total_chapter_amount)}</td>`;
+		html += `<td class="text-right">${format_currency(data.summary.total_national_amount)}</td>`;
 		html += '</tr>';
 
 		html += '</tbody></table>';
@@ -256,11 +256,11 @@ class ChapterDuesAllocationTool {
 		// Account info
 		if (data.accounts.chapter_account && data.accounts.national_account) {
 			html += '<div class="mt-3">';
-			html += '<h5>' + __('Journal Entry Accounts') + '</h5>';
+			html += `<h5>${__('Journal Entry Accounts')}</h5>`;
 			html += '<ul>';
-			html += '<li><strong>' + __('Source') + ':</strong> ' + (data.accounts.source_account || __('Not configured')) + '</li>';
-			html += '<li><strong>' + __('Chapter Account') + ':</strong> ' + data.accounts.chapter_account + '</li>';
-			html += '<li><strong>' + __('National Account') + ':</strong> ' + data.accounts.national_account + '</li>';
+			html += `<li><strong>${__('Source')}:</strong> ${data.accounts.source_account || __('Not configured')}</li>`;
+			html += `<li><strong>${__('Chapter Account')}:</strong> ${data.accounts.chapter_account}</li>`;
+			html += `<li><strong>${__('National Account')}:</strong> ${data.accounts.national_account}</li>`;
 			html += '</ul>';
 			html += '</div>';
 		}
@@ -302,13 +302,13 @@ class ChapterDuesAllocationTool {
 
 		frappe.confirm(
 			__('This will create Journal Entry(s) to allocate membership dues income. Continue?'),
-			function() {
+			() => {
 				frappe.call({
 					method: 'verenigingen.verenigingen.page.chapter_dues_allocation.chapter_dues_allocation.generate_allocation_journal_entries',
 					args: filters,
 					freeze: true,
 					freeze_message: __('Creating journal entries...'),
-					callback: function(r) {
+					callback(r) {
 						if (r.message && r.message.success) {
 							frappe.msgprint({
 								title: __('Success'),
@@ -318,9 +318,9 @@ class ChapterDuesAllocationTool {
 
 							// Show links to created journal entries
 							if (r.message.journal_entries && r.message.journal_entries.length > 0) {
-								let msg = __('Created Journal Entries') + ':<br>';
-								r.message.journal_entries.forEach(function(name) {
-									msg += '<a href="/app/journal-entry/' + name + '">' + name + '</a><br>';
+								let msg = `${__('Created Journal Entries')}:<br>`;
+								r.message.journal_entries.forEach((name) => {
+									msg += `<a href="/app/journal-entry/${name}">${name}</a><br>`;
 								});
 								frappe.msgprint(msg);
 							}
@@ -341,7 +341,7 @@ class ChapterDuesAllocationTool {
 							});
 						}
 					},
-					error: function(r) {
+					error(r) {
 						console.error('API error:', r);
 
 						// Try to extract error message from response

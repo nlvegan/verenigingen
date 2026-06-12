@@ -673,8 +673,8 @@ class MembershipAnalytics {
 		}
 
 		goals.forEach((goal) => {
-			const progress_class =
-				goal.achievement_percentage >= 100
+			const progress_class
+				= goal.achievement_percentage >= 100
 					? 'progress-bar-success'
 					: goal.achievement_percentage >= 75
 						? 'progress-bar-warning'
@@ -862,18 +862,18 @@ class MembershipAnalytics {
 	}
 
 	update_target_field_label(dialog, goal_type) {
-		if (!goal_type) return;
+		if (!goal_type) { return; }
 
 		const percentage_goals = ['Retention Rate', 'Churn Reduction'];
 		const is_percentage = percentage_goals.includes(goal_type);
 
-		let label, description;
+		let label; let description;
 
 		if (is_percentage) {
 			label = __('Target Value (%)');
 			description = __('Enter percentage as a number (e.g., 85 for 85%)');
 		} else {
-			switch(goal_type) {
+			switch (goal_type) {
 				case 'Revenue Growth':
 					label = __('Target Revenue');
 					description = __('Enter target revenue amount (e.g., 50000)');
@@ -1099,7 +1099,7 @@ class MembershipAnalytics {
 				'age-segmentation-chart',
 				segmentation.by_age,
 				'Age Distribution',
-				false  // Don't sort - use backend order (by age)
+				false // Don't sort - use backend order (by age)
 			);
 		}
 
@@ -1125,7 +1125,7 @@ class MembershipAnalytics {
 				.slice(0, 10);
 		} else {
 			// Use the order from backend (e.g., age order)
-			sortedData = data.slice(0, 15);  // Show up to 15 age groups
+			sortedData = data.slice(0, 15); // Show up to 15 age groups
 		}
 
 		const chartData = {
@@ -1236,7 +1236,7 @@ class MembershipAnalytics {
 		];
 
 		// Find the common date range (all dates from all chapters)
-		let allDates = new Set();
+		const allDates = new Set();
 		data.chapters.forEach(chapter => {
 			if (data.time_series[chapter]) {
 				data.time_series[chapter].forEach(point => {
@@ -1257,7 +1257,7 @@ class MembershipAnalytics {
 		chapterWithFinalCount.sort((a, b) => b.finalCount - a.finalCount);
 
 		// Create a dataset for each chapter in sorted order
-		chapterWithFinalCount.forEach(({chapter}, idx) => {
+		chapterWithFinalCount.forEach(({ chapter }, idx) => {
 			const chapterData = data.time_series[chapter] || [];
 
 			// Create a map for quick lookup
@@ -1271,7 +1271,7 @@ class MembershipAnalytics {
 
 			datasets.push({
 				name: chapter,
-				values: values,
+				values,
 				chartType: 'line'
 			});
 		});
@@ -1282,7 +1282,7 @@ class MembershipAnalytics {
 				const d = new Date(date);
 				return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
 			}),
-			datasets: datasets
+			datasets
 		};
 
 		// Calculate dynamic y-axis max (20% above highest value across all chapters)
@@ -1310,7 +1310,7 @@ class MembershipAnalytics {
 				heatline: 0
 			},
 			tooltipOptions: {
-				formatTooltipY: d => d + ' members'
+				formatTooltipY: d => `${d} members`
 			}
 		});
 	}
@@ -1374,7 +1374,7 @@ class MembershipAnalytics {
 		const isYearly = firstRetention && 'year' in firstRetention;
 		const isQuarterly = firstRetention && 'quarter' in firstRetention;
 
-		let maxPeriods, periodKey, periodLabel;
+		let maxPeriods; let periodKey; let periodLabel;
 		if (isYearly) {
 			maxPeriods = 10;
 			periodKey = 'year';
@@ -1412,8 +1412,8 @@ class MembershipAnalytics {
 				const retention = cohort.retention.find((r) => r[periodKey] === i);
 				if (retention) {
 					const rate = retention.rate;
-					const colorClass =
-						rate >= 80
+					const colorClass
+						= rate >= 80
 							? 'bg-success'
 							: rate >= 60
 								? 'bg-info'

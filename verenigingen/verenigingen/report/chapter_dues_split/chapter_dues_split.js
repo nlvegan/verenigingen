@@ -1,65 +1,65 @@
 // Copyright (c) 2025, Verenigingen and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Chapter Dues Split"] = {
-	"filters": [
+frappe.query_reports['Chapter Dues Split'] = {
+	filters: [
 		{
-			"fieldname": "from_date",
-			"label": __("From Date"),
-			"fieldtype": "Date",
-			"default": frappe.datetime.get_today(),
-			"reqd": 1
+			fieldname: 'from_date',
+			label: __('From Date'),
+			fieldtype: 'Date',
+			default: frappe.datetime.get_today(),
+			reqd: 1
 		},
 		{
-			"fieldname": "to_date",
-			"label": __("To Date"),
-			"fieldtype": "Date",
-			"default": frappe.datetime.get_today(),
-			"reqd": 1
+			fieldname: 'to_date',
+			label: __('To Date'),
+			fieldtype: 'Date',
+			default: frappe.datetime.get_today(),
+			reqd: 1
 		},
 		{
-			"fieldname": "chapter",
-			"label": __("Chapter"),
-			"fieldtype": "Link",
-			"options": "Chapter"
+			fieldname: 'chapter',
+			label: __('Chapter'),
+			fieldtype: 'Link',
+			options: 'Chapter'
 		},
 		{
-			"fieldname": "company",
-			"label": __("Company"),
-			"fieldtype": "Link",
-			"options": "Company",
-			"default": frappe.defaults.get_user_default("Company")
+			fieldname: 'company',
+			label: __('Company'),
+			fieldtype: 'Link',
+			options: 'Company',
+			default: frappe.defaults.get_user_default('Company')
 		}
 	],
 
-	"formatter": function(value, row, column, data, default_formatter) {
+	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 
 		// Highlight chapters with custom splits
-		if (column.fieldname === "uses_custom_split" && data && data.uses_custom_split) {
-			value = '<span class="indicator-pill orange">' + __("Custom") + '</span>';
+		if (column.fieldname === 'uses_custom_split' && data && data.uses_custom_split) {
+			value = `<span class="indicator-pill orange">${__('Custom')}</span>`;
 		}
 
 		return value;
 	},
 
-	onload: function(report) {
+	onload(report) {
 		// Add button to open Chapter Dues Split Page
-		report.page.add_inner_button(__("Generate Journal Entries"), function() {
-			frappe.set_route("Form", "Chapter Dues Allocation", "new");
+		report.page.add_inner_button(__('Generate Journal Entries'), () => {
+			frappe.set_route('Form', 'Chapter Dues Allocation', 'new');
 		});
 
 		// Add button to export data
-		report.page.add_inner_button(__("Export Split Data"), function() {
+		report.page.add_inner_button(__('Export Split Data'), () => {
 			const filters = report.get_values();
 			frappe.call({
-				method: "verenigingen.verenigingen.report.chapter_dues_split.chapter_dues_split.get_data",
+				method: 'verenigingen.verenigingen.report.chapter_dues_split.chapter_dues_split.get_data',
 				args: {
-					filters: filters
+					filters
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
-						frappe.tools.downloadify(r.message, null, "Chapter Dues Split");
+						frappe.tools.downloadify(r.message, null, 'Chapter Dues Split');
 					}
 				}
 			});
