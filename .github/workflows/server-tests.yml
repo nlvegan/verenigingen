@@ -40,7 +40,7 @@ on:
       enable_coverage:
         description: 'Enable coverage collection'
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: server-tests-${{ github.ref }}
@@ -53,13 +53,17 @@ jobs:
   tests:
     name: Tests
     uses: ./.github/workflows/_base-server-tests.yml
+    # Pass org/repo secrets (CODECOV_TOKEN) through to the reusable workflow.
+    secrets: inherit
     with:
       python-version: '3.12'
       node-version: 18
       frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
       erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
       parallel-runs: 4
-      enable-coverage: ${{ inputs.enable_coverage || false }}
+      # On push/PR coverage is always collected; on manual dispatch the
+      # checkbox still wins so you can run a fast, coverage-free dispatch.
+      enable-coverage: ${{ github.event_name != 'workflow_dispatch' || inputs.enable_coverage }}
 
   summary:
     name: Test Summary

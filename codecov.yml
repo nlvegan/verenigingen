@@ -1,0 +1,48 @@
+# Codecov configuration for nlvegan/verenigingen
+#
+# Two upload sources, each tagged with a flag:
+#   - python : merged backend coverage from the sharded bench run-parallel-tests
+#              suite (.github/workflows/_base-server-tests.yml)
+#   - jest   : frontend public/js coverage from `npm run test:coverage`
+#              (.github/workflows/quality-assurance.yml)
+#
+# Statuses are informational for now (they post trends/comments but do NOT
+# block merges). Flip `informational: false` and set real `target`s once the
+# baselines are trusted.
+
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  precision: 2
+  round: down
+  range: "60...100"
+  status:
+    project:
+      default:
+        informational: true
+      python:
+        informational: true
+        flags:
+          - python
+      jest:
+        informational: true
+        flags:
+          - jest
+    patch:
+      default:
+        informational: true
+
+flags:
+  python:
+    paths:
+      - verenigingen/
+    carryforward: true
+  jest:
+    paths:
+      - verenigingen/public/js/
+    carryforward: true
+
+comment:
+  layout: "header, flags, diff, files"
+  require_changes: false

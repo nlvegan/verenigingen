@@ -316,6 +316,42 @@ jobs:
           retention-days: 90
 
   # ============================================================================
+  # JavaScript Coverage Upload (Codecov)
+  # ============================================================================
+  js-coverage:
+    name: JS Coverage → Codecov
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🚀 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🧪 Run Full Unit Suite with Coverage
+        # Uses jest.coverage.config.js (the enforced gate over public/js); a
+        # threshold regression fails this job. lcov is still emitted, so the
+        # upload below runs regardless via if: always().
+        run: npm run test:coverage
+
+      - name: 📤 Upload Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          flags: jest
+          fail_ci_if_error: false
+          verbose: true
+
+  # ============================================================================
   # Quality Gate Summary
   # ============================================================================
   quality-gate:
