@@ -127,9 +127,12 @@ runs:
         bench_path = "${GITHUB_WORKSPACE}"
         setup_config(bench_path)
         generate_config(bench_path)
+        # Redis is provided by the job's service containers (ports 11000/13000),
+        # so bench start must NOT also try to bind those ports — a losing fight
+        # that crashes honcho and takes its redis down mid-setup.
         setup_procfile(
             bench_path,
-            skip_redis=False,
+            skip_redis=True,
             skip_web=False,
             skip_watch=True,
             skip_socketio=True,

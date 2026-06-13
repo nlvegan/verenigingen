@@ -74,15 +74,31 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
+      # Host ports match frappe-bench's generated redis URLs
+      # (redis_cache/redis_socketio=13000, redis_queue=11000). Service
+      # containers stay up for the whole job, so the site setup steps
+      # (reinstall / install-app) reach redis reliably — unlike a backgrounded
+      # `bench start` honcho, which tears its redis down when a sibling process
+      # exits, intermittently refusing connections at install-app time.
       redis-cache:
         image: redis:alpine
         ports:
-          - 6379:6379
+          - 13000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
 
       redis-queue:
         image: redis:alpine
         ports:
-          - 6380:6379
+          - 11000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
 
       smtp:
         image: rnwood/smtp4dev:v3
