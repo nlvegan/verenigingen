@@ -57,7 +57,9 @@ jobs:
     secrets: inherit
     with:
       python-version: '3.12'
-      node-version: 18
+      # Node 20+ required by @tailwindcss/oxide (bench build); 18 broke the
+      # Setup Environment step and red-lined this workflow.
+      node-version: 20
       frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
       erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
       parallel-runs: 4
