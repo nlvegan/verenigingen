@@ -142,62 +142,13 @@ jobs:
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
             --baseline "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/verenigingen/tests/known_test_failures.txt"
 
-      - name: Upload Coverage
-        # always() so coverage still uploads when the new-failure gate above
-        # fails on the suite's known red baseline — otherwise Python coverage
-        # would only ever reach Codecov on a fully green suite.
+      - name: Upload Coverage to Codecov
+        # frappe's run-parallel-tests --with-coverage writes coverage.xml to the
+        # bench root (= github.workspace). Each shard uploads its own slice
+        # tagged flags=python; Codecov merges sharded uploads server-side, so no
+        # combine/aggregate job is needed. always() so coverage still uploads
+        # when the new-failure gate above trips on the known red baseline.
         if: ${{ inputs.enable-coverage && always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.index }}
-          path: |
-            ${GITHUB_WORKSPACE}/sites/.coverage.*
-            ${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/coverage.xml
-          include-hidden-files: true
-          retention-days: 1
-
-      - name: Upload Bench Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bench-logs-${{ matrix.index }}
-          path: |
-            ${GITHUB_WORKSPACE}/bench_start.log
-            ${GITHUB_WORKSPACE}/logs/
-            ${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt
-          retention-days: 7
-
-  # Coverage aggregation (optional)
-  coverage:
-    name: Aggregate Coverage
-    needs: integration-tests
-    runs-on: ubuntu-latest
-    if: ${{ inputs.enable-coverage && always() }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python-version }}
-
-      - name: Install Coverage Tool
-        run: pip install coverage
-
-      - name: Download Coverage Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-*
-          merge-multiple: true
-
-      - name: Combine Coverage
-        run: |
-          coverage combine
-          coverage xml -o coverage.xml
-          coverage report
-
-      - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -206,3 +157,16 @@ jobs:
           disable_search: true
           fail_ci_if_error: false
           verbose: true
+
+      - name: Upload Bench Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-logs-${{ matrix.index }}
+          # Paths are relative to github.workspace; upload-artifact does NOT
+          # expand ${GITHUB_WORKSPACE} (it would silently match nothing).
+          path: |
+            bench_start.log
+            logs/
+            test_output_${{ matrix.index }}.txt
+          retention-days: 7
