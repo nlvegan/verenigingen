@@ -143,7 +143,10 @@ jobs:
             --baseline "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/verenigingen/tests/known_test_failures.txt"
 
       - name: Upload Coverage
-        if: ${{ inputs.enable-coverage }}
+        # always() so coverage still uploads when the new-failure gate above
+        # fails on the suite's known red baseline — otherwise Python coverage
+        # would only ever reach Codecov on a fully green suite.
+        if: ${{ inputs.enable-coverage && always() }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.index }}

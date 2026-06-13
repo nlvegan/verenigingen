@@ -183,6 +183,13 @@ runs:
           echo "$app_name" >> sites/apps.txt
         done
 
+        # run-parallel-tests --with-coverage wraps the run in frappe's
+        # CodeCoverage, which imports the `coverage` package at runtime; it is
+        # not a frappe/app dependency, so install it when coverage is enabled.
+        if [ "${{ inputs.enable-coverage }}" = "true" ]; then
+          pip install --quiet coverage
+        fi
+
     - name: Install JS Dependencies
       if: ${{ inputs.build-assets == 'true' }}
       shell: bash
