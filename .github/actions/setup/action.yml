@@ -200,6 +200,30 @@ runs:
         source ${GITHUB_WORKSPACE}/env/bin/activate
         bench start &> ${GITHUB_WORKSPACE}/bench_start.log &
 
+        # Gate on bench-managed redis being ready before later steps
+        # (reinstall / install-app) enqueue jobs against redis_queue. Frappe
+        # upstream skips this because a build step buys redis time; here
+        # install-app runs immediately and was racing redis_queue (port 11000),
+        # surfacing as "Error 111 connecting to 127.0.0.1:11000".
+        # redis_queue=11000, redis_cache=13000 (frappe-bench defaults).
+        for port in 11000 13000; do
+          ready=""
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then
+              ready="yes"
+              echo "redis ready on $port after ${i}s"; break
+            fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::bench-managed redis never came up on port $port within 60s"
+            echo "===================== bench_start.log ====================="
+            cat ${GITHUB_WORKSPACE}/bench_start.log || echo "(no bench_start.log)"
+            echo "==========================================================="
+            exit 1
+          fi
+        done
+
     - name: Build Assets and Setup Site
       if: ${{ inputs.build-assets == 'true' }}
       shell: bash
