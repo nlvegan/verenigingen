@@ -535,23 +535,32 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
     # Team Leaders can access volunteers in their teams
     if Roles.TEAM_LEADER in user_roles:
         try:
-            # Check if user leads any teams that include this volunteer
-            team_overlap = frappe.db.sql(
-                """
-                SELECT COUNT(*) as count
-                FROM `tabTeam Member` tm1
-                JOIN `tabTeam Role` tr1 ON tm1.team_role = tr1.name
-                JOIN `tabTeam Member` tm2 ON tm1.parent = tm2.parent
-                WHERE tm1.volunteer = %s AND tr1.is_team_leader = 1
-                AND tm2.volunteer = %s AND tm2.status = 'Active'
-            """,
-                (user_member, volunteer_member),
-                as_dict=True,
-            )
+            # `tabTeam Member`.volunteer holds Volunteer docnames, so the overlap
+            # query must be keyed on Volunteer names — NOT Member names. Resolve the
+            # acting user's Volunteer; the target's Volunteer is volunteer_name.
+            # (Previously user_member / volunteer_member — both Member docnames —
+            # were bound to the volunteer columns, so the join never matched and
+            # team leaders were wrongly denied access to their teammates' records.)
+            user_volunteer = get_volunteer_for_member(user_member)
+            if user_volunteer:
+                team_overlap = frappe.db.sql(
+                    """
+                    SELECT COUNT(*) as count
+                    FROM `tabTeam Member` tm1
+                    JOIN `tabTeam Role` tr1 ON tm1.team_role = tr1.name
+                    JOIN `tabTeam Member` tm2 ON tm1.parent = tm2.parent
+                    WHERE tm1.volunteer = %s AND tr1.is_team_leader = 1
+                    AND tm2.volunteer = %s AND tm2.status = 'Active'
+                """,
+                    (user_volunteer, volunteer_name),
+                    as_dict=True,
+                )
 
-            if team_overlap and team_overlap[0].count > 0:
-                frappe.logger().debug(f"User {user} is team leader with access to volunteer {volunteer_name}")
-                return True
+                if team_overlap and team_overlap[0].count > 0:
+                    frappe.logger().debug(
+                        f"User {user} is team leader with access to volunteer {volunteer_name}"
+                    )
+                    return True
 
         except Exception as e:
             frappe.log_error(f"Error checking team leader permissions for volunteer: {str(e)}")
