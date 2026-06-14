@@ -62,7 +62,13 @@ jobs:
       node-version: 20
       frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
       erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
-      parallel-runs: 4
+      # 8 shards, not 4: the coverage-inflated suite is ~3.5 runner-hours, so
+      # 4-way splitting left the heaviest shard >60min (the job timeout) — it
+      # was over-budget, not hung (tests ran right up to the kill). The runner
+      # already LPT-balances by test count; halving per-shard load brings every
+      # shard well under the timeout. (Time-based balancing via a committed
+      # test_timings.json is a possible future optimization.)
+      parallel-runs: 8
       # On push/PR coverage is always collected; on manual dispatch the
       # checkbox still wins so you can run a fast, coverage-free dispatch.
       enable-coverage: ${{ github.event_name != 'workflow_dispatch' || inputs.enable_coverage }}
