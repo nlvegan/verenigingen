@@ -498,6 +498,90 @@ class TestBoardManager(VereningingenTestCase):
         row = next(b for b in self.chapter.board_members if b.volunteer == volunteer.name and b.is_active)
         self.assertEqual(row.chapter_role, new_role)
 
+    def test_role_change_does_not_duplicate_assignment_history(self):
+        # Regression: a role change must produce exactly ONE Active assignment for
+        # the new role and complete the old one — not two Active rows for the new
+        # role. handle_board_member_additions used to misread the role change as a
+        # brand-new member and re-add the new role with a different start_date,
+        # which slipped past the (reference, role, start_date) dedup.
+        #
+        # The board member is seated with a PAST from_date so the original
+        # assignment's start_date differs from today() (the role-change date).
+        # This reproduces production, where the seating day and the change day
+        # differ — without it, both adds share today() and the old dedup hides
+        # the bug.
+        from frappe.utils import add_days, today
+
+        member, volunteer = self._make_volunteer(first="DupHist")
+        old_role = self._make_role()
+        self.add_board_member_to_chapter(
+            self.chapter, volunteer, old_role, email=member.email, from_date=add_days(today(), -10)
+        )
+        self._reload_chapter()
+
+        new_role = self._make_role()
+        for b in self.chapter.board_members:
+            if b.volunteer == volunteer.name and b.is_active:
+                b.chapter_role = new_role
+        self.chapter.save()
+
+        history = frappe.get_all(
+            "Volunteer Assignment",
+            filters={
+                "parent": volunteer.name,
+                "reference_doctype": "Chapter",
+                "reference_name": self.chapter.name,
+            },
+            fields=["role", "status", "start_date", "end_date"],
+        )
+
+        active_new = [h for h in history if h.role == new_role and h.status == "Active"]
+        self.assertEqual(
+            len(active_new), 1, f"expected exactly one Active entry for the new role, got {active_new}"
+        )
+
+        completed_old = [h for h in history if h.role == old_role and h.status == "Completed"]
+        self.assertEqual(
+            len(completed_old), 1, f"old role should be completed exactly once, got {completed_old}"
+        )
+        self.assertTrue(completed_old[0].end_date, "completed old-role assignment must carry an end_date")
+
+        # No lingering Active row for the old role.
+        self.assertFalse(
+            [h for h in history if h.role == old_role and h.status == "Active"],
+            "old role must not remain Active after a role change",
+        )
+
+    def test_add_assignment_history_is_idempotent_on_active_role(self):
+        # Idempotency guard: adding the same Active (reference, role) twice — even
+        # with a different start_date — must not create a duplicate Active row.
+        from frappe.utils import add_days, today
+
+        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+        _member, volunteer, role_name = self._seat_board(first="Idempot")
+        # Seating already created one Active assignment. A second add for the same
+        # role with a different start_date must be a no-op.
+        AssignmentHistoryManager.add_assignment_history(
+            volunteer_id=volunteer.name,
+            assignment_type="Board Position",
+            reference_doctype="Chapter",
+            reference_name=self.chapter.name,
+            role=role_name,
+            start_date=add_days(today(), -5),
+        )
+        active = frappe.get_all(
+            "Volunteer Assignment",
+            filters={
+                "parent": volunteer.name,
+                "reference_doctype": "Chapter",
+                "reference_name": self.chapter.name,
+                "role": role_name,
+                "status": "Active",
+            },
+        )
+        self.assertEqual(len(active), 1, "duplicate Active assignment must be suppressed")
+
     def test_handle_board_member_deletions_via_save(self):
         # Delete the seated row and re-save; handle_board_member_deletions runs.
         _member, volunteer, _role = self._seat_board(first="DeleteRow")

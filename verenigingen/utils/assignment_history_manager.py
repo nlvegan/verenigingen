@@ -5,7 +5,6 @@ from frappe.utils import getdate
 
 from verenigingen.utils.base_history_manager import BaseHistoryManager
 from verenigingen.utils.history_manager_utils import (
-    check_duplicate_entry,
     ensure_doc_exists,
     find_entry_by_criteria,
     log_history_error,
@@ -50,32 +49,48 @@ class AssignmentHistoryManager(BaseHistoryManager):
         """
 
         def _callback(volunteer):
-            # Check for existing duplicate (Active or Completed)
-            match_fields = {
+            # Idempotency guard: a volunteer can only hold a given role for a
+            # given reference once at a time, so detect an existing *Active*
+            # assignment by (reference, role) ALONE — ignoring start_date.
+            # Keying the dedup on start_date too let a second code path add the
+            # same Active role with a different start_date (e.g. a board role
+            # change handled by both handle_board_member_changes() and
+            # handle_board_member_additions()), creating duplicate Active rows.
+            active_criteria = {
+                "reference_doctype": reference_doctype,
+                "reference_name": reference_name,
+                "role": role,
+            }
+            existing_active = find_entry_by_criteria(
+                volunteer.assignment_history, active_criteria, status_values=["Active"]
+            )
+            if existing_active:
+                frappe.logger().info(
+                    f"Active assignment already exists for volunteer {volunteer_id}: "
+                    f"{reference_doctype} {reference_name} - {role}. Skipping duplicate."
+                )
+                return True  # skip save
+
+            # An identical *Completed* assignment (same start_date) means this
+            # role was ended and is being restarted on the same day — reactivate
+            # it instead of appending a duplicate.
+            completed_criteria = {
                 "reference_doctype": reference_doctype,
                 "reference_name": reference_name,
                 "role": role,
                 "start_date": start_date,
             }
-            existing = check_duplicate_entry(volunteer.assignment_history, match_fields)
-
-            if existing:
-                if existing.status == "Active":
-                    frappe.logger().info(
-                        f"Assignment already exists as Active for volunteer {volunteer_id}: "
-                        f"{reference_doctype} {reference_name} - {role} (start: {start_date})"
-                    )
-                    return True  # skip save
-
-                if existing.status == "Completed":
-                    # Reactivate the existing completed assignment
-                    frappe.logger().warning(
-                        f"Assignment already exists as Completed for volunteer {volunteer_id}: "
-                        f"{reference_doctype} {reference_name} - {role}. Reactivating instead of duplicating."
-                    )
-                    existing.status = "Active"
-                    existing.end_date = None
-                    return None  # save needed
+            existing_completed = find_entry_by_criteria(
+                volunteer.assignment_history, completed_criteria, status_values=["Completed"]
+            )
+            if existing_completed:
+                frappe.logger().warning(
+                    f"Assignment already exists as Completed for volunteer {volunteer_id}: "
+                    f"{reference_doctype} {reference_name} - {role}. Reactivating instead of duplicating."
+                )
+                existing_completed.status = "Active"
+                existing_completed.end_date = None
+                return None  # save needed
 
             # Add new active assignment
             volunteer.append(

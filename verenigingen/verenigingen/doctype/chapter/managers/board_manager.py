@@ -907,15 +907,22 @@ class BoardManager(BaseManager):
                         )
             return
 
-        # Create lookup for old board members (volunteer + role combination)
-        old_board_member_keys = {
-            (bm.volunteer, bm.chapter_role) for bm in old_doc.board_members if bm.volunteer and bm.is_active
-        }
+        # Look up old board rows by row identity (name) so a role change on an
+        # existing row is NOT mistaken for a brand-new member. Keying on
+        # (volunteer, role) treated a role change as a new addition, so the new
+        # role's assignment history was added here in addition to
+        # handle_board_member_changes() — creating two Active entries for the
+        # new role (the differing start_date slipped past the dedup).
+        old_board_members_by_name = {bm.name: bm for bm in old_doc.board_members if bm.name}
 
-        # Check for new active board members (truly new, not role changes)
+        # Add history only for genuinely new rows or reactivated rows (a row that
+        # existed but was inactive and is now active). Role changes on an
+        # existing active row are handled by handle_board_member_changes().
         for board_member in self.chapter_doc.board_members or []:
-            current_key = (board_member.volunteer, board_member.chapter_role)
-            if board_member.is_active and board_member.volunteer and current_key not in old_board_member_keys:
+            old_board_member = old_board_members_by_name.get(board_member.name) if board_member.name else None
+            is_new_row = old_board_member is None
+            is_reactivation = old_board_member is not None and not old_board_member.is_active
+            if board_member.is_active and board_member.volunteer and (is_new_row or is_reactivation):
                 # Add volunteer assignment history
                 self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                     board_member.volunteer, board_member.chapter_role, board_member.from_date
