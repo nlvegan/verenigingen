@@ -623,6 +623,12 @@ class Membership(Document):
         membership_doc.grace_period_status = "Grace Period"
         membership_doc.grace_period_reason = "Automatically applied due to overdue payments"
 
+        # An Active membership is always submitted (docstatus=1), and the
+        # grace-period fields are not allow_on_submit, so a plain save() raises
+        # UpdateAfterSubmitError. Allow the post-submit field update (same pattern
+        # used by cancel_membership / process_membership_statuses).
+        membership_doc.flags.ignore_validate_update_after_submit = True
+
         # The set_grace_period_expiry method will set the expiry date
         frappe.flags.suppress_grace_period_message = True
         membership_doc.save()
@@ -926,7 +932,10 @@ def show_payment_history(membership_name: str):
     """
     membership = frappe.get_doc("Membership", membership_name)
 
-    if not membership.dues_schedule:
+    # Membership has no `dues_schedule` field on the DocType, so plain attribute
+    # access raises AttributeError. Use getattr so this endpoint degrades to the
+    # "no linked schedule" path instead of crashing.
+    if not getattr(membership, "dues_schedule", None):
         return []
 
     # Get payment history from dues schedule system
@@ -1043,8 +1052,10 @@ def show_all_invoices(membership_name: str):
     membership = frappe.get_doc("Membership", membership_name)
     invoices = []
 
-    # Get invoices from dues schedule if available
-    if membership.dues_schedule:
+    # Get invoices from dues schedule if available.
+    # Membership has no `dues_schedule` field on the DocType, so plain attribute
+    # access raises AttributeError; use getattr to safely detect a linked schedule.
+    if getattr(membership, "dues_schedule", None):
         from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
             get_membership_payment_history,
         )
@@ -1064,15 +1075,22 @@ def show_all_invoices(membership_name: str):
                 }
             )
 
-    # Also look for invoices that might be directly linked to the membership
-    direct_invoices = frappe.get_all(
-        "Sales Invoice",
-        filters={
-            "docstatus": 1,
-            "membership": membership.name,
-        },
-        fields=["name", "posting_date", "grand_total", "outstanding_amount", "status", "due_date"],
-    )
+    # Also look for invoices that might be directly linked to the membership.
+    # Sales Invoice has no `membership` column (only a `member` custom field), so
+    # querying it unconditionally raises "Unknown column 'membership'". Guard on
+    # the field's existence so the endpoint degrades to the member/customer lookup
+    # below instead of crashing.
+    if frappe.get_meta("Sales Invoice").has_field("membership"):
+        direct_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "docstatus": 1,
+                "membership": membership.name,
+            },
+            fields=["name", "posting_date", "grand_total", "outstanding_amount", "status", "due_date"],
+        )
+    else:
+        direct_invoices = []
 
     for inv in direct_invoices:
         # Check if this invoice is already in our list (to avoid duplicates)
@@ -1133,9 +1151,17 @@ def show_all_invoices(membership_name: str):
 @frappe.validate_and_sanitize_search_inputs
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_member_sepa_mandates(
-    doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: str
+    doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict | str
 ):
     """Get SEPA mandates for a specific member"""
+    # Link-search callers pass `filters` as a dict, but it can also arrive as a
+    # JSON string; the body uses .get(), so normalise to a dict here. Declaring
+    # the annotation as dict (not str) also stops the v16 typing validator from
+    # rejecting the dict that real search calls deliver.
+    if isinstance(filters, str):
+        import json
+
+        filters = json.loads(filters) if filters else {}
     member = filters.get("member")
 
     if not member:
