@@ -336,7 +336,10 @@ class MemberManager(BaseManager):
                 assignment_type="Member",
                 start_date=today(),
                 reason=f"Requested to join {self.chapter_name} chapter",
-                new_status="Pending",
+                # WHY: add_membership_history accepts `status=`, not `new_status=`.
+                # Passing the wrong kwarg raised a TypeError that was swallowed by
+                # the surrounding try/except, silently breaking join requests.
+                status="Pending",
             )
 
             # Create audit comment
@@ -363,13 +366,17 @@ class MemberManager(BaseManager):
         try:
             member_doc = frappe.get_doc("Member", member_id)
 
-            # Get board members
+            # Get board members. WHY: Chapter Board Member has no `member` field
+            # (only `volunteer`/`email`/`is_active`), so the old `board_member.member`
+            # read raised AttributeError -- swallowed below -- and the board was
+            # never notified. Mirror communication_manager: use the row's own email
+            # and skip inactive rows.
             board_members = []
             for board_member in self.chapter_doc.board_members:
-                if board_member.member:
-                    member_email = frappe.db.get_value("Member", board_member.member, "email")
-                    if member_email:
-                        board_members.append(member_email)
+                if not board_member.is_active:
+                    continue
+                if board_member.email:
+                    board_members.append(board_member.email)
 
             if board_members:
                 # MIGRATED: Use unified EmailService for chapter join requests
@@ -432,7 +439,10 @@ class MemberManager(BaseManager):
                 assignment_type="Member",
                 start_date=today(),
                 reason=f"Membership approved by {approved_by or frappe.session.user}",
-                new_status="Active",
+                # WHY: add_membership_history accepts `status=`, not `new_status=`.
+                # The wrong kwarg raised a swallowed TypeError, so approvals never
+                # recorded history and returned a failure result.
+                status="Active",
             )
 
             # Create audit comment
@@ -490,9 +500,15 @@ class MemberManager(BaseManager):
                 chapter_name=self.chapter_name,
                 assignment_type="Member",
                 start_date=today(),
-                end_date=today(),
+                # WHY: add_membership_history accepts neither `end_date=` nor
+                # `new_status=`. Both unsupported kwargs raised a swallowed
+                # TypeError, so rejections returned a failure result and recorded
+                # no history. "Rejected" is also not a valid status option for the
+                # Chapter Membership History child table (Active/Pending/Completed/
+                # Inactive/Quit), so the rejection is recorded as Inactive -- the
+                # request was declined and the relationship did not start.
                 reason=f"Membership request rejected: {reason or 'No reason provided'}",
-                new_status="Rejected",
+                status="Inactive",
             )
 
             # Create audit comment
