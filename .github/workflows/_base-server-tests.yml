@@ -143,16 +143,18 @@ jobs:
             --baseline "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/verenigingen/tests/known_test_failures.txt"
 
       - name: Upload Coverage to Codecov
-        # frappe's run-parallel-tests --with-coverage writes coverage.xml to the
-        # bench root (= github.workspace). Each shard uploads its own slice
-        # tagged flags=python; Codecov merges sharded uploads server-side, so no
-        # combine/aggregate job is needed. always() so coverage still uploads
-        # when the new-failure gate above trips on the known red baseline.
+        # frappe's run-parallel-tests --with-coverage writes coverage.xml under
+        # sites/ (the bench CLI runs frappe commands with cwd=sites/, so
+        # CodeCoverage.xml_report lands there — not the bench root). Each shard
+        # uploads its own slice tagged flags=python; Codecov merges sharded
+        # uploads server-side, so no combine/aggregate job is needed. always()
+        # so coverage still uploads when the new-failure gate above trips on the
+        # known red baseline.
         if: ${{ inputs.enable-coverage && always() }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.xml
+          files: sites/coverage.xml
           flags: python
           disable_search: true
           fail_ci_if_error: false
