@@ -876,11 +876,33 @@ def process_mt940_document(mt940_content, bank_account, company):
             # Get bank account IBAN for validation
             bank_account_iban = frappe.db.get_value("Bank Account", bank_account, "bank_account_no")
 
+            # The statement-level account identification (MT940 :25:) lives on the
+            # parsed *container*, not on the individual Transaction objects. Read it
+            # from `transactions` before iterating. (The previous per-transaction
+            # `statement.data["account_identification"]` check never matched real
+            # mt940 output, so the bank-account guard below was dead code.)
+            statement_iban = (getattr(transactions, "data", None) or {}).get("account_identification")
+
+            # Reject up front if the statement belongs to a different account than the
+            # selected Bank Account — before creating any records. Compare with
+            # whitespace/case normalisation so trivial formatting differences (e.g.
+            # spaced IBAN groups) don't false-reject a matching account.
+            if bank_account_iban and statement_iban:
+                _norm_bank = "".join(str(bank_account_iban).split()).upper()
+                _norm_stmt = "".join(str(statement_iban).split()).upper()
+                if _norm_bank != _norm_stmt:
+                    return {
+                        "success": False,
+                        "message": (
+                            f"IBAN mismatch: Bank Account IBAN {bank_account_iban} does not "
+                            f"match MT940 statement IBAN {statement_iban}"
+                        ),
+                    }
+
             # Process transactions
             transactions_created = 0
             transactions_skipped = 0
             errors = []
-            statement_iban = None
 
             # Process transactions - avoid double counting by processing all transactions directly
             processed_transaction_ids = set()  # Track processed transactions to avoid duplicates
@@ -902,18 +924,9 @@ def process_mt940_document(mt940_content, bank_account, company):
                 frappe.db.savepoint(savepoint_name)
 
                 for statement in transaction_list:
-                    # Extract IBAN from statement
-                    if hasattr(statement, "data") and "account_identification" in statement.data:
-                        statement_iban = statement.data["account_identification"]
-
-                    # Validate IBAN matches (if available)
-                    if bank_account_iban and statement_iban and bank_account_iban != statement_iban:
-                        frappe.db.rollback(save_point=savepoint_name)
-                        return {
-                            "success": False,
-                            "message": f"IBAN mismatch: Bank Account IBAN {bank_account_iban} does not match MT940 IBAN {statement_iban}",
-                        }
-
+                    # (Statement/bank-account IBAN validation happens once before this
+                    # loop — see above. The per-transaction objects carry no
+                    # account_identification.)
                     # In MT940 library, each statement object IS a transaction, not a container
                     # The library structure treats each parsed item as a single transaction
                     try:
