@@ -5,10 +5,11 @@ Handles the connection between memberships, dues schedules, and invoices
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_months, getdate, today
+from frappe.utils import add_days, add_months, cint, flt, getdate, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.member_utils import get_active_membership_for_member
+from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
 
 def create_dues_schedule_from_application(membership_application):
@@ -62,6 +63,11 @@ def create_dues_schedule_from_application(membership_application):
     dues_schedule = frappe.new_doc("Membership Dues Schedule")
     dues_schedule.member = member.name
     dues_schedule.membership = membership
+    dues_schedule.membership_type = membership_type.name
+    # schedule_name is reqd (autoname: field:schedule_name); use the shared
+    # naming helper so application-created schedules follow the same pattern
+    # as template-created ones.
+    dues_schedule.schedule_name = generate_dues_schedule_name(member.name, membership_type.name)
     dues_schedule.billing_frequency = billing_frequency
     dues_schedule.dues_rate = amount
     dues_schedule.next_invoice_date = first_invoice_date
@@ -163,37 +169,45 @@ def get_member_billing_status(member_name):
 
         status["schedules"].append(schedule)
 
-    # Get pending invoices
-    pending = frappe.get_all(
-        "Sales Invoice",
-        filters={"customer": member_name, "status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1},
-        fields=["name", "due_date", "grand_total", "status"],
-    )
+    # Invoices and payments are filed under the member's linked ERPNext
+    # Customer (Member.customer), NOT the Member name. Resolve it first.
+    customer = frappe.db.get_value("Member", member_name, "customer")
 
-    status["pending_invoices"] = pending
+    if customer:
+        # Get pending invoices
+        status["pending_invoices"] = frappe.get_all(
+            "Sales Invoice",
+            filters={"customer": customer, "status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1},
+            fields=["name", "due_date", "grand_total", "status"],
+        )
 
-    # Get payment history with enhanced error handling
-    status["total_paid_ytd"] = _calculate_member_paid_ytd_optimized(member_name)
+        # Get payment history with enhanced error handling
+        status["total_paid_ytd"] = _calculate_member_paid_ytd_optimized(customer)
 
-    # Last payment
-    last_payment = frappe.db.sql(
-        """
-        SELECT MAX(posting_date)
-        FROM `tabPayment Entry`
-        WHERE party = %s
-        AND docstatus = 1
-    """,
-        member_name,
-    )[0][0]
+        # Last payment
+        last_payment = frappe.db.sql(
+            """
+            SELECT MAX(posting_date)
+            FROM `tabPayment Entry`
+            WHERE party = %s
+            AND party_type = 'Customer'
+            AND docstatus = 1
+        """,
+            customer,
+        )[0][0]
 
-    status["last_payment_date"] = last_payment
+        status["last_payment_date"] = last_payment
 
     return status
 
 
-def _calculate_member_paid_ytd_optimized(member_name: str) -> float:
+def _calculate_member_paid_ytd_optimized(customer: str) -> float:
     """
-    Calculate member's year-to-date payments with SQL optimization and Python fallback
+    Calculate a customer's year-to-date paid invoices with SQL optimization
+    and a Python fallback.
+
+    ``customer`` is the member's linked ERPNext Customer name (Member.customer),
+    since Sales Invoices are filed under the Customer, not the Member.
 
     Follows the functional equivalence pattern from direct_debit_batch.py
     for consistent NULL/None handling and defensive programming.
@@ -209,7 +223,7 @@ def _calculate_member_paid_ytd_optimized(member_name: str) -> float:
             AND YEAR(posting_date) = YEAR(CURDATE())
             AND docstatus = 1
         """,
-            member_name,
+            customer,
         )
 
         if result and result[0] and result[0][0] is not None:
@@ -222,10 +236,10 @@ def _calculate_member_paid_ytd_optimized(member_name: str) -> float:
         frappe.logger().warning(
             f"SQL aggregation failed for member YTD calculation, using Python fallback: {str(e)}"
         )
-        return _calculate_member_paid_ytd_python(member_name)
+        return _calculate_member_paid_ytd_python(customer)
 
 
-def _calculate_member_paid_ytd_python(member_name: str) -> float:
+def _calculate_member_paid_ytd_python(customer: str) -> float:
     """
     Python fallback calculation functionally equivalent to SQL aggregation
 
@@ -243,7 +257,7 @@ def _calculate_member_paid_ytd_python(member_name: str) -> float:
         # Get paid invoices for this year using Frappe ORM
         invoices = frappe.get_all(
             "Sales Invoice",
-            filters={"customer": member_name, "status": "Paid", "docstatus": 1},
+            filters={"customer": customer, "status": "Paid", "docstatus": 1},
             fields=["grand_total", "posting_date"],
         )
 
@@ -327,15 +341,26 @@ def adjust_dues_schedule(
 def create_payment_plan(member_name: str, total_amount, installments, start_date=None, notes=None):
     """Create a payment plan with multiple dues schedules"""
 
+    # Whitelisted args arrive as strings; coerce to numbers.
+    total_amount = flt(total_amount)
+    installments = cint(installments)
+    if installments <= 0:
+        frappe.throw("Number of installments must be a positive integer")
+
     start_date = start_date or today()
     installment_amount = total_amount / installments
 
-    # Get membership
-    membership_info = get_active_membership_for_member(member_name, ["name"])
+    # Get membership (and its type, used to satisfy the schedule's
+    # membership_type / naming requirements).
+    membership_info = get_active_membership_for_member(member_name, ["name", "membership_type"])
     membership = membership_info["name"] if membership_info else None
 
     if not membership:
         frappe.throw(f"No membership found for {member_name}")
+
+    membership_type = membership_info.get("membership_type")
+    if not membership_type:
+        frappe.throw(f"Active membership for {member_name} has no membership type")
 
     schedules_created = []
 
@@ -343,11 +368,22 @@ def create_payment_plan(member_name: str, total_amount, installments, start_date
         schedule = frappe.new_doc("Membership Dues Schedule")
         schedule.member = member_name
         schedule.membership = membership
+        schedule.membership_type = membership_type
+        # schedule_name is reqd (autoname: field:schedule_name).
+        schedule.schedule_name = generate_dues_schedule_name(member_name, membership_type)
+        # "Custom" billing requires an explicit frequency number + unit; each
+        # installment is a one-off monthly step.
         schedule.billing_frequency = "Custom"
+        schedule.custom_frequency_number = 1
+        schedule.custom_frequency_unit = "Months"
         schedule.dues_rate = installment_amount
         schedule.next_invoice_date = add_months(start_date, i)
         schedule.auto_generate = 1
-        schedule.status = "Active"
+        # Only one schedule per member may be "Active"; payment-plan
+        # installments use the dedicated "Payment Plan Active" status so they
+        # do not trip the single-active-schedule / billing-frequency-consistency
+        # guards.
+        schedule.status = "Payment Plan Active"
         schedule.notes = f"Payment plan installment {i + 1} of {installments}"
         if notes:
             schedule.notes += f"\n{notes}"
