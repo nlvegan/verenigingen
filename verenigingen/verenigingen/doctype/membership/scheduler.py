@@ -125,6 +125,12 @@ def _process_expired_memberships_impl():
         try:
             doc = frappe.get_doc("Membership", membership.name)
             doc.status = "Expired"
+            # `status` is not allow_on_submit, so changing it on a submitted
+            # (docstatus 1) membership otherwise raises UpdateAfterSubmitError —
+            # which was being swallowed by the except below, leaving every
+            # expired membership stuck Active. Mirror process_membership_statuses()
+            # in membership.py, which sets this flag for the same status change.
+            doc.flags.ignore_validate_update_after_submit = True
             doc.save()
 
             # Log the change
