@@ -856,7 +856,6 @@ class BaseRoleProfileManager(ABC):
             }
 
         try:
-            user_doc = user_docs[user]
             role_profile = role_profile_cache.get(role)
 
             if not role_profile:
@@ -870,7 +869,15 @@ class BaseRoleProfileManager(ABC):
                     ),
                 }
 
-            if user_doc.role_profile_name == role_profile:
+            # WHY: Frappe v16 derives roles from the role_profiles child table; the
+            # old frappe.db.set_value("User", ..., "role_profile_name", ...) here was
+            # a silent no-op that granted NO roles (and bypassed User hooks) while
+            # this path reported action="assigned". Load the real User doc and write
+            # the child table, mirroring assign_role_profile / _strip_role_profile.
+            # (The preloaded user_docs dict lacks the child table, so re-fetch.)
+            user_doc_full = frappe.get_doc("User", user)
+            current_profiles = {rp.role_profile for rp in (user_doc_full.role_profiles or [])}
+            if role_profile in current_profiles:
                 return {
                     "user": user,
                     "member": member_id,
@@ -881,9 +888,28 @@ class BaseRoleProfileManager(ABC):
                     ),
                 }
 
-            # Update role profile directly in batch
-            frappe.db.set_value("User", user, "role_profile_name", role_profile)
-            # Clear cache for batch operations
+            previous_role_profile = user_doc_full.role_profile_name or next(iter(current_profiles), None)
+            user_doc_full.set("role_profiles", [{"role_profile": role_profile}])
+            user_doc_full.role_profile_name = role_profile
+
+            save_result = secure_document_operation(
+                operation="save",
+                doc=user_doc_full,
+                justification=f"Bulk assign role profile '{role_profile}' to user {user} for {self.config.entity_type} {entity_name} - role profile management for organizational access control",
+                required_permissions=["User:write"],
+            )
+            if not save_result.success:
+                return {
+                    "user": user,
+                    "member": member_id,
+                    "result": self._create_response(
+                        success=False,
+                        error=f"Failed to assign role profile: {'; '.join(save_result.errors)}",
+                        error_code=ERROR_CODES["PERMISSION_ERROR"],
+                    ),
+                }
+
+            # Clear user permissions cache to ensure the new role profile takes effect
             frappe.cache().delete_key(f"user_roles:{user}")
             frappe.cache().delete_key(f"user_permissions:{user}")
 
@@ -900,7 +926,7 @@ class BaseRoleProfileManager(ABC):
                     success=True,
                     message=f"Assigned role profile '{role_profile}' to user",
                     role_profile=role_profile,
-                    previous_role_profile=user_doc.role_profile_name,
+                    previous_role_profile=previous_role_profile,
                     action="assigned",
                 ),
             }
