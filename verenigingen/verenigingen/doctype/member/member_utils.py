@@ -225,7 +225,10 @@ def add_manual_payment_record(
     payment.company = settings.company or frappe.defaults.get_global_default("company")
 
     payment.paid_from = frappe.get_value("Company", payment.company, "default_receivable_account")
-    payment.paid_to = settings.donation_payment_account or frappe.get_value(
+    # donation_debit_account is the asset account donations are debited into;
+    # the field was renamed from donation_payment_account and this reference was
+    # left stale, making add_manual_payment_record crash with AttributeError.
+    payment.paid_to = settings.donation_debit_account or frappe.get_value(
         "Company", payment.company, "default_cash_account"
     )
 
@@ -317,7 +320,6 @@ def get_linked_donations(member: str):
 
 
 @frappe.whitelist()
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_mandate_from_bank_details(
     member: str,
@@ -396,22 +398,31 @@ def create_sepa_mandate_from_bank_details(
         "SEPA Audit Trail",
     )
 
-    member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
+    # The SEPA Mandate after_insert hook already links the new mandate into the
+    # member's sepa_mandates child table (as current) and bumps Member.modified.
+    # Reload the member here before touching it: saving the pre-insert copy would
+    # fail with a stale-timestamp ("modified by another process") error, and a
+    # blind append would duplicate the row the hook just added.
+    member_doc = frappe.get_doc("Member", member)
+    already_linked = any(link.sepa_mandate == mandate.name for link in member_doc.sepa_mandates)
 
-    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-    member_result = secure_document_operation(
-        operation="save",
-        doc=member_doc,
-        justification=f"Link SEPA mandate {mandate.name} to member {member}",
-        required_permissions=["Member:write"],
-    )
+    if not already_linked:
+        member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
 
-    if not member_result.success:
-        frappe.log_error(
-            f"Failed to link SEPA mandate to member: {'; '.join(member_result.errors)}",
-            "Member SEPA Link Security",
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=member_doc,
+            justification=f"Link SEPA mandate {mandate.name} to member {member}",
+            required_permissions=["Member:write"],
         )
-        frappe.throw(_("Failed to link SEPA mandate to member {0}").format(member))
+
+        if not member_result.success:
+            frappe.log_error(
+                f"Failed to link SEPA mandate to member: {'; '.join(member_result.errors)}",
+                "Member SEPA Link Security",
+            )
+            frappe.throw(_("Failed to link SEPA mandate to member {0}").format(member))
 
     return mandate.name
 
@@ -605,7 +616,9 @@ def reset_member_id_counter(counter_value):
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions"))
 
-    if not frappe.user.has_role(Roles.SYSTEM_MANAGER):
+    # Use frappe.get_roles() (matches MemberIDManager.reset_counter); frappe.user
+    # is None outside a web request, so frappe.user.has_role() would raise.
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can reset the member ID counter"))
 
     counter_value = cint(counter_value)
@@ -631,6 +644,11 @@ def get_next_member_id_preview():
 
     if current_counter is None:
         current_counter = MemberIDManager._initialize_counter()
+
+    # The counter is stored via raw ``frappe.cache().set()``, so Redis returns it
+    # as bytes; coerce to int (matching MemberIDManager.migrate_member_id_counter)
+    # before arithmetic, otherwise ``current_counter + 1`` raises TypeError.
+    current_counter = cint(current_counter)
 
     return {"next_id": current_counter + 1, "current_counter": current_counter}
 
@@ -680,11 +698,18 @@ def check_and_handle_sepa_mandate(member: str, iban: str):
     """Check if a mandate exists for this IBAN and handle accordingly"""
     member_doc = frappe.get_doc("Member", member)
 
-    matching_mandates = frappe.get_all(
+    # Stored mandate IBANs are formatted with spaces (e.g. "NL13 TEST ..."), so
+    # compare normalized values rather than filtering on an exact IBAN string —
+    # mirrors check_mandate_iban_mismatch() and avoids creating duplicate mandates.
+    iban_normalized = (iban or "").replace(" ", "").upper()
+    active_mandates = frappe.get_all(
         "SEPA Mandate",
-        filters={"member": member, "iban": iban, "status": "Active", "is_active": 1},
-        fields=["name"],
+        filters={"member": member, "status": "Active", "is_active": 1},
+        fields=["name", "iban"],
     )
+    matching_mandates = [
+        m for m in active_mandates if (m.iban or "").replace(" ", "").upper() == iban_normalized
+    ]
 
     if matching_mandates:
         mandate_doc = frappe.get_doc("SEPA Mandate", matching_mandates[0].name)
@@ -725,13 +750,17 @@ def check_and_handle_sepa_mandate(member: str, iban: str):
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def need_new_mandate(member: str, iban: str):
     """Check if we need to create a new mandate for this IBAN"""
-    matching_mandates = frappe.get_all(
+    # Stored mandate IBANs are space-formatted; normalize both sides so a caller
+    # passing an unspaced IBAN still matches an existing mandate.
+    iban_normalized = (iban or "").replace(" ", "").upper()
+    active_mandates = frappe.get_all(
         "SEPA Mandate",
-        filters={"member": member, "iban": iban, "status": "Active", "is_active": 1},
-        fields=["name"],
+        filters={"member": member, "status": "Active", "is_active": 1},
+        fields=["iban"],
     )
+    has_match = any((m.iban or "").replace(" ", "").upper() == iban_normalized for m in active_mandates)
 
-    return {"need_new": not bool(matching_mandates)}
+    return {"need_new": not has_match}
 
 
 @frappe.whitelist()
