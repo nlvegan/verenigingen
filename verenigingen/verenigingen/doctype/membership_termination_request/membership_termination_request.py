@@ -241,8 +241,11 @@ class MembershipTerminationRequest(Document):
             if not self.disciplinary_documentation:
                 frappe.throw(_("Documentation is required for disciplinary terminations"))
 
-            # Require secondary approver for pending approval status
-            if not self.secondary_approver and self.status == "Pending Approval":
+            # Require secondary approver for pending approval status.
+            # The approval service moves disciplinary requests to "Pending" (the
+            # actual Select value) when they await secondary approval — there is
+            # no "Pending Approval" status, so the old comparison never fired.
+            if not self.secondary_approver and self.status == "Pending":
                 frappe.throw(_("Secondary approver is required for disciplinary terminations"))
 
             # Validate approver permissions
@@ -477,9 +480,11 @@ def get_termination_statistics():
 
         stats["recent_requests"] = recent_count[0].count if recent_count else 0
 
-        # Pending approvals
+        # Pending approvals. "Pending" is the only Select value for requests
+        # awaiting secondary approval; the old ["Pending Approval", "Under Review"]
+        # filter matched nothing, so this count was always 0.
         pending_count = frappe.db.count(
-            "Membership Termination Request", filters={"status": ["in", ["Pending Approval", "Under Review"]]}
+            "Membership Termination Request", filters={"status": ["in", ["Pending"]]}
         )
 
         stats["pending_approvals"] = pending_count
@@ -611,12 +616,15 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
             frappe.throw(_("Member is already terminated or suspended"))
 
         # Check if there's already a pending disciplinary request
+        # Block a new disciplinary request if any not-yet-finished one exists.
+        # Valid Select values are Draft/Pending/Approved/Rejected/Executed/Cancelled;
+        # an Approved-but-not-yet-Executed request is still in progress and counts.
         existing_request = frappe.db.exists(
             "Membership Termination Request",
             {
                 "member": member,
                 "termination_type": "Disciplinary",
-                "status": ["in", ["Draft", "Pending Approval", "Under Review"]],
+                "status": ["in", ["Draft", "Pending", "Approved"]],
             },
         )
 

@@ -291,6 +291,136 @@ class TestMembershipTerminationRequest(VereningingenTestCase):
         self.assertGreaterEqual(stats["by_type"].get("Voluntary", 0), 1)
         self.assertGreaterEqual(stats["recent_requests"], 2)
 
+    def test_get_termination_statistics_counts_pending_approvals(self):
+        # Regression: pending_approvals used to filter on the impossible status
+        # values ["Pending Approval", "Under Review"] and was always 0. A real
+        # request in the actual "Pending" status must now be counted.
+        doc = self._make_disciplinary_request()
+        # Drive it into the real awaiting-approval status without going through the
+        # heavy approval/notification path. set_value bypasses validation, which is
+        # what we want here (we only care about the statistics query).
+        approver = self.create_test_user(
+            f"sec.approver.{frappe.generate_hash(length=6)}@test.invalid",
+            roles=["Verenigingen Administrator"],
+        )
+        frappe.db.set_value(
+            "Membership Termination Request",
+            doc.name,
+            {"status": "Pending", "secondary_approver": approver.name},
+        )
+
+        result = mtr.get_termination_statistics()
+        self.assertTrue(result["success"])
+        stats = result["statistics"]
+        self.assertGreaterEqual(stats["pending_approvals"], 1)
+        # And the by_status breakdown reflects the Pending request too.
+        self.assertGreaterEqual(stats["by_status"].get("Pending", 0), 1)
+
+    def test_get_termination_statistics_pending_excludes_terminal(self):
+        # A request that is NOT awaiting approval (e.g. Draft) must not inflate the
+        # pending_approvals count for that record's status.
+        self._make_request()  # stays Draft
+        result = mtr.get_termination_statistics()
+        stats = result["statistics"]
+        # Draft is counted under by_status but not under pending_approvals.
+        self.assertIn("Draft", stats["by_status"])
+        # pending_approvals counts only "Pending"; with no Pending rows created here
+        # it equals the number of Pending rows in by_status (0 from this test).
+        self.assertEqual(stats["pending_approvals"], stats["by_status"].get("Pending", 0))
+
+    # ============================================================ disciplinary duplicate guard
+
+    def _seed_disciplinary_request(self, status):
+        """Create a request and force termination_type='Disciplinary' + a status.
+
+        'Disciplinary' is the legacy termination_type the duplicate guard in
+        initiate_disciplinary_termination looks for; it is not a valid Select
+        option, so we insert a normal disciplinary request and rewrite the two
+        fields directly via the DB (bypassing validation) to mirror what the
+        legacy create path produced.
+        """
+        doc = self._make_disciplinary_request()
+        frappe.db.set_value(
+            "Membership Termination Request",
+            doc.name,
+            {"termination_type": "Disciplinary", "status": status},
+        )
+        return doc
+
+    def test_disciplinary_guard_blocks_when_pending_exists(self):
+        self._seed_disciplinary_request(status="Pending")
+        result = mtr.initiate_disciplinary_termination(
+            member=self.member.name, reason="repeat offence"
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("already a pending disciplinary", result["error"].lower())
+
+    def test_disciplinary_guard_blocks_when_approved_exists(self):
+        # Approved-but-not-yet-Executed counts as still in progress.
+        self._seed_disciplinary_request(status="Approved")
+        result = mtr.initiate_disciplinary_termination(
+            member=self.member.name, reason="repeat offence"
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("already a pending disciplinary", result["error"].lower())
+
+    def test_disciplinary_guard_blocks_when_draft_exists(self):
+        self._seed_disciplinary_request(status="Draft")
+        result = mtr.initiate_disciplinary_termination(
+            member=self.member.name, reason="repeat offence"
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("already a pending disciplinary", result["error"].lower())
+
+    def test_disciplinary_guard_allows_when_only_finished_exist(self):
+        # Rejected / Executed / Cancelled requests are finished and must NOT block
+        # a fresh disciplinary request. We assert the duplicate guard does not fire:
+        # the function proceeds past the guard (and then fails later on the known
+        # broken legacy create path), so the error must NOT be the duplicate one.
+        for finished in ("Rejected", "Executed", "Cancelled"):
+            with self.subTest(status=finished):
+                doc = self._seed_disciplinary_request(status=finished)
+                result = mtr.initiate_disciplinary_termination(
+                    member=self.member.name, reason="fresh case"
+                )
+                # Guard did not block: either it succeeded or it failed downstream,
+                # but never with the duplicate-pending message.
+                if not result["success"]:
+                    self.assertNotIn(
+                        "already a pending disciplinary", result["error"].lower()
+                    )
+                # Clean up so the next subTest's member has no in-progress request.
+                frappe.db.set_value(
+                    "Membership Termination Request", doc.name, "status", "Cancelled"
+                )
+
+    # ============================================================ validate invariant (Pending)
+
+    def test_validate_pending_disciplinary_requires_secondary_approver(self):
+        # Regression: validate_termination_request compared status to the
+        # impossible "Pending Approval", so the secondary-approver invariant for a
+        # Pending disciplinary request never fired. Saving a Pending disciplinary
+        # request with no secondary_approver must now raise.
+        doc = self._make_disciplinary_request()
+        doc.status = "Pending"
+        doc.secondary_approver = None
+        with self.assertRaises(frappe.ValidationError):
+            doc.save()
+
+    def test_validate_pending_disciplinary_passes_with_secondary_approver(self):
+        approver = self.create_test_user(
+            f"sec.ok.{frappe.generate_hash(length=6)}@test.invalid",
+            roles=["Verenigingen Administrator"],
+        )
+        doc = self._make_disciplinary_request()
+        doc.status = "Pending"
+        doc.secondary_approver = approver.name
+        # Must not raise.
+        doc.save()
+        doc.reload()
+        self.assertEqual(doc.status, "Pending")
+        self.assertEqual(doc.secondary_approver, approver.name)
+
     # ============================================================ eligible approvers
 
     def test_get_eligible_approvers_returns_admin(self):
