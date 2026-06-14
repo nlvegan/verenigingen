@@ -10,6 +10,7 @@ Each handler processes a specific event type and returns a result dict.
 Split from webhook.py as part of HIGH-4 (PSP Integration Consolidation Plan).
 """
 
+import re
 from typing import Any, Dict, Optional
 
 import frappe
@@ -37,6 +38,20 @@ def _get_webhook_user() -> str:
         user_field="webhook_user",
         service_name="Ponto Webhook",
     )
+
+
+def _safe_savepoint_name(prefix: str, doc_name: str) -> str:
+    """
+    Build a MariaDB-safe savepoint identifier.
+
+    Frappe's ``frappe.db.savepoint()`` interpolates the name straight into
+    ``SAVEPOINT <name>`` SQL without quoting. Document names contain hyphens
+    (e.g. ``PONTO-PAY-6206``, ``PL-2026-00001``), which are illegal in an
+    unquoted MariaDB savepoint identifier and raise a 1064 syntax error.
+    Replace any non-alphanumeric character with an underscore so the savepoint
+    can be created and rolled back to safely.
+    """
+    return re.sub(r"[^0-9A-Za-z_]", "_", f"{prefix}_{doc_name}")
 
 
 # =============================================================================
@@ -285,7 +300,7 @@ def handle_payment_request_closed(event_data: Dict[str, Any]) -> Dict[str, Any]:
 
         for pr in payment_requests:
             # Use savepoint for each update to isolate failures
-            savepoint_name = f"payment_status_{pr.name}"
+            savepoint_name = _safe_savepoint_name("payment_status", pr.name)
             try:
                 frappe.db.savepoint(savepoint_name)
                 doc = frappe.get_doc("Ponto Payment Request", pr.name)
@@ -377,7 +392,7 @@ def _update_payment_link_status(
 
         for pl in payment_links:
             # Use savepoint for each update to isolate failures
-            savepoint_name = f"payment_link_status_{pl.name}"
+            savepoint_name = _safe_savepoint_name("payment_link_status", pl.name)
             try:
                 frappe.db.savepoint(savepoint_name)
                 doc = frappe.get_doc("Ponto Payment Link", pl.name)
@@ -704,7 +719,7 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
 
     for pl in payment_links:
         # Use savepoint for each payment link - all operations within are atomic
-        savepoint_name = f"periodic_payment_{pl.name}"
+        savepoint_name = _safe_savepoint_name("periodic_payment", pl.name)
         try:
             frappe.db.savepoint(savepoint_name)
 
