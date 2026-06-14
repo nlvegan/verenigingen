@@ -282,7 +282,11 @@ class SEPAAuthorizationManager:
             return []
 
     def has_permission(
-        self, operation: SEPAOperation, user: str = None, context: Dict[str, Any] = None
+        self,
+        operation: SEPAOperation,
+        user: str = None,
+        context: Dict[str, Any] = None,
+        required_level: SEPAPermissionLevel = None,
     ) -> bool:
         """
         Check if user has permission for specific operation
@@ -291,6 +295,11 @@ class SEPAAuthorizationManager:
             operation: SEPA operation to check
             user: User email (defaults to current user)
             context: Additional context for authorization
+            required_level: Explicit permission level to require. When provided
+                (by the decorator, from the call site) it overrides the
+                operation's default in OPERATION_REQUIREMENTS, so an endpoint can
+                be gated at a level different from the operation's default
+                (e.g. a read-only view of a "validate" operation).
 
         Returns:
             True if user has permission
@@ -303,8 +312,10 @@ class SEPAAuthorizationManager:
             return True
 
         try:
-            # Get required permission level
-            required_level = self.OPERATION_REQUIREMENTS.get(operation)
+            # Resolve required permission level: explicit override wins, else
+            # fall back to the operation's default mapping.
+            if required_level is None:
+                required_level = self.OPERATION_REQUIREMENTS.get(operation)
             if not required_level:
                 return False
 
@@ -475,6 +486,7 @@ class SEPAAuthorizationManager:
         user: str = None,
         context: Dict[str, Any] = None,
         raise_exception: bool = True,
+        required_level: SEPAPermissionLevel = None,
     ) -> bool:
         """
         Validate operation with comprehensive checks and logging
@@ -494,9 +506,14 @@ class SEPAAuthorizationManager:
         if not user:
             user = frappe.session.user
 
+        # Effective required level for logging/error messages (explicit override
+        # wins over the operation's default mapping).
+        effective_level = required_level or self.OPERATION_REQUIREMENTS.get(operation)
+        effective_level_label = effective_level.value if effective_level else "unknown"
+
         try:
             # Check basic permission
-            has_perm = self.has_permission(operation, user, context)
+            has_perm = self.has_permission(operation, user, context, required_level=required_level)
 
             if has_perm:
                 # Log successful authorization
@@ -520,7 +537,7 @@ class SEPAAuthorizationManager:
                         "operation": operation.value,
                         "user": user,
                         "user_permissions": [p.value for p in self.get_user_permissions(user)],
-                        "required_permission": self.OPERATION_REQUIREMENTS.get(operation, "unknown").value,
+                        "required_permission": effective_level_label,
                         "context": context or {},
                     },
                     severity=AuditSeverity.WARNING,
@@ -529,7 +546,7 @@ class SEPAAuthorizationManager:
                 if raise_exception:
                     raise VerenigingenPermissionError(
                         _("Access denied for operation '{0}'. Required permission: {1}").format(
-                            operation.value, self.OPERATION_REQUIREMENTS.get(operation, "unknown").value
+                            operation.value, effective_level_label
                         )
                     )
 
@@ -565,18 +582,28 @@ def get_auth_manager() -> SEPAAuthorizationManager:
 
 
 # Authorization decorators
-def require_sepa_permission(operation: SEPAOperation, context_param: str = None):
+def require_sepa_permission(
+    permission_level: SEPAPermissionLevel, operation: SEPAOperation, context_param: str = None
+):
     """
-    Decorator to require specific SEPA permission for API endpoints
+    Decorator to require a specific SEPA permission level for API endpoints.
+
+    The user must hold ``permission_level``; ``operation`` is used for the
+    contextual checks (business hours, IP restrictions) and audit logging. The
+    explicit level is enforced rather than the operation's default mapping, so an
+    endpoint can be gated at a level that differs from OPERATION_REQUIREMENTS
+    (e.g. a read-only view of a "validate" operation gated at READ).
 
     Usage:
         @frappe.whitelist()
-        @require_sepa_permission(SEPAOperation.BATCH_CREATE)
+        @require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_CREATE)
         def create_sepa_batch():
             # Function implementation
 
         @frappe.whitelist()
-        @require_sepa_permission(SEPAOperation.BATCH_PROCESS, context_param="batch_name")
+        @require_sepa_permission(
+            SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS, context_param="batch_name"
+        )
         def process_batch(batch_name):
             # Function implementation
     """
@@ -592,8 +619,8 @@ def require_sepa_permission(operation: SEPAOperation, context_param: str = None)
                 if context_param and context_param in kwargs:
                     context[context_param] = kwargs[context_param]
 
-                # Validate operation
-                auth_manager.validate_operation(operation, context=context)
+                # Validate operation against the explicitly required level
+                auth_manager.validate_operation(operation, context=context, required_level=permission_level)
 
                 return func(*args, **kwargs)
 
@@ -615,22 +642,22 @@ def require_sepa_permission(operation: SEPAOperation, context_param: str = None)
 # Convenience decorators for common operations
 def require_sepa_read(func):
     """Require SEPA read permission"""
-    return require_sepa_permission(SEPAOperation.ANALYTICS_VIEW)(func)
+    return require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.ANALYTICS_VIEW)(func)
 
 
 def require_sepa_create(func):
     """Require SEPA create permission"""
-    return require_sepa_permission(SEPAOperation.BATCH_CREATE)(func)
+    return require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_CREATE)(func)
 
 
 def require_sepa_process(func):
     """Require SEPA process permission"""
-    return require_sepa_permission(SEPAOperation.BATCH_PROCESS)(func)
+    return require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)(func)
 
 
 def require_sepa_admin(func):
     """Require SEPA admin permission"""
-    return require_sepa_permission(SEPAOperation.SETTINGS_MODIFY)(func)
+    return require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.SETTINGS_MODIFY)(func)
 
 
 # API endpoints for permission management

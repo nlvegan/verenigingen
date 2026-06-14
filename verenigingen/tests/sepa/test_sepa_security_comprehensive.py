@@ -6,20 +6,25 @@ in the SEPA billing system including CSRF protection, rate limiting,
 authorization, and audit logging.
 """
 
-import time
 import json
+import time
 import unittest
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.test_runner import make_test_records
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, SEPAAuditLogger
+from verenigingen.utils.security.authorization import (
+    SEPAAuthorizationManager,
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
+from verenigingen.utils.security.csrf_protection import CSRFError, CSRFProtection
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-from verenigingen.utils.security.csrf_protection import CSRFProtection, CSRFError
-from verenigingen.utils.security.authorization import SEPAAuthorizationManager, SEPAOperation, SEPAPermissionLevel
-from verenigingen.utils.security.audit_logging import SEPAAuditLogger, AuditEventType, AuditSeverity
 
 # Rate limiting now handled by COR (Critical Operation Rules)
 # Real COR enforcement tests are in test_cor_rate_limiting.py
@@ -43,7 +48,7 @@ class TestCSRFProtection(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.csrf_protection = CSRFProtection()
-    
+
     def test_csrf_token_generation(self):
         """Test CSRF token generation using Frappe's native CSRF"""
         # CSRFProtection now wraps Frappe's native implementation
@@ -52,7 +57,7 @@ class TestCSRFProtection(EnhancedTestCase):
             # Token should be a non-empty string (format is Frappe's internal)
             self.assertIsInstance(token, str)
             self.assertGreater(len(token), 0)
-    
+
     def test_csrf_token_validation(self):
         """Test CSRF token validation using Frappe's native CSRF"""
         with self.set_user("Administrator"):
@@ -65,7 +70,7 @@ class TestCSRFProtection(EnhancedTestCase):
             # Invalid token should fail
             with self.assertRaises(CSRFError):
                 self.csrf_protection.validate_token("invalid_token")
-    
+
     def test_csrf_token_expiry(self):
         """Test CSRF token expiry - Frappe manages session token expiry"""
         # Frappe's native CSRF tokens are session-bound and expire with the session
@@ -77,7 +82,7 @@ class TestCSRFProtection(EnhancedTestCase):
 
             # Token should be valid within the session
             self.assertTrue(self.csrf_protection.validate_token(token))
-    
+
     def test_csrf_guest_user_protection(self):
         """Test CSRF protection for guest users"""
         with self.set_user("Guest"):
@@ -86,7 +91,7 @@ class TestCSRFProtection(EnhancedTestCase):
             with self.assertRaises(CSRFError):
                 # Guest validation with random token should fail
                 self.csrf_protection.validate_token("invalid_guest_token")
-    
+
     def test_csrf_api_endpoints(self):
         """Test CSRF protection API endpoints"""
         with self.set_user("Administrator"):
@@ -135,13 +140,13 @@ class TestAuthorization(EnhancedTestCase):
 
         # Staff should have batch create permission (Verenigingen Staff can create batches)
         self.assertTrue(self.auth_manager.has_permission(SEPAOperation.BATCH_CREATE, staff_user.email))
-    
+
     def test_system_user_permissions(self):
         """Test that system users have all permissions"""
         # Administrator should have all permissions
         self.assertTrue(self.auth_manager.has_permission(SEPAOperation.SETTINGS_MODIFY, "Administrator"))
         self.assertTrue(self.auth_manager.has_permission(SEPAOperation.BATCH_DELETE, "Administrator"))
-    
+
     def test_contextual_permissions(self):
         """Test context-based permission checks"""
         manager_user = self.create_test_user("manager@example.com", ["Verenigingen Staff"])
@@ -152,23 +157,23 @@ class TestAuthorization(EnhancedTestCase):
         self.assertTrue(
             self.auth_manager.has_permission(SEPAOperation.BATCH_CREATE, manager_user.email, context)
         )
-    
+
     def test_authorization_validation(self):
         """Test authorization validation with exceptions"""
         staff_user = self.create_test_user("staff@example.com", ["Verenigingen Staff"])
-        
+
         # Staff user should not be able to perform admin operations
         with self.assertRaises(Exception):  # Should raise VerenigingenPermissionError
             self.auth_manager.validate_operation(
-                SEPAOperation.SETTINGS_MODIFY, 
-                staff_user.email, 
+                SEPAOperation.SETTINGS_MODIFY,
+                staff_user.email,
                 raise_exception=True
             )
-        
+
         # But should be able to perform allowed operations
         result = self.auth_manager.validate_operation(
-            SEPAOperation.BATCH_CREATE, 
-            staff_user.email, 
+            SEPAOperation.BATCH_CREATE,
+            staff_user.email,
             raise_exception=False
         )
         self.assertTrue(result)
@@ -180,7 +185,7 @@ class TestAuditLogging(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.audit_logger = SEPAAuditLogger()
-    
+
     def test_basic_audit_logging(self):
         """Test basic audit log functionality"""
         with self.set_user("test@example.com"):
@@ -190,10 +195,10 @@ class TestAuditLogging(EnhancedTestCase):
                 AuditSeverity.INFO,
                 details={"test": "value"}
             )
-            
+
             self.assertIsInstance(event_id, str)
             self.assertTrue(event_id.startswith("audit_"))
-    
+
     def test_audit_log_storage(self):
         """Test audit log database storage"""
         with self.set_user("Administrator"):
@@ -224,7 +229,7 @@ class TestAuditLogging(EnhancedTestCase):
             self.assertEqual(audit_log.action, "sepa_batch_validated")
             self.assertEqual(audit_log.process_type, "Batch Generation")
             self.assertEqual(audit_log.compliance_status, "Exception")
-    
+
     def test_audit_log_search(self):
         """Test audit log search functionality"""
         with self.set_user("Administrator"):
@@ -238,7 +243,7 @@ class TestAuditLogging(EnhancedTestCase):
             )
             # Results may be from current or previous test runs
             self.assertIsInstance(results, list)
-    
+
     def test_security_alert_thresholds(self):
         """Test security alert threshold configuration"""
         # Test that alert thresholds are properly configured
@@ -250,21 +255,21 @@ class TestAuditLogging(EnhancedTestCase):
         self.assertIn("count", csrf_threshold)
         self.assertIn("window_minutes", csrf_threshold)
         self.assertGreater(csrf_threshold["count"], 0)
-    
+
     def test_audit_log_decorator(self):
         """Test audit logging decorator"""
         from verenigingen.utils.security.audit_logging import audit_log
-        
+
         @audit_log("test_operation", "info", capture_args=True)
         def test_function(arg1, arg2="default"):
             return f"result: {arg1}, {arg2}"
-        
+
         with self.set_user("test@example.com"):
             # Call the decorated function
             result = test_function("test_value", arg2="custom")
-            
+
             self.assertEqual(result, "result: test_value, custom")
-            
+
             # Check if audit log was created
             # (In a real test, we'd search for the audit log entry)
 
@@ -276,11 +281,13 @@ class TestSecurityIntegration(EnhancedTestCase):
         """Test secure API endpoint with all security measures"""
         # Create test user with appropriate permissions
         user = self.create_test_user("manager@example.com", ["Verenigingen Staff"])
-        
+
         with self.set_user(user.email):
             # Test that secure endpoints require proper setup
-            from verenigingen.verenigingen_payments.api.sepa_batch_ui_secure import load_unpaid_invoices_secure
-            
+            from verenigingen.verenigingen_payments.api.sepa_batch_ui_secure import (
+                load_unpaid_invoices_secure,
+            )
+
             # This would normally require CSRF token, rate limiting, etc.
             # For testing, we'd need to mock or configure these properly
             try:
@@ -290,33 +297,33 @@ class TestSecurityIntegration(EnhancedTestCase):
             except Exception as e:
                 # Expected if security measures are working
                 self.assertIn("CSRF", str(e)) or self.assertIn("rate", str(e).lower())
-    
+
     def test_security_health_check(self):
         """Test security health check endpoint"""
         with self.set_user("Administrator"):
             from verenigingen.verenigingen_payments.api.sepa_batch_ui_secure import sepa_security_health_check
-            
+
             health_result = sepa_security_health_check()
-            
+
             self.assertTrue(health_result["success"])
             self.assertIn("overall_health", health_result)
             self.assertIn("components", health_result)
-            
+
             # Check that all security components are reported
             components = health_result["components"]
             self.assertIn("csrf_protection", components)
             self.assertIn("rate_limiting", components)
             self.assertIn("authorization", components)
             self.assertIn("audit_logging", components)
-    
+
     def test_permission_api_endpoints(self):
         """Test permission management API endpoints"""
         with self.set_user("Administrator"):
             from verenigingen.utils.security.authorization import get_user_sepa_permissions
-            
+
             # Test getting user permissions
             result = get_user_sepa_permissions("Administrator")
-            
+
             self.assertTrue(result["success"])
             self.assertIn("permissions", result)
             self.assertIn("roles", result)
@@ -325,13 +332,13 @@ class TestSecurityIntegration(EnhancedTestCase):
     def test_audit_log_api_endpoints(self):
         """Test audit log API endpoints"""
         with self.set_user("Administrator"):
-            from verenigingen.utils.security.audit_logging import search_audit_logs, get_audit_statistics
-            
+            from verenigingen.utils.security.audit_logging import get_audit_statistics, search_audit_logs
+
             # Test searching audit logs
             search_result = search_audit_logs()
             self.assertTrue(search_result["success"])
             self.assertIn("logs", search_result)
-            
+
             # Test getting audit statistics
             stats_result = get_audit_statistics(days=1)
             self.assertTrue(stats_result["success"])
@@ -345,23 +352,23 @@ class TestSecurityConfiguration(EnhancedTestCase):
     def test_invalid_operations(self):
         """Test handling of invalid operations"""
         auth_manager = SEPAAuthorizationManager()
-        
+
         with self.set_user("test@example.com"):
             # Invalid operation should return False
             result = auth_manager.has_permission("invalid_operation")
             self.assertFalse(result)
-    
+
     def test_malformed_requests(self):
         """Test handling of malformed security requests"""
         csrf_protection = CSRFProtection()
-        
+
         # Malformed tokens should fail gracefully
         with self.assertRaises(CSRFError):
             csrf_protection.validate_token("malformed:token")
-        
+
         with self.assertRaises(CSRFError):
             csrf_protection.validate_token("")
-        
+
         with self.assertRaises(CSRFError):
             csrf_protection.validate_token(None)
 
@@ -569,14 +576,14 @@ def create_test_user_with_roles(email, roles):
         user.first_name = "Test"
         user.last_name = "User"
         user.username = email.split("@")[0]
-        
+
     # Clear existing roles
     user.roles = []
-    
+
     # Add specified roles
     for role in roles:
         user.append("roles", {"role": role})
-    
+
     user.save()
     return user
 
@@ -588,12 +595,100 @@ def create_test_batch(owner=None):
     batch.batch_type = "CORE"
     batch.description = "Test Batch"
     batch.status = "Draft"
-    
+
     if owner:
         batch.owner = owner
-    
+
     batch.insert()
     return batch
+
+
+class TestRequireSepaPermissionDecorator(EnhancedTestCase):
+    """Regression tests for the @require_sepa_permission decorator.
+
+    Every call site decorates as @require_sepa_permission(SEPAPermissionLevel.X,
+    SEPAOperation.Y). The decorator previously took (operation, context_param), so
+    the permission level was passed where the operation was expected; the
+    OPERATION_REQUIREMENTS lookup missed and EVERY non-admin user was denied on
+    all SEPA / DD-batch endpoints (admins short-circuit, which hid it).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.auth_manager = SEPAAuthorizationManager()
+
+    def test_decorator_allows_non_admin_with_required_level(self):
+        # Verenigingen Staff grants READ/VALIDATE/CREATE/PROCESS.
+        staff = self.create_test_user("staff_decorator@example.com", ["Verenigingen Staff"])
+
+        @require_sepa_permission(SEPAPermissionLevel.VALIDATE, SEPAOperation.BATCH_VALIDATE)
+        def _endpoint():
+            return "ran"
+
+        with self.set_user(staff.email):
+            # Pre-fix this raised frappe.PermissionError for every non-admin user.
+            self.assertEqual(_endpoint(), "ran")
+
+    def test_decorator_denies_non_admin_without_required_level(self):
+        # Staff lacks ADMIN, so an ADMIN-gated endpoint must be denied even though
+        # the operation's default (BATCH_CREATE -> CREATE) is one Staff DOES have.
+        # This proves the EXPLICIT level is enforced, not the operation default.
+        staff = self.create_test_user("staff_decorator2@example.com", ["Verenigingen Staff"])
+
+        @require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.BATCH_CREATE)
+        def _admin_endpoint():
+            return "ran"
+
+        with self.set_user(staff.email):
+            with self.assertRaises(frappe.PermissionError):
+                _admin_endpoint()
+
+    def test_decorator_still_allows_admin(self):
+        @require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.SETTINGS_MODIFY)
+        def _admin_endpoint():
+            return "ran"
+
+        with self.set_user("Administrator"):
+            self.assertEqual(_admin_endpoint(), "ran")
+
+    def test_has_permission_explicit_level_overrides_operation_default(self):
+        # OPERATION_REQUIREMENTS[BATCH_CREATE] == CREATE, which Staff has.
+        staff = self.create_test_user("staff_override@example.com", ["Verenigingen Staff"])
+
+        # No override -> uses the operation default (CREATE) -> Staff allowed.
+        self.assertTrue(
+            self.auth_manager.has_permission(SEPAOperation.BATCH_CREATE, staff.email)
+        )
+        # Explicit ADMIN override -> Staff lacks ADMIN -> denied.
+        self.assertFalse(
+            self.auth_manager.has_permission(
+                SEPAOperation.BATCH_CREATE, staff.email, required_level=SEPAPermissionLevel.ADMIN
+            )
+        )
+        # Explicit READ override on a "validate" operation -> Staff has READ -> allowed.
+        self.assertTrue(
+            self.auth_manager.has_permission(
+                SEPAOperation.BATCH_VALIDATE, staff.email, required_level=SEPAPermissionLevel.READ
+            )
+        )
+
+    def test_convenience_decorators_construct(self):
+        # require_sepa_read/create/process/admin must still build under the new
+        # (permission_level, operation) signature.
+        from verenigingen.utils.security.authorization import (
+            require_sepa_admin,
+            require_sepa_create,
+            require_sepa_process,
+            require_sepa_read,
+        )
+
+        for deco in (require_sepa_read, require_sepa_create, require_sepa_process, require_sepa_admin):
+
+            @deco
+            def _fn():
+                return "ok"
+
+            self.assertTrue(callable(_fn))
 
 
 if __name__ == "__main__":
