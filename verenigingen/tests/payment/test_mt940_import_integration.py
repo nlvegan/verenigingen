@@ -129,54 +129,45 @@ class TestMT940ImportIntegration(EnhancedTestCase):
         self.assertEqual(second["transactions_skipped"], 1)
         self.assertEqual(frappe.db.count("Bank Transaction", {"bank_account": self.bank_account}), 1)
 
-    def test_absent_statement_iban_does_not_false_reject(self):
-        """When the library does not populate per-transaction account_identification
-        the mismatch guard must NOT fire and the import must succeed.
-
-        The hand-crafted samples carry account_identification only on the parsed
-        *Transactions container* (the :25: field), not on each per-transaction
-        object that process_mt940_document iterates, so the mismatch branch
-        (mt940_import.py ~910) is never reached for them. This pins that
-        no-false-positive behaviour.
-        """
+    def test_matching_statement_iban_imports_successfully(self):
+        """When the statement's :25: account identification matches the selected
+        Bank Account's IBAN, the guard passes and the import proceeds. The sample's
+        container carries :25: NL02ABNA0123456789, equal to self.bank_account's
+        IBAN, so this proves the guard ALLOWS a matching statement (not merely that
+        the field was absent)."""
         result = M.process_mt940_document(S.SEPA_INCOMING_CREDIT, self.bank_account, self.company)
         self.assertTrue(result["success"], msg=result.get("message"))
         self.assertEqual(result["transactions_created"], 1)
 
     def test_statement_iban_mismatch_rejected(self):
-        """A statement-level IBAN that differs from the Bank Account's must be rejected.
+        """A statement whose :25: account identification differs from the selected
+        Bank Account's IBAN must be rejected before any Bank Transaction is created.
 
-        process_mt940_document reads account_identification off each parsed
-        transaction object's `.data`. The mt940 library only sets that on the
-        statement container, so to drive the real mismatch guard we parse the
-        sample with the real library and inject a *mismatching* IBAN onto each
-        transaction's data dict (account_identification is library-produced
-        external data, not app logic). The import must then refuse with an
-        "IBAN mismatch" message and create no Bank Transactions.
+        Uses a REAL sample (its container :25: is NL02ABNA0123456789) imported
+        against a DIFFERENT Bank Account (NL91ABNA0417164300), so the guard reads
+        the genuine library-produced account identification — no monkeypatching of
+        the parser. This is the path mt940_import.py validates before the import
+        savepoint.
         """
-        import mt940
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
-        mismatched_iban = "NL99XXXX9999999999"  # != bank account's NL02ABNA0123456789
+        other_iban = "NL91ABNA0417164300"  # != the sample's :25: NL02ABNA0123456789
+        other_ba = frappe.new_doc("Bank Account")
+        other_ba.account_name = f"MT940 Mismatch Account {self.uid}"
+        other_ba.bank = get_or_create_unknown_bank()
+        other_ba.company = self.company
+        other_ba.bank_account_no = other_iban
+        other_ba.iban = other_iban
+        other_ba.insert()
+        self.created_records.append(("Bank Account", other_ba.name))
 
-        _orig_parse = mt940.parse
-
-        def _parse_with_mismatched_iban(path):
-            parsed = list(_orig_parse(path))
-            for txn in parsed:
-                txn.data["account_identification"] = mismatched_iban
-            return parsed
-
-        mt940.parse = _parse_with_mismatched_iban
-        try:
-            result = M.process_mt940_document(S.SEPA_INCOMING_CREDIT, self.bank_account, self.company)
-        finally:
-            mt940.parse = _orig_parse
+        result = M.process_mt940_document(S.SEPA_INCOMING_CREDIT, other_ba.name, self.company)
 
         self.assertFalse(result["success"])
         self.assertIn("IBAN mismatch", result["message"])
-        self.assertIn(mismatched_iban, result["message"])
-        # Rejected before any row is written.
-        self.assertEqual(frappe.db.count("Bank Transaction", {"bank_account": self.bank_account}), 0)
+        self.assertIn("NL02ABNA0123456789", result["message"])  # the statement IBAN
+        # Rejected before any row is written for the mismatched account.
+        self.assertEqual(frappe.db.count("Bank Transaction", {"bank_account": other_ba.name}), 0)
 
     def test_internal_transfer_not_linked_to_external_party(self):
         """An ING internal-account-reference (L+digits) counterparty that matches a
