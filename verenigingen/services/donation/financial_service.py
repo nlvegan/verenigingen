@@ -317,7 +317,7 @@ class DonationFinancialService(StatelessService):
             return None
 
         # Check if customer already exists for this donor
-        existing_customer = frappe.db.get_value("Customer", {"donor_reference": self.donation.donor})
+        existing_customer = frappe.db.get_value("Customer", {"donor": self.donation.donor})
         if existing_customer:
             return frappe.get_doc("Customer", existing_customer)
 
@@ -331,8 +331,11 @@ class DonationFinancialService(StatelessService):
         customer.customer_group = resolve_non_group_customer_group()
 
         # Link back to donor
-        if hasattr(customer, "donor_reference"):
-            customer.donor_reference = donor.name
+        # WHY: Customer's donor link field is `donor` (custom field Customer-donor),
+        # not `donor_reference` (no such column). The old guard was always False so
+        # the donor link was never written; the filter queries above raised
+        # "Unknown column 'donor_reference'". Mirror donor_service.link_donor_to_customer.
+        customer.donor = donor.name
 
         # Copy contact information
         if donor.donor_email:
@@ -348,7 +351,7 @@ class DonationFinancialService(StatelessService):
         if not self.donation.donor:
             return None
 
-        return frappe.db.get_value("Customer", {"donor_reference": self.donation.donor})
+        return frappe.db.get_value("Customer", {"donor": self.donation.donor})
 
     def _get_default_territory(self) -> str:
         """Get default territory for customer/sales invoice"""

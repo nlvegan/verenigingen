@@ -218,8 +218,17 @@ class DonationDonorService(StatelessService):
         if hasattr(donor, "is_blacklisted") and donor.is_blacklisted:
             issues.append("Donor is blacklisted and cannot make donations")
 
-        # Validate recurring donation eligibility
-        if self.donation.is_recurring:
+        # Validate recurring donation eligibility.
+        # WHY: the Donation DocType has no ``is_recurring`` field — direct
+        # attribute access raises AttributeError on a fresh Donation document
+        # (and silently differs on a loaded one). Read it defensively, mirroring
+        # the getattr() pattern used for the other optional donor/donation
+        # attributes above. The Donation's recurring flag is expressed via the
+        # ``status`` Select ("Recurring") instead.
+        is_recurring = getattr(self.donation, "is_recurring", None) or (
+            self.donation.get("status") == "Recurring"
+        )
+        if is_recurring:
             if not self._validate_recurring_eligibility(donor):
                 issues.append("Donor not eligible for recurring donations")
 
@@ -238,16 +247,20 @@ class DonationDonorService(StatelessService):
         if not donor_name or not DocumentExistenceValidator.check_document_exists("Donor", donor_name):
             return {}
 
-        # Get donation statistics
+        # Get donation statistics.
+        # WHY: the Donation DocType has no ``payment_status`` column — querying
+        # it raises an OperationalError (1054 Unknown column). Paid-ness is
+        # recorded on the boolean ``paid`` field instead, so we select and
+        # filter on that.
         donations = frappe.get_all(
             "Donation",
             filters={"donor": donor_name, "docstatus": 1},
-            fields=["name", "amount", "donation_date", "payment_status", "donation_purpose_type"],
+            fields=["name", "amount", "donation_date", "paid", "donation_purpose_type"],
         )
 
-        total_amount = sum(flt(d.amount) for d in donations if d.payment_status == "Completed")
+        total_amount = sum(flt(d.amount) for d in donations if d.paid)
         total_count = len(donations)
-        paid_count = len([d for d in donations if d.payment_status == "Completed"])
+        paid_count = len([d for d in donations if d.paid])
 
         # Get purpose breakdown
         purpose_breakdown = {}
@@ -257,7 +270,7 @@ class DonationDonorService(StatelessService):
                 purpose_breakdown[purpose] = {"count": 0, "amount": 0}
 
             purpose_breakdown[purpose]["count"] += 1
-            if donation.payment_status == "Completed":
+            if donation.paid:
                 purpose_breakdown[purpose]["amount"] += flt(donation.amount)
 
         return {
@@ -283,8 +296,13 @@ class DonationDonorService(StatelessService):
         if not donor_name:
             return None
 
-        # Check if customer already exists
-        existing_customer = frappe.db.get_value("Customer", {"donor_reference": donor_name})
+        # Check if customer already exists.
+        # WHY: the Customer DocType's donor link field is named ``donor`` (see the
+        # Donor controller's get_or_create_customer, which filters on the same
+        # field). There is no ``donor_reference`` column, so the previous filter
+        # raised an OperationalError (1054 Unknown column) the moment this method
+        # was reached.
+        existing_customer = frappe.db.get_value("Customer", {"donor": donor_name})
         if existing_customer:
             return existing_customer
 
@@ -297,9 +315,9 @@ class DonationDonorService(StatelessService):
         customer.customer_group = resolve_non_group_customer_group()
         customer.territory = frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
 
-        # Link to donor
-        if hasattr(customer, "donor_reference"):
-            customer.donor_reference = donor_name
+        # Link to donor via the Customer's ``donor`` link field (matching the
+        # lookup filter above and the Donor controller's own customer linking).
+        customer.donor = donor_name
 
         # Copy contact details
         if donor.donor_email:
