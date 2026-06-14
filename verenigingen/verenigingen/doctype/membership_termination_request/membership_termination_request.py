@@ -532,7 +532,11 @@ def generate_expulsion_report(filters: dict | None = None):
             values.append(filters["termination_type"])
 
         if filters.get("chapter"):
-            conditions.append("mem.current_chapter_display = %s")
+            # WHY: filter on mem.current_chapter (a Link field = real DB column),
+            # not mem.current_chapter_display, which is an HTML fieldtype with no
+            # backing column — selecting/filtering it raised "Unknown column" and
+            # made the whole report fail whenever a disciplinary row was in range.
+            conditions.append("mem.current_chapter = %s")
             values.append(filters["chapter"])
 
         # Add disciplinary/expulsion filter using parameterized query
@@ -550,7 +554,7 @@ def generate_expulsion_report(filters: dict | None = None):
                 ter.member,
                 mem.full_name as member_name,
                 mem.email as member_email,
-                mem.current_chapter_display,
+                mem.current_chapter as current_chapter_display,
                 ter.termination_type,
                 ter.termination_reason,
                 ter.termination_date,
