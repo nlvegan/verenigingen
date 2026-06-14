@@ -532,38 +532,37 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
         except Exception as e:
             frappe.log_error(f"Error checking chapter board member permissions for volunteer: {str(e)}")
 
-    # Team Leaders can access volunteers in their teams
-    if Roles.TEAM_LEADER in user_roles:
-        try:
-            # `tabTeam Member`.volunteer holds Volunteer docnames, so the overlap
-            # query must be keyed on Volunteer names — NOT Member names. Resolve the
-            # acting user's Volunteer; the target's Volunteer is volunteer_name.
-            # (Previously user_member / volunteer_member — both Member docnames —
-            # were bound to the volunteer columns, so the join never matched and
-            # team leaders were wrongly denied access to their teammates' records.)
-            user_volunteer = get_volunteer_for_member(user_member)
-            if user_volunteer:
-                team_overlap = frappe.db.sql(
-                    """
-                    SELECT COUNT(*) as count
-                    FROM `tabTeam Member` tm1
-                    JOIN `tabTeam Role` tr1 ON tm1.team_role = tr1.name
-                    JOIN `tabTeam Member` tm2 ON tm1.parent = tm2.parent
-                    WHERE tm1.volunteer = %s AND tr1.is_team_leader = 1
-                    AND tm2.volunteer = %s AND tm2.status = 'Active'
-                """,
-                    (user_volunteer, volunteer_name),
-                    as_dict=True,
-                )
+    # Team leaders can access volunteers on teams they lead. Leadership is derived
+    # from the team data — an is_team_leader Team Role on an ACTIVE membership —
+    # NOT from a role gate: production never assigns the "Team Leader" role
+    # (leaders hold an is_team_leader Team Role, or are a Team.team_lead), so a
+    # `Roles.TEAM_LEADER in user_roles` pre-filter would make this branch dead.
+    # `tabTeam Member`.volunteer holds Volunteer docnames, so we join tabVolunteer
+    # to resolve the leader by member (covering a member with multiple volunteers,
+    # matching get_volunteer_permission_query); the target's Volunteer is
+    # volunteer_name. The query self-limits to actual leaders, so running it for a
+    # non-leader simply returns 0.
+    try:
+        team_overlap = frappe.db.sql(
+            """
+            SELECT COUNT(*) as count
+            FROM `tabTeam Member` tm1
+            JOIN `tabTeam Role` tr1 ON tm1.team_role = tr1.name
+            JOIN `tabVolunteer` lead_v ON tm1.volunteer = lead_v.name
+            JOIN `tabTeam Member` tm2 ON tm1.parent = tm2.parent
+            WHERE lead_v.member = %s AND tr1.is_team_leader = 1 AND tm1.status = 'Active'
+            AND tm2.volunteer = %s AND tm2.status = 'Active'
+        """,
+            (user_member, volunteer_name),
+            as_dict=True,
+        )
 
-                if team_overlap and team_overlap[0].count > 0:
-                    frappe.logger().debug(
-                        f"User {user} is team leader with access to volunteer {volunteer_name}"
-                    )
-                    return True
+        if team_overlap and team_overlap[0].count > 0:
+            frappe.logger().debug(f"User {user} is team leader with access to volunteer {volunteer_name}")
+            return True
 
-        except Exception as e:
-            frappe.log_error(f"Error checking team leader permissions for volunteer: {str(e)}")
+    except Exception as e:
+        frappe.log_error(f"Error checking team leader permissions for volunteer: {str(e)}")
 
     # No access granted
     frappe.logger().debug(f"User {user} has no appropriate access to volunteer {volunteer_name}")
@@ -1696,12 +1695,12 @@ def get_volunteer_permission_query(user):
     if not requesting_member:
         return "1=0"  # No access if not a member
 
-    # Board members and team leaders get expanded access
-    management_roles = [
+    # Chapter-wide access is gated on the (genuinely-assigned) board/chapter roles.
+    # Team-leader access is NOT role-gated — see the team block below.
+    chapter_management_roles = [
         Roles.VOLUNTEER_COORDINATOR,
         Roles.CHAPTER_MANAGER,
         Roles.CHAPTER_BOARD_MEMBER,
-        Roles.TEAM_LEADER,
     ]
 
     conditions = []
@@ -1709,8 +1708,8 @@ def get_volunteer_permission_query(user):
     # Always allow access to own volunteer records (escape to prevent SQL injection)
     conditions.append(f"`tabVolunteer`.member = {frappe.db.escape(requesting_member)}")
 
-    # If user has management roles, allow broader access
-    if any(role in user_roles for role in management_roles):
+    # Board members / chapter managers can access volunteers in their chapters.
+    if any(role in user_roles for role in chapter_management_roles):
         # Board members can access volunteers in their chapters (using cached function)
         user_chapter_names = get_user_chapter_memberships_cached(user, get_cache_key())
 
@@ -1731,33 +1730,37 @@ def get_volunteer_permission_query(user):
             """
             )
 
-        # Team leaders can access volunteers in their teams
-        user_teams = frappe.db.sql(
-            """
-            SELECT DISTINCT tm.parent
-            FROM `tabTeam Member` tm
-            JOIN `tabVolunteer` v ON tm.volunteer = v.name
-            JOIN `tabTeam Role` tr ON tm.team_role = tr.name
-            WHERE v.member = %s AND tm.status = 'Active'
-            AND tr.is_team_leader = 1
-        """,
-            (requesting_member,),
-            as_dict=True,
-        )
+    # Team leaders can access volunteers in teams they lead. This is derived from the
+    # team data (an is_team_leader Team Role on an active membership) and is NOT gated
+    # on a role: production never assigns the "Team Leader" role, so a role gate would
+    # make it dead. The query self-limits — a non-leader's user_teams is empty and
+    # nothing is added.
+    user_teams = frappe.db.sql(
+        """
+        SELECT DISTINCT tm.parent
+        FROM `tabTeam Member` tm
+        JOIN `tabVolunteer` v ON tm.volunteer = v.name
+        JOIN `tabTeam Role` tr ON tm.team_role = tr.name
+        WHERE v.member = %s AND tm.status = 'Active'
+        AND tr.is_team_leader = 1
+    """,
+        (requesting_member,),
+        as_dict=True,
+    )
 
-        if user_teams:
-            # Escape each team name (Team names are user-controlled via team_name).
-            # frappe.db.escape() adds the surrounding quotes.
-            team_list = ", ".join(frappe.db.escape(t.parent) for t in user_teams)
-            conditions.append(
-                f"""
-                `tabVolunteer`.name IN (
-                    SELECT tm.volunteer
-                    FROM `tabTeam Member` tm
-                    WHERE tm.parent IN ({team_list}) AND tm.status = 'Active'
-                )
-            """
+    if user_teams:
+        # Escape each team name (Team names are user-controlled via team_name).
+        # frappe.db.escape() adds the surrounding quotes.
+        team_list = ", ".join(frappe.db.escape(t.parent) for t in user_teams)
+        conditions.append(
+            f"""
+            `tabVolunteer`.name IN (
+                SELECT tm.volunteer
+                FROM `tabTeam Member` tm
+                WHERE tm.parent IN ({team_list}) AND tm.status = 'Active'
             )
+        """
+        )
 
     # Join conditions with OR
     if len(conditions) > 1:
