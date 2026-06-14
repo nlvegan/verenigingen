@@ -1,7 +1,7 @@
 """
 Integration tests (Tier-2) for the member-matching / classification logic in
 DuesPaymentProcessor, against REAL Member records and the real PaymentClassifier
-strategy chain. No mocks.
+strategy chain. No mocks of the logic under test.
 
 Targets (verenigingen/verenigingen_payments/mollie/services/dues_payment_processor.py):
     - DuesPaymentProcessor.identify_payment_type()   -> PaymentClassifier (DB lookups)
@@ -9,11 +9,20 @@ Targets (verenigingen/verenigingen_payments/mollie/services/dues_payment_process
     - DuesPaymentProcessor._resolve_chapter_cost_center() -> company fallback
     - DuesPaymentProcessor._get_membership_type_cached()  -> settings default + caching
 
-Gating: DuesPaymentProcessor.__init__ constructs a MollieClient, which reads a key
-from Mollie Settings. The methods under test do NOT call Mollie's HTTP API (they
-only query the DB), but constructing the processor needs a key — so the suite is
-gated on the Mollie TEST credentials (mollie_test_secret_key in site config) and
-SKIPS in CI where they are absent, keeping the module green.
+Credential-free in CI:
+    DuesPaymentProcessor.__init__ constructs a MollieClient, which reads a key
+    from Mollie Settings. The methods under test do NOT call Mollie's HTTP API —
+    they only query the DB. To exercise them in CI WITHOUT credentials we sidestep
+    the constructor (the only Mollie boundary) the same way the sibling suite
+    test_mollie_payment_db_integration.py does: obtain a processor instance via
+    object.__new__() (bypassing __init__, so no MollieClient is built) and attach
+    only the collaborators the methods actually use — here the credential-free
+    PaymentClassifier. find_member_for_payment() and _resolve_chapter_cost_center()
+    use no instance state at all, and _get_membership_type_cached() lazily
+    initialises its own cache, so a bare bypassed instance is sufficient.
+
+    Net effect: all four DB-only methods run in CI. There is no live-MollieClient
+    path in this suite, so nothing is gated on credentials.
 
 Mollie payments are stood in with SimpleNamespace stubs (the SDK boundary); only
 the attributes the matcher/classifier read are set.
@@ -24,26 +33,31 @@ from types import SimpleNamespace
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import ensure_mollie_test_credentials
+from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
+from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
+
+
+def _make_processor():
+    """Build a DuesPaymentProcessor without invoking __init__.
+
+    __init__ constructs a MollieClient (needs Mollie Settings credentials). The
+    methods under test never touch the Mollie HTTP client, so we bypass the
+    constructor via object.__new__() and attach only the collaborator they use:
+    the credential-free PaymentClassifier (identify_payment_type reads
+    self.classifier). The remaining methods use no instance state beyond a cache
+    they initialise themselves on first call.
+    """
+    processor = object.__new__(DuesPaymentProcessor)
+    processor.classifier = PaymentClassifier()
+    return processor
 
 
 class TestDuesPaymentProcessorMatching(EnhancedTestCase):
     """Member matching + payment-type classification via the real services."""
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.has_credentials = ensure_mollie_test_credentials()
-
     def setUp(self):
         super().setUp()
-        if not self.has_credentials:
-            self.skipTest("No Mollie test key configured (mollie_test_secret_key in site config)")
-        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
-            DuesPaymentProcessor,
-        )
-
-        self.processor = DuesPaymentProcessor()
+        self.processor = _make_processor()
 
     def _payment(self, **kwargs):
         defaults = dict(

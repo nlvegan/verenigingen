@@ -688,5 +688,448 @@ class TestExpenseClaimPermissions(PermissionsCoverageBase):
         )
 
 
+class TestQueryExecutionScoping(PermissionsCoverageBase):
+    """Execution-based scoping for the query builders that previously had only
+    SQL-substring assertions. Each test builds an in-scope and an out-of-scope
+    record, then runs the emitted condition against the real table and asserts the
+    in-scope row IS returned and the out-of-scope row is NOT — mirroring the
+    gold-standard test_member_query_executes_and_scopes_board.
+    """
+
+    def _visible(self, table, name, cond):
+        rows = frappe.db.sql(
+            f"SELECT name FROM `tab{table}` WHERE name = %s AND {cond}", name
+        )
+        return bool(rows)
+
+    def test_donation_query_executes_and_scopes_board(self):
+        """Board member's Donation query selects donations of in-chapter members
+        and excludes donations of other-chapter members when run against the DB."""
+        from verenigingen.permissions import get_donation_permission_query
+
+        in_donor = self.create_test_donor(member=self.regular_member.name)
+        in_donation = self.create_test_donation(donor=in_donor.name)
+        out_donor = self.create_test_donor(member=self.other_member.name)
+        out_donation = self.create_test_donation(donor=out_donor.name)
+
+        cond = get_donation_permission_query(self.board_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(
+            self._visible("Donation", in_donation.name, cond),
+            "board sees own-chapter member donation",
+        )
+        self.assertFalse(
+            self._visible("Donation", out_donation.name, cond),
+            "board must not see other-chapter member donation",
+        )
+
+    def test_donation_query_executes_and_scopes_member(self):
+        """A regular member's Donation query returns only their own donor's
+        donations, never another member's."""
+        from verenigingen.permissions import get_donation_permission_query
+
+        own_donor = self.create_test_donor(member=self.regular_member.name)
+        own_donation = self.create_test_donation(donor=own_donor.name)
+        other_donor = self.create_test_donor(member=self.other_member.name)
+        other_donation = self.create_test_donation(donor=other_donor.name)
+
+        cond = get_donation_permission_query(self.regular_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(self._visible("Donation", own_donation.name, cond))
+        self.assertFalse(self._visible("Donation", other_donation.name, cond))
+
+    def test_address_query_executes_and_scopes_board(self):
+        """Board member's Address query selects in-chapter member addresses and
+        excludes other-chapter member addresses against the DB."""
+        from verenigingen.permissions import get_address_permission_query
+
+        in_addr = self._make_address_for(self.regular_member)
+        out_addr = self._make_address_for(self.other_member)
+
+        cond = get_address_permission_query(self.board_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(
+            self._visible("Address", in_addr.name, cond),
+            "board sees own-chapter member address",
+        )
+        self.assertFalse(
+            self._visible("Address", out_addr.name, cond),
+            "board must not see other-chapter member address",
+        )
+
+    def test_address_query_executes_and_scopes_member(self):
+        """A regular member's Address query returns only their own address."""
+        from verenigingen.permissions import get_address_permission_query
+
+        own_addr = self._make_address_for(self.regular_member)
+        other_addr = self._make_address_for(self.other_member)
+
+        cond = get_address_permission_query(self.regular_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(self._visible("Address", own_addr.name, cond))
+        self.assertFalse(self._visible("Address", other_addr.name, cond))
+
+    def _make_address_for(self, member):
+        address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": f"Addr {member.name}",
+                "address_type": "Personal",
+                "address_line1": "Teststraat 1",
+                "city": "Amsterdam",
+                "country": "Netherlands",
+                "links": [{"link_doctype": "Member", "link_name": member.name}],
+            }
+        )
+        address.insert(ignore_permissions=True)
+        return address
+
+    def test_donor_query_executes_and_scopes_board(self):
+        """Board member's Donor query selects in-chapter member donors and excludes
+        other-chapter member donors against the DB."""
+        from verenigingen.permissions import get_donor_permission_query
+
+        in_donor = self.create_test_donor(member=self.regular_member.name)
+        out_donor = self.create_test_donor(member=self.other_member.name)
+
+        cond = get_donor_permission_query(self.board_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(
+            self._visible("Donor", in_donor.name, cond),
+            "board sees own-chapter member donor",
+        )
+        self.assertFalse(
+            self._visible("Donor", out_donor.name, cond),
+            "board must not see other-chapter member donor",
+        )
+
+    def test_donor_query_executes_and_scopes_member(self):
+        """A regular member's Donor query returns only their own donor record."""
+        from verenigingen.permissions import get_donor_permission_query
+
+        own_donor = self.create_test_donor(member=self.regular_member.name)
+        other_donor = self.create_test_donor(member=self.other_member.name)
+
+        cond = get_donor_permission_query(self.regular_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(self._visible("Donor", own_donor.name, cond))
+        self.assertFalse(self._visible("Donor", other_donor.name, cond))
+
+    def test_sepa_mandate_query_executes_and_scopes_member(self):
+        """A regular member's SEPA Mandate query returns only their own mandate,
+        never another member's (the factory shares Donor's policy byte-for-byte)."""
+        from verenigingen.permissions import get_sepa_mandate_permission_query
+
+        own_mandate = self.create_test_sepa_mandate(member=self.regular_member.name)
+        other_mandate = self.create_test_sepa_mandate(member=self.other_member.name)
+
+        cond = get_sepa_mandate_permission_query(self.regular_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(self._visible("SEPA Mandate", own_mandate.name, cond))
+        self.assertFalse(self._visible("SEPA Mandate", other_mandate.name, cond))
+
+    def _make_termination_request(self, member_name):
+        req = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": member_name,
+                "termination_type": "Voluntary",
+                "requested_by": self.staff_user.name,
+                "request_date": today(),
+                "status": "Draft",
+                "termination_reason": "Coverage test scoping fixture",
+            }
+        )
+        req.insert(ignore_permissions=True)
+        return req
+
+    def test_termination_query_executes_and_scopes_board(self):
+        """Board member's Termination query selects requests for in-chapter members
+        and excludes requests for other-chapter members against the DB."""
+        from verenigingen.permissions import get_termination_permission_query
+
+        in_req = self._make_termination_request(self.regular_member.name)
+        out_req = self._make_termination_request(self.other_member.name)
+
+        cond = get_termination_permission_query(self.board_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        self.assertTrue(
+            self._visible("Membership Termination Request", in_req.name, cond),
+            "board sees own-chapter member termination request",
+        )
+        self.assertFalse(
+            self._visible("Membership Termination Request", out_req.name, cond),
+            "board must not see other-chapter member termination request",
+        )
+
+
+class TestVolunteerTeamLeader(PermissionsCoverageBase):
+    """Team-leader paths for Volunteer access: the get_volunteer_permission_query
+    team-leader branch (permissions.py ~1725-1751) and has_volunteer_permission's
+    team-leader branch (~536-554).
+
+    A Team with a leader Team Role (is_team_leader=1) is built, the acting user's
+    volunteer is made a team leader, and a teammate volunteer is added as a member.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # The acting user's volunteer (team leader) and a teammate volunteer.
+        self.leader_volunteer = self.create_test_volunteer(self.regular_member.name)
+        self.teammate_member = self.create_test_member(
+            first_name="Perm", last_name="Teammate", email=f"perm-teammate-{self.token}@test.com"
+        )
+        self.teammate_volunteer = self.create_test_volunteer(self.teammate_member.name)
+
+        # A volunteer that is NOT on the team (out-of-scope control).
+        self.outsider_member = self.create_test_member(
+            first_name="Perm", last_name="Outsider", email=f"perm-outsider-{self.token}@test.com"
+        )
+        self.outsider_volunteer = self.create_test_volunteer(self.outsider_member.name)
+
+        # Leader and member team roles.
+        self.leader_role = frappe.get_doc(
+            {
+                "doctype": "Team Role",
+                "role_name": f"Perm Lead {self.token}",
+                "permissions_level": "Leader",
+                "is_team_leader": 1,
+                "is_active": 1,
+            }
+        )
+        self.leader_role.insert(ignore_permissions=True)
+        self.member_role = frappe.get_doc(
+            {
+                "doctype": "Team Role",
+                "role_name": f"Perm Memb {self.token}",
+                "permissions_level": "Basic",
+                "is_team_leader": 0,
+                "is_active": 1,
+            }
+        )
+        self.member_role.insert(ignore_permissions=True)
+
+        # Team with the acting user as leader and the teammate as a plain member.
+        self.team = frappe.get_doc(
+            {
+                "doctype": "Team",
+                "team_name": f"Perm Team {self.token}",
+                "status": "Active",
+                "team_type": "Project Team",
+                "start_date": today(),
+                "team_members": [
+                    {
+                        "volunteer": self.leader_volunteer.name,
+                        "team_role": self.leader_role.name,
+                        "from_date": today(),
+                        "is_active": 1,
+                        "status": "Active",
+                    },
+                    {
+                        "volunteer": self.teammate_volunteer.name,
+                        "team_role": self.member_role.name,
+                        "from_date": today(),
+                        "is_active": 1,
+                        "status": "Active",
+                    },
+                ],
+            }
+        )
+        self.team.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Grant the acting user the "Team Leader" role so the management branch of the
+        # permission functions fires. This MUST happen last and via a direct Has Role
+        # insert (not User.save): creating the Member/Volunteer and the Team triggers
+        # the role-profile recalculation hooks (team_role_profile_hooks ->
+        # auto_sync_on_role_change), which rewrite the user's roles and strip any role
+        # not justified by the calculated profile — so a role appended before those
+        # saves is silently dropped. Inserting Has Role afterwards and clearing the
+        # user cache makes frappe.get_roles see it without re-triggering the hooks.
+        if not frappe.db.exists("Role", Roles.TEAM_LEADER):
+            frappe.get_doc(
+                {"doctype": "Role", "role_name": Roles.TEAM_LEADER, "desk_access": 1}
+            ).insert(ignore_permissions=True)
+        if not frappe.db.exists("Has Role", {"parent": self.regular_user.name, "role": Roles.TEAM_LEADER}):
+            frappe.get_doc(
+                {
+                    "doctype": "Has Role",
+                    "parent": self.regular_user.name,
+                    "parenttype": "User",
+                    "parentfield": "roles",
+                    "role": Roles.TEAM_LEADER,
+                }
+            ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.clear_cache(user=self.regular_user.name)
+        # Confirm the precondition the branch depends on.
+        self.assertIn(Roles.TEAM_LEADER, frappe.get_roles(self.regular_user.name))
+
+    def test_volunteer_query_team_leader_scopes_team(self):
+        """The team-leader branch of get_volunteer_permission_query must, when run
+        against the DB, return the teammate's volunteer (same team) for the leader
+        while still excluding a volunteer who is on no shared team. This is the
+        execution-based proof of the team-leader scoping (permissions.py ~1725-1751)."""
+        from verenigingen.permissions import get_volunteer_permission_query
+
+        cond = get_volunteer_permission_query(self.regular_user.name)
+        self.assertTrue(cond and cond != "1=0")
+        # The team-scoping subquery must be present (the team-leader branch fired).
+        self.assertIn("tabTeam Member", cond)
+
+        def visible(vol_name):
+            rows = frappe.db.sql(
+                f"SELECT name FROM `tabVolunteer` WHERE name = %s AND {cond}", vol_name
+            )
+            return bool(rows)
+
+        self.assertTrue(visible(self.leader_volunteer.name), "leader sees own volunteer")
+        self.assertTrue(
+            visible(self.teammate_volunteer.name), "leader sees teammate volunteer in same team"
+        )
+        self.assertFalse(
+            visible(self.outsider_volunteer.name), "leader must not see non-team volunteer"
+        )
+
+    def test_has_volunteer_permission_team_leader_branch(self):
+        """has_volunteer_permission for a team leader.
+
+        The acting user holds the Team Leader role and leads a team that includes the
+        teammate volunteer. We assert:
+        - own volunteer -> True (the member branch grants this);
+        - the teammate's volunteer -> True (the team-leader branch grants this);
+        - a non-team volunteer -> False (no branch grants it).
+
+        The team-leader branch (permissions.py ~536-557) keys the team-overlap query
+        on the acting user's resolved Volunteer and the target Volunteer name (both
+        Volunteer docnames). A prior version bound Member docnames to the
+        `tabTeam Member`.volunteer columns, so the join never matched and this
+        teammate-access path always returned False."""
+        from verenigingen.permissions import has_volunteer_permission
+
+        self.assertTrue(
+            has_volunteer_permission(self.leader_volunteer.name, self.regular_user.name),
+            "leader can access own volunteer record (member branch)",
+        )
+        self.assertTrue(
+            has_volunteer_permission(self.teammate_volunteer.name, self.regular_user.name),
+            "team leader can access a teammate's volunteer record (team-leader branch)",
+        )
+        self.assertFalse(
+            has_volunteer_permission(self.outsider_volunteer.name, self.regular_user.name),
+            "leader must not access a non-team volunteer record",
+        )
+
+
+class TestBoardOnlyPaymentAccess(PermissionsCoverageBase):
+    """check_member_payment_access "Board Only -> True" positive path
+    (permissions.py ~1245-1264). The existing suite only asserts the negative
+    (bare member denied); this asserts a Financial board member of the target's
+    chapter IS granted access."""
+
+    def test_board_only_grants_financial_board_member(self):
+        from verenigingen.permissions import check_member_payment_access
+
+        # regular_member is in chapter A; board_user is a Financial board member of A.
+        self.regular_member.db_set("permission_category", "Board Only")
+
+        # Sanity: the chapter's own check grants the board member's viewer record.
+        chapter = frappe.get_doc("Chapter", self.chapter_a.name)
+        self.assertTrue(
+            chapter.can_view_member_payments(self.board_member.name),
+            "Financial board member should pass Chapter.can_view_member_payments",
+        )
+
+        # The Board-Only category therefore grants the board user payment access.
+        self.assertTrue(
+            check_member_payment_access(self.regular_member.name, self.board_user.name),
+            "Board Only category must grant a Financial board member of the chapter",
+        )
+
+    def test_board_only_denies_non_board_member(self):
+        """A plain member of the same chapter (no board position) is still denied
+        under Board Only — proves the grant above is board-gated, not chapter-gated."""
+        from verenigingen.permissions import check_member_payment_access
+
+        self.regular_member.db_set("permission_category", "Board Only")
+        # bare_user has a Member-less account; build a plain member in chapter A.
+        plain_member = self.create_test_member(
+            first_name="Perm", last_name="Plain", email=f"perm-plain-{self.token}@test.com",
+            user=self.bare_user.name,
+        )
+        self._add_member_to_chapter(plain_member.name, self.chapter_a.name)
+        frappe.db.commit()
+
+        self.assertFalse(
+            check_member_payment_access(self.regular_member.name, self.bare_user.name),
+            "non-board member of the chapter must be denied under Board Only",
+        )
+
+
+class TestServiceAccountDeterministic(PermissionsCoverageBase):
+    """_check_service_account_permission deterministically: grant the webhook role a
+    DocPerm and assert True; assert False for a doctype with no such DocPerm. Any
+    DocPerm added is removed in tearDown.
+
+    The function under test queries ``frappe.db.exists("DocPerm", {...})`` — the
+    standard ``tabDocPerm`` rows attached to a DocType, NOT ``Custom DocPerm`` — so
+    the grant is created as a real DocPerm child row on the target DocType."""
+
+    def setUp(self):
+        super().setUp()
+        self.webhook_user = self.create_test_user(
+            email=f"perm-webhook-det-{self.token}@test.com", roles=[Roles.WEBHOOK_USER]
+        )
+        # "ToDo" / "Note" ship with no DocPerm for the webhook role (verified against
+        # the live fixtures), so they are clean baselines for deny/grant.
+        self.denied_doctype = "ToDo"
+        self.granted_doctype = "Note"
+        self._added_docperm = None
+
+    def tearDown(self):
+        if self._added_docperm and frappe.db.exists("DocPerm", self._added_docperm):
+            frappe.delete_doc("DocPerm", self._added_docperm, force=True)
+            frappe.clear_cache(doctype=self.granted_doctype)
+            frappe.db.commit()
+        super().tearDown()
+
+    def _grant_webhook_read(self, doctype):
+        """Add a DocPerm giving the webhook role read on doctype (the exact row
+        shape _check_service_account_permission queries for)."""
+        perm = frappe.get_doc(
+            {
+                "doctype": "DocPerm",
+                "parent": doctype,
+                "parenttype": "DocType",
+                "parentfield": "permissions",
+                "role": Roles.WEBHOOK_USER,
+                "permlevel": 0,
+                "read": 1,
+            }
+        )
+        perm.insert(ignore_permissions=True)
+        self._added_docperm = perm.name
+        frappe.clear_cache(doctype=doctype)
+        frappe.db.commit()
+
+    def test_service_account_grant_and_deny_deterministic(self):
+        from verenigingen.permissions import _check_service_account_permission
+
+        # No DocPerm for the webhook role on the denied doctype -> False (not None).
+        self.assertIs(
+            _check_service_account_permission(self.webhook_user.name, self.denied_doctype, "read"),
+            False,
+            "webhook account without a matching DocPerm must be denied",
+        )
+
+        # Grant read DocPerm, then the same call must return True.
+        self._grant_webhook_read(self.granted_doctype)
+        self.assertIs(
+            _check_service_account_permission(self.webhook_user.name, self.granted_doctype, "read"),
+            True,
+            "webhook account WITH a matching read DocPerm must be granted",
+        )
+
+
 def teardown_module():
     frappe.db.rollback()

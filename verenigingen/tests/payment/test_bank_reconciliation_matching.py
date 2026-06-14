@@ -151,6 +151,59 @@ class TestReconciliationMatchingNoMatch(EnhancedTestCase):
         self.assertIsNone(self.mgr.match_by_description(txn))
 
 
+class TestReconciliationMatchingPositive(EnhancedTestCase):
+    """Matching strategies actually FIND a seeded record (DB-backed, real)."""
+
+    def setUp(self):
+        super().setUp()
+        self.mgr = PaymentReconciliationManager()
+
+    def test_batch_reference_matches_seeded_batch(self):
+        """match_by_batch_reference finds a real Direct Debit Batch when the
+        description carries its BATCH- name and the deposit equals total_amount."""
+        batch = self.create_test_direct_debit_batch(invoice_count=1)
+        # The batch autonames to BATCH-YY-MM-#### which the matcher's
+        # r"BATCH-([A-Z0-9-]+)" regex captures, then resolves via a LIKE on name.
+        self.assertTrue(batch.name.startswith("BATCH-"))
+        self.assertGreater(float(batch.total_amount), 0)
+
+        txn = {"description": f"Incoming SEPA {batch.name}", "deposit": float(batch.total_amount)}
+        result = self.mgr.match_by_batch_reference(txn)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["type"], "batch")
+        self.assertEqual(result["reference"], batch.name)
+        self.assertEqual(result["confidence"], 1.0)
+
+    def test_batch_reference_amount_mismatch_returns_none(self):
+        """A correct batch reference but a wrong amount must NOT match (guards the
+        amount-equality check inside match_by_batch_reference)."""
+        batch = self.create_test_direct_debit_batch(invoice_count=1)
+        txn = {"description": f"Wrong amount {batch.name}", "deposit": float(batch.total_amount) + 100.0}
+        self.assertIsNone(self.mgr.match_by_batch_reference(txn))
+
+    def test_description_invoice_pattern_matches_seeded_invoice(self):
+        """match_by_description finds a real Sales Invoice when its name appears
+        after the INVOICE keyword in the transaction description."""
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"Recon Customer {self.uid}"
+        customer.customer_type = "Individual"
+        customer.insert()
+        self.created_records.append(("Customer", customer.name))
+
+        invoice = self.create_test_sales_invoice(customer=customer.name)
+        self.created_records.append(("Sales Invoice", invoice.name))
+
+        # match_by_description upper-cases the description; the captured token must
+        # still resolve via frappe.db.exists("Sales Invoice", reference). Invoice
+        # names like "ACC-SINV-..." are upper-case already so survive the .upper().
+        txn = {"description": f"INVOICE {invoice.name}", "deposit": float(invoice.grand_total)}
+        result = self.mgr.match_by_description(txn)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["type"], "invoice")
+        self.assertEqual(result["reference"], invoice.name)
+        self.assertEqual(result["confidence"], 0.9)
+
+
 class TestEndToEndIdParsing(EnhancedTestCase):
     """handle_payment_rejection / mark_payment_successful parse the E2E id."""
 
