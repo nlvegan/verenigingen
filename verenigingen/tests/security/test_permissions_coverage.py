@@ -938,32 +938,11 @@ class TestVolunteerTeamLeader(PermissionsCoverageBase):
         self.team.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Grant the acting user the "Team Leader" role so the management branch of the
-        # permission functions fires. This MUST happen last and via a direct Has Role
-        # insert (not User.save): creating the Member/Volunteer and the Team triggers
-        # the role-profile recalculation hooks (team_role_profile_hooks ->
-        # auto_sync_on_role_change), which rewrite the user's roles and strip any role
-        # not justified by the calculated profile — so a role appended before those
-        # saves is silently dropped. Inserting Has Role afterwards and clearing the
-        # user cache makes frappe.get_roles see it without re-triggering the hooks.
-        if not frappe.db.exists("Role", Roles.TEAM_LEADER):
-            frappe.get_doc(
-                {"doctype": "Role", "role_name": Roles.TEAM_LEADER, "desk_access": 1}
-            ).insert(ignore_permissions=True)
-        if not frappe.db.exists("Has Role", {"parent": self.regular_user.name, "role": Roles.TEAM_LEADER}):
-            frappe.get_doc(
-                {
-                    "doctype": "Has Role",
-                    "parent": self.regular_user.name,
-                    "parenttype": "User",
-                    "parentfield": "roles",
-                    "role": Roles.TEAM_LEADER,
-                }
-            ).insert(ignore_permissions=True)
-        frappe.db.commit()
-        frappe.clear_cache(user=self.regular_user.name)
-        # Confirm the precondition the branch depends on.
-        self.assertIn(Roles.TEAM_LEADER, frappe.get_roles(self.regular_user.name))
+        # NOTE: no role is granted to the acting user. Team-leader access is derived
+        # from the team data (leader_volunteer holds an is_team_leader Team Role on an
+        # active membership), NOT from a "Team Leader" role — production never assigns
+        # that role, so the permission branches are intentionally not role-gated. This
+        # exercises the real production path.
 
     def test_volunteer_query_team_leader_scopes_team(self):
         """The team-leader branch of get_volunteer_permission_query must, when run
@@ -994,8 +973,8 @@ class TestVolunteerTeamLeader(PermissionsCoverageBase):
     def test_has_volunteer_permission_team_leader_branch(self):
         """has_volunteer_permission for a team leader.
 
-        The acting user holds the Team Leader role and leads a team that includes the
-        teammate volunteer. We assert:
+        The acting user leads a team (via an is_team_leader Team Role, no special
+        user role) that includes the teammate volunteer. We assert:
         - own volunteer -> True (the member branch grants this);
         - the teammate's volunteer -> True (the team-leader branch grants this);
         - a non-team volunteer -> False (no branch grants it).
