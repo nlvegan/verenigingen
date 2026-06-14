@@ -236,18 +236,28 @@ class AccountCreationRequest(Document):
     def get_application_invoice(self, member):
         """Get the application invoice for a member"""
         try:
-            # Get application invoice from payment history
+            # Get application invoice from payment history.
+            # Member Payment History has no "invoice_type"/"description" fields; the
+            # onboarding/application invoice is the first membership invoice for the
+            # member (transaction_type == "Membership Invoice"). Pick the earliest by
+            # posting_date so we return the original application invoice.
             payment_history = getattr(member, "payment_history", None) or []
 
-            for payment in payment_history:
-                payment_description = getattr(payment, "description", None) or ""
-                invoice_type = getattr(payment, "invoice_type", None)
-                if invoice_type == "Application" or "application" in payment_description.lower():
-                    invoice_name = getattr(payment, "invoice", None)
-                    if invoice_name:
-                        return frappe.get_doc("Sales Invoice", invoice_name)
+            membership_rows = [
+                payment
+                for payment in payment_history
+                if getattr(payment, "transaction_type", None) == "Membership Invoice"
+                and getattr(payment, "invoice", None)
+            ]
 
-            return None
+            if not membership_rows:
+                return None
+
+            earliest = min(
+                membership_rows,
+                key=lambda p: getattr(p, "posting_date", None) or frappe.utils.getdate("9999-12-31"),
+            )
+            return frappe.get_doc("Sales Invoice", earliest.invoice)
         except Exception as e:
             frappe.log_error(f"Error getting application invoice: {str(e)}")
             return None
