@@ -131,67 +131,6 @@ class CommunicationManager(BaseManager):
             )
             return False
 
-    def notify_role_transition(self, volunteer: str, old_role: str, new_role: str) -> bool:
-        """
-        Send notification for board role transition
-
-        Args:
-            volunteer: Volunteer ID
-            old_role: Previous role
-            new_role: New role
-
-        Returns:
-            bool: Whether notification was sent successfully
-        """
-        try:
-            volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-
-            if not volunteer_doc.member:
-                return False
-
-            member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-            if not member_doc.email:
-                return False
-
-            # Get email template
-            template = self._get_email_template("board_role_transition")
-            if not template:
-                # Fallback to generic template
-                template = self._get_email_template("board_member_added")
-                if not template:
-                    return False
-
-            # Prepare context for email
-            context = {
-                "member": member_doc,
-                "volunteer": volunteer_doc,
-                "chapter": self.chapter_doc,
-                "old_role": old_role,
-                "new_role": new_role,
-                "chapter_name": self.chapter_name,
-                "transition_type": "role_change",
-            }
-
-            # Send email
-            return self._send_templated_email(
-                template=template,
-                recipients=[member_doc.email],
-                subject=_("Role Transition: {0}").format(self.chapter_name),
-                context=context,
-                reference_doctype="Chapter",
-                reference_name=self.chapter_name,
-                notification_key="chapter_board_added",  # Role change treated as board update
-            )
-
-        except Exception as e:
-            self.log_action(
-                "Failed to send role transition notification",
-                {"volunteer": volunteer, "old_role": old_role, "new_role": new_role, "error": str(e)},
-                "error",
-            )
-            return False
-
     def notify_member_added(self, member_id: str) -> bool:
         """
         Send notification when member is added to chapter

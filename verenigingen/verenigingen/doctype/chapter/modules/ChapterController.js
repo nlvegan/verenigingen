@@ -206,11 +206,6 @@ export class ChapterController {
 				group: __('Board')
 			},
 			{
-				label: __('Transition Board Role'),
-				action: () => this.boardManager.showTransitionDialog(),
-				group: __('Board')
-			},
-			{
 				label: __('View Board History'),
 				action: () => this.boardManager.showHistory(),
 				group: __('Board')

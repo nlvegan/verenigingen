@@ -79,7 +79,6 @@ export class BoardManager {
 	 *
 	 * @description Available Actions:
 	 * - Manage Board Members: Add/remove board members with validation
-	 * - Transition Board Role: Handle role changes and succession planning
 	 * - View Board History: Display historical board composition and changes
 	 * - Sync with Volunteer System: Integrate with volunteer management
 	 * - Bulk Remove Board Members: Efficient bulk operations for board changes
@@ -91,7 +90,6 @@ export class BoardManager {
 	addButtons() {
 		// Add board management buttons
 		this.ui.addButton(__('Manage Board Members'), () => this.showManageDialog(), __('Board'));
-		this.ui.addButton(__('Transition Board Role'), () => this.showTransitionDialog(), __('Board'));
 		this.ui.addButton(__('View Board History'), () => this.showHistory(), __('Board'));
 		this.ui.addButton(__('Sync with Volunteer System'), () => this.syncWithVolunteerSystem(), __('Board'));
 		this.ui.addButton(__('Bulk Remove Board Members'), () => this.showBulkRemoveDialog(), __('Board'));
@@ -455,67 +453,6 @@ export class BoardManager {
 					}
 				} catch (error) {
 					this.ui.showError(__('Failed to add board member: {0}', [error.message]));
-				}
-			}
-		});
-	}
-
-	async showTransitionDialog() {
-		const activeMembers = this.getActiveBoardMembers();
-
-		if (!activeMembers || activeMembers.length === 0) {
-			this.ui.showError(__('No active board members found'));
-			return;
-		}
-
-		const dialog = this.ui.showDialog({
-			title: __('Transition Board Role'),
-			fields: [
-				{
-					fieldname: 'current_volunteer',
-					fieldtype: 'Select',
-					label: __('Current Board Member'),
-					options: activeMembers
-						.map((m) => `${m.volunteer} | ${m.volunteer_name} (${m.chapter_role})`)
-						.join('\n'),
-					reqd: 1
-				},
-				{
-					fieldname: 'new_role',
-					fieldtype: 'Link',
-					label: __('New Role'),
-					options: 'Chapter Role',
-					reqd: 1
-				},
-				{
-					fieldname: 'transition_date',
-					fieldtype: 'Date',
-					label: __('Transition Date'),
-					default: frappe.datetime.get_today(),
-					reqd: 1
-				}
-			],
-			primary_action_label: __('Transition Role'),
-			primary_action: async (values) => {
-				const volunteer = values.current_volunteer.split(' | ')[0];
-
-				try {
-					const result = await this.api.call(
-						'verenigingen.verenigingen.doctype.chapter.chapter.transition_board_role',
-						{
-							doc: this.frm.doc.name,
-							volunteer,
-							new_role: values.new_role,
-							transition_date: values.transition_date
-						}
-					);
-
-					if (result) {
-						dialog.hide();
-						this.frm.reload_doc();
-					}
-				} catch (error) {
-					this.ui.showError(__('Failed to transition role: {0}', [error.message]));
 				}
 			}
 		});

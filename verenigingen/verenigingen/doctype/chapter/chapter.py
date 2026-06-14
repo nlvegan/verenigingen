@@ -320,12 +320,6 @@ class Chapter(Document):
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
-    def transition_board_role(self, volunteer, new_role, transition_date=None):
-        """Transition a board member's role - delegates to BoardManager"""
-        return self.board_manager.transition_board_role(volunteer, new_role, transition_date)
-
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.ADMIN)
     def bulk_remove_board_members(self, board_members):
         """Bulk remove board members - delegates to BoardManager"""
         return self.board_manager.bulk_remove_board_members(board_members)

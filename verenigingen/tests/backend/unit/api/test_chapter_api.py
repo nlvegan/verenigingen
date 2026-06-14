@@ -96,29 +96,6 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         # Verify the API call succeeded
         self.assertIsNotNone(result)
 
-    def test_transition_board_role_whitelist(self):
-        """Test transition_board_role method"""
-        chapter = self.test_chapter
-        member = self.create_test_member()
-        volunteer = self.create_test_volunteer(member=member)
-
-        # Add board member with initial role via API
-        chapter.add_board_member(
-            volunteer=volunteer.name,
-            role="Board Member",
-            from_date=add_days(today(), -90),
-        )
-
-        # Transition to new role
-        result = chapter.transition_board_role(
-            volunteer=volunteer.name,
-            new_role="President",
-            transition_date=today(),
-        )
-
-        # Verify the API call succeeded
-        self.assertIsNotNone(result)
-
     def test_bulk_remove_board_members_whitelist(self):
         """Test bulk_remove_board_members method"""
         chapter = self.test_chapter

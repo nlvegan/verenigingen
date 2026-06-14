@@ -166,30 +166,6 @@ class TestBoardManager(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError):
             self.manager.remove_board_member(volunteer.name, notify=False)
 
-    # ==================================================== transition_board_role
-
-    def test_transition_board_role_deactivates_old_role(self):
-        # transition_board_role ends the current role (the add-new-role line is
-        # commented out in production), so the observable effect is the old role
-        # row going inactive.
-        _member, volunteer, old_role = self._seat_board(first="Transit")
-        result = self.manager.transition_board_role(
-            volunteer.name, "Treasurer-elect", transition_date=today(), reason="reorg"
-        )
-        self.assertTrue(result["success"])
-
-        self._reload_chapter()
-        old_row = next(
-            b for b in self.chapter.board_members if b.volunteer == volunteer.name and b.chapter_role == old_role
-        )
-        self.assertFalse(old_row.is_active)
-        self.assertFalse(self.chapter.board_manager.is_board_member(volunteer_name=volunteer.name))
-
-    def test_transition_board_role_not_active_throws(self):
-        _member, volunteer = self._make_volunteer(first="NoTransit")
-        with self.assertRaises(frappe.ValidationError):
-            self.manager.transition_board_role(volunteer.name, "Whatever")
-
     # ===================================================== bulk_remove_board_members
 
     def test_bulk_remove_board_members_removes_matching_rows(self):

@@ -25149,22 +25149,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "transition_board_role",
-  "operation_name": "transition_board_role",
-  "operation_type": "admin",
-  "description": "Execute transition board role operation",
-  "enabled": 1,
-  "security_level": "low",
-  "business_context": "System operations for verenigingen.verenigingen.doctype.chapter.chapter module functionality",
-  "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-  "rate_limit_calls": 180,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "update_volunteer_assignment_history",
   "operation_name": "update_volunteer_assignment_history",
   "operation_type": "admin",

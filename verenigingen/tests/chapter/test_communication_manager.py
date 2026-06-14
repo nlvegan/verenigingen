@@ -149,21 +149,6 @@ class TestCommunicationManager(VereningingenTestCase):
         _member, volunteer = self._make_volunteer(first="NotifyRemTmpl")
         self.assertIsInstance(self.manager.notify_board_member_removed(volunteer.name), bool)
 
-    # ===================================================== notify_role_transition
-
-    def test_notify_role_transition_falls_back_to_added_template(self):
-        # No 'board_role_transition' template, but 'board_member_added' exists ->
-        # the fallback path is taken (no exception, bool returned).
-        self._make_email_template(name="board_member_added")
-        _member, volunteer = self._make_volunteer(first="NotifyTrans")
-        self.assertIsInstance(
-            self.manager.notify_role_transition(volunteer.name, "Old", "New"), bool
-        )
-
-    def test_notify_role_transition_no_templates_returns_false(self):
-        _member, volunteer = self._make_volunteer(first="NotifyTransNo")
-        self.assertFalse(self.manager.notify_role_transition(volunteer.name, "Old", "New"))
-
     # ===================================================== notify_member_added/removed
 
     def test_notify_member_added_missing_template_returns_false(self):
