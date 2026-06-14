@@ -391,6 +391,75 @@ class TestCommunicationManager(VereningingenTestCase):
         )
         self.assertIsInstance(result, bool)
 
+    # ============================ regression: chapter emails silently failed
+    #
+    # Two stacked defects made EVERY chapter notification email return False:
+    #   1. _send_templated_email forwarded reference_doctype/reference_name into
+    #      send_chapter_email, which then splatted them onto
+    #      email_service.send_templated_email(reference_doctype="Chapter", ...) ->
+    #      TypeError: multiple values for keyword argument 'reference_doctype'.
+    #   2. The caller read send_chapter_email's OperationResult via .get("success")
+    #      / .get("errors") -> AttributeError (OperationResult has no .get()).
+    # Both were swallowed by the outer try/except, so the method always returned
+    # False. The assertions below assert the method now returns TRUE on the happy
+    # path (a real bool True, not just "isinstance bool" which the buggy code also
+    # satisfied), and that the collision path no longer raises.
+
+    def test_send_templated_email_succeeds_with_reference_kwargs(self):
+        # The focused collision regression: passing reference_doctype/reference_name
+        # (exactly what every notify_* method passes) must NOT raise and must
+        # return True now that the keys are no longer double-forwarded.
+        tmpl = self._make_email_template()
+        result = self.manager._send_templated_email(
+            template=tmpl,
+            recipients=[self.member.email],
+            subject="Collision regression",
+            context={"chapter_name": self.chapter.name},
+            reference_doctype="Chapter",
+            reference_name=self.chapter.name,
+            notification_key="chapter_generic_notification",
+        )
+        self.assertTrue(
+            result,
+            "chapter email must succeed; previously returned False due to a "
+            "reference_doctype kwargs collision (TypeError) + OperationResult.get() "
+            "AttributeError swallowed by the outer except",
+        )
+
+    def test_send_chapter_email_returns_operation_result_success(self):
+        # Boundary assertion: the compatibility wrapper the manager calls returns a
+        # real OperationResult with .success truthy (not a dict, not raising).
+        from verenigingen.services.communication.compatibility import send_chapter_email
+        from verenigingen.utils.operation_result import OperationResult
+
+        tmpl = self._make_email_template()
+        result = send_chapter_email(
+            chapter_name=self.chapter.name,
+            recipients=[self.member.email],
+            subject="Wrapper boundary",
+            template=tmpl.name,
+            context={"chapter_name": self.chapter.name},
+            communication_type="Email",
+            notification_key="chapter_generic_notification",
+        )
+        self.assertIsInstance(result, OperationResult)
+        self.assertTrue(result.success, f"send_chapter_email failed: {result.errors}")
+
+    def test_notify_board_member_added_returns_true(self):
+        # End-to-end regression through a real notify_* method: with the template
+        # present and a real volunteer/member, this routed through the broken
+        # _send_templated_email and returned False. It must now return True.
+        self._make_email_template(name="board_member_added")
+        _member, volunteer = self._make_volunteer(first="NotifyAddTrue")
+        result = self.manager.notify_board_member_added(volunteer.name, "Some Role")
+        self.assertIs(result, True)
+
+    def test_notify_member_added_returns_true(self):
+        # Member-facing notification path through _send_templated_email.
+        self._make_email_template(name="member_added_to_chapter")
+        result = self.manager.notify_member_added(self.member.name)
+        self.assertIs(result, True)
+
     # ===================================================== _validate_email_settings
 
     def test_validate_email_settings_returns_bool(self):

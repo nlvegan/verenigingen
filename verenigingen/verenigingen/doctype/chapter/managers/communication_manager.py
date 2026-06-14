@@ -709,6 +709,13 @@ class CommunicationManager(BaseManager):
             # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
             from verenigingen.services.communication.compatibility import send_chapter_email
 
+            # NOTE: Do NOT forward reference_doctype/reference_name into
+            # send_chapter_email. That wrapper hardcodes the reference to the
+            # chapter ("Chapter"/chapter_name) and splats any extra kwargs into
+            # email_service.send_templated_email(), so forwarding these keys
+            # collides with the hardcoded ones -> TypeError (multiple values for
+            # keyword argument 'reference_doctype'). The chapter reference is the
+            # correct reference for a chapter email, so we rely on the wrapper's.
             result = send_chapter_email(
                 chapter_name=self.chapter_name,
                 recipients=recipients,
@@ -716,12 +723,12 @@ class CommunicationManager(BaseManager):
                 template=template.name if template else None,
                 context=context,
                 communication_type="Email",
-                reference_doctype=reference_doctype,
-                reference_name=reference_name,
                 notification_key=notification_key,
             )
 
-            if result.get("success"):
+            # send_chapter_email returns an OperationResult dataclass (not a dict),
+            # so access attributes directly rather than .get().
+            if result.success:
                 self.log_action(
                     f"Email sent using template {template.name if template else 'direct'}",
                     {"recipients_count": len(recipients), "subject": subject},
@@ -733,7 +740,7 @@ class CommunicationManager(BaseManager):
                     {
                         "template": template.name if template else "None",
                         "recipients_count": len(recipients),
-                        "errors": result.get("errors", []),
+                        "errors": result.errors,
                     },
                     "error",
                 )
