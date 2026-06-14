@@ -10,7 +10,6 @@ helpers that bridge memberships, dues schedules and invoices:
   - ``get_member_billing_status`` (comprehensive billing snapshot)
   - ``_calculate_member_paid_ytd_optimized`` / ``_calculate_member_paid_ytd_python``
   - ``adjust_dues_schedule`` (whitelisted edit endpoint)
-  - ``create_payment_plan`` (whitelisted installment-plan endpoint)
 
 The secondary target ``verenigingen/utils/schedule_naming_helper.py``
 (``generate_dues_schedule_name``) is exercised through real schedule creation.
@@ -315,51 +314,6 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
         result = mdi.adjust_dues_schedule(schedule_name)
         self.assertFalse(result["success"])
         self.assertIn("No changes", result["message"])
-
-    # ------------------------------------------------------------- create_payment_plan
-
-    def test_create_payment_plan_creates_installment_schedules(self):
-        # The one-active-schedule invariant (validate_template_or_instance)
-        # blocks inserting ANY further instance schedule while the member has an
-        # Active one. The membership.on_submit already created an Active
-        # schedule, so cancel it first. (This invariant makes create_payment_plan
-        # unusable for members with a normal Active schedule -- see module-level
-        # FLAG / report.)
-        for name in self._active_schedule_for_member():
-            sched = frappe.get_doc("Membership Dues Schedule", name)
-            sched.status = "Cancelled"
-            sched.save()
-
-        result = mdi.create_payment_plan(
-            self.member.name,
-            total_amount=120.0,
-            installments=3,
-            notes="quarterly plan",
-        )
-        self.assertTrue(result["success"])
-        plan = result["payment_plan"]
-        self.assertEqual(plan["installments"], 3)
-        self.assertEqual(float(plan["installment_amount"]), 40.0)
-        self.assertEqual(len(plan["schedules"]), 3)
-
-        for idx, sched_name in enumerate(plan["schedules"]):
-            self.track_doc("Membership Dues Schedule", sched_name)
-            sched = frappe.get_doc("Membership Dues Schedule", sched_name)
-            self.assertEqual(float(sched.dues_rate), 40.0)
-            self.assertEqual(sched.member, self.member.name)
-            self.assertEqual(
-                getdate(sched.next_invoice_date),
-                getdate(add_months(today(), idx)),
-            )
-
-    def test_create_payment_plan_no_membership_throws(self):
-        lone = self.create_test_member(
-            first_name="PlanLess",
-            last_name="Member",
-            email=f"planless.{frappe.generate_hash(length=6)}@test.invalid",
-        )
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            mdi.create_payment_plan(lone.name, total_amount=100.0, installments=2)
 
     # ---------------------------------------------------- schedule_naming_helper
 

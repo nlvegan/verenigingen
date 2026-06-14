@@ -5,7 +5,7 @@ Handles the connection between memberships, dues schedules, and invoices
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_months, cint, flt, getdate, today
+from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.member_utils import get_active_membership_for_member
@@ -335,68 +335,3 @@ def adjust_dues_schedule(
         return {"success": True, "changes": changes, "schedule": schedule_name}
     else:
         return {"success": False, "message": "No changes made"}
-
-
-@frappe.whitelist()
-def create_payment_plan(member_name: str, total_amount, installments, start_date=None, notes=None):
-    """Create a payment plan with multiple dues schedules"""
-
-    # Whitelisted args arrive as strings; coerce to numbers.
-    total_amount = flt(total_amount)
-    installments = cint(installments)
-    if installments <= 0:
-        frappe.throw("Number of installments must be a positive integer")
-
-    start_date = start_date or today()
-    installment_amount = total_amount / installments
-
-    # Get membership (and its type, used to satisfy the schedule's
-    # membership_type / naming requirements).
-    membership_info = get_active_membership_for_member(member_name, ["name", "membership_type"])
-    membership = membership_info["name"] if membership_info else None
-
-    if not membership:
-        frappe.throw(f"No membership found for {member_name}")
-
-    membership_type = membership_info.get("membership_type")
-    if not membership_type:
-        frappe.throw(f"Active membership for {member_name} has no membership type")
-
-    schedules_created = []
-
-    for i in range(installments):
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.member = member_name
-        schedule.membership = membership
-        schedule.membership_type = membership_type
-        # schedule_name is reqd (autoname: field:schedule_name).
-        schedule.schedule_name = generate_dues_schedule_name(member_name, membership_type)
-        # "Custom" billing requires an explicit frequency number + unit; each
-        # installment is a one-off monthly step.
-        schedule.billing_frequency = "Custom"
-        schedule.custom_frequency_number = 1
-        schedule.custom_frequency_unit = "Months"
-        schedule.dues_rate = installment_amount
-        schedule.next_invoice_date = add_months(start_date, i)
-        schedule.auto_generate = 1
-        # Only one schedule per member may be "Active"; payment-plan
-        # installments use the dedicated "Payment Plan Active" status so they
-        # do not trip the single-active-schedule / billing-frequency-consistency
-        # guards.
-        schedule.status = "Payment Plan Active"
-        schedule.notes = f"Payment plan installment {i + 1} of {installments}"
-        if notes:
-            schedule.notes += f"\n{notes}"
-
-        schedule.insert()
-        schedules_created.append(schedule.name)
-
-    return {
-        "success": True,
-        "payment_plan": {
-            "total_amount": total_amount,
-            "installments": installments,
-            "installment_amount": installment_amount,
-            "schedules": schedules_created,
-        },
-    }
