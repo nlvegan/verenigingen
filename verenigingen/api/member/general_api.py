@@ -93,7 +93,7 @@ def test_member_form_functionality(member_name: str):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_linked_donations(member: str):
+def get_linked_donations(member: str | None = None):
     """
     Find linked donor record for a member to view donations.
 
