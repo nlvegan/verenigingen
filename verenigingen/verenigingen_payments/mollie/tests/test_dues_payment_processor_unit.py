@@ -260,6 +260,53 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         self.assertEqual(result["bank_transaction"], bt.name)
         self.assertEqual(result["member"], member.name)
 
+    def test_partial_processing_reconciles_new_pe_with_existing_bt(self):
+        # The partial branch must reconcile the newly-created Payment Entry against
+        # the EXISTING Bank Transaction (the full-creation path reconciles too).
+        # Previously the partial path left the BT and the new PE unlinked.
+        customer_id = "cst_dues_recon"
+        self._matched_member(customer_id)
+        ref = f"tr_bt_recon_{frappe.generate_hash(length=8)}"
+        bt = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": today(),
+                "reference_number": ref,
+                "deposit": 25.0,
+                "withdrawal": 0.0,
+                "currency": "EUR",
+                "bank_account": self._ensure_plain_bank_account(),
+            }
+        )
+        bt.insert()
+        bt.submit()
+        frappe.db.commit()
+
+        payment = FakeMolliePayment(id=ref, description="contributie", customer_id=customer_id)
+        self.processor._create_payment_entry_for_dues = lambda *a, **k: "PE-RECON-001"
+
+        def _no_bt(*a, **k):
+            raise AssertionError("Bank Transaction must NOT be created during partial processing")
+
+        self.processor._create_bank_transaction_for_dues = _no_bt
+
+        # Capture the reconciliation call (its body does real ERPNext BT<->PE I/O,
+        # exercised by the integration suites; here we assert the orchestration
+        # invokes it with the existing BT and the new PE).
+        recon_calls = []
+
+        def _capture_reconcile(bt_name, pe_name):
+            recon_calls.append((bt_name, pe_name))
+            return True
+
+        self.processor._reconcile_bank_transaction_with_payment_entry = _capture_reconcile
+
+        result = self.processor.process_dues_payment(ref, payment=payment, creation_mode="Bank Transaction")
+        self.assertEqual(result["status"], "success", msg=result)
+        self.assertTrue(result.get("partial_processing"))
+        self.assertEqual(recon_calls, [(bt.name, "PE-RECON-001")])
+        self.assertTrue(result.get("reconciled"))
+
     def test_already_processed_when_both_records_exist(self):
         # When the idempotency check reports both a Payment Entry and a Bank
         # Transaction, the processor short-circuits to "already_processed". The

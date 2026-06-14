@@ -810,14 +810,22 @@ class DuesPaymentProcessor:
                 record_type = "Payment Entry"
 
                 if record_name:
+                    existing_bt = idempotency_check["bank_transaction"]
                     result["status"] = "success"
                     result["payment_entry"] = record_name
-                    result["bank_transaction"] = idempotency_check["bank_transaction"]  # Reference existing
+                    result["bank_transaction"] = existing_bt  # Reference existing
                     result["record_type"] = record_type
                     result["partial_processing"] = True
+                    # Reconcile the newly-created Payment Entry against the
+                    # EXISTING Bank Transaction. The full-creation path reconciles
+                    # BT<->PE; partial processing must do the same or the existing
+                    # BT and the new PE are left unlinked.
+                    result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
+                        existing_bt, record_name
+                    )
                     result["message"] = (
                         f"Completed partial processing: Created Payment Entry {record_name} "
-                        f"for existing Bank Transaction {idempotency_check['bank_transaction']}"
+                        f"for existing Bank Transaction {existing_bt}"
                     )
             elif creation_mode == "Payment Entry":
                 # DEPRECATED: Legacy mode causes GL entry issues when invoice not linked.
@@ -852,25 +860,9 @@ class DuesPaymentProcessor:
                             result["record_type"] = "Bank Transaction + Payment Entry"
 
                             # Link BT to PE using ERPNext's reconciliation pattern
-                            try:
-                                bt_doc = frappe.get_doc("Bank Transaction", bt_name)
-                                voucher = {
-                                    "payment_doctype": "Payment Entry",
-                                    "payment_name": pe_name,
-                                }
-                                bt_doc.add_payment_entries([voucher])
-                                bt_doc.validate_duplicate_references()
-                                bt_doc.allocate_payment_entries()
-                                bt_doc.update_allocated_amount()
-                                bt_doc.set_status()
-                                bt_doc.save()
-                                result["reconciled"] = True
-                                frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
-                            except Exception as e:
-                                frappe.logger().warning(
-                                    f"Could not reconcile BT {bt_name} with PE {pe_name}: {e}"
-                                )
-                                result["reconciled"] = False
+                            result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
+                                bt_name, pe_name
+                            )
                         else:
                             result["payment_entry"] = None
                     else:
@@ -951,6 +943,27 @@ class DuesPaymentProcessor:
             )
 
         return result
+
+    def _reconcile_bank_transaction_with_payment_entry(self, bt_name: str, pe_name: str) -> bool:
+        """Link a Bank Transaction to a Payment Entry via ERPNext's reconciliation.
+
+        Shared by the full-creation path (new BT + new PE) and partial processing
+        (existing BT + new PE) so both leave the BT and PE reconciled. Returns
+        True on success, False (logged, non-fatal) on failure.
+        """
+        try:
+            bt_doc = frappe.get_doc("Bank Transaction", bt_name)
+            bt_doc.add_payment_entries([{"payment_doctype": "Payment Entry", "payment_name": pe_name}])
+            bt_doc.validate_duplicate_references()
+            bt_doc.allocate_payment_entries()
+            bt_doc.update_allocated_amount()
+            bt_doc.set_status()
+            bt_doc.save()
+            frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
+            return True
+        except Exception as e:
+            frappe.logger().warning(f"Could not reconcile BT {bt_name} with PE {pe_name}: {e}")
+            return False
 
     def _create_payment_entry_for_dues(
         self,
