@@ -813,6 +813,14 @@ class SEPAGateway(PaymentGateway):
                 }
             )
 
+            # Link the mandate to the donor's member (when the donor is a member)
+            # so it appears in the member's mandate list and member-scoped
+            # permission queries. SEPA Mandate is member-scoped (no donor field);
+            # a donor with no linked member yields a member-less mandate, which is
+            # acceptable. `member` is not a required field.
+            if donor.member:
+                mandate.member = donor.member
+
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             mandate_result = secure_document_operation(
                 operation="insert",

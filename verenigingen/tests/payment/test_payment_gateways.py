@@ -150,6 +150,27 @@ class TestSEPAGatewayMandateCreation(EnhancedTestCase):
             frappe.db.get_value("Donation", donation.name, "sepa_mandate"), mandate_name
         )
 
+    def test_mandate_links_to_donor_member(self):
+        # When the donor is linked to a member, the created mandate must carry the
+        # member link so it appears in the member's mandate list and member-scoped
+        # permission queries (regression: mandates were left member-orphan).
+        member = self.create_test_member(
+            first_name="MandateLink",
+            last_name="Donor",
+            email=f"mandatelink.{frappe.generate_hash(length=6)}@test.invalid",
+        )
+        donor = self.create_test_donor(donor_name="Member-Linked Donor", member=member.name)
+        donation = self.create_test_donation(
+            amount=25.0, mode_of_payment="SEPA Direct Debit", donor=donor.name, paid=0
+        )
+        result = SEPAGateway().process_payment(
+            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "Member-Linked Donor"}
+        )
+        self.assertEqual(result["status"], "mandate_created")
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", result["mandate_id"], "member"), member.name
+        )
+
     def test_recurring_donation_yields_rcur_mandate(self):
         donor = self.create_test_donor(donor_name="Recurring SEPA Donor")
         donation = self.create_test_donation(
