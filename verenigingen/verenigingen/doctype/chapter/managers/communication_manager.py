@@ -535,7 +535,7 @@ class CommunicationManager(BaseManager):
             return {"success": False, "error": str(e)}
 
     def create_email_communication(
-        self, recipients: List[str], subject: str, content: str, communication_type: str = "Email"
+        self, recipients: List[str], subject: str, content: str, communication_type: str = "Communication"
     ) -> str:
         """
         Create communication record for tracking
@@ -549,6 +549,12 @@ class CommunicationManager(BaseManager):
         Returns:
             Communication document name
         """
+        # WHY: The Communication doctype's `communication_type` Select only accepts
+        # "Communication" / "Automated Message" -- NOT "Email" ("Email" is a
+        # `communication_medium` value, set separately below). The old default of
+        # "Email" made every insert fail validation, so this method silently
+        # returned None for all callers and no chapter Communication record was
+        # ever created. "Communication" is the correct type for an emailed message.
         try:
             communication = frappe.get_doc(
                 {
@@ -560,7 +566,12 @@ class CommunicationManager(BaseManager):
                     "status": "Sent",
                     "reference_doctype": "Chapter",
                     "reference_name": self.chapter_name,
-                    "recipients": "\n".join(recipients),
+                    # WHY: Communication validates `recipients` as a COMMA-separated
+                    # email list (frappe.utils.split_emails splits on comma/semicolon,
+                    # not newline). Joining with "\n" made the validator treat the
+                    # whole blob as a single invalid address, so any call with 2+
+                    # recipients failed and this method silently returned None.
+                    "recipients": ", ".join(recipients),
                     "sent_or_received": "Sent",
                 }
             )
