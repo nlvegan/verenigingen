@@ -829,8 +829,12 @@ class DuesPaymentProcessor:
                 )
                 creation_mode = "Bank Transaction"
 
-            if creation_mode == "Bank Transaction":
-                # Default mode: Create Bank Transaction for reconciliation
+            if creation_mode == "Bank Transaction" and not partial_processing:
+                # Default mode: Create Bank Transaction for reconciliation.
+                # Skipped during partial processing: a Bank Transaction already
+                # exists there (the partial branch above only creates the missing
+                # Payment Entry); running this block would create a duplicate BT
+                # and overwrite the partial-processing success result.
                 bt_name = self._create_bank_transaction_for_dues(member_name, payment)
                 record_type = "Bank Transaction"
 
