@@ -121,3 +121,44 @@ class TestSEPAGatewayValidation(EnhancedTestCase):
         result = SEPAGateway().process_payment(donation, {"donor_iban": "NL00BANK0000000000"})
         self.assertEqual(result["status"], "error")
         self.assertIn("IBAN", result["message"])
+
+
+class TestSEPAGatewayMandateCreation(EnhancedTestCase):
+    """SEPAGateway end-to-end mandate creation against a real Donor/Donation.
+
+    Regression coverage for the field-name fix in _create_sepa_mandate: it used
+    to write `signature_date` (no such field) instead of the required `sign_date`,
+    so every mandate insert failed with a MandatoryError and process_payment
+    returned "Failed to create SEPA mandate". It also wrote a nonexistent
+    `payment_method` field on the Donation, which raised on db_set.
+    """
+
+    def test_process_payment_creates_mandate_and_links_donation(self):
+        donor = self.create_test_donor(donor_name="SEPA Gateway Donor")
+        donation = self.create_test_donation(
+            amount=20.0, mode_of_payment="SEPA Direct Debit", donor=donor.name, paid=0
+        )
+        result = SEPAGateway().process_payment(
+            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "SEPA Gateway Donor"}
+        )
+        self.assertEqual(result["status"], "mandate_created")
+        mandate_name = result["mandate_id"]
+        self.assertTrue(frappe.db.exists("SEPA Mandate", mandate_name))
+        # The mandate carries the required sign_date and the donation links to it.
+        self.assertTrue(frappe.db.get_value("SEPA Mandate", mandate_name, "sign_date"))
+        self.assertEqual(
+            frappe.db.get_value("Donation", donation.name, "sepa_mandate"), mandate_name
+        )
+
+    def test_recurring_donation_yields_rcur_mandate(self):
+        donor = self.create_test_donor(donor_name="Recurring SEPA Donor")
+        donation = self.create_test_donation(
+            amount=30.0, mode_of_payment="SEPA Direct Debit", donor=donor.name, paid=0, status="Recurring"
+        )
+        result = SEPAGateway().process_payment(
+            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "Recurring SEPA Donor"}
+        )
+        self.assertEqual(result["status"], "mandate_created")
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", result["mandate_id"], "mandate_type"), "RCUR"
+        )

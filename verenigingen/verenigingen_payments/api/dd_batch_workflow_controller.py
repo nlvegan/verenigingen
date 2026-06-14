@@ -228,6 +228,12 @@ def approve_batch(batch_name: str, approval_notes=None):
                 _("Batch validation failed: {0}").format(", ".join(validation_result.get("issues", [])))
             )
 
+        # validate_batch_for_approval() loads its own copy of the batch and db_set()s
+        # risk_level/approval_notes, which bumps the DB `modified` timestamp. Reload
+        # our in-memory doc so the subsequent save() doesn't fail with a
+        # TimestampMismatchError ("has been modified after you have opened it").
+        batch.reload()
+
         # Add approval notes
         if approval_notes:
             current_notes = batch.approval_notes or ""

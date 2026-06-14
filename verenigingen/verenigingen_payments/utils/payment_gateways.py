@@ -746,9 +746,12 @@ class SEPAGateway(PaymentGateway):
         mandate = self._create_sepa_mandate(donation, iban, form_data)
 
         if mandate:
-            # Update donation with SEPA details
+            # Update donation with SEPA details. Donation has no `payment_method`
+            # field (the payment method lives on `mode_of_payment`, which the
+            # donation flow already sets), so only the mandate link is persisted
+            # here - the old db_set("payment_method", ...) wrote to a nonexistent
+            # column and raised, aborting the otherwise-successful mandate flow.
             donation.db_set("sepa_mandate", mandate.name)
-            donation.db_set("payment_method", "SEPA Direct Debit")
 
             return {
                 "status": "mandate_created",
@@ -788,20 +791,25 @@ class SEPAGateway(PaymentGateway):
             formatted_iban = validation_result.get("formatted", iban) if validation_result["valid"] else iban
             bic = derive_bic_from_iban(iban)
 
-            # Create mandate
+            # Create mandate. Field names must match the SEPA Mandate DocType:
+            # the signature date field is `sign_date` (required) - NOT
+            # `signature_date`. Setting the wrong name left sign_date empty and
+            # the insert failed with a MandatoryError, so SEPA mandate creation
+            # for donations never succeeded. The DocType also has no `customer`,
+            # `mandate_reference`, `reference_doctype` or `reference_name` fields
+            # (those were silently dropped); the donation->mandate link is stored
+            # on the donation via `donation.db_set("sepa_mandate", mandate.name)`
+            # in process_payment(). `mandate_id`/`scheme`/`status` are filled by
+            # the controller/field defaults.
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.update(
                 {
-                    "customer": getattr(donor, "customer", None),
                     "iban": formatted_iban,
                     "bic": bic,
                     "account_holder_name": form_data.get("donor_name", donor.donor_name),
                     "mandate_type": "RCUR" if donation.status == "Recurring" else "OOFF",
                     "status": "Active",
-                    "mandate_reference": f"MAND-{donation.name}",
-                    "signature_date": getdate(),
-                    "reference_doctype": "Donation",
-                    "reference_name": donation.name,
+                    "sign_date": getdate(),
                 }
             )
 
