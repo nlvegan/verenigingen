@@ -112,13 +112,6 @@ class TestMembershipEndpoints(VereningingenTestCase):
         status = frappe.db.get_value("Membership Dues Schedule", schedule_name, "status")
         self.assertEqual(status, "Paused")
 
-    # ------------------------------------------------------------------ show_payment_history
-
-    def test_show_payment_history_no_dues_schedule(self):
-        # Normal membership has no dues_schedule field set -> empty history.
-        result = mship.show_payment_history(self.membership.name)
-        self.assertEqual(result, [])
-
     # ------------------------------------------------------------------ show_all_invoices
 
     def test_show_all_invoices_empty(self):

@@ -680,79 +680,6 @@ class Membership(Document):
 
         return 0
 
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.FINANCIAL)
-    def create_dues_schedule_from_membership(self):
-        """Create a Membership Dues Schedule for this membership"""
-        dues_schedule = getattr(self, "dues_schedule", None)
-        if dues_schedule:
-            return dues_schedule
-
-        # Create dues schedule
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-
-        # Set required fields using new naming pattern
-        from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
-
-        dues_schedule.schedule_name = generate_dues_schedule_name(self.member, self.membership_type)
-        dues_schedule.member = self.member
-        dues_schedule.membership_type = self.membership_type
-        # CRITICAL: Set the membership field to link back to this membership
-        dues_schedule.membership = self.name
-
-        # Set dues rate from billing amount or membership type
-        billing_amount = self.get_billing_amount() if hasattr(self, "get_billing_amount") else None
-        if billing_amount:
-            dues_schedule.dues_rate = billing_amount
-        else:
-            # Get amount from membership type template (required configuration)
-            template = load_template_for_membership_type(self.membership_type)
-
-            # Use suggested_amount as primary, with dues_rate as fallback if configured
-            if template.suggested_amount:
-                dues_schedule.dues_rate = template.suggested_amount
-            elif template.dues_rate:
-                dues_schedule.dues_rate = template.dues_rate
-            else:
-                frappe.throw(
-                    f"Dues schedule template '{template.name}' must have either "
-                    "suggested_amount or dues_rate configured"
-                )
-
-        # Set billing frequency based on membership type
-        if self.membership_type:
-            membership_type = frappe.get_doc("Membership Type", self.membership_type)
-            # Map membership type billing periods to billing frequencies
-            period_mapping = {
-                "Monthly": "Monthly",
-                "Quarterly": "Quarterly",
-                "Annual": "Annual",
-                "Biannual": "Semi-Annual",  # Fixed mapping
-                "Lifetime": "Annual",  # Lifetime memberships still bill annually
-                "Daily": "Monthly",  # Daily periods converted to monthly billing
-                "Custom": "Annual",  # Custom periods default to annual
-            }
-
-            billing_period = getattr(membership_type, "billing_period", None) or "Annual"
-            dues_schedule.billing_frequency = period_mapping.get(billing_period, "Annual")
-
-        # Set contribution mode
-        dues_schedule.contribution_mode = "Income-Based"
-        dues_schedule.default_multiplier = 1.0
-
-        # Set status
-        dues_schedule.status = "Active"
-        dues_schedule.auto_generate = 1  # Enable auto invoice generation
-
-        # Insert the dues schedule
-        dues_schedule.insert()
-
-        # Link to membership
-        self.dues_schedule = dues_schedule.name
-        self.db_set("dues_schedule", dues_schedule.name)
-
-        return dues_schedule.name
-
     def update_member_status(self):
         """Update the membership status in the Member document"""
         if self.member:
@@ -925,28 +852,6 @@ def sync_membership_payments(membership_name: str = None):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.REPORTING)
-def show_payment_history(membership_name: str):
-    """
-    Get payment history for a membership from linked dues schedule
-    """
-    membership = frappe.get_doc("Membership", membership_name)
-
-    # Membership has no `dues_schedule` field on the DocType, so plain attribute
-    # access raises AttributeError. Use getattr so this endpoint degrades to the
-    # "no linked schedule" path instead of crashing.
-    if not getattr(membership, "dues_schedule", None):
-        return []
-
-    # Get payment history from dues schedule system
-    from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
-        get_membership_payment_history,
-    )
-
-    return get_membership_payment_history(membership)
-
-
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def process_membership_statuses():
     """
@@ -1046,36 +951,13 @@ def verify_signature(data, signature, secret_key=None):
 @high_security_api(operation_type=OperationType.REPORTING)
 def show_all_invoices(membership_name: str):
     """
-    Get all invoices related to a membership through dues schedule
-    or direct links
+    Get all invoices related to a membership through direct links or the
+    member's customer record.
     """
     membership = frappe.get_doc("Membership", membership_name)
     invoices = []
 
-    # Get invoices from dues schedule if available.
-    # Membership has no `dues_schedule` field on the DocType, so plain attribute
-    # access raises AttributeError; use getattr to safely detect a linked schedule.
-    if getattr(membership, "dues_schedule", None):
-        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
-            get_membership_payment_history,
-        )
-
-        payment_history = get_membership_payment_history(membership)
-
-        for payment in payment_history:
-            invoices.append(
-                {
-                    "invoice": payment.get("invoice"),
-                    "date": payment.get("date"),
-                    "amount": payment.get("amount"),
-                    "outstanding": payment.get("outstanding", 0),
-                    "status": payment.get("status"),
-                    "due_date": payment.get("due_date"),
-                    "source": "Dues Schedule",
-                }
-            )
-
-    # Also look for invoices that might be directly linked to the membership.
+    # Look for invoices that might be directly linked to the membership.
     # Sales Invoice has no `membership` column (only a `member` custom field), so
     # querying it unconditionally raises "Unknown column 'membership'". Guard on
     # the field's existence so the endpoint degrades to the member/customer lookup
