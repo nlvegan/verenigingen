@@ -10,6 +10,7 @@ from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.validation_utilities import DateRangeValidator, validate_document_exists
 
 
 def get_filters():
@@ -95,8 +96,6 @@ def validate_filters(filters):
             raise ValueError("From date cannot be after to date")
 
         # Prevent overly large date ranges using standardized validation
-        from verenigingen.utils.validation_utilities import DateRangeValidator, validate_document_exists
-
         date_result = DateRangeValidator.validate_date_range(
             from_date, to_date, max_duration_days=365 * 5, allow_past_start=True, throw_on_error=False
         )
