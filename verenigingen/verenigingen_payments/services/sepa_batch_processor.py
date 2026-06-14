@@ -929,11 +929,21 @@ class SEPABatchProcessor:
             return False
 
     def get_active_mandate(self, schedule):
-        """Get active SEPA mandate for the schedule"""
-        if schedule.active_mandate:
-            return frappe.get_doc("SEPA Mandate", schedule.active_mandate)
+        """Get the active SEPA mandate for the schedule's member.
 
-        # Try to find mandate by member
+        Membership Dues Schedule has no ``active_mandate`` field, so the mandate is
+        resolved from the member. A prior version read ``schedule.active_mandate``
+        directly (and cached back to it via ``db_set``); both raised AttributeError
+        on every real schedule, which ``member_has_sepa_enabled`` swallowed —
+        silently reporting SEPA members as NOT enabled and excluding them from
+        direct-debit batches. The getattr() below still honours a cached value if
+        the field is ever added, but no longer crashes when it is absent.
+        """
+        cached = getattr(schedule, "active_mandate", None)
+        if cached:
+            return frappe.get_doc("SEPA Mandate", cached)
+
+        # Resolve the member's most recent active mandate.
         mandates = frappe.get_all(
             "SEPA Mandate",
             filters={"member": schedule.member, "status": "Active"},
@@ -942,10 +952,7 @@ class SEPABatchProcessor:
         )
 
         if mandates:
-            mandate = frappe.get_doc("SEPA Mandate", mandates[0].name)
-            # Update schedule with mandate reference
-            schedule.db_set("active_mandate", mandate.name)
-            return mandate
+            return frappe.get_doc("SEPA Mandate", mandates[0].name)
 
         return None
 

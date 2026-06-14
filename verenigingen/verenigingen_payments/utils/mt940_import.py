@@ -917,12 +917,13 @@ def process_mt940_document(mt940_content, bank_account, company):
                     # In MT940 library, each statement object IS a transaction, not a container
                     # The library structure treats each parsed item as a single transaction
                     try:
-                        # Generate transaction ID to check for duplicates within this import
-                        from verenigingen.verenigingen_payments.utils.mt940_import import (
-                            extract_sepa_data_enhanced,
-                            get_enhanced_duplicate_hash,
-                        )
-
+                        # Generate transaction ID to check for duplicates within this import.
+                        # NOTE: extract_sepa_data_enhanced and get_enhanced_duplicate_hash are
+                        # already module-level functions. A previous self-import here
+                        # (`from ...mt940_import import extract_sepa_data_enhanced`) made those
+                        # names function-local, which raised UnboundLocalError at the earlier
+                        # preload call (all_ibans loop) and broke every import that contained a
+                        # counterparty IBAN. Use the module-level names directly.
                         sepa_data = extract_sepa_data_enhanced(statement)
                         transaction_id = get_enhanced_duplicate_hash(statement, sepa_data)[:32]
 
@@ -944,12 +945,34 @@ def process_mt940_document(mt940_content, bank_account, company):
                         errors.append(f"Transaction error: {str(e)}")
                         frappe.logger().error(f"[MT940] Error processing transaction: {str(e)}")
 
-                # Release savepoint on success (implicit commit of savepoint)
-                frappe.db.release_savepoint(savepoint_name)
+                # Release savepoint on success (implicit commit of savepoint).
+                # A nested commit can occur mid-import - e.g. the API security audit
+                # logger commits unconditionally when it stores an audit event
+                # (utils/security/audit_logging.py). A COMMIT clears all savepoints,
+                # so the named savepoint may no longer exist here even though the
+                # import succeeded and its rows are already persisted. Treat a
+                # missing savepoint on release as a no-op rather than failing an
+                # otherwise-successful import.
+                try:
+                    frappe.db.release_savepoint(savepoint_name)
+                except Exception as release_error:
+                    if "does not exist" not in str(release_error):
+                        raise
+                    frappe.logger().info(
+                        f"[MT940] Savepoint {savepoint_name} already released by a nested "
+                        f"commit; import already persisted ({transactions_created} created)."
+                    )
 
             except Exception as batch_error:
-                # Rollback entire batch on critical failure
-                frappe.db.rollback(save_point=savepoint_name)
+                # Rollback entire batch on critical failure. The savepoint may have
+                # been cleared by a nested commit (see release note above); if so the
+                # partial rows are already committed and cannot be rolled back here, so
+                # don't let a missing-savepoint error mask the real batch error.
+                try:
+                    frappe.db.rollback(save_point=savepoint_name)
+                except Exception as rollback_error:
+                    if "does not exist" not in str(rollback_error):
+                        raise
                 frappe.log_error(
                     title="MT940 Import Batch Failed",
                     message=f"Bank Account: {bank_account}, Error: {str(batch_error)}",
@@ -1237,16 +1260,25 @@ def generate_mt940_transaction_hash(transaction):
     """Generate a hash for MT940 transaction identification"""
     import hashlib
 
+    # The mt940 library exposes parsed fields via transaction.data, not as
+    # attributes — `transaction.date` / `transaction.amount` raise AttributeError
+    # on a real Transaction object. Read date/amount from .data, mirroring
+    # get_enhanced_duplicate_hash.
+    data = transaction.data
+    amount_obj = data.get("amount")
+    amount_val = getattr(amount_obj, "amount", amount_obj) if amount_obj is not None else ""
+    currency_val = getattr(amount_obj, "currency", "EUR") if amount_obj is not None else "EUR"
+
     sha = hashlib.sha256()
     hash_components = [
-        str(transaction.date),
-        str(transaction.amount.amount),
-        str(getattr(transaction.amount, "currency", "EUR")),
-        str(transaction.data.get("transaction_reference", "")),
-        str(transaction.data.get("bank_reference", "")),
-        str(transaction.data.get("purpose", "")),
-        str(transaction.data.get("counterparty_name", "")),
-        str(transaction.data.get("counterparty_account", "")),
+        str(data.get("date", "")),
+        str(amount_val),
+        str(currency_val),
+        str(data.get("transaction_reference", "")),
+        str(data.get("bank_reference", "")),
+        str(data.get("purpose", "")),
+        str(data.get("counterparty_name", "")),
+        str(data.get("counterparty_account", "")),
     ]
 
     sha.update("".join(hash_components).encode())
@@ -1407,11 +1439,21 @@ def convert_mt940_to_csv(file_content, bank_account):
 
                 for transaction in statement_transactions:
                     transaction_data = transaction.data
-                    amount = float(transaction.amount.amount)
+                    # mt940 exposes parsed fields via .data, not as attributes
+                    # (transaction.amount / transaction.date raise AttributeError
+                    # on a real Transaction object).
+                    amount_obj = transaction_data.get("amount")
+                    amount = float(getattr(amount_obj, "amount", 0) or 0)
+                    trans_date = transaction_data.get("date")
+                    date_str = (
+                        trans_date.strftime("%Y-%m-%d")
+                        if hasattr(trans_date, "strftime")
+                        else str(trans_date or "")
+                    )
 
                     csv_writer.writerow(
                         [
-                            transaction.date.strftime("%Y-%m-%d"),
+                            date_str,
                             transaction_data.get("purpose", "MT940 Transaction"),
                             transaction_data.get("transaction_reference", ""),
                             max(amount, 0),  # Deposit (positive amounts)

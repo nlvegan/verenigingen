@@ -311,7 +311,15 @@ class SEPAAuditLogger:
             # complete audit trail. The audit service itself enforces who can
             # trigger auditable events through the security decorator framework.
             audit_doc.insert(ignore_permissions=True)
-            frappe.db.commit()
+            # Intentionally NO frappe.db.commit() here. log_event runs synchronously
+            # inside the caller's operation; committing the shared transaction would
+            # prematurely persist the caller's in-flight work and clear ALL of its
+            # savepoints (this is exactly what broke MT940 import's per-batch
+            # savepoint). Mirror Frappe core's own durable logger — frappe.log_error
+            # inserts the Error Log without committing — and let the request-level
+            # transaction persist this row. The file-system audit sink (_log_to_file)
+            # records every event independently, so the trail survives even a caller
+            # rollback that discards this DB row.
 
         except Exception as e:
             frappe.log_error(
@@ -354,7 +362,15 @@ class SEPAAuditLogger:
             # API audit logs capture security events and must be recorded
             # regardless of user permissions to maintain compliance trail.
             audit_doc.insert(ignore_permissions=True)
-            frappe.db.commit()
+            # Intentionally NO frappe.db.commit() here. log_event runs synchronously
+            # inside the caller's operation; committing the shared transaction would
+            # prematurely persist the caller's in-flight work and clear ALL of its
+            # savepoints (this is exactly what broke MT940 import's per-batch
+            # savepoint). Mirror Frappe core's own durable logger — frappe.log_error
+            # inserts the Error Log without committing — and let the request-level
+            # transaction persist this row. The file-system audit sink (_log_to_file)
+            # records every event independently, so the trail survives even a caller
+            # rollback that discards this DB row.
 
         except Exception as e:
             frappe.log_error(

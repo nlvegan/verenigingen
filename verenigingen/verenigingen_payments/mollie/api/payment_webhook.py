@@ -415,22 +415,20 @@ def _extract_record_reference_from_mollie_data(payment_data, payment_id: str) ->
 def extract_mollie_payment_data(payment):
     """Extract relevant data from Mollie payment object"""
 
+    # Read amount once via getattr: a payment object with no `amount` attribute
+    # must not raise. (The previous expression dereferenced payment.amount in the
+    # first ternary clause before the trailing `hasattr(payment, "amount")` guard
+    # could short-circuit, so that guard was dead and an amount-less object raised
+    # AttributeError.) amount may be a dict, an SDK object with .value/.currency,
+    # or None.
+    amount = getattr(payment, "amount", None)
+
     return {
         "payment_id": payment.id,
         "status": payment.status,
-        "amount": (
-            payment.amount.get("value")
-            if isinstance(payment.amount, dict)
-            else getattr(payment.amount, "value", None)
-            if hasattr(payment, "amount")
-            else None
-        ),
+        "amount": (amount.get("value") if isinstance(amount, dict) else getattr(amount, "value", None)),
         "currency": (
-            payment.amount.get("currency")
-            if isinstance(payment.amount, dict)
-            else getattr(payment.amount, "currency", None)
-            if hasattr(payment, "amount")
-            else None
+            amount.get("currency") if isinstance(amount, dict) else getattr(amount, "currency", None)
         ),
         "method": getattr(payment, "method", None),
         "customer_id": getattr(payment, "customer_id", None),

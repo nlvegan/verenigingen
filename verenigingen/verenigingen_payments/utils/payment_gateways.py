@@ -982,7 +982,7 @@ class CashGateway(PaymentGateway):
 
         return {
             "status": "cash_pending",
-            "reference": "CASH-{donation.name}",
+            "reference": f"CASH-{donation.name}",
             "instructions": _("Please bring cash to our office or pay at events"),
             "contact_email": getattr(settings, "member_contact_email", ""),
             "office_hours": _("Monday-Friday 9:00-17:00"),

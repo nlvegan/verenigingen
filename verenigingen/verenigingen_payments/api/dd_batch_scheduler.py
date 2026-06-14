@@ -186,6 +186,30 @@ def is_batch_creation_day():
         return getdate().day == 1
 
 
+def _weekday_number(date):
+    """Return the numeric weekday (Mon=0 .. Sun=6) for a date.
+
+    frappe.utils.get_weekday() returns the weekday NAME (e.g. "Sunday") in this
+    environment, so callers that compare against integers (weekend = 5/6) must
+    normalize it. Centralizes the name->number map that get_next_batch_creation_date
+    already carried inline, so should_skip_batch_creation / get_next_business_day
+    don't crash with a str-vs-int TypeError.
+    """
+    weekday = get_weekday(date)
+    if isinstance(weekday, str):
+        weekday_map = {
+            "Monday": 0,
+            "Tuesday": 1,
+            "Wednesday": 2,
+            "Thursday": 3,
+            "Friday": 4,
+            "Saturday": 5,
+            "Sunday": 6,
+        }
+        return weekday_map.get(weekday, 0)
+    return weekday
+
+
 def get_next_batch_creation_date(configured_days):
     """Calculate the next date when batch creation should run"""
     import calendar
@@ -202,20 +226,7 @@ def get_next_batch_creation_date(configured_days):
         if day > current_day:
             # Check if it's a weekday and not a holiday
             next_date = getdate(f"{current_year}-{current_month:02d}-{day:02d}")
-            weekday = get_weekday(next_date)
-            if isinstance(weekday, str):
-                # Handle string weekday names by converting to numeric
-                weekday_map = {
-                    "Monday": 0,
-                    "Tuesday": 1,
-                    "Wednesday": 2,
-                    "Thursday": 3,
-                    "Friday": 4,
-                    "Saturday": 5,
-                    "Sunday": 6,
-                }
-                weekday = weekday_map.get(weekday, 0)
-            if weekday < 5 and not is_bank_holiday(next_date):
+            if _weekday_number(next_date) < 5 and not is_bank_holiday(next_date):
                 return next_date
 
     # No more days in current month, check next month
@@ -229,20 +240,7 @@ def get_next_batch_creation_date(configured_days):
     for day in sorted(configured_days):
         if day <= days_in_month:
             next_date = getdate(f"{next_year}-{next_month:02d}-{day:02d}")
-            weekday = get_weekday(next_date)
-            if isinstance(weekday, str):
-                # Handle string weekday names by converting to numeric
-                weekday_map = {
-                    "Monday": 0,
-                    "Tuesday": 1,
-                    "Wednesday": 2,
-                    "Thursday": 3,
-                    "Friday": 4,
-                    "Saturday": 5,
-                    "Sunday": 6,
-                }
-                weekday = weekday_map.get(weekday, 0)
-            if weekday < 5 and not is_bank_holiday(next_date):
+            if _weekday_number(next_date) < 5 and not is_bank_holiday(next_date):
                 return next_date
 
     # Fallback to first of next month if no valid days found
@@ -252,7 +250,7 @@ def get_next_batch_creation_date(configured_days):
 def should_skip_batch_creation():
     """Check if batch creation should be skipped today"""
     today = getdate()
-    weekday = get_weekday(today)
+    weekday = _weekday_number(today)
 
     # Skip weekends (Saturday = 5, Sunday = 6)
     if weekday >= 5:
@@ -288,7 +286,7 @@ def get_next_business_day():
     tomorrow = add_days(getdate(), 1)
 
     # If tomorrow is weekend, move to Monday
-    while get_weekday(tomorrow) >= 5:  # Saturday or Sunday
+    while _weekday_number(tomorrow) >= 5:  # Saturday or Sunday
         tomorrow = add_days(tomorrow, 1)
 
     return tomorrow

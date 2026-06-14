@@ -915,11 +915,15 @@ def has_address_permission(doc, user=None, permission_type=None):
         if member_primary_address == address_name:
             return True
 
-    # Fall back to standard Contact-based permissions
+    # Fall back to standard Contact-based permissions. has_common_link needs the
+    # Address document (it reads doc.links); this function also accepts a bare
+    # address name as `doc`, so load the document in that case rather than handing
+    # a string to has_common_link (which would raise AttributeError).
     contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
     if contact_name:
         contact = frappe.get_doc("Contact", contact_name)
-        return contact.has_common_link(doc)
+        address_doc = doc if hasattr(doc, "links") else frappe.get_doc("Address", address_name)
+        return contact.has_common_link(address_doc)
 
     return False
 
