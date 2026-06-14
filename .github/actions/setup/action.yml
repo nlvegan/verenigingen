@@ -169,6 +169,16 @@ runs:
         ref: version-15
         path: apps/payments
 
+    - name: Checkout HRMS
+      # verenigingen declares `hrms = ">=15.0.0"` and uses Expense Claim in core
+      # (permissions, termination, account creation, volunteer expenses); without
+      # it tabExpense Claim is absent and those suites error in CI.
+      uses: actions/checkout@v4
+      with:
+        repository: frappe/hrms
+        ref: version-15
+        path: apps/hrms
+
     - name: Install Python Dependencies
       shell: bash
       run: |
@@ -256,5 +266,6 @@ runs:
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
         bench --site test_site install-app erpnext
+        bench --site test_site install-app hrms
         bench --site test_site install-app payments
         bench --site test_site install-app ${{ github.event.repository.name }}
