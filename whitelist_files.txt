@@ -336,7 +336,6 @@
 ./verenigingen/utils/admin_utilities/payment_entry_repair_utility.py
 ./verenigingen/utils/admin_utilities/subscription_management_utility.py
 ./verenigingen/utils/alert_manager.py
-./verenigingen/utils/analytics_engine.py
 ./verenigingen/utils/analyze_account_mappings.py
 ./verenigingen/utils/analyze_like_usage.py
 ./verenigingen/utils/analyze_missed_payments.py

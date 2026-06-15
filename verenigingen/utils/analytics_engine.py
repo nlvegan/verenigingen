@@ -37,27 +37,22 @@ Technical Implementation:
     techniques to provide enterprise-grade analytics capabilities while maintaining
     optimal performance and scalability for production environments.
 
-ERROR HANDLING PATTERN:
-All whitelisted API endpoints in this module follow the OperationResult pattern:
-- Return type: OperationResult[Dict[str, Any]]
-- Never throw exceptions - all errors wrapped in OperationResult.fail()
-- Consistent metadata with context dict: {"operation": "...", "params": {...}}
-- Generic user-facing messages with technical details in errors list
+USAGE:
+AnalyticsEngine is consumed directly as a class (see
+verenigingen/www/monitoring_dashboard.py). Each public method returns a plain
+dict and never raises - failures are returned as {"error": "..."} so callers
+can render partial dashboards without try/except at every call site.
 """
 
-import json
 import statistics
-import traceback
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import frappe
-from frappe import _
 from frappe.utils import add_to_date, get_datetime, now, now_datetime
 
 from verenigingen.utils.error_handling import get_logger
-from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_dashboard import _performance_metrics
 
 
@@ -88,12 +83,12 @@ class AnalyticsEngine:
                     DATE(creation) as date,
                     error,
                     HOUR(creation) as hour,
-                    user,
+                    owner AS user,
                     COUNT(*) as count,
-                    COUNT(DISTINCT user) as affected_users
+                    COUNT(DISTINCT owner) as affected_users
                 FROM `tabError Log`
                 WHERE creation >= %s AND creation <= %s
-                GROUP BY DATE(creation), error, HOUR(creation), user
+                GROUP BY DATE(creation), error, HOUR(creation), owner
                 ORDER BY date DESC, count DESC
             """,
                 [start_date, end_date],
@@ -647,7 +642,7 @@ class AnalyticsEngine:
                     COUNT(*) as error_count
                 FROM `tabError Log`
                 WHERE creation >= %s AND creation <= %s
-                AND error LIKE '%API%'
+                AND error LIKE '%%API%%'
                 GROUP BY DATE(creation)
                 ORDER BY date
             """,
@@ -669,7 +664,7 @@ class AnalyticsEngine:
                     COUNT(*) as db_error_count
                 FROM `tabError Log`
                 WHERE creation >= %s AND creation <= %s
-                AND (error LIKE '%database%' OR error LIKE '%SQL%' OR error LIKE '%timeout%')
+                AND (error LIKE '%%database%%' OR error LIKE '%%SQL%%' OR error LIKE '%%timeout%%')
                 GROUP BY DATE(creation)
                 ORDER BY date
             """,
@@ -690,7 +685,7 @@ class AnalyticsEngine:
                 SELECT
                     DATE(creation) as date,
                     COUNT(*) as total_errors,
-                    COUNT(DISTINCT user) as affected_users
+                    COUNT(DISTINCT owner) as affected_users
                 FROM `tabError Log`
                 WHERE creation >= %s AND creation <= %s
                 GROUP BY DATE(creation)
@@ -876,8 +871,8 @@ class AnalyticsEngine:
                 SELECT
                     DATE(creation) as date,
                     COUNT(*) as daily_errors,
-                    COUNT(DISTINCT CASE WHEN error LIKE '%Critical%' THEN error END) as critical_errors,
-                    COUNT(DISTINCT user) as affected_users
+                    COUNT(DISTINCT CASE WHEN error LIKE '%%Critical%%' THEN error END) as critical_errors,
+                    COUNT(DISTINCT owner) as affected_users
                 FROM `tabError Log`
                 WHERE creation >= %s
                 GROUP BY DATE(creation)
@@ -1290,158 +1285,3 @@ class AnalyticsEngine:
             )
 
         return risks
-
-
-# API endpoints for analytics engine
-@frappe.whitelist()
-def analyze_error_patterns(days=30) -> OperationResult[Dict[str, Any]]:
-    """API endpoint for error pattern analysis
-
-    Args:
-        days: Number of days to analyze (default: 30)
-
-    Returns:
-        OperationResult[Dict[str, Any]]: Error pattern analysis results
-    """
-    try:
-        engine = AnalyticsEngine()
-        result = engine.analyze_error_patterns(int(days))
-        return OperationResult.ok(result, message=f"Error pattern analysis completed for {days} days")
-    except Exception as e:
-        frappe.log_error(
-            f"Error in analyze_error_patterns API: {str(e)}\n{traceback.format_exc()}",
-            "Analyze Error Patterns API Error",
-        )
-        return OperationResult.fail(
-            _("Unable to analyze error patterns. Please contact support."),
-            errors=[str(e)],
-            context={"operation": "analyze_error_patterns", "params": {"days": days}},
-        )
-
-
-@frappe.whitelist()
-def forecast_performance_trends(days_back=30, forecast_days=7) -> OperationResult[Dict[str, Any]]:
-    """API endpoint for performance trend forecasting
-
-    Args:
-        days_back: Number of historical days to analyze (default: 30)
-        forecast_days: Number of days to forecast (default: 7)
-
-    Returns:
-        OperationResult[Dict[str, Any]]: Performance forecast results
-    """
-    try:
-        engine = AnalyticsEngine()
-        result = engine.forecast_performance_trends(int(days_back), int(forecast_days))
-        return OperationResult.ok(
-            result,
-            message=f"Performance forecast completed: {days_back} days back, {forecast_days} days ahead",
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Error in forecast_performance_trends API: {str(e)}\n{traceback.format_exc()}",
-            "Forecast Performance Trends API Error",
-        )
-        return OperationResult.fail(
-            _("Unable to forecast performance trends. Please contact support."),
-            errors=[str(e)],
-            context={
-                "operation": "forecast_performance_trends",
-                "params": {"days_back": days_back, "forecast_days": forecast_days},
-            },
-        )
-
-
-@frappe.whitelist()
-def generate_insights_report() -> OperationResult[Dict[str, Any]]:
-    """API endpoint for comprehensive insights report
-
-    Returns:
-        OperationResult[Dict[str, Any]]: Comprehensive system insights report
-    """
-    try:
-        engine = AnalyticsEngine()
-        result = engine.generate_insights_report()
-        return OperationResult.ok(result, message="Comprehensive insights report generated successfully")
-    except Exception as e:
-        frappe.log_error(
-            f"Error in generate_insights_report API: {str(e)}\n{traceback.format_exc()}",
-            "Generate Insights Report API Error",
-        )
-        return OperationResult.fail(
-            _("Unable to generate insights report. Please contact support."),
-            errors=[str(e)],
-            context={"operation": "generate_insights_report", "params": {}},
-        )
-
-
-@frappe.whitelist()
-def identify_error_hotspots(days=7) -> OperationResult[Dict[str, Any]]:
-    """API endpoint for error hotspot identification
-
-    Args:
-        days: Number of days to analyze for hotspots (default: 7)
-
-    Returns:
-        OperationResult[Dict[str, Any]]: Error hotspot analysis results
-    """
-    try:
-        engine = AnalyticsEngine()
-        result = engine.identify_error_hotspots(int(days))
-        return OperationResult.ok(result, message=f"Error hotspot analysis completed for {days} days")
-    except Exception as e:
-        frappe.log_error(
-            f"Error in identify_error_hotspots API: {str(e)}\n{traceback.format_exc()}",
-            "Identify Error Hotspots API Error",
-        )
-        return OperationResult.fail(
-            _("Unable to identify error hotspots. Please contact support."),
-            errors=[str(e)],
-            context={"operation": "identify_error_hotspots", "params": {"days": days}},
-        )
-
-
-@frappe.whitelist()
-def get_performance_recommendations() -> OperationResult[Dict[str, Any]]:
-    """API endpoint for performance recommendations
-
-    Returns:
-        OperationResult[Dict[str, Any]]: Performance optimization recommendations
-    """
-    try:
-        engine = AnalyticsEngine()
-        result = engine.get_performance_recommendations()
-        return OperationResult.ok(result, message="Performance recommendations generated successfully")
-    except Exception as e:
-        frappe.log_error(
-            f"Error in get_performance_recommendations API: {str(e)}\n{traceback.format_exc()}",
-            "Get Performance Recommendations API Error",
-        )
-        return OperationResult.fail(
-            _("Unable to generate performance recommendations. Please contact support."),
-            errors=[str(e)],
-            context={"operation": "get_performance_recommendations", "params": {}},
-        )
-
-
-@frappe.whitelist()
-def identify_compliance_gaps() -> OperationResult[Dict[str, Any]]:
-    """API endpoint for compliance gap identification
-
-    Returns:
-        OperationResult[Dict[str, Any]]: Compliance gap analysis results
-    """
-    try:
-        engine = AnalyticsEngine()
-        result = engine.identify_compliance_gaps()
-        return OperationResult.ok(result, message="Compliance gap analysis completed successfully")
-    except Exception as e:
-        frappe.log_error(
-            f"Error in identify_compliance_gaps API: {str(e)}\n{traceback.format_exc()}",
-            "Identify Compliance Gaps API Error",
-        )
-        return OperationResult.fail(
-            _("Unable to identify compliance gaps. Please contact support."),
-            errors=[str(e)],
-            context={"operation": "identify_compliance_gaps", "params": {}},
-        )
