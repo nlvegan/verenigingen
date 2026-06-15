@@ -164,7 +164,6 @@
 ./verenigingen/api/payment_sync_system.py
 ./verenigingen/api/performance_api_validator.py
 ./verenigingen/api/performance_convenience.py
-./verenigingen/api/performance_dashboard_activator.py
 ./verenigingen/api/performance_measurement_api.py
 ./verenigingen/api/performance_measurement.py
 ./verenigingen/api/performance_monitoring_integration_api.py
