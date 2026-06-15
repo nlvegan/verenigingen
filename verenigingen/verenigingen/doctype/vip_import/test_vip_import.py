@@ -4,7 +4,6 @@ Tests for VIP Import DocType
 Tests the import of volunteer data from VIP (Volunteer Information Portal) exports.
 """
 
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -549,19 +548,23 @@ class TestVIPImportBackgroundJob(FrappeTestCase):
 class TestVIPImportRobustness(FrappeTestCase):
     """Test robustness features of VIP Import."""
 
+    def _make_vip_import_doc(self, **fields):
+        """Create and insert a VIP Import fixture, returning the inserted doc."""
+        data = {"doctype": "VIP Import"}
+        data.update(fields)
+        doc = frappe.get_doc(data)
+        doc.insert(ignore_permissions=True)
+        return doc
+
     def test_import_status_reflects_acr_failures(self):
         """Test that import status shows warning when ACR queuing fails."""
         # Create a VIP Import document. csv_file is a mandatory Attach field, so
         # provide a placeholder path (no file processing happens in this test, we
         # only exercise _set_final_import_status afterwards).
-        import_doc = frappe.get_doc(
-            {
-                "doctype": "VIP Import",
-                "import_date": today(),
-                "csv_file": "/files/test_vip_placeholder.csv",
-            }
+        import_doc = self._make_vip_import_doc(
+            import_date=today(),
+            csv_file="/files/test_vip_placeholder.csv",
         )
-        import_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 
         try:
@@ -593,14 +596,12 @@ class TestVIPImportRobustness(FrappeTestCase):
             self.assertIn("Redis connection failed", import_doc.acr_error or "")
         finally:
             # Cleanup
-            import_doc.delete(ignore_permissions=True)
+            frappe.delete_doc(import_doc.doctype, import_doc.name, force=True, ignore_permissions=True)
             frappe.db.commit()
 
     def test_queue_capacity_check_on_submit(self):
         """Test that queue capacity is checked before enqueueing import job."""
         from unittest.mock import patch
-
-        from verenigingen.verenigingen.doctype.vip_import.vip_import import VIPImport
 
         # Create minimal VIP Import document
         import_doc = frappe.get_doc(
@@ -860,6 +861,613 @@ class TestVIPImportRobustness(FrappeTestCase):
         finally:
             # Cleanup
             member.delete(ignore_permissions=True)
+            frappe.db.commit()
+
+
+class TestVIPImportPureHelpers(FrappeTestCase):
+    """Tests for pure (no-DB) helper functions in vip_import."""
+
+    def test_sql_placeholders_zero_one_many(self):
+        """_sql_placeholders must produce correct parameter strings for 0/1/many ids."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _sql_placeholders
+
+        self.assertEqual(_sql_placeholders(0), "")
+        self.assertEqual(_sql_placeholders(1), "%s")
+        self.assertEqual(_sql_placeholders(3), "%s, %s, %s")
+        # The placeholder count must equal the number of %s tokens (parameterization)
+        self.assertEqual(_sql_placeholders(10).count("%s"), 10)
+
+    def test_check_duplicate_vip_id_no_duplicates(self):
+        """No duplicates -> empty error list."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _check_duplicate_vip_id
+
+        mapped_data = [
+            {"vip_user_id": "A-1", "row_number": 2},
+            {"vip_user_id": "A-2", "row_number": 3},
+        ]
+        self.assertEqual(_check_duplicate_vip_id("A-1", mapped_data), [])
+
+    def test_check_duplicate_vip_id_skips_blank_ids(self):
+        """Rows with no vip_user_id must not be counted as duplicates."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _check_duplicate_vip_id
+
+        mapped_data = [
+            {"vip_user_id": "", "row_number": 2},
+            {"vip_user_id": None, "row_number": 3},
+            {"row_number": 4},
+        ]
+        self.assertEqual(_check_duplicate_vip_id("X", mapped_data), [])
+
+    def test_check_duplicate_vip_id_multiple_duplicates(self):
+        """Two later rows reusing an id produce two distinct error entries."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _check_duplicate_vip_id
+
+        mapped_data = [
+            {"vip_user_id": "DUP", "row_number": 2},
+            {"vip_user_id": "DUP", "row_number": 5},
+            {"vip_user_id": "DUP", "row_number": 9},
+        ]
+        errors = _check_duplicate_vip_id("DUP", mapped_data)
+        self.assertEqual(len(errors), 2)
+        # Each duplicate references the first-seen row (row 2)
+        self.assertTrue(all("row 2" in e for e in errors))
+
+    def test_get_import_template_structure(self):
+        """get_import_template returns a 2-line CSV (header + sample) with expected columns."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import get_import_template
+
+        self._as_admin()
+        template = get_import_template()
+        lines = [line for line in template.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 2)
+        header = lines[0]
+        for expected_col in (
+            "id",
+            "nvv_relatie_nummer",
+            "email",
+            "private_email",
+            "first_name",
+            "last_name",
+            "is_delegated_account",
+        ):
+            self.assertIn(expected_col, header)
+
+    def _as_admin(self):
+        frappe.set_user("Administrator")
+
+    def test_format_skip_info_member_not_found(self):
+        """Skip info for member_not_found builds identifier and name strings."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _format_skip_info
+
+        row = {
+            "vip_user_id": "VIP-9",
+            "member_id": "M-9",
+            "organization_email": "x@org.example.com",
+            "first_name": "Anna",
+            "last_name": "Jansen",
+        }
+        result = {"row": 7, "reason": "member_not_found", "status": "skipped"}
+        info = _format_skip_info(row, result)
+        self.assertEqual(info["row"], 7)
+        self.assertEqual(info["reason"], "member_not_found")
+        self.assertEqual(info["name"], "Anna Jansen")
+        self.assertIn("VIP ID: VIP-9", info["identifier"])
+        self.assertIn("Member ID: M-9", info["identifier"])
+        self.assertIn("x@org.example.com", info["identifier"])
+
+    def test_format_skip_info_no_identifier_no_name(self):
+        """Empty row yields 'No identifier' and 'Unknown' name."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _format_skip_info
+
+        info = _format_skip_info({}, {"status": "skipped"})
+        self.assertEqual(info["identifier"], "No identifier")
+        self.assertEqual(info["name"], "Unknown")
+        self.assertEqual(info["reason"], "unknown")
+
+    def test_generate_skipped_rows_log_empty(self):
+        """Empty skip list returns empty string."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _generate_skipped_rows_log
+
+        self.assertEqual(_generate_skipped_rows_log([]), "")
+
+    def test_generate_skipped_rows_log_categorizes(self):
+        """Skipped rows are categorized into Member Not Found / Already Exists / Errors / Other."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _generate_skipped_rows_log
+
+        skipped = [
+            {"row": 2, "reason": "member_not_found", "status": "skipped", "name": "A B", "identifier": "M-1"},
+            {
+                "row": 3,
+                "reason": "volunteer_exists",
+                "status": "skipped",
+                "name": "C D",
+                "identifier": "M-2",
+                "volunteer": "VOL-1",
+            },
+            {
+                "row": 4,
+                "reason": "exception",
+                "status": "error",
+                "name": "E F",
+                "identifier": "M-3",
+                "error": "boom for user secret@example.com",
+            },
+            {"row": 5, "reason": "weird_reason", "status": "skipped", "name": "G H", "identifier": "M-4"},
+        ]
+        log = _generate_skipped_rows_log(skipped)
+        self.assertIn("Member Not Found (1 rows)", log)
+        self.assertIn("Volunteer Already Exists (1 rows)", log)
+        self.assertIn("Processing Errors (1 rows)", log)
+        self.assertIn("Other (1 rows)", log)
+        self.assertIn("existing volunteer: VOL-1", log)
+        # PII in error messages must be redacted in the log
+        self.assertNotIn("secret@example.com", log)
+        self.assertIn("[EMAIL REDACTED]", log)
+
+    def test_generate_skipped_rows_log_truncates_per_category(self):
+        """A category with more than MAX_SKIPPED_PER_CATEGORY entries is truncated with a '... more' line."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+            MAX_SKIPPED_PER_CATEGORY,
+            _generate_skipped_rows_log,
+        )
+
+        n = MAX_SKIPPED_PER_CATEGORY + 5
+        skipped = [
+            {
+                "row": i,
+                "reason": "member_not_found",
+                "status": "skipped",
+                "name": f"Name {i}",
+                "identifier": f"M-{i}",
+            }
+            for i in range(n)
+        ]
+        log = _generate_skipped_rows_log(skipped)
+        self.assertIn(f"and {n - MAX_SKIPPED_PER_CATEGORY} more", log)
+
+
+class TestVIPImportDocLifecycle(FrappeTestCase):
+    """Tests for the VIPImport controller validate() / file-size path."""
+
+    def _make_import(self, **kwargs):
+        defaults = {
+            "doctype": "VIP Import",
+            "csv_file": "/files/test_vip_placeholder.csv",
+        }
+        defaults.update(kwargs)
+        doc = frappe.get_doc(defaults)
+        doc.insert(ignore_permissions=True)
+        return doc
+
+    def _make_file_doc(self, name_prefix, content):
+        """Create and insert a private File fixture, returning the inserted doc."""
+        file_doc = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": f"{name_prefix}_{frappe.generate_hash(length=6)}.csv",
+                "is_private": 1,
+                "content": content,
+            }
+        ).insert(ignore_permissions=True)
+        return file_doc
+
+    def test_validate_sets_defaults_on_new(self):
+        """validate() defaults import_date to today and import_status to Pending on insert."""
+        doc = self._make_import()
+        try:
+            self.assertEqual(str(doc.import_date), today())
+            self.assertEqual(doc.import_status, "Pending")
+        finally:
+            frappe.delete_doc(doc.doctype, doc.name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_validate_file_size_under_limit_passes(self):
+        """A small real attached file passes _validate_file_size without throwing."""
+        # Create a real (tiny) File so _validate_file_size exercises the real os.path branch
+        file_doc = self._make_file_doc("vip_small", "id,email\n1,a@b.com\n")
+        frappe.db.commit()
+        doc = None
+        try:
+            doc = self._make_import(csv_file=file_doc.file_url)
+            # No exception means the under-limit branch executed
+            self.assertEqual(doc.import_status, "Pending")
+        finally:
+            if doc:
+                frappe.delete_doc(doc.doctype, doc.name, force=True, ignore_permissions=True)
+            frappe.delete_doc(file_doc.doctype, file_doc.name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_validate_file_size_over_limit_throws(self):
+        """A file larger than MAX_FILE_SIZE_MB triggers a validation throw."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import MAX_FILE_SIZE_MB
+
+        big_content = "x" * int((MAX_FILE_SIZE_MB + 1) * 1024 * 1024)
+        file_doc = self._make_file_doc("vip_big", big_content)
+        frappe.db.commit()
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                self._make_import(csv_file=file_doc.file_url)
+        finally:
+            frappe.delete_doc(file_doc.doctype, file_doc.name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+
+class TestVIPImportCreateAndProcess(FrappeTestCase):
+    """Integration tests for member creation and full row-processing branches."""
+
+    def setUp(self):
+        self._created_members = []
+        self._created_volunteers = []
+        self._created_imports = []
+
+    def tearDown(self):
+        for v in self._created_volunteers:
+            if frappe.db.exists("Volunteer", v):
+                frappe.delete_doc("Volunteer", v, force=True)
+        for m in self._created_members:
+            if frappe.db.exists("Member", m):
+                frappe.db.set_value("Member", m, "volunteer_record", None, update_modified=False)
+                frappe.delete_doc("Member", m, force=True)
+        for imp in self._created_imports:
+            if frappe.db.exists("VIP Import", imp):
+                frappe.delete_doc("VIP Import", imp, force=True)
+        frappe.db.commit()
+
+    def _uid(self):
+        import uuid
+
+        return str(uuid.uuid4())[:8]
+
+    def _make_member(self, **fields):
+        """Build, insert (bulk flag) and track a Member fixture, returning the doc."""
+        data = {"doctype": "Member"}
+        data.update(fields)
+        member = frappe.get_doc(data)
+        member.flags.bulk_member_operations = True
+        member.insert(ignore_permissions=True)
+        self._created_members.append(member.name)
+        return member
+
+    def test_create_member_minimal(self):
+        """_create_member creates a Member with email fallback and Active status."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _create_member
+
+        uid = self._uid()
+        row = {
+            "first_name": "New",
+            "last_name": "Recruit",
+            "organization_email": f"new.recruit.{uid}@org.example.com",
+            "member_id": f"VIP-NEW-{uid}",
+        }
+        member = _create_member(row)
+        self._created_members.append(member.name)
+
+        self.assertEqual(member.first_name, "New")
+        self.assertEqual(member.status, "Active")
+        # No personal_email -> falls back to organization_email
+        self.assertEqual(member.email, row["organization_email"])
+        self.assertEqual(member.member_id, f"VIP-NEW-{uid}")
+
+    def test_process_single_row_creates_member_when_missing(self):
+        """create_members_if_missing=True creates a member and then the volunteer."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _process_single_row
+
+        uid = self._uid()
+        import_doc = MagicMock()
+        import_doc.create_members_if_missing = True
+        import_doc.duplicate_handling = "Skip existing"
+        import_doc.name = None
+
+        row = {
+            "row_number": 2,
+            "first_name": "Created",
+            "last_name": "Member",
+            "vip_user_id": f"VIP-CM-{uid}",
+            "personal_email": f"created.member.{uid}@example.com",
+            "volunteer_status": "Active",
+        }
+        stats = {
+            "volunteers_created": 0,
+            "volunteers_updated": 0,
+            "volunteers_skipped": 0,
+            "members_not_found": 0,
+            "members_created": 0,
+        }
+        result = _process_single_row(row, import_doc, stats)
+
+        self.assertEqual(result["status"], "created", result)
+        self.assertEqual(stats["members_created"], 1)
+        self.assertEqual(stats["volunteers_created"], 1)
+
+        vol_name = result["volunteer"]
+        self._created_volunteers.append(vol_name)
+        member_name = frappe.db.get_value("Volunteer", vol_name, "member")
+        if member_name:
+            self._created_members.append(member_name)
+
+    def test_process_single_row_update_existing(self):
+        """duplicate_handling='Update existing' updates an existing volunteer."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+            _create_volunteer,
+            _process_single_row,
+        )
+
+        uid = self._uid()
+        member = self._make_member(
+            first_name="Upd",
+            last_name="Existing",
+            member_id=f"VIP-UPD-{uid}",
+            email=f"upd.existing.{uid}@example.com",
+            status="Active",
+            birth_date="1990-01-01",
+        )
+        frappe.db.commit()
+
+        # Pre-create a volunteer with no vip_user_id
+        vol = _create_volunteer({"volunteer_status": "Active"}, member)
+        self._created_volunteers.append(vol.name)
+        self.assertFalse(vol.vip_user_id)
+
+        import_doc = MagicMock()
+        import_doc.create_members_if_missing = False
+        import_doc.duplicate_handling = "Update existing"
+        import_doc.name = None
+
+        row = {
+            "row_number": 3,
+            "member_id": f"VIP-UPD-{uid}",
+            "vip_user_id": f"VIP-UPD-VOL-{uid}",
+            "volunteer_status": "Inactive",
+        }
+        stats = {
+            "volunteers_created": 0,
+            "volunteers_updated": 0,
+            "volunteers_skipped": 0,
+            "members_not_found": 0,
+            "members_created": 0,
+        }
+        result = _process_single_row(row, import_doc, stats)
+
+        self.assertEqual(result["status"], "updated", result)
+        self.assertEqual(stats["volunteers_updated"], 1)
+        updated = frappe.get_doc("Volunteer", vol.name)
+        self.assertEqual(updated.vip_user_id, f"VIP-UPD-VOL-{uid}")
+        self.assertEqual(updated.status, "Inactive")
+
+    def test_process_single_row_skip_existing(self):
+        """duplicate_handling='Skip existing' skips an existing volunteer."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+            _create_volunteer,
+            _process_single_row,
+        )
+
+        uid = self._uid()
+        member = self._make_member(
+            first_name="Skip",
+            last_name="Existing",
+            member_id=f"VIP-SKIP-{uid}",
+            email=f"skip.existing.{uid}@example.com",
+            status="Active",
+            birth_date="1990-01-01",
+        )
+        frappe.db.commit()
+
+        vol = _create_volunteer({"vip_user_id": f"VIP-SKIP-VOL-{uid}", "volunteer_status": "Active"}, member)
+        self._created_volunteers.append(vol.name)
+
+        import_doc = MagicMock()
+        import_doc.create_members_if_missing = False
+        import_doc.duplicate_handling = "Skip existing"
+        import_doc.name = None
+
+        row = {"row_number": 4, "member_id": f"VIP-SKIP-{uid}", "volunteer_status": "Active"}
+        stats = {
+            "volunteers_created": 0,
+            "volunteers_updated": 0,
+            "volunteers_skipped": 0,
+            "members_not_found": 0,
+            "members_created": 0,
+        }
+        result = _process_single_row(row, import_doc, stats)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "volunteer_exists")
+        self.assertEqual(stats["volunteers_skipped"], 1)
+
+    def test_create_volunteer_underage_throws(self):
+        """A member younger than the minimum volunteer age cannot become a volunteer."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _create_volunteer
+
+        uid = self._uid()
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Young",
+                "last_name": "Person",
+                "member_id": f"VIP-YOUNG-{uid}",
+                "email": f"young.{uid}@example.com",
+                "status": "Active",
+                "birth_date": today(),  # newborn -> definitely under min age
+            }
+        )
+        member.flags.bulk_member_operations = True
+        member.insert(ignore_permissions=True)
+        self._created_members.append(member.name)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError):
+            _create_volunteer({"volunteer_status": "Active"}, member)
+
+
+class TestVIPImportFinalStatusAndAccountCreation(FrappeTestCase):
+    """Tests for _set_final_import_status (happy path) and _process_account_creation."""
+
+    def _make_import(self):
+        doc = frappe.get_doc(
+            {
+                "doctype": "VIP Import",
+                "csv_file": "/files/test_vip_placeholder.csv",
+            }
+        )
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return doc
+
+    def _make_member(self, **fields):
+        """Build, insert (bulk flag) and return a Member fixture."""
+        data = {"doctype": "Member"}
+        data.update(fields)
+        member = frappe.get_doc(data)
+        member.flags.bulk_member_operations = True
+        member.insert(ignore_permissions=True)
+        return member
+
+    def _make_volunteer(self, member, **fields):
+        """Build, insert (bulk flag, skip account creation) and return a Volunteer fixture."""
+        data = {"doctype": "Volunteer", "member": member.name}
+        data.update(fields)
+        vol = frappe.get_doc(data)
+        vol.flags.bulk_member_operations = True
+        vol.flags.skip_volunteer_account_creation = True
+        vol.insert(ignore_permissions=True)
+        return vol
+
+    def test_set_final_status_completed_with_summary_and_skipped_log(self):
+        """No ACR error -> status Completed, summary + skipped log + error log all populated."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _set_final_import_status
+
+        import_doc = self._make_import()
+        try:
+            stats = {
+                "volunteers_created": 4,
+                "volunteers_updated": 1,
+                "volunteers_skipped": 2,
+                "members_not_found": 1,
+                "members_created": 3,
+            }
+            acr_result = {
+                "acrs_created": 2,
+                "active_volunteers_queued": 5,
+                "inactive_skipped": 1,
+                "users_linked": 1,
+                "tracker_name": "TRACKER-1",
+            }
+            skipped_rows = [
+                {
+                    "row": 9,
+                    "reason": "member_not_found",
+                    "status": "skipped",
+                    "name": "Lost Member",
+                    "identifier": "M-9",
+                }
+            ]
+            errors = ["Row 3: boom"]
+            skipped_reasons = ["Row 8: delegated account shared@org.example.com"]
+
+            _set_final_import_status(
+                import_doc=import_doc,
+                stats=stats,
+                acr_result=acr_result,
+                errors=errors,
+                skipped_rows=skipped_rows,
+                skipped_reasons=skipped_reasons,
+            )
+            frappe.db.commit()
+            import_doc.reload()
+
+            self.assertEqual(import_doc.import_status, "Completed")
+            self.assertEqual(import_doc.volunteers_created, 4)
+            self.assertEqual(import_doc.members_created, 3)
+            self.assertEqual(import_doc.acrs_created, 2)
+            self.assertEqual(import_doc.acrs_queued_for_active, 5)
+            self.assertEqual(import_doc.bulk_operation_tracker, "TRACKER-1")
+            self.assertIn("Volunteers created: 4", import_doc.import_summary)
+            self.assertIn("Account Creation", import_doc.import_summary)
+            self.assertIn("Active volunteers queued: 5", import_doc.import_summary)
+            self.assertIn("Lost Member", import_doc.skipped_rows_log)
+            self.assertIn("1 errors encountered", import_doc.top_errors_summary)
+            self.assertIn("Delegated Accounts Skipped", import_doc.error_log)
+            # PII in delegated reasons must be redacted
+            self.assertNotIn("shared@org.example.com", import_doc.error_log)
+        finally:
+            import_doc.delete(ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_set_final_status_all_inactive_branch(self):
+        """When only inactive volunteers were processed, summary reports no upgrades needed."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _set_final_import_status
+
+        import_doc = self._make_import()
+        try:
+            stats = {
+                "volunteers_created": 0,
+                "volunteers_updated": 2,
+                "volunteers_skipped": 0,
+                "members_not_found": 0,
+                "members_created": 0,
+            }
+            acr_result = {"active_volunteers_queued": 0, "inactive_skipped": 2}
+            _set_final_import_status(import_doc=import_doc, stats=stats, acr_result=acr_result)
+            frappe.db.commit()
+            import_doc.reload()
+            self.assertEqual(import_doc.import_status, "Completed")
+            self.assertIn("no account upgrades needed", import_doc.import_summary)
+        finally:
+            frappe.delete_doc(import_doc.doctype, import_doc.name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_process_account_creation_no_active_volunteers(self):
+        """No created/updated volunteers -> empty (no-op) result, no error."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _process_account_creation
+
+        result = _process_account_creation(
+            "VIP-FAKE-IMPORT",
+            [
+                {"status": "skipped", "volunteer": None},
+                {"status": "error", "volunteer": None},
+            ],
+        )
+        self.assertEqual(result["active_volunteers_queued"], 0)
+        self.assertEqual(result["acrs_created"], 0)
+        self.assertIsNone(result["error"])
+
+    def test_process_account_creation_filters_inactive(self):
+        """Inactive volunteers are counted as inactive_skipped, not queued."""
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import _process_account_creation
+
+        # Create a member + an Inactive volunteer (real DB rows, no account creation queued)
+        uid = frappe.generate_hash(length=6)
+        member = self._make_member(
+            first_name="Inactive",
+            last_name="Vol",
+            member_id=f"VIP-INACT-{uid}",
+            email=f"inact.{uid}@example.com",
+            status="Active",
+            birth_date="1990-01-01",
+        )
+        frappe.db.commit()
+
+        vol = self._make_volunteer(
+            member,
+            volunteer_name="Inactive Vol",
+            status="Inactive",
+            start_date=today(),
+        )
+        frappe.db.commit()
+
+        try:
+            result = _process_account_creation(
+                "VIP-FAKE-IMPORT",
+                [{"status": "created", "volunteer": vol.name, "volunteer_status": "Inactive"}],
+            )
+            self.assertEqual(result["active_volunteers_queued"], 0)
+            self.assertEqual(result["inactive_skipped"], 1)
+            self.assertEqual(result["acrs_created"], 0)
+            self.assertIsNone(result["error"])
+        finally:
+            frappe.delete_doc("Volunteer", vol.name, force=True)
+            frappe.db.set_value("Member", member.name, "volunteer_record", None, update_modified=False)
+            frappe.delete_doc("Member", member.name, force=True)
             frappe.db.commit()
 
 
