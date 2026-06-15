@@ -779,6 +779,28 @@ def create_sepa_transaction_from_invoice(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
+def _resolve_batch_sequence_type(batch) -> SEPASequenceType:
+    """Resolve a batch's SeqTp from sequence_type, with a legacy batch_type fallback."""
+    valid = {"FRST", "RCUR", "FNAL", "OOFF"}
+    seq = batch.get("sequence_type")
+    if seq in valid:
+        return SEPASequenceType(seq)
+    # Pre-split batches stored the sequence in batch_type.
+    legacy = batch.get("batch_type")
+    if legacy in valid:
+        return SEPASequenceType(legacy)
+    return SEPASequenceType.RCUR
+
+
+def _resolve_batch_local_instrument(batch) -> SEPALocalInstrument:
+    """Resolve a batch's LclInstrm from batch_type (scheme); default CORE."""
+    try:
+        return SEPALocalInstrument(batch.get("batch_type"))
+    except ValueError:
+        # Legacy batch_type holding a sequence value has no scheme meaning.
+        return SEPALocalInstrument.CORE
+
+
 def generate_enhanced_sepa_xml(batch_name: str) -> Dict[str, Any]:
     """
     Generate enhanced SEPA XML for a batch
@@ -799,9 +821,14 @@ def generate_enhanced_sepa_xml(batch_name: str) -> Dict[str, Any]:
         # Create creditor from settings
         creditor = create_sepa_creditor_from_settings()
 
-        # Determine sequence type and local instrument
-        sequence_type = SEPASequenceType(batch.batch_type or "CORE")
-        local_instrument = SEPALocalInstrument.CORE  # Default to CORE
+        # Determine sequence type (SeqTp) and local instrument (LclInstrm).
+        # SeqTp comes from the dedicated sequence_type field; pre-split batches
+        # stored the sequence in batch_type, so honour that as a legacy fallback.
+        # LclInstrm (the scheme) comes from batch_type (CORE/B2B/COR1). Passing a
+        # scheme value into SEPASequenceType() would raise ValueError, so resolve
+        # each independently.
+        sequence_type = _resolve_batch_sequence_type(batch)
+        local_instrument = _resolve_batch_local_instrument(batch)
 
         # Create transactions
         transactions = []

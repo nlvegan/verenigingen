@@ -185,7 +185,8 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test batch for validation"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
         batch.currency = "EUR"
         batch.status = "Draft"
         
@@ -218,7 +219,7 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
             batch = self.processor.create_batch_from_invoices(invoices, collection_date)
             self.assertIsNotNone(batch, "Batch should be created from invoices")
             self.assertEqual(batch.currency, "EUR", "Batch should use EUR currency")
-            self.assertEqual(batch.batch_type, "RCUR", "Batch should be RCUR type")
+            self.assertEqual(batch.sequence_type, "RCUR", "Batch should be RCUR sequence type")
             self.assertTrue(hasattr(batch, '_automated_processing'), 
                            "Batch should be marked for automated processing")
             

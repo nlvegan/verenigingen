@@ -191,7 +191,9 @@ class TestFinancialWorkflowsComplete(EnhancedTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.collection_date = add_days(today(), 5)  # SEPA requires advance notice
-        batch.batch_type = "Monthly Collection"
+        batch.batch_type = "CORE"  # SEPA scheme (Select: CORE/B2B/COR1)
+        batch.sequence_type = "RCUR"  # Recurring collection
+        batch.batch_description = "Monthly Collection"
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
 

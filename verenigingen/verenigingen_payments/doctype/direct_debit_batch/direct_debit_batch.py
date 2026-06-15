@@ -497,7 +497,8 @@ def create_direct_debit_batch_for_unpaid_memberships():
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = frappe.utils.today()
         batch.batch_description = f"Membership payments batch - {frappe.utils.today()}"
-        batch.batch_type = "RCUR"  # Recurring direct debit
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "RCUR"  # Recurring direct debit (SeqTp)
         batch.currency = "EUR"  # Default currency
 
         # Add invoices to batch

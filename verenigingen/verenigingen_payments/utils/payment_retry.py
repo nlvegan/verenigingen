@@ -337,7 +337,8 @@ def execute_payment_retry(retry_record=None):
         # Create single invoice batch for retry
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
-        batch.batch_type = sequence_type
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = sequence_type  # SeqTp derived from mandate usage
         batch.batch_description = f"Retry payment for {member.full_name} - Attempt {retry_doc.retry_count}"
 
         # Add invoice to batch

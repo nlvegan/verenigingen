@@ -264,7 +264,7 @@ def create_workflow_conditions():
     first_time_condition = {
         "condition_name": "First Time Batch",
         "document_type": "Direct Debit Batch",
-        "condition": "doc.batch_type == 'FRST'",
+        "condition": "doc.sequence_type == 'FRST'",
     }
 
     return [high_value_condition, large_batch_condition, first_time_condition]

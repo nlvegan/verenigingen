@@ -153,7 +153,9 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         valid_batch = frappe.new_doc("Direct Debit Batch")
         valid_batch.batch_date = today()
         valid_batch.collection_date = add_days(today(), 5)  # Valid notice period
-        valid_batch.batch_type = "Monthly Collection"
+        valid_batch.batch_type = "CORE"  # SEPA scheme (Select: CORE/B2B/COR1)
+        valid_batch.sequence_type = "RCUR"  # Recurring collection
+        valid_batch.batch_description = "Monthly Collection"
 
         for member_data in batch_members:
             valid_batch.append("items", {
@@ -217,7 +219,9 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.collection_date = add_days(today(), 5)
-        batch.batch_type = "First Collection"  # Different rules apply
+        batch.batch_type = "CORE"  # SEPA scheme (Select: CORE/B2B/COR1)
+        batch.sequence_type = "FRST"  # First collection - different rules apply
+        batch.batch_description = "First Collection"
 
         batch.append("items", {
             "member": member.name,
@@ -481,7 +485,9 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.collection_date = add_days(today(), 5)
-        batch.batch_type = "Monthly Bulk Collection"
+        batch.batch_type = "CORE"  # SEPA scheme (Select: CORE/B2B/COR1)
+        batch.sequence_type = "RCUR"  # Recurring collection
+        batch.batch_description = "Monthly Bulk Collection"
 
         for data in members_data:
             batch.append("items", {

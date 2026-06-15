@@ -364,7 +364,8 @@ class TestSEPAXMLAdapterXMLGeneration(FrappeTestCase):
         mock_batch = MagicMock()
         mock_batch.name = "BATCH-TEST-001"
         mock_batch.batch_date = date.today()
-        mock_batch.batch_type = "RCUR"
+        mock_batch.batch_type = "CORE"  # SEPA scheme -> LclInstrm
+        mock_batch.sequence_type = "RCUR"  # SEPA sequence -> SeqTp (adapter reads this)
         mock_batch.entry_count = 1
         mock_batch.total_amount = 50.00
 

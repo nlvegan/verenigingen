@@ -154,8 +154,13 @@
           },
           "batch_type": {
             "type": "string",
+            "enum": ["CORE", "B2B", "COR1"],
+            "description": "SEPA scheme / local instrument (pain.008 LclInstrm)"
+          },
+          "sequence_type": {
+            "type": "string",
             "enum": ["FRST", "RCUR", "FNAL", "OOFF"],
-            "description": "SEPA batch sequence type"
+            "description": "SEPA sequence type (pain.008 SeqTp)"
           },
           "invoice_filters": {
             "type": "object",

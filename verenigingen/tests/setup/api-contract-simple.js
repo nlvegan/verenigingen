@@ -103,6 +103,10 @@ const API_SCHEMAS = {
 				collection_date: { type: 'string', format: 'date' },
 				batch_type: {
 					type: 'string',
+					enum: ['CORE', 'B2B', 'COR1']
+				},
+				sequence_type: {
+					type: 'string',
 					enum: ['FRST', 'RCUR', 'FNAL', 'OOFF']
 				},
 				invoice_filters: {

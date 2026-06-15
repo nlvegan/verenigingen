@@ -163,9 +163,9 @@ class TestValidateBatchForApproval(EnhancedTestCase):
     """validate_batch_for_approval routing/risk logic (Administrator bypasses auth)."""
 
     def test_valid_low_risk_batch(self):
-        # factory default batch_type is FRST which bumps risk to Medium; use RCUR
+        # factory default sequence_type is FRST which bumps risk to Medium; use RCUR
         # with a small total/count so all risk factors stay at their Low baseline.
-        batch = self.create_test_direct_debit_batch(invoice_count=2, batch_type="RCUR")
+        batch = self.create_test_direct_debit_batch(invoice_count=2, sequence_type="RCUR")
         result = ctrl.validate_batch_for_approval(batch_name=batch.name)
         self.assertTrue(result["valid"])
         self.assertEqual(result["risk_level"], "Low")
@@ -214,10 +214,10 @@ class TestValidateBatchForApproval(EnhancedTestCase):
 
     def test_frst_batch_bumps_to_medium(self):
         batch = self.create_test_direct_debit_batch(invoice_count=2)
-        # factory default batch_type is already FRST; ensure low base risk otherwise.
+        # factory default sequence_type is already FRST; ensure low base risk otherwise.
         batch.db_set("total_amount", 100)
         batch.db_set("entry_count", 2)
-        self.assertEqual(batch.batch_type, "FRST")
+        self.assertEqual(batch.sequence_type, "FRST")
         result = ctrl.validate_batch_for_approval(batch_name=batch.name)
         self.assertEqual(result["risk_level"], "Medium")
 
@@ -228,7 +228,7 @@ class TestValidateBatchForApproval(EnhancedTestCase):
         while d.weekday() != 5:
             d = getdate(add_days(d, 1))
         batch.db_set("batch_date", d)
-        batch.db_set("batch_type", "RCUR")  # avoid FRST so we isolate the weekend warning
+        batch.db_set("sequence_type", "RCUR")  # avoid FRST so we isolate the weekend warning
         result = ctrl.validate_batch_for_approval(batch_name=batch.name)
         self.assertTrue(any("weekend" in w.lower() for w in result["warnings"]))
 

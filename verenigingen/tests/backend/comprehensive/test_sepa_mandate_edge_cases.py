@@ -390,7 +390,8 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             {
                 "doctype": "Direct Debit Batch",
                 "batch_date": today(),
-                "batch_type": "RCUR",
+                "batch_type": "CORE",
+                "sequence_type": "RCUR",
                 "currency": "EUR",
                 "status": "Draft",
             }
@@ -404,7 +405,8 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             {
                 "doctype": "Direct Debit Batch",
                 "batch_date": today(),
-                "batch_type": "RCUR",
+                "batch_type": "CORE",
+                "sequence_type": "RCUR",
                 "currency": "EUR",
                 "status": "Draft",
                 "invoices": [

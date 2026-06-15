@@ -184,7 +184,8 @@ class TestSEPABatchProcessorBuilders(EnhancedTestCase):
     def test_create_batch_from_invoices_sets_defaults(self):
         coll = getdate("2026-03-02")
         batch = self.processor.create_batch_from_invoices([], coll)
-        self.assertEqual(batch.batch_type, "RCUR")
+        self.assertEqual(batch.batch_type, "CORE")
+        self.assertEqual(batch.sequence_type, "RCUR")
         self.assertEqual(batch.currency, "EUR")
         self.assertEqual(batch.status, "Draft")
         self.assertEqual(batch.batch_date, coll)
@@ -194,7 +195,8 @@ class TestSEPABatchProcessorBuilders(EnhancedTestCase):
     def test_create_batch_document_sets_defaults(self):
         coll = getdate("2026-03-02")
         batch = self.processor.create_batch_document([], coll)
-        self.assertEqual(batch.batch_type, "RCUR")
+        self.assertEqual(batch.batch_type, "CORE")
+        self.assertEqual(batch.sequence_type, "RCUR")
         self.assertEqual(batch.currency, "EUR")
         self.assertEqual(batch.status, "Draft")
         self.assertTrue(getattr(batch, "_automated_processing", False))

@@ -250,13 +250,15 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     def test_create_batch_document_marks_batch_frst_when_any_row_is_first(self):
         """Regression: a batch mixing a first collection (FRST) with a recurring
-        one (RCUR) must be typed FRST as a whole (SEPA pre-notification rule).
+        one (RCUR) must have its SEPA sequence typed FRST as a whole (SEPA
+        pre-notification rule).
 
         The previous derivation used ``seq_types.pop() if len == 1 else 'RCUR'``,
         which silently mis-typed any mixed batch as RCUR. The child rows below use
         sequence types that match what the Direct Debit Batch controller computes
         from each mandate's usage history, so the batch inserts cleanly and we can
-        assert the batch-level ``batch_type``.
+        assert the batch-level ``sequence_type`` (the SEPA sequence; ``batch_type``
+        is now the scheme CORE/B2B/COR1).
         """
         from frappe.utils import add_days, today
 
@@ -338,9 +340,9 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
         self.assertIsNotNone(batch, "Mixed FRST/RCUR batch should insert cleanly")
         self.assertEqual(
-            batch.batch_type,
+            batch.sequence_type,
             "FRST",
-            "A batch containing any first collection must be typed FRST, not RCUR",
+            "A batch containing any first collection must have sequence_type FRST, not RCUR",
         )
 
     def test_sepa_utilities(self):
@@ -522,11 +524,12 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = today()
         batch_doc.batch_description = f"Test Batch - {random_string(8)}"
-        # Real batch_type options are CORE/B2B/FRST/RCUR. The rows below use FRST
-        # (first usage of brand-new mandates); the XML PaymentInfo SeqTp comes
-        # from batch_type and must match the transaction sequence types, so use
-        # FRST here too (a RCUR batch_type would fail XML sequence validation).
-        batch_doc.batch_type = "FRST"
+        # batch_type is the SEPA scheme (CORE/B2B/COR1); sequence_type is the SEPA
+        # sequence (FRST/RCUR/FNAL/OOFF). The rows below use FRST (first usage of
+        # brand-new mandates); the XML PaymentInfo SeqTp comes from sequence_type
+        # and must match the transaction sequence types, so set sequence_type=FRST.
+        batch_doc.batch_type = "CORE"
+        batch_doc.sequence_type = "FRST"
         batch_doc.currency = "EUR"
 
         for i in range(invoice_count):

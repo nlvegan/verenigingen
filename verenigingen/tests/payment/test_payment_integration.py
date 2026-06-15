@@ -135,7 +135,7 @@ class TestPaymentIntegration(EnhancedTestCase):
         dd_batch = frappe.new_doc("Direct Debit Batch")
         dd_batch.batch_date = today()
         dd_batch.batch_description = f"Test DD Batch {frappe.generate_hash(length=6)}"
-        dd_batch.batch_type = "RCUR"
+        dd_batch.batch_type = "CORE"
         dd_batch.currency = "EUR"
         dd_batch.append("invoices", {
             "invoice": invoice.name,

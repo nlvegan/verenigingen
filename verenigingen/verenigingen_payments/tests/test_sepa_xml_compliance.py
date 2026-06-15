@@ -452,7 +452,8 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         batch_doc.batch_date = frappe.utils.today()
         batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = "SEPA XML Compliance Test Batch"
-        batch_doc.batch_type = "RCUR"
+        batch_doc.batch_type = "CORE"  # SEPA scheme -> pain.008 LclInstrm/Cd
+        batch_doc.sequence_type = "RCUR"  # SEPA sequence -> pain.008 SeqTp
         batch_doc.currency = "EUR"
 
         # Add realistic Dutch test data
@@ -494,7 +495,8 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         batch_doc.batch_date = frappe.utils.today()
         batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = "Sequence Type Test Batch"
-        batch_doc.batch_type = "RCUR"
+        batch_doc.batch_type = "CORE"  # SEPA scheme -> pain.008 LclInstrm/Cd
+        batch_doc.sequence_type = "RCUR"  # SEPA sequence -> pain.008 SeqTp
         batch_doc.currency = "EUR"
 
         # Add entries with different sequence types
@@ -532,7 +534,8 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         batch_doc.batch_date = frappe.utils.today()
         batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = "Address Structure Test Batch"
-        batch_doc.batch_type = "RCUR"
+        batch_doc.batch_type = "CORE"  # SEPA scheme -> pain.008 LclInstrm/Cd
+        batch_doc.sequence_type = "RCUR"  # SEPA sequence -> pain.008 SeqTp
         batch_doc.currency = "EUR"
 
         # Add entries with Dutch addresses
@@ -580,7 +583,8 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         batch_doc.batch_date = frappe.utils.today()
         batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = "Dutch Names Test Batch"
-        batch_doc.batch_type = "RCUR"
+        batch_doc.batch_type = "CORE"  # SEPA scheme -> pain.008 LclInstrm/Cd
+        batch_doc.sequence_type = "RCUR"  # SEPA sequence -> pain.008 SeqTp
         batch_doc.currency = "EUR"
 
         # Dutch names with tussenvoegsel

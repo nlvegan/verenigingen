@@ -82,7 +82,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             
             # Validate batch creation
             self.assertIsNotNone(batch.name)
-            self.assertEqual(batch.batch_type, "RCUR")  # Should be recurring by default
+            self.assertEqual(batch.sequence_type, "RCUR")  # Should be recurring by default
             self.assertGreater(len(batch.invoices), 0)
             self.assertGreater(batch.total_amount, 0)
             
@@ -216,7 +216,8 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test batch"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "FRST"
         batch.currency = "EUR"
         batch.status = "Draft"
         batch.append("invoices", {

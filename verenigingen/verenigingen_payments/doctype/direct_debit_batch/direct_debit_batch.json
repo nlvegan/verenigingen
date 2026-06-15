@@ -9,6 +9,7 @@
     "batch_date",
     "batch_description",
     "batch_type",
+    "sequence_type",
     "column_break_5",
     "total_amount",
     "currency",
@@ -60,11 +61,20 @@
     },
     {
       "default": "CORE",
+      "description": "SEPA scheme / local instrument (pain.008 LclInstrm). Not the sequence type.",
       "fieldname": "batch_type",
       "fieldtype": "Select",
-      "label": "Batch Type",
-      "options": "CORE\nB2B\nFRST\nRCUR",
+      "label": "Batch Type (Scheme)",
+      "options": "CORE\nB2B\nCOR1",
       "reqd": 1
+    },
+    {
+      "default": "RCUR",
+      "description": "SEPA sequence type (pain.008 SeqTp): FRST (first), RCUR (recurring), FNAL (final), OOFF (one-off).",
+      "fieldname": "sequence_type",
+      "fieldtype": "Select",
+      "label": "Sequence Type",
+      "options": "FRST\nRCUR\nFNAL\nOOFF"
     },
     {
       "fieldname": "column_break_5",
@@ -251,7 +261,7 @@
     }
   ],
   "is_submittable": 1,
-  "modified": "2023-01-01 00:00:00.000000",
+  "modified": "2026-06-15 12:30:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen Payments",
   "name": "Direct Debit Batch",

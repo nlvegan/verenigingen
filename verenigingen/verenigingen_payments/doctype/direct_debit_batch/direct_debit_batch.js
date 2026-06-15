@@ -193,9 +193,11 @@ frappe.ui.form.on('Direct Debit Batch', {
 		});
 	},
 
-	batch_type(frm) {
-		// Update help text and warnings based on batch type
-		const batch_info = {
+	sequence_type(frm) {
+		// Update help text and warnings based on the SEPA sequence type (SeqTp).
+		// Note: batch_type is the scheme (CORE/B2B/COR1); the FRST/RCUR/OOFF/FNAL
+		// guidance below belongs to sequence_type.
+		const sequence_info = {
 			FRST: {
 				help: __('First collection - Use for new mandates'),
 				warning: __('Ensure all mandates are properly signed before using FRST')
@@ -214,9 +216,9 @@ frappe.ui.form.on('Direct Debit Batch', {
 			}
 		};
 
-		const info = batch_info[frm.doc.batch_type];
+		const info = sequence_info[frm.doc.sequence_type];
 		if (info) {
-			frm.set_df_property('batch_type', 'description', info.help);
+			frm.set_df_property('sequence_type', 'description', info.help);
 			if (info.warning) {
 				frappe.msgprint({
 					title: __('Important'),
@@ -493,7 +495,8 @@ function load_unpaid_invoices(frm) {
 								'batch_description',
 								`Membership payments batch - ${frappe.datetime.get_today()}`
 							);
-							frm.set_value('batch_type', 'RCUR');
+							frm.set_value('batch_type', 'CORE');
+							frm.set_value('sequence_type', 'RCUR');
 							frm.set_value('currency', 'EUR');
 						}
 
@@ -856,7 +859,7 @@ function set_field_properties(frm) {
 		frm.doc.status === 'Generated' || frm.doc.status === 'Submitted' || frm.doc.status === 'Processed';
 
 	// Fields to disable when batch is generated/submitted
-	const fields_to_disable = ['batch_date', 'batch_description', 'batch_type', 'currency'];
+	const fields_to_disable = ['batch_date', 'batch_description', 'batch_type', 'sequence_type', 'currency'];
 
 	// Disable fields based on status
 	fields_to_disable.forEach((field) => {

@@ -275,11 +275,14 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             "batch_description": kwargs.get("batch_description", f"Test Batch {self.get_next_sequence('batch')}"),
             "currency": kwargs.get("currency", "EUR"),
             "status": kwargs.get("status", "Draft"),
-            # Freshly-created mandates have no prior usage, so their first
-            # collection is FRST. The batch_type (PaymentInfo SeqTp in the XML)
-            # must match the per-transaction sequence type or the enhanced XML
-            # generator raises a sequence-type-mismatch validation error.
-            "batch_type": kwargs.get("batch_type", "FRST"),
+            # batch_type is the SEPA scheme (CORE/B2B/COR1). The sequence type
+            # (FRST/RCUR/FNAL/OOFF) is a separate field. Freshly-created mandates
+            # have no prior usage, so their first collection is FRST; the
+            # batch-level sequence_type must match the per-transaction sequence
+            # type or the enhanced XML generator raises a sequence-type-mismatch
+            # validation error.
+            "batch_type": kwargs.get("batch_type", "CORE"),
+            "sequence_type": kwargs.get("sequence_type", "FRST"),
             **kwargs
         })
         

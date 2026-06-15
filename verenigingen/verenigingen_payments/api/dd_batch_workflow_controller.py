@@ -83,7 +83,7 @@ def validate_batch_for_approval(batch_name: str):
                 validation_result["risk_level"] = "Medium"
 
         # First-time SEPA batch
-        if batch.batch_type == "FRST":
+        if batch.sequence_type == "FRST":
             risk_factors.append("First-time direct debit")
             if validation_result["risk_level"] == "Low":
                 validation_result["risk_level"] = "Medium"

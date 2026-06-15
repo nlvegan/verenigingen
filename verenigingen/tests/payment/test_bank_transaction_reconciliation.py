@@ -168,7 +168,7 @@ class BTRBase(EnhancedTestCase):
         batch.batch_date = batch_date or today()
         batch.batch_description = f"BTR Batch {frappe.generate_hash(length=6)}"
         batch.currency = "EUR"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"
         batch.status = "Draft"
         total = 0.0
         for idx, it in enumerate(items):

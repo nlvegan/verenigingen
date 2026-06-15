@@ -122,8 +122,9 @@ class SEPAXMLAdapter:
         # Create creditor from settings
         creditor = self._build_creditor_from_settings(settings)
 
-        # Determine sequence type from batch
-        sequence_type = self._get_sequence_type(batch_doc.batch_type or "RCUR")
+        # Determine sequence type (SeqTp) from the batch's dedicated
+        # sequence_type field, with a legacy fallback to batch_type.
+        sequence_type = self._get_batch_sequence_type(batch_doc)
 
         # Build transactions from batch invoices
         transactions = self._build_transactions_from_batch(batch_doc, sequence_type)
@@ -149,7 +150,7 @@ class SEPAXMLAdapter:
             batch_booking=True,
             requested_collection_date=collection_date,
             creditor=creditor,
-            local_instrument=SEPALocalInstrument.CORE,
+            local_instrument=self._get_local_instrument(batch_doc.batch_type),
             sequence_type=sequence_type,
             transactions=transactions,
         )
@@ -516,9 +517,38 @@ class SEPAXMLAdapter:
             "RCUR": SEPASequenceType.RCUR,
             "OOFF": SEPASequenceType.OOFF,
             "FNAL": SEPASequenceType.FNAL,
-            "CORE": SEPASequenceType.RCUR,  # CORE is not a sequence type, default to RCUR
+            "CORE": SEPASequenceType.RCUR,  # legacy: scheme value stored in a sequence field
         }
         return type_map.get(type_str, SEPASequenceType.RCUR)
+
+    def _get_batch_sequence_type(self, batch_doc) -> SEPASequenceType:
+        """Resolve the batch-level SeqTp.
+
+        Primary source is the dedicated ``sequence_type`` field. Batches created
+        before the scheme/sequence split stored the sequence value in
+        ``batch_type``; honour that as a legacy fallback. Default to RCUR.
+        """
+        valid = ("FRST", "RCUR", "FNAL", "OOFF")
+        seq = getattr(batch_doc, "sequence_type", None)
+        if seq in valid:
+            return self._get_sequence_type(seq)
+        legacy = getattr(batch_doc, "batch_type", None)
+        if legacy in valid:
+            return self._get_sequence_type(legacy)
+        return SEPASequenceType.RCUR
+
+    def _get_local_instrument(self, batch_type: Optional[str]) -> SEPALocalInstrument:
+        """Map the batch scheme (``batch_type``) to the pain.008 LclInstrm code.
+
+        A legacy ``batch_type`` still holding a sequence value (FRST/RCUR/...)
+        has no scheme meaning, so default to CORE.
+        """
+        mapping = {
+            "CORE": SEPALocalInstrument.CORE,
+            "B2B": SEPALocalInstrument.B2B,
+            "COR1": SEPALocalInstrument.COR1,
+        }
+        return mapping.get(batch_type, SEPALocalInstrument.CORE)
 
     def clear_cache(self) -> None:
         """Clear the mandate cache."""

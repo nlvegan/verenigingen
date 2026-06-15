@@ -67,7 +67,8 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test Batch - Critical Error"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
         batch.currency = "EUR"
 
         # Add invoice with incorrect sequence type (RCUR when it should be FRST)
@@ -121,7 +122,8 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test Batch - Warning"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "FRST"
         batch.currency = "EUR"
 
         batch.append(
@@ -163,7 +165,8 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test Batch - Auto Assignment"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "FRST"
         batch.currency = "EUR"
 
         batch.append(
@@ -197,7 +200,8 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test Batch - Automated"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
         batch.currency = "EUR"
         batch._automated_processing = True  # Set automated flag
 
@@ -242,7 +246,8 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test Batch - Notifications"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
         batch.currency = "EUR"
         batch._automated_processing = True
 
@@ -320,7 +325,8 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test Batch - Error Messages"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "CORE"
+        batch.sequence_type = "RCUR"
         batch.currency = "EUR"
         batch._automated_processing = True
 

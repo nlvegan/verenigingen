@@ -144,7 +144,8 @@ describe('Financial API Contract Tests', () => {
 			test('validates direct debit batch creation request', () => {
 				const validRequest = {
 					collection_date: '2024-07-15',
-					batch_type: 'RCUR',
+					batch_type: 'CORE',
+					sequence_type: 'RCUR',
 					invoice_filters: {
 						membership_type: ['Regular', 'Student'],
 						due_date_range: {

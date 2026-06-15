@@ -413,7 +413,8 @@ def add_to_direct_debit_batch(membership_name: str):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = f"Membership payments batch - {today()}"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "RCUR"  # SeqTp
         batch.currency = invoices[0]["currency"]
         batch.status = "Draft"
 

@@ -112,7 +112,8 @@ class SEPABatchProcessor:
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = collection_date
         batch.batch_description = f"Monthly SEPA collection - {collection_date.strftime('%B %Y')}"
-        batch.batch_type = "RCUR"  # Default to recurring
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "RCUR"  # Default to recurring
         batch.currency = "EUR"
         batch.status = "Draft"
 
@@ -126,7 +127,8 @@ class SEPABatchProcessor:
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = collection_date
         batch.batch_description = f"Membership dues collection - {collection_date}"
-        batch.batch_type = "RCUR"  # Default to recurring
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "RCUR"  # Default to recurring
         batch.currency = "EUR"
         batch.status = "Draft"
 

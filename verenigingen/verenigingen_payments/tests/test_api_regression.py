@@ -379,7 +379,8 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
         batch_doc.batch_date = today()
         batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = "API Regression Test Batch"
-        batch_doc.batch_type = "FRST"  # first use of a fresh mandate -> FRST
+        batch_doc.batch_type = "CORE"  # SEPA scheme
+        batch_doc.sequence_type = "FRST"  # first use of a fresh mandate -> FRST
         batch_doc.currency = "EUR"
 
         batch_doc.append(

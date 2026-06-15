@@ -542,8 +542,9 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
 
     total_amount = sum(flt(inv["amount"]) for inv in batch_invoices)
 
-    # Determine batch type based on individual mandate usage
-    batch_type = determine_batch_type(batch_invoices)
+    # Determine the SEPA sequence type (SeqTp) from individual mandate usage.
+    # The scheme (batch_type) is CORE for Dutch core direct debit.
+    sequence_type = determine_sequence_type(batch_invoices)
 
     # Create batch document
     batch_doc = frappe.get_doc(
@@ -551,7 +552,8 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
             "doctype": "Direct Debit Batch",  # Use correct doctype name
             "batch_date": target_date,
             "batch_description": f"Auto-optimized batch #{batch_number} - {target_date}",
-            "batch_type": batch_type,
+            "batch_type": "CORE",
+            "sequence_type": sequence_type,
             "currency": "EUR",  # Default to EUR
             "total_amount": total_amount,
             "entry_count": len(batch_invoices),
@@ -633,13 +635,18 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
         frappe.log_error(f"Failed to update batch references: {str(e)}", "Batch Reference Update Error")
 
     frappe.logger().info(
-        f"Created batch {batch_doc.name} with {len(batch_invoices)} invoices (€{total_amount}), type: {batch_type}"
+        f"Created batch {batch_doc.name} with {len(batch_invoices)} invoices "
+        f"(€{total_amount}), scheme: {batch_doc.batch_type}, sequence: {sequence_type}"
     )
     return batch_doc
 
 
-def determine_batch_type(batch_invoices):
-    """Determine appropriate SEPA batch type based on individual mandate usage"""
+def determine_sequence_type(batch_invoices):
+    """Determine the batch-level SEPA SEQUENCE type (SeqTp) from mandate usage.
+
+    Returns a sequence type (FRST/RCUR), NOT a scheme. The scheme (batch_type:
+    CORE/B2B/COR1) is a separate concept.
+    """
 
     # Import here to avoid circular imports
     from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
@@ -667,6 +674,11 @@ def determine_batch_type(batch_invoices):
 
     # Default to recurring if all are RCUR or no sequence types found
     return "RCUR"
+
+
+# Backwards-compatible alias: this function historically determined what was
+# (mis)stored in batch_type, but it actually computes the SEQUENCE type.
+determine_batch_type = determine_sequence_type
 
 
 def generate_optimization_report(original_invoices, created_batches, config):

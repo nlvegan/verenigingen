@@ -42,7 +42,7 @@ class TestDirectDebitBatch(EnhancedTestCase):
         doc = frappe.new_doc("Direct Debit Batch")
         doc.batch_date = kwargs.get("batch_date", today())
         doc.batch_description = kwargs.get("batch_description", "Test batch")
-        doc.batch_type = kwargs.get("batch_type", "RCUR")
+        doc.batch_type = kwargs.get("batch_type", "CORE")
         doc.currency = kwargs.get("currency", "EUR")
         doc.update(kwargs)
         return doc

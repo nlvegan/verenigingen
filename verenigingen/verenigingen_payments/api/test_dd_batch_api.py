@@ -75,7 +75,8 @@ class TestDDBatchAPI(EnhancedTestCase):
         batch.batch_date = today()
         batch.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch.batch_description = "DD API Test Batch"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "FRST"  # SEPA sequence
         batch.currency = "EUR"
 
         if with_invoice:
@@ -255,7 +256,8 @@ class TestDDBatchAPI(EnhancedTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Dup mandate batch"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "FRST"  # SEPA sequence
         batch.currency = "EUR"
         for inv in (inv1, inv2):
             batch.append(
@@ -352,7 +354,8 @@ class TestDDBatchAPI(EnhancedTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Exclude batch"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "FRST"  # SEPA sequence
         batch.currency = "EUR"
         for inv in (inv1, inv2):
             batch.append(
@@ -414,7 +417,8 @@ class TestDDBatchAPI(EnhancedTestCase):
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Consolidate batch"
-        batch.batch_type = "FRST"
+        batch.batch_type = "CORE"  # SEPA scheme
+        batch.sequence_type = "FRST"  # SEPA sequence
         batch.currency = "EUR"
         for inv, amt in ((inv1, 25.0), (inv2, 30.0)):
             batch.append(
