@@ -151,8 +151,11 @@ class BaseTransactionProcessor(ABC):
         """
         description = mutation.get("Omschrijving", "").strip()
 
-        # Add mutation number for reference
+        # Add mutation number for reference. Coerce to str: MutatieNr can arrive as
+        # an int, and `int not in str` raises TypeError.
         mutation_nr = mutation.get("MutatieNr", "")
+        if mutation_nr:
+            mutation_nr = str(mutation_nr)
         if mutation_nr and mutation_nr not in description:
             description = f"{description} (Mutation: {mutation_nr})"
 

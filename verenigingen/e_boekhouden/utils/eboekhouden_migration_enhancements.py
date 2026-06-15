@@ -361,7 +361,7 @@ class EnhancedAccountMigration:
             # Add more as discovered
         }
 
-        return group_names.get(group_code, "Group {group_code}")
+        return group_names.get(group_code, f"Group {group_code}")
 
     def _get_standard_parent(self, root_type):
         """

@@ -419,9 +419,16 @@ def migration_status_summary(company=None):
 
         # Cost Centers
         cc_count = frappe.db.count("Cost Center", {"company": company, "is_group": 0})
-        eb_cc_count = frappe.db.count(
-            "Cost Center", {"company": company, "is_group": 0, "eboekhouden_kostenplaats_id": ["!=", ""]}
-        )
+        # The eBoekhouden kostenplaats-id tag is an optional custom field that is not
+        # shipped on every site. Guard the filtered count so the whole status report
+        # does not die with a 1054 (unknown column) when the field is absent.
+        if frappe.get_meta("Cost Center").has_field("eboekhouden_kostenplaats_id"):
+            eb_cc_count = frappe.db.count(
+                "Cost Center",
+                {"company": company, "is_group": 0, "eboekhouden_kostenplaats_id": ["!=", ""]},
+            )
+        else:
+            eb_cc_count = 0
         summary["data_types"]["cost_centers"] = {
             "total": cc_count,
             "from_eboekhouden": eb_cc_count,
@@ -472,8 +479,13 @@ def migration_status_summary(company=None):
             "percentage": round((eb_pi_count / pi_count * 100) if pi_count > 0 else 0, 1),
         }
 
-        # Cache status
-        cache_count = frappe.db.count("EBoekhouden REST Mutation Cache")
+        # Cache status. The "EBoekhouden REST Mutation Cache" doctype is not shipped
+        # (no JSON / table on any site), so guard the count to keep the status report
+        # alive. See the flagged follow-up about the dangling cache references.
+        if frappe.db.table_exists("EBoekhouden REST Mutation Cache"):
+            cache_count = frappe.db.count("EBoekhouden REST Mutation Cache")
+        else:
+            cache_count = 0
         summary["cache_status"] = {"total_mutations_cached": cache_count}
 
         # Calculate overall migration percentage
