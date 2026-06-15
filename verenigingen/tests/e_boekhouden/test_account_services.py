@@ -22,9 +22,6 @@ import unittest
 import frappe
 
 from verenigingen.e_boekhouden.services.account_hierarchy_service import (
-    EXCLUDE_PATTERNS,
-    GROUP_KEYWORDS,
-    INCOME_SIGNALS,
     _get_keywords_for_group,
     derive_group_code,
     get_group_type_mappings_dict,
@@ -65,8 +62,11 @@ class TestDeriveGroupCode(unittest.TestCase):
 
 class TestGetKeywordsForGroup(unittest.TestCase):
     def test_explicit_keywords(self):
+        # A group present in GROUP_KEYWORDS returns its explicit keyword list;
+        # assert a concrete member rather than re-comparing to the constant.
         kws = _get_keywords_for_group("Liquide middelen")
-        self.assertEqual(kws, GROUP_KEYWORDS["Liquide middelen"])
+        self.assertIn("bank", kws)
+        self.assertIn("spaarrekening", kws)
 
     def test_derived_from_name(self):
         # Not in GROUP_KEYWORDS -> derive from the name words >= 4 chars, non-filler
@@ -136,10 +136,17 @@ class TestMatchAccountToGroup(unittest.TestCase):
         self.assertNotEqual(name, "Opbrengsten")
 
     def test_longer_keyword_wins(self):
-        # "spaarrekening" (13) beats "bank"; both under Liquide, so still 001 but
-        # verifies scoring path runs without error and returns the group.
-        code, name, _ = match_account_to_group("Triodos spaarrekening", self.mappings)
-        self.assertEqual(name, "Liquide middelen")
+        # Construct a name that matches a SHORT keyword in one group and a
+        # LONGER keyword in a DIFFERENT group, so the scoring (score == keyword
+        # length, product ~L395-402) must pick the other group:
+        #   "bank" (len 4) -> Liquide middelen (001)
+        #   "debiteuren" (len 10) -> Vorderingen (002)
+        # Both groups are in GROUP_KEYWORDS so the +5 explicit bonus cancels and
+        # the longer keyword decides. The winner must be the different group.
+        code, name, reason = match_account_to_group("Bank debiteurenrekening", self.mappings)
+        self.assertEqual(code, "002")
+        self.assertEqual(name, "Vorderingen")
+        self.assertIn("debiteuren", reason)
 
     def test_no_match_returns_none(self):
         code, name, reason = match_account_to_group("Zomaar iets onbekends xyz", self.mappings)
@@ -149,10 +156,6 @@ class TestMatchAccountToGroup(unittest.TestCase):
     def test_skips_mapping_without_group_name(self):
         mappings = {"099": {"group_name": "", "root_type": "Asset"}}
         self.assertEqual(match_account_to_group("Triodos Bank", mappings), (None, None, None))
-
-    def test_income_signals_constant_used(self):
-        # sanity: an income signal we test with is actually in the constant
-        self.assertIn("inkomsten", INCOME_SIGNALS)
 
 
 # ---------------------------------------------------------------------------

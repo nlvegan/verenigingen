@@ -16,6 +16,7 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_migration_enhancements
 """
 
+import sys
 import unittest
 
 import frappe
@@ -215,11 +216,13 @@ class TestAnalyzeTransactionPattern(unittest.TestCase):
         self.assertEqual(self.m._analyze_transaction_pattern(groups), "standard")
 
 
-class TestDetermineAccountTypeFallback(unittest.TestCase):
-    """_determine_account_type uses the category map when smart-typing is absent.
+class TestDetermineAccountTypeViaSmartTyping(unittest.TestCase):
+    """_determine_account_type with smart-typing available (the normal path).
 
-    get_smart_account_type may or may not import successfully in the test env;
-    either way the function must return a (account_type, root_type) tuple.
+    ``eboekhouden_smart_account_typing.get_smart_account_type`` imports
+    successfully in this env, so these inputs are classified by SMART typing
+    (product ~L98-103), NOT by the category-map fallback. The asserted values
+    are smart-typing's outputs.
     """
 
     def setUp(self):
@@ -239,9 +242,52 @@ class TestDetermineAccountTypeFallback(unittest.TestCase):
 
     def test_unknown_category_falls_back_to_code(self):
         # Unknown category falls through to code-range logic; "80000" is an
-        # income account (8xxxx) -> ("Income Account", "Income").
+        # income account (8xxxx) -> smart typing returns ("Income Account", "Income").
         result = self.m._determine_account_type({"category": "ZZZ", "code": "80000"})
         self.assertEqual(result, ("Income Account", "Income"))
+
+
+class TestDetermineAccountTypeFallback(unittest.TestCase):
+    """_determine_account_type's ``except ImportError`` fallback (product ~L104-122).
+
+    When ``get_smart_account_type`` cannot be imported, the function falls back
+    to the category-map + code-range logic. We force that branch by poisoning
+    ``sys.modules`` so the in-function import raises ImportError, then assert the
+    REAL fallback code-map result -- which differs from smart typing for the
+    unknown-category case (fallback yields the empty account_type ``""``).
+    """
+
+    _SMART_MODULE = "verenigingen.e_boekhouden.utils.eboekhouden_smart_account_typing"
+
+    def setUp(self):
+        self.m = _make_migrator()
+        # Setting the module entry to None makes ``from <mod> import x`` raise
+        # ImportError, exercising the fallback branch.
+        self._saved = sys.modules.get(self._SMART_MODULE, "__absent__")
+        sys.modules[self._SMART_MODULE] = None
+
+    def tearDown(self):
+        if self._saved == "__absent__":
+            sys.modules.pop(self._SMART_MODULE, None)
+        else:
+            sys.modules[self._SMART_MODULE] = self._saved
+
+    def test_fallback_fin_category_is_bank(self):
+        # FIN -> category_type_mapping["FIN"] == "Bank" -> ("Bank", "Asset").
+        result = self.m._determine_account_type({"category": "FIN", "code": "10100"})
+        self.assertEqual(result, ("Bank", "Asset"))
+
+    def test_fallback_bal_routes_to_balance_sheet_logic(self):
+        # BAL -> _determine_balance_sheet_type; "02xx" -> ("Fixed Asset", "Asset").
+        result = self.m._determine_account_type({"category": "BAL", "code": "0201", "description": "Pand"})
+        self.assertEqual(result, ("Fixed Asset", "Asset"))
+
+    def test_fallback_unknown_category_uses_code_range(self):
+        # Unknown category -> _determine_type_by_code("80000"); code starts "8"
+        # -> fallback returns ("", "Income") (note: empty account_type, unlike
+        # smart typing's "Income Account").
+        result = self.m._determine_account_type({"category": "ZZZ", "code": "80000"})
+        self.assertEqual(result, ("", "Income"))
 
 
 class TestRunEnhancedMigration(EnhancedTestCase):

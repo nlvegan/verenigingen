@@ -44,6 +44,23 @@ def _persist_eur_company():
     return company.name
 
 
+def _ensure_non_group_cost_center(company: str) -> str:
+    """Return the name of a non-group Cost Center on ``company``, creating one if absent."""
+    existing = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+    if existing:
+        return existing
+
+    parent = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1}, "name")
+    cc = frappe.new_doc("Cost Center")
+    cc.cost_center_name = "EBKH Test CC"
+    cc.company = company
+    cc.is_group = 0
+    if parent:
+        cc.parent_cost_center = parent
+    cc.insert(ignore_permissions=True)
+    return cc.name
+
+
 class TestBaseProcessorHelpers(EnhancedTestCase):
     """Exercise the shared helpers on BaseTransactionProcessor via StockProcessor."""
 
@@ -58,10 +75,23 @@ class TestBaseProcessorHelpers(EnhancedTestCase):
     # ---- construction / cost center ----
 
     def test_default_cost_center_resolved(self):
-        """A processor without an explicit cost center resolves one from the company."""
+        """A processor without an explicit cost center resolves a real non-group CC.
+
+        ``_get_default_cost_center`` (base_processor.py:36-38) queries for any
+        non-group Cost Center on the company. Seed one and assert the resolved
+        value is a genuine, company-owned, non-group Cost Center.
+        """
+        cc_name = _ensure_non_group_cost_center(self.company)
         p = self._processor()
-        # May be None if company has no non-group cost center, but attribute is set.
-        self.assertTrue(hasattr(p, "cost_center"))
+        self.assertEqual(p.cost_center, p._get_default_cost_center())
+        self.assertIsNotNone(p.cost_center)
+        self.assertTrue(frappe.db.exists("Cost Center", p.cost_center))
+        company, is_group = frappe.db.get_value("Cost Center", p.cost_center, ["company", "is_group"])
+        self.assertEqual(company, self.company)
+        self.assertEqual(is_group, 0)
+        # The seeded (or pre-existing) non-group CC is the kind of row the
+        # resolver must be able to return.
+        self.assertTrue(frappe.db.exists("Cost Center", cc_name))
 
     def test_explicit_cost_center_preserved(self):
         p = StockProcessor(self.company, cost_center="My CC")
@@ -295,8 +325,32 @@ class TestTransactionCoordinator(EnhancedTestCase):
         self.assertTrue(any("does not exist" in i for i in result["issues"]))
 
     def test_validate_prerequisites_runs_for_real_company(self):
+        # Ensure the company has a non-group cost center so the cost-center check
+        # cannot contribute a spurious issue.
+        _ensure_non_group_cost_center(self.company)
         tc = TransactionCoordinator(self.company)
         result = tc.validate_prerequisites()
-        # Structure is always present; validity depends on custom fields configured.
         self.assertIn("valid", result)
         self.assertIn("issues", result)
+
+        # A real, existing company must NOT be reported as missing, and its
+        # resolved (existing) cost center must NOT be reported as missing.
+        self.assertNotIn(f"Company '{self.company}' does not exist", result["issues"])
+        self.assertFalse(any("Cost Center" in i and "does not exist" in i for i in result["issues"]))
+
+        # The only remaining prerequisite is the eboekhouden_mutation_nr custom
+        # field on the invoice/payment/journal/stock doctypes. On a site where
+        # those are installed, the run for a real company must be fully valid.
+        custom_fields_present = all(
+            frappe.db.exists("Custom Field", {"dt": dt, "fieldname": "eboekhouden_mutation_nr"})
+            for dt in (
+                "Sales Invoice",
+                "Purchase Invoice",
+                "Payment Entry",
+                "Journal Entry",
+                "Stock Reconciliation",
+            )
+        )
+        if custom_fields_present:
+            self.assertTrue(result["valid"])
+            self.assertEqual(result["issues"], [])

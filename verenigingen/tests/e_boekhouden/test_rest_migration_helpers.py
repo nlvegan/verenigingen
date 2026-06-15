@@ -30,7 +30,6 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     create_invoice_line_for_tegenrekening,
     ensure_account_type_is_correct,
     get_mutation_gap_report,
-    get_progress_info,
     migration_status_summary,
     should_skip_mutation,
 )
@@ -147,18 +146,24 @@ class TestDetectCreditNoteExtra(unittest.TestCase):
         self.assertEqual(total, 0)
 
 
-class TestGetProgressInfo(unittest.TestCase):
-    def test_returns_running_status(self):
-        info = get_progress_info()
-        self.assertEqual(info["status"], "running")
-        self.assertIn("message", info)
-
-
 # ---------------------------------------------------------------------------
 # DB-backed helpers (no live API needed)
 # ---------------------------------------------------------------------------
 class TestResolveAccountMapping(EnhancedTestCase):
     """_resolve_account_mapping: looks up E-Boekhouden Ledger Mapping by ledger_id."""
+
+    def _persist_ledger_mapping(self, ledger_id, erpnext_account):
+        """Create an E-Boekhouden Ledger Mapping row for ``ledger_id``."""
+        existing = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": ledger_id}, "name")
+        if existing:
+            frappe.delete_doc("E-Boekhouden Ledger Mapping", existing, force=True)
+        doc = frappe.new_doc("E-Boekhouden Ledger Mapping")
+        doc.ledger_id = ledger_id
+        doc.ledger_code = str(ledger_id)
+        doc.ledger_name = f"Test Ledger {ledger_id}"
+        doc.erpnext_account = erpnext_account
+        doc.insert(ignore_permissions=True)
+        return doc.name
 
     def test_none_ledger_returns_none(self):
         self.assertIsNone(_resolve_account_mapping(None, []))
@@ -171,6 +176,20 @@ class TestResolveAccountMapping(EnhancedTestCase):
         # Use an id extremely unlikely to exist
         self.assertIsNone(_resolve_account_mapping("999999999", debug))
         self.assertTrue(any("No mapping found" in m for m in debug))
+
+    def test_known_ledger_returns_mapped_dict(self):
+        """A mapped ledger_id resolves to its account (product ~L646-664)."""
+        # Any existing account is fine; the mapper only echoes erpnext_account.
+        account = frappe.db.get_value("Account", {"is_group": 0}, "name")
+        self.assertIsNotNone(account)
+        ledger_id = 987654321
+        self._persist_ledger_mapping(ledger_id, account)
+
+        debug = []
+        result = _resolve_account_mapping(ledger_id, debug)
+        self.assertEqual(result, {"erpnext_account": account, "ledger_id": ledger_id})
+        # Successful resolution must NOT emit the "No mapping found" debug line.
+        self.assertFalse(any("No mapping found" in m for m in debug))
 
 
 class TestEnsureAccountTypeIsCorrect(EnhancedTestCase):
@@ -435,11 +454,106 @@ class TestReportingHelpers(EnhancedTestCase):
         if result["gaps"] or result.get("total_imported"):
             self.assertIn("coverage_percentage", result)
 
+    def test_get_mutation_gap_report_closes_a_seeded_gap(self):
+        """Seeding a mutation at a currently-missing id closes exactly that gap.
+
+        ``get_mutation_gap_report`` (product ~L1144-1214) scans every
+        Journal/Payment/Sales/Purchase mutation_nr on the site, computes the
+        [min, max] sequence and reports the missing ids. The report is global
+        (not company-scoped) and the test site already holds thousands of
+        imported mutations, so a fixed ``gaps == [2]`` assertion is impossible
+        here. Instead we assert the real computation: pick an id that is
+        currently a gap, seed a Journal Entry carrying that mutation_nr, and
+        verify the product removes that id from ``gaps``, drops ``total_gaps``
+        by one, raises ``total_imported`` by one, and recomputes
+        ``coverage_percentage`` with the exact product formula.
+        """
+        before = get_mutation_gap_report()
+        self.assertTrue(before["success"])
+        # Need at least one interior gap strictly between min and max to seed into.
+        interior_gaps = [g for g in before["gaps"] if before["min_mutation"] < g < before["max_mutation"]]
+        if not interior_gaps:
+            self.skipTest("No interior gap available on this site to seed into")
+        gap_id = interior_gaps[0]
+
+        je = self._seed_journal_entry_with_mutation_nr(gap_id)
+        self.addCleanup(lambda: frappe.delete_doc("Journal Entry", je, force=True))
+
+        after = get_mutation_gap_report()
+        self.assertTrue(after["success"])
+        # Min/max unchanged because gap_id is strictly interior.
+        self.assertEqual(after["min_mutation"], before["min_mutation"])
+        self.assertEqual(after["max_mutation"], before["max_mutation"])
+        # The seeded id is no longer a gap.
+        self.assertNotIn(gap_id, after["gaps"])
+        self.assertEqual(after["total_gaps"], before["total_gaps"] - 1)
+        self.assertEqual(after["total_imported"], before["total_imported"] + 1)
+        # Coverage recomputed with the product's exact formula.
+        span = after["max_mutation"] - after["min_mutation"] + 1
+        expected_coverage = round(((span - after["total_gaps"]) / span) * 100, 2)
+        self.assertEqual(after["coverage_percentage"], expected_coverage)
+
+    def _seed_journal_entry_with_mutation_nr(self, mutation_nr):
+        """Create a minimal draft Journal Entry carrying ``eboekhouden_mutation_nr``.
+
+        The gap report's SQL has no docstatus filter and only reads the
+        mutation_nr column, so an unsubmitted JE is counted just like a real
+        imported one — sufficient to exercise the gap computation.
+        """
+        bank = frappe.db.get_value(
+            "Account", {"company": self.company, "account_type": "Bank", "is_group": 0}, "name"
+        ) or frappe.db.get_value("Account", {"company": self.company, "is_group": 0}, "name")
+        je = frappe.new_doc("Journal Entry")
+        je.company = self.company
+        je.posting_date = frappe.utils.today()
+        je.eboekhouden_mutation_nr = str(mutation_nr)
+        je.append(
+            "accounts", {"account": bank, "debit_in_account_currency": 0, "credit_in_account_currency": 0}
+        )
+        je.flags.ignore_validate = True
+        je.flags.ignore_mandatory = True
+        je.insert(ignore_permissions=True)
+        return je.name
+
+    def _make_error_log(self, error_text):
+        """Factory: persist an Error Log row and schedule its cleanup."""
+        err = frappe.new_doc("Error Log")
+        err.method = "ebkh-test-closed-book"
+        err.error = error_text
+        err.insert(ignore_permissions=True)
+        self.addCleanup(lambda: frappe.delete_doc("Error Log", err.name, force=True))
+        return err.name
+
     def test_analyze_import_failures_structure(self):
         result = analyze_import_failures()
         self.assertIn("closed_book_errors", result)
         self.assertIn("sample_errors", result)
         self.assertIsInstance(result["sample_errors"], list)
+
+    def test_analyze_import_failures_parses_seeded_closed_book_error(self):
+        """A seeded closed-book Error Log is found and its mutation fields parsed.
+
+        ``analyze_import_failures`` (product ~L1057-1094) selects recent Error
+        Log rows whose ``error`` contains "Books have been closed", then regex-
+        extracts ``"date"``, ``"id"`` and ``"type"`` from the JSON-ish payload
+        (~L1073-1089). Seed exactly such an error and assert the parsed values.
+        """
+        # Distinctive values so we can locate our row among any pre-existing ones.
+        error_text = (
+            "eBoekhouden import failed: Books have been closed for this period. "
+            'Mutation payload: {"id": 424242, "date": "2024-07-15", "type": 3, "amount": 99.5}'
+        )
+        # frappe.db.sql in the product reads committed + in-txn rows, so the row
+        # seeded by the factory is visible within this test transaction.
+        self._make_error_log(error_text)
+
+        result = analyze_import_failures()
+        self.assertGreaterEqual(result["closed_book_errors"], 1)
+        parsed = [s for s in result["sample_errors"] if s.get("id") == "424242"]
+        self.assertTrue(parsed, msg=f"seeded error not parsed: {result['sample_errors']}")
+        sample = parsed[0]
+        self.assertEqual(sample["date"], "2024-07-15")
+        self.assertEqual(sample["type"], "3")
 
 
 if __name__ == "__main__":

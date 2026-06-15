@@ -35,9 +35,23 @@ class TestPureStringHelpers(unittest.TestCase):
         # __init__ only emits a warning + sets attributes; no DB access.
         self.mapper = SmartTegenrekeningMapper(company="Whatever Co")
 
-    def test_generate_item_name_passthrough(self):
-        out = self.mapper._generate_item_name("Algemene kosten advies", "4500")
-        self.assertEqual(out, "Algemene kosten advies")
+    def test_generate_item_name_does_not_clean_due_to_fstring_bug(self):
+        # DOCUMENTED DEFECT (deprecated module): _generate_item_name intends to
+        # strip the company suffix and account-code prefix, but it calls
+        # .replace() with the LITERAL strings " - {self.company}" and
+        # "{account_code} - " instead of f-strings (smart_tegenrekening_mapper.py
+        # ~L284-285). The placeholders never interpolate, so a name that SHOULD
+        # be cleaned comes back UNCHANGED. We assert that broken behavior so this
+        # test documents the bug rather than implying the function works. (Module
+        # is deprecated; product is intentionally left untouched.)
+        company = self.mapper.company  # "Whatever Co"
+        account_code = "4500"
+        # A name with both the real company suffix and the account-code prefix:
+        # if the cleanup worked, this would reduce to "Algemene kosten advies".
+        dirty = f"{account_code} - Algemene kosten advies - {company}"
+        out = self.mapper._generate_item_name(dirty, account_code)
+        # Cleanup is a no-op because of the f-string defect -> returned unchanged.
+        self.assertEqual(out, dirty)
 
     def test_generate_item_name_truncates_long(self):
         long_name = "A" * 100
@@ -145,9 +159,7 @@ class TestGetAccountByCode(EnhancedTestCase):
         )
         if frappe.db.has_column("Account", "eboekhouden_grootboek_nummer"):
             self.assertFalse(
-                frappe.db.exists(
-                    "Account", {"company": self.company, "eboekhouden_grootboek_nummer": code}
-                ),
+                frappe.db.exists("Account", {"company": self.company, "eboekhouden_grootboek_nummer": code}),
                 "Premise broken: grootboek lookup would short-circuit the name-pattern branch",
             )
         mapper = self._mapper()
