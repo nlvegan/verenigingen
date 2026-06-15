@@ -8,7 +8,7 @@ Provides reusable functions for financial calculations including:
 """
 
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
@@ -273,5 +273,8 @@ def safe_decimal_from_dict(
                 return default
 
         return Decimal(str(current))
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError, InvalidOperation):
+        # Decimal(str(<malformed>)) raises decimal.InvalidOperation (an
+        # ArithmeticError, not a ValueError) for non-numeric strings — catch it
+        # so this "safe" extractor returns the default instead of crashing.
         return default

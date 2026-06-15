@@ -401,20 +401,15 @@ class TestSafeDecimalFromDict(unittest.TestCase):
         data = {"a": {"value": None}}
         self.assertEqual(safe_decimal_from_dict(data, "a", "value"), Decimal("0"))
 
-    @unittest.expectedFailure
     def test_invalid_string_returns_default(self):
-        """BUG: financial_calculation_utils.py:275-277 safe_decimal_from_dict
-        does NOT actually return the default on a malformed numeric string.
+        """A malformed numeric string returns the default Decimal('0').
 
-        Root cause: the except clause catches (ValueError, TypeError,
-        AttributeError), but Decimal(str("not-a-number")) raises
-        decimal.InvalidOperation, which subclasses ArithmeticError (NOT
-        ValueError). So the "safe" extractor crashes on exactly the malformed
-        Mollie-API-response amounts it is meant to guard against.
-
-        CORRECT behavior (asserted below): return the default Decimal('0').
-        Fix: add decimal.InvalidOperation (or ArithmeticError) to the caught tuple.
-        """
+        Regression for a fixed BUG: Decimal(str("not-a-number")) raises
+        decimal.InvalidOperation (an ArithmeticError, NOT a ValueError); the
+        except clause previously caught only (ValueError, TypeError,
+        AttributeError), so the "safe" extractor crashed on exactly the malformed
+        Mollie-API-response amounts it exists to guard. InvalidOperation is now in
+        the caught tuple."""
         data = {"value": "not-a-number"}
         self.assertEqual(safe_decimal_from_dict(data, "value"), Decimal("0"))
 
@@ -427,17 +422,12 @@ class TestSafeDecimalFromDict(unittest.TestCase):
         data = {"value": 1.5}
         self.assertEqual(safe_decimal_from_dict(data, "value"), Decimal("1.5"))
 
-    @unittest.expectedFailure
     def test_no_keys_converts_whole_dict_to_default(self):
-        """BUG: financial_calculation_utils.py:275-277 - calling
-        safe_decimal_from_dict with no keys passes the whole dict to
-        Decimal(str({...})), which raises decimal.InvalidOperation. That
-        exception is not in the caught (ValueError, TypeError, AttributeError)
-        tuple, so the function raises instead of returning the default.
+        """Calling safe_decimal_from_dict with no keys passes the whole dict to
+        Decimal(str({...})), which raises decimal.InvalidOperation; the function
+        now returns the default Decimal('0') instead of raising.
 
-        CORRECT behavior (asserted below): return the default Decimal('0').
-        Same root cause as test_invalid_string_returns_default.
-        """
+        Same root cause / fix as test_invalid_string_returns_default."""
         data = {"value": "1"}
         self.assertEqual(safe_decimal_from_dict(data), Decimal("0"))
 

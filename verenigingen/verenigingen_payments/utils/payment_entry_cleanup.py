@@ -8,7 +8,7 @@ This is particularly useful for testing scenarios where you need to reimport
 payment data.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import frappe
 from frappe import _
@@ -19,8 +19,8 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def bulk_delete_payment_entries(
-    payment_entry_names: List[str] = None,
-    filters: Dict = None,
+    payment_entry_names: Union[List[str], str, None] = None,
+    filters: Union[dict, str, None] = None,
     delete_cancelled_invoices: bool = True,
     cleanup_ledger_entries: bool = True,
 ) -> Dict[str, Any]:

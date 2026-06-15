@@ -137,16 +137,17 @@ class TestBulkDeleteValidation(CleanupBase):
         with self.assertRaises(frappe.ValidationError):
             cleanup.get_payment_entry_cleanup_preview()
 
-    @unittest.expectedFailure
     def test_json_string_payment_entry_names_accepted(self):
-        """PRODUCT BUG: payment_entry_cleanup.py:21 — bulk_delete_payment_entries
-        is annotated ``payment_entry_names: List[str] = None`` but its body
-        explicitly handles a JSON string
-        (``if isinstance(payment_entry_names, str): json.loads``). Under Frappe
-        v16 the @frappe.whitelist runtime type gate (active in tests via in_test)
-        rejects a str argument BEFORE the body runs, raising FrappeTypeError. The
-        annotation should be ``Union[List[str], str, None]`` to match the
-        documented JSON-string contract from the HTTP layer."""
+        """A JSON-string ``payment_entry_names`` (as sent by the HTTP layer) is
+        accepted and json.loads'd by the body.
+
+        Regression for a fixed BUG: the parameter was annotated
+        ``payment_entry_names: List[str] = None`` while the body handles a JSON
+        string. Under Frappe v16 the @frappe.whitelist runtime type gate (active
+        in tests via in_test) rejected the str argument BEFORE the body ran,
+        raising FrappeTypeError. The annotation is now
+        ``Union[List[str], str, None]`` to match the documented JSON-string
+        contract."""
         import json
 
         pe = self._make_payment_entry(docstatus=0)
@@ -157,12 +158,14 @@ class TestBulkDeleteValidation(CleanupBase):
         )
         self.assertEqual(result["payment_entries_deleted"], 1)
 
-    @unittest.expectedFailure
     def test_json_string_filters_accepted(self):
-        """PRODUCT BUG: payment_entry_cleanup.py:21 — same as above for the
-        ``filters`` parameter (annotated ``Dict = None`` but body json.loads a
-        str). v16 whitelist gate rejects the str arg pre-body. Annotation should
-        be ``Union[dict, str, None]``."""
+        """A JSON-string ``filters`` arg (from the HTTP layer) is accepted and
+        json.loads'd by the body.
+
+        Regression for a fixed BUG: same as the payment_entry_names case — the
+        ``filters`` parameter was annotated ``Dict = None`` while the body
+        json.loads a str, so the v16 whitelist gate rejected the str arg pre-body.
+        The annotation is now ``Union[dict, str, None]``."""
         import json
 
         result = cleanup.bulk_delete_payment_entries(
