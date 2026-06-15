@@ -16,9 +16,9 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         super().setUp()
         self.test_member = self.create_test_member()
         self.test_membership_type = self.create_test_membership_type()
-        self._align_type_template(self.test_membership_type)
+        self._setup_type_template(self.test_membership_type)
 
-    def _align_type_template(self, membership_type):
+    def _setup_type_template(self, membership_type):
         """Align the type's auto dues-schedule template to the type minimum.
 
         MembershipType.after_insert creates a template with a default €15 rate.

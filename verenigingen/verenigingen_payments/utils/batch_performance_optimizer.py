@@ -148,12 +148,13 @@ class BatchPerformanceOptimizer:
                 COALESCE(si.custom_paying_for_member, si.member) as member_reference,
                 c.customer_name,
                 c.email_id as customer_email,
-                m.name as membership_name,
-                m.membership_type,
-                m.status as membership_status
+                mem.name as membership_name,
+                mem.membership_type as membership_type,
+                mem.status as membership_status
             FROM `tabSales Invoice` si
             LEFT JOIN `tabCustomer` c ON si.customer = c.name
             LEFT JOIN `tabMembership Dues Schedule` m ON si.membership_dues_schedule_display = m.name
+            LEFT JOIN `tabMembership` mem ON m.membership = mem.name
             WHERE si.name IN %(invoice_names)s
             AND si.docstatus = 1
             AND si.status IN ('Unpaid', 'Overdue')

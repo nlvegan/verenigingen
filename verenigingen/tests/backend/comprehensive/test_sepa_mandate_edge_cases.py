@@ -46,7 +46,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             "1234567890",  # Numbers only
         ]
 
-    def _delete_mandate(self, mandate):
+    def _cleanup_mandate(self, mandate):
         """Delete a SEPA Mandate, first removing the Member -> mandate link.
 
         Inserting a SEPA Mandate links it into the Member's ``sepa_mandates``
@@ -80,7 +80,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             try:
                 mandate.insert()
                 self.assertTrue(True, f"Valid IBAN {iban} should be accepted")
-                self._delete_mandate(mandate)
+                self._cleanup_mandate(mandate)
             except frappe.ValidationError as e:
                 self.fail(f"Valid IBAN {iban} was rejected: {str(e)}")
 
@@ -136,7 +136,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 f"IBAN {input_iban} should be normalized to {expected_iban}",
             )
 
-            self._delete_mandate(mandate)
+            self._cleanup_mandate(mandate)
 
     def test_iban_checksum_validation(self):
         """Test IBAN checksum validation algorithm"""
@@ -181,7 +181,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             # If allowed, should be automatically marked as expired
             if mandate.expiry_date and mandate.expiry_date < today():
                 self.assertEqual(mandate.status, "Expired")
-            self._delete_mandate(mandate)
+            self._cleanup_mandate(mandate)
         except frappe.ValidationError:
             # Rejection is also acceptable
             pass
@@ -209,7 +209,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             # Should either prevent cancellation or handle gracefully
             self.assertIn(mandate.status, ["Cancelled", "Active"])
         finally:
-            self._delete_mandate(mandate)
+            self._cleanup_mandate(mandate)
 
     def test_duplicate_mandate_prevention(self):
         """A second active mandate with the SAME IBAN is rejected; a different
@@ -264,8 +264,8 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
         self.assertEqual(mandate2.status, "Active")
 
         # Clean up
-        self._delete_mandate(mandate2)
-        self._delete_mandate(mandate1)
+        self._cleanup_mandate(mandate2)
+        self._cleanup_mandate(mandate1)
 
     # ===== MANDATE USAGE TRACKING EDGE CASES =====
     # NOTE: These tests are for planned features (usage_limit, monthly_limit)
@@ -311,7 +311,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
         finally:
             # Clean up usage records
             frappe.db.sql("DELETE FROM `tabSEPA Mandate Usage` WHERE mandate = %s", mandate.name)
-            self._delete_mandate(mandate)
+            self._cleanup_mandate(mandate)
 
     def test_mandate_monthly_limits(self):
         """Test monthly usage limits"""
@@ -360,7 +360,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
         finally:
             # Clean up
             frappe.db.sql("DELETE FROM `tabSEPA Mandate Usage` WHERE mandate = %s", mandate.name)
-            self._delete_mandate(mandate)
+            self._cleanup_mandate(mandate)
 
     # ===== BANKING INTEGRATION EDGE CASES =====
 
@@ -463,7 +463,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             )
             batch.insert()
 
-        self._delete_mandate(mandate)
+        self._cleanup_mandate(mandate)
 
     def test_sepa_mandate_data_retention(self):
         """Test SEPA mandate data retention requirements"""
@@ -487,7 +487,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
         # Test data retention (mandates must be kept for 14 months after last use).
         # A linked mandate cannot be deleted directly (LinkExistsError), which
         # provides the retention guarantee, so use a plain delete() here rather
-        # than the link-clearing _delete_mandate helper.
+        # than the link-clearing _cleanup_mandate helper.
         try:
             mandate.delete()
             # Should either prevent deletion or archive appropriately
@@ -529,7 +529,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 if should_be_valid:
                     try:
                         mandate.insert()
-                        self._delete_mandate(mandate)
+                        self._cleanup_mandate(mandate)
                     except frappe.ValidationError:
                         self.fail(f"Valid SEPA IBAN {iban} from {country} should be accepted")
                 else:
@@ -571,7 +571,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     )
                     usage.insert()
 
-        self._delete_mandate(mandate)
+        self._cleanup_mandate(mandate)
 
     # ===== FRAUD PREVENTION =====
 
@@ -622,7 +622,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
 
                     # Clean up
                     frappe.db.sql("DELETE FROM `tabSEPA Mandate Usage` WHERE mandate = %s", mandate.name)
-                    self._delete_mandate(mandate)
+                    self._cleanup_mandate(mandate)
 
 
 def run_sepa_mandate_edge_case_tests():

@@ -111,7 +111,9 @@ class SEPABatchProcessor:
         """Create SEPA batch from existing invoices"""
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = collection_date
-        batch.batch_description = f"Monthly SEPA collection - {collection_date.strftime('%B %Y')}"
+        # collection_date is often a string (today() / callers pass strings), so
+        # normalise before strftime — a raw str has no .strftime and crashes batch creation.
+        batch.batch_description = f"Monthly SEPA collection - {getdate(collection_date).strftime('%B %Y')}"
         batch.batch_type = "CORE"  # SEPA scheme
         batch.sequence_type = "RCUR"  # Default to recurring
         batch.currency = "EUR"
