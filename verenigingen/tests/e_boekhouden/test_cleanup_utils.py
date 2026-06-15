@@ -6,10 +6,10 @@ require a live eBoekhouden connection and do not destroy shared fixture data:
 
   - cleanup_chart_of_accounts: safe-mode (skips GL-linked / system / group accts),
     and successfully deleting a fresh leaf account flagged as eBoekhouden-imported.
-  - cleanup_orphaned_gl_entries: returns a well-formed result (no orphans present).
-  - cleanup_cancelled_payment_gl_entries: returns success.
-  - _cleanup_orphaned_bank_transactions: returns a well-formed result.
-  - get_cleanup_dependencies: returns the expected count dict.
+  - cleanup_orphaned_gl_entries: seeds an orphan GL Entry and asserts it is deleted.
+  - cleanup_cancelled_payment_gl_entries: seeds a cancelled PE + GL Entry, asserts deletion.
+  - _cleanup_orphaned_bank_transactions: seeds an EB- orphan Bank Transaction, asserts deletion.
+  - get_cleanup_dependencies: returns the expected count dict + exact seeded GL count.
   - cleanup_payment_entries / cleanup_sales_invoices / cleanup_purchase_invoices:
     helper functions on empty + missing-name input.
 
@@ -78,6 +78,49 @@ class _CleanupTestBase(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return doc.name
 
+    @classmethod
+    def _persist_isolated_company(cls):
+        """A separate, freshly-created company with zero migrated docs.
+
+        Used so dependency / orphan counts are deterministic and not polluted by
+        whatever else lives in the shared test DB.
+        """
+        name = "TEST EBkh Cleanup Iso Co"
+        if frappe.db.exists("Company", name):
+            return name
+        doc = frappe.new_doc("Company")
+        doc.company_name = name
+        doc.abbr = "TECI"
+        doc.default_currency = "EUR"
+        doc.country = "Netherlands"
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return name
+
+    def _seed_gl_entry(self, company, voucher_no, voucher_type="Journal Entry"):
+        """Directly insert a GL Entry row for ``company``.
+
+        GL Entries are normally produced by submitting a parent document, but a
+        direct db_insert is sufficient to exercise the count/delete logic under
+        test without standing up the full submit (+ fiscal year) machinery.
+        ``voucher_no`` points at a non-existent voucher so the row is "orphaned".
+        """
+        account = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 0, "root_type": "Expense"}, "name"
+        )
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        ge = frappe.new_doc("GL Entry")
+        ge.posting_date = frappe.utils.today()
+        ge.account = account
+        ge.company = company
+        ge.debit = 5
+        ge.credit = 0
+        ge.cost_center = cost_center
+        ge.voucher_type = voucher_type
+        ge.voucher_no = voucher_no
+        ge.db_insert()
+        return ge.name
+
 
 class TestCleanupChartOfAccounts(_CleanupTestBase):
     def test_string_boolean_args_parsed(self):
@@ -100,36 +143,112 @@ class TestCleanupChartOfAccounts(_CleanupTestBase):
         self.assertGreaterEqual(result["results"]["accounts_deleted"], 1)
 
     def test_no_eboekhouden_accounts_is_noop(self):
-        # After the prior test there should be no flagged accounts left for this
-        # company; running again should succeed with zero deletions.
+        # Self-contained: do NOT rely on another test method having run first.
+        # Delete any flagged leaf accounts for this company up front, assert none
+        # remain, THEN assert the cleanup is a genuine no-op (zero deletions).
+        if frappe.get_meta("Account").has_field("eboekhouden_grootboek_nummer"):
+            flagged = frappe.get_all(
+                "Account",
+                filters={"company": self.company, "eboekhouden_grootboek_nummer": ["!=", ""]},
+                pluck="name",
+            )
+            for acct in flagged:
+                frappe.delete_doc("Account", acct, force=True, ignore_permissions=True)
+            frappe.db.commit()
+            remaining = frappe.db.count(
+                "Account",
+                {"company": self.company, "eboekhouden_grootboek_nummer": ["!=", ""]},
+            )
+            self.assertEqual(remaining, 0, "Expected no flagged accounts before the no-op cleanup")
+
         result = cleanup_chart_of_accounts(self.company, delete_all_accounts=0, force_delete=0)
         self.assertTrue(result["success"])
         self.assertEqual(result["results"]["accounts_deleted"], 0)
 
 
 class TestCleanupOrphanedGLEntries(_CleanupTestBase):
-    def test_returns_wellformed_result(self):
+    def test_deletes_seeded_orphan_gl_entry(self):
+        # Seed a GL Entry whose voucher does not exist -> it is orphaned and must
+        # be deleted. (cleanup_orphaned_gl_entries is global, so other orphans in
+        # the shared DB may also be removed; we assert >= 1 deleted AND that OUR
+        # specific seeded row is gone.)
+        company = self._persist_isolated_company()
+        orphan = self._seed_gl_entry(company, voucher_no="EBKH-NOEXIST-VOUCHER-A")
+        frappe.db.commit()
+        self.assertTrue(frappe.db.exists("GL Entry", orphan))
+
         result = cleanup_orphaned_gl_entries()
         self.assertTrue(result["success"])
-        # Backward-compat aggregate key present
-        self.assertIn("deleted_entries", result)
-        self.assertIn("deleted_gl_entries", result)
-        self.assertIsInstance(result["deleted_gl_entries"], int)
+        self.assertIn("deleted_entries", result)  # backward-compat aggregate key
+        self.assertGreaterEqual(result["deleted_gl_entries"], 1)
+        self.assertFalse(frappe.db.exists("GL Entry", orphan))
 
 
 class TestCleanupCancelledPaymentGLEntries(_CleanupTestBase):
-    def test_returns_success(self):
+    def _seed_cancelled_pe_with_gl(self, company):
+        """Direct-insert a cancelled (docstatus=2) Payment Entry and a GL Entry
+        referencing it, matching the function's JOIN on pe.docstatus = 2."""
+        account = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 0, "root_type": "Expense"}, "name"
+        )
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Receive"
+        pe.company = company
+        pe.posting_date = frappe.utils.today()
+        pe.paid_amount = 1
+        pe.received_amount = 1
+        pe.paid_to = account
+        pe.paid_from = account
+        pe.docstatus = 2  # cancelled
+        pe.db_insert()
+        ge = frappe.new_doc("GL Entry")
+        ge.posting_date = frappe.utils.today()
+        ge.account = account
+        ge.company = company
+        ge.debit = 1
+        ge.credit = 0
+        ge.cost_center = cost_center
+        ge.voucher_type = "Payment Entry"
+        ge.voucher_no = pe.name
+        ge.db_insert()
+        frappe.db.commit()
+        return pe.name, ge.name
+
+    def test_deletes_gl_for_cancelled_payment(self):
+        # Seed a cancelled PE + its GL Entry; the cleanup must delete that GL row.
+        company = self._persist_isolated_company()
+        pe_name, gl_name = self._seed_cancelled_pe_with_gl(company)
+        self.assertTrue(frappe.db.exists("GL Entry", gl_name))
+
         result = cleanup_cancelled_payment_gl_entries()
         self.assertTrue(result["success"])
         self.assertIn("message", result)
+        self.assertFalse(frappe.db.exists("GL Entry", gl_name))
+        # Cleanup of cancelled-payment data; remove the seeded PE.
+        frappe.delete_doc("Payment Entry", pe_name, force=True, ignore_permissions=True)
+        frappe.db.commit()
 
 
 class TestCleanupOrphanedBankTransactions(_CleanupTestBase):
-    def test_returns_wellformed_result(self):
+    def test_deletes_seeded_orphan_bank_transaction(self):
+        # A Bank Transaction with EB- reference and no linked payment is orphaned
+        # and must be deleted. (Global op; assert >= 1 deleted AND our row gone.)
+        company = self._persist_isolated_company()
+        bt = frappe.new_doc("Bank Transaction")
+        bt.date = frappe.utils.today()
+        bt.reference_number = "EB-CLEANUP-TEST-ORPHAN"
+        bt.deposit = 1
+        bt.company = company
+        bt.db_insert()
+        frappe.db.commit()
+        self.assertTrue(frappe.db.exists("Bank Transaction", bt.name))
+
         result = _cleanup_orphaned_bank_transactions()
         self.assertIn("deleted", result)
         self.assertIn("errors", result)
-        self.assertIsInstance(result["deleted"], int)
+        self.assertGreaterEqual(result["deleted"], 1)
+        self.assertFalse(frappe.db.exists("Bank Transaction", bt.name))
 
 
 class TestGetCleanupDependencies(_CleanupTestBase):
@@ -140,6 +259,35 @@ class TestGetCleanupDependencies(_CleanupTestBase):
         for v in deps.values():
             self.assertIsInstance(v, int)
             self.assertGreaterEqual(v, 0)
+
+    def test_counts_seeded_gl_entries_exactly(self):
+        # On a fresh isolated company every count starts at 0; seeding two GL
+        # Entries must move gl_entries to exactly 2 (the other counts stay 0).
+        company = self._persist_isolated_company()
+        # Clear any GL Entries left by sibling tests on this shared isolated company.
+        frappe.db.delete("GL Entry", {"company": company})
+        frappe.db.commit()
+        before = get_cleanup_dependencies(company)
+        self.assertEqual(before["gl_entries"], 0)
+
+        names = [
+            self._seed_gl_entry(company, voucher_no="EBKH-DEPS-COUNT-1"),
+            self._seed_gl_entry(company, voucher_no="EBKH-DEPS-COUNT-2"),
+        ]
+        frappe.db.commit()
+        try:
+            after = get_cleanup_dependencies(company)
+            self.assertEqual(after["gl_entries"], 2)
+            # Submitted-doc counts unaffected by raw GL seeding.
+            self.assertEqual(after["invoices"], 0)
+            self.assertEqual(after["purchases"], 0)
+            self.assertEqual(after["payments"], 0)
+            self.assertEqual(after["journals"], 0)
+        finally:
+            for n in names:
+                if frappe.db.exists("GL Entry", n):
+                    frappe.delete_doc("GL Entry", n, force=True, ignore_permissions=True)
+            frappe.db.commit()
 
 
 class TestCleanupListHelpers(_CleanupTestBase):

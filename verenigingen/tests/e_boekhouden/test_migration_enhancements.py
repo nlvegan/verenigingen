@@ -226,18 +226,22 @@ class TestDetermineAccountTypeFallback(unittest.TestCase):
         self.m = _make_migrator()
 
     def test_returns_tuple_for_fin_category(self):
-        at, rt = self.m._determine_account_type({"category": "FIN", "code": "10100"})
-        self.assertIsInstance(at, str)
-        self.assertIn(rt, ("Asset", "Liability", "Equity", "Income", "Expense"))
+        # FIN + code "10100": a bank account (code starts "10", not "10000"/kas)
+        # resolves deterministically to ("Bank", "Asset").
+        result = self.m._determine_account_type({"category": "FIN", "code": "10100"})
+        self.assertEqual(result, ("Bank", "Asset"))
 
     def test_bal_category_routes_to_balance_sheet_logic(self):
+        # BAL + code "0201" (a 02xx fixed-asset code, "Pand"/building) must
+        # classify as a fixed asset deterministically.
         result = self.m._determine_account_type({"category": "BAL", "code": "0201", "description": "Pand"})
-        self.assertEqual(len(result), 2)
+        self.assertEqual(result, ("Fixed Asset", "Asset"))
 
     def test_unknown_category_falls_back_to_code(self):
-        at, rt = self.m._determine_account_type({"category": "ZZZ", "code": "80000"})
-        self.assertIsInstance(at, str)
-        self.assertIn(rt, ("Asset", "Liability", "Equity", "Income", "Expense"))
+        # Unknown category falls through to code-range logic; "80000" is an
+        # income account (8xxxx) -> ("Income Account", "Income").
+        result = self.m._determine_account_type({"category": "ZZZ", "code": "80000"})
+        self.assertEqual(result, ("Income Account", "Income"))
 
 
 class TestRunEnhancedMigration(EnhancedTestCase):

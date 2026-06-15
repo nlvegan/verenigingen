@@ -40,10 +40,38 @@ def _persist_eur_company():
 
 
 def _setup_stock_account(company):
-    """Return an existing Stock account for the company, or None."""
-    return frappe.db.get_value(
+    """Return a non-group Stock account for the company, creating one if absent.
+
+    A Stock account must hang under an Asset group; we reuse the company's first
+    Asset group as parent. This makes the stock-path tests deterministic instead
+    of silently skipping on sites without a pre-seeded Stock account.
+    """
+    existing = frappe.db.get_value(
         "Account", {"company": company, "account_type": "Stock", "is_group": 0}, "name"
     )
+    if existing:
+        return existing
+
+    abbr = frappe.db.get_value("Company", company, "abbr")
+    full = f"EBkh Test Stock - {abbr}"
+    if frappe.db.exists("Account", full):
+        return full
+
+    parent = frappe.db.get_value(
+        "Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name"
+    )
+    if not parent:
+        return None
+
+    doc = frappe.new_doc("Account")
+    doc.account_name = "EBkh Test Stock"
+    doc.company = company
+    doc.parent_account = parent
+    doc.root_type = "Asset"
+    doc.account_type = "Stock"
+    doc.is_group = 0
+    doc.insert(ignore_permissions=True)
+    return doc.name
 
 
 def _persist_ledger_mapping(ledger_id, account):
@@ -64,6 +92,9 @@ class TestStockProcessor(EnhancedTestCase):
         super().setUpClass()
         cls.company = _persist_eur_company()
         cls.stock_account = _setup_stock_account(cls.company)
+        # Deterministic: the helper creates a Stock account if none exists, so the
+        # stock-path tests below must not silently skip.
+        assert cls.stock_account, f"Could not get/create a Stock account for {cls.company}"
 
     def _processor(self):
         return StockProcessor(self.company)
@@ -77,8 +108,6 @@ class TestStockProcessor(EnhancedTestCase):
         self.assertFalse(self._processor()._is_stock_account("No Such Account - X"))
 
     def test_is_stock_account_true_for_stock(self):
-        if not self.stock_account:
-            self.skipTest("No Stock account configured on this company")
         self.assertTrue(self._processor()._is_stock_account(self.stock_account))
 
     def test_is_stock_account_false_for_non_stock(self):
@@ -93,8 +122,6 @@ class TestStockProcessor(EnhancedTestCase):
         self.assertIsNone(self._processor()._get_account_for_ledger(99999999))
 
     def test_get_account_for_mapped_ledger(self):
-        if not self.stock_account:
-            self.skipTest("No Stock account configured on this company")
         _persist_ledger_mapping(880011, self.stock_account)
         self.assertEqual(self._processor()._get_account_for_ledger(880011), self.stock_account)
 
@@ -109,14 +136,10 @@ class TestStockProcessor(EnhancedTestCase):
         )
 
     def test_type7_with_stock_main_ledger_true(self):
-        if not self.stock_account:
-            self.skipTest("No Stock account configured on this company")
         _persist_ledger_mapping(880012, self.stock_account)
         self.assertTrue(self._processor().can_process({"id": 3, "type": 7, "ledgerId": 880012, "rows": []}))
 
     def test_type10_with_stock_row_ledger_true(self):
-        if not self.stock_account:
-            self.skipTest("No Stock account configured on this company")
         _persist_ledger_mapping(880013, self.stock_account)
         self.assertTrue(
             self._processor().can_process(
@@ -127,25 +150,31 @@ class TestStockProcessor(EnhancedTestCase):
     # ---- process() early returns ----
 
     def test_process_no_rows_returns_none(self):
-        result = self._processor().process({"id": 5, "type": 7, "rows": []})
+        # None is returned on many paths; pin the SPECIFIC "no rows" branch via debug_info.
+        p = self._processor()
+        result = p.process({"id": 5, "type": 7, "rows": []})
         self.assertIsNone(result)
+        self.assertTrue(any("has no rows" in m for m in p.debug_info), p.debug_info)
 
     def test_process_no_stock_account_returns_none(self):
-        # Rows present but none map to a stock account
-        result = self._processor().process(
+        # Rows present but none map to a stock account -> "No stock account" branch.
+        p = self._processor()
+        result = p.process(
             {"id": 6, "type": 7, "ledgerId": 99999999, "rows": [{"ledgerId": 99999998, "amount": 100}]}
         )
         self.assertIsNone(result)
+        self.assertTrue(any("No stock account" in m for m in p.debug_info), p.debug_info)
 
     def test_process_zero_amount_returns_none(self):
-        if not self.stock_account:
-            self.skipTest("No Stock account configured on this company")
+        # Stock account is the main ledger, row amount ~0 -> zero adjustment -> None.
+        # Pin the SPECIFIC "zero amount" branch (distinct from no-rows / no-account).
         _persist_ledger_mapping(880014, self.stock_account)
-        # Stock account is the main ledger, row amount ~0 -> zero adjustment -> None
-        result = self._processor().process(
+        p = self._processor()
+        result = p.process(
             {"id": 7, "type": 7, "ledgerId": 880014, "rows": [{"ledgerId": 99999998, "amount": 0}]}
         )
         self.assertIsNone(result)
+        self.assertTrue(any("zero amount" in m for m in p.debug_info), p.debug_info)
 
     # ---- warehouse / item helpers ----
 

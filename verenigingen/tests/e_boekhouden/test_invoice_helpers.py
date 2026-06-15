@@ -160,6 +160,11 @@ class TestPaymentTermsAndAccounts(EnhancedTestCase):
         result = get_or_create_payment_terms(17)
         self.assertEqual(result, "Netto 17 dagen")
         self.assertTrue(frappe.db.exists("Payment Terms Template", result))
+        # The created child term must carry the requested credit_days, not a default.
+        template = frappe.get_doc("Payment Terms Template", result)
+        self.assertEqual(len(template.terms), 1)
+        self.assertEqual(template.terms[0].credit_days, 17)
+        self.assertEqual(template.terms[0].invoice_portion, 100.0)
 
     def test_payment_terms_zero_defaults_30(self):
         result = get_or_create_payment_terms(0)
@@ -173,6 +178,12 @@ class TestPaymentTermsAndAccounts(EnhancedTestCase):
         first = get_or_create_payment_terms(14)
         second = get_or_create_payment_terms(14)
         self.assertEqual(first, second)
+        # No duplicate template may be created on the second call.
+        self.assertEqual(
+            frappe.db.count("Payment Terms Template", {"name": first}),
+            1,
+            "Second call must reuse the existing template, not create a duplicate",
+        )
 
     def test_get_tax_account_unknown_btw_returns_none(self):
         debug = []

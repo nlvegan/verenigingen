@@ -209,25 +209,46 @@ class TestItemGroupAndItemCreation(EnhancedTestCase):
         first = get_or_create_generic_item(self.company)
         second = get_or_create_generic_item(self.company)
         self.assertEqual(first, second)
+        # Idempotency means no duplicate row was created - exactly one Item.
+        self.assertEqual(
+            frappe.db.count("Item", {"name": first}),
+            1,
+            "Second call must reuse the existing Item, not create a duplicate",
+        )
 
     def test_get_or_create_bank_cost_item(self):
         result = get_or_create_bank_cost_item(self.company)
-        # Either the standardized Bank-Costs item or a generic fallback
+        # Happy path returns the standardized item code (not a silent fallback).
+        self.assertEqual(result, "Bank-Costs")
         self.assertTrue(frappe.db.exists("Item", result))
 
     def test_get_or_create_bank_cost_item_idempotent(self):
         first = get_or_create_bank_cost_item(self.company)
         second = get_or_create_bank_cost_item(self.company)
-        self.assertEqual(first, second)
+        self.assertEqual(first, "Bank-Costs")
+        self.assertEqual(second, "Bank-Costs")
+        self.assertEqual(
+            frappe.db.count("Item", {"name": "Bank-Costs"}),
+            1,
+            "Second call must reuse the existing Bank-Costs item, not create a duplicate",
+        )
 
     def test_get_or_create_event_ticket_item(self):
         result = get_or_create_event_ticket_item(self.company)
+        # Happy path returns the standardized item code (not a silent fallback).
+        self.assertEqual(result, "Event-Ticket")
         self.assertTrue(frappe.db.exists("Item", result))
 
     def test_get_or_create_event_ticket_item_idempotent(self):
         first = get_or_create_event_ticket_item(self.company)
         second = get_or_create_event_ticket_item(self.company)
-        self.assertEqual(first, second)
+        self.assertEqual(first, "Event-Ticket")
+        self.assertEqual(second, "Event-Ticket")
+        self.assertEqual(
+            frappe.db.count("Item", {"name": "Event-Ticket"}),
+            1,
+            "Second call must reuse the existing Event-Ticket item, not create a duplicate",
+        )
 
 
 if __name__ == "__main__":

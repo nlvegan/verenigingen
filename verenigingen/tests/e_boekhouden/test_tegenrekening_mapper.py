@@ -131,11 +131,27 @@ class TestGetAccountByCode(EnhancedTestCase):
         self.assertEqual(mapper._get_account_by_code("80501"), acct)
 
     def test_resolve_by_name_pattern(self):
-        # Account number set so the name follows "<num> - <name> - <abbr>" convention
-        acct = self._persist_account("Tegenrek ByPattern", account_number="80502")
+        # Persist an account with NO account_number and NO grootboek so the
+        # grootboek and account_number lookups MISS; only the name-pattern
+        # branch ("<code> - % - <abbr>", prod ~lines 259-268) can resolve it.
+        # The account name itself starts with the code so it matches the pattern.
+        code = "80502"
+        acct = self._persist_account(f"{code} - ByPattern")
+        # Guard the premise: the lookups that precede the name-pattern branch
+        # must genuinely find nothing for this code.
+        self.assertFalse(
+            frappe.db.exists("Account", {"company": self.company, "account_number": code}),
+            "Premise broken: account_number lookup would short-circuit the name-pattern branch",
+        )
+        if frappe.db.has_column("Account", "eboekhouden_grootboek_nummer"):
+            self.assertFalse(
+                frappe.db.exists(
+                    "Account", {"company": self.company, "eboekhouden_grootboek_nummer": code}
+                ),
+                "Premise broken: grootboek lookup would short-circuit the name-pattern branch",
+            )
         mapper = self._mapper()
-        # Even if account_number lookup is the one that hits, the resolved name is correct.
-        self.assertEqual(mapper._get_account_by_code("80502"), acct)
+        self.assertEqual(mapper._get_account_by_code(code), acct)
 
     def test_unknown_code_returns_none_and_caches(self):
         mapper = self._mapper()
@@ -152,8 +168,14 @@ class TestGetAccountByCode(EnhancedTestCase):
     def test_cache_hit_returns_same(self):
         acct = self._persist_account("Tegenrek Cache", account_number="80503")
         mapper = self._mapper()
+        # Cache starts empty for this code.
+        self.assertNotIn("80503", mapper._account_cache)
         first = mapper._get_account_by_code("80503")
-        # populate then verify cache path returns identical value
+        self.assertEqual(first, acct)
+        # The lookup must have populated the cache (prod caches the resolved value).
+        self.assertIn("80503", mapper._account_cache)
+        self.assertEqual(mapper._account_cache["80503"], acct)
+        # Second call serves from cache and returns the identical value.
         self.assertEqual(mapper._get_account_by_code("80503"), first)
 
 

@@ -113,8 +113,14 @@ class TestSuggestAccountTypeForGroup(unittest.TestCase):
         self.assertIn("manually", s["notes"])
 
     def test_empty_code_does_not_crash(self):
+        # Empty code + unknown name + balance-sheet default: no keyword matches
+        # and first_digit == "" hits neither asset nor liability range, so the
+        # type is left blank for manual configuration.
         s = _suggest_account_type_for_group("", "Mysterie")
         self.assertEqual(s["group_code"], "")
+        self.assertEqual(s["root_type"], "")
+        self.assertEqual(s["account_type"], "")
+        self.assertIn("manually", s["notes"])
 
 
 class TestMightBeGroupCostCenter(unittest.TestCase):
@@ -381,6 +387,17 @@ class TestModuleLevelWrappers(_SettingsTestBase):
     mandatory api_token/default_company set up by _SettingsTestBase are required.
     """
 
+    def _persist_saveable_singleton(self):
+        # The wrapper does its own frappe.get_single(...).save(); for that save to
+        # pass the mandatory checks the fields must be set at the DOC level, not
+        # only in __Auth (set_encrypted_password). Persist them here so the success
+        # path is deterministic regardless of pre-existing site state.
+        settings = frappe.get_doc(self.SINGLE)
+        settings.api_token = "DUMMY-TOKEN"
+        settings.default_company = self._eur_company
+        settings.api_url = "https://api.example.com"
+        settings.save(ignore_permissions=True)
+
     @patch("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.requests.post")
     def test_module_test_connection_returns_structured_result(self, mock_post):
         # The wrapper saves the singleton internally; with no session token it
@@ -393,6 +410,26 @@ class TestModuleLevelWrappers(_SettingsTestBase):
         result = eb_settings.test_connection()
         self.assertIn("success", result)
         self.assertFalse(result["success"])
+
+    @patch("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.requests.get")
+    @patch("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.requests.post")
+    def test_module_test_connection_success_persists_status(self, mock_post, mock_get):
+        # SUCCESS path: the wrapper's real job is to run the controller test AND
+        # persist the result via settings.save(). Stub session-token (post) and
+        # ledger (get) to succeed, then assert the singleton's connection_status
+        # was actually written to the DB (not just returned).
+        mock_post.return_value = _ok_get({"token": "T"})
+        mock_get.return_value = _ok_get({"items": [{"id": 1}]})
+        self._persist_saveable_singleton()
+        orig_status = frappe.db.get_single_value(self.SINGLE, "connection_status")
+        try:
+            result = eb_settings.test_connection()
+            self.assertTrue(result["success"])
+            persisted = frappe.db.get_single_value(self.SINGLE, "connection_status")
+            self.assertIn("Successful", persisted)
+        finally:
+            frappe.db.set_single_value(self.SINGLE, "connection_status", orig_status)
+            frappe.db.commit()
 
     @patch("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.requests.post")
     def test_module_get_grootboekrekeningen_failure_propagates(self, mock_post):
