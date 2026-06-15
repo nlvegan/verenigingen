@@ -164,8 +164,8 @@ class PontoTransactionImporter:
             PontoConfigurationError: If required settings not configured
         """
         # Get configuration defaults
-        account_id = account_id or self._config.get_linked_account_id()
-        bank_account = bank_account or self._config.get_bank_account()
+        account_id = account_id or self._config.get_first_enabled_ponto_account_id()
+        bank_account = bank_account or self._config.get_first_enabled_bank_account()
         company = company or self._config.get_default_company()
 
         frappe.logger().debug(
@@ -382,7 +382,9 @@ class PontoTransactionImporter:
         if ponto_tx.reference and ponto_tx.reference != ponto_tx.description:
             parts.append(f"Ref: {ponto_tx.reference}")
 
-        if ponto_tx.counterpart_name and ponto_tx.counterpart_name not in parts[0] if parts else True:
+        # Append the counterparty only when it is set and not already mentioned in
+        # the leading description (avoids "Paid Acme BV | From/To: Acme BV").
+        if ponto_tx.counterpart_name and (not parts or ponto_tx.counterpart_name not in parts[0]):
             parts.append(f"From/To: {ponto_tx.counterpart_name}")
 
         return " | ".join(parts) if parts else "Ponto Import"
@@ -445,8 +447,8 @@ class PontoTransactionImporter:
         Returns:
             Bank Transaction name if created/exists, None on failure
         """
-        account_id = account_id or self._config.get_linked_account_id()
-        bank_account = bank_account or self._config.get_bank_account()
+        account_id = account_id or self._config.get_first_enabled_ponto_account_id()
+        bank_account = bank_account or self._config.get_first_enabled_bank_account()
         company = company or self._config.get_default_company()
 
         # Fetch the specific transaction
