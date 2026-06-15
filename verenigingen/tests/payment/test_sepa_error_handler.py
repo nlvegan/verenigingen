@@ -244,44 +244,45 @@ class TestExecuteWithRetry(EnhancedTestCase):
         self.assertEqual(result["retries_attempted"], 2)
         self.assertEqual(len(attempts), 3)
 
-    def test_retries_exhausted_via_final_attempt(self):
-        # A persistently-temporary error is retried max_retries times; the
-        # last attempt (attempt==max_retries==3) is short-circuited by
-        # should_retry returning False, so the function returns through the
-        # `not should_retry` branch with final_attempt=True (NOT the
-        # post-loop retries_exhausted branch -- see xfail below).
+    def test_non_retryable_returns_final_attempt(self):
+        # A non-retryable (validation) error returns immediately through the
+        # `not should_retry` branch with final_attempt=True, NOT the post-loop
+        # retries_exhausted branch (the error was never eligible for retry).
+        def op():
+            raise Exception("invalid data")  # validation, never retried
+
+        with patch.object(seh.time, "sleep"):
+            result = self.handler.execute_with_retry(op)
+        self.assertFalse(result["success"])
+        self.assertTrue(result.get("final_attempt"))
+        self.assertIsNone(result.get("retries_exhausted"))
+        self.assertEqual(result["retries_attempted"], 0)
+        # One failure recorded on the circuit breaker.
+        self.assertEqual(self.handler.circuit_breaker["failure_count"], 1)
+
+    def test_retries_exhausted_flag_is_reachable(self):
+        """A fully-exhausted retry sequence surfaces retries_exhausted=True.
+
+        A persistently-temporary error is retried max_retries (3) times. After
+        the final retry attempt fails, the retry sequence is exhausted and the
+        function falls through to the post-loop block, returning
+        retries_exhausted=True (the terminal result for a retryable error that
+        keeps failing). This is distinct from final_attempt=True, which is the
+        terminal result for a non-retryable error.
+        """
         def op():
             raise Exception("server timeout")  # temporary, always fails
 
         with patch.object(seh.time, "sleep"):
             result = self.handler.execute_with_retry(op)
         self.assertFalse(result["success"])
-        self.assertTrue(result.get("final_attempt"))
+        self.assertTrue(result.get("retries_exhausted"))
+        # An exhausted retryable error is NOT a single final_attempt.
+        self.assertIsNone(result.get("final_attempt"))
         self.assertEqual(result["retries_attempted"], 3)
+        self.assertEqual(result["error_category"], "temporary")
         # One failure recorded on the circuit breaker for the whole sequence.
         self.assertEqual(self.handler.circuit_breaker["failure_count"], 1)
-
-    @unittest.expectedFailure
-    def test_retries_exhausted_flag_is_reachable(self):
-        """PRODUCT BUG (dead code): the `retries_exhausted` branch is unreachable.
-
-        execute_with_retry loops `for attempt in range(max_retries + 1)` i.e.
-        0,1,2,3 (sepa_error_handler.py:178). On the last iteration attempt==3
-        and should_retry() returns False immediately because
-        `attempt >= max_retries` (line 76), so the function always returns from
-        the `not self.should_retry(...)` branch (line 204) with
-        final_attempt=True. The post-loop block (lines 222-232) that sets
-        retries_exhausted=True can therefore never execute.
-
-        Correct behaviour: a fully-exhausted retry sequence should surface
-        retries_exhausted=True.
-        """
-        def op():
-            raise Exception("server timeout")
-
-        with patch.object(seh.time, "sleep"):
-            result = self.handler.execute_with_retry(op)
-        self.assertTrue(result.get("retries_exhausted"))
 
     def test_success_after_failure_closes_half_open(self):
         self.handler.circuit_breaker["state"] = "half_open"
@@ -369,20 +370,14 @@ class TestSepaRetryDecorator(EnhancedTestCase):
         with self.assertRaises(Exception):
             named_op()
 
-    @unittest.expectedFailure
     def test_decorator_does_not_crash_when_circuit_open(self):
-        """PRODUCT BUG: @sepa_retry raises KeyError when the circuit is open.
+        """When the circuit is open, @sepa_retry raises a clear exception.
 
-        When the circuit breaker is open, execute_with_retry returns early
-        (sepa_error_handler.py:166-174) with a dict that has NO "result" key.
-        The decorator's failure branch only re-raises for non-circuit_breaker
-        categories (line 350), then unconditionally does
-        `return result["result"]` (line 353) -> KeyError('result') for the
-        circuit_breaker case.
-
-        Correct behaviour: a circuit-open call through the decorator should
-        degrade gracefully (e.g. return None / the missing result) rather than
-        raise an unrelated KeyError.
+        When the circuit breaker is open, execute_with_retry returns early with
+        a dict that has NO "result" key. The decorator must not blindly index
+        result["result"] (which would KeyError); instead it surfaces the
+        circuit-open error as a regular Exception, consistent with how it
+        re-raises every other failure category.
         """
         handler = get_sepa_error_handler()
         for _ in range(5):
@@ -393,8 +388,11 @@ class TestSepaRetryDecorator(EnhancedTestCase):
         def op():
             return "never runs"
 
-        # Currently raises KeyError('result'); correct behaviour is no crash.
-        self.assertIsNone(op())
+        with self.assertRaises(Exception) as ctx:
+            op()
+        # The exception surfaces the circuit-open error, not a KeyError.
+        self.assertNotIsInstance(ctx.exception, KeyError)
+        self.assertIn("Circuit breaker", str(ctx.exception))
 
 
 class TestSingletonAndAPIs(EnhancedTestCase):

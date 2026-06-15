@@ -200,18 +200,34 @@ class SEPAErrorHandler:
                     f"SEPA Error Handler - {operation_name}",
                 )
 
-                # Check if we should retry
+                # Check if we should retry.
+                #
+                # should_retry() returns False for two distinct reasons:
+                #   (a) the error is genuinely non-retryable (validation/data/
+                #       authorization) -> this is a final, non-retried attempt.
+                #   (b) the error is retryable but we have reached max_retries
+                #       -> the retry sequence is exhausted.
+                # These two cases need different terminal results, so we only
+                # return the `final_attempt` result for case (a). For case (b)
+                # we fall through to the post-loop `retries_exhausted` block.
                 if not self.should_retry(e, attempt):
-                    self.record_failure(e)
-                    return {
-                        "success": False,
-                        "error": str(e),
-                        "error_category": error_category,
-                        "operation": operation_name,
-                        "retries_attempted": attempt,
-                        "final_attempt": True,
-                        "circuit_breaker_state": self.circuit_breaker["state"],
-                    }
+                    retries_remaining = attempt < self.retry_config["max_retries"]
+                    error_is_retryable = self.categorize_error(e) in ["temporary", "unknown"]
+                    if retries_remaining or not error_is_retryable:
+                        # Case (a): non-retryable error (or stopped early) -> final attempt.
+                        self.record_failure(e)
+                        return {
+                            "success": False,
+                            "error": str(e),
+                            "error_category": error_category,
+                            "operation": operation_name,
+                            "retries_attempted": attempt,
+                            "final_attempt": True,
+                            "circuit_breaker_state": self.circuit_breaker["state"],
+                        }
+                    # Case (b): retryable error but max_retries reached -> fall
+                    # through to the post-loop retries_exhausted block.
+                    break
 
                 # Calculate delay before retry
                 if attempt < self.retry_config["max_retries"]:
@@ -346,9 +362,11 @@ def sepa_retry(operation_name: str = None):
                     f"SEPA Retry Handler - {operation_name} Final Failure",
                 )
 
-                # For functions that need to raise exceptions, convert back to exception
-                if result.get("error_category") != "circuit_breaker":
-                    raise Exception(result["error"])
+                # Convert any failure back to an exception so callers don't
+                # silently receive a missing/None result. The circuit-open case
+                # is surfaced as a clear exception too (the early-return dict has
+                # no "result" key, so blindly indexing it would KeyError).
+                raise Exception(result["error"])
 
             return result["result"]
 
