@@ -109,13 +109,15 @@ class TestIdentifyBankNameEnhanced(unittest.TestCase):
     def test_default_unknown(self):
         self.assertEqual(identify_bank_name_enhanced("Donaties direct"), "Unknown Bank")
 
-    def test_PRODUCT_BUG_ing_substring_false_positive(self):
-        # PRODUCT BUG: "betaalreken-ING" contains the substring "ing", and the
-        # bank_patterns dict is iterated in insertion order with "ing" -> "ING Bank"
-        # appearing early. So a Knab account whose name contains "rekening"
-        # is misclassified as ING Bank. Documenting current behavior.
-        # eboekhouden_coa_import.py:310-354 (identify_bank_name_enhanced).
-        self.assertEqual(identify_bank_name_enhanced("Knab betaalrekening"), "ING Bank")
+    def test_rekening_substring_does_not_misclassify_as_ing(self):
+        # Regression: "betaalrekening" contains the substring "ing", which used to
+        # match the "ing" -> "ING Bank" pattern and misclassify a Knab account as
+        # ING. Word-boundary matching now requires "ing" to start a word, so the
+        # specific "knab" keyword wins instead.
+        # eboekhouden_coa_import.py (identify_bank_name_enhanced + _matches_bank_keyword).
+        self.assertEqual(identify_bank_name_enhanced("Knab betaalrekening"), "Knab")
+        # A genuine ING name still resolves to ING Bank.
+        self.assertEqual(identify_bank_name_enhanced("ING betaalrekening"), "ING Bank")
 
 
 class TestIdentifyBankCode(unittest.TestCase):
@@ -216,12 +218,13 @@ class TestExtractBankInfoFromAccountName(unittest.TestCase):
         self.assertEqual(info["bank_name"], "Rabobank")
         self.assertEqual(info["description"], "Zakelijk")
 
-    def test_PRODUCT_BUG_rekening_triggers_ing_misclassification(self):
-        # PRODUCT BUG (same root cause as identify_bank_name_enhanced): a Rabobank
-        # account named "... rekening" matches the "ing" substring and is
-        # misidentified as ING Bank. eboekhouden_coa_import.py:310-354.
+    def test_rekening_substring_does_not_misclassify_rabobank_as_ing(self):
+        # Regression (same root cause as identify_bank_name_enhanced): a Rabobank
+        # account named "... rekening" used to match the "ing" substring and be
+        # misidentified as ING Bank. Word-boundary matching now resolves it to
+        # Rabobank via the "rabo" keyword. eboekhouden_coa_import.py.
         info = extract_bank_info_from_account_name("Rabobank - Zakelijke rekening")
-        self.assertEqual(info["bank_name"], "ING Bank")
+        self.assertEqual(info["bank_name"], "Rabobank")
 
 
 # ---------------------------------------------------------------------------
@@ -246,18 +249,79 @@ class TestValidateBankAccountMappings(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return name
 
-    def test_no_company_no_settings_returns_error(self):
-        # Pass an explicit company so we don't depend on settings default
+    def _persist_account(self, acct_name, account_type, root_type="Asset"):
+        parent = frappe.db.get_value(
+            "Account",
+            {"company": self.company, "root_type": root_type, "is_group": 1},
+            "name",
+        )
+        full = f"{acct_name} - TCVC"
+        if frappe.db.exists("Account", full):
+            return full
+        doc = frappe.new_doc("Account")
+        doc.account_name = acct_name
+        doc.company = self.company
+        doc.parent_account = parent
+        doc.account_type = account_type
+        doc.root_type = root_type
+        doc.insert(ignore_permissions=True)
+        return doc.name
+
+    def _persist_bank_account_mapped_to(self, gl_account):
+        """Create a Bank Account record mapped to an arbitrary GL account.
+
+        The Bank Account ``account`` field is filtered to Bank-type accounts only
+        on the client side (a get_query filter), not on the server, so an
+        intentionally mismatched mapping can be persisted to exercise the
+        validator's account-type check.
+        """
+        bank = frappe.db.get_value("Bank", {}, "name")
+        if not bank:
+            bank = frappe.new_doc("Bank")
+            bank.bank_name = "EBKH Test Bank"
+            bank.insert(ignore_permissions=True)
+            bank = bank.name
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = "EBKH Mismatched BA"
+        ba.bank = bank
+        ba.account = gl_account
+        ba.company = self.company
+        ba.insert(ignore_permissions=True)
+        return ba.name
+
+    def test_validate_returns_success_and_structure_for_company(self):
+        # Passes an explicit company so we don't depend on settings default.
         result = validate_bank_account_mappings(company=self.company)
         self.assertTrue(result["success"])
-        self.assertIn("total_bank_accounts", result)
-        self.assertIn("issues", result)
+        for key in (
+            "total_bank_accounts",
+            "valid_accounts",
+            "issues_found",
+            "issues",
+            "valid_account_names",
+        ):
+            self.assertIn(key, result)
         self.assertIsInstance(result["issues"], list)
 
-    def test_structure_keys_present(self):
+    def test_non_bank_type_mapping_reported_as_issue(self):
+        # Map a Bank Account to a Receivable GL account; the validator must flag
+        # the wrong account_type (product eboekhouden_coa_import.py ~L749-754).
+        recv = self._persist_account("EBKH CoA Recv", "Receivable")
+        self.assertEqual(frappe.db.get_value("Account", recv, "account_type"), "Receivable")
+        ba_name = self._persist_bank_account_mapped_to(recv)
+
         result = validate_bank_account_mappings(company=self.company)
-        for key in ("total_bank_accounts", "valid_accounts", "issues_found", "valid_account_names"):
-            self.assertIn(key, result)
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(result["issues_found"], 1)
+
+        ours = [i for i in result["issues"] if i["bank_account"] == ba_name]
+        self.assertTrue(ours, msg=f"seeded bank account not reported: {result['issues']}")
+        self.assertIn(
+            "Chart of Accounts account should be type 'Bank', got 'Receivable'",
+            ours[0]["issues"],
+        )
+        # A genuinely mismapped account must NOT be counted as valid.
+        self.assertNotIn(ba_name, result["valid_account_names"])
 
 
 if __name__ == "__main__":

@@ -191,6 +191,17 @@ def has_account_number_pattern(account_name):
     return False
 
 
+def _matches_bank_keyword(name_lower, keyword):
+    """Match a bank keyword as a word prefix.
+
+    A leading word boundary stops short keywords from matching inside unrelated
+    Dutch words -- e.g. "ing" must not match inside "rekening"/"betaalrekening".
+    Prefix matches such as "rabo" in "rabobank" or "ing" in "ingbank" still match
+    because there is a word boundary at the start of those compounds.
+    """
+    return re.search(r"\b" + re.escape(keyword), name_lower) is not None
+
+
 def extract_bank_info_from_account_name(account_name):
     """
     Enhanced bank info extraction with support for old account numbers
@@ -300,7 +311,7 @@ def identify_bank_name(bank_part):
     }
 
     for key, full_name in bank_names.items():
-        if key in bank_part_lower:
+        if _matches_bank_keyword(bank_part_lower, key):
             return full_name
 
     # Return original if no match found
@@ -339,7 +350,7 @@ def identify_bank_name_enhanced(account_name):
 
     # Check each pattern
     for pattern, full_name in bank_patterns.items():
-        if pattern in name_lower:
+        if _matches_bank_keyword(name_lower, pattern):
             return full_name
 
     # If no specific bank found, try to extract from first part
@@ -347,7 +358,10 @@ def identify_bank_name_enhanced(account_name):
     if len(parts) >= 1:
         first_part = parts[0].strip()
         # Check if first part looks like a bank name
-        if any(word in first_part.lower() for word in ["bank", "rabo", "ing", "triodos", "abn"]):
+        if any(
+            _matches_bank_keyword(first_part.lower(), word)
+            for word in ["bank", "rabo", "ing", "triodos", "abn"]
+        ):
             return first_part
 
     # Default fallback
@@ -379,7 +393,7 @@ def identify_bank_code_from_name(account_name):
     }
 
     for key, code in bank_codes.items():
-        if key in name_lower:
+        if _matches_bank_keyword(name_lower, key):
             return code
 
     return None
