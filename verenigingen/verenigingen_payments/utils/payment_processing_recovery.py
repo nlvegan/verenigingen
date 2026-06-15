@@ -5,7 +5,7 @@ Provides idempotency checks, failure detection, and recovery tools for Mollie pa
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import frappe
 
@@ -168,7 +168,7 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
+def get_incomplete_payments(payment_ids: Union[List[str], str, None] = None) -> Dict[str, any]:
     """
     Find payments that are partially processed (missing one or more documents).
 
@@ -239,7 +239,7 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def complete_partial_payments(
-    payment_ids: List[str] = None,
+    payment_ids: Union[List[str], str, None] = None,
     dry_run: bool = True,
     max_payments: int = None,
     process_orphans: bool = False,
@@ -489,7 +489,7 @@ def analyze_payment_gaps() -> Dict[str, any]:
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def repair_invoices_missing_gl_entries(
-    invoice_names: List[str] = None, dry_run: bool = True
+    invoice_names: Union[List[str], str, None] = None, dry_run: bool = True
 ) -> Dict[str, any]:
     """
     Repair Sales Invoices that are submitted but missing GL entries.

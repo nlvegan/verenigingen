@@ -346,15 +346,12 @@ class TestGetIncompletePayments(RecoveryBase):
         self.assertEqual(len(result["incomplete_payments"]), 1)
         self.assertEqual(result["incomplete_payments"][0]["payment_id"], self.pid)
 
-    @unittest.expectedFailure
     def test_json_string_payment_ids_accepted(self):
-        """PRODUCT BUG: payment_processing_recovery.py:171 — get_incomplete_payments
-        is annotated `payment_ids: List[str] = None` but its body explicitly
-        handles a JSON string (`if isinstance(payment_ids, str): json.loads`).
-        Under Frappe v16 the @frappe.whitelist runtime type gate (active in
-        tests via in_test) rejects a str argument BEFORE the body runs, raising
-        FrappeTypeError. The annotation should be `Union[List[str], str, None]`
-        to match the documented JSON-string contract from the HTTP layer."""
+        """REGRESSION: get_incomplete_payments accepts a JSON-string payment_ids
+        from the HTTP layer. Its body handles `if isinstance(payment_ids, str):
+        json.loads`, so the annotation is `Union[List[str], str, None]`; under
+        Frappe v16 a bare `List[str]` annotation made the whitelist type gate
+        reject the str arg before the body ran (FrappeTypeError). Fixed."""
         import json
 
         result = rec.get_incomplete_payments(payment_ids=json.dumps([self.pid]))
@@ -410,13 +407,12 @@ class TestCompletePartialPaymentsDryRun(RecoveryBase):
         result = rec.complete_partial_payments(payment_ids=ids, dry_run=True, max_payments="2")
         self.assertEqual(result["total_requested"], 2)
 
-    @unittest.expectedFailure
     def test_json_string_payment_ids(self):
-        """PRODUCT BUG: payment_processing_recovery.py:241 — complete_partial_payments
-        is annotated `payment_ids: List[str] = None` but its body handles a JSON
-        string (`if isinstance(payment_ids, str): json.loads`). The Frappe v16
-        whitelist type gate rejects the str arg before the body runs
-        (FrappeTypeError). Annotation should be `Union[List[str], str, None]`."""
+        """REGRESSION: complete_partial_payments accepts a JSON-string payment_ids.
+        Its body handles `if isinstance(payment_ids, str): json.loads`, so the
+        annotation is `Union[List[str], str, None]`; a bare `List[str]` made the
+        Frappe v16 whitelist type gate reject the str arg before the body ran
+        (FrappeTypeError). Fixed."""
         import json
 
         result = rec.complete_partial_payments(
@@ -559,14 +555,12 @@ class TestRepairInvoicesMissingGLEntries(RecoveryBase):
         self.assertEqual(result["repaired"], 0)
         self.assertEqual(result["results"][0]["status"], "skipped")
 
-    @unittest.expectedFailure
     def test_json_string_invoice_names_and_dry_run_flag(self):
-        """PRODUCT BUG: payment_processing_recovery.py:491 —
-        repair_invoices_missing_gl_entries is annotated
-        `invoice_names: List[str] = None` but its body handles a JSON string
-        (`if isinstance(invoice_names, str): json.loads`). The Frappe v16
-        whitelist type gate rejects the str arg before the body runs
-        (FrappeTypeError). Annotation should be `Union[List[str], str, None]`."""
+        """REGRESSION: repair_invoices_missing_gl_entries accepts a JSON-string
+        invoice_names. Its body handles `if isinstance(invoice_names, str):
+        json.loads`, so the annotation is `Union[List[str], str, None]`; a bare
+        `List[str]` made the Frappe v16 whitelist type gate reject the str arg
+        before the body ran (FrappeTypeError). Fixed."""
         import json
 
         member = self._make_member_with_customer("GLjson")
