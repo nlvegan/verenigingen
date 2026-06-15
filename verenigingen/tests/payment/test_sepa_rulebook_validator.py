@@ -13,7 +13,6 @@ Target: verenigingen/verenigingen_payments/utils/sepa_rulebook_validator.py
 """
 
 from datetime import date, datetime, timedelta
-from unittest import expectedFailure
 
 from frappe.tests.utils import FrappeTestCase
 
@@ -393,7 +392,6 @@ class TestMandateRules(FrappeTestCase):
             root.findall(".//sepa:DrctDbtTxInf[.//sepa:SeqTp='FRST']", self.v.namespace)
 
     # MND001 FRST
-    @expectedFailure
     def test_frst_mandate_id_too_long(self):
         # PRODUCT BUG: see MND001-004 note. Should flag an over-length FRST mandate id.
         xml = _build_xml(seq_tp="FRST", transactions=[self._txn(mandate_id="M" * 36)])
@@ -401,7 +399,6 @@ class TestMandateRules(FrappeTestCase):
         self.assertTrue(any("FRST mandate ID" in i.message for i in issues))
 
     # MND002 RCUR
-    @expectedFailure
     def test_rcur_mandate_id_too_long(self):
         # PRODUCT BUG: see MND001-004 note.
         xml = _build_xml(seq_tp="RCUR", transactions=[self._txn(mandate_id="M" * 36)])
@@ -409,7 +406,6 @@ class TestMandateRules(FrappeTestCase):
         self.assertTrue(any("RCUR mandate ID" in i.message for i in issues))
 
     # MND003 OOFF
-    @expectedFailure
     def test_ooff_mandate_id_too_long(self):
         # PRODUCT BUG: see MND001-004 note.
         xml = _build_xml(seq_tp="OOFF", transactions=[self._txn(mandate_id="M" * 36)])
@@ -417,7 +413,6 @@ class TestMandateRules(FrappeTestCase):
         self.assertTrue(any("OOFF mandate ID" in i.message for i in issues))
 
     # MND004 FNAL
-    @expectedFailure
     def test_fnal_mandate_id_too_long(self):
         # PRODUCT BUG: see MND001-004 note.
         xml = _build_xml(seq_tp="FNAL", transactions=[self._txn(mandate_id="M" * 36)])
