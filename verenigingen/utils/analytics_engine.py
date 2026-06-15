@@ -847,7 +847,7 @@ class AnalyticsEngine:
         """Calculate overall confidence in forecasting"""
         confidences = []
 
-        for category, data in metrics.items():
+        for data in metrics.values():
             if data and len(data) >= 3:
                 # Simple confidence based on data consistency
                 values = [item.get(list(item.keys())[1], 0) for item in data]
@@ -1223,7 +1223,7 @@ class AnalyticsEngine:
     def _calculate_overall_compliance_score(self, compliance_status: Dict) -> float:
         """Calculate overall compliance score"""
         scores = []
-        for area, status in compliance_status.items():
+        for status in compliance_status.values():
             if isinstance(status, dict) and "score" in status:
                 scores.append(status["score"])
 
