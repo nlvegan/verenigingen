@@ -87,26 +87,29 @@ class TestUOMManagerSetup(EnhancedTestCase):
         for uom in ["Hour", "Day", "Kg", "Litre", "Meter", "Subscription"]:
             self.assertTrue(frappe.db.exists("UOM", uom), f"UOM {uom} missing")
 
-    def test_setup_conversions_does_not_raise(self):
-        # PRODUCT BUG (characterized): UOM Conversion Factor has a mandatory
-        # `category` field that _create_conversion() never sets, so every
-        # insert raises MandatoryError which the bare `except Exception` in
-        # _create_conversion swallows (logging via frappe.log_error). The net
-        # effect is that setup_conversions() creates ZERO conversion factors,
-        # but it does not raise. See uom_manager.py:266 (_create_conversion).
-        manager = UOMManager()
-        manager.setup_conversions()  # must not raise despite swallowed errors
+    def test_setup_conversions_creates_no_conversion_factors(self):
+        # Regression: setup_conversions() used to define an inverted, redundant
+        # conversion table (e.g. "1 Gram = 1000 Kg" -- backwards vs ERPNext's
+        # "1 Kg = 1000 Gram") whose inserts silently failed on the missing
+        # mandatory `category`. It is now an intentional no-op and must not
+        # fabricate any UOM Conversion Factor rows.
+        before = frappe.db.count("UOM Conversion Factor")
+        UOMManager().setup_conversions()
+        self.assertEqual(frappe.db.count("UOM Conversion Factor"), before)
+        # The specific inverted Gram->Kg row must never exist (ERPNext ships Kg->Gram).
+        self.assertIsNone(
+            frappe.db.exists("UOM Conversion Factor", {"from_uom": "Gram", "to_uom": "Kg"})
+        )
 
-    def test_create_conversion_silently_fails_missing_category(self):
-        # Documents the bug: no Gram->Kg conversion factor is actually created.
-        manager = UOMManager()
-        manager._create_conversion("Gram", "Kg", 1000)
-        existing = frappe.db.exists("UOM Conversion Factor", {"from_uom": "Gram", "to_uom": "Kg"})
-        self.assertIsNone(existing)
-
-    def test_setup_dutch_uoms_returns_success(self):
+    def test_setup_dutch_uoms_seeds_base_uoms_without_conversions(self):
+        # setup_dutch_uoms must actually seed base UOMs (not just return a
+        # hardcoded "success"), while fabricating no inverted conversion factors.
+        before = frappe.db.count("UOM Conversion Factor")
         result = setup_dutch_uoms()
         self.assertEqual(result["status"], "success")
+        for uom in ["Hour", "Kg", "Litre"]:
+            self.assertTrue(frappe.db.exists("UOM", uom), f"UOM {uom} missing")
+        self.assertEqual(frappe.db.count("UOM Conversion Factor"), before)
 
 
 if __name__ == "__main__":

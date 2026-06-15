@@ -239,48 +239,23 @@ class UOMManager:
             return None
 
     def setup_conversions(self):
-        """Setup common UOM conversions for Dutch business"""
-        conversions = [
-            # Time conversions
-            ("Hour", "Day", 8),  # 8 hours = 1 day
-            ("Day", "Week", 5),  # 5 days = 1 week (business week)
-            ("Week", "Month", 4.33),  # Average weeks per month
-            ("Month", "Quarter", 3),  # 3 months = 1 quarter
-            ("Quarter", "Year", 4),  # 4 quarters = 1 year
-            ("Month", "Year", 12),  # 12 months = 1 year
-            # Weight conversions
-            ("Gram", "Kg", 1000),
-            ("Kg", "Tonne", 1000),
-            # Volume conversions
-            ("Ml", "Litre", 1000),
-            ("Litre", "Cubic Meter", 1000),
-            # Length conversions
-            ("Mm", "Cm", 10),
-            ("Cm", "Meter", 100),
-            ("Meter", "Km", 1000),
-        ]
+        """UOM conversions are intentionally not seeded here.
 
-        for from_uom, to_uom, conversion_factor in conversions:
-            self._create_conversion(from_uom, to_uom, conversion_factor)
+        The previous implementation defined a hard-coded conversion table whose
+        every entry was inverted relative to ERPNext's ``1 from_uom = value * to_uom``
+        convention -- e.g. it declared ``("Gram", "Kg", 1000)`` ("1 Gram = 1000 Kg")
+        when the correct relation is ``1 Kg = 1000 Gram``. Those inserts also never
+        succeeded: they omitted the mandatory ``category`` field, so every row raised
+        MandatoryError which a bare ``except`` swallowed. The table was therefore both
+        wrong and a no-op for the entire life of the code.
 
-    def _create_conversion(self, from_uom, to_uom, conversion_factor):
-        """Create UOM conversion if it doesn't exist"""
-        try:
-            # Check if conversion already exists
-            existing = frappe.db.exists("UOM Conversion Factor", {"from_uom": from_uom, "to_uom": to_uom})
-
-            if not existing:
-                conversion = frappe.new_doc("UOM Conversion Factor")
-                conversion.from_uom = from_uom
-                conversion.to_uom = to_uom
-                conversion.value = conversion_factor
-                # Security: UOM conversion setup during eBoekhouden import - system configuration
-                # No commit: participates in the caller's transaction (see
-                # _ensure_uom_exists) so batch-import savepoints stay intact.
-                conversion.insert(ignore_permissions=True)
-
-        except Exception as e:
-            frappe.log_error(f"Could not create conversion {from_uom} to {to_uom}: {str(e)}")
+        ERPNext already ships the correct Mass conversions, and eBoekhouden's
+        currency-based import does not rely on physical-UOM conversion factors, so the
+        conversions are deliberately left unseeded rather than re-introduced in the
+        correct direction. This method is kept as an explicit, documented no-op so that
+        ``setup_dutch_uoms`` keeps a stable surface and no inverted data is ever created.
+        """
+        return
 
     def get_item_uom_conversions(self, item_code, base_uom):
         """Get or create item-specific UOM conversions"""
