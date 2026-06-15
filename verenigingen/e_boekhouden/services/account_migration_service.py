@@ -8,7 +8,7 @@ Centralized account creation and hierarchy management for E-Boekhouden migration
 Extracted from e_boekhouden_migration.py to reduce controller size.
 """
 
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, Optional, Set
 
 import frappe
 
@@ -320,17 +320,28 @@ class AccountMigrationService:
                     "Account Classification Error",
                 )
                 # Fallback: Try to make an educated guess based on account code
-                if account_code.startswith(("8", "9")):
-                    account_type = "Income Account"
-                    root_type = "Income"
-                elif account_code.startswith(("4", "6", "7")):
-                    account_type = "Expense Account"
-                    root_type = "Expense"
-                else:
-                    account_type = "Current Asset"
-                    root_type = "Asset"
+                account_type, root_type = self._fallback_classification(account_code)
                 frappe.logger().warning(
                     f"Using fallback classification for {account_code}: {account_type}/{root_type}"
+                )
+
+            # The classifier can also legitimately return a result with no root_type
+            # (e.g. a P&L "VW" account it cannot map to Income/Expense). Without a
+            # root_type the account would be silently skipped below, dropping data
+            # during migration. Apply a heuristic instead of dropping the account.
+            if not root_type:
+                if category == "VW":
+                    # P&L (Verlies & Winst) account the classifier could not map.
+                    # Default to Expense rather than letting the balance-sheet code
+                    # heuristic mis-file a P&L account under Asset/Liability — most
+                    # unmapped VW accounts are costs, and an Expense root keeps it in
+                    # the P&L tree (and surfaces it for manual review via the warning).
+                    account_type, root_type = "Expense Account", "Expense"
+                else:
+                    account_type, root_type = self._fallback_classification(account_code)
+                frappe.logger().warning(
+                    f"Classifier returned no root_type for {account_code} (category={category}); "
+                    f"using fallback: {account_type}/{root_type}"
                 )
 
             # Check if this should be a root account
@@ -453,6 +464,19 @@ class AccountMigrationService:
                 account_data if account_data else {},
             )
             return False
+
+    def _fallback_classification(self, account_code: str) -> tuple:
+        """Guess (account_type, root_type) from the account code's leading digit.
+
+        Used when the classification service raises, or returns a result with no
+        root_type, so that accounts are not silently dropped during migration.
+        """
+        if account_code.startswith(("8", "9")):
+            return "Income Account", "Income"
+        elif account_code.startswith(("4", "6", "7")):
+            return "Expense Account", "Expense"
+        else:
+            return "Current Asset", "Asset"
 
     def create_bank_account_for_coa_account(self, account_doc, account_name: str):
         """Enhanced Bank Account creation for Chart of Accounts bank account."""
