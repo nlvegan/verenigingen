@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import frappe
 
-from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import MijnroodCSVImport
-
 
 class TestMijnroodCSVImport(unittest.TestCase):
     """Test cases for Member CSV Import functionality."""
@@ -390,7 +388,7 @@ class TestMijnroodCSVImportIntegration(unittest.TestCase):
         doc.insert()
 
         # Test validation catches errors
-        mapped_data, errors = doc._validate_and_map_data(mixed_data)
+        _, errors = doc._validate_and_map_data(mixed_data)
         self.assertGreater(len(errors), 0, "Should have validation errors")
         self.assertTrue(any("Invalid email format" in error for error in errors))
 
@@ -540,3 +538,444 @@ class TestMijnroodCSVImportSettings(unittest.TestCase):
         self.assertIn("CSV Monthly Dues Schedule", call_args)
         self.assertIn("CSV Annual Dues Schedule", call_args)
         self.assertIn("Default Membership Type", call_args)
+
+
+# ---------------------------------------------------------------------------
+# Real integration tests (no business-logic mocking) using EnhancedTestCase.
+#
+# These exercise the MijnroodCSVImport controller against real CSV content,
+# real File DocType attachments, the real parse/validate/map pipeline and real
+# Member creation, asserting real DB state. They complement the mock-based
+# tests above (which cover pure helpers and settings validation in isolation).
+# ---------------------------------------------------------------------------
+
+import random  # noqa: E402
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  # noqa: E402
+
+
+def _unique_email(prefix="mijnrood"):
+    return f"{prefix}_{random.randint(100000, 999999)}@integrationtest.invalid"
+
+
+class TestMijnroodCSVImportRealIntegration(EnhancedTestCase):
+    """End-to-end integration coverage for the CSV import controller.
+
+    Drives the controller via real CSV bytes, real File attachments and the real
+    validate/map/create pipeline. No mocking of frappe.get_doc / frappe.db or
+    business logic.
+    """
+
+    def _make_csv_bytes(self, rows, headers=None):
+        """Build CSV content (str) from a list of dict rows."""
+        if headers is None:
+            headers = list(rows[0].keys()) if rows else []
+        out = io.StringIO()
+        writer = csv.DictWriter(out, fieldnames=headers)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+        return out.getvalue()
+
+    def _create_csv_file_doc(self, content, file_name=None):
+        """Create a real (private) File DocType attachment holding CSV content."""
+        if file_name is None:
+            file_name = f"mijnrood_test_{random.randint(100000, 999999)}.csv"
+        file_doc = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": file_name,
+                "is_private": 1,
+                "content": content,
+            }
+        ).insert(ignore_permissions=True)
+        self._created_files.append(file_doc.name)
+        return file_doc
+
+    def _make_import_doc(self, rows, encoding="utf-8", **kwargs):
+        """Create + insert a Mijnrood CSV Import doc backed by a real File of `rows`."""
+        content = self._make_csv_bytes(rows)
+        return self._make_import_doc_from_content(content, encoding=encoding, **kwargs)
+
+    def _make_import_doc_from_content(self, content, encoding="utf-8", **kwargs):
+        """Create + insert a Mijnrood CSV Import doc backed by a real File of raw `content`."""
+        file_doc = self._create_csv_file_doc(content)
+        doc = frappe.get_doc(
+            {
+                "doctype": "Mijnrood CSV Import",
+                "csv_file": file_doc.file_url,
+                "encoding": encoding,
+                "import_date": frappe.utils.today(),
+                **kwargs,
+            }
+        )
+        doc.insert(ignore_permissions=True)
+        self._created_imports.append(doc.name)
+        return doc
+
+    def _new_unsaved_doc(self):
+        """A controller instance not requiring the mandatory csv_file (helper-only paths)."""
+        return frappe.get_doc(
+            {"doctype": "Mijnrood CSV Import", "encoding": "utf-8", "import_date": frappe.utils.today()}
+        )
+
+    def setUp(self):
+        super().setUp()
+        self._created_files = []
+        self._created_imports = []
+        self._created_members = []
+
+    def tearDown(self):
+        for member_name in self._created_members:
+            try:
+                frappe.delete_doc("Member", member_name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        for import_name in self._created_imports:
+            try:
+                frappe.delete_doc("Mijnrood CSV Import", import_name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        for file_name in self._created_files:
+            try:
+                frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        super().tearDown()
+
+    # --- File reading via real File attachment -----------------------------
+
+    def test_read_csv_file_from_real_attachment(self):
+        """A real File attachment is resolved and parsed into row dicts."""
+        rows = [
+            {
+                "Voornaam": "Jan",
+                "Achternaam": "Jansen",
+                "E-mailadres": "jan@example.com",
+                "IBAN": "NL91ABNA0417164300",
+            }
+        ]
+        doc = self._make_import_doc(rows)
+        parsed = doc._read_csv_file()
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["Voornaam"], "Jan")
+        self.assertEqual(parsed[0]["E-mailadres"], "jan@example.com")
+
+    def test_read_csv_file_empty_url_returns_empty(self):
+        """No csv_file set => empty list (not an error)."""
+        doc = self._new_unsaved_doc()
+        self.assertEqual(doc._read_csv_file(), [])
+
+    def test_read_csv_file_semicolon_delimiter(self):
+        """Semicolon-delimited CSV (common in NL exports) is auto-detected."""
+        content = "Voornaam;Achternaam;E-mailadres\nPiet;Pietersen;piet@example.com\n"
+        doc = self._make_import_doc_from_content(content)
+        parsed = doc._read_csv_file()
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["Voornaam"], "Piet")
+
+    def test_read_csv_file_strips_empty_and_placeholder_rows(self):
+        """Rows that are entirely empty / '-' / 'nb' placeholders are dropped."""
+        content = "Voornaam,Achternaam,E-mailadres\n" "Real,Member,real@example.com\n" "-,-,-\n" ",,\n"
+        doc = self._make_import_doc_from_content(content)
+        parsed = doc._read_csv_file()
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["Voornaam"], "Real")
+
+    # --- validate/map pipeline --------------------------------------------
+
+    def test_validate_and_map_full_pipeline_via_file(self):
+        """read -> validate/map produces cleaned Member-field dicts and no errors."""
+        rows = [
+            {
+                "Lidnr.": "12345",
+                "Voornaam": "Maria",
+                "Achternaam": "de Vries",
+                "Geboortedatum": "15-01-1990",
+                "E-mailadres": "Maria.DeVries@Example.COM",
+                "Telefoonnr.": "+31612345678",
+                "Landcode": "NL",
+                "IBAN": "NL 91 ABNA 0417 1643 00",
+                "Contributiebedrag": "€ 25,00",
+            }
+        ]
+        doc = self._make_import_doc(rows)
+        parsed = doc._read_csv_file()
+        mapped, errors = doc._validate_and_map_data(parsed)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(mapped), 1)
+        m = mapped[0]
+        self.assertEqual(m["first_name"], "Maria")
+        self.assertEqual(m["last_name"], "de Vries")
+        self.assertEqual(m["email"], "maria.devries@example.com")  # lowercased
+        self.assertEqual(m["iban"], "NL91ABNA0417164300")  # spaces removed
+        self.assertEqual(m["birth_date"], "1990-01-15")  # normalized
+        self.assertEqual(m["country"], "Netherlands")  # code converted
+        self.assertEqual(m["contact_number"], "0612345678")  # NL national format
+        self.assertEqual(m["dues_rate"], 25.0)
+        self.assertEqual(m["member_id"], "12345")
+
+    def test_validate_and_map_missing_required_columns(self):
+        """Missing Voornaam/Achternaam headers is reported, no rows mapped."""
+        doc = self._new_unsaved_doc()
+        mapped, errors = doc._validate_and_map_data([{"Foo": "bar", "Baz": "qux"}])
+        self.assertEqual(mapped, [])
+        self.assertTrue(any("Missing required columns" in e for e in errors))
+
+    def test_validate_and_map_empty_data(self):
+        """Empty CSV data yields a clear 'empty' error."""
+        doc = self._new_unsaved_doc()
+        mapped, errors = doc._validate_and_map_data([])
+        self.assertEqual(mapped, [])
+        self.assertIn("CSV file is empty", errors)
+
+    def test_validate_and_map_row_errors_reported_with_row_numbers(self):
+        """Bad email / IBAN produce row-numbered validation errors (header = row 1)."""
+        rows = [
+            {
+                "Voornaam": "Bad",
+                "Achternaam": "Email",
+                "E-mailadres": "not-an-email",
+                "IBAN": "NOTANIBAN",
+            }
+        ]
+        doc = self._new_unsaved_doc()
+        mapped, errors = doc._validate_and_map_data(rows)
+        self.assertEqual(mapped, [])
+        self.assertTrue(any("Row 2" in e and "Invalid email" in e for e in errors))
+        self.assertTrue(any("Row 2" in e and "Invalid IBAN" in e for e in errors))
+
+    def test_validate_and_map_dubbel_rows_skipped_silently(self):
+        """'Dubbel' (duplicate) membership rows are dropped without an error."""
+        rows = [{"Voornaam": "Skip", "Achternaam": "Me", "Lidmaatschapstype": "Dubbel"}]
+        doc = self._new_unsaved_doc()
+        mapped, errors = doc._validate_and_map_data(rows)
+        self.assertEqual(mapped, [])
+        self.assertEqual(errors, [])
+
+    def test_validate_and_map_future_birth_date_rejected(self):
+        """A birth date in the future is rejected with a row error."""
+        future = frappe.utils.add_to_date(frappe.utils.today(), years=1)
+        rows = [{"Voornaam": "Future", "Achternaam": "Born", "Geboortedatum": str(future)}]
+        doc = self._new_unsaved_doc()
+        mapped, errors = doc._validate_and_map_data(rows)
+        self.assertEqual(mapped, [])
+        self.assertTrue(any("future" in e.lower() for e in errors))
+
+    # --- Member creation (real DB writes) ----------------------------------
+
+    def test_process_single_member_creates_real_member(self):
+        """_process_single_member creates a real Member from a mapped row."""
+        doc = self._make_import_doc(
+            [{"Voornaam": "Create", "Achternaam": "Member", "E-mailadres": "x@example.com"}],
+            create_volunteer_records=0,
+        )
+        email = _unique_email()
+        row = {
+            "row_number": 2,
+            "first_name": "Created",
+            "last_name": "ViaImport",
+            "email": email,
+            "birth_date": "1985-06-15",
+            "iban": "NL91ABNA0417164300",
+        }
+        error_log = []
+        result, member_name = doc._process_single_member(row, error_log)
+        self.assertEqual(result, "created")
+        self.assertTrue(member_name)
+        self._created_members.append(member_name)
+        member = frappe.get_doc("Member", member_name)
+        self.assertEqual(member.first_name, "Created")
+        self.assertEqual(member.last_name, "ViaImport")
+        self.assertEqual(member.email, email)
+
+    def test_process_single_member_validation_error_returns_failed(self):
+        """A row that fails Member validation returns ('failed', None) gracefully, not a crash.
+
+        MemberImportService catches the Member controller's ValidationError and maps
+        it to the 'failed' status (only DuplicateEntryError maps to 'skipped'; see
+        member_import_service.py create/update contract), so _process_single_member
+        returns that status straight through rather than raising.
+        """
+        doc = self._make_import_doc(
+            [{"Voornaam": "Skip", "Achternaam": "Test", "E-mailadres": "s@example.com"}],
+            create_volunteer_records=0,
+        )
+        # Missing first/last name => Member validation fails => service returns 'failed'.
+        email = _unique_email()
+        row = {"row_number": 5, "member_id": "999", "email": email}
+        error_log = []
+        result, info = doc._process_single_member(row, error_log)
+        self.assertEqual(result, "failed")
+        self.assertIsNone(info)
+        # No Member should have been created for the invalid row.
+        self.assertFalse(frappe.db.exists("Member", {"email": email}))
+
+    # --- Pure helpers exercised on a real controller instance --------------
+
+    def test_helper_clean_value_and_converters(self):
+        doc = self._new_unsaved_doc()
+        self.assertEqual(doc._clean_value("€ 12,50", "dues_rate"), 12.5)
+        self.assertEqual(doc._clean_value("Test@Example.COM", "email"), "test@example.com")
+        self.assertIsNone(doc._clean_value("NULL", "first_name"))
+        self.assertEqual(doc._convert_country_code("be"), "Belgium")
+        self.assertEqual(doc._convert_country_code("ZZ"), "ZZ")  # unknown passthrough
+        self.assertEqual(doc._convert_membership_type("Opgezegd"), "Quit")
+        self.assertEqual(doc._clean_phone_number("+31 6 12345678"), "0612345678")
+        self.assertEqual(doc._clean_phone_number("garbage"), "")
+        self.assertEqual(doc._parse_date("31/12/2023"), "2023-12-31")
+        self.assertIsNone(doc._parse_date("not-a-date"))
+
+    def test_helper_validators(self):
+        doc = self._new_unsaved_doc()
+        self.assertTrue(doc._is_valid_email("a@b.co"))
+        self.assertFalse(doc._is_valid_email("a..b@c.com"))  # consecutive dots
+        self.assertTrue(doc._is_valid_iban("NL91ABNA0417164300"))
+        self.assertFalse(doc._is_valid_iban("NL00ABNA0417164300"))  # bad checksum
+
+    def test_has_address_data(self):
+        doc = self._new_unsaved_doc()
+        self.assertTrue(doc._has_address_data({"address_line1": "Hoofdstraat 1", "city": "Amsterdam"}))
+        self.assertFalse(doc._has_address_data({"address_line1": "Hoofdstraat 1"}))
+        self.assertFalse(doc._has_address_data({"city": "Amsterdam"}))
+        self.assertFalse(doc._has_address_data({}))
+
+    def test_get_termination_reason(self):
+        doc = self._new_unsaved_doc()
+        self.assertEqual(doc._get_termination_reason("overleden"), "Member deceased")
+        self.assertEqual(doc._get_termination_reason("geroyeerd"), "Expelled from organization for cause")
+        self.assertEqual(doc._get_termination_reason("mystery"), "Terminated (mystery)")
+
+    def test_should_create_membership_logic(self):
+        """Real Member: membership only created for Active + dues_rate + no existing."""
+        doc = self._make_import_doc(
+            [{"Voornaam": "Member", "Achternaam": "Ship", "E-mailadres": "ms@example.com"}],
+            create_volunteer_records=0,
+        )
+        row = {
+            "row_number": 2,
+            "first_name": "Mem",
+            "last_name": "Bership",
+            "email": _unique_email(),
+        }
+        result, member_name = doc._process_single_member(row, [])
+        self.assertEqual(result, "created")
+        self._created_members.append(member_name)
+        member = frappe.get_doc("Member", member_name)
+        # No dues_rate in row => should NOT create a membership.
+        self.assertFalse(doc._should_create_membership(member, {"first_name": "Mem"}))
+        # Inactive status => never.
+        member.status = "Suspended"
+        self.assertFalse(doc._should_create_membership(member, {"dues_rate": 25}))
+
+    def test_append_to_error_log_truncation(self):
+        """error_log truncates when exceeding max_size while keeping a header."""
+        doc = self._new_unsaved_doc()
+        doc.error_log = "=== Import Errors ===\n" + ("x" * 100)
+        doc._append_to_error_log("NEW ENTRY", max_size=120)
+        self.assertIn("=== Import Errors ===", doc.error_log)
+        self.assertIn("truncated", doc.error_log)
+        self.assertIn("NEW ENTRY", doc.error_log)
+
+    def test_append_to_error_log_appends_when_small(self):
+        doc = self._new_unsaved_doc()
+        doc.error_log = None
+        doc._append_to_error_log("first")
+        doc._append_to_error_log("second")
+        self.assertEqual(doc.error_log, "first\nsecond")
+
+    def test_categorize_skipped_members(self):
+        """Skip strings are bucketed by error type; unparseable ones go to 'Other'."""
+        doc = self._new_unsaved_doc()
+        skipped = [
+            "Lidnr 5: Jan Jansen - Invalid email format: x",
+            "Lidnr 6: Anna Bos - Duplicate entry found",
+            "Lidnr 7: Piet Pietersen - Invalid IBAN provided",
+            "totally unparseable string",
+        ]
+        cats = doc._categorize_skipped_members(skipped)
+        self.assertIn("5 (Jan Jansen)", cats["Email Validation Failed"])
+        self.assertIn("6 (Anna Bos)", cats["Duplicate Entry"])
+        self.assertIn("7 (Piet Pietersen)", cats["IBAN Validation Failed"])
+        self.assertIn("totally unparseable string", cats["Other Validation Errors"])
+        # Empty categories are pruned.
+        self.assertNotIn("Age Validation Failed", cats)
+
+    # --- Path-safety / security -------------------------------------------
+
+    def test_is_safe_file_path_accepts_site_path(self):
+        """A real file inside the site dir is considered safe."""
+        file_doc = self._create_csv_file_doc("Voornaam,Achternaam\nA,B\n")
+        doc = self._new_unsaved_doc()
+        self.assertTrue(doc._is_safe_file_path(file_doc.get_full_path()))
+
+    def test_is_safe_file_path_rejects_traversal(self):
+        """Paths outside the site dir (incl. ../ traversal) are rejected."""
+        doc = self._new_unsaved_doc()
+        self.assertFalse(doc._is_safe_file_path("/etc/passwd"))
+        self.assertFalse(doc._is_safe_file_path("/tmp/../etc/shadow"))
+
+    def test_sanitize_filename_blocks_bad_extension(self):
+        doc = self._new_unsaved_doc()
+        doc.csv_file = "/files/evil.exe"
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            doc._sanitize_filename()
+
+    def test_sanitize_filename_strips_traversal(self):
+        doc = self._new_unsaved_doc()
+        doc.csv_file = "/files/../../../etc/passwd.csv"
+        result = doc._sanitize_filename()
+        self.assertNotIn("..", result)
+        self.assertNotIn("/", result)
+        self.assertTrue(result.endswith(".csv"))
+
+
+class TestMijnroodCSVImportSettingsValidationReal(EnhancedTestCase):
+    """Real (non-mocked) coverage of _validate_csv_import_settings against
+    Verenigingen Settings, saving + restoring the real singleton.
+    """
+
+    SETTINGS_FIELDS = (
+        "csv_monthly_dues_schedule",
+        "csv_annual_dues_schedule",
+        "default_membership_type",
+    )
+
+    def setUp(self):
+        super().setUp()
+        settings = frappe.get_single("Verenigingen Settings")
+        self._saved_settings = {f: settings.get(f) for f in self.SETTINGS_FIELDS}
+
+    def tearDown(self):
+        settings = frappe.get_single("Verenigingen Settings")
+        for field, value in self._saved_settings.items():
+            settings.set(field, value)
+        settings.flags.ignore_validate = True
+        settings.flags.ignore_mandatory = True
+        settings.save(ignore_permissions=True)
+        super().tearDown()
+
+    def _setup_settings(self, **values):
+        settings = frappe.get_single("Verenigingen Settings")
+        for field, value in values.items():
+            settings.set(field, value)
+        settings.flags.ignore_validate = True
+        settings.flags.ignore_mandatory = True
+        settings.save(ignore_permissions=True)
+
+    def test_missing_settings_raise_with_named_fields(self):
+        """When dues-schedule / default-type are blank, validation lists them."""
+        self._setup_settings(
+            csv_monthly_dues_schedule=None,
+            csv_annual_dues_schedule=None,
+            default_membership_type=None,
+        )
+        doc = frappe.get_doc(
+            {"doctype": "Mijnrood CSV Import", "encoding": "utf-8", "import_date": frappe.utils.today()}
+        )
+        with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
+            doc._validate_csv_import_settings()
+        msg = str(ctx.exception)
+        self.assertIn("CSV Monthly Dues Schedule", msg)
+        self.assertIn("CSV Annual Dues Schedule", msg)
+        self.assertIn("Default Membership Type", msg)
