@@ -369,16 +369,100 @@ class TestCreateSepaBatchValidated(SepaBatchUITestBase):
         joined = " ".join(result["errors"])
         self.assertIn("Invoice not found", joined)
 
-    @unittest.expectedFailure
     def test_valid_params_should_create_batch(self):
-        """PRODUCT BUG: create_sepa_batch_validated can never insert a Direct Debit
-        Batch. It sets batch_doc.description (the reqd field is batch_description),
-        never sets the reqd batch `currency`, and omits the reqd child-row fields
-        `member` / `membership`. The DocType insert fails with mandatory-field error
-        'batch_description, membership, member', so success is always False.
+        """Regression (FIXED): create_sepa_batch_validated now sets batch_description,
+        currency, and the reqd child-row fields member / membership (sourced from the
+        invoice), so a valid batch is inserted.
         """
         params, _ = self._valid_params()
         result = ui.create_sepa_batch_validated(**params)
         self.assertTrue(result["success"], result.get("errors"))
         self.assertTrue(result.get("batch_name"))
         self.assertTrue(frappe.db.exists("Direct Debit Batch", result["batch_name"]))
+
+    def test_batch_row_uses_membership_from_invoice_dues_schedule(self):
+        """F4: when a member has multiple submitted memberships, the batch child row
+        must reference the membership tied to the INVOICE's dues schedule
+        (membership_dues_schedule_display -> Membership Dues Schedule.membership),
+        not an arbitrary member lookup that could pick an expired membership.
+        """
+        data = self._build_member_with_invoice(first_name="TwoMemberships")
+        member = data["member"]
+
+        # The member auto-got one active membership. Cancel it (it becomes the
+        # "wrong/expired" one) and create a FRESH active membership; the production
+        # active-membership guard only allows one active at a time, so we must cancel
+        # first. Both end up docstatus=1, so an arbitrary lookup is non-deterministic.
+        old_membership = data["membership"]
+        frappe.db.set_value("Membership", old_membership.name, "status", "Cancelled", update_modified=False)
+        frappe.db.set_value("Membership", old_membership.name, "docstatus", 2, update_modified=False)
+
+        f = self.factory
+        new_active = f.create_test_membership(member=member.name)
+
+        # Point the invoice's dues schedule at the FRESH active membership.
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            data["schedule"].name,
+            "membership",
+            new_active.name,
+            update_modified=False,
+        )
+
+        iban = data["mandate"].iban.replace(" ", "")
+        params = {
+            "batch_date": str(_next_weekday(add_days(today(), 3))),
+            "batch_type": "CORE",
+            "invoice_list": [
+                {
+                    "invoice": data["invoice"].name,
+                    "amount": float(data["invoice"].outstanding_amount),
+                    "iban": iban,
+                    "member_name": member.full_name,
+                    "mandate_reference": data["mandate"].mandate_id,
+                    "currency": "EUR",
+                }
+            ],
+        }
+        result = ui.create_sepa_batch_validated(**params)
+        self.assertTrue(result["success"], result.get("errors"))
+
+        batch = frappe.get_doc("Direct Debit Batch", result["batch_name"])
+        self.assertEqual(len(batch.invoices), 1)
+        self.assertEqual(
+            batch.invoices[0].membership,
+            new_active.name,
+            "batch row must use the membership from the invoice's dues schedule",
+        )
+        self.assertNotEqual(batch.invoices[0].membership, old_membership.name)
+
+    def test_non_eur_invoice_is_rejected(self):
+        """F5: a non-EUR invoice must be rejected (SEPA DD is EUR-only) rather than
+        silently batched under the hardcoded EUR batch currency. We keep the request
+        payload currency 'EUR' (so the input validator passes) but flip the Sales
+        Invoice's stored currency to USD, exercising the per-invoice EUR guard in
+        the business-validation loop."""
+        data = self._build_member_with_invoice(first_name="NonEur")
+        frappe.db.set_value(
+            "Sales Invoice", data["invoice"].name, "currency", "USD", update_modified=False
+        )
+
+        iban = data["mandate"].iban.replace(" ", "")
+        params = {
+            "batch_date": str(_next_weekday(add_days(today(), 3))),
+            "batch_type": "CORE",
+            "invoice_list": [
+                {
+                    "invoice": data["invoice"].name,
+                    "amount": float(data["invoice"].outstanding_amount),
+                    "iban": iban,
+                    "member_name": data["member"].full_name,
+                    "mandate_reference": data["mandate"].mandate_id,
+                    "currency": "EUR",
+                }
+            ],
+        }
+        result = ui.create_sepa_batch_validated(**params)
+        self.assertFalse(result["success"])
+        joined = " ".join(result.get("errors", []))
+        self.assertIn("not in EUR", joined)

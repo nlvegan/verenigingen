@@ -551,7 +551,15 @@ def create_sepa_batch_validated_secure(**params):
             invoice_doc = frappe.db.get_value(
                 "Sales Invoice",
                 invoice["invoice"],
-                ["name", "status", "outstanding_amount", "docstatus"],
+                [
+                    "name",
+                    "status",
+                    "outstanding_amount",
+                    "docstatus",
+                    "member",
+                    "membership_dues_schedule_display",
+                    "currency",
+                ],
                 as_dict=True,
             )
 
@@ -566,6 +574,16 @@ def create_sepa_batch_validated_secure(**params):
             if invoice_doc.status not in ["Unpaid", "Overdue"]:
                 invoice_validation_errors.append(
                     f"Invoice not unpaid: {invoice['invoice']} (status: {invoice_doc.status})"
+                )
+                continue
+
+            # SEPA Direct Debit is EUR-only. Reject non-EUR invoices rather than silently
+            # batching them under the hardcoded EUR batch currency, which would otherwise
+            # mis-state the collected amount.
+            if invoice_doc.currency and invoice_doc.currency != "EUR":
+                invoice_validation_errors.append(
+                    f"Invoice {invoice['invoice']} is not in EUR (currency: {invoice_doc.currency}); "
+                    "SEPA Direct Debit only supports EUR"
                 )
                 continue
 
@@ -592,7 +610,38 @@ def create_sepa_batch_validated_secure(**params):
                     )
                     continue
 
-            validated_invoices.append(invoice)
+            # Resolve the membership from the AUTHORITATIVE link: the invoice's dues
+            # schedule (membership_dues_schedule_display -> Membership Dues Schedule)
+            # points to the exact Membership this invoice bills. Only fall back to an
+            # arbitrary member lookup if that link is absent, and in the fallback prefer
+            # an Active membership so we never mark an expired/wrong membership as paid.
+            member_name = invoice_doc.member
+            membership_name = None
+            mds = invoice_doc.membership_dues_schedule_display
+            if mds:
+                membership_name = frappe.db.get_value("Membership Dues Schedule", mds, "membership")
+
+            if not membership_name and member_name:
+                # Fallback: dues-schedule link absent. Prefer an Active membership.
+                membership_name = frappe.db.get_value(
+                    "Membership", {"member": member_name, "status": "Active", "docstatus": 1}, "name"
+                ) or frappe.db.get_value("Membership", {"member": member_name, "docstatus": 1}, "name")
+                if membership_name:
+                    frappe.logger().warning(
+                        f"SEPA batch: invoice {invoice['invoice']} has no dues-schedule link; "
+                        f"fell back to membership {membership_name} for member {member_name}"
+                    )
+
+            if not member_name or not membership_name:
+                invoice_validation_errors.append(
+                    f"Could not resolve member/membership for invoice {invoice['invoice']}"
+                )
+                continue
+
+            enriched = dict(invoice)
+            enriched["member"] = member_name
+            enriched["membership"] = membership_name
+            validated_invoices.append(enriched)
 
         if invoice_validation_errors:
             log_sepa_event(
@@ -621,9 +670,11 @@ def create_sepa_batch_validated_secure(**params):
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = cleaned_params["batch_date"]
         batch_doc.batch_type = cleaned_params["batch_type"]
-        batch_doc.description = cleaned_params.get(
+        # Reqd field is `batch_description` (not `description`); `currency` is also reqd.
+        batch_doc.batch_description = cleaned_params.get(
             "description", f"SEPA Batch {cleaned_params['batch_date']}"
         )
+        batch_doc.currency = "EUR"
         batch_doc.status = "Draft"
 
         # Add invoices to batch
@@ -633,6 +684,8 @@ def create_sepa_batch_validated_secure(**params):
             batch_invoice.invoice = invoice["invoice"]
             batch_invoice.amount = invoice["amount"]
             batch_invoice.currency = invoice.get("currency", "EUR")
+            batch_invoice.member = invoice["member"]
+            batch_invoice.membership = invoice["membership"]
             batch_invoice.member_name = invoice["member_name"]
             batch_invoice.iban = invoice["iban"]
             batch_invoice.bic = invoice.get("bic", "")

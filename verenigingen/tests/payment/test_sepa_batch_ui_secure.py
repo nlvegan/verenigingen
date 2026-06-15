@@ -318,11 +318,79 @@ class TestCreateSepaBatchValidatedSecure(SecureBase):
         self.assertFalse(result["success"])
         self.assertTrue(any("Invoice not found" in e for e in result["errors"]))
 
-    @unittest.expectedFailure
     def test_valid_params_should_create_batch(self):
-        """PRODUCT BUG (shared with create_sepa_batch_validated): the Direct Debit
-        Batch insert always fails because batch_description / currency / child
-        member+membership reqd fields are never populated."""
+        """Regression (FIXED): the Direct Debit Batch insert now populates
+        batch_description / currency / child member+membership reqd fields."""
         result = s.create_sepa_batch_validated_secure(**self._valid_params())
         self.assertTrue(result["success"], result.get("errors"))
         self.assertTrue(frappe.db.exists("Direct Debit Batch", result["batch_name"]))
+
+    def test_batch_row_uses_membership_from_invoice_dues_schedule(self):
+        """F4: with multiple submitted memberships, the secure path must also resolve
+        the batch row's membership from the invoice's dues schedule, not an arbitrary
+        member lookup."""
+        data = self._build_member_with_invoice(first_name="SecTwoMemberships")
+        member = data["member"]
+
+        # Cancel the auto-created active membership and create a fresh active one so
+        # there are two submitted memberships; point the dues schedule at the fresh one.
+        old_membership = data["membership"]
+        frappe.db.set_value("Membership", old_membership.name, "status", "Cancelled", update_modified=False)
+        frappe.db.set_value("Membership", old_membership.name, "docstatus", 2, update_modified=False)
+
+        f = self.factory
+        new_active = f.create_test_membership(member=member.name)
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            data["schedule"].name,
+            "membership",
+            new_active.name,
+            update_modified=False,
+        )
+
+        iban = data["mandate"].iban.replace(" ", "")
+        result = s.create_sepa_batch_validated_secure(
+            batch_date=str(_next_weekday(add_days(today(), 3))),
+            batch_type="CORE",
+            invoice_list=[
+                {
+                    "invoice": data["invoice"].name,
+                    "amount": float(data["invoice"].outstanding_amount),
+                    "iban": iban,
+                    "member_name": member.full_name,
+                    "mandate_reference": data["mandate"].mandate_id,
+                    "currency": "EUR",
+                }
+            ],
+        )
+        self.assertTrue(result["success"], result.get("errors"))
+        batch = frappe.get_doc("Direct Debit Batch", result["batch_name"])
+        self.assertEqual(len(batch.invoices), 1)
+        self.assertEqual(batch.invoices[0].membership, new_active.name)
+        self.assertNotEqual(batch.invoices[0].membership, old_membership.name)
+
+    def test_non_eur_invoice_is_rejected(self):
+        """F5: the secure path must also reject non-EUR invoices (SEPA DD is EUR-only).
+        Keep the payload currency 'EUR' (passes input validation) but flip the stored
+        Sales Invoice currency to USD to exercise the per-invoice EUR guard."""
+        data = self._build_member_with_invoice(first_name="SecNonEur")
+        frappe.db.set_value(
+            "Sales Invoice", data["invoice"].name, "currency", "USD", update_modified=False
+        )
+        iban = data["mandate"].iban.replace(" ", "")
+        result = s.create_sepa_batch_validated_secure(
+            batch_date=str(_next_weekday(add_days(today(), 3))),
+            batch_type="CORE",
+            invoice_list=[
+                {
+                    "invoice": data["invoice"].name,
+                    "amount": float(data["invoice"].outstanding_amount),
+                    "iban": iban,
+                    "member_name": data["member"].full_name,
+                    "mandate_reference": data["mandate"].mandate_id,
+                    "currency": "EUR",
+                }
+            ],
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("not in EUR", " ".join(result.get("errors", [])))
