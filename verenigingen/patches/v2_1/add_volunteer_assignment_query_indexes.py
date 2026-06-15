@@ -98,8 +98,9 @@ def execute():
 
             # Create the index
             columns_sql = ", ".join(f"`{c}`" for c in columns)
-            frappe.db.sql(f"ALTER TABLE `{table}` ADD INDEX `{index_name}` ({columns_sql})")
-            frappe.db.commit()
+            # sql_ddl(): ALTER autocommits in MariaDB; frappe.db.sql() would raise
+            # ImplicitCommitError mid-migration (silently caught below).
+            frappe.db.sql_ddl(f"ALTER TABLE `{table}` ADD INDEX `{index_name}` ({columns_sql})")
 
             indexes_added.append(f"{index_name} on {table}")
             print(f"  + Added {index_name} on {table}({', '.join(columns)})")

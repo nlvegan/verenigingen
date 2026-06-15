@@ -89,8 +89,9 @@ def execute():
         print(f"Adding unique index {index_name} on {table_name}(reference_number)")
         print("Purpose: Prevent duplicate Bank Transactions across Mollie payment APIs")
 
-        frappe.db.sql(sql)
-        frappe.db.commit()
+        # sql_ddl(): CREATE/ALTER autocommits in MariaDB; frappe.db.sql() would
+        # raise ImplicitCommitError mid-migration (silently caught below).
+        frappe.db.sql_ddl(sql)
 
         print(f"✓ Successfully added unique index {index_name}")
         print("\nBenefits:")

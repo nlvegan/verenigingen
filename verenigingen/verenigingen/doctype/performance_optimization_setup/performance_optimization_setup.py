@@ -219,8 +219,9 @@ class PerformanceOptimizationSetup(Document):
             # Note: Index creation cannot use parameter binding, so we validate all inputs
             create_sql = f"ALTER TABLE `{table_name}` ADD INDEX {index_name} {columns}"
 
-            frappe.db.sql(create_sql)
-            frappe.db.commit()
+            # sql_ddl(): ALTER ... ADD INDEX autocommits in MariaDB; frappe.db.sql()
+            # would raise ImplicitCommitError mid-migration (silently caught below).
+            frappe.db.sql_ddl(create_sql)
 
             frappe.logger().info(f"Created index {index_name} on {table_name}: {rationale}")
 
@@ -384,7 +385,7 @@ class PerformanceOptimizationSetup(Document):
                         ):
                             # Safe DDL construction with validated inputs
                             drop_sql = f"ALTER TABLE `{table_name}` DROP INDEX {index_name}"
-                            frappe.db.sql(drop_sql)
+                            frappe.db.sql_ddl(drop_sql)
                             frappe.logger().info(f"Rolled back index {index_name} on {table_name}")
 
                     except Exception as rollback_error:

@@ -203,8 +203,9 @@ def execute():
             print(f"  + Adding index {index_name} on {table_name}({', '.join(columns)})")
             print(f"    Purpose: {description}")
 
-            frappe.db.sql(sql)
-            frappe.db.commit()
+            # sql_ddl(): CREATE INDEX autocommits in MariaDB; frappe.db.sql() would
+            # raise ImplicitCommitError mid-migration (silently caught below).
+            frappe.db.sql_ddl(sql)
 
             indexes_added.append(
                 {"table": table_name, "index": index_name, "columns": columns, "description": description}

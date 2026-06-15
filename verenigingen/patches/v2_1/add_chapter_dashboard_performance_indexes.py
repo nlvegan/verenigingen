@@ -117,8 +117,10 @@ def create_index_safe(table_name: str, index_name: str, columns: list, descripti
         print(f"\nAdding index {index_name} on {table_name}({', '.join(columns)})")
         print(f"Purpose: {description}")
 
-        frappe.db.sql(sql)
-        frappe.db.commit()
+        # Use sql_ddl(): CREATE INDEX autocommits in MariaDB, so running it through
+        # frappe.db.sql() mid-migration raises ImplicitCommitError (previously
+        # swallowed by the except below, so these indexes were never created).
+        frappe.db.sql_ddl(sql)
 
         print(f"✓ Successfully added index {index_name}")
 

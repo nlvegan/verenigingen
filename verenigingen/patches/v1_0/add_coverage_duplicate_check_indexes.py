@@ -13,7 +13,10 @@ def execute():
 
     # Index for exact duplicate and overlap detection
     # Supports queries filtering on customer + docstatus + coverage dates
-    frappe.db.sql(
+    # Use sql_ddl(): CREATE INDEX autocommits in MariaDB, so running it through
+    # frappe.db.sql() mid-migration raises ImplicitCommitError. sql_ddl() commits
+    # the pending transaction first, then runs the DDL.
+    frappe.db.sql_ddl(
         """
         CREATE INDEX IF NOT EXISTS idx_si_coverage_duplicate_check
         ON `tabSales Invoice` (
@@ -28,7 +31,7 @@ def execute():
     # Index for latest coverage lookup
     # Supports queries finding most recent coverage for a customer
     # DESC on coverage_end_date allows efficient MAX() lookups
-    frappe.db.sql(
+    frappe.db.sql_ddl(
         """
         CREATE INDEX IF NOT EXISTS idx_si_coverage_lookup
         ON `tabSales Invoice` (
@@ -38,7 +41,5 @@ def execute():
         )
     """
     )
-
-    frappe.db.commit()
 
     print("✓ Added coverage duplicate check indexes to Sales Invoice")

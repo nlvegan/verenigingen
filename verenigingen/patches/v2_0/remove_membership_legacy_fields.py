@@ -54,8 +54,9 @@ def execute():
         if field in existing_db_columns:
             try:
                 print(f"Removing column {field} from tabMembership")
-                frappe.db.sql(f"ALTER TABLE `tabMembership` DROP COLUMN `{field}`")
-                frappe.db.commit()
+                # sql_ddl(): ALTER ... DROP COLUMN autocommits in MariaDB;
+                # frappe.db.sql() would raise ImplicitCommitError mid-migration.
+                frappe.db.sql_ddl(f"ALTER TABLE `tabMembership` DROP COLUMN `{field}`")
                 print(f"Successfully removed column {field}")
             except Exception as e:
                 print(f"Warning: Could not remove column {field}: {str(e)}")
