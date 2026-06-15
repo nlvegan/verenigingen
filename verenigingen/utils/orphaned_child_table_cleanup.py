@@ -125,7 +125,12 @@ def create_missing_parent_indexes() -> OperationResult[Dict[str, Any]]:
                     results["indexes_skipped"].append(table.name)
                 else:
                     # Create the index using DDL
-                    index_name = f"idx_parent_parenttype_{table.name.replace(' ', '_').lower()}"
+                    # MySQL/MariaDB limits identifiers to 64 chars. Long DocType
+                    # names produce an over-length index name (error 1059), which
+                    # previously meant the index could never be created and the
+                    # table was reported as missing an index forever. Cap the
+                    # name and append a short hash for uniqueness when truncated.
+                    index_name = _build_index_name(table.name)
                     try:
                         frappe.db.sql_ddl(
                             f"CREATE INDEX `{index_name}` ON `{table_name}` (parent, parenttype)"
@@ -274,6 +279,41 @@ def _validate_table_name(table_name):
     # Frappe table naming pattern: tab + DocType name (alphanumeric + spaces + underscores)
     pattern = r"^tab[A-Za-z0-9 _]+$"
     return bool(re.match(pattern, table_name))
+
+
+def _build_index_name(doctype_name):
+    """
+    Build a (parent, parenttype) index name that fits MySQL's 64-char identifier
+    limit.
+
+    For most DocTypes the natural name ``idx_parent_parenttype_<slug>`` fits. For
+    long DocType names (e.g. "Process Payment Reconciliation Log Allocations")
+    the full name would exceed 64 chars and CREATE INDEX fails with error 1059,
+    leaving the table permanently un-indexed. In that case we truncate the slug
+    and append a short deterministic hash so the name stays unique and stable.
+
+    Args:
+        doctype_name (str): DocType name (without "tab" prefix)
+
+    Returns:
+        str: A valid index name no longer than 64 characters.
+    """
+    prefix = "idx_parent_parenttype_"
+    max_len = 64
+    slug = doctype_name.replace(" ", "_").lower()
+    candidate = f"{prefix}{slug}"
+    if len(candidate) <= max_len:
+        return candidate
+
+    # Reserve room for a short, DETERMINISTIC hash suffix to preserve uniqueness
+    # after truncation. A deterministic digest (not a random one) keeps the index
+    # name stable across runs/environments for the same DocType.
+    import hashlib
+
+    digest = hashlib.sha1(doctype_name.encode("utf-8")).hexdigest()[:8]
+    suffix = f"_{digest}"
+    keep = max_len - len(prefix) - len(suffix)
+    return f"{prefix}{slug[:keep]}{suffix}"
 
 
 def _batch_delete_orphans(table_name, parent_table, parent_doctype, batch_size=BATCH_SIZE):
