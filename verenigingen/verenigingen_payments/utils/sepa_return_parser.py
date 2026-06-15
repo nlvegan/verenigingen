@@ -181,10 +181,26 @@ class SEPAReturnParser:
         # Path: Document > CstmrPmtStsRpt > OrgnlPmtInfAndSts > TxInfAndSts
         ns = {self.ns_prefix: self.namespace}
 
-        for tx_info in root.findall(f".//{self.ns_prefix}:TxInfAndSts", ns):
-            return_item = self._parse_transaction_status(tx_info, ns)
-            if return_item:
-                returns.append(return_item)
+        # OrgnlMsgId lives once per document under
+        # CstmrPmtStsRpt > OrgnlGrpInfAndSts > OrgnlMsgId; read it here and
+        # propagate to every return item (ElementTree has no parent pointers).
+        orig_msg_id = self._get_text(
+            root,
+            f".//{self.ns_prefix}:OrgnlGrpInfAndSts/{self.ns_prefix}:OrgnlMsgId",
+            ns,
+        )
+
+        # OrgnlPmtInfId is a child of the OrgnlPmtInfAndSts container, NOT of the
+        # individual TxInfAndSts elements it wraps. Iterate per payment-info group
+        # so each transaction inherits the correct payment id.
+        for pmt_info in root.findall(f".//{self.ns_prefix}:OrgnlPmtInfAndSts", ns):
+            orig_payment_id = self._get_text(pmt_info, f"{self.ns_prefix}:OrgnlPmtInfId", ns)
+            for tx_info in pmt_info.findall(f"{self.ns_prefix}:TxInfAndSts", ns):
+                return_item = self._parse_transaction_status(
+                    tx_info, ns, orig_payment_id=orig_payment_id, orig_msg_id=orig_msg_id
+                )
+                if return_item:
+                    returns.append(return_item)
 
         return returns
 
@@ -210,13 +226,22 @@ class SEPAReturnParser:
                     self.namespace = detected_ns
                     return
 
-    def _parse_transaction_status(self, tx_element: Element, ns: Dict[str, str]) -> Optional[SEPAReturnItem]:
+    def _parse_transaction_status(
+        self,
+        tx_element: Element,
+        ns: Dict[str, str],
+        orig_payment_id: Optional[str] = None,
+        orig_msg_id: Optional[str] = None,
+    ) -> Optional[SEPAReturnItem]:
         """
         Extract return information from a TxInfAndSts element.
 
         Args:
             tx_element: TxInfAndSts XML element
             ns: Namespace dictionary
+            orig_payment_id: OrgnlPmtInfId from the enclosing OrgnlPmtInfAndSts
+                container (TxInfAndSts has no OrgnlPmtInfId of its own).
+            orig_msg_id: OrgnlMsgId from the document-level OrgnlGrpInfAndSts.
 
         Returns:
             SEPAReturnItem or None if parsing fails
@@ -226,8 +251,9 @@ class SEPAReturnParser:
             status_elem = tx_element.find(f"{self.ns_prefix}:TxSts", ns)
             status = status_elem.text if status_elem is not None else "UNKN"
 
-            # Get original IDs
-            orig_payment_id = self._get_text(tx_element, f"{self.ns_prefix}:OrgnlPmtInfId", ns)
+            # Get original IDs (OrgnlPmtInfId / OrgnlMsgId are provided by the
+            # caller from the parent containers; only the transaction-scoped ids
+            # live inside TxInfAndSts).
             orig_end_to_end_id = self._get_text(tx_element, f"{self.ns_prefix}:OrgnlEndToEndId", ns)
             orig_instr_id = self._get_text(tx_element, f"{self.ns_prefix}:OrgnlInstrId", ns)
 
@@ -287,9 +313,6 @@ class SEPAReturnParser:
                     if mndt_id_elem is not None:
                         mandate_id = mndt_id_elem.text
 
-            # Get original message ID from parent elements
-            orig_msg_id = self._get_parent_message_id(tx_element, ns)
-
             return SEPAReturnItem(
                 original_message_id=orig_msg_id or "",
                 original_payment_id=orig_payment_id or "",
@@ -317,17 +340,6 @@ class SEPAReturnParser:
         """Get text content of element at path."""
         child = element.find(path, ns)
         return child.text if child is not None else None
-
-    def _get_parent_message_id(self, tx_element: Element, ns: Dict[str, str]) -> Optional[str]:
-        """
-        Get original message ID from parent elements.
-
-        This is a workaround since ElementTree doesn't support parent access.
-        The message ID is typically in CstmrPmtStsRpt > OrgnlGrpInfAndSts > OrgnlMsgId
-        """
-        # Return None - caller should get this from higher-level parsing
-        # In practice, you'd need to pass this down from the root parsing
-        return None
 
 
 def parse_sepa_return_file(xml_content: str) -> List[Dict]:

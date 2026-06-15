@@ -233,19 +233,16 @@ class TestParseTransactionStatus(FrappeTestCase):
         self.assertEqual(item.original_end_to_end_id, "E2E-XYZ")
         self.assertEqual(item.original_instruction_id, "INSTR-7")
 
-    @unittest.expectedFailure
     def test_payment_id_extracted(self):
-        """PRODUCT BUG: original_payment_id is always "".
+        """original_payment_id is read from the parent OrgnlPmtInfAndSts container.
 
-        sepa_return_parser.py:230 calls
-        self._get_text(tx_element, "OrgnlPmtInfId", ns) which searches for
-        OrgnlPmtInfId *within* the TxInfAndSts element. In ISO 20022 pain.002
-        the OrgnlPmtInfId is a child of the parent OrgnlPmtInfAndSts (a sibling
-        of TxInfAndSts), so the lookup never matches and the payment id is
-        always lost. Correct behaviour: the original payment-info id should be
-        propagated to each return item (like the never-populated
-        original_message_id at :291/:321).
-        """
+        Regression for a fixed PRODUCT BUG: the parser used to call
+        ``_get_text(tx_element, "OrgnlPmtInfId", ns)`` which searched *within* the
+        TxInfAndSts element. In ISO 20022 pain.002 the OrgnlPmtInfId is a child of
+        the parent OrgnlPmtInfAndSts (a sibling container of TxInfAndSts), so the
+        lookup never matched and the payment id was always lost. The fix iterates
+        per OrgnlPmtInfAndSts group and propagates its OrgnlPmtInfId to each
+        contained transaction."""
         xml = _make_pain002([_tx_block("RJCT")], payment_id="PMT-999")
         item = SEPAReturnParser().parse(xml)[0]
         self.assertEqual(item.original_payment_id, "PMT-999")
@@ -298,12 +295,13 @@ class TestParseTransactionStatus(FrappeTestCase):
         self.assertIsNone(item.debtor_iban)
         self.assertIsNone(item.mandate_id)
 
-    def test_original_message_id_always_empty(self):
-        # Documented limitation: _get_parent_message_id returns None, so the
-        # original_message_id is always "" regardless of OrgnlGrpInfAndSts.
+    def test_original_message_id_extracted(self):
+        # The original message id is read once from the document-level
+        # CstmrPmtStsRpt > OrgnlGrpInfAndSts > OrgnlMsgId and propagated to every
+        # return item. (_make_pain002 emits OrgnlMsgId == "ORIG-MSG-001".)
         xml = _make_pain002([_tx_block("RJCT")])
         item = SEPAReturnParser().parse(xml)[0]
-        self.assertEqual(item.original_message_id, "")
+        self.assertEqual(item.original_message_id, "ORIG-MSG-001")
 
 
 class TestMultipleTransactions(FrappeTestCase):
