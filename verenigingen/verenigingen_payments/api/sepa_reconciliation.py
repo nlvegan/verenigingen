@@ -874,7 +874,24 @@ def process_individual_return(return_item):
 
 
 def reverse_failed_sepa_payment(invoice_name, return_item):
-    """Reverse payment entry for failed SEPA payment"""
+    """Reverse the Payment Entry for a returned/failed SEPA direct debit.
+
+    A returned direct debit means the bank clawed the money back, so the
+    receivable must be restored: the Sales Invoice has to go back to Unpaid/
+    Overdue with outstanding == grand_total, and no stray on-account credit may
+    be left on the customer.
+
+    We achieve this by CANCELLING the original submitted "Receive" Payment
+    Entry. Cancelling a PE automatically:
+      - reverses its GL entries (the bank/receivable postings), and
+      - unsets the allocation on the linked Sales Invoice, which restores
+        outstanding_amount and flips the invoice status back to Unpaid/Overdue.
+
+    Cancellation (rather than a forward on-account reversal) is the correct
+    accounting model here: it leaves no unallocated credit dangling on the
+    customer and keeps a clean audit trail (the cancelled PE stays visible with
+    docstatus 2, and a comment records the return reason).
+    """
 
     # Find the payment entry to reverse
     payment_entries = frappe.get_all(
@@ -886,39 +903,22 @@ def reverse_failed_sepa_payment(invoice_name, return_item):
     for pe_ref in payment_entries:
         payment_entry = frappe.get_doc("Payment Entry", pe_ref.parent)
 
-        # Check if this was a SEPA payment
+        # Only reverse a submitted SEPA collection.
         if payment_entry.mode_of_payment == "SEPA Direct Debit" and payment_entry.docstatus == 1:
-            # Create cancellation entry
-            cancellation_entry = frappe.get_doc(
-                {
-                    "doctype": "Payment Entry",
-                    "payment_type": "Pay",  # Reverse direction
-                    "party_type": "Customer",
-                    "party": payment_entry.party,
-                    "posting_date": getdate(),
-                    "paid_amount": payment_entry.paid_amount,
-                    "received_amount": payment_entry.received_amount,
-                    "reference_no": f"SEPA RETURN - {payment_entry.reference_no}",
-                    "reference_date": getdate(),
-                    "mode_of_payment": "SEPA Direct Debit Return",
-                    "custom_original_payment": payment_entry.name,
-                    "custom_return_reason": return_item.get("return_reason", ""),
-                    "references": [
-                        {
-                            "reference_doctype": "Sales Invoice",
-                            "reference_name": invoice_name,
-                            "total_amount": payment_entry.paid_amount,
-                            "outstanding_amount": 0,
-                            "allocated_amount": payment_entry.paid_amount,
-                        }
-                    ],
-                }
+            # Cancelling the original Receive PE auto-restores the invoice to its
+            # unpaid state (outstanding == grand_total) and removes the allocation,
+            # leaving no orphaned on-account credit.
+            payment_entry.cancel()
+
+            # Record the return reason on the cancelled entry for the audit trail.
+            payment_entry.add_comment(
+                "Info",
+                _("SEPA direct debit returned. Reason: {0}").format(
+                    return_item.get("return_reason", "Unknown")
+                ),
             )
 
-            cancellation_entry.insert()
-            cancellation_entry.submit()
-
-            return cancellation_entry.name
+            return payment_entry.name
 
     return None
 

@@ -1111,23 +1111,26 @@ def validate_batch_mandates(batch_data: Dict) -> Dict:
     missing_mandates = []
 
     for item in batch_data.get("invoices", []):
-        customer = item.get("customer")
+        # The Direct Debit Batch Invoice child row has no `customer` field; the
+        # party that owns the SEPA mandate is the `member` (Member name). Reading
+        # `member` is what the mandate filter below actually matches on.
+        member = item.get("member")
 
-        if not customer:
-            missing_mandates.append({"invoice": item.get("invoice"), "reason": "No customer specified"})
+        if not member:
+            missing_mandates.append({"invoice": item.get("invoice"), "reason": "No member specified"})
             continue
 
         # Check for active SEPA mandate
         active_mandates = frappe.get_all(
             "SEPA Mandate",
-            filters={"member": customer, "status": "Active", "is_active": 1, "used_for_memberships": 1},
+            filters={"member": member, "status": "Active", "is_active": 1, "used_for_memberships": 1},
             fields=["name", "mandate_id"],
         )
 
         if not active_mandates:
             missing_mandates.append(
                 {
-                    "customer": customer,
+                    "member": member,
                     "invoice": item.get("invoice"),
                     "reason": "No active SEPA mandate found",
                 }
