@@ -160,8 +160,12 @@ class SecureCertManager:
             finally:
                 os.close(cert_fd)
 
-            # Prepare and write private key (decrypt if needed)
-            passphrase = settings.get_password("ibanity_key_passphrase")
+            # Prepare and write private key (decrypt if needed).
+            # The passphrase is optional (Ibanity keys are usually unencrypted);
+            # get_password() raises when the Password field is empty, so suppress
+            # that and treat a missing passphrase as None — otherwise mTLS setup
+            # would always fail for the common unencrypted-key case.
+            passphrase = settings.get_password("ibanity_key_passphrase", raise_exception=False)
             key_content = self._prepare_private_key(settings.ibanity_private_key, passphrase)
 
             key_fd, self._key_path = tempfile.mkstemp(suffix=".pem", prefix="ponto_key_")

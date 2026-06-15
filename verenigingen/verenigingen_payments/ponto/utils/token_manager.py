@@ -296,14 +296,19 @@ class PontoTokenManager:
             expires_in_sec=expires_in,
         )
 
-        # Update settings with expiry time for visibility
+        # Persist expiry time for visibility. Use db.set_value(update_modified=False)
+        # instead of settings.save(): save() fires Ponto Settings.on_update ->
+        # clear_token_cache(), which would delete the token we JUST cached above,
+        # defeating the cache so every API call re-hits the OAuth2 endpoint. The
+        # direct DB write skips document hooks (same approach as
+        # oauth2_service._store_tokens).
         # SECURITY JUSTIFICATION: Token refresh is a system operation triggered by OAuth2 flow.
-        # No user context available during background token refresh. Audit trail maintained via
-        # access_token_expiry timestamp field. Only updating non-sensitive timestamp field.
+        # No user context available during background token refresh. Only updating the
+        # non-sensitive access_token_expiry timestamp field.
         try:
-            settings = frappe.get_single("Ponto Settings")
-            settings.access_token_expiry = expiry_time
-            settings.save(ignore_permissions=True)
+            frappe.db.set_value(
+                "Ponto Settings", "Ponto Settings", "access_token_expiry", expiry_time, update_modified=False
+            )
         except Exception as e:
             # Non-critical, just log
             frappe.logger().warning(f"Could not update Ponto Settings token expiry: {e}")
