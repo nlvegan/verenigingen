@@ -639,7 +639,7 @@ def get_processing_statistics(days: int = 30) -> Dict:
                 SUM(withdrawal) as total_withdrawals,
                 COUNT(*) as count
             FROM `tabBank Transaction`
-            WHERE reference_number LIKE 'baltr_%'
+            WHERE reference_number LIKE 'baltr_%%'
                 AND date BETWEEN %s AND %s
         """,
             (getdate(start_date), getdate(end_date)),
