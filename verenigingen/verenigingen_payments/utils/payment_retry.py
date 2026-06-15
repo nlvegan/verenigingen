@@ -246,6 +246,29 @@ class PaymentRetryManager:
             )
 
 
+def _invoice_in_open_batch(invoice_name):
+    """Return True if the invoice is already in a live (non-cancelled) Direct
+    Debit Batch.
+
+    Mirrors the exclusion used by the monthly batch flow in
+    ``sepa_mandate_service.get_unpaid_sepa_invoices`` (Direct Debit Batch Invoice
+    joined to its parent Direct Debit Batch, parent ``docstatus != 2``). Used as
+    the double-charge guard in ``execute_payment_retry``.
+    """
+    return bool(
+        frappe.db.sql(
+            """
+            SELECT 1
+            FROM `tabDirect Debit Batch Invoice` ddi
+            JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
+            WHERE ddi.invoice = %s AND ddb.docstatus != 2
+            LIMIT 1
+            """,
+            invoice_name,
+        )
+    )
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def execute_payment_retry(retry_record=None):
@@ -269,18 +292,52 @@ def execute_payment_retry(retry_record=None):
         membership = frappe.get_doc("Membership", retry_doc.membership)
         member = frappe.get_doc("Member", retry_doc.member)
 
-        # Get active SEPA mandate
-        mandate = member.get_active_sepa_mandate()
-        if not mandate:
+        # Get active SEPA mandate. get_active_sepa_mandates() (plural) returns a
+        # list of active mandates; mirror other callers (e.g. member_utils) by
+        # selecting the first (most recent active) one. The list entries are
+        # lightweight _dicts, so reload the full mandate doc for iban/bic/sign_date.
+        active_mandates = member.get_active_sepa_mandates()
+        if not active_mandates:
             retry_doc.status = "Failed"
             retry_doc.add_comment("Comment", "No active SEPA mandate found")
             retry_doc.save()
             return
 
+        mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+
+        # IDEMPOTENCY GUARD: refuse to create a second Direct Debit Batch for an
+        # invoice that is already in a live (non-cancelled) batch. This submitted
+        # path MOVES MONEY, so a redelivered RQ job, a manual re-run, or a crash
+        # between batch.submit() and the last_retry_date save below could
+        # otherwise debit the member twice. Mirrors the exclusion the monthly
+        # batch flow applies in sepa_mandate_service.get_unpaid_sepa_invoices
+        # (Direct Debit Batch Invoice -> Direct Debit Batch on docstatus != 2).
+        if _invoice_in_open_batch(invoice.name):
+            retry_doc.last_retry_date = today()
+            retry_doc.status = "Failed"
+            retry_doc.add_comment(
+                "Comment",
+                "Invoice already present in an open Direct Debit Batch; "
+                "skipped retry to avoid a double charge.",
+            )
+            retry_doc.save()
+            return
+
+        # Derive the SEPA sequence type from the mandate's collection history
+        # instead of hardcoding RCUR: a retry of an invoice whose mandate has
+        # never had a successfully Collected usage (or was renewed since) must be
+        # FRST, not RCUR. Reuse the shared helper used by the batch processor.
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            get_mandate_sequence_type,
+        )
+
+        sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        sequence_type = sequence_info["sequence_type"]
+
         # Create single invoice batch for retry
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
-        batch.batch_type = "RCUR"  # Recurring
+        batch.batch_type = sequence_type
         batch.batch_description = f"Retry payment for {member.full_name} - Attempt {retry_doc.retry_count}"
 
         # Add invoice to batch
@@ -296,17 +353,23 @@ def execute_payment_retry(retry_record=None):
                 "iban": mandate.iban,
                 "bic": mandate.bic or derive_bic_from_iban(mandate.iban),
                 "mandate_reference": mandate.mandate_id,
-                "mandate_date": mandate.sign_date,
+                "mandate_sign_date": mandate.sign_date,
+                "sequence_type": sequence_type,
             },
         )
 
         batch.insert()
-        batch.submit()
 
-        # Update retry record
+        # Fence concurrent runs BEFORE submit: record the terminal retry state and
+        # commit so that a redelivered/duplicate job sees last_retry_date == today
+        # (guarded out above) and the just-created batch is visible to the
+        # open-batch check. Submit only after the fence is durably in place.
         retry_doc.last_retry_date = today()
         retry_doc.status = "Retried"
         retry_doc.save()
+        frappe.db.commit()
+
+        batch.submit()
 
         # Log the retry
         frappe.logger().info(f"Payment retry executed for invoice {invoice.name}")

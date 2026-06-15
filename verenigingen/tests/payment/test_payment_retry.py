@@ -412,22 +412,19 @@ class TestExecutePaymentRetry(RetryBase):
         # Untouched.
         self.assertEqual(rec.status, "Retried")
 
-    @unittest.expectedFailure
-    def test_due_retry_fails_on_missing_mandate_method(self):
-        """PRODUCT BUG: payment_retry.py:273 — execute_payment_retry calls
-        ``member.get_active_sepa_mandate()`` (singular), but the Member controller
-        only defines ``get_active_sepa_mandates()`` (plural, in
-        member/mixins/sepa_mixin.py:35). The singular method does not exist, so
-        every due retry raises AttributeError, is swallowed by the broad
-        ``except Exception`` at payment_retry.py:314, and the record is parked in
-        status 'Error' — meaning NO retry can EVER execute. The CORRECT behaviour
-        for a member with NO active mandate is status 'Failed' with the comment
-        'No active SEPA mandate found' (lines 274-278), which this test asserts;
-        it currently fails because the code errors out before reaching the
-        mandate-None check.
+    def test_due_retry_fails_on_missing_mandate(self):
+        """A due retry for a member with NO active SEPA mandate ends in status
+        'Failed' with the comment 'No active SEPA mandate found'
+        (payment_retry.py:274-278).
 
-        A member with no SEPA mandate is used here so the expected terminal state
-        is the well-defined 'Failed' branch rather than a live batch submission."""
+        Regression for a fixed PRODUCT BUG: execute_payment_retry used to call
+        ``member.get_active_sepa_mandate()`` (singular), which does not exist on
+        the Member controller — only ``get_active_sepa_mandates()`` (plural, in
+        member/mixins/sepa_mixin.py:35). That AttributeError was swallowed by the
+        broad ``except Exception`` and parked every due retry in status 'Error',
+        so NO retry could ever execute. The fix uses the plural method, selects
+        the first active mandate, and preserves the no-mandate 'Failed' branch
+        asserted here."""
         member = self._make_member_with_customer("DueNoMandate")
         membership = self.sepa.create_test_membership(member=member.name, status="Active")
         invoice = self._make_unpaid_invoice(member)
@@ -452,14 +449,25 @@ class TestExecutePaymentRetry(RetryBase):
         )
         self.assertTrue(any("No active SEPA mandate" in c for c in comments))
 
-    def test_due_retry_currently_errors_on_mandate_call(self):
-        """Companion to the xfail above: documents the CURRENT (buggy) behaviour
-        so the error path (payment_retry.py:314-318) is covered. The singular
-        get_active_sepa_mandate() AttributeError is caught and the record is set
-        to status 'Error' with last_error populated."""
-        member = self._make_member_with_customer("DueErrors")
+    def test_due_retry_with_active_mandate_creates_batch(self):
+        """Happy path (previously unreachable because of the singular-method bug):
+        a due retry for a member WITH an active SEPA mandate builds and submits a
+        Direct Debit Batch carrying that invoice + mandate and advances the retry
+        record to status 'Retried'.
+
+        The ONLY boundary stubbed is the external SEPA-XML file generation
+        (``sepa_xml_service.generate_sepa_xml_for_batch``, invoked from the batch's
+        on_submit) — it requires live org SEPA credentials / a clean creditor name
+        and writes a physical XML file, neither of which is relevant to the
+        mandate-selection fix under test. Batch creation, child-row population from
+        the selected full mandate doc (iban/bic/mandate_id/sign_date), and the
+        status transition all run for real."""
+        member = self._make_member_with_customer("DueWithMandate")
         membership = self.sepa.create_test_membership(member=member.name, status="Active")
         invoice = self._make_unpaid_invoice(member)
+        mandate = self.sepa.create_test_sepa_mandate(
+            member=member.name, status="Active", used_for_memberships=1
+        )
         rec = self._make_retry_record(
             member,
             invoice,
@@ -468,11 +476,103 @@ class TestExecutePaymentRetry(RetryBase):
             next_retry_date=today(),
             membership=membership.name,
         )
-        retry.execute_payment_retry(retry_record=rec.name)
+
+        with patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            return_value="/files/dummy-sepa.xml",
+        ):
+            retry.execute_payment_retry(retry_record=rec.name)
+
         rec.reload()
-        self.assertEqual(rec.status, "Error")
-        self.assertIsNotNone(rec.last_error)
-        self.assertIn("get_active_sepa_mandate", rec.last_error)
+        self.assertEqual(rec.status, "Retried")
+        self.assertEqual(getdate(rec.last_retry_date), getdate(today()))
+
+        # A Direct Debit Batch carrying this invoice + selected mandate was created
+        # and submitted; the mandate fields were sourced from the full mandate doc.
+        rows = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"invoice": invoice.name, "mandate_reference": mandate.mandate_id},
+            fields=["parent", "iban"],
+        )
+        self.assertTrue(rows)
+        self.assertEqual(rows[0].iban, mandate.iban)
+        batch = frappe.get_doc("Direct Debit Batch", rows[0].parent)
+        self.assertEqual(batch.docstatus, 1)
+
+    def test_due_retry_skips_when_invoice_already_in_open_batch(self):
+        """DOUBLE-RUN / double-charge guard: a due retry whose invoice is ALREADY
+        in a live (submitted, docstatus 1) Direct Debit Batch must NOT create a
+        second batch — it lands in the terminal 'Failed' state with an
+        explanatory comment, and exactly one batch references the invoice.
+
+        Without the guard a redelivered RQ job / manual re-run / crash between
+        batch.submit() and the last_retry_date save would debit the member twice
+        (this submitted path MOVES MONEY). Mirrors the exclusion the monthly batch
+        flow applies in sepa_mandate_service.get_unpaid_sepa_invoices."""
+        member = self._make_member_with_customer("DoubleRun")
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        mandate = self.sepa.create_test_sepa_mandate(
+            member=member.name, status="Active", used_for_memberships=1
+        )
+        rec = self._make_retry_record(
+            member,
+            invoice,
+            status="Scheduled",
+            retry_count=1,
+            next_retry_date=today(),
+            membership=membership.name,
+        )
+
+        xml_stub = patch(
+            "verenigingen.verenigingen_payments.services.sepa_xml_generation_service."
+            "sepa_xml_service.generate_sepa_xml_for_batch",
+            return_value="/files/dummy-sepa.xml",
+        )
+
+        # First run: creates + submits a Direct Debit Batch for the invoice.
+        with xml_stub:
+            retry.execute_payment_retry(retry_record=rec.name)
+        rec.reload()
+        self.assertEqual(rec.status, "Retried")
+        first_batches = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"invoice": invoice.name},
+            pluck="parent",
+        )
+        self.assertEqual(len(set(first_batches)), 1)
+        first_batch = list(set(first_batches))[0]
+
+        # Re-arm the record so it is "due today" again (simulating a redelivered
+        # job / manual re-run) and execute a SECOND time. The open-batch guard
+        # must fire BEFORE any batch is created.
+        rec.db_set("status", "Scheduled")
+        rec.db_set("last_retry_date", None)
+        rec.reload()
+
+        with xml_stub:
+            retry.execute_payment_retry(retry_record=rec.name)
+
+        rec.reload()
+        self.assertEqual(rec.status, "Failed")
+        comments = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "SEPA Payment Retry",
+                "reference_name": rec.name,
+            },
+            pluck="content",
+        )
+        self.assertTrue(any("already present in an open Direct Debit Batch" in c for c in comments))
+
+        # STILL exactly one batch references the invoice — no double charge.
+        all_batches = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"invoice": invoice.name},
+            pluck="parent",
+        )
+        self.assertEqual(set(all_batches), {first_batch})
 
 
 # =============================================================================

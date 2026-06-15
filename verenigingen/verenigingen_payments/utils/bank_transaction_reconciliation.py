@@ -1322,7 +1322,7 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text):
     invoice_name = invoice_match.group(1)
 
     # Schedule retry
-    from verenigingen.utils.payment_retry import PaymentRetryManager
+    from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
 
     retry_manager = PaymentRetryManager()
     retry_manager.schedule_retry(invoice_name, reason_code, reason_text)
