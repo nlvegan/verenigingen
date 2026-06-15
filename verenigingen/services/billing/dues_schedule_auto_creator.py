@@ -660,8 +660,9 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             dues_schedule.membership = member.membership_name
             dues_schedule.membership_type = member.membership_type
             dues_schedule.status = "Active"
-            # Get billing frequency from template if available
+            # Get billing frequency (and currency) from template if available.
             billing_frequency = "Monthly"  # Explicit default for dues schedule auto-creation
+            schedule_currency = None
             if membership_type_doc.dues_schedule_template:
                 try:
                     template = frappe.get_doc(
@@ -670,9 +671,14 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                     # Only use template frequency if it's explicitly set and not empty
                     if template.billing_frequency and template.billing_frequency.strip():
                         billing_frequency = template.billing_frequency
+                    if template.currency:
+                        schedule_currency = template.currency
                 except Exception:
                     pass
             dues_schedule.billing_frequency = billing_frequency
+            # Ensure the mandatory currency field is populated (default to EUR for
+            # the association rather than relying on the system default currency).
+            dues_schedule.currency = schedule_currency or "EUR"
 
             # Get dues_rate from template, with minimum_amount as floor constraint
             template_dues_rate = 0
@@ -760,7 +766,11 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             result["created_count"] += 1
 
         except Exception as e:
-            result["errors"].append(f"Error creating schedule for {member.member_full_name}: {str(e)}")
+            # NOTE: the SQL row exposes `full_name` (aliased from Member.full_name)
+            # and `member_name` (aliased from Membership.member). `member_full_name`
+            # does not exist on the row, so referencing it here used to raise
+            # AttributeError inside the handler and mask the real error.
+            result["errors"].append(f"Error creating schedule for {member.full_name}: {str(e)}")
             result["error_count"] += 1
 
     if result["created_count"] > 0:
@@ -1025,6 +1035,20 @@ def create_dues_schedules_for_members(members: str, send_emails: bool = False):
             if minimum_amount and dues_rate < minimum_amount:
                 dues_rate = minimum_amount
 
+            # Resolve currency: prefer the template's currency, otherwise default
+            # to EUR. Building the doc via frappe.get_doc({...}) does NOT apply the
+            # DocType field default, so currency (a mandatory field) must be set
+            # explicitly or insert fails with a "currency" mandatory error.
+            schedule_currency = "EUR"
+            if membership_type_doc.dues_schedule_template:
+                template_currency = frappe.db.get_value(
+                    "Membership Dues Schedule",
+                    membership_type_doc.dues_schedule_template,
+                    "currency",
+                )
+                if template_currency:
+                    schedule_currency = template_currency
+
             # Create dues schedule with new naming pattern
             from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
@@ -1036,6 +1060,7 @@ def create_dues_schedules_for_members(members: str, send_emails: bool = False):
                     "member": member_name,
                     "membership": membership.name,
                     "membership_type": membership.membership_type,
+                    "currency": schedule_currency,
                     "dues_rate": dues_rate,
                     "billing_frequency": "Monthly",
                     "status": "Active",
