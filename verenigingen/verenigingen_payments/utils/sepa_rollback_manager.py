@@ -567,39 +567,78 @@ class SEPARollbackManager:
             return {"success": False, "errors": [f"Membership status rollback failed: {str(e)}"]}
 
     def _rollback_mandate_usage(self, invoice_names: List[str], batch_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Rollback mandate usage tracking.
+        """Roll back mandate usage tracking for the rolled-back invoices.
 
-        NOTE: Mandate usage on the SEPA Mandate DocType is modelled as a
-        ``usage_history`` child table (SEPA Mandate Usage rows keyed per
-        invoice), NOT as a scalar counter. There is no ``usage_count`` column to
-        decrement -- the previous UPDATE against ``tabSEPA Mandate.usage_count``
-        always raised "Unknown column 'usage_count'", which was swallowed into
-        the errors list and falsely reported the whole rollback as failed,
-        thereby BLOCKING compensation-transaction generation (which is gated on
-        overall rollback success).
+        Mandate usage is modelled as ``SEPA Mandate Usage`` rows in each
+        mandate's ``usage_history`` child table, keyed by
+        (reference_doctype, reference_name) = the collected invoice -- NOT as a
+        scalar counter (the previous code's UPDATE against a non-existent
+        ``usage_count`` column always failed, which falsely blocked the whole
+        rollback since compensation generation is gated on rollback success).
 
-        Until a deliberate decision is made on how (or whether) to unwind
-        ``usage_history`` rows on rollback, this step is a safe no-op that
-        reports the mandate references it would affect and returns success, so a
-        successful rollback is no longer falsely blocked. The affected mandate
-        references are still surfaced for visibility/audit.
+        A rolled-back collection never effectively happened, so any usage row
+        for an affected invoice that has not yet been collected
+        (``Pending`` / ``Processing``) is marked ``Cancelled``. Leaving it live
+        would (a) misreport mandate usage and (b) skew FRST/RCUR sequence-type
+        determination for the mandate's next collection (which keys off prior
+        ``Collected`` usage).
+
+        Rows already in a terminal money state are deliberately left untouched:
+        a ``Collected`` row represents a settled debit that is unwound via a
+        compensation transaction (a credit note / refund), not by rewriting
+        history; ``Failed`` / ``Returned`` / ``Cancelled`` are already terminal.
         """
         try:
-            # Get unique mandate references from affected invoices (for visibility).
-            mandate_refs = sorted(
-                {
-                    invoice.mandate_reference
-                    for invoice in batch_info["invoices"]
-                    if invoice.invoice in invoice_names and invoice.mandate_reference
-                }
+            if not invoice_names:
+                return {"success": True, "cancelled_usages": [], "affected_mandates": [], "errors": []}
+
+            # Usage rows are keyed on the invoice (reference_name). Only the
+            # not-yet-collected rows are reversible; everything else is terminal.
+            usage_rows = frappe.get_all(
+                "SEPA Mandate Usage",
+                filters={
+                    "reference_name": ["in", invoice_names],
+                    "status": ["in", ["Pending", "Processing"]],
+                },
+                fields=["name", "parent", "reference_name", "status"],
             )
 
+            cancelled_usages = []
+            errors = []
+            for row in usage_rows:
+                try:
+                    frappe.db.set_value(
+                        "SEPA Mandate Usage",
+                        row.name,
+                        {"status": "Cancelled", "failure_reason": "SEPA batch rollback"},
+                    )
+                    cancelled_usages.append(row.name)
+                except Exception as e:
+                    errors.append(
+                        f"Failed to cancel mandate usage {row.name} "
+                        f"(invoice {row.reference_name}): {str(e)}"
+                    )
+
+            # Affected mandates: the parents of the cancelled rows, falling back
+            # to the batch's mandate references for visibility when no reversible
+            # usage row existed (e.g. usage was never recorded for the batch).
+            affected_mandates = sorted({row.parent for row in usage_rows})
+            if not affected_mandates:
+                affected_mandates = sorted(
+                    {
+                        invoice.mandate_reference
+                        for invoice in batch_info["invoices"]
+                        if invoice.invoice in invoice_names and invoice.mandate_reference
+                    }
+                )
+
+            frappe.db.commit()
+
             return {
-                "success": True,
-                "updated_mandates": [],
-                "affected_mandates": mandate_refs,
-                "errors": [],
-                "note": "Mandate usage-history rollback is not implemented; step is a no-op.",
+                "success": len(errors) == 0,
+                "cancelled_usages": cancelled_usages,
+                "affected_mandates": affected_mandates,
+                "errors": errors,
             }
 
         except Exception as e:

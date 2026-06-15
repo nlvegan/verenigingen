@@ -496,30 +496,79 @@ class TestSEPARollbackManagerIntegration(EnhancedTestCase):
         for r in recipients:
             self.assertIn("@", r)
 
-    # ----- mandate usage rollback (PRODUCT BUG) -----
-    def test_rollback_mandate_usage_no_longer_blocks(self):
-        """Former PRODUCT BUG (FIXED): _rollback_mandate_usage issued
-            UPDATE `tabSEPA Mandate` SET usage_count = ...
-        but SEPA Mandate has NO `usage_count` column (usage is modelled as a
-        `usage_history` child table, not a scalar counter). The raw SQL raised
-        "Unknown column 'usage_count'", swallowed into the errors list, so the
-        step always reported success=False whenever a mandate reference was
-        present -- which blocked compensation generation for the whole rollback.
+    # ----- mandate usage rollback -----
+    def _persist_mandate_usage(self, mandate_name, invoice_name, amount, status="Pending"):
+        """Create a SEPA Mandate Usage row (usage_history) via the production
+        helper, optionally forcing a terminal status afterwards."""
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
 
-        The step is now a safe no-op that returns success (mandate usage-history
-        rollback is intentionally unimplemented -- flagged for product decision),
-        so it no longer falsely blocks a successful rollback. It still surfaces
-        the affected mandate references for visibility.
-        """
+        usage_name = create_mandate_usage_record(
+            mandate_name, "Sales Invoice", invoice_name, amount, sequence_type="FRST"
+        )
+        if status != "Pending":
+            frappe.db.set_value("SEPA Mandate Usage", usage_name, "status", status)
+        return usage_name
+
+    def _mandate_name_for_batch_row(self, row):
+        name = frappe.db.get_value("SEPA Mandate", {"mandate_id": row.mandate_reference}, "name")
+        self.assertTrue(name, f"could not resolve mandate for {row.mandate_reference}")
+        return name
+
+    def test_rollback_mandate_usage_cancels_pending_rows(self):
+        """A rolled-back collection never effectively happened, so its
+        not-yet-collected usage_history row is cancelled (so it stops counting
+        toward mandate usage and FRST/RCUR sequence determination)."""
         batch = self._make_batch(invoice_count=1)
         batch_info = self.mgr._get_batch_info(batch.name)
-        invoice_names = [row.invoice for row in batch.invoices]
-        res = self.mgr._rollback_mandate_usage(invoice_names, batch_info)
+        row = batch.invoices[0]
+        mandate_name = self._mandate_name_for_batch_row(row)
+        usage_name = self._persist_mandate_usage(mandate_name, row.invoice, row.amount)
+
+        res = self.mgr._rollback_mandate_usage([row.invoice], batch_info)
+
         self.assertTrue(res["success"], f"mandate usage rollback failed: {res.get('errors')}")
         self.assertEqual(res["errors"], [])
-        # Batch rows carry a mandate_reference -> surfaced for visibility.
-        self.assertIn("affected_mandates", res)
-        self.assertIsInstance(res["affected_mandates"], list)
+        self.assertIn(usage_name, res["cancelled_usages"])
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate Usage", usage_name, "status"), "Cancelled"
+        )
+        self.assertIn(mandate_name, res["affected_mandates"])
+
+    def test_rollback_mandate_usage_leaves_collected_rows_untouched(self):
+        """A Collected usage row is a settled debit -- it is unwound via a
+        compensation transaction (credit note / refund), NOT by rewriting
+        history. The rollback step must leave it Collected."""
+        batch = self._make_batch(invoice_count=1)
+        batch_info = self.mgr._get_batch_info(batch.name)
+        row = batch.invoices[0]
+        mandate_name = self._mandate_name_for_batch_row(row)
+        usage_name = self._persist_mandate_usage(
+            mandate_name, row.invoice, row.amount, status="Collected"
+        )
+
+        res = self.mgr._rollback_mandate_usage([row.invoice], batch_info)
+
+        self.assertTrue(res["success"], f"mandate usage rollback failed: {res.get('errors')}")
+        self.assertEqual(res["cancelled_usages"], [])
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate Usage", usage_name, "status"), "Collected"
+        )
+
+    def test_rollback_mandate_usage_no_rows_surfaces_batch_mandates(self):
+        """When the batch recorded no usage rows, the step still succeeds and
+        surfaces the batch's mandate references for visibility/audit."""
+        batch = self._make_batch(invoice_count=1)
+        batch_info = self.mgr._get_batch_info(batch.name)
+        invoice_names = [r.invoice for r in batch.invoices]
+
+        res = self.mgr._rollback_mandate_usage(invoice_names, batch_info)
+
+        self.assertTrue(res["success"], f"mandate usage rollback failed: {res.get('errors')}")
+        self.assertEqual(res["cancelled_usages"], [])
+        # Falls back to the batch rows' mandate references.
+        self.assertTrue(res["affected_mandates"])
 
 
 # ---------------------------------------------------------------------------
