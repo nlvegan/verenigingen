@@ -913,7 +913,9 @@ def get_donation_status(donation_id):
         "amount": donation.amount,
         "status": "Paid" if donation.paid else "Pending",
         "payment_method": donation.mode_of_payment,
-        "date": donation.date,
+        # Donation has no "date" field; the actual fieldname is "donation_date".
+        # Accessing donation.date raised AttributeError and crashed this endpoint.
+        "date": donation.donation_date,
         "purpose": (
             donation.get_earmarking_summary()
             if hasattr(donation, "get_earmarking_summary")
