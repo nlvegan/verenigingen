@@ -53,8 +53,11 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type: str | Non
     - Audit logging
     """
 
-    # Input validation
-    if limit and (not isinstance(limit, int) or limit <= 0 or limit > SEPAInputValidator.MAX_BATCH_SIZE):
+    # Input validation. Guard with `is not None` so an explicit limit=0 (invalid)
+    # is rejected rather than slipping through the falsy short-circuit.
+    if limit is not None and (
+        not isinstance(limit, int) or limit <= 0 or limit > SEPAInputValidator.MAX_BATCH_SIZE
+    ):
         raise SEPAError(_(f"Invalid limit. Must be between 1 and {SEPAInputValidator.MAX_BATCH_SIZE}"))
 
     valid_date_ranges = ["overdue", "due_this_week", "due_this_month", "all"]

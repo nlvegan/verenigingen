@@ -127,6 +127,11 @@ def create_missing_sepa_mandates(dry_run=True):
                 member_doc.append(
                     "sepa_mandates",
                     {
+                        # sepa_mandate is a Dynamic Link whose target doctype is
+                        # read from sepa_mandate_doctype; it must be set explicitly
+                        # or link validation throws "SEPA Mandate DocType must be
+                        # set first" and the member link is never persisted.
+                        "sepa_mandate_doctype": "SEPA Mandate",
                         "sepa_mandate": mandate.name,
                         "mandate_reference": mandate_id,
                         "is_current": 1,
