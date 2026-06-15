@@ -34,15 +34,35 @@ class SEPAOperationAuditLog(Document):
     def before_insert(self):
         """Set additional audit fields before insertion"""
 
-        # Set naming timestamp for unique identification
-        self.name = f"SEPA-AUDIT-{frappe.utils.now().replace(' ', '-').replace(':', '-')}"
+        # Set naming timestamp for unique identification. A bare second-precision
+        # timestamp collides on the primary key when several audit rows are
+        # written within the same second (e.g. a SEPA bulk operation logging one
+        # event per member), raising DuplicateEntryError and losing the row.
+        # Append a short random suffix to keep names unique and chronological.
+        self.name = "SEPA-AUDIT-{0}-{1}".format(
+            frappe.utils.now().replace(" ", "-").replace(":", "-"),
+            frappe.generate_hash(length=6),
+        )
 
-        # Capture additional context if not already set
+        # Capture additional context if not already set. get_request_header
+        # touches frappe.local.request, which is unbound in non-request contexts
+        # (background jobs, scheduler, CLI, tests). SEPA bulk operations commonly
+        # run as background jobs, so an unguarded call raises "object is not
+        # bound" and the entire audit insert fails -- dropping the row exactly
+        # when the audit trail matters most.
         if not self.ip_address:
-            self.ip_address = frappe.get_request_header("X-Forwarded-For") or "unknown"
+            self.ip_address = self._safe_request_header("X-Forwarded-For")
 
         if not self.user_agent:
-            self.user_agent = frappe.get_request_header("User-Agent") or "unknown"
+            self.user_agent = self._safe_request_header("User-Agent")
+
+    @staticmethod
+    def _safe_request_header(key: str) -> str:
+        """Return a request header, falling back to 'unknown' outside a request."""
+        try:
+            return frappe.get_request_header(key) or "unknown"
+        except Exception:
+            return "unknown"
 
     def on_update(self):
         """Prevent updates to audit logs - they must be immutable for compliance"""

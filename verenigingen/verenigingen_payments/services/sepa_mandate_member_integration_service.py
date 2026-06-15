@@ -325,16 +325,23 @@ class SEPAMandateMemberIntegrationService:
             )
 
             # Create audit log entry with all required fields for regulatory compliance
+            # NOTE: keys here MUST match the SEPA Operation Audit Log fieldnames.
+            # Previously this passed `mandate`/`action`/`status`, which are not
+            # fields on the DocType (the real fields are sepa_mandate /
+            # action_taken / operation_status). Frappe silently drops unknown
+            # keys, so operation_status (mandatory) was never set and every
+            # insert failed the mandatory check -- the audit row was swallowed by
+            # the except below and never persisted.
             audit_log = frappe.get_doc(
                 {
                     "doctype": "SEPA Operation Audit Log",
                     "operation_type": audit_data.get("operation", "unknown"),
                     "user": audit_data.get("user"),
                     "member": audit_data.get("member"),
-                    "mandate": audit_data.get("mandate"),
+                    "sepa_mandate": audit_data.get("mandate"),
                     "mandate_reference": audit_data.get("mandate_id"),
-                    "action": audit_data.get("action"),
-                    "status": audit_data.get("status"),
+                    "action_taken": audit_data.get("action"),
+                    "operation_status": audit_data.get("status"),
                     "error_message": sanitized_error,
                     "ip_address": audit_data.get("ip_address"),
                     "user_agent": audit_data.get("user_agent"),

@@ -25,7 +25,9 @@
     "link_name",
     "compliance_section",
     "compliance_notes",
-    "error_message"
+    "error_message",
+    "trace_id",
+    "execution_source"
   ],
   "fields": [
     {
@@ -98,12 +100,13 @@
       "label": "Member & Mandate Details"
     },
     {
+      "description": "Optional: SEPA bulk operations and notification sends are not tied to a single member.",
       "fieldname": "member",
       "fieldtype": "Link",
       "in_list_view": 1,
       "label": "Member",
       "options": "Member",
-      "reqd": 1
+      "reqd": 0
     },
     {
       "fieldname": "sepa_mandate",
@@ -139,10 +142,22 @@
       "fieldtype": "Text",
       "label": "Error Message",
       "read_only": 1
+    },
+    {
+      "fieldname": "trace_id",
+      "fieldtype": "Data",
+      "label": "Trace ID",
+      "read_only": 1
+    },
+    {
+      "fieldname": "execution_source",
+      "fieldtype": "Data",
+      "label": "Execution Source",
+      "read_only": 1
     }
   ],
   "links": [],
-  "modified": "2025-08-30 18:20:00.000000",
+  "modified": "2026-06-15 12:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen Payments",
   "name": "SEPA Operation Audit Log",

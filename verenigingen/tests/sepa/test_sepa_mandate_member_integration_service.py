@@ -22,6 +22,7 @@ from unittest.mock import patch
 from datetime import date, timedelta
 
 import frappe
+from frappe.utils import now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.sepa_mandate_member_integration_service import SEPAMandateMemberIntegrationService
 
@@ -475,29 +476,75 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
             self.assertEqual(result['execution_source'], 'unknown')
 
     def test_create_sepa_audit_log_successful(self):
-        """Test successful audit log creation with proper validation"""
+        """REGRESSION: the audit row must actually PERSIST, with the mandatory
+        operation_status set.
+
+        _create_sepa_audit_log swallows every exception internally (it must not
+        fail the main operation), so a test that only checks "did not raise"
+        cannot detect a dropped row. Previously the writer passed `status` /
+        `action` / `mandate` keys that are NOT fieldnames on the DocType (the
+        real fields are operation_status / action_taken / sepa_mandate). Frappe
+        silently drops unknown keys, so operation_status (mandatory) was never
+        set, the insert failed the mandatory check, and the audit row was lost.
+        Assert on the persisted DB row, not on the absence of an exception."""
         mandate = self._create_test_mandate()
+        marker = f"trace-{frappe.generate_hash(length=12)}"
         audit_data = {
             'operation': 'sepa_mandate_link_update',
             'user': frappe.session.user,
             'member': mandate.member,
             'mandate': mandate.name,
+            'mandate_id': mandate.mandate_id,
             'action': 'update_existing_link',
-            'status': 'success'
+            'status': 'success',
+            'timestamp': now(),
+            'trace_id': marker,
+            'execution_source': 'http',
         }
 
-        # Test with real audit log creation (not in test mode)
+        # Run the real (non-test-mode) insert path.
         with self._in_test_flag(False):
+            self.service._create_sepa_audit_log(audit_data)
 
-            # Should not raise exception when creating real audit log
-            try:
-                self.service._create_sepa_audit_log(audit_data)
-            except Exception as e:
-                # If SEPA Operation Audit Log DocType doesn't exist, that's a schema issue
-                if "SEPA Operation Audit Log" in str(e):
-                    self.skipTest("SEPA Operation Audit Log DocType not available in test environment")
-                else:
-                    raise
+        rows = frappe.get_all(
+            "SEPA Operation Audit Log",
+            filters={"trace_id": marker},
+            fields=["operation_status", "operation_type", "member", "sepa_mandate", "action_taken"],
+        )
+        self.assertEqual(len(rows), 1, "audit row was not persisted")
+        self.assertEqual(rows[0].operation_status, "success")
+        self.assertEqual(rows[0].operation_type, "sepa_mandate_link_update")
+        self.assertEqual(rows[0].member, mandate.member)
+        self.assertEqual(rows[0].sepa_mandate, mandate.name)
+        self.assertEqual(rows[0].action_taken, "update_existing_link")
+
+    def test_create_sepa_audit_log_persists_without_member(self):
+        """REGRESSION (item 4): SEPA bulk operations / notification sends are not
+        tied to a single member. `member` was reqd=1, so member-less audit rows
+        failed the mandatory check and were silently dropped. member is now
+        optional, so the row must persist with no member set."""
+        marker = f"trace-{frappe.generate_hash(length=12)}"
+        audit_data = {
+            'operation': 'sepa_bulk_operation',
+            'user': frappe.session.user,
+            'member': None,
+            'action': 'bulk_update',
+            'status': 'success',
+            'timestamp': now(),
+            'trace_id': marker,
+        }
+
+        with self._in_test_flag(False):
+            self.service._create_sepa_audit_log(audit_data)
+
+        rows = frappe.get_all(
+            "SEPA Operation Audit Log",
+            filters={"trace_id": marker},
+            fields=["operation_status", "member"],
+        )
+        self.assertEqual(len(rows), 1, "member-less audit row was not persisted")
+        self.assertFalse(rows[0].member)
+        self.assertEqual(rows[0].operation_status, "success")
 
     def test_create_sepa_audit_log_test_environment(self):
         """Test that audit logging is skipped in test environment"""

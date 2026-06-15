@@ -138,6 +138,15 @@ fixtures = [
             ["fieldname", "=", "custom_eboekhouden_grootboek_nummer"],
         ],
     },
+    # Mollie payment dedup fields on Payment Entry (see fixtures/custom_field.json).
+    # Without this export filter, `bench export-fixtures` would drop them from
+    # custom_field.json, silently breaking Mollie payment-processed detection.
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["fieldname", "in", ["custom_mollie_payment_id", "custom_mollie_settlement_id"]],
+        ],
+    },
     # =========================================================================
     # WORKSPACES AND DASHBOARDS
     # =========================================================================
