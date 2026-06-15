@@ -1,8 +1,6 @@
 # Copyright (c) 2020, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -197,6 +195,29 @@ class TestVerenigingenSettings(EnhancedTestCase):
             self.assertIsNone(invoice.debit_to, "Invoice with no debit_to should remain None")
         except Exception as e:
             self.fail(f"Account handler should not raise exception for invoice without debit_to: {e}")
+
+    def test_validate_donation_configuration_no_attribute_error(self):
+        """validate_donation_configuration() must not crash on the removed default_donation_type field.
+
+        default_donation_type was removed from the Verenigingen Settings doctype
+        (the data model now uses Donation.donation_purpose_type). The validation
+        endpoint read it via direct attribute access, raising AttributeError on
+        every call. It must now read it defensively and report None.
+        """
+        from verenigingen.verenigingen.doctype.verenigingen_settings.verenigingen_settings import (
+            validate_donation_configuration,
+        )
+
+        self._as_admin()
+        result = validate_donation_configuration()
+
+        self.assertIn("configuration", result)
+        # The removed field is reported defensively as None rather than crashing.
+        self.assertIsNone(result["configuration"]["default_donation_type"])
+
+    def _as_admin(self):
+        """Switch the session to Administrator to exercise the admin-only endpoint."""
+        frappe.set_user("Administrator")
 
     def create_test_account(self, account_name, account_type="Receivable", parent_account=None):
         """Helper method to create test accounts"""

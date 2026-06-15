@@ -19,9 +19,13 @@ def get_context(context):
     if not frappe.has_permission("Direct Debit Batch", "create"):
         frappe.throw(_("You don't have permission to create SEPA Direct Debit Batches"))
 
-    # Get current settings
+    # Get current settings. batch_optimization_config lives on Verenigingen
+    # Payments Settings (migrated there), which is also where the optimizer
+    # endpoint writes it and the scheduler reads it.
     try:
-        settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        settings = get_payments_settings()
         if hasattr(settings, "batch_optimization_config") and settings.batch_optimization_config:
             context.current_config = frappe.parse_json(settings.batch_optimization_config)
         else:

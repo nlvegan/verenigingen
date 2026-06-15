@@ -162,7 +162,12 @@ def validate_donation_configuration():
     validation_results["configuration"][
         "automate_donation_payment_entries"
     ] = settings.automate_donation_payment_entries
-    validation_results["configuration"]["default_donation_type"] = settings.default_donation_type
+    # default_donation_type was removed from the doctype (the data model now uses
+    # Donation.donation_purpose_type), so guard the read like default_donor_type
+    # below — direct attribute access raises AttributeError on a missing field.
+    validation_results["configuration"]["default_donation_type"] = getattr(
+        settings, "default_donation_type", None
+    )
     validation_results["configuration"]["default_donor_type"] = getattr(settings, "default_donor_type", None)
 
     # Check account configuration

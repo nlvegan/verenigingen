@@ -375,10 +375,11 @@ class PaymentHook:
             if not getattr(payment_settings, "enable_sepa_direct_debit", False):
                 return {"available": False, "reason": "SEPA not enabled"}
 
-            # Check required fields in Verenigingen Settings
-            settings = frappe.get_single("Verenigingen Settings")
-            has_iban = bool(getattr(settings, "company_iban", None))
-            has_creditor_id = bool(getattr(settings, "sepa_creditor_id", None))
+            # Required fields live on Verenigingen Payments Settings (the field
+            # is `creditor_id`, not `sepa_creditor_id`). Reading them from
+            # Verenigingen Settings made SEPA DD never report as available.
+            has_iban = bool(getattr(payment_settings, "company_iban", None))
+            has_creditor_id = bool(getattr(payment_settings, "creditor_id", None))
 
             return {
                 "available": has_iban and has_creditor_id,
@@ -395,7 +396,8 @@ class PaymentHook:
     def _get_bank_transfer_config(cls) -> dict:
         """Check if Bank Transfer is available."""
         try:
-            settings = frappe.get_single("Verenigingen Settings")
+            # company_iban lives on Verenigingen Payments Settings, not Verenigingen Settings.
+            settings = get_payments_settings()
             has_iban = bool(getattr(settings, "company_iban", None))
             return {"available": has_iban}
         except Exception as e:
@@ -430,8 +432,9 @@ class PaymentHook:
             if not payment_requests_activated:
                 return {"available": False, "reason": "Payment requests not activated in Ponto"}
 
-            # Check for company IBAN (needed as creditor)
-            ver_settings = frappe.get_single("Verenigingen Settings")
+            # Check for company IBAN (needed as creditor). It lives on
+            # Verenigingen Payments Settings, not Verenigingen Settings.
+            ver_settings = get_payments_settings()
             has_iban = bool(getattr(ver_settings, "company_iban", None))
             if not has_iban:
                 return {"available": False, "reason": "Company IBAN not configured"}

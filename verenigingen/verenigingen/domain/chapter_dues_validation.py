@@ -53,13 +53,18 @@ class DuesAllocationValidator:
         Raises:
             frappe.ValidationError: If configuration is invalid
         """
-        settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.settings_utils import get_payments_settings
 
-        # Source account is always required
-        source = getattr(settings, "dues_income_account", None)
+        settings = frappe.get_single("Verenigingen Settings")
+        payments_settings = get_payments_settings()
+
+        # Source account is always required. dues_income_account was migrated to
+        # Verenigingen Payments Settings; the chapter/national split accounts
+        # remain on Verenigingen Settings.
+        source = getattr(payments_settings, "dues_income_account", None)
         if not source:
             frappe.throw(
-                _("Please configure Dues Income Account in Verenigingen Settings"),
+                _("Please configure Dues Income Account in Verenigingen Payments Settings"),
                 frappe.ValidationError,
             )
 
