@@ -408,18 +408,13 @@ class TestSEPAConfigManagerValidation(_PatchedManagerMixin, EnhancedTestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("Invalid IBAN" in e for e in result["errors"]))
 
-    @unittest.expectedFailure
     def test_invalid_iban_includes_real_message(self):
-        """PRODUCT BUG: validate_sepa_config reads the wrong key for the IBAN error.
+        """validate_sepa_config surfaces the real IBAN validator message.
 
-        sepa_config_manager.py:281 does
-            iban_validation.get('error', 'Unknown error')
-        but validate_iban() (utils/validation/iban_validator.py:32) returns the
-        reason under the key 'message', never 'error'. So the specific failure
-        reason (e.g. "Invalid IBAN checksum...") is always discarded and the
-        error is reported as "Invalid IBAN: Unknown error".
-
-        Correct behaviour: the real validator message should reach the user.
+        validate_iban() (utils/validation/iban_validator.py) returns the failure
+        reason under the key 'message'. validate_sepa_config must read that key so
+        the specific reason (e.g. "Invalid IBAN checksum...") reaches the user
+        rather than a generic "Unknown error".
         """
         manager = self._make_manager(
             payment_overrides={
@@ -433,18 +428,12 @@ class TestSEPAConfigManagerValidation(_PatchedManagerMixin, EnhancedTestCase):
         self.assertTrue(iban_errors)
         self.assertNotIn("Unknown error", iban_errors[0])
 
-    @unittest.expectedFailure
     def test_bic_auto_derived_from_iban_when_missing(self):
-        """PRODUCT BUG: BIC auto-derivation branch is dead code.
+        """With a valid IBAN and no configured BIC, the manager auto-derives it.
 
-        sepa_config_manager.py:283-285 attempts to auto-derive the BIC via
-            iban_validation.get('bic')
-        but validate_iban() never returns a 'bic' key, so the elif is always
-        False and no BIC is ever auto-derived nor is the auto-derive warning
-        ever emitted.
-
-        Correct behaviour: with a valid IBAN and no configured BIC, the manager
-        should auto-derive the BIC and add a "BIC auto-derived" warning.
+        validate_sepa_config wires derive_bic_from_iban() (same iban_validator
+        module) to fill in the BIC when none is configured, emitting a
+        "BIC auto-derived" warning.
         """
         manager = self._make_manager(
             payment_overrides={
@@ -497,8 +486,12 @@ class TestSEPAConfigManagerValidation(_PatchedManagerMixin, EnhancedTestCase):
             }
         )
         result = manager.validate_sepa_config()
-        # company_bic, sepa_output_directory, financial_admin_emails missing.
-        self.assertEqual(len(result["missing_optional"]), 3)
+        # company_bic is auto-derived from the valid RABO IBAN (so it is no
+        # longer reported as missing); only the output directory and admin
+        # emails remain unset.
+        self.assertEqual(len(result["missing_optional"]), 2)
+        self.assertTrue(any("Output directory" in m for m in result["missing_optional"]))
+        self.assertTrue(any("Admin emails" in m for m in result["missing_optional"]))
 
     def test_validation_result_is_cached(self):
         manager = self._make_manager(payment_overrides={})

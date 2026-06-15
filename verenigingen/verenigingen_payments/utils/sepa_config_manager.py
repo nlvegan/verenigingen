@@ -272,20 +272,24 @@ class SEPAConfigManager:
         # IBAN format validation
         if config.get("company_iban"):
             try:
-                from verenigingen.utils.validation.iban_validator import validate_iban
+                from verenigingen.utils.validation.iban_validator import (
+                    derive_bic_from_iban,
+                    validate_iban,
+                )
 
                 iban_validation = validate_iban(config["company_iban"])
                 if not iban_validation["valid"]:
                     validation_result["valid"] = False
+                    # validate_iban() returns the failure reason under "message".
                     validation_result["errors"].append(
-                        f"Invalid IBAN: {iban_validation.get('error', 'Unknown error')}"
+                        f"Invalid IBAN: {iban_validation.get('message', 'Unknown error')}"
                     )
-                elif not config.get("company_bic") and iban_validation.get("bic"):
-                    # Auto-derive BIC if not set
-                    config["company_bic"] = iban_validation["bic"]
-                    validation_result["warnings"].append(
-                        f"BIC auto-derived from IBAN: {iban_validation['bic']}"
-                    )
+                elif not config.get("company_bic"):
+                    # Auto-derive BIC from the IBAN when one isn't configured.
+                    derived_bic = derive_bic_from_iban(config["company_iban"])
+                    if derived_bic:
+                        config["company_bic"] = derived_bic
+                        validation_result["warnings"].append(f"BIC auto-derived from IBAN: {derived_bic}")
             except ImportError:
                 validation_result["warnings"].append(
                     "IBAN validator not available - cannot validate IBAN format"
