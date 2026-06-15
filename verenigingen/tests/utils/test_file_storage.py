@@ -7,9 +7,22 @@ Tests for verenigingen.utils.file_storage.
 Focus areas:
 - Path-security sanitizers (sanitize_path_component, sanitize_filename) tested
   directly against traversal / null-byte / unicode / overlong inputs.
-- Pure path builders (get_chapter_document_path, get_organization_document_path).
-- Real integration of save_*/organize_* against the site filesystem + File doctype,
-  asserting returned paths and created File records, with full cleanup.
+- Pure path builders (get_chapter_document_path, get_organization_document_path)
+  which still build hierarchical *path strings* used as metadata.
+- Real integration of save_* against the site filesystem + File doctype.
+
+NEW CONTRACT (after the storage fix):
+- ``_create_file_record(content, filename, is_private, attached_to_doctype,
+  attached_to_name)`` lets the framework own storage. It stores ``content`` and
+  returns the inserted File *document* whose ``.file_url`` is the real, served
+  (flat) url, e.g. ``/private/files/<basename>``.
+- ``save_chapter_document`` / ``save_organization_document`` return
+  ``{"file_name", "file_url", "name"}``. The returned ``file_url`` MATCHES the
+  stored File record's url and is flat (``/private/files/<basename>``), never
+  hierarchical. A private saved file always has a covering File record (not
+  Forbidden).
+- ``organize_existing_chapter_document`` / ``organize_organization_document`` are
+  no-ops that return the url unchanged.
 """
 
 import os
@@ -168,7 +181,12 @@ class TestSanitizeFilename(EnhancedTestCase):
 
 
 class TestDocumentPathBuilders(EnhancedTestCase):
-    """Pure path-builder tests (no filesystem writes)."""
+    """Pure path-builder tests (no filesystem writes).
+
+    NOTE: these builders still produce hierarchical *path strings*. They are now
+    used to derive logical metadata, not the on-disk storage path (the framework
+    owns storage and flattens to the basename). The builder contract is unchanged.
+    """
 
     def test_chapter_document_path_structure(self):
         path = get_chapter_document_path("Amsterdam", "Policy", "2025", "rules.pdf")
@@ -204,26 +222,25 @@ class TestDocumentPathBuilders(EnhancedTestCase):
 
 
 class _FileStorageIntegrationBase(EnhancedTestCase):
-    """Shared setup/teardown that tracks created File docs + on-disk paths."""
+    """Shared setup/teardown that tracks created File docs + on-disk paths.
+
+    The framework owns storage now, so the File record is locatable directly by
+    the returned (flat, served) ``file_url`` — no basename guessing needed.
+    """
 
     def setUp(self):
         super().setUp()
         self._created_files = []  # File doc names
         self._created_paths = []  # absolute on-disk paths
+        self._created_urls = []  # served urls returned by save_*
 
     def tearDown(self):
         for name in self._created_files:
             if frappe.db.exists("File", name):
                 frappe.delete_doc("File", name, force=True, ignore_permissions=True)
-        # Also sweep any File rows by url / basename that we know about
-        for url in getattr(self, "_created_urls", []):
+        # Sweep any File rows still pointing at urls we created.
+        for url in self._created_urls:
             for fname in frappe.get_all("File", filters={"file_url": url}, pluck="name"):
-                frappe.delete_doc("File", fname, force=True, ignore_permissions=True)
-            # File doctype flattens file_url to the basename on insert, so also
-            # sweep by the flattened url to avoid leaking File rows.
-            basename = url.rsplit("/", 1)[-1]
-            flat = f"/private/files/{basename}"
-            for fname in frappe.get_all("File", filters={"file_url": flat}, pluck="name"):
                 frappe.delete_doc("File", fname, force=True, ignore_permissions=True)
         for path in self._created_paths:
             try:
@@ -233,350 +250,324 @@ class _FileStorageIntegrationBase(EnhancedTestCase):
                 pass
         super().tearDown()
 
-    def _track_url(self, file_url):
-        if not hasattr(self, "_created_urls"):
-            self._created_urls = []
-        self._created_urls.append(file_url)
+    def _track(self, result):
+        """Track a save_* result dict for cleanup and return it."""
+        self._created_urls.append(result["file_url"])
+        if result.get("name"):
+            self._created_files.append(result["name"])
+        self._created_paths.append(self._abs_from_url(result["file_url"]))
+        return result
 
     def _abs_from_url(self, file_url):
         if file_url.startswith("/private/files/"):
             return os.path.join(get_files_path(is_private=1), file_url.replace("/private/files/", ""))
         return os.path.join(get_files_path(is_private=0), file_url.replace("/files/", ""))
 
-    def _find_file_record(self, file_name, attached_to_doctype, attached_to_name):
-        """Find the File record created by file_storage.
-
-        NOTE: Frappe's File doctype flattens file_url to the basename on insert
-        (see handle_is_private_changed), so the record cannot be located by the
-        hierarchical url returned from save_*; we look it up by file_name +
-        attachment instead.
-        """
-        rows = frappe.get_all(
-            "File",
-            filters={
-                "file_name": file_name,
-                "attached_to_doctype": attached_to_doctype,
-                "attached_to_name": attached_to_name,
-            },
-            pluck="name",
-        )
-        return rows[0] if rows else None
-
 
 class TestSaveChapterDocument(_FileStorageIntegrationBase):
     """Real integration: save_chapter_document writes a file + File record."""
 
     def test_save_private_chapter_document_creates_file_and_record(self):
-        result = save_chapter_document(
-            content=b"hello world",
-            filename="meeting.txt",
-            chapter_name="Test Chapter Storage",
-            category="Meeting Minutes",
-            year="2026",
-            is_private=1,
+        result = self._track(
+            save_chapter_document(
+                content=b"hello world",
+                filename="meeting.txt",
+                chapter_name="Test Chapter Storage",
+                category="Meeting Minutes",
+                year="2026",
+                is_private=1,
+            )
         )
-        self._track_url(result["file_url"])
-        self.assertEqual(result["file_name"], "meeting.txt")
-        self.assertTrue(result["file_url"].startswith("/private/files/documents/chapters/"))
+        # NEW CONTRACT: file_name + flat served url + File record name returned.
+        self.assertTrue(result["file_name"].endswith(".txt"))
+        self.assertTrue(result["name"])
+        # Flat url, NOT hierarchical — the bug fix.
+        self.assertTrue(result["file_url"].startswith("/private/files/"))
+        self.assertNotIn("/documents/", result["file_url"])
 
+        # The on-disk file exists with the right content.
         abs_path = self._abs_from_url(result["file_url"])
-        self._created_paths.append(abs_path)
         self.assertTrue(os.path.exists(abs_path))
         with open(abs_path, "rb") as f:
             self.assertEqual(f.read(), b"hello world")
 
-        # File record exists and is attached to the Chapter. NOTE: it is located
-        # by file_name + attachment because the File doctype flattens file_url.
-        file_name = self._find_file_record("meeting.txt", "Chapter", "Test Chapter Storage")
-        self.assertTrue(file_name)
-        self._created_files.append(file_name)
-        attached = frappe.db.get_value(
-            "File", file_name, ["attached_to_doctype", "is_private", "file_url"], as_dict=True
+        # A covering File record exists, is attached to the Chapter, and its
+        # stored url EQUALS the returned url (this is the bug fix: no dangling
+        # reference, private file not Forbidden).
+        rec = frappe.db.get_value(
+            "File",
+            result["name"],
+            ["attached_to_doctype", "attached_to_name", "is_private", "file_url"],
+            as_dict=True,
         )
-        self.assertEqual(attached.attached_to_doctype, "Chapter")
-        self.assertEqual(attached.is_private, 1)
-        # PRODUCT-BUG WITNESS: the File record url does NOT match the hierarchical
-        # url that save_chapter_document returned (Frappe flattens it to basename).
-        self.assertNotEqual(attached.file_url, result["file_url"])
-        self.assertEqual(attached.file_url, "/private/files/meeting.txt")
+        self.assertEqual(rec.attached_to_doctype, "Chapter")
+        self.assertEqual(rec.attached_to_name, "Test Chapter Storage")
+        self.assertEqual(rec.is_private, 1)
+        self.assertEqual(rec.file_url, result["file_url"])
+        self.assertTrue(frappe.db.exists("File", {"file_url": result["file_url"]}))
 
     def test_save_public_chapter_document_uses_public_url(self):
-        result = save_chapter_document(
-            content=b"public data",
-            filename="public.txt",
-            chapter_name="Test Chapter Public",
-            category="Policy",
-            year="2026",
-            is_private=0,
+        result = self._track(
+            save_chapter_document(
+                content=b"public data",
+                filename="public.txt",
+                chapter_name="Test Chapter Public",
+                category="Policy",
+                year="2026",
+                is_private=0,
+            )
         )
-        self._track_url(result["file_url"])
-        self.assertTrue(result["file_url"].startswith("/files/documents/chapters/"))
-        abs_path = self._abs_from_url(result["file_url"])
-        self._created_paths.append(abs_path)
-        self.assertTrue(os.path.exists(abs_path))
-        fn = self._find_file_record("public.txt", "Chapter", "Test Chapter Public")
-        if fn:
-            self._created_files.append(fn)
+        # Public files are served from /files/<basename> (flat).
+        self.assertTrue(result["file_url"].startswith("/files/"))
+        self.assertNotIn("/documents/", result["file_url"])
+        self.assertTrue(os.path.exists(self._abs_from_url(result["file_url"])))
+        # Returned url matches the stored record.
+        self.assertEqual(
+            frappe.db.get_value("File", result["name"], "file_url"), result["file_url"]
+        )
 
     def test_save_with_file_object_content(self):
         import io
 
-        result = save_chapter_document(
-            content=io.BytesIO(b"streamed bytes"),
-            filename="stream.bin",
-            chapter_name="Test Chapter Stream",
-            category="Other",
-            year="2026",
-            is_private=1,
+        result = self._track(
+            save_chapter_document(
+                content=io.BytesIO(b"streamed bytes"),
+                filename="stream.txt",
+                chapter_name="Test Chapter Stream",
+                category="Other",
+                year="2026",
+                is_private=1,
+            )
         )
-        self._track_url(result["file_url"])
         abs_path = self._abs_from_url(result["file_url"])
-        self._created_paths.append(abs_path)
         with open(abs_path, "rb") as f:
             self.assertEqual(f.read(), b"streamed bytes")
-        fn = self._find_file_record("stream.bin", "Chapter", "Test Chapter Stream")
-        if fn:
-            self._created_files.append(fn)
+        self.assertEqual(
+            frappe.db.get_value("File", result["name"], "file_url"), result["file_url"]
+        )
 
     def test_save_neutralises_traversal_in_filename(self):
-        # A hostile filename must not escape the chapter document tree
-        result = save_chapter_document(
-            content=b"x",
-            filename="../../../../etc/evil.txt",
-            chapter_name="Test Chapter Traversal",
-            category="Policy",
-            year="2026",
-            is_private=1,
+        # A hostile filename must not escape the files root. The framework
+        # flattens to the basename and we sanitize first, so '..' cannot survive.
+        result = self._track(
+            save_chapter_document(
+                content=b"x",
+                filename="../../../../etc/evil.txt",
+                chapter_name="Test Chapter Traversal",
+                category="Policy",
+                year="2026",
+                is_private=1,
+            )
         )
-        self._track_url(result["file_url"])
-        abs_path = self._abs_from_url(result["file_url"])
-        self._created_paths.append(abs_path)
-        # The stored path must remain under documents/chapters and contain no '..'
         self.assertNotIn("..", result["file_url"])
-        self.assertIn("/documents/chapters/", result["file_url"])
-        norm = os.path.normpath(abs_path)
-        self.assertIn(os.path.join("documents", "chapters"), norm)
-        # The on-disk file must stay within the hierarchical chapter tree, never
-        # at /etc. Verify the realpath is under the private files documents dir.
+        self.assertNotIn("/etc/", result["file_url"])
+        self.assertTrue(result["file_url"].startswith("/private/files/"))
+
+        # The realpath of the stored file must stay UNDER the private files root.
+        abs_path = self._abs_from_url(result["file_url"])
         files_root = os.path.realpath(get_files_path(is_private=1))
-        self.assertTrue(os.path.realpath(abs_path).startswith(files_root))
-        fn = self._find_file_record(
-            "../../../../etc/evil.txt", "Chapter", "Test Chapter Traversal"
-        )
-        if fn:
-            self._created_files.append(fn)
+        self.assertTrue(os.path.realpath(abs_path).startswith(files_root + os.sep))
+        self.assertTrue(os.path.exists(abs_path))
 
 
 class TestSaveOrganizationDocument(_FileStorageIntegrationBase):
     """Real integration: save_organization_document."""
 
     def test_save_team_document_attaches_to_team_type(self):
-        result = save_organization_document(
-            content=b"team data",
-            filename="charter.txt",
-            organization_type="Team",
-            organization_name="Test Team Storage",
-            category="Policy",
-            year="2026",
-            is_private=1,
+        result = self._track(
+            save_organization_document(
+                content=b"team data",
+                filename="charter.txt",
+                organization_type="Team",
+                organization_name="Test Team Storage",
+                category="Policy",
+                year="2026",
+                is_private=1,
+            )
         )
-        self._track_url(result["file_url"])
-        self.assertIn("/documents/teams/", result["file_url"])
-        abs_path = self._abs_from_url(result["file_url"])
-        self._created_paths.append(abs_path)
-        self.assertTrue(os.path.exists(abs_path))
-        fn = self._find_file_record("charter.txt", "Team", "Test Team Storage")
-        self.assertTrue(fn)
-        self._created_files.append(fn)
-        attached = frappe.db.get_value("File", fn, "attached_to_doctype")
-        self.assertEqual(attached, "Team")
+        # Flat served url; returned url == stored record url.
+        self.assertTrue(result["file_url"].startswith("/private/files/"))
+        self.assertNotIn("/documents/", result["file_url"])
+        self.assertTrue(os.path.exists(self._abs_from_url(result["file_url"])))
+        rec = frappe.db.get_value(
+            "File", result["name"], ["attached_to_doctype", "file_url"], as_dict=True
+        )
+        self.assertEqual(rec.attached_to_doctype, "Team")
+        self.assertEqual(rec.file_url, result["file_url"])
 
     def test_save_with_document_name_attaches_to_org_document(self):
         # When document_name is provided, attaches to "Organization Document".
-        # We pass a name that need not resolve to a real doc because
-        # ignore_file_validate skips link validation; assert the attachment
-        # target on the created File record.
-        result = save_organization_document(
-            content=b"doc",
-            filename="ref.txt",
-            organization_type="Chapter",
-            organization_name="Test Chapter OrgDoc",
-            category="Policy",
-            year="2026",
-            is_private=1,
-            document_name="ORG-DOC-TEST-0001",
+        # ignore-link semantics: the framework does not require the link target to
+        # exist for the attachment fields; assert the attachment target.
+        result = self._track(
+            save_organization_document(
+                content=b"doc",
+                filename="ref.txt",
+                organization_type="Chapter",
+                organization_name="Test Chapter OrgDoc",
+                category="Policy",
+                year="2026",
+                is_private=1,
+                document_name="ORG-DOC-TEST-0001",
+            )
         )
-        self._track_url(result["file_url"])
-        abs_path = self._abs_from_url(result["file_url"])
-        self._created_paths.append(abs_path)
-        fn = self._find_file_record("ref.txt", "Organization Document", "ORG-DOC-TEST-0001")
-        self.assertTrue(fn)
-        self._created_files.append(fn)
         rec = frappe.db.get_value(
-            "File", fn, ["attached_to_doctype", "attached_to_name"], as_dict=True
+            "File",
+            result["name"],
+            ["attached_to_doctype", "attached_to_name", "file_url"],
+            as_dict=True,
         )
         self.assertEqual(rec.attached_to_doctype, "Organization Document")
         self.assertEqual(rec.attached_to_name, "ORG-DOC-TEST-0001")
+        self.assertEqual(rec.file_url, result["file_url"])
 
 
 class TestOrganizeExistingChapterDocument(_FileStorageIntegrationBase):
-    """Real integration: moving a flat file into the hierarchy."""
+    """organize_existing_chapter_document is now a no-op returning the url."""
 
-    def _write_flat_private_file(self, rel_name, content=b"flat"):
-        base = get_files_path(is_private=1)
-        abs_path = os.path.join(base, rel_name)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        return abs_path, f"/private/files/{rel_name}"
-
-    def test_already_organized_url_returned_unchanged(self):
+    def test_returns_hierarchical_url_unchanged(self):
         url = "/private/files/documents/chapters/x/policy/2026/a.pdf"
-        self.assertEqual(
-            organize_existing_chapter_document(url, "X", "Policy", "2026"), url
-        )
+        self.assertEqual(organize_existing_chapter_document(url, "X", "Policy", "2026"), url)
+
+    def test_returns_flat_url_unchanged(self):
+        url = "/private/files/already-flat.txt"
+        self.assertEqual(organize_existing_chapter_document(url, "X", "Policy", "2026"), url)
 
     def test_empty_url_returned_unchanged(self):
         self.assertEqual(organize_existing_chapter_document("", "X", "Policy", "2026"), "")
 
-    def test_unrecognized_url_prefix_returned_unchanged(self):
+    def test_external_url_returned_unchanged(self):
         url = "https://external/file.pdf"
-        self.assertEqual(
-            organize_existing_chapter_document(url, "X", "Policy", "2026"), url
-        )
+        self.assertEqual(organize_existing_chapter_document(url, "X", "Policy", "2026"), url)
 
-    def test_missing_file_returns_original_url(self):
-        url = "/private/files/does-not-exist-xyz.pdf"
-        self.assertEqual(
-            organize_existing_chapter_document(url, "X", "Policy", "2026"), url
-        )
-
-    def test_moves_flat_file_into_hierarchy(self):
-        abs_old, old_url = self._write_flat_private_file("organize-me-test.txt", b"move me")
-        self._created_paths.append(abs_old)
-        new_url = organize_existing_chapter_document(
-            old_url, "Test Chapter Organize", "Policy", "2026"
-        )
-        self._track_url(new_url)
-        self.assertIn("/documents/chapters/", new_url)
-        new_abs = self._abs_from_url(new_url)
-        self._created_paths.append(new_abs)
-        # The hierarchical copy is created with the right content.
-        self.assertTrue(os.path.exists(new_abs))
-        with open(new_abs, "rb") as f:
-            self.assertEqual(f.read(), b"move me")
-        # PRODUCT-BUG WITNESS: because _create_file_record's File doc re-writes a
-        # copy at the flattened (basename) url, the original flat file is
-        # re-created at abs_old instead of being consolidated away.
-        self.assertTrue(os.path.exists(abs_old))
-        fn = self._find_file_record(
-            "organize-me-test.txt", "Chapter", "Test Chapter Organize"
-        )
-        if fn:
-            self._created_files.append(fn)
+    def test_noop_does_not_create_file_records(self):
+        # A no-op must not touch the File table or the filesystem.
+        before = frappe.db.count("File")
+        url = "/private/files/noop-witness.txt"
+        out = organize_existing_chapter_document(url, "Some Chapter", "Policy", "2026")
+        self.assertEqual(out, url)
+        self.assertEqual(frappe.db.count("File"), before)
 
 
 class TestOrganizeOrganizationDocument(_FileStorageIntegrationBase):
-    def _write_flat_private_file(self, rel_name, content=b"flat"):
-        base = get_files_path(is_private=1)
-        abs_path = os.path.join(base, rel_name)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        return abs_path, f"/private/files/{rel_name}"
+    """organize_organization_document is now a no-op returning the url."""
 
-    def test_already_organized_for_type_returned_unchanged(self):
+    def test_returns_hierarchical_url_unchanged(self):
         url = "/private/files/documents/teams/x/policy/2026/a.pdf"
-        self.assertEqual(
-            organize_organization_document(url, "Team", "X", "Policy", "2026"), url
-        )
+        self.assertEqual(organize_organization_document(url, "Team", "X", "Policy", "2026"), url)
+
+    def test_returns_flat_url_unchanged(self):
+        url = "/private/files/already-flat-org.txt"
+        self.assertEqual(organize_organization_document(url, "Team", "X", "Policy", "2026"), url)
 
     def test_empty_url_returned_unchanged(self):
-        self.assertEqual(
-            organize_organization_document("", "Team", "X", "Policy", "2026"), ""
-        )
+        self.assertEqual(organize_organization_document("", "Team", "X", "Policy", "2026"), "")
 
-    def test_missing_file_returns_original(self):
-        url = "/private/files/missing-org-file-xyz.pdf"
-        self.assertEqual(
-            organize_organization_document(url, "Team", "X", "Policy", "2026"), url
-        )
-
-    def test_moves_flat_file_into_org_hierarchy(self):
-        abs_old, old_url = self._write_flat_private_file("organize-org-test.txt", b"org move")
-        self._created_paths.append(abs_old)
-        new_url = organize_organization_document(
-            old_url, "Team", "Test Team Organize", "Policy", "2026"
-        )
-        self._track_url(new_url)
-        self.assertIn("/documents/teams/", new_url)
-        new_abs = self._abs_from_url(new_url)
-        self._created_paths.append(new_abs)
-        # Hierarchical copy created (organize's intended on-disk effect).
-        self.assertTrue(os.path.exists(new_abs))
-        # PRODUCT-BUG WITNESS: flat duplicate re-created (see chapter variant).
-        self.assertTrue(os.path.exists(abs_old))
-        fn = self._find_file_record(
-            "organize-org-test.txt", "Team", "Test Team Organize"
-        )
-        if fn:
-            self._created_files.append(fn)
+    def test_noop_does_not_create_file_records(self):
+        before = frappe.db.count("File")
+        url = "/private/files/noop-org-witness.txt"
+        out = organize_organization_document(url, "Team", "Some Team", "Policy", "2026")
+        self.assertEqual(out, url)
+        self.assertEqual(frappe.db.count("File"), before)
 
 
 class TestCreateFileRecord(_FileStorageIntegrationBase):
-    """_create_file_record dedup + creation."""
+    """_create_file_record stores content via the framework and returns a File doc."""
 
-    def test_create_file_record_returns_a_name(self):
-        # Basic creation contract: a File record name is returned for a valid file.
-        base = get_files_path(is_private=1)
-        abs_path = os.path.join(base, "flat-create-test.txt")
-        with open(abs_path, "wb") as f:
-            f.write(b"create")
-        self._created_paths.append(abs_path)
-        url = "/private/files/flat-create-test.txt"
+    def test_returns_file_doc_with_real_served_url(self):
+        # NEW CONTRACT: returns the File *document* (not a name string); its
+        # file_url is the real, flat, served url.
+        file_doc = _create_file_record(
+            content=b"create me",
+            filename="flat-create-test.txt",
+            is_private=1,
+            attached_to_doctype="Chapter",
+            attached_to_name="Test Chapter Create",
+        )
+        self._created_files.append(file_doc.name)
+        self._created_urls.append(file_doc.file_url)
+        self._created_paths.append(self._abs_from_url(file_doc.file_url))
 
-        name1 = _create_file_record(url, "flat-create-test.txt", 1, "Chapter", "Test Chapter Create")
-        self.assertTrue(name1)
-        self._created_files.append(name1)
-        self.assertTrue(frappe.db.exists("File", name1))
+        # It is a Document, not a bare name.
+        self.assertTrue(hasattr(file_doc, "file_url"))
+        self.assertTrue(file_doc.file_url.startswith("/private/files/"))
+        self.assertNotIn("/documents/", file_doc.file_url)
+        self.assertTrue(frappe.db.exists("File", file_doc.name))
+        # The on-disk file actually contains our bytes.
+        abs_path = self._abs_from_url(file_doc.file_url)
+        with open(abs_path, "rb") as f:
+            self.assertEqual(f.read(), b"create me")
 
-    def test_dedup_by_url_never_matches_due_to_content_hash_suffix(self):
-        # PRODUCT-BUG WITNESS: _create_file_record dedups via
-        # frappe.db.exists("File", {"file_url": file_url}), but the File doctype
-        # suffixes the stored filename with a content-hash (and flattens the
-        # path), so the stored url never equals the input url. The dedup check is
-        # therefore effectively dead — a second call creates a NEW record.
-        base = get_files_path(is_private=1)
-        abs_path = os.path.join(base, "flat-dedupe-test.txt")
-        with open(abs_path, "wb") as f:
-            f.write(b"dedupe")
-        self._created_paths.append(abs_path)
-        url = "/private/files/flat-dedupe-test.txt"
+    def test_returned_url_matches_stored_record(self):
+        # The bug fix: the returned url is exactly what is stored (no dangling
+        # reference, private file is served, not Forbidden).
+        file_doc = _create_file_record(
+            content=b"served bytes",
+            filename="served-test.txt",
+            is_private=1,
+            attached_to_doctype="Chapter",
+            attached_to_name="Test Chapter Served",
+        )
+        self._created_files.append(file_doc.name)
+        self._created_urls.append(file_doc.file_url)
+        self._created_paths.append(self._abs_from_url(file_doc.file_url))
 
-        name1 = _create_file_record(url, "flat-dedupe-test.txt", 1, "Chapter", "Test Chapter Dedupe")
-        name2 = _create_file_record(url, "flat-dedupe-test.txt", 1, "Chapter", "Test Chapter Dedupe")
-        self._created_files.extend([name1, name2])
-        self.assertNotEqual(name1, name2)
-        # The stored url carries a hash suffix, not the input url.
-        self.assertNotEqual(frappe.db.get_value("File", name1, "file_url"), url)
+        stored_url = frappe.db.get_value("File", file_doc.name, "file_url")
+        self.assertEqual(stored_url, file_doc.file_url)
+        # A covering File record exists for the served (private) url.
+        self.assertTrue(frappe.db.exists("File", {"file_url": file_doc.file_url}))
 
-    def test_hierarchical_url_dedup_is_broken_by_url_flattening(self):
-        # PRODUCT-BUG WITNESS: because the File doctype flattens file_url to the
-        # basename on insert, a second _create_file_record call with the SAME
-        # hierarchical url no longer matches the stored (flattened) url, so the
-        # dedup check misses and a DUPLICATE File record is created.
-        url = "/private/files/documents/chapters/test-dedupe/policy/2026/dedupe.txt"
-        abs_path = self._abs_from_url(url)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        with open(abs_path, "wb") as f:
-            f.write(b"dedupe")
-        self._created_paths.append(abs_path)
+    def test_same_content_twice_dedups_by_content_hash(self):
+        # FIXED behaviour: saving identical content twice does NOT produce a
+        # dangling/mismatched url. The framework dedups identical content by
+        # content hash, so both records resolve to the SAME served url (a private
+        # file that is always covered by a File record — never Forbidden).
+        doc1 = _create_file_record(
+            content=b"dedupe payload",
+            filename="dedupe-a.txt",
+            is_private=1,
+            attached_to_doctype="Chapter",
+            attached_to_name="Test Chapter Dedupe",
+        )
+        doc2 = _create_file_record(
+            content=b"dedupe payload",
+            filename="dedupe-b.txt",
+            is_private=1,
+            attached_to_doctype="Chapter",
+            attached_to_name="Test Chapter Dedupe",
+        )
+        for d in (doc1, doc2):
+            self._created_files.append(d.name)
+            self._created_urls.append(d.file_url)
+            self._created_paths.append(self._abs_from_url(d.file_url))
 
-        name1 = _create_file_record(url, "dedupe.txt", 1, "Chapter", "Test Chapter Dedupe2")
-        name2 = _create_file_record(url, "dedupe.txt", 1, "Chapter", "Test Chapter Dedupe2")
-        self._created_files.extend([name1, name2])
-        # Documents the current (buggy) behaviour: two distinct records.
-        self.assertNotEqual(name1, name2)
+        # Both stored urls equal their returned urls (no flattening mismatch).
+        self.assertEqual(frappe.db.get_value("File", doc1.name, "file_url"), doc1.file_url)
+        self.assertEqual(frappe.db.get_value("File", doc2.name, "file_url"), doc2.file_url)
+        # Identical content is deduped to the same physical (served) url, and
+        # that url is covered by a File record (private -> not Forbidden).
+        self.assertEqual(doc1.file_url, doc2.file_url)
+        self.assertTrue(frappe.db.exists("File", {"file_url": doc1.file_url}))
+
+    def test_stored_file_stays_under_files_root(self):
+        # Security: even with a traversal-laden filename, the framework flattens
+        # to the basename so the stored file cannot escape the files root.
+        file_doc = _create_file_record(
+            content=b"x",
+            filename=sanitize_filename("../../../../etc/escape.txt"),
+            is_private=1,
+            attached_to_doctype="Chapter",
+            attached_to_name="Test Chapter Escape",
+        )
+        self._created_files.append(file_doc.name)
+        self._created_urls.append(file_doc.file_url)
+        self._created_paths.append(self._abs_from_url(file_doc.file_url))
+
+        self.assertNotIn("..", file_doc.file_url)
+        self.assertNotIn("/etc/", file_doc.file_url)
+        abs_path = self._abs_from_url(file_doc.file_url)
+        files_root = os.path.realpath(get_files_path(is_private=1))
+        self.assertTrue(os.path.realpath(abs_path).startswith(files_root + os.sep))
 
 
 class TestCleanupEmptyDirectories(EnhancedTestCase):

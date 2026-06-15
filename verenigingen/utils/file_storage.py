@@ -8,8 +8,6 @@ Hierarchical file storage utilities for board documents
 import os
 
 import frappe
-from frappe.utils import get_files_path
-from frappe.utils.file_manager import save_file_on_filesystem
 
 
 def sanitize_path_component(component: str) -> str:
@@ -116,78 +114,77 @@ class FileRecordCreationError(Exception):
 
 
 def _create_file_record(
-    file_url: str, filename: str, is_private: int, attached_to_doctype: str, attached_to_name: str
+    content, filename: str, is_private: int, attached_to_doctype: str, attached_to_name: str
 ):
     """
-    Create File DocType record for permission management.
+    Create a File DocType record (and store its bytes) via the framework.
 
-    This ensures Frappe's permission system knows about the file and can control access.
-    Without this record, files will return "Forbidden" errors even to authorized users.
+    The file is stored by Frappe itself rather than written to a hierarchical path
+    by hand. This is deliberate: Frappe's File doctype flattens every private file
+    to ``/private/files/<basename>`` on insert (see
+    ``File.handle_is_private_changed``), so a hand-built hierarchical ``file_url``
+    never survives — it leaves the stored record pointing at a flattened URL that
+    does not match, which both breaks dedup and (for private files) makes the
+    document "Forbidden" because no File record covers the served URL. Letting the
+    framework own storage gives a valid, permission-aware record whose ``file_url``
+    is the URL the file is actually served from, and content-hash dedup for free.
 
-    Security Note: This function respects Frappe's permission system and will FAIL
-    if the user lacks permission. Callers must handle cleanup of any files already
-    saved to disk.
+    The logical hierarchy (organization / category / year) is preserved in the
+    owning document's own fields, not in the on-disk path.
+
+    Security Note: respects Frappe's permission system and will FAIL if the user
+    lacks permission. The framework cleans up its own file on failure.
 
     Args:
-        file_url: File URL path
-        filename: Original filename
+        content: File content (bytes or a file-like object)
+        filename: Original filename (already sanitized by the caller)
         is_private: Whether file is private
         attached_to_doctype: Parent DocType (e.g., "Chapter", "Organization Document")
         attached_to_name: Parent document name
 
     Returns:
-        File record name if created successfully
+        The inserted File document (its ``file_url`` is the real, served URL).
 
     Raises:
         frappe.PermissionError: If user lacks permission to create File records
         FileRecordCreationError: If record creation fails for other reasons
     """
-    # Check if File record already exists
-    existing_file = frappe.db.exists("File", {"file_url": file_url})
-    if existing_file:
-        frappe.logger().debug(f"File record already exists for {file_url}")
-        return existing_file
+    content_bytes = content.read() if hasattr(content, "read") else content
 
-    # Create new File record
     file_doc = frappe.get_doc(
         {
             "doctype": "File",
             "file_name": filename,
-            "file_url": file_url,
+            "content": content_bytes,
             "is_private": is_private,
             "attached_to_doctype": attached_to_doctype,
             "attached_to_name": attached_to_name,
-            "folder": "Home/Attachments",  # Default folder for organized files
+            "folder": "Home/Attachments",
         }
     )
 
-    # Insert without triggering file system operations (file already saved)
-    file_doc.flags.ignore_file_validate = True
-
     try:
         file_doc.insert()
-        frappe.logger().info(f"Created File record for document: {file_url}")
-        return file_doc.name
+        frappe.logger().info(f"Created File record for document: {file_doc.file_url}")
+        return file_doc
     except frappe.PermissionError:
         # Log security event for audit trail
         _log_file_permission_event(
             event_type="file_record_permission_denied",
-            file_url=file_url,
+            file_url=filename,
             attached_to_doctype=attached_to_doctype,
             attached_to_name=attached_to_name,
         )
-        # Re-raise with context - caller must clean up file on disk
         raise frappe.PermissionError(
-            f"Permission denied creating File record for {file_url}. "
+            f"Permission denied creating File record for {filename}. "
             f"User {frappe.session.user} lacks write permission on File DocType."
         )
     except Exception as e:
-        # Log and re-raise - caller must clean up file on disk
         frappe.log_error(
-            f"Failed to create File record for {file_url}: {str(e)}",
+            f"Failed to create File record for {filename}: {str(e)}",
             "Document File Record Creation Error",
         )
-        raise FileRecordCreationError(f"Failed to create File record for {file_url}: {str(e)}") from e
+        raise FileRecordCreationError(f"Failed to create File record for {filename}: {str(e)}") from e
 
 
 def _log_file_permission_event(
@@ -257,160 +254,38 @@ def save_chapter_document(
         is_private: Whether file is private (default: 1)
 
     Returns:
-        dict with file_url and file_name
+        dict with file_url (the real, served URL), file_name and the File record name
     """
-    # Get hierarchical path
-    relative_path = get_chapter_document_path(chapter_name, category, year, filename)
+    # Let the framework store the file and register the permission record. We pass
+    # the content rather than writing a hierarchical path by hand because Frappe
+    # flattens private files to /private/files/<basename> on insert, so a hand-built
+    # hierarchical path would never survive (see _create_file_record). The
+    # chapter/category/year hierarchy is metadata on the owning document, not the
+    # on-disk path. The framework cleans up its own file on failure.
+    file_doc = _create_file_record(
+        content=content,
+        filename=sanitize_filename(filename),
+        is_private=is_private,
+        attached_to_doctype="Chapter",
+        attached_to_name=chapter_name,
+    )
 
-    # Determine base directory
-    if is_private:
-        base_path = os.path.join(get_files_path(is_private=1), relative_path)
-        file_url = f"/private/files/{relative_path}"
-    else:
-        base_path = os.path.join(get_files_path(is_private=0), relative_path)
-        file_url = f"/files/{relative_path}"
-
-    # Create directory structure if it doesn't exist
-    directory = os.path.dirname(base_path)
-    if not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
-
-    # Save file to disk
-    if hasattr(content, "read"):
-        # File object
-        with open(base_path, "wb") as f:
-            f.write(content.read())
-    else:
-        # Bytes content
-        with open(base_path, "wb") as f:
-            f.write(content)
-
-    # Create File DocType record for permission management
-    # If this fails, clean up the file we just saved
-    try:
-        _create_file_record(
-            file_url=file_url,
-            filename=filename,
-            is_private=is_private,
-            attached_to_doctype="Chapter",
-            attached_to_name=chapter_name,
-        )
-    except (frappe.PermissionError, FileRecordCreationError):
-        # Clean up orphaned file - suppress cleanup errors to preserve original exception
-        try:
-            os.remove(base_path)
-        except (FileNotFoundError, OSError):
-            pass  # File already gone or locked - continue raising original error
-        raise
-
-    return {"file_name": filename, "file_url": file_url}
+    return {"file_name": file_doc.file_name, "file_url": file_doc.file_url, "name": file_doc.name}
 
 
 def organize_existing_chapter_document(file_url: str, chapter_name: str, category: str, year: str) -> str:
     """
-    Move an existing file to hierarchical storage structure.
+    Return the file URL unchanged (no-op).
 
-    Args:
-        file_url: Current file URL
-        chapter_name: Chapter name
-        category: Document category
-        year: Document year
-
-    Returns:
-        New file URL
+    This previously moved an existing file into a hierarchical on-disk path and
+    rewrote its File record. That approach cannot work: Frappe's File doctype
+    flattens private files to /private/files/<basename> on insert, so the
+    hierarchical move left the file without a matching File record (Forbidden) and
+    created a second, flattened copy on disk. Files now stay in the framework's
+    flat store with a valid record; the chapter/category/year hierarchy is metadata
+    on the owning document. The signature is kept for backward compatibility.
     """
-    if not file_url:
-        return file_url
-
-    # Skip if already in hierarchical structure
-    if "/documents/chapters/" in file_url:
-        return file_url
-
-    try:
-        # Get current file path
-        if file_url.startswith("/private/files/"):
-            current_path = file_url.replace("/private/files/", "")
-            is_private = 1
-            base_dir = get_files_path(is_private=1)
-        elif file_url.startswith("/files/"):
-            current_path = file_url.replace("/files/", "")
-            is_private = 0
-            base_dir = get_files_path(is_private=0)
-        else:
-            return file_url
-
-        current_full_path = os.path.join(base_dir, current_path)
-
-        # Check if file exists
-        if not os.path.exists(current_full_path):
-            frappe.log_error(f"File not found for organization: {current_full_path}")
-            return file_url
-
-        # Get filename
-        filename = os.path.basename(current_path)
-
-        # Generate new path
-        relative_path = get_chapter_document_path(chapter_name, category, year, filename)
-        new_full_path = os.path.join(base_dir, relative_path)
-
-        # Create directory structure
-        new_directory = os.path.dirname(new_full_path)
-        if not os.path.exists(new_directory):
-            os.makedirs(new_directory, exist_ok=True)
-
-        # Move file
-        os.rename(current_full_path, new_full_path)
-
-        # Determine new URL
-        if is_private:
-            new_file_url = f"/private/files/{relative_path}"
-        else:
-            new_file_url = f"/files/{relative_path}"
-
-        # Update or create File DocType record
-        existing_file = frappe.db.get_value("File", {"file_url": file_url}, "name")
-        if existing_file:
-            # Update existing File record with new URL
-            frappe.db.set_value("File", existing_file, "file_url", new_file_url, update_modified=False)
-            frappe.logger().info(f"Updated File record {existing_file} with new URL: {new_file_url}")
-        else:
-            # Create new File record if none exists
-            # If this fails, move file back to original location
-            try:
-                _create_file_record(
-                    file_url=new_file_url,
-                    filename=filename,
-                    is_private=is_private,
-                    attached_to_doctype="Chapter",
-                    attached_to_name=chapter_name,
-                )
-            except (frappe.PermissionError, FileRecordCreationError) as e:
-                # Attempt rollback - suppress filesystem errors to preserve original exception
-                try:
-                    os.rename(new_full_path, current_full_path)
-                except OSError as rollback_error:
-                    frappe.log_error(
-                        f"Rollback failed after permission error: {rollback_error}\n"
-                        f"Original error: {e}\n"
-                        f"File may be at: {new_full_path}",
-                        "Critical: File Organization Rollback Failed",
-                    )
-                raise
-
-        return new_file_url
-
-    except (frappe.PermissionError, FileRecordCreationError):
-        # Permission/creation errors should propagate - no silent failures
-        raise
-    except OSError as e:
-        # Filesystem errors during organization are non-security failures
-        # Log and return original URL so document save can proceed
-        frappe.log_error(
-            f"Filesystem error organizing chapter document: {str(e)}\n\n"
-            f"File: {file_url}\nChapter: {chapter_name}\nCategory: {category}\nYear: {year}",
-            "Chapter Document File Organization Error",
-        )
-        return file_url
+    return file_url
 
 
 def cleanup_empty_directories(base_path: str):
@@ -495,38 +370,10 @@ def save_organization_document(
         document_name: Optional Organization Document name for attachment
 
     Returns:
-        dict with file_url and file_name
+        dict with file_url (the real, served URL), file_name and the File record name
     """
-    # Get hierarchical path
-    relative_path = get_organization_document_path(
-        organization_type, organization_name, category, year, filename
-    )
-
-    # Determine base directory
-    if is_private:
-        base_path = os.path.join(get_files_path(is_private=1), relative_path)
-        file_url = f"/private/files/{relative_path}"
-    else:
-        base_path = os.path.join(get_files_path(is_private=0), relative_path)
-        file_url = f"/files/{relative_path}"
-
-    # Create directory structure if it doesn't exist
-    directory = os.path.dirname(base_path)
-    if not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
-
-    # Save file to disk
-    if hasattr(content, "read"):
-        # File object
-        with open(base_path, "wb") as f:
-            f.write(content.read())
-    else:
-        # Bytes content
-        with open(base_path, "wb") as f:
-            f.write(content)
-
-    # Create File DocType record for permission management
-    # Attach to Organization Document if name provided, otherwise to the organization
+    # Attach to the Organization Document if a name is provided, otherwise to the
+    # organization itself.
     if document_name:
         attached_to_doctype = "Organization Document"
         attached_to_name = document_name
@@ -534,140 +381,36 @@ def save_organization_document(
         attached_to_doctype = organization_type
         attached_to_name = organization_name
 
-    # If record creation fails, clean up the file we just saved
-    try:
-        _create_file_record(
-            file_url=file_url,
-            filename=filename,
-            is_private=is_private,
-            attached_to_doctype=attached_to_doctype,
-            attached_to_name=attached_to_name,
-        )
-    except (frappe.PermissionError, FileRecordCreationError):
-        # Clean up orphaned file - suppress cleanup errors to preserve original exception
-        try:
-            os.remove(base_path)
-        except (FileNotFoundError, OSError):
-            pass  # File already gone or locked - continue raising original error
-        raise
+    # Let the framework store the file and register the permission record. We pass
+    # the content rather than writing a hierarchical path by hand because Frappe
+    # flattens private files to /private/files/<basename> on insert, so a hand-built
+    # hierarchical path would never survive (see _create_file_record) — it would
+    # leave the file "Forbidden" for lack of a matching File record. The
+    # org/category/year hierarchy is metadata on the Organization Document, not the
+    # on-disk path. The framework cleans up its own file on failure.
+    file_doc = _create_file_record(
+        content=content,
+        filename=sanitize_filename(filename),
+        is_private=is_private,
+        attached_to_doctype=attached_to_doctype,
+        attached_to_name=attached_to_name,
+    )
 
-    return {"file_name": filename, "file_url": file_url}
+    return {"file_name": file_doc.file_name, "file_url": file_doc.file_url, "name": file_doc.name}
 
 
 def organize_organization_document(
     file_url: str, organization_type: str, organization_name: str, category: str, year: str
 ) -> str:
     """
-    Move an existing file to hierarchical storage structure for any organization type.
+    Return the file URL unchanged (no-op).
 
-    Args:
-        file_url: Current file URL
-        organization_type: Type of organization (Chapter, Team, Movement)
-        organization_name: Name of the organization
-        category: Document category
-        year: Document year
-
-    Returns:
-        New file URL
+    This previously moved an existing file into a hierarchical on-disk path and
+    rewrote its File record. That approach cannot work: Frappe's File doctype
+    flattens private files to /private/files/<basename> on insert, so the
+    hierarchical move left the file without a matching File record (Forbidden) and
+    created a second, flattened copy on disk. Files now stay in the framework's
+    flat store with a valid record; the org/category/year hierarchy is metadata on
+    the Organization Document. The signature is kept for backward compatibility.
     """
-    if not file_url:
-        return file_url
-
-    # Determine the expected path pattern for this org type
-    org_type_path = f"/{organization_type.lower()}s/"
-
-    # Skip if already in hierarchical structure for this org type
-    if "/documents/" in file_url and org_type_path in file_url:
-        return file_url
-
-    try:
-        # Get current file path
-        if file_url.startswith("/private/files/"):
-            current_path = file_url.replace("/private/files/", "")
-            is_private = 1
-            base_dir = get_files_path(is_private=1)
-        elif file_url.startswith("/files/"):
-            current_path = file_url.replace("/files/", "")
-            is_private = 0
-            base_dir = get_files_path(is_private=0)
-        else:
-            return file_url
-
-        current_full_path = os.path.join(base_dir, current_path)
-
-        # Check if file exists
-        if not os.path.exists(current_full_path):
-            frappe.log_error(
-                f"File not found for organization: {current_full_path}",
-                "Organization Document File Not Found",
-            )
-            return file_url
-
-        # Get filename
-        filename = os.path.basename(current_path)
-
-        # Generate new path
-        relative_path = get_organization_document_path(
-            organization_type, organization_name, category, year, filename
-        )
-        new_full_path = os.path.join(base_dir, relative_path)
-
-        # Create directory structure
-        new_directory = os.path.dirname(new_full_path)
-        if not os.path.exists(new_directory):
-            os.makedirs(new_directory, exist_ok=True)
-
-        # Move file
-        os.rename(current_full_path, new_full_path)
-
-        # Determine new URL
-        if is_private:
-            new_file_url = f"/private/files/{relative_path}"
-        else:
-            new_file_url = f"/files/{relative_path}"
-
-        # Update or create File DocType record
-        existing_file = frappe.db.get_value("File", {"file_url": file_url}, "name")
-        if existing_file:
-            # Update existing File record with new URL
-            frappe.db.set_value("File", existing_file, "file_url", new_file_url, update_modified=False)
-            frappe.logger().info(f"Updated File record {existing_file} with new URL: {new_file_url}")
-        else:
-            # Create new File record if none exists
-            # If this fails, move file back to original location
-            try:
-                _create_file_record(
-                    file_url=new_file_url,
-                    filename=filename,
-                    is_private=is_private,
-                    attached_to_doctype=organization_type,
-                    attached_to_name=organization_name,
-                )
-            except (frappe.PermissionError, FileRecordCreationError) as e:
-                # Attempt rollback - suppress filesystem errors to preserve original exception
-                try:
-                    os.rename(new_full_path, current_full_path)
-                except OSError as rollback_error:
-                    frappe.log_error(
-                        f"Rollback failed after permission error: {rollback_error}\n"
-                        f"Original error: {e}\n"
-                        f"File may be at: {new_full_path}",
-                        "Critical: File Organization Rollback Failed",
-                    )
-                raise
-
-        return new_file_url
-
-    except (frappe.PermissionError, FileRecordCreationError):
-        # Permission/creation errors should propagate - no silent failures
-        raise
-    except OSError as e:
-        # Filesystem errors during organization are non-security failures
-        # Log and return original URL so document save can proceed
-        frappe.log_error(
-            f"Filesystem error organizing organization document: {str(e)}\n\n"
-            f"File: {file_url}\nOrganization Type: {organization_type}\n"
-            f"Organization: {organization_name}\nCategory: {category}\nYear: {year}",
-            "Organization Document File Organization Error",
-        )
-        return file_url
+    return file_url
