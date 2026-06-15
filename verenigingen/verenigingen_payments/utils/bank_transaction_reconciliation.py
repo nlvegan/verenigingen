@@ -301,12 +301,20 @@ class PaymentReconciliationManager:
 
                 elif match_type == "membership":
                     if frappe.db.exists("Membership", reference):
-                        # Get related invoice
-                        invoice = frappe.db.get_value(
-                            "Sales Invoice",
-                            {"membership": reference, "status": ["in", ["Unpaid", "Overdue"]]},
-                            "name",
-                        )
+                        # Sales Invoice has no `membership` column; resolve the
+                        # related invoice via the membership's member (Sales Invoice
+                        # carries the `member` custom field).
+                        membership_member = frappe.db.get_value("Membership", reference, "member")
+                        invoice = None
+                        if membership_member:
+                            invoice = frappe.db.get_value(
+                                "Sales Invoice",
+                                {
+                                    "member": membership_member,
+                                    "status": ["in", ["Unpaid", "Overdue"]],
+                                },
+                                "name",
+                            )
                         if invoice:
                             return {
                                 "type": "invoice",
@@ -485,7 +493,58 @@ class PaymentReconciliationManager:
 
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
 
-            if match["type"] in ["invoice", "batch"]:
+            if match["type"] == "batch":
+                # A batch match's `reference` is a Direct Debit Batch name, NOT a
+                # Sales Invoice name. Reconcile each invoice in the batch rather
+                # than passing the batch name to the invoice-only payment service
+                # (which would fail the Sales-Invoice existence check).
+                try:
+                    created_entries = self.create_payment_entries_from_batch(bank_trans, match["reference"])
+
+                    # S2: only mark Reconciled if the allocated Payment Entries fully
+                    # cover the deposit. If failed/uncollected rows mean the booked
+                    # total falls short of the deposit, leave the transaction
+                    # Unreconciled so an operator can see and resolve the discrepancy.
+                    allocated_total = sum(Decimal(str(pe.paid_amount)) for pe in created_entries)
+                    deposit_total = Decimal(str(bank_trans.deposit or 0))
+
+                    if created_entries and allocated_total == deposit_total:
+                        bank_trans.status = "Reconciled"
+                        bank_trans.add_comment(
+                            "Comment",
+                            f'Auto-reconciled: {match["match_reason"]} '
+                            f'(Confidence: {match["confidence"]:.0%})',
+                        )
+                        bank_trans.save()
+                        return True
+
+                    self._mark_transaction_unreconciled(
+                        transaction,
+                        f"Batch reconciliation incomplete: booked {allocated_total} of "
+                        f"deposit {deposit_total} from {len(created_entries)} collected "
+                        f"invoice(s); left Unreconciled for operator review",
+                    )
+                    return False
+
+                except frappe.ValidationError as ve:
+                    frappe.log_error(
+                        f"SEPA batch reconciliation validation error: {str(ve)}",
+                        "SEPA Batch Reconciliation",
+                    )
+                    self._mark_transaction_unreconciled(
+                        transaction, f"Batch reconciliation validation failed: {str(ve)}"
+                    )
+                    return False
+                except Exception as pe:
+                    frappe.log_error(
+                        f"SEPA batch reconciliation error: {str(pe)}", "SEPA Batch Reconciliation"
+                    )
+                    self._mark_transaction_unreconciled(
+                        transaction, f"Batch reconciliation failed: {str(pe)}"
+                    )
+                    return False
+
+            elif match["type"] == "invoice":
                 # Create payment entry with proper validation
                 try:
                     self.create_payment_entry_from_transaction(
@@ -503,19 +562,15 @@ class PaymentReconciliationManager:
                     return True
 
                 except frappe.ValidationError as ve:
-                    frappe.log_error(
-                        f"Mollie settlement validation error: {str(ve)}", "Mollie Settlement Validation"
-                    )
+                    frappe.log_error(f"Payment entry validation error: {str(ve)}", "Payment Entry Validation")
                     self._mark_transaction_unreconciled(
-                        transaction, f"Mollie settlement validation failed: {str(ve)}"
+                        transaction, f"Payment entry validation failed: {str(ve)}"
                     )
                     return False
                 except Exception as pe:
-                    frappe.log_error(
-                        f"Mollie settlement processing error: {str(pe)}", "Mollie Settlement Error"
-                    )
+                    frappe.log_error(f"Payment entry processing error: {str(pe)}", "Payment Entry Error")
                     self._mark_transaction_unreconciled(
-                        transaction, f"Mollie settlement processing failed: {str(pe)}"
+                        transaction, f"Payment entry processing failed: {str(pe)}"
                     )
                     return False
 
@@ -651,6 +706,89 @@ class PaymentReconciliationManager:
         # Note: Membership payment status update is handled by calling code if needed
         # This keeps the service focused on payment entry creation only
         return payment_entry
+
+    # Direct Debit Batch Invoice rows whose status means the money was actually
+    # collected at the bank. A pain.002 return marks the individual row "Failed".
+    # We deliberately exclude "Pending" (not yet submitted to the bank) and
+    # "Failed" (bank-rejected) so we never book a Payment Entry for money that was
+    # not received. "Successful" and "Processed" are the only statuses that
+    # represent a settled collection.
+    COLLECTED_BATCH_ROW_STATUSES = ("Successful", "Processed")
+
+    def create_payment_entries_from_batch(self, bank_trans, batch_name):
+        """
+        Reconcile a Direct Debit Batch against a bank transaction.
+
+        A batch deposit settles many invoices at once, so create one Payment Entry
+        per *successfully collected* batch invoice row using that row's own amount
+        (not the full deposit).
+
+        Only rows whose status is in ``COLLECTED_BATCH_ROW_STATUSES`` are booked;
+        bank-rejected ("Failed") and not-yet-collected ("Pending") rows are skipped
+        so we never overstate cash or mark an unpaid invoice as paid. The function
+        is also idempotent: a row that already has a submitted Payment Entry
+        referencing its invoice is skipped, so re-running reconciliation for the
+        same batch does not create duplicate Payment Entries.
+
+        Args:
+            bank_trans: Bank Transaction document (the settlement deposit)
+            batch_name: Direct Debit Batch name
+
+        Returns:
+            list[PaymentEntry]: the newly created payment entries
+
+        Raises:
+            frappe.ValidationError: if the batch has no invoices to reconcile
+        """
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
+
+        if not batch.invoices:
+            frappe.throw(_("Direct Debit Batch {0} has no invoices to reconcile").format(batch_name))
+
+        payment_entries = []
+        for row in batch.invoices:
+            # F2: only book rows that were actually collected at the bank.
+            if (row.status or "Pending") not in self.COLLECTED_BATCH_ROW_STATUSES:
+                continue
+
+            # F3: idempotency guard — skip if a submitted Payment Entry already
+            # references this invoice, so re-running does not duplicate the PE.
+            if self._invoice_has_submitted_payment_entry(row.invoice):
+                continue
+
+            payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=row.invoice,
+                amount=Decimal(str(row.amount)),
+                posting_date=bank_trans.date,
+                reference_no=bank_trans.reference_number or batch_name,
+                reference_date=bank_trans.date,
+                mode_of_payment="SEPA Direct Debit",
+                payment_type="Receive",
+                bank_transaction_name=bank_trans.name,
+                allow_draft_on_permission_failure=True,  # Graceful degradation
+            )
+            payment_entries.append(payment_entry)
+
+        return payment_entries
+
+    def _invoice_has_submitted_payment_entry(self, invoice_name):
+        """Return True if a submitted Payment Entry already references this invoice.
+
+        Used as an idempotency guard so re-running batch reconciliation cannot book
+        a second Payment Entry for an invoice that was already paid.
+        """
+        existing = frappe.get_all(
+            "Payment Entry Reference",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_name,
+                "docstatus": 1,
+            },
+            limit=1,
+        )
+        return bool(existing)
 
     def process_mollie_settlement(self, bank_trans, settlement_id, settlement_data):
         """
@@ -1095,9 +1233,82 @@ def process_sepa_return_file(file_content, file_type="pain.002"):
 
 
 def parse_pain002_file(file_content):
-    """Parse pain.002 XML file"""
-    # Implementation would parse the XML and extract status information
-    # This is a placeholder for the actual XML parsing logic
+    """Parse a pain.002 (Customer Payment Status Report) XML file.
+
+    Extracts per-transaction status from the OrgnlPmtInfAndSts/TxInfAndSts blocks
+    and maps the ISO 20022 transaction-status codes to the internal
+    Rejected/Accepted/Pending vocabulary used by process_sepa_return_file.
+
+    Returns:
+        list[dict]: one entry per transaction with keys
+            end_to_end_id, status (Rejected|Accepted|Pending),
+            reason_code, reason_text, raw_status.
+        Returns an empty list when the document contains no transaction blocks
+        (so callers can iterate safely instead of crashing on None).
+    """
+    import xml.etree.ElementTree as ET
+
+    # ISO 20022 transaction-status codes -> internal vocabulary.
+    status_map = {
+        "RJCT": "Rejected",
+        "ACCP": "Accepted",
+        "ACSP": "Accepted",
+        "ACSC": "Accepted",
+        "ACWC": "Accepted",
+        "PDNG": "Pending",
+        "RCVD": "Pending",
+    }
+
+    def localname(tag):
+        # Strip the namespace prefix ({urn:...}TxSts -> TxSts) so the parser is
+        # namespace-version agnostic (pain.002.001.03 / .10 / etc.).
+        return tag.rsplit("}", 1)[-1]
+
+    def find_descendant_text(element, name):
+        for child in element.iter():
+            if localname(child.tag) == name and child.text:
+                return child.text.strip()
+        return None
+
+    def find_reason_code(element):
+        # Scope the reason code to StsRsnInf/Rsn/Cd rather than the first <Cd>
+        # descendant: a TxInfAndSts block can carry other <Cd> elements (e.g. inside
+        # the original transaction reference) that would otherwise be misread as the
+        # rejection reason.
+        for rsn_inf in element.iter():
+            if localname(rsn_inf.tag) != "StsRsnInf":
+                continue
+            for rsn in rsn_inf.iter():
+                if localname(rsn.tag) != "Rsn":
+                    continue
+                code = find_descendant_text(rsn, "Cd")
+                if code:
+                    return code
+        return None
+
+    try:
+        root = ET.fromstring(file_content)
+    except ET.ParseError as e:
+        frappe.log_error(f"Failed to parse pain.002 file: {str(e)}", "SEPA Return File Parsing")
+        return []
+
+    return_data = []
+    for element in root.iter():
+        if localname(element.tag) != "TxInfAndSts":
+            continue
+
+        raw_status = find_descendant_text(element, "TxSts")
+        return_data.append(
+            {
+                "end_to_end_id": find_descendant_text(element, "OrgnlEndToEndId") or "",
+                "status": status_map.get((raw_status or "").upper(), "Pending"),
+                "raw_status": raw_status,
+                "reason_code": find_reason_code(element) or "",
+                "reason_text": find_descendant_text(element, "AddtlInf") or "",
+            }
+        )
+
+    return return_data
 
 
 def handle_payment_rejection(end_to_end_id, reason_code, reason_text):

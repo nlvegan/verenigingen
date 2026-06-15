@@ -152,11 +152,17 @@ class BTRBase(EnhancedTestCase):
             "invoice": invoice,
         }
 
-    def _make_batch(self, items, batch_date=None, status="Submitted", submit=True):
+    def _make_batch(
+        self, items, batch_date=None, status="Submitted", submit=True, row_status="Successful"
+    ):
         """Build a Direct Debit Batch from already-built member/invoice dicts.
 
         Real batch.submit() triggers generate_sepa_xml (needs org SEPA settings),
         so we mark the batch submitted directly in the DB (docstatus=1 + status).
+
+        ``row_status`` sets the per-invoice child-row status. Reconciliation only
+        books rows that were actually collected ("Successful"/"Processed"), so the
+        default is "Successful"; pass a list to set per-row statuses.
         """
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = batch_date or today()
@@ -165,8 +171,9 @@ class BTRBase(EnhancedTestCase):
         batch.batch_type = "FRST"
         batch.status = "Draft"
         total = 0.0
-        for it in items:
+        for idx, it in enumerate(items):
             amount = flt(it["invoice"].grand_total)
+            this_status = row_status[idx] if isinstance(row_status, (list, tuple)) else row_status
             batch.append(
                 "invoices",
                 {
@@ -178,7 +185,7 @@ class BTRBase(EnhancedTestCase):
                     "currency": "EUR",
                     "iban": it["mandate"].iban,
                     "mandate_reference": it["mandate"].mandate_id,
-                    "status": "Pending",
+                    "status": this_status,
                     "sequence_type": "FRST",
                 },
             )
@@ -432,15 +439,12 @@ class TestMatchByDescription(BTRBase):
         self.assertEqual(match["reference"], it["invoice"].name)
         self.assertEqual(match["confidence"], 0.9)
 
-    @unittest.expectedFailure
     def test_membership_pattern_crashes(self):
-        """PRODUCT BUG (NOT fixed): the MEMBERSHIP-pattern branch of
-        match_by_description does frappe.db.get_value("Sales Invoice",
-        {"membership": <ref>, ...}) but Sales Invoice has no 'membership' field ->
-        OperationalError (1054 Unknown column). This asserts the CORRECT post-fix
-        behaviour (a MEMBERSHIP-pattern description resolves to the related invoice
-        without crashing) and is xfailed until the bug is fixed -- consistent with
-        the other product-bug xfails (B, C & D)."""
+        """Regression (FIXED): the MEMBERSHIP-pattern branch of match_by_description
+        no longer queries the nonexistent Sales Invoice `membership` column. It
+        resolves the membership's member and finds the related unpaid invoice via
+        the Sales Invoice `member` field, so a MEMBERSHIP-pattern description maps
+        to the related invoice without crashing."""
         it = self._make_member_with_invoice(first_name="DescMemb", grand_total=25.0)
         bt = self._make_bank_transaction(
             deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}"
@@ -532,15 +536,14 @@ class TestMatchTransactionAndReconcile(BTRBase):
         )
         self.assertTrue(refs, "payment entry should reference the invoice")
 
-    @unittest.expectedFailure
     def test_batch_type_reconciliation_bug(self):
-        """PRODUCT BUG (NOT fixed): create_reconciliation treats type 'batch' like
-        'invoice' and passes the BATCH name as the invoice name to the payment-entry
-        service, which fails the Sales-Invoice existence check -> the txn is marked
-        Unreconciled. A perfect (confidence 1.0) batch-reference match therefore
-        never reconciles. This asserts the CORRECT post-fix behaviour (the batch
-        reconciles) and is xfailed until the bug is fixed -- consistent with the
-        other product-bug xfails (B & D). When fixed, drop the decorator."""
+        """Regression (FIXED): create_reconciliation now branches on type 'batch'
+        and reconciles each invoice in the Direct Debit Batch (via
+        create_payment_entries_from_batch) instead of passing the batch name to the
+        invoice-only payment service. A perfect (confidence 1.0) batch-reference
+        match therefore reconciles. (Former bug: it treated 'batch' like 'invoice'
+        and passed the batch name as an invoice name, marking the txn Unreconciled.)
+        """
         it = self._make_member_with_invoice(first_name="BatchBug", grand_total=30.0)
         batch = self._make_batch([it])
         bt = self._make_bank_transaction(deposit=batch.total_amount, date=today())
@@ -663,17 +666,12 @@ class TestMolliePaymentTracking(BTRBase):
         self.mgr._mark_mollie_payment_processed(pid)
         self.assertTrue(self.mgr._is_mollie_payment_processed(pid))
 
-    @unittest.expectedFailure
     def test_db_dedup_field_not_wired(self):
-        """PRODUCT BUG: _is_mollie_payment_processed checks the database for a
-        Payment Entry with custom_mollie_payment_id == <id>, and
-        _create_mollie_payment_entry sets payment_entry.custom_mollie_payment_id.
-        But no Frappe field (DocField or Custom Field) is wired to that name -
-        only a stale orphan DB column exists - so doc writes to it are silently
-        dropped. A fresh manager can therefore NEVER detect a previously-processed
-        payment from the DB. The CORRECT behaviour (asserted here) is that a
-        submitted PE carrying the id makes a fresh manager report it processed;
-        this is expected to FAIL until the field is properly registered."""
+        """Regression (FIXED): custom_mollie_payment_id is now registered as a
+        Custom Field on Payment Entry (via the app's custom_field fixture), so doc
+        writes to it persist and _is_mollie_payment_processed can detect a
+        previously-processed payment from the DB. A submitted PE carrying the id
+        makes a fresh manager report it processed."""
         it = self._make_member_with_invoice(first_name="MollieProc", grand_total=25.0)
         pid = f"tr_{frappe.generate_hash(length=10)}"
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
@@ -857,6 +855,111 @@ class TestSepaReturnHandlers(BTRBase):
 
 
 # =============================================================================
+# create_payment_entries_from_batch — F2 (skip failed rows), F3 (idempotency),
+# S2 (conditional Reconciled)
+# =============================================================================
+class TestBatchReconciliationGuards(BTRBase):
+    def _submitted_pe_count_for(self, invoice_name):
+        return frappe.db.count(
+            "Payment Entry Reference",
+            {"reference_doctype": "Sales Invoice", "reference_name": invoice_name, "docstatus": 1},
+        )
+
+    def test_failed_row_is_not_booked(self):
+        """F2: a bank-rejected (status='Failed') batch row must NOT produce a
+        Payment Entry — booking it would overstate cash and mark an unpaid invoice
+        as paid."""
+        ok_it = self._make_member_with_invoice(first_name="GuardOK", grand_total=30.0)
+        failed_it = self._make_member_with_invoice(first_name="GuardFail", grand_total=20.0)
+        batch = self._make_batch(
+            [ok_it, failed_it], row_status=["Successful", "Failed"]
+        )
+        bt = self._make_bank_transaction(deposit=30.0, date=today())
+
+        created = self.mgr.create_payment_entries_from_batch(bt, batch.name)
+
+        # Only the collected row is booked.
+        self.assertEqual(len(created), 1)
+        self.assertEqual(self._submitted_pe_count_for(ok_it["invoice"].name), 1)
+        self.assertEqual(
+            self._submitted_pe_count_for(failed_it["invoice"].name),
+            0,
+            "a Failed batch row must not be booked",
+        )
+        # The Failed invoice stays unpaid.
+        failed_inv = frappe.get_doc("Sales Invoice", failed_it["invoice"].name)
+        self.assertIn(failed_inv.status, ["Unpaid", "Overdue"])
+
+    def test_pending_row_is_not_booked(self):
+        """F2: a not-yet-collected (status='Pending') row is also skipped."""
+        it = self._make_member_with_invoice(first_name="GuardPend", grand_total=15.0)
+        batch = self._make_batch([it], row_status="Pending")
+        bt = self._make_bank_transaction(deposit=15.0, date=today())
+
+        created = self.mgr.create_payment_entries_from_batch(bt, batch.name)
+
+        self.assertEqual(created, [])
+        self.assertEqual(self._submitted_pe_count_for(it["invoice"].name), 0)
+
+    def test_rerun_does_not_duplicate_payment_entries(self):
+        """F3: re-running batch reconciliation must not create a second Payment
+        Entry for an already-booked invoice (idempotency)."""
+        it = self._make_member_with_invoice(first_name="GuardDup", grand_total=33.0)
+        batch = self._make_batch([it], row_status="Successful")
+        bt = self._make_bank_transaction(deposit=33.0, date=today())
+
+        first = self.mgr.create_payment_entries_from_batch(bt, batch.name)
+        self.assertEqual(len(first), 1)
+
+        second = self.mgr.create_payment_entries_from_batch(bt, batch.name)
+        self.assertEqual(second, [], "re-run must not create duplicate PEs")
+        self.assertEqual(
+            self._submitted_pe_count_for(it["invoice"].name),
+            1,
+            "exactly one submitted PE should reference the invoice after a re-run",
+        )
+
+    def test_partial_collection_leaves_transaction_unreconciled(self):
+        """S2: when failed rows mean the booked total is short of the deposit, the
+        bank transaction is left Unreconciled (not falsely Reconciled) so an
+        operator sees the discrepancy."""
+        ok_it = self._make_member_with_invoice(first_name="GuardPart1", grand_total=30.0)
+        failed_it = self._make_member_with_invoice(first_name="GuardPart2", grand_total=20.0)
+        batch = self._make_batch([ok_it, failed_it], row_status=["Successful", "Failed"])
+        # Deposit reflects the FULL intended batch (50) but only 30 was collected.
+        bt = self._make_bank_transaction(deposit=50.0, date=today())
+        match = {
+            "type": "batch",
+            "reference": batch.name,
+            "confidence": 1.0,
+            "match_reason": "exact batch ref",
+        }
+        ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+        self.assertFalse(ok, "partial collection must not report success")
+        bt.reload()
+        self.assertEqual(
+            bt.status, "Unreconciled", "txn must be left Unreconciled on partial collection"
+        )
+
+    def test_full_collection_reconciles(self):
+        """S2 happy path: when the booked total matches the deposit, the
+        transaction is marked Reconciled."""
+        it = self._make_member_with_invoice(first_name="GuardFull", grand_total=44.0)
+        batch = self._make_batch([it], row_status="Successful")
+        bt = self._make_bank_transaction(deposit=44.0, date=today())
+        match = {
+            "type": "batch",
+            "reference": batch.name,
+            "confidence": 1.0,
+            "match_reason": "exact batch ref",
+        }
+        ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+        self.assertTrue(ok)
+        bt.reload()
+        self.assertIn(bt.status, ("Reconciled", "Settled"))
+
+
+# =============================================================================
 # process_sepa_return_file (whitelist) + parse_pain002_file stub bug
 # =============================================================================
 class TestProcessSepaReturnFile(BTRBase):
@@ -864,16 +967,61 @@ class TestProcessSepaReturnFile(BTRBase):
         with self.assertRaises(frappe.ValidationError):
             btr.process_sepa_return_file("ignored", file_type="mt940")
 
-    @unittest.expectedFailure
     def test_pain002_stub_crashes(self):
-        """PRODUCT BUG: parse_pain002_file (bank_transaction_reconciliation.py
-        ~1097) is an unimplemented stub that returns None. process_sepa_return_file
-        then does `for return_item in return_data:` over None -> TypeError. The
-        CORRECT behaviour (asserted here) would be a structured result dict; this
-        is expected to FAIL until pain.002 parsing is implemented. Documented for
-        the orchestrator."""
+        """Regression (FIXED): parse_pain002_file now performs a real (minimal,
+        namespace-agnostic) parse of the pain.002 transaction-status blocks and
+        returns a list (empty for a document with no TxInfAndSts), so
+        process_sepa_return_file iterates safely and returns a structured result
+        dict with 'processed'."""
         result = btr.process_sepa_return_file("<Document></Document>", file_type="pain.002")
         self.assertIn("processed", result)
+
+    def test_parse_pain002_namespaced_rjct_and_acsp(self):
+        """F6: a realistic NAMESPACED pain.002 with one RJCT (carrying a
+        StsRsnInf/Rsn/Cd reason code) and one ACSP block must parse into the
+        correct status + reason mapping. The RJCT reason code must come from
+        StsRsnInf/Rsn/Cd, NOT from an unrelated <Cd> elsewhere in the block."""
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.03">
+  <CstmrPmtStsRpt>
+    <OrgnlPmtInfAndSts>
+      <TxInfAndSts>
+        <OrgnlEndToEndId>E2E-INV-001</OrgnlEndToEndId>
+        <TxSts>RJCT</TxSts>
+        <StsRsnInf>
+          <Rsn><Cd>AM04</Cd></Rsn>
+          <AddtlInf>Insufficient funds</AddtlInf>
+        </StsRsnInf>
+        <OrgnlTxRef>
+          <PmtTpInf><SvcLvl><Cd>SEPA</Cd></SvcLvl></PmtTpInf>
+        </OrgnlTxRef>
+      </TxInfAndSts>
+      <TxInfAndSts>
+        <OrgnlEndToEndId>E2E-INV-002</OrgnlEndToEndId>
+        <TxSts>ACSP</TxSts>
+      </TxInfAndSts>
+    </OrgnlPmtInfAndSts>
+  </CstmrPmtStsRpt>
+</Document>"""
+        rows = btr.parse_pain002_file(xml)
+        self.assertEqual(len(rows), 2)
+        by_id = {r["end_to_end_id"]: r for r in rows}
+
+        rjct = by_id["E2E-INV-001"]
+        self.assertEqual(rjct["status"], "Rejected")
+        self.assertEqual(rjct["raw_status"], "RJCT")
+        # Reason code is scoped to StsRsnInf/Rsn/Cd — NOT the SvcLvl/Cd="SEPA".
+        self.assertEqual(rjct["reason_code"], "AM04")
+        self.assertEqual(rjct["reason_text"], "Insufficient funds")
+
+        acsp = by_id["E2E-INV-002"]
+        self.assertEqual(acsp["status"], "Accepted")
+        self.assertEqual(acsp["raw_status"], "ACSP")
+
+    def test_parse_pain002_malformed_returns_empty_list(self):
+        """F6: malformed XML must return [] (so callers iterate safely) rather
+        than raising."""
+        self.assertEqual(btr.parse_pain002_file("<Document><TxInfAndSts>"), [])
 
 
 if __name__ == "__main__":
