@@ -538,8 +538,11 @@ def _create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional
         settings = frappe.get_single("Verenigingen Settings")
         company = invoice_doc.company or settings.company
 
-        # Get Ponto bank account from settings
-        ponto_bank_account = getattr(settings, "ponto_bank_account_parent", None)
+        # Get Ponto bank account from settings. ponto_bank_account_parent lives
+        # on Verenigingen Payments Settings.
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        ponto_bank_account = getattr(get_payments_settings(), "ponto_bank_account_parent", None)
         if not ponto_bank_account:
             # Try to find a Ponto account
             ponto_bank_account = frappe.db.get_value(

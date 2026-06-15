@@ -346,7 +346,10 @@ def get_parent_bank_account_group(company: str) -> Optional[str]:
         Parent account name or None
     """
     try:
-        settings = frappe.get_single("Verenigingen Settings")
+        # ponto_bank_account_parent lives on Verenigingen Payments Settings.
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        settings = get_payments_settings()
         parent_account = getattr(settings, "ponto_bank_account_parent", None)
 
         if parent_account:

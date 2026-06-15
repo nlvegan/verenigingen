@@ -1106,7 +1106,10 @@ class DuesPaymentProcessor:
                 )
                 return None
 
-            customer_account = getattr(verenigingen_settings, "dues_payments_receivable_account", None)
+            # dues_payments_receivable_account lives on Verenigingen Payments Settings.
+            from verenigingen.utils.settings_utils import get_payments_settings
+
+            customer_account = getattr(get_payments_settings(), "dues_payments_receivable_account", None)
             if not customer_account:
                 customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
             if not customer_account:
@@ -1147,10 +1150,11 @@ class DuesPaymentProcessor:
                     f"[Mollie] Invoice {invoice_name} was paid by another process during PE creation, "
                     f"creating unallocated PE instead. Original error: {e}"
                 )
-                # Create unallocated PE as fallback
-                customer_account = getattr(
-                    frappe.get_single("Verenigingen Settings"), "dues_payments_receivable_account", None
-                )
+                # Create unallocated PE as fallback. dues_payments_receivable_account
+                # lives on Verenigingen Payments Settings.
+                from verenigingen.utils.settings_utils import get_payments_settings
+
+                customer_account = getattr(get_payments_settings(), "dues_payments_receivable_account", None)
                 if not customer_account:
                     customer_account = frappe.get_cached_value(
                         "Company", company, "default_receivable_account"

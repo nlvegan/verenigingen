@@ -139,8 +139,11 @@ class _LegacyPaymentEntryFactory:
                     "Company", company, "default_receivable_account"
                 )
 
-            # Get Mollie bank account - prefer settings, fallback to named account, then default
-            accounts["bank_account"] = settings.mollie_bank_account
+            # Get Mollie bank account - prefer settings, fallback to named account, then default.
+            # mollie_bank_account lives on Verenigingen Payments Settings.
+            from verenigingen.utils.settings_utils import get_payments_settings
+
+            accounts["bank_account"] = getattr(get_payments_settings(), "mollie_bank_account", None)
             if not accounts["bank_account"]:
                 accounts["bank_account"] = frappe.get_value(
                     "Account", {"company": company, "account_name": "Mollie"}, "name"
