@@ -611,6 +611,11 @@ def require_sepa_permission(
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Only the authorization check is wrapped here. The decorated
+            # function is invoked AFTER this block so that exceptions raised by
+            # the endpoint body (e.g. frappe.ValidationError from validation)
+            # propagate with their real type instead of being masked as a
+            # generic PermissionError.
             try:
                 auth_manager = get_auth_manager()
 
@@ -622,8 +627,6 @@ def require_sepa_permission(
                 # Validate operation against the explicitly required level
                 auth_manager.validate_operation(operation, context=context, required_level=permission_level)
 
-                return func(*args, **kwargs)
-
             except VerenigingenPermissionError as e:
                 frappe.throw(str(e), exc=frappe.PermissionError)
             except Exception as e:
@@ -633,6 +636,8 @@ def require_sepa_permission(
                     module="verenigingen.utils.security.authorization",
                 )
                 frappe.throw(_("Authorization check failed"), exc=frappe.PermissionError)
+
+            return func(*args, **kwargs)
 
         return wrapper
 

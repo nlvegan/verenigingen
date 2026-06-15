@@ -292,3 +292,56 @@ class TestDDBatchApprovalEndpoints(EnhancedTestCase):
         self.assertTrue(result["success"])
         names = {b["name"] for b in result["batches"]}
         self.assertIn(batch.name, names)
+
+
+class TestRequireSepaPermissionErrorPropagation(EnhancedTestCase):
+    """Regression: @require_sepa_permission no longer masks endpoint-body errors.
+
+    The decorator used to wrap the whole endpoint body in `except Exception` and
+    re-raise every inner error as a generic
+    frappe.PermissionError("Authorization check failed"). It now guards only the
+    authorization check, so real endpoint errors (e.g. frappe.ValidationError from
+    the batch-state / validation checks) propagate with their true type and
+    message instead of being hidden behind a PermissionError.
+
+    Run as Administrator, who passes the auth gate - so any exception that reaches
+    the caller comes from the endpoint body, exactly the path the fix protects.
+    """
+
+    def test_approve_empty_batch_raises_validation_error_not_permission_error(self):
+        batch = self.create_test_direct_debit_batch(invoice_count=1)
+        # Empty the batch so validate_batch_for_approval fails with "No invoices".
+        batch.set("invoices", [])
+        batch.db_set("entry_count", 0)
+        batch.db_set("total_amount", 0)
+        frappe.db.delete("Direct Debit Batch Invoice", {"parent": batch.name})
+
+        # The endpoint body throws a ValidationError; the fixed decorator lets it
+        # through with its real type rather than masking it as PermissionError.
+        with self.assertRaises(frappe.ValidationError):
+            ctrl.approve_batch(batch_name=batch.name)
+        # And it must NOT be raised as a PermissionError.
+        try:
+            ctrl.approve_batch(batch_name=batch.name)
+        except frappe.PermissionError:
+            self.fail("approve_batch error was masked as PermissionError")
+        except frappe.ValidationError:
+            pass
+
+    def test_trigger_generation_unapproved_raises_validation_error_mentioning_approved(self):
+        batch = self.create_test_direct_debit_batch(invoice_count=1)
+        batch.db_set("approval_status", "Pending Approval")
+
+        # Not-approved guard raises a ValidationError whose message mentions
+        # "approved" - it must reach the caller as a ValidationError, not a
+        # generic PermissionError.
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            ctrl.trigger_sepa_generation(batch_name=batch.name)
+        self.assertIn("approved", str(ctx.exception).lower())
+
+        try:
+            ctrl.trigger_sepa_generation(batch_name=batch.name)
+        except frappe.PermissionError:
+            self.fail("trigger_sepa_generation error was masked as PermissionError")
+        except frappe.ValidationError:
+            pass

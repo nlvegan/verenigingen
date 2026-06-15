@@ -318,7 +318,7 @@ def get_batch_conflicts(batch_id):
                     {"action": "exclude_entry", "label": "Exclude from batch"},
                 ]
             )
-        elif "iban" in (entry.error_message or "").lower():
+        elif "iban" in (entry.result_message or "").lower():
             conflict["resolution_options"].extend(
                 [
                     {"action": "update_iban", "label": "Update IBAN"},
@@ -423,7 +423,7 @@ def get_eligible_invoices(filters: dict | None = None):
             sm.iban,
             sm.status as mandate_status
         FROM `tabSales Invoice` si
-        LEFT JOIN `tabMember` mem ON si.customer = mem.name
+        LEFT JOIN `tabMember` mem ON mem.customer = si.customer
         LEFT JOIN `tabSEPA Mandate` sm ON mem.name = sm.member AND sm.status = 'Active'
         WHERE {' AND '.join(conditions)}
         AND sm.mandate_id IS NOT NULL
@@ -500,16 +500,17 @@ def apply_conflict_resolutions(batch_id, resolutions):
                 if resolution.get("new_iban"):
                     entry.iban = resolution["new_iban"]
                 entry.status = "Pending"
-                entry.error_message = ""
+                entry.result_message = ""
                 entry.save()
                 result["success"] = True
                 result["message"] = "Mandate updated successfully"
 
             elif resolution["action"] == "exclude_entry":
-                # Remove entry from batch
-                entry = frappe.get_doc("Direct Debit Batch Invoice", resolution["entry_id"])
-                entry.status = "Excluded"
-                entry.save()
+                # Remove the entry from the batch entirely. SEPA generation
+                # iterates every child row regardless of status, so merely
+                # flagging an entry would NOT stop it being debited; the row
+                # must be deleted (mirrors the consolidate path below).
+                frappe.delete_doc("Direct Debit Batch Invoice", resolution["entry_id"])
                 result["success"] = True
                 result["message"] = "Entry excluded from batch"
 
@@ -540,6 +541,12 @@ def apply_conflict_resolutions(batch_id, resolutions):
             result["message"] = str(e)
 
         results.append(result)
+
+    # Reload to pick up the child-row edits/deletions made above via
+    # independent get_doc().save()/delete_doc() calls. Without this, save()
+    # below would re-sync the child table from the stale in-memory snapshot
+    # loaded before the resolutions ran, silently reverting them.
+    batch.reload()
 
     # Recalculate batch totals
     batch.calculate_totals()

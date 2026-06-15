@@ -805,8 +805,10 @@ def update_batch_optimization_config(new_config):
         if field not in new_config:
             frappe.throw(_(f"Missing required configuration field: {field}"))
 
-    # Save to Verenigingen Settings or custom doctype
-    settings = frappe.get_single("Verenigingen Settings")
+    # Persist to Verenigingen Payments Settings — the field was migrated there
+    # (patches/v2_1/migrate_financial_settings_to_payments.py) and that is where
+    # get_scheduler_config() and www/batch-optimizer.py read it back from.
+    settings = frappe.get_single("Verenigingen Payments Settings")
     settings.batch_optimization_config = frappe.as_json(new_config)
     settings.save()
 

@@ -5,7 +5,7 @@ Automated scheduling and management of optimized batch creation
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_weekday, getdate, now_datetime
+from frappe.utils import add_days, add_to_date, get_weekday, getdate, now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
@@ -579,7 +579,7 @@ def run_batch_creation_now():
         # 7. Rate limiting check - prevent abuse
         recent_runs = frappe.db.count(
             "Direct Debit Batch",
-            {"creation": [">", add_days(now_datetime(), hours=-1)], "owner": frappe.session.user},
+            {"creation": [">", add_to_date(now_datetime(), hours=-1)], "owner": frappe.session.user},
         )
         if recent_runs > 5:  # Max 5 manual runs per hour per user
             return {
@@ -709,7 +709,7 @@ def get_batch_optimization_stats():
 
         total_amount = sum(batch.total_amount for batch in recent_batches)
         total_invoices = sum(batch.entry_count for batch in recent_batches)
-        processed_batches = len([b for b in recent_batches if b.workflow_state in ["Completed", "Submitted"]])
+        processed_batches = len([b for b in recent_batches if b.status in ["Submitted", "Processed"]])
 
         stats = {
             "total_batches": len(recent_batches),
