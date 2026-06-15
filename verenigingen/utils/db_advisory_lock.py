@@ -398,11 +398,16 @@ def _get_redis_lock(lock_name: str, timeout: int = 10, ttl: int = None) -> bool:
     # Generate unique ownership token for this acquisition attempt
     token = str(uuid.uuid4())
 
-    # Try to acquire lock with exponential backoff
+    # Try to acquire lock with exponential backoff.
+    # NOTE: use do-while semantics so a non-blocking call (timeout=0) still
+    # attempts the SET exactly once. A plain `while elapsed < timeout` loop
+    # would never run its body when timeout=0, making every non-blocking
+    # acquisition spuriously report the lock as held (mirrors the DB backend's
+    # GET_LOCK(name, 0) which does attempt acquisition at timeout 0).
     start_time = time.time()
     attempt = 0
 
-    while (time.time() - start_time) < timeout:
+    while True:
         # Try to set the lock with our token (NX = only if not exists, EX = expiry)
         if redis.set(lock_key, token, nx=True, ex=ttl):
             # Store token for safe release
@@ -412,7 +417,11 @@ def _get_redis_lock(lock_name: str, timeout: int = 10, ttl: int = None) -> bool:
             )
             return True
 
-        # Lock not acquired, wait with exponential backoff
+        # Lock not acquired; stop if we've exhausted the (possibly zero) timeout.
+        if (time.time() - start_time) >= timeout:
+            break
+
+        # Wait with exponential backoff before retrying.
         attempt += 1
         wait_time = min(0.1 * (2**attempt), 2.0)  # Max 2 second wait
         time.sleep(wait_time)

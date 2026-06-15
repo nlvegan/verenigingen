@@ -268,7 +268,13 @@ class BulkInvoiceGenerationService(StatefulService):
         )
 
         # Filter by member status
-        ineligible_statuses = ["Quit", "Expelled", "Deceased", "Quit"]
+        # NOTE: must match the canonical ineligible list used by EligibilityChecker
+        # and billing_date_service ("Banned" is the real schema status; there is no
+        # "Expelled" Member status, and "Quit" was previously duplicated).
+        # NOTE: must match the canonical ineligible list used by EligibilityChecker
+        # and billing_date_service ("Banned" is the real schema status; there is no
+        # "Expelled" Member status, and "Quit" was previously duplicated).
+        ineligible_statuses = ["Quit", "Banned", "Deceased"]
         eligible_for_processing = []
 
         for schedule_data in all_schedules:
