@@ -15,7 +15,7 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -535,7 +535,7 @@ class SEPARulebookValidator:
                             suggested_fix=f"Update control sum to {actual_sum:.2f}",
                         )
                     )
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, InvalidOperation):
                 issues.append(
                     ValidationIssue(
                         rule_id=rule.rule_id,
@@ -930,7 +930,7 @@ class SEPARulebookValidator:
                         )
                     )
 
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, InvalidOperation):
                 issues.append(
                     ValidationIssue(
                         rule_id=rule.rule_id,
