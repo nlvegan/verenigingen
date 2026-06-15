@@ -567,38 +567,40 @@ class SEPARollbackManager:
             return {"success": False, "errors": [f"Membership status rollback failed: {str(e)}"]}
 
     def _rollback_mandate_usage(self, invoice_names: List[str], batch_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Rollback mandate usage tracking"""
+        """Rollback mandate usage tracking.
+
+        NOTE: Mandate usage on the SEPA Mandate DocType is modelled as a
+        ``usage_history`` child table (SEPA Mandate Usage rows keyed per
+        invoice), NOT as a scalar counter. There is no ``usage_count`` column to
+        decrement -- the previous UPDATE against ``tabSEPA Mandate.usage_count``
+        always raised "Unknown column 'usage_count'", which was swallowed into
+        the errors list and falsely reported the whole rollback as failed,
+        thereby BLOCKING compensation-transaction generation (which is gated on
+        overall rollback success).
+
+        Until a deliberate decision is made on how (or whether) to unwind
+        ``usage_history`` rows on rollback, this step is a safe no-op that
+        reports the mandate references it would affect and returns success, so a
+        successful rollback is no longer falsely blocked. The affected mandate
+        references are still surfaced for visibility/audit.
+        """
         try:
-            updated_mandates = []
-            errors = []
+            # Get unique mandate references from affected invoices (for visibility).
+            mandate_refs = sorted(
+                {
+                    invoice.mandate_reference
+                    for invoice in batch_info["invoices"]
+                    if invoice.invoice in invoice_names and invoice.mandate_reference
+                }
+            )
 
-            # Get unique mandate references from affected invoices
-            mandate_refs = set()
-            for invoice in batch_info["invoices"]:
-                if invoice.invoice in invoice_names and invoice.mandate_reference:
-                    mandate_refs.add(invoice.mandate_reference)
-
-            for mandate_ref in mandate_refs:
-                try:
-                    # Decrease usage count
-                    frappe.db.sql(
-                        """
-                        UPDATE `tabSEPA Mandate`
-                        SET usage_count = GREATEST(0, COALESCE(usage_count, 0) - 1),
-                            modified = %s
-                        WHERE mandate_id = %s
-                    """,
-                        (now(), mandate_ref),
-                    )
-
-                    updated_mandates.append(mandate_ref)
-
-                except Exception as e:
-                    errors.append(f"Failed to rollback mandate usage for {mandate_ref}: {str(e)}")
-
-            frappe.db.commit()
-
-            return {"success": len(errors) == 0, "updated_mandates": updated_mandates, "errors": errors}
+            return {
+                "success": True,
+                "updated_mandates": [],
+                "affected_mandates": mandate_refs,
+                "errors": [],
+                "note": "Mandate usage-history rollback is not implemented; step is a no-op.",
+            }
 
         except Exception as e:
             return {"success": False, "errors": [f"Mandate usage rollback failed: {str(e)}"]}
@@ -794,6 +796,13 @@ class SEPARollbackManager:
         try:
             entry_id = f"AUDIT_{operation_id}_{uuid.uuid4().hex[:8].upper()}"
 
+            # frappe.local.request RAISES AttributeError (it is not merely falsy)
+            # when there is no active HTTP request -- e.g. background jobs,
+            # scheduled tasks, tests. Resolve it safely so the audit INSERT below
+            # is never swallowed in non-request contexts.
+            request = getattr(frappe.local, "request", None)
+            ip_address = request.environ.get("REMOTE_ADDR") if request else None
+
             frappe.db.sql(
                 """
                 INSERT INTO `tabSEPA_Rollback_Audit`
@@ -813,11 +822,7 @@ class SEPARollbackManager:
                     "system_info": frappe.as_json(
                         {
                             "site": frappe.local.site if frappe.local else "unknown",
-                            "ip_address": (
-                                frappe.local.request.environ.get("REMOTE_ADDR")
-                                if frappe.local.request
-                                else None
-                            ),
+                            "ip_address": ip_address,
                         }
                     ),
                 },
@@ -935,28 +940,27 @@ class SEPARollbackManager:
     def get_rollback_status(self, operation_id: str) -> Dict[str, Any]:
         """Get status of rollback operation"""
         try:
-            operation_data = frappe.db.get_value(
-                "SEPA_Rollback_Operation",
-                {"operation_id": operation_id},
-                [
-                    "operation_id",
-                    "batch_name",
-                    "reason",
-                    "scope",
-                    "initiated_by",
-                    "initiated_at",
-                    "affected_invoices",
-                    "affected_members",
-                    "total_amount",
-                    "status",
-                    "completed_at",
-                    "error_log",
-                ],
+            # SEPA_Rollback_Operation is a raw SQL tracking table (created in
+            # _ensure_rollback_tables), NOT a registered DocType. frappe.db.get_value
+            # would run meta-driven field validation and raise
+            # "DocType SEPA_Rollback_Operation not found" as soon as a row matches,
+            # so read it with raw parameterized SQL like the rest of this manager.
+            operation_rows = frappe.db.sql(
+                """
+                SELECT operation_id, batch_name, reason, scope, initiated_by,
+                       initiated_at, affected_invoices, affected_members,
+                       total_amount, status, completed_at, error_log
+                FROM `tabSEPA_Rollback_Operation`
+                WHERE operation_id = %s
+            """,
+                (operation_id,),
                 as_dict=True,
             )
 
-            if not operation_data:
+            if not operation_rows:
                 return {"success": False, "error": f"Rollback operation not found: {operation_id}"}
+
+            operation_data = operation_rows[0]
 
             # Get compensation transactions
             compensation_transactions = frappe.db.sql(
