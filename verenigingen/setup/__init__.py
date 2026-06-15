@@ -436,7 +436,6 @@ def create_default_verenigingen_settings():
                     "support_email": "",
                     "creation_user": frappe.session.user or "Administrator",
                     # Campaign/Donation settings (REQUIRED for campaign donations)
-                    "default_donation_type": "General",
                     "auto_create_donors": 1,
                     "minimum_donation_amount": 1.00,
                     "default_donor_type": "Individual",
@@ -446,24 +445,18 @@ def create_default_verenigingen_settings():
                     "last_member_id": 1000,
                     "default_grace_period_days": 30,
                     "max_fee_adjustments_per_year": 2,
-                    "enable_income_calculator": 0,
-                    # SEPA settings (for payment processing)
-                    "company_iban": "",  # User needs to configure
-                    "company_account_holder": default_company,
-                    "company_bic": "",  # User needs to configure
-                    "creditor_id": "",  # User needs to configure
                     # Automation settings (disabled by default for safety)
-                    "automate_membership_payment_entries": 0,
+                    # NOTE: SEPA bank details (company_iban / company_bic /
+                    # creditor_id / company_account_holder) and the termination
+                    # system settings now live on the "Verenigingen Payments
+                    # Settings" doctype, not here. They used to be seeded into
+                    # this dict but Frappe silently drops unknown keys, so the
+                    # values were never applied. Keys removed to avoid the
+                    # misleading no-op seed.
                     "automate_donation_payment_entries": 0,
                     "auto_cancel_sepa_mandates": 0,
                     "auto_end_board_positions": 0,
                     "send_termination_notifications": 0,
-                    # Termination system settings
-                    "enable_termination_system": 1,
-                    "require_secondary_approval": 1,
-                    "appeal_deadline_days": 30,
-                    "appeal_review_days": 60,
-                    "termination_grace_period_days": 30,
                 }
             )
 
