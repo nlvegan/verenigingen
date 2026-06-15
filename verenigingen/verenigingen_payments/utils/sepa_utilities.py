@@ -214,18 +214,40 @@ class BatchLoggingUtilities:
             return
 
         try:
-            # Create log entry
-            frappe.get_doc(
-                {
-                    "doctype": "SEPA Operation Audit Log",
-                    "batch_name": batch_name,
-                    "operation": "Batch Processing",
-                    "message": message,
-                    "log_level": level,
-                    "timestamp": frappe.utils.now(),
-                }
-            ).insert(
-                ignore_permissions=True
+            # Map the batch-logger inputs onto the REAL "SEPA Operation Audit
+            # Log" schema fields. The doctype has NO batch_name/operation/
+            # message/log_level fields; writing those silently fails the insert.
+            #   batch_name -> link_name (Data: "Link Record Name")
+            #   level      -> operation_status (Select: success/failed/partial/blocked)
+            #   message    -> compliance_notes (+ error_message for Error level)
+            # operation_type is constrained to a fixed Select; a batch-processing
+            # entry maps to "sepa_bulk_operation".
+            status_by_level = {"Error": "failed", "Warning": "partial", "Info": "success"}
+            operation_status = status_by_level.get(level, "success")
+
+            # Pre-populate ip_address/user_agent: the doctype's before_insert
+            # otherwise calls frappe.get_request_header(), which raises
+            # "object is not bound" outside an HTTP request (background jobs,
+            # scheduled batch runs, tests) and would abort the insert.
+            request_context = bool(getattr(frappe.local, "request", None))
+            audit_fields = {
+                "doctype": "SEPA Operation Audit Log",
+                "operation_type": "sepa_bulk_operation",
+                "operation_status": operation_status,
+                "link_name": batch_name,
+                "compliance_notes": message,
+                "timestamp": frappe.utils.now(),
+            }
+            if not request_context:
+                audit_fields["ip_address"] = "unknown"
+                audit_fields["user_agent"] = "unknown"
+            if operation_status == "failed":
+                audit_fields["error_message"] = message
+
+            # ignore_mandatory: the schema marks `member` as required, but a
+            # batch-level log entry is not tied to a single member.
+            frappe.get_doc(audit_fields).insert(
+                ignore_permissions=True, ignore_mandatory=True
             )  # Security: SEPA batch audit logging
 
         except Exception as e:

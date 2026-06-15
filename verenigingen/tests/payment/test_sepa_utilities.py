@@ -521,27 +521,40 @@ class TestBatchLoggingAuditLog(EnhancedTestCase):
         except Exception as e:  # pragma: no cover - guard
             self.fail(f"add_to_batch_log raised: {e}")
 
-    @unittest.expectedFailure
     def test_audit_log_record_actually_created(self):
-        """PRODUCT BUG: BatchLoggingUtilities.add_to_batch_log inserts a doc
+        """FIXED: BatchLoggingUtilities.add_to_batch_log used to insert a doc
         with fields {batch_name, operation, message, log_level} but the
         'SEPA Operation Audit Log' doctype defines NONE of those fields (its
         real fields are operation_type, operation_status, error_message,
-        timestamp, ...). The insert() raises, is caught, and logged to
-        frappe.log_error -> the audit entry is SILENTLY DROPPED. No SEPA batch
-        log is ever persisted.
+        compliance_notes, link_name, timestamp, ...). The insert() raised, was
+        caught, and logged to frappe.log_error -> the audit entry was SILENTLY
+        DROPPED.
 
-        Root cause: verenigingen_payments/utils/sepa_utilities.py:218-229
-        (BatchLoggingUtilities.add_to_batch_log) vs doctype schema at
-        verenigingen/verenigingen_payments/doctype/sepa_operation_audit_log/
-        sepa_operation_audit_log.json.
-
-        Asserts the CORRECT behaviour: a log record should be persisted.
+        add_to_batch_log now maps its inputs onto the real schema fields, so a
+        row is actually persisted. This test asserts the row exists with the
+        mapped values.
         """
         before = frappe.db.count("SEPA Operation Audit Log")
-        BatchLoggingUtilities.add_to_batch_log("BATCH-XYZ", "a unique log message")
+        BatchLoggingUtilities.add_to_batch_log("BATCH-XYZ", "a unique log message", level="Error")
         after = frappe.db.count("SEPA Operation Audit Log")
         self.assertEqual(after, before + 1)
+
+        # The persisted row carries the mapped field values.
+        log_name = frappe.db.get_value(
+            "SEPA Operation Audit Log",
+            {"link_name": "BATCH-XYZ", "compliance_notes": "a unique log message"},
+            "name",
+        )
+        self.assertIsNotNone(log_name)
+        row = frappe.db.get_value(
+            "SEPA Operation Audit Log",
+            log_name,
+            ["operation_type", "operation_status", "error_message"],
+            as_dict=True,
+        )
+        self.assertEqual(row.operation_type, "sepa_bulk_operation")
+        self.assertEqual(row.operation_status, "failed")
+        self.assertEqual(row.error_message, "a unique log message")
 
     def test_log_batch_operation_does_not_raise(self):
         # Wraps add_to_batch_log with structured details; same swallow-on-error
