@@ -136,15 +136,16 @@ class TestStagedDataEndpoints(EnhancedTestCase):
         _clear_staged_cache()
         super().tearDown()
 
-    def test_PRODUCT_BUG_config_status_queries_missing_columns(self):
-        # PRODUCT BUG: get_migration_config_status() selects fields
-        # `category` and `confidence` from E-Boekhouden Account Mapping, but
-        # neither column exists in the DocType (the schema has
-        # transaction_category / no confidence field). The frappe.get_all then
-        # raises MySQL 1054, which is caught and re-thrown as ValidationError.
-        # api.py:31-42 (the mappings query).
-        with self.assertRaises(frappe.ValidationError):
-            get_migration_config_status()
+    def test_config_status_returns_staged_data_and_mappings(self):
+        # Regression for the missing-column bug: get_migration_config_status()
+        # used to SELECT `category`/`confidence` (not real columns) and crash
+        # with MySQL 1054 on every call. It must now return the staged-data
+        # summary plus the real mappings list. api.py:31-42.
+        result = get_migration_config_status()
+        self.assertTrue(result["staged_data_exists"])
+        self.assertEqual(result["staged_count"], 6)
+        self.assertIsInstance(result["mappings"], list)
+        self.assertEqual(result["mappings_count"], len(result["mappings"]))
 
     def test_staged_data_summary_categorizes_transactions(self):
         summary = get_staged_data_summary()
@@ -177,14 +178,17 @@ class TestStagedDataEndpoints(EnhancedTestCase):
         codes_in_order = [s["account_code"] for s in result["suggestions"]]
         self.assertLess(codes_in_order.index("8000"), codes_in_order.index("4500"))
 
-    def test_PRODUCT_BUG_preview_migration_impact_missing_column(self):
-        # PRODUCT BUG: preview_migration_impact() selects `category` from
-        # E-Boekhouden Account Mapping (api.py:275-278) which does not exist,
-        # raising MySQL 1054 -> ValidationError. It also reads
-        # mapping.get("target_document_type") (also not a real column).
+    def test_preview_migration_impact_counts_unmapped_as_journal_entries(self):
+        # Regression for the missing-column bug: preview_migration_impact() used
+        # to SELECT `category` (not a real column) and read
+        # mapping.get("target_document_type") (also not real), crashing with 1054.
+        # With all mappings cleared, every staged transaction is unmapped and must
+        # be counted as a journal entry, none as purchase invoices. api.py:275-291.
         clear_all_mappings()
-        with self.assertRaises(frappe.ValidationError):
-            preview_migration_impact()
+        result = preview_migration_impact()
+        self.assertEqual(result["total_transactions"], 6)
+        self.assertEqual(result["purchase_invoices"], 0)
+        self.assertEqual(result["journal_entries"], result["total_transactions"])
 
     def test_summary_without_staged_throws(self):
         _clear_staged_cache()

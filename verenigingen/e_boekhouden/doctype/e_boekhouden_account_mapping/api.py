@@ -35,8 +35,7 @@ def get_migration_config_status():
                 "account_code",
                 "account_name",
                 "document_type",
-                "category",
-                "confidence",
+                "transaction_category",
                 "is_active",
             ],
         )
@@ -274,7 +273,7 @@ def preview_migration_impact():
         mappings = {}
         for mapping in frappe.get_all(
             "E-Boekhouden Account Mapping",
-            fields=["account_code", "document_type", "category"],
+            fields=["account_code", "document_type"],
         ):
             mappings[mapping["account_code"]] = mapping
 
@@ -288,7 +287,7 @@ def preview_migration_impact():
             account_code = trans.get("account", {}).get("code")
             mapping = mappings.get(account_code)
 
-            if mapping and mapping.get("target_document_type") == "Purchase Invoice":
+            if mapping and mapping.get("document_type") == "Purchase Invoice":
                 purchase_invoices += 1
             else:
                 journal_entries += 1
