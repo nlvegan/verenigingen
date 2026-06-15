@@ -18,7 +18,7 @@ from typing import Any, Dict
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate, today
+from frappe.utils import add_days, flt, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
@@ -718,8 +718,13 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50) -> Operatio
                         )
                         schedule_doc.member = None
                         schedule_doc.member_name = None
+                        # NOTE: Document.save() does not accept `ignore_validate`
+                        # (that kwarg raised "unexpected keyword argument" and made
+                        # this clear path always fail). Skip validation by setting
+                        # the document flag instead.
+                        schedule_doc.flags.ignore_validate = True
                         # Security: Cleanup function protected by Administrator/System Manager role check
-                        schedule_doc.save(ignore_permissions=True, ignore_validate=True)
+                        schedule_doc.save(ignore_permissions=True)
                         schedule_result["action"] = "reference_cleared"
                         results["references_cleared"] += 1
                     except Exception as e:
@@ -892,7 +897,13 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
                             "note"
                         ] = f"Member {membership_data['member']} exists - manual review needed"
                     else:
-                        # Check for dependent records before deletion
+                        # Check for dependent records before deletion.
+                        # NOTE: Sales Invoice has NO `membership` column - it links
+                        # to a membership indirectly via its `member` field (and the
+                        # dues schedule). Query SIs by the membership's member instead;
+                        # the previous `WHERE membership = %s` raised a 1054 Unknown
+                        # column error, crashing this dependency guard for every
+                        # candidate and rolling back the whole cleanup.
                         dependent_records = frappe.db.sql(
                             """
                             SELECT 'Dues Schedule' as type, COUNT(*) as count
@@ -901,9 +912,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
                             UNION ALL
                             SELECT 'Sales Invoice' as type, COUNT(*) as count
                             FROM `tabSales Invoice`
-                            WHERE membership = %s
+                            WHERE member = %s AND member IS NOT NULL AND member != ''
                         """,
-                            (membership_data["name"], membership_data["name"]),
+                            (membership_data["name"], membership_data["member"]),
                             as_dict=True,
                         )
 
