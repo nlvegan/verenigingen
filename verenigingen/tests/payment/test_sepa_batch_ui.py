@@ -19,19 +19,17 @@ Return-shape notes (verified live on test_site_1):
     * get_invoice_mandate_info / validate_invoice_mandate are NOT wrapped (they
       catch internally and return plain dicts).
 
-PRODUCT BUGS still open (xfailed below, flagged for a maintainer decision):
-    * create_sepa_batch_validated can never create a batch: it sets batch_doc.description
-      (no such field; reqd field is batch_description), never sets batch currency, and
-      omits the reqd child-row fields member / membership. Insert always fails with
-      "batch_description, membership, member". (Fixing it needs sourcing member/membership
-      per invoice, so it is left flagged rather than guessed at.)
-    * validate_with_schema("sepa_batch") decorator is a no-op (schema fields
-      batch_name/execution_date/invoice_ids do not match the function body and never
-      enforce).
-
 Fixed during this sweep:
     * load_unpaid_invoices(limit=0) used to bypass limit validation (falsy short-circuit);
       the guard now uses `is not None`.
+    * create_sepa_batch_validated could never create a batch: it set batch_doc.description
+      (no such field; reqd field is batch_description), never set batch currency, and
+      omitted the reqd child-row fields member / membership. Now sourced per invoice
+      (commit b0f5efa2); see test_valid_params_should_create_batch.
+    * The validate_with_schema("sepa_batch") decorator was dead: its schema fields
+      (batch_name/execution_date/invoice_ids) never match the function's params, and
+      ValidationSchema.validate only checks fields present in the payload, so it enforced
+      nothing. Removed; real validation is SEPAInputValidator.validate_batch_creation_params.
 """
 
 import unittest

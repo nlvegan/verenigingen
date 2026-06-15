@@ -13,7 +13,6 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
-from verenigingen.utils.security.enhanced_validation import validate_with_schema
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
@@ -350,7 +349,6 @@ def preview_sepa_xml(batch_name: str):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-@validate_with_schema("sepa_batch")
 @handle_api_error
 def create_sepa_batch_validated(**params):
     """
