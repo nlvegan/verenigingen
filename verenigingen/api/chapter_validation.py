@@ -222,9 +222,11 @@ def validate_board_member(chapter_name: str, volunteer, role) -> OperationResult
                 message=_("Selected volunteer is not active"),
             )
 
-        # Check if volunteer is already on the board
+        # Check if volunteer is already on the board. Chapter Board Member tracks
+        # active seats via the `is_active` check field — there is no `status`
+        # column (a "status" filter silently matched nothing via db.exists).
         existing = frappe.db.exists(
-            "Chapter Board Member", {"parent": chapter_name, "volunteer": volunteer, "status": "Active"}
+            "Chapter Board Member", {"parent": chapter_name, "volunteer": volunteer, "is_active": 1}
         )
 
         if existing:
@@ -272,8 +274,10 @@ def validate_board_removal(chapter_name: str) -> OperationResult[Dict[str, Any]]
         OperationResult[Dict[str, Any]]: Validation result
     """
     try:
-        # Get current board size
-        board_count = frappe.db.count("Chapter Board Member", {"parent": chapter_name, "status": "Active"})
+        # Get current board size. Use the real `is_active` check field — a
+        # "status" filter raises (Unknown column 'status'), which the broad
+        # except below swallowed, so this guard never actually ran.
+        board_count = frappe.db.count("Chapter Board Member", {"parent": chapter_name, "is_active": 1})
 
         if board_count <= 1:
             return OperationResult.ok(
