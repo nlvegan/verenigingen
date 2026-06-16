@@ -75,8 +75,11 @@ class TestPollDivisionContacts(EnhancedTestCase):
 
         self.assertEqual(count, 1)
         mock_create_event.assert_called_once()
-        call_kwargs = mock_create_event.call_args
-        self.assertEqual(call_kwargs.kwargs.get("event_type") or call_kwargs[1].get("event_type", call_kwargs[0][0] if call_kwargs[0] else None), "Changed")
+        # _create_sync_event is always called with event_type as a keyword
+        # (polling_service.py). The old chained-`or` fallback could surface
+        # "Changed" from an unintended arg slot; assert the kwarg directly so a
+        # drift in name/value fails loudly.
+        self.assertEqual(mock_create_event.call_args.kwargs["event_type"], "Changed")
 
     @patch.object(MijnRoodPollingService, "_find_linked_member", return_value=None)
     @patch.object(MijnRoodPollingService, "_create_sync_event")

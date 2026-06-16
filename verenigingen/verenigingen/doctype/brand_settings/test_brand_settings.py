@@ -197,9 +197,25 @@ class TestBrandSettingsModuleHelpers(EnhancedTestCase):
     def test_get_active_brand_settings_cache_roundtrip(self):
         frappe.cache().delete_key("active_brand_settings")
         first = get_active_brand_settings()
-        # Second call should hit cache and return equivalent data
-        second = get_active_brand_settings()
-        self.assertEqual(first.get("primary_color"), second.get("primary_color"))
+        # The first call must populate the cache.
+        self.assertIsNotNone(frappe.cache().get_value("active_brand_settings"))
+
+        original = frappe.db.get_single_value("Brand Settings", "primary_color")
+        sentinel = "#abcdef" if original != "#abcdef" else "#fedcba"
+        try:
+            # Mutate the Single directly: db.set_single_value bypasses the
+            # on_update cache invalidation, so a fresh read WOULD differ...
+            frappe.db.set_single_value("Brand Settings", "primary_color", sentinel)
+            self.assertEqual(frappe.db.get_single_value("Brand Settings", "primary_color"), sentinel)
+            # ...but the second call must still return the pre-mutation value,
+            # proving it is actually served from cache rather than re-read. The
+            # old test compared two unchanged calls and proved nothing.
+            second = get_active_brand_settings()
+            self.assertEqual(second.get("primary_color"), first.get("primary_color"))
+            self.assertNotEqual(second.get("primary_color"), sentinel)
+        finally:
+            frappe.db.set_single_value("Brand Settings", "primary_color", original)
+            frappe.cache().delete_key("active_brand_settings")
 
     def test_get_organization_logo_returns_none_or_url(self):
         frappe.cache().delete_key("organization_logo")
