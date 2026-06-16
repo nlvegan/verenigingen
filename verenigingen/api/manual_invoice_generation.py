@@ -150,9 +150,12 @@ def generate_manual_invoice(member_name: str) -> OperationResult[Dict[str, Any]]
 
         # Generate the invoice using the schedule's method
         try:
-            invoice_name = schedule_doc.generate_invoice(force=True)  # Force generation for manual invoices
+            # generate_invoice returns the Sales Invoice document (or None), not
+            # its name — take .name for the response payload and message.
+            invoice = schedule_doc.generate_invoice(force=True)  # Force generation for manual invoices
 
-            if invoice_name:
+            if invoice:
+                invoice_name = invoice.name
                 data = {
                     "invoice_name": invoice_name,
                     "amount": flt(dues_schedule.dues_rate, 2),
