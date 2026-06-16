@@ -18,13 +18,13 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
-from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.csrf_protection import require_csrf_token
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
-@validate_csrf_token
+@require_csrf_token
 def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
     """
     Generate a comprehensive health report for all dues schedules
@@ -47,78 +47,18 @@ def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
                 context={"operation": "get_schedule_health_report"},
             )
 
-        # Get all active schedules
-        active_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"status": "Active"},
-            fields=[
-                "name",
-                "member",
-                "schedule_name",
-                "membership_type",
-                "is_template",
-                "creation",
-                "dues_rate",
-            ],
-        )
-
-        # Categorize schedules
-        healthy_schedules = []
-        orphaned_member_schedules = []
-        orphaned_type_schedules = []
-        template_schedules = []
-        inappropriate_zero_rate_schedules = []
-
-        for schedule in active_schedules:
-            # Skip templates (they're supposed to not have members)
-            if schedule.is_template:
-                template_schedules.append(schedule)
-                continue
-
-            issues = []
-
-            # Check member reference
-            if schedule.member:
-                if not frappe.db.exists("Member", schedule.member):
-                    issues.append("missing_member")
-            else:
-                issues.append("no_member")
-
-            # Check membership type reference
-            if schedule.membership_type:
-                if not frappe.db.exists("Membership Type", schedule.membership_type):
-                    issues.append("missing_membership_type")
-            else:
-                issues.append("no_membership_type")
-
-            # Check for zero rates - only flag if membership type requires payment
-            if schedule.dues_rate == 0 and schedule.membership_type:
-                # Check if the membership type allows zero rates (free memberships)
-                membership_type_data = frappe.db.get_value(
-                    "Membership Type", schedule.membership_type, ["minimum_amount"], as_dict=True
-                )
-
-                if membership_type_data and membership_type_data.minimum_amount > 0:
-                    # Zero rate but membership type requires payment - this is problematic
-                    issues.append("inappropriate_zero_rate")
-                # If minimum_amount is 0, then zero rate is expected (free membership)
-
-            # Categorize based on issues
-            if not issues:
-                healthy_schedules.append(schedule)
-            else:
-                if "missing_member" in issues:
-                    orphaned_member_schedules.append({**schedule, "issues": issues})
-                elif "missing_membership_type" in issues:
-                    orphaned_type_schedules.append({**schedule, "issues": issues})
-                elif "inappropriate_zero_rate" in issues:
-                    inappropriate_zero_rate_schedules.append({**schedule, "issues": issues})
+        # Categorize all active schedules (shared with cleanup, which needs the
+        # COMPLETE lists rather than the display-capped preview below).
+        categorized = _categorize_active_schedules()
+        orphaned_member_schedules = categorized["orphaned_members"]
+        orphaned_type_schedules = categorized["orphaned_types"]
+        inappropriate_zero_rate_schedules = categorized["inappropriate_zero_rates"]
 
         data = {
             "report_date": now_datetime(),
-            "total_active_schedules": len(active_schedules),
-            "healthy_schedules": len(healthy_schedules),
-            "template_schedules": len(template_schedules),
+            "total_active_schedules": categorized["active_total"],
+            "healthy_schedules": len(categorized["healthy"]),
+            "template_schedules": len(categorized["templates"]),
             "issues": {
                 "orphaned_members": {
                     "count": len(orphaned_member_schedules),
@@ -157,7 +97,7 @@ def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", Roles.SYSTEM_MANAGER])
-@validate_csrf_token
+@require_csrf_token
 def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned schedules with proper audit trail
@@ -192,21 +132,21 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
                 context={"operation": "cleanup_orphaned_schedules", "dry_run": dry_run},
             )
 
-        # Get health report to identify issues
-        health_report_result = get_schedule_health_report()
-        if not health_report_result.success:
-            return health_report_result
-
-        health_report = health_report_result.data
+        # Identify the COMPLETE set of problem schedules. We call the shared
+        # categorizer directly (not get_schedule_health_report, which is a
+        # decorated endpoint that serializes its result to a dict and whose
+        # display lists are capped to 10) so cleanup never silently skips
+        # records beyond the first 10.
+        categorized = _categorize_active_schedules()
 
         if issue_type == "orphaned_members":
-            problem_schedules = health_report["issues"]["orphaned_members"]["schedules"]
+            problem_schedules = categorized["orphaned_members"]
             action_description = "Cancel schedules with missing member references"
         elif issue_type == "orphaned_types":
-            problem_schedules = health_report["issues"]["orphaned_types"]["schedules"]
+            problem_schedules = categorized["orphaned_types"]
             action_description = "Cancel schedules with missing membership type references"
         elif issue_type == "inappropriate_zero_rates":
-            problem_schedules = health_report["issues"]["inappropriate_zero_rates"]["schedules"]
+            problem_schedules = categorized["inappropriate_zero_rates"]
             action_description = "Cancel schedules with inappropriate zero rates"
         else:
             return OperationResult.fail(
@@ -219,24 +159,15 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
             data = {"processed": 0, "dry_run": dry_run}
             return OperationResult.ok(data, message=_("No {0} found to clean up").format(issue_type))
 
-        # Get full list (not just first 10 from report)
-        if issue_type == "orphaned_members":
-            # Get all schedules with missing members
-            all_active = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"status": "Active", "is_template": 0},
-                fields=["name", "member", "schedule_name"],
-            )
-            problem_schedules = [
-                s for s in all_active if s.member and not frappe.db.exists("Member", s.member)
-            ]
-
         cleanup_actions = []
 
         try:
-            if not dry_run:
-                frappe.db.begin()
-
+            # NOTE: do NOT call frappe.db.begin() here. The @high_security_api /
+            # @require_role decorators and log_sensitive_operation() above have
+            # already written audit rows in the ambient request transaction, so an
+            # explicit START TRANSACTION trips Frappe's implicit-commit guard and the
+            # whole destructive path fails. We accumulate writes in the ambient
+            # transaction and commit() at the end (rollback() on error).
             for schedule_data in problem_schedules:
                 action = {
                     "schedule": schedule_data["name"],
@@ -339,7 +270,7 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
-@validate_csrf_token
+@require_csrf_token
 def prevent_orphaned_schedules() -> OperationResult[Dict[str, Any]]:
     """
     Check for potential issues before they become orphaned schedules
@@ -472,6 +403,89 @@ def prevent_orphaned_schedules() -> OperationResult[Dict[str, Any]]:
             errors=[str(e)],
             context={"operation": "prevent_orphaned_schedules"},
         )
+
+
+def _categorize_active_schedules():
+    """Categorize every active dues schedule by health issue.
+
+    Returns the COMPLETE (un-capped) lists. Shared by get_schedule_health_report
+    (which slices each list to 10 for display) and cleanup_orphaned_schedules
+    (which must operate on the full set). Keeping this in one place prevents the
+    cleanup path from silently skipping records beyond the report's first-10 preview.
+
+    Issue precedence (a schedule lands in at most one bucket): missing_member >
+    missing_membership_type > inappropriate_zero_rate.
+    """
+    active_schedules = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={"status": "Active"},
+        fields=[
+            "name",
+            "member",
+            "schedule_name",
+            "membership_type",
+            "is_template",
+            "creation",
+            "dues_rate",
+        ],
+    )
+
+    healthy = []
+    orphaned_members = []
+    orphaned_types = []
+    templates = []
+    inappropriate_zero_rates = []
+
+    for schedule in active_schedules:
+        # Skip templates (they're supposed to not have members)
+        if schedule.is_template:
+            templates.append(schedule)
+            continue
+
+        issues = []
+
+        # Check member reference
+        if schedule.member:
+            if not frappe.db.exists("Member", schedule.member):
+                issues.append("missing_member")
+        else:
+            issues.append("no_member")
+
+        # Check membership type reference
+        if schedule.membership_type:
+            if not frappe.db.exists("Membership Type", schedule.membership_type):
+                issues.append("missing_membership_type")
+        else:
+            issues.append("no_membership_type")
+
+        # Check for zero rates - only flag if membership type requires payment
+        if schedule.dues_rate == 0 and schedule.membership_type:
+            membership_type_data = frappe.db.get_value(
+                "Membership Type", schedule.membership_type, ["minimum_amount"], as_dict=True
+            )
+            if membership_type_data and membership_type_data.minimum_amount > 0:
+                # Zero rate but membership type requires payment - this is problematic
+                issues.append("inappropriate_zero_rate")
+            # If minimum_amount is 0, then zero rate is expected (free membership)
+
+        # Categorize based on issues (precedence via the elif chain)
+        if not issues:
+            healthy.append(schedule)
+        elif "missing_member" in issues:
+            orphaned_members.append({**schedule, "issues": issues})
+        elif "missing_membership_type" in issues:
+            orphaned_types.append({**schedule, "issues": issues})
+        elif "inappropriate_zero_rate" in issues:
+            inappropriate_zero_rates.append({**schedule, "issues": issues})
+
+    return {
+        "active_total": len(active_schedules),
+        "healthy": healthy,
+        "orphaned_members": orphaned_members,
+        "orphaned_types": orphaned_types,
+        "templates": templates,
+        "inappropriate_zero_rates": inappropriate_zero_rates,
+    }
 
 
 def _generate_maintenance_recommendations(orphaned_members, orphaned_types, inappropriate_zero_rates):
