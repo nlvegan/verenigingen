@@ -396,3 +396,29 @@ class TestOptimizerIntegration(EnhancedTestCase):
         ):
             self.assertIn(key, result)
         self.assertIsInstance(result["total_checked"], int)
+        # validate_all_pending_invoices swallows ANY query failure into
+        # validation_errors and returns empty result lists, so a shape-only test
+        # stays green even after the eligibility SQL breaks (e.g. a 1054 from a
+        # renamed si.member / mds.status / mem.payment_method column). Assert the
+        # SQL actually ran clean so a future column drift fails this test.
+        self.assertEqual(result["validation_errors"], [], msg=result["validation_errors"])
+
+    def test_validate_all_pending_invoices_detects_terminated_member(self):
+        """A terminated member's still-unpaid invoice must be reported.
+
+        This is the real regression guard for the raw eligibility SQL, which
+        JOINs tabMember and LEFT JOINs tabMembership Dues Schedule and reads
+        mem.status / mds.status / mem.payment_method. Because the endpoint
+        catches every exception into validation_errors and returns empty lists,
+        only a test that asserts a *known* issue is detected (with
+        validation_errors staying empty) will fail when that SQL breaks.
+        """
+        member, invoice = self._make_eligible_member_invoice("OptTerm", member_status="Quit")
+        result = opt.validate_all_pending_invoices()
+        self.assertEqual(result["validation_errors"], [], msg=result["validation_errors"])
+        flagged = {row["invoice"] for row in result["terminated_members"]}
+        self.assertIn(
+            invoice.name,
+            flagged,
+            "terminated member's unpaid invoice must be reported under terminated_members",
+        )
