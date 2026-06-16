@@ -81,6 +81,11 @@ class TestVolunteerApplication(VereningingenTestCase):
     def _data(result):
         return result.get("data") or {}
 
+    @staticmethod
+    def _message(result):
+        # On success the OperationResult message is serialized under meta.
+        return (result.get("meta") or {}).get("message") or ""
+
     def _track_created_volunteer(self, result):
         """Track any Volunteer the endpoint created so tearDown cleans it up."""
         data = self._data(result)
@@ -358,34 +363,13 @@ class TestVolunteerApplication(VereningingenTestCase):
         self.assertIsNone(self._data(result)["member_name"])
 
     # ------------------------------------------------------------------
-    # become_member end-to-end (PRODUCT BUG territory)
+    # become_member end-to-end
     # ------------------------------------------------------------------
-    def test_DEFERRED_become_member_does_not_create_membership_application(self):
-        # New applicant (no existing member) asks to ALSO become a member, but
-        # supplies a valid address. The membership branch STILL drops silently.
-        #
-        # NOTE: the original comment here blamed `result.get("success")` on an
-        # OperationResult — that is WRONG. submit_application is also wrapped by
-        # the result-serializing decorator, so it returns a plain dict and
-        # `.get()` works fine.
-        #
-        # REAL root cause (still present in production): when the applicant does
-        # NOT supply address fields, _create_membership_application injects
-        # invalid hardcoded placeholders — postal_code="0000AA",
-        # address_line1/city="To be provided". "0000AA" fails Dutch postal-code
-        # validation, so submit_application returns success=False; the broad
-        # except in _create_membership_application swallows it and returns None.
-        # Net effect: no Member is created/linked when no valid address is given,
-        # while the call still reports overall success for the Volunteer itself.
-        #
-        # This test deliberately omits address fields to exercise that path and
-        # pins the CURRENT behavior (member_name None, volunteer unlinked).
-        #
-        # DEFERRED design decision for the maintainer: should the volunteer form
-        # require a valid address when become_member is set, and/or surface the
-        # membership-submission failure instead of swallowing it?
-        # No address fields supplied -> the placeholder "0000AA" postal code is
-        # injected and fails Dutch postal-code validation.
+    def test_become_member_without_address_surfaces_membership_error(self):
+        # A new applicant opts in to membership but supplies no address. The
+        # volunteer record is still created (the primary outcome), but the
+        # membership sign-up legitimately fails address validation. That failure
+        # must be SURFACED to the applicant, not silently swallowed.
         payload = self._valid_payload(
             first_name="Wim",
             last_name="DeJong",
@@ -400,13 +384,51 @@ class TestVolunteerApplication(VereningingenTestCase):
         vol = frappe.get_doc("Volunteer", data["volunteer_name"])
         if data["member_name"] and frappe.db.exists("Member", data["member_name"]):
             self.track_doc("Member", data["member_name"])
-        # Current behavior: membership submission fails on the bogus placeholder
-        # postal code, the failure is swallowed, so no member is created/linked.
+
+        # No member is created/linked without a valid address ...
         self.assertIsNone(
             data["member_name"],
             "No member should be created when no valid address is provided",
         )
         self.assertFalse(vol.member, "Volunteer is left unlinked to any member")
+        # ... but the membership failure is now surfaced rather than swallowed.
+        self.assertTrue(
+            data.get("membership_application_error"),
+            "The membership sign-up failure must be surfaced in the response",
+        )
+        # The message names a missing-address-style validation problem.
+        self.assertRegex(
+            self._message(result),
+            r"membership sign-up could not be completed",
+        )
+
+    def test_become_member_with_valid_address_creates_and_links_member(self):
+        # A new applicant opts in to membership AND supplies a valid Dutch
+        # address: a Member is created and the volunteer is linked to it, with no
+        # surfaced membership error.
+        payload = self._valid_payload(
+            first_name="Wim",
+            last_name="DeJong",
+            email=f"wim.{self._uniq}@example.com",
+            become_member=1,
+            address_line1="Hoofdstraat 1",
+            city="Amsterdam",
+            postal_code="1011 AB",
+            country="Netherlands",
+        )
+        result = self._track_created_volunteer(self._submit_as_guest(payload))
+        self.assertTrue(self._ok(result), self._error_message(result))
+
+        data = self._data(result)
+        self.assertIsNone(data.get("membership_application_error"))
+        member_name = data["member_name"]
+        self.assertTrue(member_name, "A member should be created for a valid become_member request")
+        self.track_doc("Member", member_name)
+
+        # The created member carries the applicant's email and the volunteer is linked.
+        self.assertEqual(frappe.db.get_value("Member", member_name, "email"), payload["email"])
+        vol = frappe.get_doc("Volunteer", data["volunteer_name"])
+        self.assertEqual(vol.member, member_name, "Volunteer should be linked to the new member")
 
     # ------------------------------------------------------------------
     # notes-building / mapping unit behavior (pure functions)

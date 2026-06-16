@@ -105,21 +105,46 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
             _add_interest_areas(volunteer.name, data)
 
         # If they also want membership, create member application
-        member_name = None
+        membership_result = None
         if data.get("become_member") and not member_link:
-            member_name = _create_membership_application(data, volunteer.name)
+            membership_result = _create_membership_application(data, volunteer.name)
 
         frappe.db.commit()
 
         # Log volunteer application for analytics
         frappe.logger().info(f"Volunteer application submitted: {volunteer.name} - {data.get('email')}")
 
+        # The volunteer record is always the primary outcome; the optional
+        # membership sign-up is secondary. `member_name` reports the member
+        # CREATED by this become_member request (None when linking to an existing
+        # member or when no membership was requested). Surface a membership
+        # failure to the applicant rather than silently reporting success.
+        member_name = None
+        membership_error = None
+        if membership_result is not None:
+            if membership_result["success"]:
+                member_name = membership_result["member_name"]
+            else:
+                membership_error = membership_result["error"]
+
+        result_data = {
+            "application_id": volunteer.name,
+            "volunteer_name": volunteer.name,
+            "member_name": member_name,
+        }
+
+        if membership_error:
+            result_data["membership_application_error"] = membership_error
+            return OperationResult.ok(
+                result_data,
+                message=_(
+                    "Your volunteer application was received, but your membership sign-up could "
+                    "not be completed: {0}"
+                ).format(membership_error),
+            )
+
         return OperationResult.ok(
-            {
-                "application_id": volunteer.name,
-                "volunteer_name": volunteer.name,
-                "member_name": member_name,
-            },
+            result_data,
             message=_("Volunteer application submitted successfully"),
         )
 
@@ -185,11 +210,21 @@ def _add_interest_areas(volunteer_name, data):
 
 
 def _create_membership_application(data, volunteer_name):
-    """Create membership application if volunteer also wants to become a member."""
+    """Create a membership application for a volunteer who also wants to join.
+
+    Returns a dict ``{"success": bool, "member_name": str|None, "error": str|None}``.
+    The membership outcome is SURFACED to the caller, not swallowed: if the
+    membership sign-up fails, the volunteer record is still created, but the
+    applicant is told their membership needs attention (see the caller).
+    """
     try:
         from verenigingen.api.membership_application import submit_application
 
-        # Build minimal required application data for membership
+        # Pass the real address fields through. The volunteer form collects a
+        # full address; do NOT substitute placeholder defaults (a junk postal
+        # code like "0000AA" fails Dutch validation), so a genuinely missing
+        # address surfaces as an honest validation error instead of silently
+        # discarding the membership request.
         application_data = {
             "first_name": data.get("first_name"),
             "last_name": data.get("last_name"),
@@ -198,40 +233,54 @@ def _create_membership_application(data, volunteer_name):
             "contact_number": data.get("contact_number", ""),
             "interested_in_volunteering": 1,
             "application_source": "Volunteer Application Form (also requested membership)",
-            # Add minimal required address fields
-            "address_line1": data.get("address_line1", "To be provided"),
-            "city": data.get("city", "To be provided"),
-            "postal_code": data.get("postal_code", "0000AA"),
+            "address_line1": data.get("address_line1"),
+            "city": data.get("city"),
+            "postal_code": data.get("postal_code"),
             "country": data.get("country", "Netherlands"),
         }
 
+        # submit_application is a decorated endpoint, so it returns a serialized
+        # dict ({"success", "data", "error"}), not an OperationResult.
         result = submit_application(**application_data)
+        if not isinstance(result, dict) and hasattr(result, "to_dict"):
+            result = result.to_dict()
 
         if result.get("success"):
-            # Link the volunteer to the new member
-            member_name = result.get("member_name")
+            # The membership endpoint returns the new member under data.member_record
+            member_name = (result.get("data") or {}).get("member_record")
 
-            from verenigingen.utils.secure_operations import (
-                get_system_user_for_operation,
-                secure_user_context,
-            )
+            if member_name:
+                from verenigingen.utils.secure_operations import (
+                    get_system_user_for_operation,
+                    secure_user_context,
+                )
 
-            system_user = get_system_user_for_operation("volunteer_application_submission")
+                system_user = get_system_user_for_operation("volunteer_application_submission")
 
-            with secure_user_context(system_user, f"Link volunteer {volunteer_name} to member {member_name}"):
-                volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-                volunteer_doc.member = member_name
-                volunteer_doc.save()
+                with secure_user_context(
+                    system_user, f"Link volunteer {volunteer_name} to member {member_name}"
+                ):
+                    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+                    volunteer_doc.member = member_name
+                    volunteer_doc.save()
 
-            frappe.logger().info(
-                f"Created membership application {member_name} linked to volunteer {volunteer_name}"
-            )
-            return member_name
+                frappe.logger().info(
+                    f"Created membership application {member_name} linked to volunteer {volunteer_name}"
+                )
+            return {"success": True, "member_name": member_name, "error": None}
+
+        # Surface the real failure reason instead of swallowing it.
+        error_message = (result.get("error") or {}).get("message") or _(
+            "Membership application could not be created"
+        )
+        frappe.logger().error(
+            f"Membership application failed for volunteer {volunteer_name}: {error_message}"
+        )
+        return {"success": False, "member_name": None, "error": error_message}
 
     except Exception as e:
-        # Just log the error, don't fail the volunteer application
         frappe.logger().error(f"Error creating membership for volunteer {volunteer_name}: {str(e)}")
-    return None
+        return {"success": False, "member_name": None, "error": str(e)}
 
 
 def _build_volunteer_notes(data):
