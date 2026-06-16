@@ -166,15 +166,18 @@ def _add_interest_areas(volunteer_name, data):
 
     for field, interest_name in interest_mapping.items():
         if data.get(field):
-            # Check if interest area category exists, create if not
+            # Check if interest area category exists, create if not.
+            # The category's name field is `category_name` (its autoname source),
+            # not `interest_category`.
             if not frappe.db.exists("Volunteer Interest Category", interest_name):
                 category = frappe.get_doc(
-                    {"doctype": "Volunteer Interest Category", "interest_category": interest_name}
+                    {"doctype": "Volunteer Interest Category", "category_name": interest_name}
                 )
                 category.insert()
 
-            # Add interest area to volunteer
-            volunteer_doc.append("interests", {"interest_category": interest_name})
+            # Add interest area to volunteer. The child link field is `interest_area`
+            # (a Link to Volunteer Interest Category), not `interest_category`.
+            volunteer_doc.append("interests", {"interest_area": interest_name})
 
     # Save volunteer with all interest areas added
     if len(volunteer_doc.interests) > 0:
