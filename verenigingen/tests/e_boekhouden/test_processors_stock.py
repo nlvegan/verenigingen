@@ -8,10 +8,10 @@ get-or-create, and the early-return branches of ``process()`` (no rows, no
 stock account, zero amount).
 
 Real integration tests against a EUR company. The full Stock Reconciliation
-submit path is intentionally not exercised end-to-end because it requires a
-fully configured warehouse/item valuation chain plus the
-``eboekhouden_mutation_nr`` custom field, which is not present on all test sites;
-those branches are flagged in the agent report instead.
+submit path is exercised end-to-end by ``TestStockReconciliationCreateIntegration``
+(warehouse/item valuation chain plus the ``eboekhouden_mutation_nr`` custom field,
+now synced from fixtures so the mutation-id stash persists and duplicate detection
+works).
 
 Run with:
     bench --site test_site_2 run-tests --app verenigingen \\
@@ -246,12 +246,10 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
     both. There is no external boundary here -- StockProcessor.process is fully
     DB-driven.
 
-    NOTE: Stock Reconciliation on this site has no ``eboekhouden_mutation_nr``
-    custom field, so the processor's attempt to stash the mutation id is a
-    silent in-memory no-op (the value is dropped on save). This does not affect
-    the financial content asserted below. The idempotency/duplicate-handling
-    branch that relies on that field is therefore NOT covered here and is
-    flagged in the agent report.
+    Stock Reconciliation now carries the ``eboekhouden_mutation_nr`` custom field
+    (added to fixtures alongside the four other import doctypes), so the
+    processor's mutation-id stash persists and the duplicate-detection branch is
+    exercised in ``test_mutation_nr_persists_and_enables_duplicate_detection``.
     """
 
     STOCK_LEDGER_ID = 882001
@@ -356,3 +354,31 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
         self.assertEqual(saved.items[0].qty, 12.0)
         self.assertEqual(saved.items[0].amount, 12.0)
         self.assertEqual(saved.items[0].valuation_rate, 1.0)
+
+    def test_mutation_nr_persists_and_enables_duplicate_detection(self):
+        # Regression: Stock Reconciliation now carries the eboekhouden_mutation_nr
+        # custom field (like the four other import doctypes). Previously the
+        # processor stashed the mutation id on an attribute with no DB column, so
+        # the value was silently dropped on save and base_processor.check_duplicate
+        # could never find an already-imported stock mutation.
+        p = self._processor()
+        mut_id = self._unique_id()
+        mut = {
+            "id": mut_id,
+            "type": 7,
+            "date": frappe.utils.today(),
+            "description": "integration dedup stock adjustment",
+            "ledgerId": self.STOCK_LEDGER_ID,
+            "rows": [{"ledgerId": self.EXPENSE_LEDGER_ID, "amount": 30.0}],
+        }
+        doc = p.process(mut)
+        self.assertIsNotNone(doc, p.debug_info)
+
+        saved = frappe.get_doc("Stock Reconciliation", doc.name)
+        # The mutation id is now persisted to the DB (previously a no-op).
+        self.assertEqual(saved.eboekhouden_mutation_nr, str(mut_id))
+
+        # The duplicate-detection branch keyed on that field resolves the existing
+        # document; a different mutation id must not match.
+        self.assertEqual(p.check_duplicate(str(mut_id), "Stock Reconciliation"), saved.name)
+        self.assertIsNone(p.check_duplicate(str(mut_id + 1), "Stock Reconciliation"))
