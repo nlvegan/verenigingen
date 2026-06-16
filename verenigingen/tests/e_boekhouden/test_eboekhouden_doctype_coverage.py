@@ -263,12 +263,26 @@ class TestEBoekhoudenSettings(EnhancedTestCase):
             settings.api_url = original_url
 
     def test_check_range_overlaps_logs_warning(self):
-        """_check_range_overlaps logs when ranges overlap."""
+        """_check_range_overlaps writes a warning Error Log on overlap, nothing otherwise."""
         settings = self._get_settings()
-        # Overlapping ranges: 0000-2999 and 1000-3999
-        ranges = [("0000", "2999"), ("1000", "3999")]
-        # Should not raise, just log
-        settings._check_range_overlaps(ranges, "test category")
+
+        def overlap_log_count():
+            # The warning message is distinctive; count Error Logs carrying it.
+            return frappe.db.count("Error Log", {"error": ("like", "%Range overlap detected%")})
+
+        baseline = overlap_log_count()
+
+        # Disjoint ranges must NOT log.
+        settings._check_range_overlaps([("0000", "0999"), ("1000", "1999")], "no overlap")
+        self.assertEqual(
+            overlap_log_count(), baseline, "Disjoint ranges must not log an overlap warning"
+        )
+
+        # Overlapping ranges (0000-2999 vs 1000-3999) MUST log exactly one warning.
+        settings._check_range_overlaps([("0000", "2999"), ("1000", "3999")], "test category")
+        self.assertEqual(
+            overlap_log_count(), baseline + 1, "Overlapping ranges must log exactly one warning"
+        )
 
 
 class TestEBoekhoudenDashboard(EnhancedTestCase):

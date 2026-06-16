@@ -61,11 +61,14 @@ FLAGS = ("NO_ASSERTION", "TAUTOLOGY", "BROAD_RAISES", "MOCK_ONLY", "PARSE_ERROR"
 
 def is_self_assert(call):
     f = call.func
-    return (
-        isinstance(f, ast.Attribute)
-        and f.attr.startswith("assert")
-        and f.attr not in ASSERT_METHODS_MOCK
-    )
+    if not isinstance(f, ast.Attribute):
+        return False
+    # self.fail()/failUnless()/failIf() are unittest's explicit-failure assertions
+    # (commonly used as `self.fail(...)` inside an except block to assert "did not
+    # raise X"); treat them as assertion-bearing.
+    if f.attr in ("fail", "failUnless", "failIf", "failUnlessRaises"):
+        return True
+    return f.attr.startswith("assert") and f.attr not in ASSERT_METHODS_MOCK
 
 
 def is_mock_assert(call):
