@@ -31,9 +31,6 @@ from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_
     find_donation_for_payment_by_id,
     get_unified_webhook_service,
 )
-from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
-    ensure_mollie_test_credentials,
-)
 
 
 class _FakeState:
@@ -65,15 +62,13 @@ class _FakeState:
 
 
 class WebhookTestBase(EnhancedTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.has_credentials = ensure_mollie_test_credentials()
-
     def setUp(self):
         super().setUp()
-        if not self.has_credentials:
-            self.skipTest("No Mollie test key configured (mollie_test_secret_key in site config)")
+        # The wrapper constructs credential-free: __init__ only builds a
+        # MollieLogger and the UnifiedIdempotencyManager (which is lazy about the
+        # Mollie client). Every test below stubs the SDK / idempotency boundary,
+        # so the suite must NOT be gated on a Mollie key -- otherwise these
+        # reversal/idempotency/503 regression guards silently skip in CI.
         self.service = UnifiedWebhookWrapperService()
 
 

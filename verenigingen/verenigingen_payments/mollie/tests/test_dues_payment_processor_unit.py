@@ -15,10 +15,14 @@ pre-fetched fake payment object instead so no network call happens. Because that
 boundary stub touches a module-level collaborator, this module is named
 ``*_unit.py`` so test-quality-enforcer permits it (Tier-1).
 
-Anything genuinely requiring a live Mollie call (``batch_process_customer_payments``,
-which lists a real customer's payments) is gated behind a Mollie test key and
-skipped without one.
+The processor's ``__init__`` builds a ``MollieClient`` (which needs an API key),
+so setUp patches that one symbol out; every test then either stubs
+``self.processor.mollie_client`` or passes a pre-fetched payment, so the whole
+suite runs in CI without a Mollie key (it previously skipped entirely, hiding the
+duplicate-Bank-Transaction and reconciliation regression guards).
 """
+
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -28,9 +32,6 @@ from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
     BATCH_PAYMENT_LIMIT,
     DuesPaymentProcessor,
-)
-from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
-    ensure_mollie_test_credentials,
 )
 
 
@@ -93,8 +94,6 @@ class DuesProcessorTestBase(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # The processor's __init__ builds a MollieClient which needs an API key.
-        cls.has_credentials = ensure_mollie_test_credentials()
         cls.company = get_eur_test_company()
         # Point Verenigingen Settings at the EUR company so invoice/PE creation
         # resolves accounts against a company with a usable chart of accounts.
@@ -107,15 +106,19 @@ class DuesProcessorTestBase(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        if not self.has_credentials:
-            self.skipTest("No Mollie test key configured (mollie_test_secret_key in site config)")
         # The member-payment matcher is a module-level singleton that caches its
         # member lookup map on first use. Across tests that each create a fresh
         # member, the stale cache would hide later members, so reset it.
         import verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher as mpm
 
         mpm._matcher_instance = None
-        self.processor = DuesPaymentProcessor()
+        # __init__'s only credential-needing step is self.mollie_client =
+        # MollieClient(). These tests either stub the SDK boundary
+        # (self.processor.mollie_client) or pass a payment object directly, so
+        # patch the client out to run in CI without a Mollie key -- otherwise the
+        # duplicate-Bank-Transaction and reconciliation regression guards skip.
+        with patch("verenigingen.verenigingen_payments.mollie.services.dues_payment_processor.MollieClient"):
+            self.processor = DuesPaymentProcessor()
 
     def _member_with_customer(self):
         """Create a real Member with an auto-created linked Customer."""
