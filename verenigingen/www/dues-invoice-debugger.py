@@ -41,10 +41,10 @@ def get_context(context):
     # Get user roles for permission-based features
     context.user_roles = frappe.get_roles()
     context.can_approve = any(
-        role in ["Finance Manager", Roles.SYSTEM_MANAGER] for role in context.user_roles
+        role in ["Verenigingen Financial Manager", Roles.SYSTEM_MANAGER] for role in context.user_roles
     )
     context.can_generate_invoices = any(
-        role in [Roles.VERENIGINGEN_STAFF, "Finance Manager", Roles.SYSTEM_MANAGER]
+        role in [Roles.VERENIGINGEN_STAFF, "Verenigingen Financial Manager", Roles.SYSTEM_MANAGER]
         for role in context.user_roles
     )
 

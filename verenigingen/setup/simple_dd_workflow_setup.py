@@ -55,7 +55,7 @@ def create_simple_dd_batch_workflow():
 
         # State 2: Pending (Awaiting approval)
         workflow_doc.append(
-            "states", {"state": "Pending", "doc_status": "0", "allow_edit": "Finance Manager"}
+            "states", {"state": "Pending", "doc_status": "0", "allow_edit": "Verenigingen Financial Manager"}
         )
 
         # State 3: Approved (Ready for processing)
@@ -94,13 +94,23 @@ def create_simple_dd_batch_workflow():
         # Pending → Approved (Approve)
         workflow_doc.append(
             "transitions",
-            {"state": "Pending", "action": "Approve", "next_state": "Approved", "allowed": "Finance Manager"},
+            {
+                "state": "Pending",
+                "action": "Approve",
+                "next_state": "Approved",
+                "allowed": "Verenigingen Financial Manager",
+            },
         )
 
         # Pending → Rejected (Reject)
         workflow_doc.append(
             "transitions",
-            {"state": "Pending", "action": "Reject", "next_state": "Rejected", "allowed": "Finance Manager"},
+            {
+                "state": "Pending",
+                "action": "Reject",
+                "next_state": "Rejected",
+                "allowed": "Verenigingen Financial Manager",
+            },
         )
 
         # Rejected → Pending (Re-submit)
@@ -121,7 +131,7 @@ def create_simple_dd_batch_workflow():
                 "state": "Approved",
                 "action": "Submit",
                 "next_state": "Submitted",
-                "allowed": "Finance Manager",
+                "allowed": "Verenigingen Financial Manager",
             },
         )
 

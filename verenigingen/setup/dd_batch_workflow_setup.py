@@ -49,7 +49,12 @@ def create_dd_batch_workflow():
 
         # State 5: Pending Senior Approval (High-value batches)
         workflow_doc.append(
-            "states", {"state": "Pending Senior Approval", "doc_status": "0", "allow_edit": "Finance Manager"}
+            "states",
+            {
+                "state": "Pending Senior Approval",
+                "doc_status": "0",
+                "allow_edit": "Verenigingen Financial Manager",
+            },
         )
 
         # State 6: Approved (Ready for SEPA generation)
@@ -64,7 +69,12 @@ def create_dd_batch_workflow():
 
         # State 8: Pending Bank Submission (Ready to send)
         workflow_doc.append(
-            "states", {"state": "Pending Bank Submission", "doc_status": "1", "allow_edit": "Finance Manager"}
+            "states",
+            {
+                "state": "Pending Bank Submission",
+                "doc_status": "1",
+                "allow_edit": "Verenigingen Financial Manager",
+            },
         )
 
         # State 9: Submitted to Bank (Processing)
@@ -78,7 +88,9 @@ def create_dd_batch_workflow():
         )
 
         # State 11: Failed (Requires investigation)
-        workflow_doc.append("states", {"state": "Failed", "doc_status": "1", "allow_edit": "Finance Manager"})
+        workflow_doc.append(
+            "states", {"state": "Failed", "doc_status": "1", "allow_edit": "Verenigingen Financial Manager"}
+        )
 
         # === WORKFLOW TRANSITIONS ===
 
@@ -155,7 +167,7 @@ def create_dd_batch_workflow():
                 "state": "Pending Senior Approval",
                 "action": "Senior Approve",
                 "next_state": "Approved",
-                "allowed": "Finance Manager",
+                "allowed": "Verenigingen Financial Manager",
             },
         )
 
@@ -177,7 +189,7 @@ def create_dd_batch_workflow():
                 "state": "SEPA Generated",
                 "action": "Submit to Bank",
                 "next_state": "Pending Bank Submission",
-                "allowed": "Finance Manager",
+                "allowed": "Verenigingen Financial Manager",
             },
         )
 
@@ -188,7 +200,7 @@ def create_dd_batch_workflow():
                 "state": "Pending Bank Submission",
                 "action": "Confirm Submission",
                 "next_state": "Submitted to Bank",
-                "allowed": "Finance Manager",
+                "allowed": "Verenigingen Financial Manager",
             },
         )
 
@@ -210,7 +222,7 @@ def create_dd_batch_workflow():
                 "state": "Submitted to Bank",
                 "action": "Mark Failed",
                 "next_state": "Failed",
-                "allowed": "Finance Manager",
+                "allowed": "Verenigingen Financial Manager",
             },
         )
 
@@ -221,7 +233,7 @@ def create_dd_batch_workflow():
                 "state": "Failed",
                 "action": "Retry",
                 "next_state": "Pending Validation",
-                "allowed": "Finance Manager",
+                "allowed": "Verenigingen Financial Manager",
             },
         )
 
@@ -330,7 +342,7 @@ def create_required_roles():
 
     print("   👥 Creating required roles...")
 
-    required_roles = ["Verenigingen Staff", "Finance Manager"]
+    required_roles = ["Verenigingen Staff", "Verenigingen Financial Manager"]
 
     for role_name in required_roles:
         if not frappe.db.exists("Role", role_name):

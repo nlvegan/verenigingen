@@ -57,7 +57,7 @@ class Donor(Document):
 
         # Check if user has specific roles that should have permlevel access
         # You can customize this based on your role structure
-        privileged_roles = [Roles.VERENIGINGEN_ADMIN, "Donor Administrator", "Finance Manager"]
+        privileged_roles = [Roles.VERENIGINGEN_ADMIN, "Donor Administrator", "Verenigingen Financial Manager"]
         return any(role in user_roles for role in privileged_roles)
 
     def validate_tax_identifiers(self):

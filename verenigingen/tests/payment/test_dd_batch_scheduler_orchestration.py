@@ -308,26 +308,25 @@ class TestSchedulerNotificationBuilders(_SchedulerOrchestrationBase):
             },
         }
 
-    # NB: both builders target the hard-coded role string "Finance Manager".
-    # That role is NOT defined in this app (its finance role is
-    # "Verenigingen Financial Manager"), so in a real deployment the audience is
-    # always empty and these notifications silently no-op -- a separate, flagged
-    # production bug. These tests therefore pin the empty-audience branch (the
-    # behaviour that actually runs): no audience -> no mail / no Notification Log.
+    # Both builders notify the "Verenigingen Financial Manager" role. These tests
+    # pin the empty-audience branch (no such users -> no mail / no Notification
+    # Log), which is robust without seeding the role. (They previously asserted a
+    # tautology / nothing at all.)
+    FINANCE_ROLE = "Verenigingen Financial Manager"
 
     def test_send_batch_creation_notification_skips_when_no_audience(self):
-        # With no Finance Manager users, the builder must return before touching
+        # With no finance-manager users, the builder must return before touching
         # the email service -- never construct a body or mail an empty recipient
         # list. (Previously this asserted `assertTrue(x or not x)`, a tautology.)
-        frappe.db.delete("Has Role", {"role": "Finance Manager"})
+        frappe.db.delete("Has Role", {"role": self.FINANCE_ROLE})
         with patch.object(sched, "get_email_service") as get_email:
             sched.send_batch_creation_notification(self._minimal_result())
         get_email.assert_not_called()
 
     def test_create_system_notification_no_audience_creates_no_log(self):
-        # With no Finance Manager users, create_system_notification must not
+        # With no finance-manager users, create_system_notification must not
         # create any Notification Log row. (Previously this asserted nothing.)
-        frappe.db.delete("Has Role", {"role": "Finance Manager"})
+        frappe.db.delete("Has Role", {"role": self.FINANCE_ROLE})
         before = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
         sched.create_system_notification(self._minimal_result())
         after = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
