@@ -5,6 +5,7 @@ Implements basic approval workflow using existing Frappe states and actions
 
 import frappe
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -55,7 +56,7 @@ def create_simple_dd_batch_workflow():
 
         # State 2: Pending (Awaiting approval)
         workflow_doc.append(
-            "states", {"state": "Pending", "doc_status": "0", "allow_edit": "Verenigingen Financial Manager"}
+            "states", {"state": "Pending", "doc_status": "0", "allow_edit": Roles.FINANCIAL_MANAGER}
         )
 
         # State 3: Approved (Ready for processing)
@@ -98,7 +99,7 @@ def create_simple_dd_batch_workflow():
                 "state": "Pending",
                 "action": "Approve",
                 "next_state": "Approved",
-                "allowed": "Verenigingen Financial Manager",
+                "allowed": Roles.FINANCIAL_MANAGER,
             },
         )
 
@@ -109,7 +110,7 @@ def create_simple_dd_batch_workflow():
                 "state": "Pending",
                 "action": "Reject",
                 "next_state": "Rejected",
-                "allowed": "Verenigingen Financial Manager",
+                "allowed": Roles.FINANCIAL_MANAGER,
             },
         )
 
@@ -131,7 +132,7 @@ def create_simple_dd_batch_workflow():
                 "state": "Approved",
                 "action": "Submit",
                 "next_state": "Submitted",
-                "allowed": "Verenigingen Financial Manager",
+                "allowed": Roles.FINANCIAL_MANAGER,
             },
         )
 

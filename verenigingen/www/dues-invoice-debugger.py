@@ -6,6 +6,7 @@ User-friendly interface for checking member dues status and generating SEPA DD b
 import frappe
 from frappe import _
 from frappe.utils import add_days, today
+
 from verenigingen.utils.constants import Roles
 
 
@@ -41,10 +42,10 @@ def get_context(context):
     # Get user roles for permission-based features
     context.user_roles = frappe.get_roles()
     context.can_approve = any(
-        role in ["Verenigingen Financial Manager", Roles.SYSTEM_MANAGER] for role in context.user_roles
+        role in [Roles.FINANCIAL_MANAGER, Roles.SYSTEM_MANAGER] for role in context.user_roles
     )
     context.can_generate_invoices = any(
-        role in [Roles.VERENIGINGEN_STAFF, "Verenigingen Financial Manager", Roles.SYSTEM_MANAGER]
+        role in [Roles.VERENIGINGEN_STAFF, Roles.FINANCIAL_MANAGER, Roles.SYSTEM_MANAGER]
         for role in context.user_roles
     )
 

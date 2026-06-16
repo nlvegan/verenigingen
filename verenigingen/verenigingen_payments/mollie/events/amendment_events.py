@@ -127,7 +127,7 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
         member = frappe.get_doc("Member", membership.member)
 
         # Get administrator emails
-        admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Verenigingen Financial Manager"]
+        admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.FINANCIAL_MANAGER]
 
         admin_emails = frappe.get_all(
             "Has Role",

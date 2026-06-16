@@ -329,9 +329,7 @@ def send_batch_creation_notification(result):
                 "enabled": 1,
                 "name": [
                     "in",
-                    frappe.get_list(
-                        "Has Role", filters={"role": "Verenigingen Financial Manager"}, pluck="parent"
-                    ),
+                    frappe.get_list("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent"),
                 ],
             },
             fields=["email", "full_name"],
@@ -427,9 +425,7 @@ def create_system_notification(result):
         )
 
         # Get users with Verenigingen Financial Manager role
-        finance_users = frappe.get_list(
-            "Has Role", filters={"role": "Verenigingen Financial Manager"}, pluck="parent"
-        )
+        finance_users = frappe.get_list("Has Role", filters={"role": Roles.FINANCIAL_MANAGER}, pluck="parent")
 
         for user in finance_users:
             notification_copy = notification.copy()
@@ -559,7 +555,7 @@ def run_batch_creation_now():
 
         # 3. Validate user has required roles (not just permissions)
         user_roles = frappe.get_roles(frappe.session.user)
-        required_roles = ["Verenigingen Financial Manager", "SEPA Administrator", Roles.SYSTEM_MANAGER]
+        required_roles = [Roles.FINANCIAL_MANAGER, "SEPA Administrator", Roles.SYSTEM_MANAGER]
         if not any(role in required_roles for role in user_roles):
             return {
                 "success": False,

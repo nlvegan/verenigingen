@@ -278,7 +278,7 @@ def send_overdue_payment_reminders(
         # Additional financial operation permission check
         user_roles = frappe.get_roles(frappe.session.user)
         required_roles = [
-            "Verenigingen Financial Manager",
+            Roles.FINANCIAL_MANAGER,
             "Accounts Manager",
             Roles.SYSTEM_MANAGER,
             Roles.VERENIGINGEN_ADMIN,

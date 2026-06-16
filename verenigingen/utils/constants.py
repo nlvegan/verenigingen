@@ -15,6 +15,10 @@ class Roles:
     SYSTEM_MANAGER = "System Manager"
     VERENIGINGEN_ADMIN = "Verenigingen Administrator"
     VERENIGINGEN_STAFF = "Verenigingen Staff"
+    # NOTE: the real role is "Verenigingen Financial Manager". A long-standing bug
+    # hard-coded the non-existent "Finance Manager", silently denying access.
+    # Reference this constant rather than re-typing the literal.
+    FINANCIAL_MANAGER = "Verenigingen Financial Manager"
     MEMBER = "Member"
     VOLUNTEER = "Verenigingen Volunteer"
     VOLUNTEER_MANAGER = "Volunteer Manager"

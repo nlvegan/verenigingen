@@ -324,11 +324,11 @@ def can_user_approve_batch(batch):
     risk_level = batch.risk_level
 
     if risk_level == "High":
-        return "Verenigingen Financial Manager" in user_roles
+        return Roles.FINANCIAL_MANAGER in user_roles
     elif risk_level == "Medium":
-        return Roles.VERENIGINGEN_STAFF in user_roles or "Verenigingen Financial Manager" in user_roles
+        return Roles.VERENIGINGEN_STAFF in user_roles or Roles.FINANCIAL_MANAGER in user_roles
     else:  # Low risk
-        return Roles.VERENIGINGEN_STAFF in user_roles or "Verenigingen Financial Manager" in user_roles
+        return Roles.VERENIGINGEN_STAFF in user_roles or Roles.FINANCIAL_MANAGER in user_roles
 
     return False
 
@@ -395,7 +395,7 @@ def trigger_sepa_generation(batch_name: str):
 
         # Check user has permission
         user_roles = frappe.get_roles()
-        if Roles.SYSTEM_MANAGER not in user_roles and "Verenigingen Financial Manager" not in user_roles:
+        if Roles.SYSTEM_MANAGER not in user_roles and Roles.FINANCIAL_MANAGER not in user_roles:
             frappe.throw(_("You don't have permission to generate SEPA files"))
 
         # Generate SEPA file using existing method
@@ -436,7 +436,7 @@ def get_batches_pending_approval():
         if Roles.SYSTEM_MANAGER in user_roles:
             # System Manager can see all draft batches (equivalent to pending approval)
             filters["status"] = ["in", ["Draft", "Generated"]]
-        elif "Verenigingen Financial Manager" in user_roles:
+        elif Roles.FINANCIAL_MANAGER in user_roles:
             # Verenigingen Financial Manager can see all draft batches
             filters["status"] = ["in", ["Draft", "Generated"]]
         elif Roles.VERENIGINGEN_STAFF in user_roles:
