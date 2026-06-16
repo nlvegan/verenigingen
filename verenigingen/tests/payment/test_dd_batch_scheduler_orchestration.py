@@ -308,14 +308,27 @@ class TestSchedulerNotificationBuilders(_SchedulerOrchestrationBase):
             },
         }
 
-    def test_send_batch_creation_notification_does_not_raise(self):
+    # NB: both builders target the hard-coded role string "Finance Manager".
+    # That role is NOT defined in this app (its finance role is
+    # "Verenigingen Financial Manager"), so in a real deployment the audience is
+    # always empty and these notifications silently no-op -- a separate, flagged
+    # production bug. These tests therefore pin the empty-audience branch (the
+    # behaviour that actually runs): no audience -> no mail / no Notification Log.
+
+    def test_send_batch_creation_notification_skips_when_no_audience(self):
+        # With no Finance Manager users, the builder must return before touching
+        # the email service -- never construct a body or mail an empty recipient
+        # list. (Previously this asserted `assertTrue(x or not x)`, a tautology.)
+        frappe.db.delete("Has Role", {"role": "Finance Manager"})
         with patch.object(sched, "get_email_service") as get_email:
             sched.send_batch_creation_notification(self._minimal_result())
-        # If there are Finance Managers the email service is used; otherwise the
-        # function returns early. Either way it must complete without raising.
-        self.assertTrue(get_email.called or not get_email.called)
+        get_email.assert_not_called()
 
-    def test_create_system_notification_does_not_raise(self):
-        # secure_document_operation runs for real (Administrator can create
-        # Notification Log); the function swallows per-user failures internally.
+    def test_create_system_notification_no_audience_creates_no_log(self):
+        # With no Finance Manager users, create_system_notification must not
+        # create any Notification Log row. (Previously this asserted nothing.)
+        frappe.db.delete("Has Role", {"role": "Finance Manager"})
+        before = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
         sched.create_system_notification(self._minimal_result())
+        after = frappe.db.count("Notification Log", {"subject": "Auto-created 1 DD batches"})
+        self.assertEqual(after, before)
