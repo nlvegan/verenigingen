@@ -20,6 +20,18 @@ Four genuine product bugs discovered while testing were originally pinned with
 @unittest.expectedFailure; they are now FIXED in sepa_rollback_manager.py (and,
 for the "Rolled Back" status, in direct_debit_batch.json) and the corresponding
 tests assert the corrected behaviour. See the individual test docstrings.
+
+IMPORTANT -- compensation executors are STUBS. The financial compensation
+executors (_create_credit_note / _reverse_payment / _cancel_invoice /
+_create_account_adjustment, sepa_rollback_manager.py ~L783-822) do NOT yet book
+any real Credit Note / Payment Entry reversal / invoice cancellation / Journal
+Entry -- each merely sets the tracking row's status to "completed" ("For now,
+just mark as completed"). So a compensation-transaction status of "completed"
+here means the TRACKING-ROW lifecycle ran, NOT that financial compensation was
+actually booked. The tests below therefore pin the orchestration/tracking
+lifecycle only; when the executors are implemented they must assert the real
+financial documents (and these notes should be removed). _flag_for_manual_correction
+is the one non-stub executor (it sets the real terminal "requires_manual_action").
 """
 
 import unittest
@@ -345,7 +357,12 @@ class TestSEPARollbackManagerIntegration(EnhancedTestCase):
         return op, batch_info
 
     def test_compensation_transactions_created_for_bank_rejection(self):
-        # BANK_REJECTION maps to CREDIT_NOTE -> one compensation row per invoice.
+        # BANK_REJECTION maps to CREDIT_NOTE -> one compensation TRACKING row per
+        # invoice. NB: _create_credit_note is a stub (see module docstring); the
+        # "completed" status below is the tracking-row lifecycle, NOT a booked
+        # credit note. We additionally assert that reality so a future engineer
+        # cannot mistake this for financial compensation: no real Sales Invoice
+        # return is produced.
         batch = self._make_batch(invoice_count=2)
         op, batch_info = self._operation_for(batch, RollbackReason.BANK_REJECTION)
         gen = self.mgr._generate_compensation_transactions(op, batch_info)
@@ -359,8 +376,11 @@ class TestSEPARollbackManagerIntegration(EnhancedTestCase):
         self.assertEqual(len(comps), 2)
         for c in comps:
             self.assertEqual(c.action_type, "credit_note")
-            # CREDIT_NOTE executor marks the row "completed"
+            # Stub executor marks the tracking row "completed" (no credit note booked).
             self.assertEqual(c.status, "completed")
+        # Document that the stub books nothing financial: no return Sales Invoice
+        # was created for this batch's invoices.
+        self.assertEqual(frappe.db.count("Sales Invoice", {"is_return": 1, "return_against": ["in", [row.invoice for row in batch.invoices]]}), 0)
 
     def test_compensation_manual_correction_flagged(self):
         # USER_REQUESTED maps to MANUAL_CORRECTION -> status requires_manual_action
