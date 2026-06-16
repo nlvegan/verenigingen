@@ -70,14 +70,6 @@ class BulkTransactionImporter(MollieBaseClient):
         Returns:
             Dict with import results
         """
-        # 🔍 DEBUG: Log import_transactions parameters
-        frappe.logger().error("🔍 import_transactions called with:")
-        frappe.logger().error(f"🔍   from_date: {from_date}")
-        frappe.logger().error(f"🔍   to_date: {to_date}")
-        frappe.logger().error(f"🔍   import_strategy: '{import_strategy}'")
-        frappe.logger().error(f"🔍   company: '{company}'")
-        frappe.logger().error(f"🔍   bank_account: '{bank_account}'")
-
         # Ensure dates are timezone-aware before using them
         from ..utils.timezone_utils import ensure_timezone_aware
 
@@ -170,11 +162,6 @@ class BulkTransactionImporter(MollieBaseClient):
             )
             results["transactions"]["errors"] = len(self.errors)
 
-            # Save import record with debug logging
-            frappe.log_error(
-                f"DEBUG: About to call _save_import_record with bank_account='{results.get('bank_account')}'",
-                "Debug Before Save",
-            )
             self._save_import_record(results)
 
         return results
