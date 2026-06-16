@@ -458,6 +458,19 @@ def prepare_sepa_batch(
         )
 
 
+def _unwrap_api_result(result):
+    """Normalize an API call result to ``(success, data)``.
+
+    check_member_dues_status / check_coverage_scheduling_mismatches are
+    @standard_api-decorated, so the security wrapper serializes their
+    OperationResult to a plain dict (``{"success", "data", ...}``) even for
+    in-process calls. This handles both the dict and raw-OperationResult forms.
+    """
+    if isinstance(result, dict):
+        return bool(result.get("success")), result.get("data")
+    return bool(getattr(result, "success", False)), getattr(result, "data", None)
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
 def get_workflow_status() -> OperationResult[Dict[str, Any]]:
@@ -482,15 +495,16 @@ def get_workflow_status() -> OperationResult[Dict[str, Any]]:
             "Sales Invoice", {"status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1}
         )
 
-        # Get members analysis - returns OperationResult now
-        members_status_result = check_member_dues_status()
+        # Get members analysis. These are decorated endpoints, so an in-process
+        # call returns the serialized dict, not an OperationResult — unwrap both.
+        members_success, members_data = _unwrap_api_result(check_member_dues_status())
 
-        # Check for coverage/scheduling mismatches - returns OperationResult now
-        mismatches_result = check_coverage_scheduling_mismatches()
+        # Check for coverage/scheduling mismatches
+        mismatches_success, mismatches_data = _unwrap_api_result(check_coverage_scheduling_mismatches())
 
-        # Extract data from OperationResult responses
-        if members_status_result.success and members_status_result.data:
-            members_status = members_status_result.data
+        # Extract data from the (possibly serialized) responses
+        if members_success and members_data:
+            members_status = members_data
         else:
             members_status = {
                 "summary": {
@@ -503,8 +517,8 @@ def get_workflow_status() -> OperationResult[Dict[str, Any]]:
                 }
             }
 
-        if mismatches_result.success and mismatches_result.data:
-            mismatches = mismatches_result.data
+        if mismatches_success and mismatches_data:
+            mismatches = mismatches_data
         else:
             mismatches = {
                 "total_mismatches": 0,
