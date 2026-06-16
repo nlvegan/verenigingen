@@ -257,6 +257,10 @@ def approve_batch(batch_name: str, approval_notes=None):
         else:
             frappe.throw(_("Batch is not in a state that can be approved"))
 
+        # Persist the state transition. Without this the approval was cosmetic:
+        # the function returned next_state but the document stayed Pending.
+        batch.db_set("approval_status", next_state)
+
         return {
             "success": True,
             "next_state": next_state,
@@ -296,6 +300,10 @@ def reject_batch(batch_name: str, rejection_reason):
             batch.approval_notes = rejection_note
 
         batch.save()
+
+        # Persist the rejection so the document state actually transitions
+        # (previously only the note was recorded; approval_status stayed Pending).
+        batch.db_set("approval_status", "Rejected")
 
         return {"success": True, "message": "Batch rejected with reason provided"}
 

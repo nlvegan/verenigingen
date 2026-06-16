@@ -255,6 +255,10 @@ class TestDDBatchApprovalEndpoints(EnhancedTestCase):
         result = ctrl.approve_batch(batch_name=batch.name, approval_notes="Looks good")
         self.assertTrue(result["success"])
         self.assertEqual(result["next_state"], "Approved")
+        # The state transition must actually be persisted, not just returned.
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "approval_status"), "Approved"
+        )
         # approval note must be persisted with the user/timestamp prefix
         notes = frappe.db.get_value("Direct Debit Batch", batch.name, "approval_notes")
         self.assertIn("Looks good", notes)
@@ -263,6 +267,10 @@ class TestDDBatchApprovalEndpoints(EnhancedTestCase):
         batch = self.create_test_direct_debit_batch(invoice_count=1)
         result = ctrl.reject_batch(batch_name=batch.name, rejection_reason="Bad IBANs")
         self.assertTrue(result["success"])
+        # The rejection must actually transition the document state.
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "approval_status"), "Rejected"
+        )
         notes = frappe.db.get_value("Direct Debit Batch", batch.name, "approval_notes")
         self.assertIn("REJECTED", notes)
         self.assertIn("Bad IBANs", notes)
