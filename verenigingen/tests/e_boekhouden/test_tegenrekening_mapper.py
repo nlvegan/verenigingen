@@ -35,23 +35,18 @@ class TestPureStringHelpers(unittest.TestCase):
         # __init__ only emits a warning + sets attributes; no DB access.
         self.mapper = SmartTegenrekeningMapper(company="Whatever Co")
 
-    def test_generate_item_name_does_not_clean_due_to_fstring_bug(self):
-        # DOCUMENTED DEFECT (deprecated module): _generate_item_name intends to
-        # strip the company suffix and account-code prefix, but it calls
-        # .replace() with the LITERAL strings " - {self.company}" and
-        # "{account_code} - " instead of f-strings (smart_tegenrekening_mapper.py
-        # ~L284-285). The placeholders never interpolate, so a name that SHOULD
-        # be cleaned comes back UNCHANGED. We assert that broken behavior so this
-        # test documents the bug rather than implying the function works. (Module
-        # is deprecated; product is intentionally left untouched.)
+    def test_generate_item_name_cleans_company_suffix_and_code_prefix(self):
+        # _generate_item_name strips the company suffix (" - <company>") and the
+        # account-code prefix ("<code> - ") that eBoekhouden bakes into account
+        # names, leaving a human-readable item name. (This previously had an
+        # f-string defect that made the cleanup a silent no-op; fixed alongside
+        # the test-meaningfulness sweep.)
         company = self.mapper.company  # "Whatever Co"
         account_code = "4500"
-        # A name with both the real company suffix and the account-code prefix:
-        # if the cleanup worked, this would reduce to "Algemene kosten advies".
+        # A name carrying both the real company suffix and the account-code prefix.
         dirty = f"{account_code} - Algemene kosten advies - {company}"
         out = self.mapper._generate_item_name(dirty, account_code)
-        # Cleanup is a no-op because of the f-string defect -> returned unchanged.
-        self.assertEqual(out, dirty)
+        self.assertEqual(out, "Algemene kosten advies")
 
     def test_generate_item_name_truncates_long(self):
         long_name = "A" * 100

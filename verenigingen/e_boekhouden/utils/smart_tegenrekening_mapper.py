@@ -279,10 +279,11 @@ class SmartTegenrekeningMapper:
 
     def _generate_item_name(self, account_name, account_code):
         """Generate meaningful item name from account name"""
-        # Clean up account name
+        # Clean up account name (strip the company suffix and account-code prefix
+        # that eBoekhouden bakes into account names, e.g. "4500 - Foo - NVV").
         item_name = account_name
-        item_name = item_name.replace(" - {self.company}", "")
-        item_name = item_name.replace("{account_code} - ", "")
+        item_name = item_name.replace(f" - {self.company}", "")
+        item_name = item_name.replace(f"{account_code} - ", "")
 
         # Limit length
         if len(item_name) > 60:
