@@ -302,15 +302,21 @@ class TestMijnroodCSVImportSecurity(unittest.TestCase):
 
         for invalid_file in invalid_extensions:
             self.doc.csv_file = f"/files/{invalid_file}"
-            with self.assertRaises(Exception):
+            with self.assertRaises(frappe.exceptions.ValidationError) as context:
                 self.doc._sanitize_filename()
+            # Pin the extension-guard message so an unrelated crash (e.g. an
+            # AttributeError before the check) can't masquerade as this rejection.
+            self.assertIn("allowed", str(context.exception))
 
     def test_field_length_limits(self):
         """Test that field length limits are enforced."""
-        long_value = "A" * 3000  # Exceeds 2000 character limit
+        # Boundary: exactly 2000 chars is accepted, 2001 is rejected.
+        self.assertEqual(self.doc._clean_value("A" * 2000, "first_name"), "A" * 2000)
 
-        with self.assertRaises(Exception):
+        long_value = "A" * 3000  # Exceeds 2000 character limit
+        with self.assertRaises(frappe.exceptions.ValidationError) as context:
             self.doc._clean_value(long_value, "first_name")
+        self.assertIn("too long", str(context.exception))
 
     def test_iban_mod97_validation(self):
         """Test enhanced IBAN validation with MOD-97 algorithm."""

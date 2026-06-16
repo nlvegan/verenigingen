@@ -297,6 +297,23 @@ class TestMijnRoodSyncSettings(EnhancedTestCase):
             self.assertIn("is_terminated", entry)
             self.assertIsInstance(entry["is_terminated"], bool)
 
+    def test_get_status_mapping_for_client_classifies_terminated(self):
+        """The endpoint's whole purpose is the active/terminated classification,
+        so pin concrete values against the known default map (ids 1,2 active;
+        3,4,5,6 terminated). A shape-only test would survive an inverted
+        is_terminated flag -- the single most likely regression here."""
+        # populate_default_status_mapping saves + clears the mapping cache, so the
+        # classification is deterministic regardless of the site's live config.
+        self.settings.populate_default_status_mapping()
+        result = get_status_mapping_for_client()
+        self.assertFalse(result["1"]["is_terminated"])
+        self.assertFalse(result["2"]["is_terminated"])
+        self.assertTrue(result["3"]["is_terminated"])
+        self.assertTrue(result["4"]["is_terminated"])
+        self.assertTrue(result["5"]["is_terminated"])
+        self.assertTrue(result["6"]["is_terminated"])
+        self.assertEqual(result["1"]["label"], "Active (lid)")
+
     # ---- on_update cache invalidation -----------------------------------
 
     def test_on_update_clears_caches(self):
