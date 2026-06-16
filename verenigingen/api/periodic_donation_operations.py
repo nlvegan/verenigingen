@@ -210,11 +210,11 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
                     notification_key="periodic_donation_expiry",
                 )
 
-                # Log the reminder
-                frappe.add_comment(
-                    doctype="Periodic Donation Agreement",
-                    name=agreement.name,
-                    text=f"Renewal reminder sent to {agreement.donor_email} ({days_remaining} days until expiry)",
+                # Log the reminder (frappe has no module-level add_comment; it is a
+                # Document method)
+                frappe.get_doc("Periodic Donation Agreement", agreement.name).add_comment(
+                    "Comment",
+                    f"Renewal reminder sent to {agreement.donor_email} ({days_remaining} days until expiry)",
                 )
 
                 sent_count += 1
@@ -314,11 +314,11 @@ def generate_tax_receipts(filters: dict | str) -> OperationResult[Dict[str, Any]
                 # Generate receipt document (placeholder - implement actual receipt generation)
                 generate_tax_receipt_content(agreement)
 
-                # Save as attachment or create custom doctype
-                frappe.add_comment(
-                    doctype="Periodic Donation Agreement",
-                    name=agreement.name,
-                    text=f"Tax receipt generated for {frappe.utils.formatdate(today())}",
+                # Save as attachment or create custom doctype (frappe has no
+                # module-level add_comment; it is a Document method)
+                frappe.get_doc("Periodic Donation Agreement", agreement.name).add_comment(
+                    "Comment",
+                    f"Tax receipt generated for {frappe.utils.formatdate(today())}",
                 )
 
                 generated_count += 1

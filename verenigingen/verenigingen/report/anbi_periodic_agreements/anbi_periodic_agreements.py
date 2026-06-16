@@ -90,7 +90,7 @@ def get_data(filters):
             pda.anbi_eligible,
             pda.docstatus
         FROM `tabPeriodic Donation Agreement` pda
-        WHERE pda.docstatus = 1
+        WHERE pda.docstatus < 2
         {conditions}
         ORDER BY pda.end_date ASC, pda.agreement_number ASC
     """.format(
