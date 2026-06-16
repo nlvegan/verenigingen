@@ -280,7 +280,25 @@ def fix_account_type_issues(issues) -> OperationResult[Dict[str, Any]]:
                 )
 
                 if result.success:
-                    fixed_count += 1
+                    # ERPNext forces a child Account's root_type to match its
+                    # parent group, so a save can silently revert root_type while
+                    # accepting account_type. Verify the persisted values match
+                    # what was requested before counting it as fixed — otherwise
+                    # report it (don't claim a success that left the account
+                    # inconsistent, e.g. Bank/Income).
+                    account.reload()
+                    if (
+                        account.account_type == issue["suggested_type"]
+                        and account.root_type == issue["suggested_root"]
+                    ):
+                        fixed_count += 1
+                    else:
+                        errors.append(
+                            f"Failed to fully update {issue['account_name']}: persisted "
+                            f"account_type={account.account_type}, root_type={account.root_type} "
+                            f"(requested {issue['suggested_type']}/{issue['suggested_root']}; "
+                            f"root_type is constrained by the parent group account)"
+                        )
                 else:
                     errors.append(f"Failed to update {issue['account_name']}: {'; '.join(result.errors)}")
 
