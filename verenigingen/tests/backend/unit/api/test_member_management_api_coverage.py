@@ -176,6 +176,40 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
                 member_management.assign_member_to_chapter(target.name, self.chapter.name)
         self.assertIn("denied", str(ctx.exception).lower())
 
+    def test_assign_denied_by_inner_check_for_authorized_non_chapter_role(self):
+        """Deny via the BODY-level check, not the decorator.
+
+        Every other deny test stops at the @critical_api tier gate, leaving the
+        inner ``if not can_assign_member_to_chapter(...)`` branch
+        (member_management.py:43-44) untested. 'Verenigingen National Board
+        Member' grants the CRITICAL security level (so the decorator lets the
+        call through) but is NOT in Roles.ADMIN_ROLES and holds no board seat on
+        the target chapter, so can_assign returns False. @handle_api_error then
+        converts the raised PermissionError into a failure OperationResult rather
+        than propagating it.
+        """
+        target = self._make_member()
+        actor = self._make_member()
+        user = self._link_member_to_user(
+            actor, roles=("Verenigingen National Board Member",), role_profile=None
+        )
+        with self._as_user(user.name):
+            result = member_management.assign_member_to_chapter(target.name, self.chapter.name)
+        # Passed the decorator (no "access denied" raise) but the inner check
+        # blocked it -> failure result mentioning the permission denial...
+        self.assertFalse(_ok(result))
+        if isinstance(result, OperationResult):
+            message = result.message or ""
+        else:
+            # The serialized OperationResult nests the text under "error".
+            err = result.get("error")
+            message = (err.get("message") if isinstance(err, dict) else str(err or "")) or result.get(
+                "message", ""
+            )
+        self.assertIn("permission", message.lower())
+        # ...and the target was NOT assigned to the chapter.
+        self.assertIsNone(self._chapter_member_parent(target.name))
+
     # ------------------------------------------------------------------
     # get_members_without_chapter
     # ------------------------------------------------------------------

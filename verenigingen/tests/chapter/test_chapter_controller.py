@@ -212,6 +212,18 @@ class TestChapterController(VereningingenTestCase):
         self._reload_chapter()
         self.chapter.validate_role_profile_configuration()  # must not raise
 
+    def test_validate_role_profile_configuration_warns_when_enabled_without_default(self):
+        """enable_board_role_specific_profiles with no default profile must WARN
+        (msgprint) but not throw -- the previously-uncovered branch where board
+        members would silently get no role profile."""
+        self._reload_chapter()
+        self.chapter.enable_board_role_specific_profiles = 1
+        self.chapter.default_board_role_profile = None
+        before = len(frappe.message_log or [])
+        self.chapter.validate_role_profile_configuration()  # must not raise
+        new_messages = " ".join(str(m) for m in (frappe.message_log or [])[before:]).lower()
+        self.assertIn("no default board role profile", new_messages)
+
     # ================================================ statistics / dashboard delegates
 
     def test_get_chapter_statistics_shape(self):
