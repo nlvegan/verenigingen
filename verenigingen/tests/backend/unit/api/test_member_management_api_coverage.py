@@ -266,10 +266,15 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
     # get_members_with_chapter_info  +  _enrich_members_with_chapters
     # ------------------------------------------------------------------
     def test_get_members_with_chapter_info_enriches(self):
-        member = self._make_member()
+        member = self._make_member(member_since="1990-06-15")
         member_management.assign_member_to_chapter(member.name, self.chapter.name)
 
-        result = member_management.get_members_with_chapter_info(limit=500)
+        # Filter on the member's synthetic member_since (no real member shares it)
+        # so the seeded member is deterministically present despite the endpoint's
+        # 500-row, full_name-ordered cap on a site with hundreds of members.
+        result = member_management.get_members_with_chapter_info(
+            filters={"member_since": "1990-06-15"}, limit=500
+        )
 
         self.assertTrue(_ok(result))
         self.assertTrue(_data(result)["query_optimization"]["n_plus_1_prevented"])
@@ -280,8 +285,10 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
         self.assertIsNotNone(found["primary_chapter"])
 
     def test_get_members_with_chapter_info_member_without_chapter(self):
-        member = self._make_member()
-        result = member_management.get_members_with_chapter_info(limit=500)
+        member = self._make_member(member_since="1990-06-16")
+        result = member_management.get_members_with_chapter_info(
+            filters={"member_since": "1990-06-16"}, limit=500
+        )
         self.assertTrue(_ok(result))
         found = next((m for m in _data(result)["members"] if m["name"] == member.name), None)
         self.assertIsNotNone(found)
@@ -290,9 +297,12 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
 
     def test_get_members_with_chapter_info_filters_sanitized(self):
         """A status filter is honored; unknown filter keys are stripped silently."""
-        member = self._make_member(status="Active")
+        member = self._make_member(status="Active", member_since="1990-06-17")
+        # member_since narrows to the seeded member (deterministic); evil_field
+        # must be stripped (not injected) -> a clean result, not a SQL error.
         result = member_management.get_members_with_chapter_info(
-            filters={"status": "Active", "evil_field": "x' OR 1=1"}, limit=500
+            filters={"status": "Active", "member_since": "1990-06-17", "evil_field": "x' OR 1=1"},
+            limit=500,
         )
         self.assertTrue(_ok(result))
         names = [m["name"] for m in _data(result)["members"]]
