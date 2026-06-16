@@ -353,10 +353,19 @@ class TestSyncLock(EnhancedTestCase):
         self.assertTrue(acquire_sync_lock("run-B"))
 
     def test_release_when_not_held_is_safe(self):
-        from verenigingen.mijnrood_sync.services.polling_service import release_sync_lock
+        from verenigingen.mijnrood_sync.services.polling_service import (
+            _SYNC_LOCK_KEY,
+            acquire_sync_lock,
+            release_sync_lock,
+        )
 
-        release_sync_lock()  # no exception
+        # Release must actually clear the lock key (not just "not raise"), and a
+        # second release on an already-clear key must remain a safe no-op.
+        acquire_sync_lock("run-REL")
         release_sync_lock()
+        self.assertIsNone(frappe.cache().get_value(_SYNC_LOCK_KEY))
+        release_sync_lock()  # idempotent
+        self.assertIsNone(frappe.cache().get_value(_SYNC_LOCK_KEY))
 
     def test_lock_stores_run_id(self):
         from verenigingen.mijnrood_sync.services.polling_service import (
