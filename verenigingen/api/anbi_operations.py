@@ -251,7 +251,6 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
                 "amount",
                 "anbi_agreement_number",
                 "anbi_agreement_date",
-                "donation_type",
                 "donation_purpose_type",
             ],
         )
@@ -271,7 +270,6 @@ def generate_anbi_report(from_date, to_date, include_bsn=False) -> OperationResu
                 "donor_type": donor_doc.donor_type,
                 "anbi_agreement_number": donation.anbi_agreement_number,
                 "anbi_agreement_date": donation.anbi_agreement_date,
-                "donation_type": donation.donation_type,
                 "purpose": donation.donation_purpose_type,
             }
 
@@ -337,19 +335,20 @@ def update_anbi_consent(donor: str, consent, reason=None) -> OperationResult[Dic
     try:
         donor_doc = frappe.get_doc("Donor", donor)
 
-        # Update consent
+        # Update consent. Whitelisted calls deliver `consent` as a string ("0"/"1"),
+        # and "0" is truthy in Python, so the branch must test the cbool-normalized
+        # value, not the raw argument.
         from verenigingen.utils.boolean_utils import cbool
 
-        donor_doc.anbi_consent = cbool(consent)
+        consent_given = cbool(consent)
+        donor_doc.anbi_consent = consent_given
 
-        if consent:
+        if consent_given:
             donor_doc.anbi_consent_date = frappe.utils.now()
-        else:
-            # Log reason for consent withdrawal
-            if reason:
-                frappe.add_comment(
-                    doctype="Donor", name=donor, text=f"ANBI consent withdrawn. Reason: {reason}"
-                )
+        elif reason:
+            # Log reason for consent withdrawal (frappe has no module-level
+            # add_comment; it is a Document method)
+            donor_doc.add_comment("Comment", f"ANBI consent withdrawn. Reason: {reason}")
 
         # Save with proper permission checking (no ignore_permissions)
         donor_doc.save()
@@ -390,10 +389,10 @@ def validate_bsn(bsn: str) -> OperationResult[Dict[str, Any]]:
             - cleaned_value (str): Cleaned BSN value (digits only)
     """
     try:
-        # Import the validation from donor
-        from verenigingen.verenigingen.doctype.donor.donor import Donor
-
-        donor = Donor()
+        # Use a fresh in-memory Donor document to reach the instance-method validator.
+        # NOTE: Donor() cannot be constructed without args (raises ValueError); the
+        # framework factory frappe.new_doc() is the correct way to get an instance.
+        donor = frappe.new_doc("Donor")
 
         # Clean the BSN
         import re
