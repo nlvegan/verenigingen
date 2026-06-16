@@ -164,10 +164,6 @@ class PaymentProcessor(BaseTransactionProcessor):
         # Type 4 = Money paid (Pay)
         return "Receive" if mutation_type == 3 else "Pay"
 
-    def is_enhanced_processing_enabled(self) -> bool:
-        """Enhanced payment processing is always enabled for data quality"""
-        return True
-
     def _process_money_transfer(self, mutation: Dict[str, Any]) -> Optional[frappe.model.document.Document]:
         """
         Process Type 5/6 money transfers by creating Journal Entry with Bank Transaction.
