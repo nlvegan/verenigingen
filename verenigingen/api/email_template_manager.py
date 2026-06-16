@@ -529,6 +529,9 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                     template_doc.subject = template_data["subject"]
                     template_doc.response = template_data["response"]
                     template_doc.use_html = 1
+                    # With use_html=1, Frappe renders response_html (response_()),
+                    # so it must carry the HTML too — otherwise native sends are empty.
+                    template_doc.response_html = template_data["response"]
                     template_doc.save()
                     updated_count += 1
                     frappe.logger().info(f"Updated email template: {template_name}")
@@ -541,6 +544,9 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                             "subject": template_data["subject"],
                             "use_html": 1,
                             "response": template_data["response"],
+                            # With use_html=1, Frappe renders response_html, so it
+                            # must carry the HTML too — otherwise native sends are empty.
+                            "response_html": template_data["response"],
                             "enabled": 1,
                         }
                     )
