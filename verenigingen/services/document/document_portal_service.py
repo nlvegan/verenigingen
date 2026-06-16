@@ -563,9 +563,19 @@ class DocumentPortalService(StatelessService):
             # 4. Service layer handles permission model, not Frappe's doctype permissions
             # Security: Portal service handles org-level access - can_delete verified above (line 538)
             if doc.document_file:
-                file_doc = frappe.db.get_value("File", {"file_url": doc.document_file}, "name")
-                if file_doc:
-                    frappe.delete_doc("File", file_doc, ignore_permissions=True)
+                # Delete EVERY File row pointing at this url. Uploading an
+                # Organization Document creates two File records for the same url
+                # (one attached to the organization by save_organization_document,
+                # one auto-created by Frappe's Attach-field hook on document_file);
+                # deleting only the first left the other orphaned.
+                for file_name in frappe.get_all(
+                    "File", filters={"file_url": doc.document_file}, pluck="name"
+                ):
+                    # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here —
+                    # org-level delete authorization was verified above via can_upload_to()
+                    # (line 538); the service layer owns the permission model, and the user
+                    # may lack direct File doctype permission while holding org-level access.
+                    frappe.delete_doc("File", file_name, ignore_permissions=True)
 
             # 5. Delete the Organization Document
             # SECURITY: Same justification as file delete above
