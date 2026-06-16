@@ -218,15 +218,6 @@ repos:
         files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
         stages: [pre-commit]
 
-      # - id: workspace-content-validator
-      #   name: 🔍 Workspace Content Synchronization Validator
-      #   description: Validate content field vs Card Break synchronization in workspaces
-      #   entry: bench --site dev.veganisme.net execute scripts.validate_workspace_content.main
-      #   language: system
-      #   pass_filenames: false
-      #   files: '^(verenigingen/.*workspace.*\.json|verenigingen/api/workspace_.*\.py)$'
-      #   stages: [pre-commit]
-
       - id: comprehensive-validation
         name: Validation suite runner (field + template)
         entry: python scripts/validation/framework/validation_suite_runner.py --quiet
