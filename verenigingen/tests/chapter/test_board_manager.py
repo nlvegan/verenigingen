@@ -569,7 +569,20 @@ class TestBoardManager(VereningingenTestCase):
         self._reload_chapter()
         self.assertFalse(any(b.volunteer == volunteer.name for b in self.chapter.board_members))
 
-    def test_handle_board_member_changes_none_old_doc_noops(self):
+    def test_handle_board_member_changes_none_old_doc(self):
+        """changes(None)/deletions(None) are pure no-ops, but additions(None) is the
+        new-chapter branch that seeds assignment history + assigns roles for every
+        active board member. The old test asserted nothing; here we drive that
+        branch explicitly and assert it is observable and idempotent."""
         self.manager.handle_board_member_changes(None)  # must not raise
-        self.manager.handle_board_member_additions(None)  # new-chapter path: assigns roles
         self.manager.handle_board_member_deletions(None)  # must not raise
+
+        _member, volunteer, _role = self._seat_board(first="NoneOldDoc")
+        hist_filter = {"parent": volunteer.name, "reference_name": self.chapter.name}
+        before = frappe.db.count("Volunteer Assignment", hist_filter)
+        self.assertGreaterEqual(before, 1, "seating a board member must seed assignment history")
+        # Re-run the new-chapter additions branch explicitly: it must NOT duplicate
+        # history for an already-active board row (idempotent on Active).
+        self.manager.handle_board_member_additions(None)
+        after = frappe.db.count("Volunteer Assignment", hist_filter)
+        self.assertEqual(after, before, "additions(None) must be idempotent for active rows")

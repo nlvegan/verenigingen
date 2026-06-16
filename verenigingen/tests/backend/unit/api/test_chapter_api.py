@@ -53,6 +53,12 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
                 })
                 role.insert()
                 self.track_doc("Chapter Role", role.name)
+            elif not frappe.db.get_value("Chapter Role", role_name, "is_active"):
+                # The role pre-exists on the site but is inactive; add_board_member
+                # rejects inactive roles, so reactivate it for the test. (Without
+                # this, the bare exists() guard silently reuses an inactive role and
+                # every board-add test errors with "Chapter Role ... is not active".)
+                frappe.db.set_value("Chapter Role", role_name, "is_active", 1)
 
     def test_add_board_member_whitelist(self):
         """Test add_board_member method as called from JavaScript"""
@@ -69,10 +75,17 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             from_date=today(),
         )
 
-        # Verify board member was added
+        # The endpoint must report success AND persist the board member, otherwise
+        # a regression that silently no-ops (or returns {"success": False}) would
+        # have slipped past the old assertion-free version of this test.
+        self.assertTrue(result["success"], msg=result)
         chapter.reload()
-        # Note: API method may not directly modify the chapter document's board_members child table
-        # Instead check if volunteer was added successfully via the result
+        active = [
+            b
+            for b in chapter.board_members
+            if b.volunteer == volunteer.name and b.chapter_role == "Board Member" and b.is_active
+        ]
+        self.assertEqual(len(active), 1, "board member must be persisted as an active row")
 
     def test_remove_board_member_whitelist(self):
         """Test remove_board_member method"""
@@ -428,49 +441,37 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
                 )
 
     def test_error_handling(self):
-        """Test error handling in whitelisted methods"""
+        """Removing a non-existent board member raises a specific, message-bearing error.
+
+        Tightened from assertRaises(Exception): a bare Exception would also pass on
+        an unrelated AttributeError/KeyError from a refactor that broke the method
+        before it ever reached the not-a-board-member guard.
+        """
         chapter = self.test_chapter
 
-        # Test removing non-existent board member
-        with self.assertRaises(Exception):
+        with self.assertRaises(frappe.ValidationError) as context:
             chapter.remove_board_member(
                 volunteer="non-existent-volunteer",
                 end_date=today(),
             )
-
-        # Test invalid chapter assignment (if method exists)
-        try:
-            with self.assertRaises(Exception):
-                frappe.call(
-                    "verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter",
-                    member_name="non-existent-member",
-                    chapter_name=chapter.name,
-                )
-        except AttributeError:
-            # Method doesn't exist, skip test
-            pass
+        self.assertIn("not an active board member", str(context.exception))
 
     def test_data_integrity(self):
-        """Test data integrity in chapter operations"""
+        """The board API allows one volunteer to hold multiple distinct (non-unique) roles.
+
+        Replaces a try/except that passed whether the second add raised OR not (so it
+        asserted nothing). Pin the real contract: adding a second, different role
+        leaves the volunteer with two active board rows.
+        """
         chapter = self.test_chapter
         member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
-        # Test duplicate board member prevention
-        chapter.add_board_member(
-            volunteer=volunteer.name,
-            role="Treasurer",
-            from_date=today(),
-        )
+        chapter.add_board_member(volunteer=volunteer.name, role="Treasurer", from_date=today())
+        chapter.add_board_member(volunteer=volunteer.name, role="Secretary", from_date=today())
 
-        # Try to add same volunteer again with active role (may or may not raise error)
-        try:
-            chapter.add_board_member(
-                volunteer=volunteer.name,
-                role="Secretary",
-                from_date=today(),
-            )
-            # If no error, the API allows multiple roles
-        except frappe.ValidationError:
-            # Expected behavior - duplicate prevention worked
-            pass
+        chapter.reload()
+        active_roles = sorted(
+            b.chapter_role for b in chapter.board_members if b.volunteer == volunteer.name and b.is_active
+        )
+        self.assertEqual(active_roles, ["Secretary", "Treasurer"])

@@ -300,9 +300,21 @@ class TestAccountCreationRequest(VereningingenTestCase):
         self.assertTrue(has_role)
 
     def test_assign_pending_board_role_no_volunteer_noop(self):
-        # No volunteer for the member -> graceful no-op (must not raise).
+        # No volunteer for the member -> graceful no-op: no board-member role granted.
         request = self._insert_acr()
-        request._assign_pending_board_member_roles(self.member.name)  # no exception
+        self.assertFalse(
+            frappe.db.exists("Volunteer", {"member": self.member.name}),
+            "precondition: member has no volunteer",
+        )
+        request._assign_pending_board_member_roles(self.member.name)  # must not raise
+        # The early-return must leave no Chapter Board Member role behind.
+        self.assertFalse(
+            frappe.db.exists(
+                "Has Role",
+                {"parent": self.member.email, "role": "Verenigingen Chapter Board Member"},
+            ),
+            "no board-member role may be granted when the member has no volunteer",
+        )
 
     def test_handle_completion_skips_email_for_csv_member(self):
         # A member with no application_id (CSV import) must not trigger an approval
@@ -323,11 +335,16 @@ class TestAccountCreationRequest(VereningingenTestCase):
         self.assertIsNone(request.get_application_invoice(member))
 
     def test_send_member_approval_email_without_invoice_does_not_raise(self):
-        # With no application invoice resolvable, the method logs a warning and
-        # returns without raising (the email is simply skipped).
+        # The email is skipped precisely BECAUSE no invoice resolves. Pin that cause
+        # so this fails loudly if the skip-trigger logic ever changes, instead of
+        # merely asserting "nothing raised".
         request = self._insert_acr()
         member = frappe.get_doc("Member", self.member.name)
-        request.send_member_approval_email(member)  # no exception
+        self.assertIsNone(
+            request.get_application_invoice(member),
+            "precondition: no application invoice -> approval email must be skipped",
+        )
+        request.send_member_approval_email(member)  # skip branch, must not raise
 
     # =================================================================
     # get_pending_requests (@whitelist)
