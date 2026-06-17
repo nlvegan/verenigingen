@@ -56,7 +56,11 @@ def _validate_test_mode_safety() -> None:
         "(2) Set developer_mode: true in site_config.json for dev environments, or "
         "(3) Set allow_mollie_test_mode: true in site_config.json for staging (not recommended for production)."
     )
-    frappe.log_error(error_msg, "Mollie Security - CRITICAL")
+    # frappe.log_error is log_error(title, message): the title lands in the
+    # Error Log "method" field (max 140 chars). Pass the long explanation as the
+    # message and a short title, otherwise inserting the Error Log itself raises
+    # CharacterLengthExceededError and masks the real security rejection.
+    frappe.log_error(message=error_msg, title="Mollie Security - CRITICAL")
     raise WebhookAuthenticationError(error_msg)
 
 

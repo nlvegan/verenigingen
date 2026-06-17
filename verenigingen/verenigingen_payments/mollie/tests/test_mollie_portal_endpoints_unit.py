@@ -26,6 +26,7 @@ import frappe
 from verenigingen.api import mollie_payment
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
+from verenigingen.utils.security.types import EnvironmentLevel
 from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 # Path where update_mollie_bank_account imports SubscriptionService at call time;
@@ -34,9 +35,25 @@ _SUBSCRIPTION_SERVICE = (
     "verenigingen.verenigingen_payments.mollie.services.subscription_service.SubscriptionService"
 )
 
+# Where the security framework detects the deployment environment. update_mollie_bank_account's
+# @self_service_api profile restricts the endpoint to the development environment; a fresh CI
+# site reports PRODUCTION (no developer_mode), so the call is rejected before any validation
+# or business logic runs. Forcing DEVELOPMENT at this environment boundary lets the endpoint's
+# real logic be exercised on any site, exactly as on a developer_mode dev box.
+_ENV_DETECT = "verenigingen.utils.security.environment_validator.EnvironmentValidator.get_current_environment"
+
 
 class TestMolliePortalEndpointsUnit(PortalSelfServiceTestMixin, EnhancedTestCase):
     """Member-portal Mollie endpoint validation + rollback, without touching Mollie."""
+
+    def setUp(self):
+        super().setUp()
+        self._env_patch = patch(_ENV_DETECT, return_value=EnvironmentLevel.DEVELOPMENT)
+        self._env_patch.start()
+
+    def tearDown(self):
+        self._env_patch.stop()
+        super().tearDown()
 
     def _member_with_mollie(self, **mollie_fields):
         """A Member linked to a plain-member User (via the mixin), optionally

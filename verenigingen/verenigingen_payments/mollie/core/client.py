@@ -49,6 +49,21 @@ class MollieClient:
         try:
             mollie_settings = frappe.get_single("Mollie Settings")
 
+            # In CI / `bench run-tests` the Mollie Settings test/live keys are empty,
+            # so constructing a MollieClient (e.g. via DuesPaymentProcessor, the
+            # settlement processor, or the payment-processing page) would otherwise
+            # throw "Mollie test API key not configured" for every test that merely
+            # instantiates a client without needing real Mollie I/O. Mirror the
+            # in-test bypass MollieBaseClient already uses: hand back a dummy
+            # "test_" key so __init__ succeeds. Tests that exercise real Mollie
+            # behaviour mock the HTTP/SDK boundary anyway; tests that target this
+            # method's production error path are unaffected because no test asserts
+            # against this dummy value.
+            if frappe.flags.in_test and not (
+                mollie_settings.test_secret_key or mollie_settings.live_secret_key
+            ):
+                return "test_dummy_key_for_tests"
+
             # Use test_secret_key if in test mode, otherwise live_secret_key
             if mollie_settings.test_mode:
                 api_key = mollie_settings.test_secret_key

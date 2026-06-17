@@ -23,14 +23,25 @@ Targets (verenigingen/verenigingen_payments/mollie/api/monitoring_api.py):
   - _calculate_recovery_system_health (excellent/good/fair/poor + exception path)
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.types import EnvironmentLevel
 from verenigingen.verenigingen_payments.mollie.api import monitoring_api
 from verenigingen.verenigingen_payments.mollie.utils.error_recovery import (
     CircuitBreakerState,
     error_recovery,
 )
+
+# Where the security framework detects the deployment environment. A fresh CI
+# site reports PRODUCTION (no developer_mode), which makes the @development_only_api
+# endpoints (run_health_check / clear_performance_data / test_error_recovery) raise
+# before their logic runs. Forcing DEVELOPMENT at this environment boundary lets the
+# dev-only endpoint logic be exercised on any site, exactly as on a developer_mode
+# dev box — without mocking any business logic.
+_ENV_DETECT = "verenigingen.utils.security.environment_validator.EnvironmentValidator.get_current_environment"
 
 
 class TestRecoverySystemHealthCalc(EnhancedTestCase):
@@ -195,6 +206,28 @@ class TestProcessRecoveryQueues(EnhancedTestCase):
 
 class TestHealthAndPerformanceEndpoints(EnhancedTestCase):
     """The read endpoints + dev-only utilities all return well-formed payloads."""
+
+    def setUp(self):
+        super().setUp()
+        # Force DEVELOPMENT so @development_only_api endpoints are reachable on CI.
+        self._env_patch = patch(_ENV_DETECT, return_value=EnvironmentLevel.DEVELOPMENT)
+        self._env_patch.start()
+        # performance_monitor.metrics is a process-global singleton list shared
+        # across the whole suite. Snapshot and clear it so each test starts from a
+        # known-empty state: otherwise a stray entry left by a sibling test (e.g.
+        # the clear_performance_data sentinel) poisons get_overall_health, which
+        # iterates the list expecting real metric objects with a .timestamp.
+        from verenigingen.verenigingen_payments.mollie.utils.monitoring import performance_monitor
+
+        self._perf_monitor = performance_monitor
+        self._saved_metrics = list(performance_monitor.metrics)
+        performance_monitor.metrics.clear()
+
+    def tearDown(self):
+        self._perf_monitor.metrics.clear()
+        self._perf_monitor.metrics.extend(self._saved_metrics)
+        self._env_patch.stop()
+        super().tearDown()
 
     def test_get_integration_health_shape(self):
         with self.set_user("Administrator"):

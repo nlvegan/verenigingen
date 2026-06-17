@@ -44,6 +44,25 @@ SECRET = "whsec_live_security_test_secret"
 class TestMollieWebhookSignatureSecurity(EnhancedTestCase):
     """Real HMAC-SHA256 signature validation against the live trust anchor."""
 
+    def setUp(self):
+        super().setUp()
+        # The test-mode scenarios below set Mollie test_mode=True. On a fresh CI
+        # site (no developer_mode), _validate_test_mode_safety() would reject
+        # test_mode as a production safety risk before any signature logic runs.
+        # The production code offers an explicit staging/test override
+        # (allow_mollie_test_mode); set it for the duration of the test so the
+        # genuine HMAC verification path — the thing actually under test — is
+        # reached on every site, dev or CI. Restored in tearDown.
+        self._prev_allow_test_mode = frappe.conf.get("allow_mollie_test_mode")
+        frappe.conf["allow_mollie_test_mode"] = True
+
+    def tearDown(self):
+        if self._prev_allow_test_mode is None:
+            frappe.conf.pop("allow_mollie_test_mode", None)
+        else:
+            frappe.conf["allow_mollie_test_mode"] = self._prev_allow_test_mode
+        super().tearDown()
+
     def test_valid_signature_accepted(self):
         """A correctly computed sha256=<hmac> signature is accepted."""
         with mollie_settings_override(test_mode=True, webhook_secret=SECRET):
@@ -172,9 +191,52 @@ class TestMollieWebhookSignatureSecurity(EnhancedTestCase):
 class TestMollieWebhookTestModeSafety(EnhancedTestCase):
     """The _validate_test_mode_safety guard around the test-mode bypass."""
 
-    def test_test_mode_allowed_in_developer_mode(self):
-        """test_mode bypass is permitted when developer_mode is set (this site)."""
-        self.assertTrue(frappe.conf.get("developer_mode"), "test_site_1 should be developer_mode")
-        with mollie_settings_override(test_mode=True, webhook_secret=SECRET):
-            # Unsigned + test_mode => accepted without raising the security guard.
-            self.assertTrue(verify_mollie_webhook_signature(PAYLOAD, None))
+    def test_test_mode_allowed_with_dev_or_override_flag(self):
+        """test_mode bypass is permitted when an explicit dev/staging flag is set.
+
+        The guard accepts test_mode when EITHER developer_mode (dev sites) OR
+        allow_mollie_test_mode (staging override) is set. We assert the behaviour
+        under the explicit override so this holds on any site (a fresh CI site has
+        neither flag by default), while still covering the path the guard takes.
+        """
+        prev_allow = frappe.conf.get("allow_mollie_test_mode")
+        frappe.conf["allow_mollie_test_mode"] = True
+        try:
+            self.assertTrue(
+                frappe.conf.get("developer_mode") or frappe.conf.get("allow_mollie_test_mode"),
+                "a dev/override flag must be set for the bypass to be permitted",
+            )
+            with mollie_settings_override(test_mode=True, webhook_secret=SECRET):
+                # Unsigned + test_mode => accepted without raising the security guard.
+                self.assertTrue(verify_mollie_webhook_signature(PAYLOAD, None))
+        finally:
+            if prev_allow is None:
+                frappe.conf.pop("allow_mollie_test_mode", None)
+            else:
+                frappe.conf["allow_mollie_test_mode"] = prev_allow
+
+    def test_test_mode_rejected_without_dev_flags(self):
+        """Without developer_mode AND without allow_mollie_test_mode, test_mode is
+        a production safety risk and the guard hard-rejects it.
+
+        This is the negative control for the bypass: it proves the guard is real,
+        not merely permissive. Simulated by clearing both flags regardless of the
+        host site's actual configuration.
+        """
+        prev_allow = frappe.conf.get("allow_mollie_test_mode")
+        prev_dev = frappe.conf.get("developer_mode")
+        frappe.conf["allow_mollie_test_mode"] = False
+        frappe.conf["developer_mode"] = 0
+        try:
+            with mollie_settings_override(test_mode=True, webhook_secret=SECRET):
+                with self.assertRaises(WebhookAuthenticationError):
+                    verify_mollie_webhook_signature(PAYLOAD, None)
+        finally:
+            if prev_allow is None:
+                frappe.conf.pop("allow_mollie_test_mode", None)
+            else:
+                frappe.conf["allow_mollie_test_mode"] = prev_allow
+            if prev_dev is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = prev_dev
