@@ -34,10 +34,6 @@ def check_migration_progress():
     print(f"Status: {migration.migration_status}")
     print(f"Started: {migration.creation}")
 
-    # Check for mutation cache count
-    cache_count = frappe.db.count("EBoekhouden REST Mutation Cache")
-    print(f"\nMutations in cache: {cache_count}")
-
     # Check for processed transactions
     if hasattr(migration, "total_mutations_fetched"):
         print(f"Total fetched: {migration.total_mutations_fetched}")
@@ -114,7 +110,6 @@ def check_migration_progress():
     return {
         "migration_name": migration_name,
         "status": migration.migration_status,
-        "cache_count": cache_count,
         "documents_created": recent_je + recent_si + recent_pi + recent_pe,
     }
 

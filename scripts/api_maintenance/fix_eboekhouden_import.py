@@ -78,18 +78,6 @@ def analyze_import_issues():
         mutation_nr = sinv_with_mutation[0].eboekhouden_mutation_nr
         print(f"Checking mutation {mutation_nr}")
 
-        # Get mutation data from cache
-        cached_data = frappe.db.get_value(
-            "EBoekhouden REST Mutation Cache", {"mutation_id": mutation_nr}, "mutation_data"
-        )
-
-        if cached_data:
-            import json
-
-            mutation_data = json.loads(cached_data)
-            print(f"  Description: {mutation_data.get('description', 'N/A')}")
-            print(f"  Relation ID: {mutation_data.get('relationId', 'N/A')}")
-
     # 8. Check cost centers
     print("\n=== COST CENTERS ===")
     main_cost_center = frappe.db.get_value(

@@ -712,24 +712,6 @@ def check_equity_import_status():
             else:
                 status["reason_not_imported"] = "Not found in Journal Entry table"
 
-                # Check if it was skipped or failed
-                # Look for it in error logs or cache
-                cached_mutation = frappe.db.get_value(
-                    "EBoekhouden REST Mutation Cache",
-                    {"mutation_id": str(mutation_id)},
-                    ["name", "mutation_type", "mutation_date"],
-                )
-
-                if cached_mutation:
-                    status["cached"] = True
-                    status["cache_info"] = {
-                        "name": cached_mutation[0],
-                        "type": cached_mutation[1],
-                        "date": cached_mutation[2],
-                    }
-                else:
-                    status["cached"] = False
-
             results["import_status"].append(status)
 
         return results

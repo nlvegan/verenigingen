@@ -252,20 +252,6 @@ def nuke_all_financial_data(confirm="NO"):
             else:
                 raise
 
-        # 9. Reset eBoekhouden mutation cache processed flags
-        print("\n9. Resetting eBoekhouden Mutation Cache...")
-        # cache_count = frappe.db.sql(
-        frappe.db.sql(
-            """
-            UPDATE `tabEBoekhouden REST Mutation Cache`
-            SET processed = 0
-            WHERE processed = 1
-        """
-        )
-        print(
-            f"   ✓ Reset {frappe.db.get_value('EBoekhouden REST Mutation Cache', {'processed': 0}, 'count(*)')} mutation cache entries"
-        )
-
         # Re-enable foreign key checks
         frappe.db.sql("SET foreign_key_checks = 1")
 
@@ -427,8 +413,6 @@ def check_financial_data_status():
         ("Purchase Invoices", "Purchase Invoice", {"company": company}),
         ("Stock Ledger Entries", "Stock Ledger Entry", {"company": company}),
         ("eBoekhouden Imports", "EBoekhouden Import", {}),
-        ("eBoekhouden Cache (Total)", "EBoekhouden REST Mutation Cache", {}),
-        ("eBoekhouden Cache (Processed)", "EBoekhouden REST Mutation Cache", {"processed": 1}),
     ]
 
     for label, doctype, filters in tables_to_check:
@@ -446,8 +430,7 @@ def check_financial_data_status():
     total_records = 0
     for doctype, count in counts.items():
         print(f"{doctype}: {count:,}")
-        if doctype not in ["eBoekhouden Cache (Total)", "eBoekhouden Cache (Processed)"]:
-            total_records += count
+        total_records += count
 
     print(f"\nTotal financial records to be deleted: {total_records:,}")
     print("\n⚠️  WARNING: Running nuke_all_financial_data will delete ALL of the above data!")

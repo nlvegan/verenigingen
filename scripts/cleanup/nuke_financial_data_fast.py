@@ -103,14 +103,6 @@ def nuke_financial_data_fast(confirm="NO"):
             frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE company = %s", company)
             print(f"      Deleted {total} {doctype}s")
 
-        # 5. Reset cache tables if they exist
-        print("\n5. Resetting cache tables...")
-        try:
-            frappe.db.sql("UPDATE `tabEBoekhouden REST Mutation Cache` SET processed = 0 WHERE processed = 1")
-            print("   ✓ Reset mutation cache")
-        except:
-            print("   - Mutation cache table not found")
-
         # Re-enable foreign key checks
         frappe.db.sql("SET foreign_key_checks = 1")
 
