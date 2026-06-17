@@ -78,6 +78,7 @@ class BTRBase(EnhancedTestCase):
         # Provision shared infra ONCE before any per-test transaction opens.
         cls._company = get_eur_test_company()
         cls._ensure_default_bank_account(cls._company)
+        cls._eur_bank_account = cls._ensure_eur_bank_account_doc(cls._company)
         cls._ensure_modes_of_payment()
         frappe.db.commit()
 
@@ -124,6 +125,35 @@ class BTRBase(EnhancedTestCase):
             bank_acc = acc.name
         frappe.db.set_value("Company", company, "default_bank_account", bank_acc)
         return bank_acc
+
+    @classmethod
+    def _ensure_eur_bank_account_doc(cls, company):
+        """Get-or-create an EUR-currency Bank Account *doc* on the EUR company.
+
+        ``_make_bank_transaction`` falls back to a GLOBAL ``is_company_account``
+        Bank Account lookup; on a polluted multi-shard CI site that can resolve a
+        sibling shard's non-EUR account, whose currency precision then perturbs
+        the stored ``deposit`` and breaks the exact-equality reconciliation gate.
+        Returning a controlled EUR Bank Account the test passes explicitly removes
+        that dependency on global state.
+        """
+        gl = cls._ensure_default_bank_account(company)
+        existing = frappe.db.get_value("Bank Account", {"account": gl}, "name")
+        if existing:
+            return existing
+        bank_name = "BTR Test Bank"
+        if not frappe.db.exists("Bank", bank_name):
+            bank = frappe.new_doc("Bank")
+            bank.bank_name = bank_name
+            bank.insert(ignore_permissions=True)
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = "BTR Test Company Account"
+        ba.bank = bank_name
+        ba.is_company_account = 1
+        ba.company = company
+        ba.account = gl
+        ba.insert(ignore_permissions=True)
+        return ba.name
 
     # ---- builders ----------------------------------------------------------
 
@@ -558,7 +588,19 @@ class TestMatchTransactionAndReconcile(BTRBase):
         """
         it = self._make_member_with_invoice(first_name="BatchBug", grand_total=30.0)
         batch = self._make_batch([it])
-        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today())
+        # Pin the bank-transaction deposit to the batch total the PRODUCTION code
+        # actually compares against. create_reconciliation gates "Reconciled" on
+        # ``sum(pe.paid_amount) == bank_trans.deposit`` (exact equality). The batch
+        # controller's calculate_totals() recomputes total_amount from the persisted
+        # child rows on save, so the authoritative figure is the RELOADED batch
+        # total — not the value assigned before insert. Sourcing the deposit from
+        # the reloaded batch (and each booked Payment Entry from that same row
+        # amount) keeps the two sides of the equality gate provably identical
+        # regardless of any cross-shard currency/rounding pollution of the shared
+        # Direct Debit Batch pool.
+        batch.reload()
+        deposit = batch.total_amount
+        bt = self._make_bank_transaction(deposit=deposit, date=today(), bank_account=self._eur_bank_account)
         match = {
             "type": "batch",
             "reference": batch.name,
@@ -569,6 +611,19 @@ class TestMatchTransactionAndReconcile(BTRBase):
         self.assertTrue(ok)
         bt.reload()
         self.assertIn(bt.status, ("Reconciled", "Settled"))
+        # Meaningful side effect of the fixed batch branch: a submitted Payment
+        # Entry now references the batch's invoice (the former bug booked nothing
+        # and left the transaction Unreconciled).
+        refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": it["invoice"].name,
+                "docstatus": 1,
+            },
+            fields=["parent"],
+        )
+        self.assertTrue(refs, "batch reconciliation should book a Payment Entry for the invoice")
 
     def test_match_transaction_no_match_returns_false(self):
         bt = self._make_bank_transaction(

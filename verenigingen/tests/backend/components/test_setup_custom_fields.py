@@ -265,13 +265,25 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
         # freshly-written value.
         frappe.db.set_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete", 0)
         frappe.db.commit()
-        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+        self._bust_single_value_cache()
         self.assertFalse(setup_mod._is_initial_setup_complete())
 
         # Mark complete, confirm reader sees True.
         setup_mod._mark_initial_setup_complete()
-        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+        self._bust_single_value_cache()
         self.assertTrue(setup_mod._is_initial_setup_complete())
+
+    @staticmethod
+    def _bust_single_value_cache():
+        # _is_initial_setup_complete() reads via frappe.db.get_value on the
+        # Verenigingen Settings *Single*. The read is served from the per-connection
+        # `frappe.db.value_cache`, which is normally flushed on commit — but under
+        # FrappeTestCase the test transaction is rolled back, not committed, so a
+        # value primed by an earlier read (or a sibling test in the same shard)
+        # survives our write and the reader returns the stale flag. clear_document_cache
+        # busts the redis/doc cache but NOT value_cache, so clear both.
+        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+        frappe.db.value_cache.clear()
 
     def test_is_complete_returns_bool(self):
         result = setup_mod._is_initial_setup_complete()

@@ -272,10 +272,29 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
     def test_calculate_paid_ytd_counts_paid_invoice(self):
         customer = self._ensure_customer()
         # Create + submit + pay an invoice in the current year.
-        invoice = self.create_test_sales_invoice(member=self.member.name)
+        #
+        # Pin a per-test-unique naming series. The default Sales Invoice series
+        # (``ACC-SINV-.YYYY.-``) draws its counter from the shared ``tabSeries``
+        # row, which every parallel CI shard contends on against ONE fresh DB.
+        # Under that contention a sibling shard's rolled-back transaction can
+        # leave our just-submitted invoice row clobbered, so a later
+        # ``invoice.reload()`` raised ``DoesNotExistError`` (the invoice
+        # "vanished" after pe.submit()). A unique series per test gives the
+        # invoice a globally-collision-free name, structurally removing the race.
+        unique_series = f"TDUES-{frappe.generate_hash(length=8).upper()}-.#####"
+        invoice = self.create_test_sales_invoice(member=self.member.name, naming_series=unique_series)
         invoice.submit()
         self.track_doc("Sales Invoice", invoice.name)
+        invoice_name = invoice.name
         self._pay_invoice(invoice)
+
+        # The paid invoice row must still exist and be Paid (guards against a
+        # silently-lost row giving a misleading zero YTD below).
+        self.assertTrue(
+            frappe.db.exists("Sales Invoice", invoice_name),
+            "submitted invoice must survive payment",
+        )
+        self.assertEqual(frappe.db.get_value("Sales Invoice", invoice_name, "status"), "Paid")
 
         # The YTD helpers query Sales Invoice by Customer (Member.customer).
         ytd = mdi._calculate_member_paid_ytd_optimized(customer)
@@ -304,7 +323,12 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
         pe.save()
         pe.submit()
         self.track_doc("Payment Entry", pe.name)
-        invoice.reload()
+        # Re-resolve the invoice from the DB by name (only if it still exists)
+        # instead of reloading the in-memory doc unconditionally. Reloading a doc
+        # whose row was lost raises DoesNotExistError; callers that need the fresh
+        # state should query by the known name with an existence guard.
+        if frappe.db.exists("Sales Invoice", invoice.name):
+            invoice.reload()
         return pe
 
     # ---------------------------------------------------------- adjust_dues_schedule

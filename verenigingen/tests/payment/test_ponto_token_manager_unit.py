@@ -65,11 +65,22 @@ class TestPontoTokenManagerUnit(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+        # CI shards multiple test processes onto ONE site sharing ONE redis
+        # cache. TOKEN_CACHE_KEY / EXPIRY_CACHE_KEY are FIXED, non-namespaced
+        # strings, so a sibling shard's set/delete on those keys races and wipes
+        # the token this test just cached (forcing a second, unexpected HTTP
+        # fetch). Make the keys unique per test instance; the token manager reads
+        # them via ``self.``/``cls.`` so the patched class attrs are what it uses.
+        suffix = frappe.generate_hash(length=12)
+        self._orig_token_key = PontoTokenManager.TOKEN_CACHE_KEY
+        self._orig_expiry_key = PontoTokenManager.EXPIRY_CACHE_KEY
+        PontoTokenManager.TOKEN_CACHE_KEY = f"ponto_access_token:test:{suffix}"
+        PontoTokenManager.EXPIRY_CACHE_KEY = f"ponto_token_expiry:test:{suffix}"
+        self.addCleanup(setattr, PontoTokenManager, "TOKEN_CACHE_KEY", self._orig_token_key)
+        self.addCleanup(setattr, PontoTokenManager, "EXPIRY_CACHE_KEY", self._orig_expiry_key)
         PontoTokenManager.clear_cache()
         # Explicit credentials => _get_credentials never hits settings/DB.
-        self.tm = PontoTokenManager(
-            client_id="explicit_client", client_secret="explicit_secret"
-        )
+        self.tm = PontoTokenManager(client_id="explicit_client", client_secret="explicit_secret")
 
     def tearDown(self):
         PontoTokenManager.clear_cache()
@@ -114,17 +125,13 @@ class TestPontoTokenManagerUnit(FrappeTestCase):
         evicts the token cached in the same call (see the cache-survival test).
         """
         before = datetime.now()
-        token_data = PontoTestDataFactory.create_token_response(
-            access_token="to_be_cached", expires_in=1800
-        )
+        token_data = PontoTestDataFactory.create_token_response(access_token="to_be_cached", expires_in=1800)
         with patch.object(self.tm._session, "post") as mock_post:
             mock_post.return_value = _mock_token_response(json_data=token_data)
             token = self.tm.get_valid_token()
 
         self.assertEqual(token, "to_be_cached")
-        expiry = frappe.db.get_value(
-            "Ponto Settings", "Ponto Settings", "access_token_expiry"
-        )
+        expiry = frappe.db.get_value("Ponto Settings", "Ponto Settings", "access_token_expiry")
         self.assertIsNotNone(expiry)
         # Expiry should be roughly 30 minutes out.
         if isinstance(expiry, str):
@@ -146,9 +153,7 @@ class TestPontoTokenManagerUnit(FrappeTestCase):
             mock_post.assert_called_once()  # only the first call hit the endpoint
         self.assertEqual(first, "cached_across_calls")
         self.assertEqual(second, "cached_across_calls")
-        self.assertEqual(
-            frappe.cache().get_value(PontoTokenManager.TOKEN_CACHE_KEY), "cached_across_calls"
-        )
+        self.assertEqual(frappe.cache().get_value(PontoTokenManager.TOKEN_CACHE_KEY), "cached_across_calls")
 
     # -------------------------------------------------------------------------
     # Cache hit
@@ -251,11 +256,12 @@ class TestPontoTokenManagerUnit(FrappeTestCase):
     def test_missing_credentials_from_settings_raises(self):
         """With no explicit creds and a blank settings client id, auth fails."""
         tm = PontoTokenManager()  # no explicit creds -> falls back to settings
-        original = frappe.db.get_value(
-            "Ponto Settings", "Ponto Settings", "sandbox_client_id"
-        )
+        original = frappe.db.get_value("Ponto Settings", "Ponto Settings", "sandbox_client_id")
         frappe.db.set_value(
-            "Ponto Settings", "Ponto Settings", "sandbox_client_id", "",
+            "Ponto Settings",
+            "Ponto Settings",
+            "sandbox_client_id",
+            "",
             update_modified=False,
         )
         try:
@@ -263,7 +269,10 @@ class TestPontoTokenManagerUnit(FrappeTestCase):
                 tm._get_credentials()
         finally:
             frappe.db.set_value(
-                "Ponto Settings", "Ponto Settings", "sandbox_client_id", original,
+                "Ponto Settings",
+                "Ponto Settings",
+                "sandbox_client_id",
+                original,
                 update_modified=False,
             )
 

@@ -253,7 +253,11 @@ class TestRunSyncCallsCorrelator(EnhancedTestCase):
         mock_client_cls.return_value.__enter__.return_value = mock_client_cls.return_value
 
         mock_poll_table.return_value = {
-            "new": 1, "changed": 0, "deleted": 1, "unchanged": 0, "rows_scanned": 1,
+            "new": 1,
+            "changed": 0,
+            "deleted": 1,
+            "unchanged": 0,
+            "rows_scanned": 1,
         }
         mock_correlator = MagicMock()
         mock_correlator.correlate.return_value = 1
@@ -275,9 +279,7 @@ class TestComputeChangeTagsFull(EnhancedTestCase):
 
     def test_new_known_tables(self):
         self.assertEqual(compute_change_tags("New", "admin_member", None), "New Member")
-        self.assertEqual(
-            compute_change_tags("New", "admin_membership_application", None), "New Application"
-        )
+        self.assertEqual(compute_change_tags("New", "admin_membership_application", None), "New Application")
         self.assertEqual(compute_change_tags("New", "admin_division", None), "New Division")
 
     def test_new_unknown_table_falls_back_to_new(self):
@@ -324,60 +326,56 @@ class TestComputeChangeTagsFull(EnhancedTestCase):
 
 
 class TestSyncLock(EnhancedTestCase):
-    """acquire_sync_lock / release_sync_lock against the REAL Frappe cache."""
+    """acquire_sync_lock / release_sync_lock against the REAL Frappe cache.
+
+    CI shards multiple test processes onto ONE site sharing ONE redis cache.
+    The production lock key ``_SYNC_LOCK_KEY`` is a FIXED, non-namespaced string,
+    so a sibling shard's acquire/release on the same key races and wipes the
+    value this test just set (lock reads None / second acquire wrongly succeeds).
+    To eliminate the collision we monkeypatch the module-level key to a value
+    unique per test instance; ``acquire_sync_lock``/``release_sync_lock`` resolve
+    ``_SYNC_LOCK_KEY`` as a module global at call time, so the patched value is
+    what they use. Tests read the live ``ps._SYNC_LOCK_KEY`` (never a stale
+    imported copy) so assertions hit the same unique key.
+    """
 
     def setUp(self):
         super().setUp()
-        from verenigingen.mijnrood_sync.services.polling_service import release_sync_lock
+        import verenigingen.mijnrood_sync.services.polling_service as ps
 
-        release_sync_lock()  # ensure clean slate
+        self.ps = ps
+        self._orig_lock_key = ps._SYNC_LOCK_KEY
+        ps._SYNC_LOCK_KEY = f"mijnrood_sync:run_lock:test:{frappe.generate_hash(length=12)}"
+        self.addCleanup(setattr, ps, "_SYNC_LOCK_KEY", self._orig_lock_key)
+        # Clear the (now-unique) key so we start from a known-empty state.
+        ps.release_sync_lock()
 
     def tearDown(self):
-        from verenigingen.mijnrood_sync.services.polling_service import release_sync_lock
-
-        release_sync_lock()
+        self.ps.release_sync_lock()
         super().tearDown()
 
     def test_acquire_then_second_acquire_blocked(self):
-        from verenigingen.mijnrood_sync.services.polling_service import acquire_sync_lock
-
-        self.assertTrue(acquire_sync_lock("run-A"))
+        self.assertTrue(self.ps.acquire_sync_lock("run-A"))
         # Second run cannot claim while first holds it
-        self.assertFalse(acquire_sync_lock("run-B"))
+        self.assertFalse(self.ps.acquire_sync_lock("run-B"))
 
     def test_release_allows_reacquire(self):
-        from verenigingen.mijnrood_sync.services.polling_service import (
-            acquire_sync_lock,
-            release_sync_lock,
-        )
-
-        self.assertTrue(acquire_sync_lock("run-A"))
-        release_sync_lock()
-        self.assertTrue(acquire_sync_lock("run-B"))
+        self.assertTrue(self.ps.acquire_sync_lock("run-A"))
+        self.ps.release_sync_lock()
+        self.assertTrue(self.ps.acquire_sync_lock("run-B"))
 
     def test_release_when_not_held_is_safe(self):
-        from verenigingen.mijnrood_sync.services.polling_service import (
-            _SYNC_LOCK_KEY,
-            acquire_sync_lock,
-            release_sync_lock,
-        )
-
         # Release must actually clear the lock key (not just "not raise"), and a
         # second release on an already-clear key must remain a safe no-op.
-        acquire_sync_lock("run-REL")
-        release_sync_lock()
-        self.assertIsNone(frappe.cache().get_value(_SYNC_LOCK_KEY))
-        release_sync_lock()  # idempotent
-        self.assertIsNone(frappe.cache().get_value(_SYNC_LOCK_KEY))
+        self.ps.acquire_sync_lock("run-REL")
+        self.ps.release_sync_lock()
+        self.assertIsNone(frappe.cache().get_value(self.ps._SYNC_LOCK_KEY))
+        self.ps.release_sync_lock()  # idempotent
+        self.assertIsNone(frappe.cache().get_value(self.ps._SYNC_LOCK_KEY))
 
     def test_lock_stores_run_id(self):
-        from verenigingen.mijnrood_sync.services.polling_service import (
-            _SYNC_LOCK_KEY,
-            acquire_sync_lock,
-        )
-
-        acquire_sync_lock("run-XYZ")
-        self.assertEqual(frappe.cache().get_value(_SYNC_LOCK_KEY), "run-XYZ")
+        self.ps.acquire_sync_lock("run-XYZ")
+        self.assertEqual(frappe.cache().get_value(self.ps._SYNC_LOCK_KEY), "run-XYZ")
 
 
 class TestComputeChangedFields(EnhancedTestCase):
@@ -395,9 +393,7 @@ class TestComputeChangedFields(EnhancedTestCase):
         super().tearDown()
 
     def test_detects_changed_value(self):
-        changed = self.service._compute_changed_fields(
-            {"first_name": "Alice"}, {"first_name": "Alicia"}
-        )
+        changed = self.service._compute_changed_fields({"first_name": "Alice"}, {"first_name": "Alicia"})
         self.assertEqual(len(changed), 1)
         self.assertEqual(changed[0]["field"], "first_name")
         self.assertEqual(changed[0]["old"], "Alice")
@@ -439,9 +435,7 @@ class TestComputeChangedFields(EnhancedTestCase):
     def test_division_id_resolves_via_sync_state(self):
         # Seed an admin_division sync state so _resolve_division_name finds it
         self._make_division_state(7, "Amsterdam Chapter")
-        changed = self.service._compute_changed_fields(
-            {"division_id": 7}, {"division_id": None}
-        )
+        changed = self.service._compute_changed_fields({"division_id": 7}, {"division_id": None})
         self.assertEqual(len(changed), 1)
         self.assertEqual(changed[0]["old_display"], "Amsterdam Chapter")
         # new=None is normalized to "" before resolution; safe_int("")->None,
@@ -829,9 +823,7 @@ class TestPollTable(EnhancedTestCase):
         run_id = "polltest-del"
         self._event_run_id = run_id
         row_id = 710003
-        key = self._make_seed_state(
-            "admin_member", row_id, "cs-old", {"id": row_id, "first_name": "Gone"}
-        )
+        key = self._make_seed_state("admin_member", row_id, "cs-old", {"id": row_id, "first_name": "Gone"})
         # MijnRood no longer returns this row
         client = self._make_client(checksums={}, rows_by_id={})
 
@@ -851,9 +843,7 @@ class TestPollTable(EnhancedTestCase):
         run_id = "polltest-unchg"
         self._event_run_id = run_id
         row_id = 710004
-        self._make_seed_state(
-            "admin_member", row_id, "cs-same", {"id": row_id, "first_name": "Same"}
-        )
+        self._make_seed_state("admin_member", row_id, "cs-same", {"id": row_id, "first_name": "Same"})
         client = self._make_client(checksums={row_id: "cs-same"}, rows_by_id={})
 
         stats = self.service._poll_table(client, "admin_member", run_id)

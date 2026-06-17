@@ -85,6 +85,17 @@ class TestPontoConfigurationService(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+        # CI shards multiple test processes onto ONE site sharing ONE redis
+        # cache. PontoConfigurationService.CACHE_KEY is a FIXED, non-namespaced
+        # string, so a sibling shard's set/delete on that key races and wipes the
+        # value this test caches (cache reads None mid-test). Make the key unique
+        # per test instance; get_settings/clear_cache read ``cls.CACHE_KEY`` live,
+        # so the patched value is the one they use. Clear the (now-unique) key
+        # after patching so we start from a known-empty state.
+        self._orig_cache_key = PontoConfigurationService.CACHE_KEY
+        PontoConfigurationService.CACHE_KEY = f"ponto_settings_cache:test:{frappe.generate_hash(length=12)}"
+        self.addCleanup(setattr, PontoConfigurationService, "CACHE_KEY", self._orig_cache_key)
+        PontoConfigurationService.clear_cache()
         # Tests run as Administrator (System Manager) — passes permission gate.
         # Re-establish the committed fixture baseline. In a sharded CI run a
         # sibling suite (or an earlier test) may have committed a different

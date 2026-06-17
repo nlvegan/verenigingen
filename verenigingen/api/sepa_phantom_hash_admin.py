@@ -114,8 +114,13 @@ def mark_phantom_hash_abandoned(
     if not reason or len(reason.strip()) < 10:
         frappe.throw(_("Reason must be at least 10 characters for audit purposes."))
 
-    # Use transaction with row lock to prevent concurrent operations
-    frappe.db.begin()
+    # Use the ambient request transaction with a row lock to prevent concurrent
+    # operations. We deliberately do NOT issue an explicit frappe.db.begin()
+    # (START TRANSACTION): when there are already uncommitted writes in the
+    # current transaction, START TRANSACTION trips Frappe's implicit-commit guard
+    # (ImplicitCommitError). The SELECT ... FOR UPDATE below acquires the row lock
+    # within the ambient transaction and holds it until the next commit/rollback,
+    # so explicit begin() is both redundant and unsafe here.
     try:
         # Acquire exclusive row lock (blocks other workers)
         locked_row = _acquire_row_lock(log_name)
@@ -216,8 +221,11 @@ def retry_phantom_attachment(
     """
     frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
-    # Use transaction with row lock to prevent race conditions
-    frappe.db.begin()
+    # Use the ambient request transaction with a row lock to prevent race
+    # conditions. No explicit frappe.db.begin(): START TRANSACTION trips Frappe's
+    # implicit-commit guard when uncommitted writes already exist in the current
+    # transaction. SELECT ... FOR UPDATE locks the row within the ambient
+    # transaction until the next commit/rollback.
     try:
         # Acquire exclusive row lock (blocks other workers)
         locked_row = _acquire_row_lock(log_name)

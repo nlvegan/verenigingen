@@ -90,7 +90,16 @@ def append_to_text_field(doc, field_name: str, text: str, separator: str = "\n\n
 
 
 # Jinja methods
-def jinja_methods():
+#
+# NOTE: this function is intentionally NOT named `jinja_methods` to avoid a name
+# collision with the sibling submodule `verenigingen/utils/jinja_methods.py`.
+# Once that submodule is imported anywhere in the process, Python binds the
+# package attribute `verenigingen.utils.jinja_methods` to the *module*, which
+# would shadow a same-named function here (making it unreachable and, under
+# `from verenigingen.utils import jinja_methods`, non-callable). The app's
+# hooks.py wires jinja "methods" to the submodule, so this registry is a
+# standalone helper kept under an unshadowed name.
+def jinja_methods_registry():
     """
     Methods available in jinja templates
     """
@@ -99,6 +108,12 @@ def jinja_methods():
         "get_membership_status": get_membership_status,
         "format_date_range": format_date_range,
     }
+
+
+# Backwards-compatible alias. Resolving `jinja_methods` via the package attribute
+# may yield the submodule depending on import order; callers wanting the registry
+# should use `jinja_methods_registry`.
+jinja_methods = jinja_methods_registry
 
 
 # Jinja filters

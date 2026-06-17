@@ -87,6 +87,33 @@ class RecoveryBase(EnhancedTestCase):
         )
         # Unique Mollie-style payment id per test instance.
         self.pid = f"tr_{frappe.generate_hash(length=20)}"
+        # The recovery code constructs the Mollie orchestrator (-> MollieClient)
+        # even on the dry-run path. On a fresh CI shard the ambient Mollie
+        # Settings can carry test_mode=1 with an empty test_secret_key but a
+        # populated live_secret_key (left by a sibling test), which defeats the
+        # in_test "both keys empty" bypass in MollieClient._get_api_key and makes
+        # construction raise "Mollie test API key not configured". We never do
+        # real Mollie I/O here, so force the api-key getter to hand back a dummy
+        # for the duration of each test, and reset the orchestrator singleton so a
+        # client built under polluted settings is not reused.
+        self._isolate_mollie_client()
+
+    def _isolate_mollie_client(self):
+        """Make MollieClient construction independent of ambient Mollie Settings."""
+        from verenigingen.verenigingen_payments.mollie.core import client as client_mod
+        from verenigingen.verenigingen_payments.services import (
+            mollie_payment_orchestrator as orch_mod,
+        )
+
+        real_get_key = client_mod.MollieClient._get_api_key
+        client_mod.MollieClient._get_api_key = lambda self: "test_dummy_key_for_tests"
+        self.addCleanup(setattr, client_mod.MollieClient, "_get_api_key", real_get_key)
+
+        # The orchestrator is a module-level singleton; a stale instance built
+        # under polluted settings would otherwise be reused across tests/shards.
+        prev = orch_mod._orchestrator_instance
+        orch_mod._orchestrator_instance = None
+        self.addCleanup(setattr, orch_mod, "_orchestrator_instance", prev)
 
     @classmethod
     def _ensure_bank_account(cls, company):

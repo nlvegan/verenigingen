@@ -64,17 +64,20 @@ class CleanupBase(EnhancedTestCase):
     def _make_member_with_customer(self, first_name="Cleanup"):
         member = self.sepa.create_test_member(first_name=first_name)
         if not member.customer:
-            customer = self.sepa.create_test_customer(
-                customer_name=f"Cust {member.full_name}"
-            ).name
+            customer = self.sepa.create_test_customer(customer_name=f"Cust {member.full_name}").name
             member.db_set("customer", customer)
             member.reload()
         return member
 
-    def _make_payment_entry(self, customer=None, docstatus=1):
+    def _make_payment_entry(self, customer=None, docstatus=1, posting_date=None):
         """Create a Payment Entry and mark it at the requested docstatus directly
         in the DB. We bypass real .submit()/GL wiring (irrelevant to the cleanup
-        code, which uses force=True deletes)."""
+        code, which uses force=True deletes).
+
+        ``posting_date`` defaults to today(); pass a unique date for date-range
+        tests so the window catches only this PE and not sibling-shard PEs that
+        also happen to be dated today() (a submitted sibling PE would otherwise be
+        swept into a docstatus-unfiltered delete and fail the force-delete)."""
         receivable = frappe.db.get_value(
             "Account",
             {"company": self.company, "account_type": "Receivable", "is_group": 0},
@@ -85,25 +88,24 @@ class CleanupBase(EnhancedTestCase):
             {"company": self.company, "account_type": "Bank", "is_group": 0},
             "name",
         )
+        posting_date = posting_date or today()
         pe = frappe.new_doc("Payment Entry")
         pe.payment_type = "Receive"
         pe.company = self.company
-        pe.posting_date = today()
+        pe.posting_date = posting_date
         pe.party_type = "Customer"
         pe.party = customer
         pe.paid_amount = 10.0
         pe.received_amount = 10.0
         pe.reference_no = frappe.generate_hash(length=10)
-        pe.reference_date = today()
+        pe.reference_date = posting_date
         pe.paid_from = receivable
         pe.paid_to = bank
         pe.flags.ignore_validate = True
         pe.flags.ignore_mandatory = True
         pe.insert(ignore_permissions=True, ignore_mandatory=True)
         if docstatus:
-            frappe.db.set_value(
-                "Payment Entry", pe.name, "docstatus", docstatus, update_modified=False
-            )
+            frappe.db.set_value("Payment Entry", pe.name, "docstatus", docstatus, update_modified=False)
         pe.reload()
         return pe
 
@@ -186,9 +188,7 @@ class TestBulkDeleteCore(CleanupBase):
         self._persist_payment_history(member, pe.name)
 
         # Precondition: history row references the PE.
-        self.assertTrue(
-            any(r.payment_entry == pe.name for r in member.payment_history)
-        )
+        self.assertTrue(any(r.payment_entry == pe.name for r in member.payment_history))
 
         result = cleanup.bulk_delete_payment_entries(
             payment_entry_names=[pe.name],
@@ -204,9 +204,7 @@ class TestBulkDeleteCore(CleanupBase):
         self.assertFalse(frappe.db.exists("Payment Entry", pe.name))
         # History row removed.
         member.reload()
-        self.assertFalse(
-            any(r.payment_entry == pe.name for r in member.payment_history)
-        )
+        self.assertFalse(any(r.payment_entry == pe.name for r in member.payment_history))
 
     def test_spares_unrelated_payment_entries_and_history(self):
         """Only the targeted PE/history row is touched; a sibling PE referenced by
@@ -229,12 +227,8 @@ class TestBulkDeleteCore(CleanupBase):
         # Sibling PE + its history row survive.
         self.assertTrue(frappe.db.exists("Payment Entry", keep.name))
         member.reload()
-        self.assertTrue(
-            any(r.payment_entry == keep.name for r in member.payment_history)
-        )
-        self.assertFalse(
-            any(r.payment_entry == target.name for r in member.payment_history)
-        )
+        self.assertTrue(any(r.payment_entry == keep.name for r in member.payment_history))
+        self.assertFalse(any(r.payment_entry == target.name for r in member.payment_history))
 
     def test_delete_by_filters_pluck_path(self):
         """No explicit names -> the filter branch (frappe.get_all pluck) selects
@@ -280,9 +274,7 @@ class TestBulkDeleteCore(CleanupBase):
         )
         self.assertEqual(result["member_history_cleaned"], 2)
         member.reload()
-        self.assertFalse(
-            any(r.payment_entry == pe.name for r in member.payment_history)
-        )
+        self.assertFalse(any(r.payment_entry == pe.name for r in member.payment_history))
 
     def test_nonexistent_payment_entry_force_delete_is_noop(self):
         """A name that does not exist: ``frappe.delete_doc(..., force=True)``
@@ -427,13 +419,22 @@ class TestLedgerCleanup(CleanupBase):
 # delete_payment_entries_by_date_range
 # =============================================================================
 class TestDeleteByDateRange(CleanupBase):
+    # The date-range delete builds a site-wide `posting_date between` filter, so
+    # sibling-shard PEs dated today() would be swept in too (and a submitted one
+    # fails the force-delete). Pin each fixture to a unique far-past posting_date
+    # and use a 1-day window around it so the query matches only this test's PE.
+    def _isolated_window_date(self):
+        # A date far in the past that the EnhancedTestDataFactory's frozen "today"
+        # range never reaches, made unique-ish per test via the instance seed.
+        return add_days("2000-01-01", self.sepa.seed % 3000)
+
     def test_date_range_selects_pe_in_window(self):
         member = self._make_member_with_customer("DateRange")
-        pe = self._make_payment_entry(customer=member.customer, docstatus=0)
-        # posting_date is today() by construction.
+        d = self._isolated_window_date()
+        pe = self._make_payment_entry(customer=member.customer, docstatus=0, posting_date=d)
         result = cleanup.delete_payment_entries_by_date_range(
-            from_date=add_days(today(), -1),
-            to_date=add_days(today(), 1),
+            from_date=add_days(d, -1),
+            to_date=add_days(d, 1),
             docstatus=0,
         )
         self.assertGreaterEqual(result["payment_entries_deleted"], 1)
@@ -441,11 +442,12 @@ class TestDeleteByDateRange(CleanupBase):
 
     def test_date_range_excludes_pe_outside_window(self):
         member = self._make_member_with_customer("OutWindow")
-        pe = self._make_payment_entry(customer=member.customer, docstatus=0)
-        # Window entirely in the past -> our today()-dated PE is excluded.
+        d = self._isolated_window_date()
+        pe = self._make_payment_entry(customer=member.customer, docstatus=0, posting_date=d)
+        # Window entirely before our PE's date -> our PE is excluded.
         result = cleanup.delete_payment_entries_by_date_range(
-            from_date=add_days(today(), -30),
-            to_date=add_days(today(), -20),
+            from_date=add_days(d, -30),
+            to_date=add_days(d, -20),
             docstatus=0,
         )
         # Our PE must still exist (it was not in the window).
@@ -454,10 +456,11 @@ class TestDeleteByDateRange(CleanupBase):
     def test_date_range_without_docstatus_filter(self):
         """docstatus=None branch: the filter dict omits docstatus entirely."""
         member = self._make_member_with_customer("NoDocstatus")
-        pe = self._make_payment_entry(customer=member.customer, docstatus=0)
+        d = self._isolated_window_date()
+        pe = self._make_payment_entry(customer=member.customer, docstatus=0, posting_date=d)
         result = cleanup.delete_payment_entries_by_date_range(
-            from_date=add_days(today(), -1),
-            to_date=add_days(today(), 1),
+            from_date=add_days(d, -1),
+            to_date=add_days(d, 1),
         )
         self.assertGreaterEqual(result["payment_entries_deleted"], 1)
         self.assertFalse(frappe.db.exists("Payment Entry", pe.name))

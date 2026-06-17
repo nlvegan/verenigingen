@@ -31,7 +31,6 @@ from verenigingen.utils import (
     generate_btw_report,
     get_membership_status,
     jinja_filters,
-    jinja_methods,
     status_color,
 )
 
@@ -54,9 +53,7 @@ def _invoice(**kwargs):
 
 class TestDeterminePaymentStatus(EnhancedTestCase):
     def test_draft_when_docstatus_zero(self):
-        self.assertEqual(
-            determine_payment_status(_invoice(docstatus=0, status="Unpaid")), "Draft"
-        )
+        self.assertEqual(determine_payment_status(_invoice(docstatus=0, status="Unpaid")), "Draft")
 
     def test_paid_when_status_paid(self):
         self.assertEqual(
@@ -120,9 +117,7 @@ class TestDeterminePaymentStatus(EnhancedTestCase):
 
 class TestBatchFetchWithChunking(EnhancedTestCase):
     def test_empty_name_list_returns_empty(self):
-        self.assertEqual(
-            batch_fetch_with_chunking("Member", [], ["name"]), []
-        )
+        self.assertEqual(batch_fetch_with_chunking("Member", [], ["name"]), [])
 
     def test_fetches_real_records_across_chunks(self):
         m1 = self.create_test_member(first_name="Chunk", last_name="One")
@@ -227,7 +222,15 @@ class TestFormatHelpers(EnhancedTestCase):
         self.assertEqual(status_color("Whatever"), "grey")
 
     def test_jinja_methods_and_filters_registry(self):
-        methods = jinja_methods()
+        # `verenigingen.utils` has BOTH a registry function and a sibling
+        # submodule `verenigingen/utils/jinja_methods.py`. Importing that
+        # submodule (any sibling test does) rebinds the package attribute
+        # `jinja_methods` to the module, so we call the unshadowed
+        # `jinja_methods_registry`. `jinja_filters` has no sibling module and is
+        # never shadowed.
+        from verenigingen.utils import jinja_filters, jinja_methods_registry
+
+        methods = jinja_methods_registry()
         self.assertIn("format_address", methods)
         self.assertIn("get_membership_status", methods)
         self.assertIn("format_date_range", methods)

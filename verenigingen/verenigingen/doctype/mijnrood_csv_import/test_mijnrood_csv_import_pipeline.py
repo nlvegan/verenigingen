@@ -346,16 +346,21 @@ class TestMijnroodOnSubmitQueueing(_BaseMijnroodPipelineTest):
         settings.save(ignore_permissions=True)
 
     def _ensure_dues_template(self, label):
+        # The Link fields on Verenigingen Settings are validated on save, so a
+        # bare string fallback (the previous behaviour) raised LinkValidationError
+        # on a fresh CI site that has no dues-schedule template. Create a real
+        # template and return its name.
         existing = frappe.db.get_value("Membership Dues Schedule", {"is_template": 1}, "name")
         if existing:
             return existing
-        # Fall back to any membership dues schedule template name; if none exists
-        # we only need a non-empty string for the settings-completeness check.
-        return label
+        return self.ensure_dues_schedule_template(label).name
 
     def _ensure_membership_type(self):
+        # Must be a real Membership Type (Link field is validated on save).
         existing = frappe.db.get_value("Membership Type", {}, "name")
-        return existing or "Standard"
+        if existing:
+            return existing
+        return self.create_test_membership_type().name
 
     def test_on_submit_sets_queued_and_enqueues(self):
         """Submitting the import enqueues process_import_background and the doc
