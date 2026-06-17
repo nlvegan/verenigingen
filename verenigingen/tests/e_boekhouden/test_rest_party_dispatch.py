@@ -347,12 +347,13 @@ class TestCompanyPartyGetOrCreate(_PartyClusterBase):
         # Idempotent: the second call resolves to the SAME party. This is the
         # contract that matters and the real regression guard.
         self.assertEqual(first, second)
-        # Note: the internal party is REQUESTED as "<company> (Internal)", but
-        # BankTransactionParser.find_or_create_party may FUZZY-match the request to
-        # a pre-existing Customer on a shared site with accumulated parties (prod
-        # behaviour outside this test's control), so the resolved name is not
-        # guaranteed to carry the "(Internal)" literal. We therefore do not assert
-        # on the resolved customer_name.
+        # The internal party is requested as "<company> (Internal)". COMPANY is a
+        # unique test-specific token, so a fuzzy-match to some accumulated party
+        # cannot hijack it — the resolved party's name must carry the company
+        # token. This guards against a regression that drops the company linkage
+        # (the failure mode seen when the receivable was mis-resolved).
+        resolved_name = frappe.db.get_value("Customer", first, "customer_name") or first
+        self.assertIn(COMPANY, resolved_name, msg=f"resolved party {resolved_name!r} not linked to {COMPANY}")
 
     def test_company_as_supplier_created_and_idempotent(self):
         first = _get_or_create_company_as_supplier(COMPANY, [])
