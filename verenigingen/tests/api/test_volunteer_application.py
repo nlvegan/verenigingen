@@ -244,6 +244,16 @@ class TestVolunteerApplication(VereningingenTestCase):
         self.track_doc("Volunteer Interest Category", cat.name)
         return cat
 
+    def _persist_volunteer_interest(self, volunteer_name, interest_area):
+        """Append an interest row to an existing Volunteer via its child doctype."""
+        row = frappe.new_doc("Volunteer Interest Area")
+        row.parent = volunteer_name
+        row.parenttype = "Volunteer"
+        row.parentfield = "interests"
+        row.interest_area = interest_area
+        row.insert(ignore_permissions=True)
+        return row
+
     def _make_existing_volunteer(self, email, status):
         """Persist a Volunteer with a given email+status via factory + force set.
 
@@ -273,32 +283,73 @@ class TestVolunteerApplication(VereningingenTestCase):
         # A still-pending application gets its own, distinct error code.
         self.assertEqual(self._error_code(result), "APPLICATION_ALREADY_SUBMITTED")
 
-    def test_DEFERRED_inactive_volunteer_email_cannot_reapply(self):
-        # LOGIC-vs-SCHEMA contradiction (unchanged in production):
-        # The duplicate-detection logic in submit_volunteer_application only
-        # blocks emails whose existing volunteer is Active/Onboarding/New
-        # (verenigingen/api/volunteer_application.py:56-66), so an "Inactive" or
-        # "Retired" volunteer is, by that logic, intentionally allowed to
-        # re-apply. But the Volunteer DocType marks `email` as unique
-        # (volunteer.json: "email" ... "unique": 1), so the re-application
-        # insert() raises an IntegrityError (duplicate email), which is caught by
-        # the outer except and returned as a generic APPLICATION_SUBMISSION_ERROR
-        # — never the "clean reapply" the duplicate-check logic implies.
-        #
-        # DEFERRED design decision for the maintainer: resolve the
-        # logic-vs-schema contradiction — either let an inactive/retired
-        # volunteer reapply cleanly (drop/relax the unique constraint or reuse
-        # the existing record), or reject with a meaningful, specific error code.
-        # This test pins the current behavior.
+    def test_inactive_volunteer_can_reapply_and_record_is_reactivated(self):
+        # RESOLVED logic-vs-schema contradiction: the duplicate-check logic only
+        # blocks Active/Onboarding/New volunteers, so an "Inactive" volunteer is
+        # allowed to re-apply. Because Volunteer.email is unique, the
+        # re-application must REUSE the existing record (reactivate it in place)
+        # rather than insert a duplicate. The maintainer's decision was to allow
+        # reactivation.
         email = f"inactive.{self._uniq}@example.com"
-        self._make_existing_volunteer(email, "Inactive")
+        existing = self._make_existing_volunteer(email, "Inactive")
 
-        result = self._submit_as_guest(self._valid_payload(email=email))
-        self._track_created_volunteer(result)
-        self.assertFalse(self._ok(result), "Bug: reapply currently fails on the unique-email constraint")
-        self.assertEqual(self._error_code(result), "APPLICATION_SUBMISSION_ERROR")
-        # No second Volunteer was created (the insert was rolled back).
+        result = self._track_created_volunteer(
+            self._submit_as_guest(
+                self._valid_payload(
+                    email=email,
+                    first_name="Riana",
+                    last_name="Vermeer",
+                    motivation="I am back and want to help again.",
+                    time_commitment="11-20",
+                )
+            )
+        )
+        self.assertTrue(self._ok(result), f"Reapply should succeed: {self._error_message(result)}")
+
+        # The SAME volunteer record is reused — no duplicate is created.
+        self.assertEqual(self._data(result)["volunteer_name"], existing.name)
         self.assertEqual(frappe.db.count("Volunteer", {"email": email}), 1)
+
+        vol = frappe.get_doc("Volunteer", existing.name)
+        # Reactivation puts the volunteer back into the onboarding pipeline as
+        # "New" (a guest re-application must NOT self-activate to Active).
+        self.assertEqual(vol.status, "New")
+        # The record is refreshed with the new application's details.
+        self.assertEqual(vol.volunteer_name, "Riana Vermeer")
+        self.assertEqual(vol.commitment_level, "Weekly")
+        self.assertIn("I am back and want to help again.", vol.note)
+
+    def test_retired_volunteer_can_reapply_and_record_is_reactivated(self):
+        # "Retired" is the other terminal status that the duplicate-check logic
+        # treats as eligible to re-apply; it must reactivate just like Inactive.
+        email = f"retired.{self._uniq}@example.com"
+        existing = self._make_existing_volunteer(email, "Retired")
+
+        result = self._track_created_volunteer(self._submit_as_guest(self._valid_payload(email=email)))
+        self.assertTrue(self._ok(result), f"Reapply should succeed: {self._error_message(result)}")
+
+        self.assertEqual(self._data(result)["volunteer_name"], existing.name)
+        self.assertEqual(frappe.db.count("Volunteer", {"email": email}), 1)
+        self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "status"), "New")
+
+    def test_reactivation_does_not_duplicate_interest_rows(self):
+        # A returning volunteer who had interests on file, and re-selects an
+        # interest, must end up with that interest linked exactly once (the
+        # stale rows are refreshed from the new application, not appended to).
+        email = f"reinterest.{self._uniq}@example.com"
+        existing = self._make_existing_volunteer(email, "Inactive")
+        self._persist_interest_category("Event Organization")
+        # Seed a pre-existing interest row on the dormant record.
+        self._persist_volunteer_interest(existing.name, "Event Organization")
+
+        result = self._track_created_volunteer(
+            self._submit_as_guest(self._valid_payload(email=email, interest_events=1))
+        )
+        self.assertTrue(self._ok(result), self._error_message(result))
+
+        vol = frappe.get_doc("Volunteer", existing.name)
+        areas = [row.interest_area for row in vol.interests]
+        self.assertEqual(areas.count("Event Organization"), 1, "Interest must not be duplicated on reapply")
 
     # ------------------------------------------------------------------
     # Guest permission boundary / privilege escalation

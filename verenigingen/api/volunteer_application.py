@@ -53,6 +53,11 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
             "Volunteer", {"email": data.get("email")}, ["name", "status"], as_dict=True
         )
 
+        # An Inactive/Retired volunteer is allowed to re-apply: those are
+        # terminal states, not pending/active profiles. Because Volunteer.email
+        # is unique we must REUSE (reactivate) their existing record rather than
+        # insert a duplicate (which would raise an IntegrityError).
+        is_reactivation = False
         if existing_volunteer:
             if existing_volunteer.status in ["Active", "Onboarding"]:
                 return OperationResult.fail(
@@ -64,6 +69,9 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
                     _("We already have your volunteer application. We'll contact you soon!"),
                     error_code="APPLICATION_ALREADY_SUBMITTED",
                 )
+            else:
+                # Inactive / Retired -> reactivate the existing record in place.
+                is_reactivation = True
 
         # Check if they're already a member (link volunteer to existing member)
         member_link = None
@@ -77,42 +85,49 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
             if existing_member:
                 member_link = existing_member
 
-        # Create volunteer record using secure user context (same pattern as membership application)
+        # Create (or reactivate) the volunteer record using a secure user context
+        # (same pattern as the membership application).
         from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
         system_user = get_system_user_for_operation("volunteer_application_submission")
 
-        with secure_user_context(system_user, "Create volunteer record from public application form"):
-            volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "volunteer_name": f"{data.get('first_name')} {data.get('last_name')}",
-                    "email": data.get("email"),
-                    "member": member_link,  # Link to member if exists
-                    "status": "New",  # Start as "New" - will be activated during onboarding
-                    "start_date": today(),
-                    "note": _build_volunteer_notes(data),
-                    # Map commitment level from time_commitment
-                    "commitment_level": _map_time_commitment(data.get("time_commitment")),
-                    "experience_level": "Beginner",  # Default for new volunteers
-                    "preferred_work_style": "Hybrid",  # Default
-                }
-            )
+        if is_reactivation:
+            volunteer_name = _reactivate_volunteer(existing_volunteer.name, data, member_link, system_user)
+        else:
+            with secure_user_context(system_user, "Create volunteer record from public application form"):
+                volunteer = frappe.get_doc(
+                    {
+                        "doctype": "Volunteer",
+                        "volunteer_name": f"{data.get('first_name')} {data.get('last_name')}",
+                        "email": data.get("email"),
+                        "member": member_link,  # Link to member if exists
+                        "status": "New",  # Start as "New" - will be activated during onboarding
+                        "start_date": today(),
+                        "note": _build_volunteer_notes(data),
+                        # Map commitment level from time_commitment
+                        "commitment_level": _map_time_commitment(data.get("time_commitment")),
+                        "experience_level": "Beginner",  # Default for new volunteers
+                        "preferred_work_style": "Hybrid",  # Default
+                    }
+                )
 
-            volunteer.insert()
+                volunteer.insert()
 
-            # Add interest areas if selected
-            _add_interest_areas(volunteer.name, data)
+                # Add interest areas if selected
+                _add_interest_areas(volunteer.name, data)
+
+            volunteer_name = volunteer.name
 
         # If they also want membership, create member application
         membership_result = None
         if data.get("become_member") and not member_link:
-            membership_result = _create_membership_application(data, volunteer.name)
+            membership_result = _create_membership_application(data, volunteer_name)
 
         frappe.db.commit()
 
         # Log volunteer application for analytics
-        frappe.logger().info(f"Volunteer application submitted: {volunteer.name} - {data.get('email')}")
+        action = "reactivated" if is_reactivation else "submitted"
+        frappe.logger().info(f"Volunteer application {action}: {volunteer_name} - {data.get('email')}")
 
         # The volunteer record is always the primary outcome; the optional
         # membership sign-up is secondary. `member_name` reports the member
@@ -128,8 +143,8 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
                 membership_error = membership_result["error"]
 
         result_data = {
-            "application_id": volunteer.name,
-            "volunteer_name": volunteer.name,
+            "application_id": volunteer_name,
+            "volunteer_name": volunteer_name,
             "member_name": member_name,
         }
 
@@ -143,10 +158,12 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
                 ).format(membership_error),
             )
 
-        return OperationResult.ok(
-            result_data,
-            message=_("Volunteer application submitted successfully"),
+        success_message = (
+            _("Welcome back! Your volunteer application has been received")
+            if is_reactivation
+            else _("Volunteer application submitted successfully")
         )
+        return OperationResult.ok(result_data, message=success_message)
 
     except Exception as e:
         frappe.db.rollback()
@@ -158,6 +175,43 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(
             error_msg, error_code="APPLICATION_SUBMISSION_ERROR", technical_details=str(e)
         )
+
+
+def _reactivate_volunteer(volunteer_name, data, member_link, system_user):
+    """Reactivate a dormant (Inactive/Retired) volunteer in place.
+
+    Volunteer.email is unique, so a returning volunteer must reuse their
+    existing record rather than insert a duplicate. The application-derived
+    fields are refreshed from the new submission and the volunteer is put back
+    at the START of the onboarding pipeline (status "New"): a guest
+    re-application must never self-activate to "Active". Earned profile fields
+    (experience_level, preferred_work_style) are intentionally preserved.
+
+    Returns the existing volunteer's name.
+    """
+    from verenigingen.utils.secure_operations import secure_user_context
+
+    with secure_user_context(
+        system_user, f"Reactivate dormant volunteer {volunteer_name} from public application form"
+    ):
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+        volunteer.volunteer_name = f"{data.get('first_name')} {data.get('last_name')}"
+        volunteer.status = "New"  # Re-enter onboarding; guest input must not self-activate
+        volunteer.start_date = today()
+        volunteer.note = _build_volunteer_notes(data)
+        volunteer.commitment_level = _map_time_commitment(data.get("time_commitment"))
+        if member_link:
+            volunteer.member = member_link
+
+        # Refresh interests from the new application rather than appending to
+        # stale rows, so a re-application cannot accumulate duplicate interests.
+        volunteer.interests = []
+        volunteer.save()
+
+        # Re-add the interest areas selected on this application.
+        _add_interest_areas(volunteer_name, data)
+
+    return volunteer_name
 
 
 def _map_time_commitment(time_commitment_str):
