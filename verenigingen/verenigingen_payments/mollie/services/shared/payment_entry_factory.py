@@ -166,6 +166,11 @@ class PaymentEntryFactory:
                     "received_amount": amount,
                     "reference_no": payment_id,
                     "reference_date": reference_date,
+                    # posting_date is mandatory on Payment Entry. The "Today" field
+                    # default is not reliably applied for a dict-built get_doc, so
+                    # set it explicitly to the payment's settlement date (matching
+                    # reference_date) rather than relying on an implicit default.
+                    "posting_date": reference_date,
                     "company": company,
                     "paid_from": accounts["receivable_account"],
                     "paid_to": accounts["bank_account"],
@@ -666,8 +671,13 @@ class PaymentEntryFactory:
                     )
                     return member_doc.customer
 
-                # Also check if a Customer already exists with this member linked
-                existing_customer = frappe.db.get_value("Customer", {"custom_member": member_name}, "name")
+                # Also check if a Customer already exists with this member linked.
+                # The Customer->Member link field is `member` (matching
+                # CustomerHandlingService, which Member.after_insert uses). A prior
+                # `custom_member` here did not exist on the Customer DocType, so the
+                # query raised OperationalError -> swallowed -> customer creation
+                # silently failed for every member without a pre-existing Customer.
+                existing_customer = frappe.db.get_value("Customer", {"member": member_name}, "name")
                 if existing_customer:
                     # Link it back to the member
                     # Security: Link existing customer during authenticated webhook - data integrity operation
@@ -703,7 +713,7 @@ class PaymentEntryFactory:
                         "customer_group": customer_group,
                         "territory": territory,
                         "company": company,
-                        "custom_member": member_doc.name,
+                        "member": member_doc.name,
                         "email_id": getattr(member_doc, "email", None),
                     }
                 )
@@ -744,8 +754,8 @@ class PaymentEntryFactory:
         Used when sepa_duplicate_prevention module is not available.
         """
         try:
-            # Check if customer already exists
-            existing_customer = frappe.db.get_value("Customer", {"custom_member": member_doc.name}, "name")
+            # Check if customer already exists (link field is `member`, not custom_member)
+            existing_customer = frappe.db.get_value("Customer", {"member": member_doc.name}, "name")
             if existing_customer:
                 # Security: Link existing customer during authenticated webhook - fallback path
                 member_doc.customer = existing_customer
@@ -772,7 +782,7 @@ class PaymentEntryFactory:
                     "customer_group": customer_group,
                     "territory": territory,
                     "company": company,
-                    "custom_member": member_doc.name,
+                    "member": member_doc.name,
                     "email_id": getattr(member_doc, "email", None),
                 }
             )

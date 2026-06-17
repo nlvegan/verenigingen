@@ -18,7 +18,7 @@ Architecture:
 - exceptions/: Custom exception hierarchy
 
 Service Layer:
-- WebhookWrapperServiceUnified: Unified webhook processing with idempotency protection
+- UnifiedWebhookWrapperService: Unified webhook processing with idempotency protection
 - PaymentService: Core payment operations (basic structure)
 - CompletePaymentService: Full payment workflow management
 - MollieClient: Simplified API client for essential operations
@@ -43,14 +43,18 @@ Key Features:
 # Working services
 try:
     from .services.payment_service import PaymentService
-    from .services.webhook_wrapper_service_unified import WebhookWrapperServiceUnified
+    from .services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 except ImportError:
-    WebhookWrapperServiceUnified = None
+    UnifiedWebhookWrapperService = None
     PaymentService = None
+
+# Backward-compat alias: the class was renamed from WebhookWrapperServiceUnified.
+WebhookWrapperServiceUnified = UnifiedWebhookWrapperService
 
 __version__ = "2.0.0"
 __all__ = [
-    "WebhookWrapperServiceUnified",  # Unified webhook processing
+    "UnifiedWebhookWrapperService",  # Unified webhook processing
+    "WebhookWrapperServiceUnified",  # Backward-compat alias
     "PaymentService",  # Basic structure, needs completion
     # Still need to implement:
     # "MollieClient",

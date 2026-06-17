@@ -295,9 +295,9 @@ def bulk_sync_recent_payments(hours: int = 24) -> Dict[str, Any]:
             hours = 168
 
         # Get recent payment IDs from audit logs
-        from frappe.utils import add_hours
+        from frappe.utils import add_to_date
 
-        cutoff_time = add_hours(now_datetime(), -hours)
+        cutoff_time = add_to_date(now_datetime(), hours=-hours)
 
         recent_payment_logs = frappe.db.sql(
             """

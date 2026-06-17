@@ -453,12 +453,24 @@ def handle_chargeback_webhook():
 
         frappe.logger().info(f"🔔 Chargeback webhook received, payload length: {len(webhook_payload)}")
 
+        # Parse the JSON payload and extract the payment id. The chargeback
+        # processor needs (payment_id, chargeback_data) — the payment id is the
+        # opaque resource id Mollie sends in the body.
+        import json
+
+        chargeback_data = json.loads(webhook_payload)
+        payment_id = (
+            chargeback_data.get("payment_id") or chargeback_data.get("paymentId") or chargeback_data.get("id")
+        )
+        if not payment_id:
+            frappe.throw(_("Missing payment_id in chargeback webhook payload"))
+
         # Import the unified webhook wrapper service
-        from ..services.webhook_wrapper_service_unified import WebhookWrapperServiceUnified
+        from ..services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 
         # Process chargeback webhook using unified service layer
-        service = WebhookWrapperServiceUnified()
-        result = service.process_chargeback_webhook(webhook_payload)
+        service = UnifiedWebhookWrapperService()
+        result = service.process_chargeback_webhook(payment_id, chargeback_data)
 
         frappe.logger().info("✅ Chargeback webhook processed successfully")
         return result

@@ -510,11 +510,13 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
             if not consumer_account:
                 return
 
-            # Validate IBAN format
+            # Validate IBAN format. validate_iban returns a plain bool; a prior
+            # `iban_result.get("valid")` raised AttributeError on the bool, which
+            # was swallowed by the surrounding except -> consumer bank accounts
+            # were NEVER linked. Treat the boolean result directly.
             from verenigingen.verenigingen_payments.mollie.utils.validators import validate_iban
 
-            iban_result = validate_iban(consumer_account)
-            if not iban_result.get("valid"):
+            if not validate_iban(consumer_account):
                 self.logger.debug(
                     f"Consumer account {consumer_account} is not a valid IBAN, skipping bank data save"
                 )

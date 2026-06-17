@@ -14,7 +14,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 
-from ..utils.error_recovery import error_recovery
+from ..utils.error_recovery import RetryConfig, error_recovery
 from ..utils.logging import MollieLogger
 from ..utils.monitoring import get_mollie_health_status, health_checker, performance_monitor
 
@@ -440,7 +440,7 @@ def test_error_recovery():
                 return {"success": True, "attempts": attempt_count}
 
             result = error_recovery.execute_with_retry(
-                failing_operation, "test_retry_operation", error_recovery.RetryConfig(max_attempts=3)
+                failing_operation, "test_retry_operation", RetryConfig(max_attempts=3)
             )
 
             test_results["tests_run"].append(
@@ -504,11 +504,8 @@ def _get_recovery_performance_metrics():
         operations = ["webhook_processing", "payment_creation", "refund_creation"]
 
         for operation in operations:
-            cache_key = f"mollie_recovery_success:{operation}"
-            recovery_data = frappe.cache().get(cache_key) or {"count": 0, "total_attempts": 0}
-
-            failure_key = f"mollie_operation_failure:{operation}"
-            failure_data = frappe.cache().get(failure_key) or {"count": 0, "total_attempts": 0}
+            recovery_data = _read_recovery_counter(f"mollie_recovery_success:{operation}")
+            failure_data = _read_recovery_counter(f"mollie_operation_failure:{operation}")
 
             recovery_metrics[operation] = {
                 "recovery_success": recovery_data,
@@ -519,6 +516,33 @@ def _get_recovery_performance_metrics():
         return recovery_metrics
     except Exception:
         return {}
+
+
+def _read_recovery_counter(cache_key):
+    """Read a recovery counter dict from cache.
+
+    The producers in error_recovery.py store these counters as JSON strings, and
+    frappe.cache().get() returns them as bytes/str — so the raw value must be
+    deserialised before use. Without this, the very presence of recovery activity
+    (which writes JSON to the cache) made the metrics aggregation raise on
+    ``data["count"]`` and silently return {}.
+    """
+    default = {"count": 0, "total_attempts": 0}
+    raw = frappe.cache().get(cache_key)
+    if raw is None:
+        return default
+    if isinstance(raw, (str, bytes)):
+        import json
+
+        try:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+            return default
+    if not isinstance(raw, dict) or "count" not in raw:
+        return default
+    return raw
 
 
 def _calculate_recovery_system_health(recovery_status, recovery_metrics):

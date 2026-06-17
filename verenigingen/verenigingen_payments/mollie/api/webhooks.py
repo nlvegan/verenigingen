@@ -78,12 +78,22 @@ def webhook_health_check():
         # Check Mollie settings
         mollie_settings = frappe.get_single("Mollie Settings")
 
+        # The webhook URL is stored per-mode (testing_webhook_url / live_webhook_url);
+        # there is no flat `webhook_url` field, so read the mode-appropriate one.
+        # (Accessing the non-existent `webhook_url` previously made this health
+        # check ALWAYS raise AttributeError and report 'unhealthy'.)
+        webhook_url = (
+            mollie_settings.get("testing_webhook_url")
+            if mollie_settings.test_mode
+            else mollie_settings.get("live_webhook_url")
+        )
+
         health_status = {
             "status": "healthy",
             "service": "Mollie Webhook Service",
             "timestamp": frappe.utils.now_datetime(),
             "configuration": {
-                "webhook_url_configured": bool(mollie_settings.webhook_url),
+                "webhook_url_configured": bool(webhook_url),
                 "api_key_configured": bool(mollie_settings.get_active_api_key()),
                 "test_mode": mollie_settings.test_mode,
                 "webhook_user_exists": frappe.db.exists("User", "webhook.user@veganisme.org"),

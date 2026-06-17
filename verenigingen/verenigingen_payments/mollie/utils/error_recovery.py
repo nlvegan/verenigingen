@@ -400,13 +400,20 @@ class MollieErrorRecovery:
         return True
 
     def _classify_error_severity(self, error: Exception) -> ErrorSeverity:
-        """Classify error severity for alerting."""
+        """Classify error severity for alerting.
+
+        Note on check ordering: MollieSecurityError and MolliePaymentError are
+        both subclasses of MollieWebhookError, so the more specific subclasses
+        must be tested *before* the MollieWebhookError catch-all — otherwise a
+        MolliePaymentError would be mis-classified as HIGH and its intended
+        MEDIUM branch would be unreachable.
+        """
         if isinstance(error, MollieSecurityError):
             return ErrorSeverity.CRITICAL
-        elif isinstance(error, MollieWebhookError):
-            return ErrorSeverity.HIGH
         elif isinstance(error, MolliePaymentError):
             return ErrorSeverity.MEDIUM
+        elif isinstance(error, MollieWebhookError):
+            return ErrorSeverity.HIGH
         else:
             return ErrorSeverity.LOW
 
@@ -568,10 +575,16 @@ class MollieErrorRecovery:
             # Retry webhook processing with fresh data
             payment_id = operation_data.get("payment_id")
             if payment_id:
-                from ..services.webhook_wrapper_service_unified import WebhookWrapperServiceUnified
+                from ..services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 
-                service = WebhookWrapperServiceUnified()
-                result = service.process_webhook(payment_id)
+                service = UnifiedWebhookWrapperService()
+                # The unified service re-fetches the payment from Mollie by id;
+                # the second arg is the (original) webhook data used for
+                # idempotency/logging — the recovery operation_data is the best
+                # context available here. (The class was renamed from
+                # WebhookWrapperServiceUnified and its method from process_webhook
+                # to process_payment_webhook; the old names crashed this path.)
+                result = service.process_payment_webhook(payment_id, operation_data)
                 return result.get("status") == "success"
 
         elif operation_type == "payment_creation":
