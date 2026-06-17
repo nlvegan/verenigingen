@@ -1858,20 +1858,42 @@ def verify_donation_type_setup():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+def _normalize_template_count(result):
+    """Normalize the differing return shapes of the email-template helpers to an int.
+
+    The three helpers each return a different type:
+    - create_application_email_templates() -> int (count)
+    - create_default_email_templates() -> dict with a "templates" list
+    - create_comprehensive_email_templates() -> OperationResult whose .data dict
+      carries "created"/"total"
+    Without this normalization the old ``int + dict`` arithmetic raised TypeError,
+    so the manual endpoint always reported success=False even though templates were
+    created.
+    """
+    if isinstance(result, int):
+        return result
+    if isinstance(result, dict):
+        return len(result.get("templates", []))
+    data = getattr(result, "data", None)
+    if isinstance(data, dict):
+        return data.get("created", data.get("total", 0)) or 0
+    return 0
+
+
 def create_email_templates_manual():
     """Manual endpoint to create email templates"""
     try:
         print("🔧 Manually creating email templates...")
 
         # Create basic templates
-        basic_count = create_application_email_templates()
+        basic_count = _normalize_template_count(create_application_email_templates())
 
         # Create enhanced templates
         enhanced_count = 0
         try:
             from verenigingen.api.membership_email_templates import create_default_email_templates
 
-            enhanced_count = create_default_email_templates()
+            enhanced_count = _normalize_template_count(create_default_email_templates())
         except Exception as e:
             print(f"Enhanced templates failed: {str(e)}")
 
@@ -1880,7 +1902,7 @@ def create_email_templates_manual():
         try:
             from verenigingen.api.email_template_manager import create_comprehensive_email_templates
 
-            comprehensive_count = create_comprehensive_email_templates()
+            comprehensive_count = _normalize_template_count(create_comprehensive_email_templates())
         except Exception as e:
             print(f"Comprehensive templates failed: {str(e)}")
 
@@ -2081,7 +2103,7 @@ def reinstall_onboarding():
                 "name": "Verenigingen",
                 "title": "Let's set up your Association Management.",
                 "subtitle": "Members, Volunteers, Chapters, and more.",
-                "module": "E-Boekhouden",
+                "module": "Verenigingen",
                 "success_message": "The Verenigingen Module is all set up!",
                 "documentation_url": "https://github.com/verenigingen/docs",
                 "allow_roles": [{"role": "System Manager"}, {"role": "Verenigingen Administrator"}],
