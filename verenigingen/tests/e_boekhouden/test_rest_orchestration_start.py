@@ -126,6 +126,10 @@ class _StartImportBase(EnhancedTestCase):
         except Exception:
             cls._orig_token = None
         settings.default_company = COMPANY
+        # api_token is a MANDATORY Password field. On a fresh site (CI) it is empty,
+        # so saving the single would raise MandatoryError. Set it on the docfield
+        # before saving so the single is valid regardless of the site's state.
+        settings.api_token = "test-token-dummy"
         settings.save(ignore_permissions=True)
         # Write the token directly to the Auth store (Password field; see _set_token).
         set_encrypted_password(
@@ -138,7 +142,14 @@ class _StartImportBase(EnhancedTestCase):
         from frappe.utils.password import set_encrypted_password
 
         settings = frappe.get_single("E-Boekhouden Settings")
-        settings.default_company = cls._orig_company
+        # default_company is also mandatory; on a fresh site it was empty, so
+        # restoring None would raise MandatoryError. Fall back to COMPANY (which
+        # exists) when there was no original value.
+        settings.default_company = cls._orig_company or COMPANY
+        # Keep a non-empty docfield value to avoid MandatoryError on save when the
+        # site never had a real token (fresh CI site). The real token (if any) is
+        # restored into the Auth store directly below.
+        settings.api_token = cls._orig_token or "test-token-dummy"
         settings.save(ignore_permissions=True)
         set_encrypted_password(
             "E-Boekhouden Settings",

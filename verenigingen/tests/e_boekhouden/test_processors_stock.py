@@ -25,13 +25,21 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 def _persist_eur_company():
-    """Return a EUR company name, creating a dedicated test company if needed."""
-    existing = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-    if existing:
-        return existing
+    """Return a DEDICATED EUR company name, creating it if needed.
+
+    Must be deterministic: grabbing an arbitrary ``default_currency == EUR``
+    company makes the suite depend on which EUR companies happen to exist on the
+    site (sibling suites create several, ERPNext ships restricted test companies),
+    so the resolved company -- and its stock/FY/account setup -- varied run to run
+    and broke the Stock Reconciliation submit on a fresh sharded CI site. Always
+    use our own named company so the fixture chain is self-contained.
+    """
+    name = "EBKH EUR Test Co"
+    if frappe.db.exists("Company", name):
+        return name
 
     company = frappe.new_doc("Company")
-    company.company_name = "EBKH EUR Test Co"
+    company.company_name = name
     company.abbr = "EETC"
     company.default_currency = "EUR"
     company.country = "Netherlands"
@@ -73,8 +81,20 @@ def _setup_stock_account(company):
 
 
 def _persist_ledger_mapping(ledger_id, account):
-    """Create an E-Boekhouden Ledger Mapping linking a ledger id to an account."""
-    if frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}):
+    """Upsert an E-Boekhouden Ledger Mapping linking a ledger id to an account.
+
+    The mapping doctype is keyed by ledger_id GLOBALLY and persists across runs.
+    These suite-private ledger ids must point at THIS run's company account; a
+    stale row from a prior run (when the helper resolved a different EUR company)
+    would otherwise resolve to a FOREIGN company's account and the Stock
+    Reconciliation submit would reject it ("Account ... does not belong to
+    Company"). Re-point the existing row instead of leaving it stale.
+    """
+    existing = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "name")
+    if existing:
+        if frappe.db.get_value("E-Boekhouden Ledger Mapping", existing, "erpnext_account") != account:
+            frappe.db.set_value("E-Boekhouden Ledger Mapping", existing, "erpnext_account", account)
+            frappe.db.commit()
         return
     doc = frappe.new_doc("E-Boekhouden Ledger Mapping")
     doc.ledger_id = str(ledger_id)

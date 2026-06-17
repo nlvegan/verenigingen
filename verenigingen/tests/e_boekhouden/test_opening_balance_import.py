@@ -88,9 +88,7 @@ class _OpeningBalanceBase(EnhancedTestCase):
 
     @classmethod
     def _ensure_leaf_cost_center(cls):
-        cc = frappe.db.get_value(
-            "Cost Center", {"company": cls.company, "is_group": 0}, "name"
-        )
+        cc = frappe.db.get_value("Cost Center", {"company": cls.company, "is_group": 0}, "name")
         return cc
 
     # ---- accounts ----------------------------------------------------------
@@ -183,10 +181,18 @@ class _OpeningBalanceBase(EnhancedTestCase):
             pluck="name",
         )
         for name in existing:
-            je = frappe.get_doc("Journal Entry", name)
-            if je.docstatus == 1:
-                je.cancel()
-            frappe.delete_doc("Journal Entry", name, force=True)
+            # Cancelling a submitted OB JE can trip an on_cancel hook in the test
+            # env; force-delete works regardless of docstatus, so swallow a failed
+            # cancel and delete anyway (test-only cleanup, not a business op). If
+            # the cancel raises mid-transaction we must roll back before deleting,
+            # else the delete runs inside a poisoned transaction.
+            try:
+                je = frappe.get_doc("Journal Entry", name)
+                if je.docstatus == 1:
+                    je.cancel()
+            except Exception:
+                frappe.db.rollback()
+            frappe.delete_doc("Journal Entry", name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
 
@@ -268,9 +274,7 @@ class TestBuildOpeningBalanceJE(_OpeningBalanceBase):
             self._mut("stock", 100.0, date=today()),
             self._mut("asset", 100.0, date=today()),
         ]
-        result = _build_opening_balance_je(
-            muts, self.company, self.cost_center, [], track_skip_reasons=True
-        )
+        result = _build_opening_balance_je(muts, self.company, self.cost_center, [], track_skip_reasons=True)
         je = result["je"]
         present = {row.account for row in je.accounts}
         self.assertIn(self.accounts["asset"], present)
@@ -344,9 +348,7 @@ class TestBuildOpeningBalanceJE(_OpeningBalanceBase):
     def test_amount_field_override_uses_balance_key(self):
         # _import_opening_balances_from_data path uses amount_field="balance"
         muts = [self._mut("asset", 1234.0, amount_field="balance", date=today())]
-        je = _build_opening_balance_je(
-            muts, self.company, self.cost_center, [], amount_field="balance"
-        )["je"]
+        je = _build_opening_balance_je(muts, self.company, self.cost_center, [], amount_field="balance")["je"]
         line = next(r for r in je.accounts if r.account == self.accounts["asset"])
         self.assertEqual(line.debit_in_account_currency, 1234.0)
 
@@ -364,9 +366,7 @@ class TestImportOpeningBalancesFromData(_OpeningBalanceBase):
             self._mut("asset", 1000.0, amount_field="balance", mid=1, date=today()),
             self._mut("liability", 1000.0, amount_field="balance", mid=2, date=today()),
         ]
-        result = _import_opening_balances_from_data(
-            muts, self.company, self.cost_center, [], dry_run=True
-        )
+        result = _import_opening_balances_from_data(muts, self.company, self.cost_center, [], dry_run=True)
         self.assertTrue(result["success"])
         self.assertIsNone(result["journal_entry"])
         # Nothing persisted
@@ -382,9 +382,7 @@ class TestImportOpeningBalancesFromData(_OpeningBalanceBase):
             self._mut("asset", 1000.0, amount_field="balance", mid=1, date=today()),
             self._mut("liability", 1000.0, amount_field="balance", mid=2, date=today()),
         ]
-        result = _import_opening_balances_from_data(
-            muts, self.company, self.cost_center, [], dry_run=False
-        )
+        result = _import_opening_balances_from_data(muts, self.company, self.cost_center, [], dry_run=False)
         self.assertTrue(result["success"], msg=result)
         self.assertTrue(result["journal_entry"])
         je = frappe.get_doc("Journal Entry", result["journal_entry"])
@@ -397,20 +395,14 @@ class TestImportOpeningBalancesFromData(_OpeningBalanceBase):
             self._mut("asset", 1000.0, amount_field="balance", mid=1, date=today()),
             self._mut("liability", 1000.0, amount_field="balance", mid=2, date=today()),
         ]
-        first = _import_opening_balances_from_data(
-            muts, self.company, self.cost_center, [], dry_run=False
-        )
-        second = _import_opening_balances_from_data(
-            muts, self.company, self.cost_center, [], dry_run=False
-        )
+        first = _import_opening_balances_from_data(muts, self.company, self.cost_center, [], dry_run=False)
+        second = _import_opening_balances_from_data(muts, self.company, self.cost_center, [], dry_run=False)
         self.assertTrue(second["success"])
         self.assertIn("already imported", second["message"])
         self.assertEqual(second["journal_entry"], first["journal_entry"])
 
     def test_empty_data_returns_no_balances(self):
-        result = _import_opening_balances_from_data(
-            [], self.company, self.cost_center, [], dry_run=False
-        )
+        result = _import_opening_balances_from_data([], self.company, self.cost_center, [], dry_run=False)
         self.assertTrue(result["success"])
         self.assertIsNone(result["journal_entry"])
         self.assertIn("No opening balances", result["message"])
@@ -418,9 +410,7 @@ class TestImportOpeningBalancesFromData(_OpeningBalanceBase):
     def test_unbalanced_data_persists_balanced_via_temp_account(self):
         # Only a single asset line -> must be balanced by temp-diff account to submit
         muts = [self._mut("asset", 750.0, amount_field="balance", mid=1, date=today())]
-        result = _import_opening_balances_from_data(
-            muts, self.company, self.cost_center, [], dry_run=False
-        )
+        result = _import_opening_balances_from_data(muts, self.company, self.cost_center, [], dry_run=False)
         self.assertTrue(result["success"], msg=result)
         je = frappe.get_doc("Journal Entry", result["journal_entry"])
         self.assertAlmostEqual(je.total_debit, je.total_credit, places=2)
@@ -469,9 +459,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
     def test_already_imported_returns_existing_without_api(self):
         existing = self._seed_existing_ob_je()
         # No API patch: if it tried to fetch, EBoekhoudenAPI() would fail in tests.
-        result = _import_opening_balances(
-            self.company, self.cost_center, [], dry_run=False, force=False
-        )
+        result = _import_opening_balances(self.company, self.cost_center, [], dry_run=False, force=False)
         self.assertTrue(result["success"])
         self.assertIn("already imported", result["message"])
         self.assertEqual(result["journal_entry"], existing)
@@ -491,9 +479,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=fake_api,
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=True, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=True, force=False)
         self.assertTrue(result["success"], msg=result)
         self.assertEqual(result["journal_entry"], "DRY-RUN-PREVIEW")
         self.assertFalse(
@@ -514,9 +500,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=fake_api,
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=False, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=False, force=False)
         self.assertFalse(result["success"])
         self.assertIn("Failed to fetch opening balances", result["error"])
 
@@ -544,9 +528,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=self._fetch_api(payload),
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=False, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=False, force=False)
         self.assertTrue(result["success"], msg=result)
         self.assertNotIn(result["journal_entry"], (None, "DRY-RUN-PREVIEW"))
         self.assertEqual(result["accounts_processed"], 2)
@@ -581,9 +563,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=self._fetch_api(payload),
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=False, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=False, force=False)
         self.assertTrue(result["success"], msg=result)
         je = frappe.get_doc("Journal Entry", result["journal_entry"])
         self.assertEqual(je.docstatus, 1)
@@ -613,9 +593,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=self._fetch_api(payload),
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=True, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=True, force=False)
         # Normalized to 2 mutations -> a non-empty preview (not the "No opening
         # balances found" empty-list shape).
         self.assertTrue(result["success"], msg=result)
@@ -632,9 +610,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=self._fetch_api(payload),
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=True, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=True, force=False)
         self.assertTrue(result["success"], msg=result)
         self.assertEqual(result["journal_entry"], "DRY-RUN-PREVIEW")
 
@@ -650,9 +626,7 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=self._fetch_api(payload),
         ):
-            result = _import_opening_balances(
-                self.company, self.cost_center, [], dry_run=False, force=False
-            )
+            result = _import_opening_balances(self.company, self.cost_center, [], dry_run=False, force=False)
         self.assertTrue(result["success"], msg=result)
         self.assertIsNone(result["journal_entry"])
         self.assertIn("No valid opening balance entries", result["message"])
@@ -743,7 +717,9 @@ class TestTemporaryAccounts(_OpeningBalanceBase):
         first = _get_or_create_stock_temporary_account(self.company, [])
         second = _get_or_create_stock_temporary_account(self.company, [])
         self.assertEqual(first, second)
-        self.assertEqual(frappe.db.get_value("Account", first, "account_name"), "Stock Opening Balance (Temporary)")
+        self.assertEqual(
+            frappe.db.get_value("Account", first, "account_name"), "Stock Opening Balance (Temporary)"
+        )
 
 
 FORCE_COMPANY = "TEST-EB-OB-Force-Company"
@@ -842,6 +818,19 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
             "name",
             order_by="creation desc",
         )
+        if not fy:
+            # Fresh site with no current-year Fiscal Year: create one so the seeded
+            # Opening-Entry JE (posting_date today()) can validate/submit.
+            from frappe.utils import getdate
+
+            year = getdate(today()).year
+            fy = f"TEBOF-FY-{year}"
+            if not frappe.db.exists("Fiscal Year", fy):
+                fyd = frappe.new_doc("Fiscal Year")
+                fyd.year = fy
+                fyd.year_start_date = f"{year}-01-01"
+                fyd.year_end_date = f"{year}-12-31"
+                fyd.insert(ignore_permissions=True)
         fyd = frappe.get_doc("Fiscal Year", fy)
         if not any(c.company == FORCE_COMPANY for c in fyd.companies):
             fyd.append("companies", {"company": FORCE_COMPANY})
@@ -855,11 +844,21 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
         je.eboekhouden_mutation_nr = "OPENING_BALANCE"
         je.append(
             "accounts",
-            {"account": self.asset, "debit_in_account_currency": 100, "credit_in_account_currency": 0, "cost_center": self.cost_center},
+            {
+                "account": self.asset,
+                "debit_in_account_currency": 100,
+                "credit_in_account_currency": 0,
+                "cost_center": self.cost_center,
+            },
         )
         je.append(
             "accounts",
-            {"account": self.liability, "debit_in_account_currency": 0, "credit_in_account_currency": 100, "cost_center": self.cost_center},
+            {
+                "account": self.liability,
+                "debit_in_account_currency": 0,
+                "credit_in_account_currency": 100,
+                "cost_center": self.cost_center,
+            },
         )
         je.save()
         je.submit()
@@ -882,10 +881,16 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
             filters={"eboekhouden_mutation_nr": "OPENING_BALANCE"},
             pluck="name",
         ):
-            d = frappe.get_doc("Journal Entry", name)
-            if d.docstatus == 1:
-                d.cancel()
-            frappe.delete_doc("Journal Entry", name, force=True)
+            # Cancelling a sibling's submitted OB JE can trip an on_cancel hook in
+            # the test env; swallow a failed cancel (rolling back the poisoned
+            # transaction) and force-delete regardless of docstatus.
+            try:
+                d = frappe.get_doc("Journal Entry", name)
+                if d.docstatus == 1:
+                    d.cancel()
+            except Exception:
+                frappe.db.rollback()
+            frappe.delete_doc("Journal Entry", name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
     def test_force_deletes_existing_opening_balance_je(self):
@@ -895,7 +900,11 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
         self.assertEqual(
             frappe.db.exists(
                 "Journal Entry",
-                {"company": FORCE_COMPANY, "eboekhouden_mutation_nr": "OPENING_BALANCE", "voucher_type": "Opening Entry"},
+                {
+                    "company": FORCE_COMPANY,
+                    "eboekhouden_mutation_nr": "OPENING_BALANCE",
+                    "voucher_type": "Opening Entry",
+                },
             ),
             seeded,
         )
@@ -909,9 +918,7 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
             "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
             return_value=fake_api,
         ):
-            result = _import_opening_balances(
-                FORCE_COMPANY, self.cost_center, [], dry_run=False, force=True
-            )
+            result = _import_opening_balances(FORCE_COMPANY, self.cost_center, [], dry_run=False, force=True)
 
         self.assertTrue(result["success"], msg=result)
         self.assertFalse(

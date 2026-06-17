@@ -54,10 +54,16 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 ABBR = "EBBA"
 COMPANY = "TEST-EB-Batch-Company"
 
-INCOME_LEDGER = "8100"
-EXPENSE_LEDGER = "4100"
-RECEIVABLE_LEDGER = "1310"
-PAYABLE_LEDGER = "1610"
+# "E-Boekhouden Ledger Mapping" is keyed by ledger_id GLOBALLY and persists across
+# suites on the shared test site. Sibling suites map the canonical eBoekhouden ids
+# (1310/1610/8100/4100) to their OWN companies' accounts; reusing them here would let
+# the resolver (which ignores company) return a foreign company's account, so the
+# Type-7 memorial JE-building path would fail ("Account ... does not belong to
+# Company"). Use ids PRIVATE to this suite so resolution points at our accounts.
+INCOME_LEDGER = "9708100"
+EXPENSE_LEDGER = "9704100"
+RECEIVABLE_LEDGER = "9701310"
+PAYABLE_LEDGER = "9701610"
 
 
 class _FakeIterator:
@@ -403,16 +409,11 @@ class TestImportRestMutationsBatchEnhanced(_BatchClusterBase):
         # The JE must carry the RIGHT economic content, not just exist & balance:
         # the ±25.00 memorial posts 25.00 on each side across the mapped ledgers.
         self.assertEqual(frappe.db.get_value("Journal Entry", je_name, "total_debit"), 25.0)
-        # E-Boekhouden Ledger Mapping is keyed by ledger_id GLOBALLY and persists
-        # across suites on the shared site, so the resolved accounts belong to
-        # whichever suite first mapped 8100/4100. Assert the JE used exactly the
-        # accounts those ledgers resolve to -- a regression posting to a wrong or
-        # default account would fail this.
+        # Ledger ids are PRIVATE to this suite, so they map to THIS company's own
+        # income/expense accounts. Assert the JE used exactly those accounts -- a
+        # regression posting to a wrong or default account would fail this.
         accounts = set(frappe.get_all("Journal Entry Account", filters={"parent": je_name}, pluck="account"))
-        expected_accounts = {
-            frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": "8100"}, "erpnext_account"),
-            frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": "4100"}, "erpnext_account"),
-        }
+        expected_accounts = {self.income, self.expense}
         self.assertEqual(accounts, expected_accounts)
 
     def test_processing_error_counts_as_failed(self):
