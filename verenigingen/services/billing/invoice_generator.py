@@ -654,6 +654,22 @@ class InvoiceGenerator(StatelessService):
         invoice.customer = member_doc.customer
         invoice.posting_date = today()
 
+        # Pin the invoice currency to the company's default currency.
+        #
+        # Membership dues are an intra-company receivable booked to the company's
+        # own receivable account, so the document currency MUST equal the
+        # company's account currency. If we leave currency unset, ERPNext derives
+        # it from the customer / default price list / system default, which can
+        # resolve to a different currency than the company's receivable account
+        # (e.g. an EUR company but a USD/INR default), making invoice submission
+        # fail with "Party Account currency ... and document currency ... should
+        # be same". Setting it explicitly (conversion_rate 1, same currency)
+        # keeps the invoice consistent with the company on every site.
+        company_currency = frappe.get_cached_value("Company", settings.company, "default_currency")
+        if company_currency:
+            invoice.currency = company_currency
+            invoice.conversion_rate = 1.0
+
         # Set coverage dates
         invoice.custom_coverage_start_date = coverage_start
         invoice.custom_coverage_end_date = coverage_end

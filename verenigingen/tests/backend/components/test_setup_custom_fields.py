@@ -139,9 +139,7 @@ class TestMakeCustomFields(FrappeTestCase):
 
     def test_donor_field_links_to_donor_doctype(self):
         setup_mod.make_custom_fields(update=True)
-        options = frappe.db.get_value(
-            "Custom Field", {"dt": "Customer", "fieldname": "donor"}, "options"
-        )
+        options = frappe.db.get_value("Custom Field", {"dt": "Customer", "fieldname": "donor"}, "options")
         self.assertEqual(options, "Donor")
 
     def test_make_custom_fields_idempotent(self):
@@ -166,9 +164,7 @@ class TestMakeCustomRecords(FrappeTestCase):
     def test_seeds_party_type_and_donation_item(self):
         setup_mod.make_custom_records()
         self.assertTrue(frappe.db.exists("Party Type", "Member"))
-        self.assertEqual(
-            frappe.db.get_value("Party Type", "Member", "account_type"), "Receivable"
-        )
+        self.assertEqual(frappe.db.get_value("Party Type", "Member", "account_type"), "Receivable")
         self.assertTrue(frappe.db.exists("Customer Group", "Donors"))
         self.assertTrue(frappe.db.exists("Item", "DONATION"))
         donation = frappe.get_doc("Item", "DONATION")
@@ -240,9 +236,7 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
     def setUp(self):
         # Preserve the live flag so this test never permanently changes install
         # state on the shared test site.
-        self._had_settings = bool(
-            frappe.db.exists("Verenigingen Settings", "Verenigingen Settings")
-        )
+        self._had_settings = bool(frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"))
         if self._had_settings:
             self._original_flag = frappe.db.get_value(
                 "Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete"
@@ -264,14 +258,19 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
         if not self._had_settings:
             self.skipTest("Verenigingen Settings single doc not present on this site")
         # Force the flag off, confirm reader sees False.
-        frappe.db.set_value(
-            "Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete", 0
-        )
+        # Verenigingen Settings is a Single doctype, whose value may be served
+        # from the document/value cache. On a fully-installed site the flag is
+        # already 1 in cache, so the reader can return the stale cached True even
+        # after we write 0 to tabSingles. Clear the cache so the reader hits the
+        # freshly-written value.
+        frappe.db.set_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete", 0)
         frappe.db.commit()
+        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
         self.assertFalse(setup_mod._is_initial_setup_complete())
 
         # Mark complete, confirm reader sees True.
         setup_mod._mark_initial_setup_complete()
+        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
         self.assertTrue(setup_mod._is_initial_setup_complete())
 
     def test_is_complete_returns_bool(self):

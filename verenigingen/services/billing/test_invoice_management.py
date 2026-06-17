@@ -39,8 +39,21 @@ class TestInvoiceManagement(EnhancedTestCase):
         # Names of docs we create that must be force-deleted in tearDown because
         # the code-under-test commits (escaping the test transaction rollback).
         self._committed_docs = []  # list of (doctype, name)
+        # The cleanup_* endpoints under test are decorated @development_only_api,
+        # so the API security framework blocks them unless the environment is
+        # DEVELOPMENT (which it is iff frappe.conf.developer_mode is set). Dev/test
+        # sites usually have it on, but a fresh CI site does not, so the calls
+        # raise "Function not available in production environment". Force
+        # developer_mode on (save/restore the raw conf key — frappe.conf is a
+        # frappe._dict, so patch.object does not work on it).
+        self._original_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
 
     def tearDown(self):
+        if self._original_dev_mode is None:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = self._original_dev_mode
         # Force-delete in reverse creation order; ignore already-deleted rows
         # (the cleanup functions may have removed some of them).
         for doctype, name in reversed(self._committed_docs):

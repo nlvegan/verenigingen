@@ -96,9 +96,7 @@ class TestSetupTerminationSettings(FrappeTestCase):
         branch by making exists() report False, and assert
         get_verenigingen_settings is never reached."""
         with patch.object(frappe.db, "exists", return_value=False):
-            with patch(
-                "verenigingen.utils.settings_utils.get_verenigingen_settings"
-            ) as mock_get:
+            with patch("verenigingen.utils.settings_utils.get_verenigingen_settings") as mock_get:
                 setup_mod.setup_termination_settings()
                 mock_get.assert_not_called()
 
@@ -172,9 +170,7 @@ class TestSetupTerminationSystemIntegration(FrappeTestCase):
         Error Log instead of raising. Force the first step
         (setup_termination_settings) to raise and assert the function still
         returns None (does not propagate) and an error was logged."""
-        with patch.object(
-            setup_mod, "setup_termination_settings", side_effect=RuntimeError("kaboom")
-        ):
+        with patch.object(setup_mod, "setup_termination_settings", side_effect=RuntimeError("kaboom")):
             with patch.object(frappe, "log_error") as mock_log:
                 result = setup_mod.setup_termination_system_integration()
         self.assertIsNone(result)
@@ -208,6 +204,25 @@ class TestSetupTerminationManualEndpoint(FrappeTestCase):
 
 class TestRunTerminationDiagnostics(FrappeTestCase):
     """run_termination_diagnostics() whitelisted endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        # run_termination_diagnostics is gated to the DEVELOPMENT environment by
+        # the API security framework (OperationType.ADMIN, allowed only in
+        # development). The environment is DEVELOPMENT iff frappe.conf.developer_mode
+        # is set. Dev/test sites usually have it on, but a fresh CI site does not,
+        # so the call raises "Function not available in production environment".
+        # Force developer_mode on for these tests (save/restore the raw key —
+        # frappe.conf is a frappe._dict, so patch.object does not work on it).
+        self._original_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+    def tearDown(self):
+        if self._original_dev_mode is None:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = self._original_dev_mode
+        super().tearDown()
 
     def test_diagnostics_returns_expected_shape(self):
         result = setup_mod.run_termination_diagnostics()

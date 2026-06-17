@@ -36,9 +36,7 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         super().setUp()
         self._ensure_territory()
         self._settings_backup = {
-            "auto_create_donors": frappe.db.get_single_value(
-                "Verenigingen Settings", "auto_create_donors"
-            ),
+            "auto_create_donors": frappe.db.get_single_value("Verenigingen Settings", "auto_create_donors"),
             "donations_gl_account": frappe.db.get_single_value(
                 "Verenigingen Settings", "donations_gl_account"
             ),
@@ -120,9 +118,7 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         self.assertTrue(data["enabled"])
         self.assertEqual(data["eligible_customer_groups"], "Donors")
         self.assertEqual(float(data["minimum_amount"]), 25.0)
-        self.assertEqual(
-            frappe.db.get_single_value("Verenigingen Settings", "minimum_donation_amount"), 25.0
-        )
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "minimum_donation_amount"), 25.0)
 
     def test_update_auto_creation_settings_disable(self):
         self._require_saveable_settings()
@@ -227,12 +223,8 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         # Enabled + a (fake) account configured, but the customer's group is not
         # in the eligible list -> simulation stops at the group check.
         frappe.db.set_single_value("Verenigingen Settings", "auto_create_donors", 1)
-        frappe.db.set_single_value(
-            "Verenigingen Settings", "donations_gl_account", "Donations - FAKE"
-        )
-        frappe.db.set_single_value(
-            "Verenigingen Settings", "donor_customer_groups", "Some Other Group"
-        )
+        frappe.db.set_single_value("Verenigingen Settings", "donations_gl_account", "Donations - FAKE")
+        frappe.db.set_single_value("Verenigingen Settings", "donor_customer_groups", "Some Other Group")
         customer = self._make_customer(customer_group="Donors")
         result = mgmt.simulate_auto_creation(customer_name=customer.name, amount=100)
         self.assertTrue(result["success"])
@@ -251,9 +243,20 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         self.assertTrue(result["error"]["errors"])
 
     def test_bulk_process_pending_payments_no_matching_payments(self):
-        # With an account specified but no matching submitted Payment Entries,
-        # the processor completes with zero work.
+        # With a non-existent donations account specified, no Payment Entry can
+        # match (paid_to == account is never true), so the processor does zero
+        # *account-relevant* work.
+        #
+        # NOTE: result["data"]["processed"] counts every submitted Receive/Customer
+        # Payment Entry the processor iterates over (the account match is applied
+        # inside the loop, not in the DB filter), so it is NOT zero on a site that
+        # has unrelated submitted payments from sibling tests. The meaningful,
+        # pollution-proof signals are: nothing was created, and no per-payment
+        # detail was recorded (details are only appended for payments whose
+        # paid_to matches the account — impossible for a non-existent account).
         result = mgmt.bulk_process_pending_payments(donations_account="Donations - FAKE")
         self.assertTrue(result["success"])
-        self.assertEqual(result["data"]["processed"], 0)
-        self.assertEqual(result["data"]["created"], 0)
+        data = result["data"]
+        self.assertEqual(data["created"], 0)
+        self.assertEqual(data["errors"], 0)
+        self.assertEqual(data["details"], [])

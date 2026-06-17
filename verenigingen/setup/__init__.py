@@ -1643,7 +1643,23 @@ def create_default_regions():
             except Exception as e:
                 print(f"   ⚠️ Could not create region '{name}': {str(e)}")
         else:
-            print(f"   ✓ Region already exists: {name}")
+            # Self-heal canonical fields on a pre-existing region. A region row
+            # may have been created elsewhere (e.g. a test, or before this seed
+            # ran) without `country`, in which case Frappe applies the global
+            # `country` default, which is not guaranteed to be "Netherlands" on a
+            # fresh site. Enforce the canonical country so downstream consumers
+            # (and the seed's own invariant) are reliable. This does not count as
+            # a "created" region, so idempotency (created == 0) is preserved.
+            current_country = frappe.db.get_value("Region", name, "country")
+            if current_country != region_data["country"]:
+                frappe.db.set_value("Region", name, "country", region_data["country"], update_modified=False)
+                frappe.db.commit()
+                print(
+                    f"   🛠️ Corrected country for region '{name}': "
+                    f"{current_country!r} -> {region_data['country']!r}"
+                )
+            else:
+                print(f"   ✓ Region already exists: {name}")
 
     if created_count > 0:
         frappe.db.commit()
@@ -1722,9 +1738,9 @@ def create_membership_items():
                     "doctype": "Item",
                     "item_code": "MEMBERSHIP",
                     "item_name": "Membership",
-                    "item_group": "Memberships"
-                    if frappe.db.exists("Item Group", "Memberships")
-                    else "Services",
+                    "item_group": (
+                        "Memberships" if frappe.db.exists("Item Group", "Memberships") else "Services"
+                    ),
                     "stock_uom": "Nos",
                     "is_stock_item": 0,
                     "is_sales_item": 1,

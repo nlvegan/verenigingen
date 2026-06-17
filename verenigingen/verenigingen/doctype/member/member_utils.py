@@ -234,11 +234,17 @@ def add_manual_payment_record(
 
     payment.remarks = notes or "Manual donation entry"
 
-    # Audit log before financial transaction
+    # Audit log before financial transaction.
+    # NOTE: frappe.log_error's first positional arg is the *title* (capped at
+    # 140 chars). The audit detail is long, so it must be passed as `message`
+    # with a short, fixed `title` — otherwise the Error Log insert raises
+    # CharacterLengthExceededError.
     frappe.log_error(
-        f"AUDIT: Manual payment record creation initiated by {frappe.session.user} "
-        f"for member {member} - Amount: {amount}, Method: {payment_method or 'Cash'}, Notes: {notes or 'None'}",
-        "Financial Audit Trail",
+        message=(
+            f"AUDIT: Manual payment record creation initiated by {frappe.session.user} "
+            f"for member {member} - Amount: {amount}, Method: {payment_method or 'Cash'}, Notes: {notes or 'None'}"
+        ),
+        title="Financial Audit Trail",
     )
 
     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
@@ -367,12 +373,17 @@ def create_sepa_mandate_from_bank_details(
     mandate.status = "Active"
     mandate.is_active = 1
 
-    # Audit log before SEPA mandate creation
+    # Audit log before SEPA mandate creation.
+    # NOTE: frappe.log_error's first positional arg is the *title* (capped at
+    # 140 chars). Pass the long audit detail as `message` with a short `title`
+    # to avoid CharacterLengthExceededError on the Error Log insert.
     frappe.log_error(
-        f"AUDIT: SEPA mandate creation initiated by {frappe.session.user} "
-        f"for member {member} - IBAN: {iban[-4:].rjust(len(iban), '*')}, "
-        f"Mandate ID: {mandate_id}, Type: {mandate_type}",
-        "SEPA Audit Trail",
+        message=(
+            f"AUDIT: SEPA mandate creation initiated by {frappe.session.user} "
+            f"for member {member} - IBAN: {iban[-4:].rjust(len(iban), '*')}, "
+            f"Mandate ID: {mandate_id}, Type: {mandate_type}"
+        ),
+        title="SEPA Audit Trail",
     )
 
     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation

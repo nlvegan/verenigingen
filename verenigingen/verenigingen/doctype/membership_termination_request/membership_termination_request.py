@@ -676,7 +676,15 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
         }
 
     except Exception as e:
-        frappe.log_error(f"Error initiating disciplinary termination for {member}: {str(e)}")
+        # Pass the detail as `message` with a short, fixed `title`. The first
+        # positional arg of frappe.log_error is the title (capped at 140 chars);
+        # the dynamic member name + error text easily overflows that, which would
+        # make the audit log_error itself raise CharacterLengthExceededError and
+        # mask the original error.
+        frappe.log_error(
+            message=f"Error initiating disciplinary termination for {member}: {str(e)}",
+            title="Disciplinary Termination Error",
+        )
         return {"success": False, "error": str(e)}
 
 

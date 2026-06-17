@@ -10,7 +10,7 @@ Verenigingen Operational Test Framework
 
 WHEN TO USE VereningingenTestCase:
 ✅ Integration tests requiring mocking (external APIs, file systems)
-✅ UI/form testing with CSRF handling and request simulation  
+✅ UI/form testing with CSRF handling and request simulation
 ✅ Workflow tests that need operational conveniences
 ✅ Performance tests with controlled environments
 ✅ Tests requiring extensive setup/teardown infrastructure
@@ -44,10 +44,10 @@ from werkzeug.wrappers import Request
 class VereningingenTestCase(FrappeTestCase):
     """
     🔧 Operational Testing Framework - Mocking, Integration & Workflow Testing
-    
+
     Optimized for tests that need extensive mocking, CSRF handling, and operational
     conveniences. Provides 31 factory methods with create_test_* naming convention.
-    
+
     Use when you need: mocking, UI testing, workflow integration, performance testing
     Don't use for: business logic validation, production issue discovery, field safety
     """
@@ -81,11 +81,11 @@ class VereningingenTestCase(FrappeTestCase):
         import os
 
         # Allow skipping fixture validation via environment variable
-        if os.environ.get('SKIP_FIXTURE_VALIDATION'):
+        if os.environ.get("SKIP_FIXTURE_VALIDATION"):
             return
 
         # Only validate once globally (not per test class)
-        if hasattr(frappe.flags, 'fixtures_validated'):
+        if hasattr(frappe.flags, "fixtures_validated"):
             return
         frappe.flags.fixtures_validated = True
 
@@ -185,12 +185,16 @@ class VereningingenTestCase(FrappeTestCase):
                 break  # Success, exit retry loop
             except frappe.exceptions.QueryTimeoutError as e:
                 if attempt < max_retries - 1:
-                    print(f"Lock timeout cleaning up {doc_info['doctype']} {doc_info['name']}, retrying (attempt {attempt + 1}/{max_retries})...")
+                    print(
+                        f"Lock timeout cleaning up {doc_info['doctype']} {doc_info['name']}, retrying (attempt {attempt + 1}/{max_retries})..."
+                    )
                     time.sleep(retry_delay)
                     # Rollback any stuck transaction before retrying
                     frappe.db.rollback()
                 else:
-                    print(f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}")
+                    print(
+                        f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}"
+                    )
                     doc_info["cleanup_status"] = "failed"
                     doc_info["cleanup_error"] = str(e)
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError) as e:
@@ -204,13 +208,17 @@ class VereningingenTestCase(FrappeTestCase):
     def _check_test_errors(self):
         """Check for errors that occurred during this test"""
         try:
-            test_errors = frappe.db.sql('''
-                SELECT error, creation 
-                FROM `tabError Log` 
+            test_errors = frappe.db.sql(
+                """
+                SELECT error, creation
+                FROM `tabError Log`
                 WHERE creation >= %s
                 ORDER BY creation DESC
                 LIMIT 5
-            ''', (self._test_start_time,), as_dict=True)
+            """,
+                (self._test_start_time,),
+                as_dict=True,
+            )
 
             if test_errors:
                 error_summary = []
@@ -219,7 +227,9 @@ class VereningingenTestCase(FrappeTestCase):
                     error_text = error.error[:200] + "..." if len(error.error) > 200 else error.error
                     error_summary.append(f"  - {error.creation}: {error_text}")
 
-                error_msg = f"Errors occurred during test {self._testMethodName}:\n" + "\n".join(error_summary)
+                error_msg = f"Errors occurred during test {self._testMethodName}:\n" + "\n".join(
+                    error_summary
+                )
 
                 # Use frappe.logger to avoid failing tests due to error logging issues
                 frappe.logger().error(f"Test Error Detection: {error_msg}")
@@ -237,29 +247,29 @@ class VereningingenTestCase(FrappeTestCase):
         """Set up proper request context for API security framework"""
         # Mock request environment for CSRF validation
         self._mock_request = MagicMock()
-        self._mock_request.method = 'POST'
+        self._mock_request.method = "POST"
         self._mock_request.headers = {
-            'X-Verenigingen-CSRF-Token': 'test-csrf-token',
-            'X-Frappe-CSRF-Token': 'test-csrf-token'
+            "X-Verenigingen-CSRF-Token": "test-csrf-token",
+            "X-Frappe-CSRF-Token": "test-csrf-token",
         }
 
         # Set up frappe request context
-        if not hasattr(frappe, 'request') or frappe.request is None:
+        if not hasattr(frappe, "request") or frappe.request is None:
             frappe.local.request = self._mock_request
 
         # Set up session with CSRF token
-        if not hasattr(frappe.session, 'csrf_token') or not frappe.session.csrf_token:
-            frappe.session.csrf_token = 'test-csrf-token'
+        if not hasattr(frappe.session, "csrf_token") or not frappe.session.csrf_token:
+            frappe.session.csrf_token = "test-csrf-token"
 
         # Set up form_dict for CSRF validation
-        if not hasattr(frappe, 'form_dict'):
+        if not hasattr(frappe, "form_dict"):
             frappe.form_dict = {}
-        frappe.form_dict['csrf_token'] = 'test-csrf-token'
+        frappe.form_dict["csrf_token"] = "test-csrf-token"
 
     def _cleanup_test_request_context(self):
         """Clean up test request context"""
         # Reset request context if we set it
-        if hasattr(frappe.local, 'request') and frappe.local.request == self._mock_request:
+        if hasattr(frappe.local, "request") and frappe.local.request == self._mock_request:
             frappe.local.request = None
 
     def _setup_test_mocks(self):
@@ -268,16 +278,15 @@ class VereningingenTestCase(FrappeTestCase):
 
         # Mock Mollie validation that interferes with tests
         mollie_validator_mock = patch(
-            'verenigingen.verenigingen_payments.mollie.utils.data_validator.validate_mollie_customer_data',
-            return_value=None
+            "verenigingen.verenigingen_payments.mollie.utils.data_validator.validate_mollie_customer_data",
+            return_value=None,
         )
         mollie_validator_mock.start()
         self._active_mocks.append(mollie_validator_mock)
 
         # Mock CSRF validation in test environment
         csrf_mock = patch(
-            'verenigingen.utils.security.csrf_protection.CSRFProtection.validate_request',
-            return_value=True
+            "verenigingen.utils.security.csrf_protection.CSRFProtection.validate_request", return_value=True
         )
         csrf_mock.start()
         self._active_mocks.append(csrf_mock)
@@ -288,15 +297,15 @@ class VereningingenTestCase(FrappeTestCase):
             return True
 
         rate_limit_mock = patch(
-            'verenigingen.utils.security.api_security_framework.APISecurityFramework.validate_rate_limits',
-            mock_rate_limit_validation
+            "verenigingen.utils.security.api_security_framework.APISecurityFramework.validate_rate_limits",
+            mock_rate_limit_validation,
         )
         rate_limit_mock.start()
         self._active_mocks.append(rate_limit_mock)
 
     def _cleanup_test_mocks(self):
         """Clean up test mocks"""
-        for mock in getattr(self, '_active_mocks', []):
+        for mock in getattr(self, "_active_mocks", []):
             try:
                 mock.stop()
             except (RuntimeError, AttributeError):
@@ -320,7 +329,8 @@ class VereningingenTestCase(FrappeTestCase):
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
                     "parent_item_group": "All Item Groups",
-                    "is_group": 0}
+                    "is_group": 0,
+                }
             )
             item_group.insert(ignore_permissions=True)
 
@@ -339,7 +349,8 @@ class VereningingenTestCase(FrappeTestCase):
                     "region_name": "Test Region",
                     "region_code": "TR",
                     "country": "Netherlands",
-                    "is_active": 1}
+                    "is_active": 1,
+                }
             )
             region.insert(ignore_permissions=True)
             # Store the actual name that was generated
@@ -362,12 +373,15 @@ class VereningingenTestCase(FrappeTestCase):
                     "payment_interval": "Monthly",
                     "amount": 10.00,
                     "is_active": 1,
-                    "role_profile": role_profile}
+                    "role_profile": role_profile,
+                }
             )
             membership_type.insert(ignore_permissions=True)
 
         # Ensure test Chapter exists (unique per test session)
-        cls._test_chapter_name = getattr(cls, '_test_chapter_name', f"Test Chapter {frappe.generate_hash(length=8)}")
+        cls._test_chapter_name = getattr(
+            cls, "_test_chapter_name", f"Test Chapter {frappe.generate_hash(length=8)}"
+        )
         if not frappe.db.exists("Chapter", cls._test_chapter_name):
             # Get the actual region name after insert
             region_name = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
@@ -377,7 +391,8 @@ class VereningingenTestCase(FrappeTestCase):
                     "name": cls._test_chapter_name,  # Set name explicitly for prompt autoname
                     "chapter_name": cls._test_chapter_name,
                     "region": region_name,
-                    "is_active": 1}
+                    "is_active": 1,
+                }
             )
             chapter.insert(ignore_permissions=True)
 
@@ -405,7 +420,7 @@ class VereningingenTestCase(FrappeTestCase):
             "name": name,
             "registered_at": frappe.utils.now(),
             "depends_on": depends_on,
-            "cleanup_status": None  # Will be set during cleanup: 'success', 'failed', 'skipped'
+            "cleanup_status": None,  # Will be set during cleanup: 'success', 'failed', 'skipped'
         }
         self._test_docs.append(doc_info)
 
@@ -454,9 +469,7 @@ class VereningingenTestCase(FrappeTestCase):
         """Clean up documents that depend on a customer"""
         # Cancel and delete Sales Invoices - optimized batch approach
         invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={"customer": customer_name},
-            fields=["name", "docstatus"]
+            "Sales Invoice", filters={"customer": customer_name}, fields=["name", "docstatus"]
         )
 
         for invoice in invoices:
@@ -471,7 +484,7 @@ class VereningingenTestCase(FrappeTestCase):
         payments = frappe.get_all(
             "Payment Entry",
             filters={"party": customer_name, "party_type": "Customer"},
-            fields=["name", "docstatus"]
+            fields=["name", "docstatus"],
         )
 
         for payment in payments:
@@ -497,28 +510,37 @@ class VereningingenTestCase(FrappeTestCase):
 
     @staticmethod
     def get_test_region_name():
-        """Get the actual test region name from database"""
-        return frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
+        """Get (creating if necessary) the canonical test region name.
+
+        On accumulated dev sites a Region with code "TR" already exists, but on a
+        fresh CI site it does not. Returning a bare "test-region" string for a row
+        that doesn't exist makes any chapter created with that region fail link
+        validation. So ensure the region exists and return its real name.
+        """
+        existing = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
+        if existing:
+            return existing
+
+        region = frappe.get_doc(
+            {
+                "doctype": "Region",
+                "region_name": "test-region",
+                "region_code": "TR",
+                "country": "Netherlands",
+                "is_active": 1,
+            }
+        )
+        region.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return region.name
 
     @classmethod
     def setup_payment_modes(cls):
         """Set up required payment modes for testing"""
         payment_modes = [
-            {
-                "mode_of_payment": "Bank Transfer",
-                "type": "Bank",
-                "enabled": 1
-            },
-            {
-                "mode_of_payment": "SEPA Direct Debit",
-                "type": "Bank",
-                "enabled": 1
-            },
-            {
-                "mode_of_payment": "Cash",
-                "type": "Cash",
-                "enabled": 1
-            }
+            {"mode_of_payment": "Bank Transfer", "type": "Bank", "enabled": 1},
+            {"mode_of_payment": "SEPA Direct Debit", "type": "Bank", "enabled": 1},
+            {"mode_of_payment": "Cash", "type": "Cash", "enabled": 1},
         ]
 
         for mode_data in payment_modes:
@@ -534,7 +556,7 @@ class VereningingenTestCase(FrappeTestCase):
     @classmethod
     def get_test_chapter_name(cls):
         """Get the unique test chapter name for this test session"""
-        return getattr(cls, '_test_chapter_name', f"Test Chapter {frappe.generate_hash(length=8)}")
+        return getattr(cls, "_test_chapter_name", f"Test Chapter {frappe.generate_hash(length=8)}")
 
     @classmethod
     def track_class_doc(cls, doctype, name):
@@ -554,11 +576,11 @@ class VereningingenTestCase(FrappeTestCase):
     def reload_doc_with_retries(self, doc, max_retries=3):
         """
         Reload document with retry logic to handle timestamp issues
-        
+
         Args:
             doc: Document to reload
             max_retries: Maximum number of retry attempts
-            
+
         Returns:
             Reloaded document or None if all attempts fail
         """
@@ -569,21 +591,24 @@ class VereningingenTestCase(FrappeTestCase):
                 return fresh_doc
             except frappe.DoesNotExistError as e:
                 if attempt == max_retries - 1:
-                    frappe.log_error(f"Failed to reload {doc.doctype} {doc.name} after {max_retries} attempts: {str(e)}")
+                    frappe.log_error(
+                        f"Failed to reload {doc.doctype} {doc.name} after {max_retries} attempts: {str(e)}"
+                    )
                     return None
                 # Wait briefly before retry
                 import time
+
                 time.sleep(0.1)
         return None
 
     def save_doc_with_retry(self, doc, max_retries=3):
         """
         Save document with retry logic for timestamp mismatches
-        
+
         Args:
             doc: Document to save
             max_retries: Maximum number of retry attempts
-            
+
         Returns:
             True if save successful, False otherwise
         """
@@ -599,13 +624,15 @@ class VereningingenTestCase(FrappeTestCase):
                     if fresh_doc:
                         # Copy over the changes we want to save
                         for field in doc.meta.get_valid_columns():
-                            if field != 'modified':
+                            if field != "modified":
                                 setattr(fresh_doc, field, getattr(doc, field, None))
 
                         # Preserve important flags that control sync behavior
-                        if hasattr(doc, 'flags'):
-                            fresh_doc.flags.enable_customer_sync_in_test = doc.flags.get('enable_customer_sync_in_test')
-                            fresh_doc.flags.ignore_customer_sync = doc.flags.get('ignore_customer_sync')
+                        if hasattr(doc, "flags"):
+                            fresh_doc.flags.enable_customer_sync_in_test = doc.flags.get(
+                                "enable_customer_sync_in_test"
+                            )
+                            fresh_doc.flags.ignore_customer_sync = doc.flags.get("ignore_customer_sync")
 
                         doc = fresh_doc
 
@@ -614,7 +641,9 @@ class VereningingenTestCase(FrappeTestCase):
 
             except frappe.TimestampMismatchError:
                 if attempt == max_retries - 1:
-                    print(f"Warning: Timestamp mismatch on {doc.doctype} {doc.name} after {max_retries} attempts")
+                    print(
+                        f"Warning: Timestamp mismatch on {doc.doctype} {doc.name} after {max_retries} attempts"
+                    )
                     return False
                 continue
             except (frappe.ValidationError, frappe.PermissionError, frappe.LinkValidationError) as e:
@@ -623,26 +652,29 @@ class VereningingenTestCase(FrappeTestCase):
 
         return False
 
-    def wait_for_sync_completion(self, doc, sync_field='customer_sync_status', expected_status='Synced', max_wait=5):
+    def wait_for_sync_completion(
+        self, doc, sync_field="customer_sync_status", expected_status="Synced", max_wait=5
+    ):
         """
         Wait for document sync to complete
-        
+
         Args:
             doc: Document to monitor
             sync_field: Field to check for sync status
             expected_status: Expected sync status
             max_wait: Maximum seconds to wait
-            
+
         Returns:
             True if sync completed, False if timeout
         """
         import time
+
         start_time = time.time()
 
         while time.time() - start_time < max_wait:
             # Reload document to get latest status
             fresh_doc = self.reload_doc_with_retries(doc)
-            if fresh_doc and getattr(fresh_doc, sync_field, '') == expected_status:
+            if fresh_doc and getattr(fresh_doc, sync_field, "") == expected_status:
                 return True
             time.sleep(0.2)
 
@@ -651,11 +683,11 @@ class VereningingenTestCase(FrappeTestCase):
     def create_test_donor_with_sync(self, donor_name=None, **kwargs):
         """
         Create test donor with proper sync handling
-        
+
         Args:
             donor_name: Name for the donor
             **kwargs: Additional donor fields
-            
+
         Returns:
             Created donor document
         """
@@ -664,10 +696,10 @@ class VereningingenTestCase(FrappeTestCase):
 
         # Set defaults that work well in tests
         donor_data = {
-            'donor_name': donor_name,
-            'donor_type': 'Individual',
-            'donor_email': f"test{frappe.generate_hash(length=8).lower()}@example.com",
-            'phone': '+31612345678'
+            "donor_name": donor_name,
+            "donor_type": "Individual",
+            "donor_email": f"test{frappe.generate_hash(length=8).lower()}@example.com",
+            "phone": "+31612345678",
         }
         donor_data.update(kwargs)
 
@@ -734,6 +766,7 @@ class VereningingenTestCase(FrappeTestCase):
 
         # Generate unique name with timestamp to prevent duplicates
         import time
+
         timestamp = str(int(time.time() * 1000))  # millisecond precision
         unique_suffix = frappe.generate_hash(length=4)
         unique_name = f"Test Type {timestamp[-6:]}-{unique_suffix}"
@@ -817,9 +850,7 @@ class VereningingenTestCase(FrappeTestCase):
             # Get membership type if not provided
             if not membership_type_name:
                 membership = frappe.db.get_value(
-                    "Membership",
-                    {"member": member_name, "status": "Active"},
-                    "membership_type"
+                    "Membership", {"member": member_name, "status": "Active"}, "membership_type"
                 )
                 if membership:
                     membership_type_name = membership
@@ -837,7 +868,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "status": "Active",
                 "auto_generate": 1,
                 "next_invoice_date": frappe.utils.today(),
-                "is_template": 0  # This is a member instance, not template
+                "is_template": 0,  # This is a member instance, not template
             }
             defaults.update(kwargs)  # This will override dues_rate if provided
 
@@ -907,7 +938,7 @@ class VereningingenTestCase(FrappeTestCase):
             "event_type": "Public",
             "starts_on": frappe.utils.add_days(frappe.utils.today(), 30),
             "ends_on": frappe.utils.add_days(frappe.utils.today(), 30),
-            "description": "Test event for automated testing"
+            "description": "Test event for automated testing",
         }
         defaults.update(kwargs)
 
@@ -922,12 +953,12 @@ class VereningingenTestCase(FrappeTestCase):
     def create_test_sepa_mandate(self, **kwargs):
         """
         Create a test SEPA mandate with enhanced validation and scenarios
-        
+
         Args:
             scenario: Predefined scenario ("normal", "first_payment", "one_time", "suspended", "expired", "cancelled")
             bank_code: Mock bank code ("TEST", "MOCK", "DEMO")
             **kwargs: Additional field overrides
-        
+
         Returns:
             SEPA Mandate document with automatic cleanup tracking
         """
@@ -940,7 +971,7 @@ class VereningingenTestCase(FrappeTestCase):
             member = self.create_test_member(
                 first_name="SEPA",
                 last_name="TestMember",
-                email=f"sepa.{frappe.generate_hash(length=6)}@example.com"
+                email=f"sepa.{frappe.generate_hash(length=6)}@example.com",
             )
             kwargs["member"] = member.name
 
@@ -966,7 +997,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "frequency": "Monthly",
                 "maximum_amount": 100.00,
                 "used_for_memberships": 1,
-                "used_for_donations": 0
+                "used_for_donations": 0,
             },
             "first_payment": {
                 "iban": self._get_test_iban(bank_code),
@@ -976,7 +1007,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "frequency": "Monthly",
                 "maximum_amount": 50.00,
                 "used_for_memberships": 1,
-                "first_collection_date": frappe.utils.add_days(frappe.utils.today(), 5)
+                "first_collection_date": frappe.utils.add_days(frappe.utils.today(), 5),
             },
             "one_time": {
                 "iban": self._get_test_iban(bank_code),
@@ -986,7 +1017,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "frequency": "Variable",
                 "maximum_amount": 500.00,
                 "used_for_donations": 1,
-                "used_for_memberships": 0
+                "used_for_memberships": 0,
             },
             "suspended": {
                 "iban": self._get_test_iban(bank_code),
@@ -995,7 +1026,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "is_active": 0,  # Suspended mandate
                 "frequency": "Monthly",
                 "maximum_amount": 75.00,
-                "used_for_memberships": 1
+                "used_for_memberships": 1,
             },
             "expired": {
                 "iban": self._get_test_iban(bank_code),
@@ -1005,7 +1036,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "frequency": "Monthly",
                 "maximum_amount": 25.00,
                 "expiry_date": frappe.utils.add_days(frappe.utils.today(), -30),  # Expired 30 days ago
-                "used_for_memberships": 1
+                "used_for_memberships": 1,
             },
             "cancelled": {
                 "iban": self._get_test_iban(bank_code),
@@ -1016,8 +1047,8 @@ class VereningingenTestCase(FrappeTestCase):
                 "maximum_amount": 30.00,
                 "cancelled_date": frappe.utils.add_days(frappe.utils.today(), -7),  # Cancelled 7 days ago
                 "cancellation_reason": "Member request - account change",
-                "used_for_memberships": 1
-            }
+                "used_for_memberships": 1,
+            },
         }
 
         # Get scenario-specific defaults
@@ -1027,7 +1058,7 @@ class VereningingenTestCase(FrappeTestCase):
         common_defaults = {
             "account_holder_name": f"{member_doc.first_name} {member_doc.last_name}",
             "sign_date": frappe.utils.today(),
-            "scheme": "SEPA"
+            "scheme": "SEPA",
         }
         defaults.update(common_defaults)
 
@@ -1067,6 +1098,7 @@ class VereningingenTestCase(FrappeTestCase):
         try:
             # Try to use the main generator when Frappe is available
             from verenigingen.utils.validation.iban_validator import generate_test_iban
+
             return generate_test_iban(bank_code, account_number=account_number)
         except (ImportError, ModuleNotFoundError):
             # Fallback to standalone IBAN generation when Frappe is not available
@@ -1111,8 +1143,8 @@ class VereningingenTestCase(FrappeTestCase):
         """Create a test SEPA mandate with specific naming pattern for testing"""
         # Store current payments settings (SEPA fields moved to Payments Settings)
         payments_settings = frappe.get_single("Verenigingen Payments Settings")
-        original_pattern = getattr(payments_settings, 'sepa_mandate_naming_pattern', None)
-        original_counter = getattr(payments_settings, 'sepa_mandate_starting_counter', None)
+        original_pattern = getattr(payments_settings, "sepa_mandate_naming_pattern", None)
+        original_counter = getattr(payments_settings, "sepa_mandate_starting_counter", None)
 
         try:
             # Set test pattern on payments settings
@@ -1136,19 +1168,24 @@ class VereningingenTestCase(FrappeTestCase):
     def assert_sepa_mandate_pattern(self, mandate, expected_prefix, expected_counter=None):
         """Assert that a SEPA mandate follows expected naming pattern"""
         self.assertTrue(mandate.mandate_id, "SEPA Mandate should have mandate_id")
-        self.assertTrue(mandate.mandate_id.startswith(expected_prefix),
-                       f"mandate_id '{mandate.mandate_id}' should start with '{expected_prefix}'")
+        self.assertTrue(
+            mandate.mandate_id.startswith(expected_prefix),
+            f"mandate_id '{mandate.mandate_id}' should start with '{expected_prefix}'",
+        )
 
         if expected_counter:
-            self.assertIn(str(expected_counter).zfill(4), mandate.mandate_id,
-                         f"mandate_id '{mandate.mandate_id}' should contain counter '{expected_counter}'")
+            self.assertIn(
+                str(expected_counter).zfill(4),
+                mandate.mandate_id,
+                f"mandate_id '{mandate.mandate_id}' should contain counter '{expected_counter}'",
+            )
 
     def get_sepa_settings_backup(self):
         """Get current SEPA settings for backup/restore (from Payments Settings)"""
         payments_settings = frappe.get_single("Verenigingen Payments Settings")
         return {
-            "pattern": getattr(payments_settings, 'sepa_mandate_naming_pattern', None),
-            "counter": getattr(payments_settings, 'sepa_mandate_starting_counter', None)
+            "pattern": getattr(payments_settings, "sepa_mandate_naming_pattern", None),
+            "counter": getattr(payments_settings, "sepa_mandate_starting_counter", None),
         }
 
     def restore_sepa_settings(self, backup):
@@ -1174,7 +1211,7 @@ class VereningingenTestCase(FrappeTestCase):
             "status": "Pending",
             "application_status": "Pending",
             "application_date": frappe.utils.today(),
-            "birth_date": "1990-01-01"
+            "birth_date": "1990-01-01",
         }
         # Map membership_type to selected_membership_type if provided
         if "membership_type" in kwargs:
@@ -1219,7 +1256,8 @@ class VereningingenTestCase(FrappeTestCase):
             "posting_date": frappe.utils.today(),
             "due_date": frappe.utils.today(),
             "is_membership_invoice": 1,
-            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+            "company": frappe.defaults.get_user_default("Company")
+            or frappe.get_all("Company", limit=1, pluck="name")[0],
         }
         defaults.update(kwargs)
 
@@ -1237,9 +1275,12 @@ class VereningingenTestCase(FrappeTestCase):
         if not invoice.items:
             # Get a valid income account for the company
             company = defaults.get("company")
-            income_account = frappe.get_all("Account",
+            income_account = frappe.get_all(
+                "Account",
                 filters={"account_type": "Income Account", "company": company, "is_group": 0},
-                limit=1, pluck="name")
+                limit=1,
+                pluck="name",
+            )
             if not income_account:
                 # Fallback - create a basic income account if none exists
                 income_account = self._get_or_create_income_account(company)
@@ -1249,12 +1290,9 @@ class VereningingenTestCase(FrappeTestCase):
             # Get or create a test item
             item_code = self._get_or_create_test_item()
 
-            invoice.append("items", {
-                "item_code": item_code,
-                "qty": 1,
-                "rate": 25.0,
-                "income_account": income_account
-            })
+            invoice.append(
+                "items", {"item_code": item_code, "qty": 1, "rate": 25.0, "income_account": income_account}
+            )
 
         invoice.save()
         self.track_doc("Sales Invoice", invoice.name)
@@ -1269,20 +1307,26 @@ class VereningingenTestCase(FrappeTestCase):
 
         # First, find an existing Income group account to serve as parent
         # Prefer root-level accounts (no parent) but accept any valid group account
-        parent_account = frappe.get_all("Account",
+        parent_account = frappe.get_all(
+            "Account",
             filters={
                 "root_type": "Income",
                 "company": company,
                 "is_group": 1,
-                "parent_account": ["is", "not set"]  # True root account
+                "parent_account": ["is", "not set"],  # True root account
             },
-            limit=1, pluck="name")
+            limit=1,
+            pluck="name",
+        )
 
         if not parent_account:
             # Fallback: any Income group account
-            parent_account = frappe.get_all("Account",
+            parent_account = frappe.get_all(
+                "Account",
                 filters={"root_type": "Income", "company": company, "is_group": 1},
-                limit=1, pluck="name")
+                limit=1,
+                pluck="name",
+            )
 
         if not parent_account:
             # No Income accounts exist - this shouldn't happen with a properly set up company
@@ -1388,9 +1432,7 @@ class VereningingenTestCase(FrappeTestCase):
             debtors_account = self._ensure_account(
                 f"Debtors - {abbr}", company_name, "Receivable", is_group=0
             )
-            cash_account = self._ensure_account(
-                f"Cash - {abbr}", company_name, "Cash", is_group=0
-            )
+            cash_account = self._ensure_account(f"Cash - {abbr}", company_name, "Cash", is_group=0)
             income_account = self._get_or_create_income_account(company_name)
 
             # Get or create Membership Fee item
@@ -1406,7 +1448,7 @@ class VereningingenTestCase(FrappeTestCase):
                 "cash_account": cash_account,
                 "income_account": income_account,
                 "membership_item": item_code,
-                "cost_center": cost_center
+                "cost_center": cost_center,
             }
 
     def _ensure_account(self, account_name, company, account_type, is_group=0):
@@ -1430,20 +1472,26 @@ class VereningingenTestCase(FrappeTestCase):
             root_type = "Asset"  # Default
 
         # Find parent account - prefer root-level group accounts (no parent)
-        parent = frappe.get_all("Account",
+        parent = frappe.get_all(
+            "Account",
             filters={
                 "company": company,
                 "is_group": 1,
                 "root_type": root_type,
-                "parent_account": ["is", "not set"]  # True root account
+                "parent_account": ["is", "not set"],  # True root account
             },
-            limit=1, pluck="name")
+            limit=1,
+            pluck="name",
+        )
 
         if not parent:
             # Fallback: any group account with matching root_type
-            parent = frappe.get_all("Account",
+            parent = frappe.get_all(
+                "Account",
                 filters={"company": company, "is_group": 1, "root_type": root_type},
-                limit=1, pluck="name")
+                limit=1,
+                pluck="name",
+            )
 
         if not parent:
             raise frappe.ValidationError(
@@ -1465,8 +1513,7 @@ class VereningingenTestCase(FrappeTestCase):
     def _ensure_cost_center(self, company, abbr):
         """Ensure a cost center exists for the company."""
         # First try to get existing cost center
-        existing = frappe.db.get_value("Cost Center",
-            {"company": company, "is_group": 0})
+        existing = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0})
         if existing:
             return existing
 
@@ -1476,16 +1523,14 @@ class VereningingenTestCase(FrappeTestCase):
             return default_cc
 
         # Look for any cost center that's not a group
-        any_cc = frappe.get_all("Cost Center",
-            filters={"company": company},
-            order_by="is_group asc",
-            limit=1, pluck="name")
+        any_cc = frappe.get_all(
+            "Cost Center", filters={"company": company}, order_by="is_group asc", limit=1, pluck="name"
+        )
         if any_cc:
             return any_cc[0]
 
         # Create a new cost center under the main company cost center
-        main_cc = frappe.db.get_value("Cost Center",
-            {"company": company, "is_group": 1})
+        main_cc = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1})
 
         if main_cc:
             cc = frappe.new_doc("Cost Center")
@@ -1537,7 +1582,7 @@ class VereningingenTestCase(FrappeTestCase):
             "donor_name": f"Test Donor {frappe.generate_hash(length=6)}",
             "donor_email": f"donor.{frappe.generate_hash(length=6)}@example.com",
             "donor_type": "Individual",
-            "is_anbi_eligible": 1
+            "is_anbi_eligible": 1,
         }
         defaults.update(kwargs)
 
@@ -1563,7 +1608,7 @@ class VereningingenTestCase(FrappeTestCase):
             "payment_method": "Bank Transfer",
             "agreement_duration_years": "5 Years (ANBI Minimum)",
             "anbi_eligible": 1,
-            "status": "Draft"
+            "status": "Draft",
         }
         defaults.update(kwargs)
 
@@ -1601,7 +1646,8 @@ class VereningingenTestCase(FrappeTestCase):
             "mode_of_payment": mode_of_payment,
             "donor_type": "Individual",
             "currency": "EUR",
-            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+            "company": frappe.defaults.get_user_default("Company")
+            or frappe.get_all("Company", limit=1, pluck="name")[0],
         }
         defaults.update(kwargs)
 
@@ -1618,7 +1664,7 @@ class VereningingenTestCase(FrappeTestCase):
         defaults = {
             "agreement_duration_years": "5 Years (ANBI Minimum)",
             "anbi_eligible": 1,
-            "annual_amount": 1200
+            "annual_amount": 1200,
         }
         defaults.update(kwargs)
         return self.create_test_periodic_donation_agreement(**defaults)
@@ -1628,7 +1674,7 @@ class VereningingenTestCase(FrappeTestCase):
         defaults = {
             "agreement_duration_years": "1 Year (Pledge - No ANBI benefits)",
             "anbi_eligible": 0,
-            "annual_amount": 600
+            "annual_amount": 600,
         }
         defaults.update(kwargs)
         return self.create_test_periodic_donation_agreement(**defaults)
@@ -1661,50 +1707,45 @@ class VereningingenTestCase(FrappeTestCase):
                 kwargs["party_type"] = "Customer"
 
         # Get company and default accounts
-        company = frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        company = (
+            frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        )
 
         # Get default cash account for the company
-        cash_account = frappe.db.get_value("Account", {
-            "company": company,
-            "account_type": "Cash",
-            "is_group": 0
-        }, "name")
+        cash_account = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
+        )
 
         if not cash_account:
             # Find or create parent cash account first
-            parent_cash = frappe.db.get_value("Account", {
-                "company": company,
-                "account_type": "Cash",
-                "is_group": 1
-            }, "name")
+            parent_cash = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Cash", "is_group": 1}, "name"
+            )
 
             if not parent_cash:
                 # Use a generic receivable account as fallback
-                parent_cash = frappe.db.get_value("Account", {
-                    "company": company,
-                    "account_type": "Receivable",
-                    "is_group": 0
-                }, "name")
+                parent_cash = frappe.db.get_value(
+                    "Account", {"company": company, "account_type": "Receivable", "is_group": 0}, "name"
+                )
 
             if parent_cash:
                 # Create a test cash account if none exists
-                cash_account = frappe.get_doc({
-                    "doctype": "Account",
-                    "account_name": "Test Cash Account",
-                    "parent_account": parent_cash,
-                    "company": company,
-                    "account_type": "Cash",
-                    "is_group": 0
-                })
+                cash_account = frappe.get_doc(
+                    {
+                        "doctype": "Account",
+                        "account_name": "Test Cash Account",
+                        "parent_account": parent_cash,
+                        "company": company,
+                        "account_type": "Cash",
+                        "is_group": 0,
+                    }
+                )
                 cash_account.insert(ignore_permissions=True)
                 cash_account = cash_account.name
                 self.track_doc("Account", cash_account)
             else:
                 # Fallback to any existing account for this company
-                cash_account = frappe.db.get_value("Account", {
-                    "company": company,
-                    "is_group": 0
-                }, "name")
+                cash_account = frappe.db.get_value("Account", {"company": company, "is_group": 0}, "name")
 
         defaults = {
             "payment_type": "Receive",
@@ -1716,7 +1757,7 @@ class VereningingenTestCase(FrappeTestCase):
             "company": company,
             "mode_of_payment": "Bank Transfer",
             "paid_to": cash_account,
-            "paid_to_account_currency": "EUR"
+            "paid_to_account_currency": "EUR",
         }
         defaults.update(kwargs)
 
@@ -1734,7 +1775,7 @@ class VereningingenTestCase(FrappeTestCase):
             "batch_date": frappe.utils.today(),
             "batch_description": f"Test DD Batch {frappe.generate_hash(length=6)}",
             "batch_type": "CORE",
-            "currency": "EUR"
+            "currency": "EUR",
         }
         defaults.update(kwargs)
 
@@ -1748,41 +1789,45 @@ class VereningingenTestCase(FrappeTestCase):
             test_member = self.create_test_member()
             test_membership = self.create_test_membership(member=test_member.name)
             test_invoice = self.create_test_sales_invoice(
-                customer=test_member.customer,
-                is_membership_invoice=1,
-                membership=test_membership.name
+                customer=test_member.customer, is_membership_invoice=1, membership=test_membership.name
             )
 
             # Create SEPA mandate for the member
             test_mandate = self.create_test_sepa_mandate(
-                member=test_member.name,
-                bank_code="TEST"  # Use mock bank
+                member=test_member.name, bank_code="TEST"  # Use mock bank
             )
 
             # Ensure invoice is unpaid for batch validation
             # Reset any payment allocations that might exist from test pollution
-            frappe.db.sql("""
-                DELETE FROM `tabPayment Entry Reference` 
+            frappe.db.sql(
+                """
+                DELETE FROM `tabPayment Entry Reference`
                 WHERE reference_doctype = 'Sales Invoice' AND reference_name = %s
-            """, (test_invoice.name,))
+            """,
+                (test_invoice.name,),
+            )
 
             # Update invoice status to be unpaid
-            frappe.db.set_value("Sales Invoice", test_invoice.name, {
-                "outstanding_amount": test_invoice.grand_total,
-                "status": "Unpaid"
-            })
+            frappe.db.set_value(
+                "Sales Invoice",
+                test_invoice.name,
+                {"outstanding_amount": test_invoice.grand_total, "status": "Unpaid"},
+            )
 
             # Add invoice to batch with all required fields
-            batch.append("invoices", {
-                "invoice": test_invoice.name,
-                "membership": test_membership.name,
-                "member": test_member.name,
-                "member_name": f"{test_member.first_name} {test_member.last_name}",
-                "amount": test_invoice.grand_total,
-                "currency": "EUR",
-                "iban": test_mandate.iban,
-                "mandate_reference": test_mandate.mandate_id
-            })
+            batch.append(
+                "invoices",
+                {
+                    "invoice": test_invoice.name,
+                    "membership": test_membership.name,
+                    "member": test_member.name,
+                    "member_name": f"{test_member.first_name} {test_member.last_name}",
+                    "amount": test_invoice.grand_total,
+                    "currency": "EUR",
+                    "iban": test_mandate.iban,
+                    "mandate_reference": test_mandate.mandate_id,
+                },
+            )
 
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
@@ -1796,7 +1841,7 @@ class VereningingenTestCase(FrappeTestCase):
             "permissions_level": "Basic",  # Valid options: Basic/Financial/Admin
             "is_chair": 0,
             "is_unique": 0,
-            "is_active": 1
+            "is_active": 1,
         }
         defaults.update(kwargs)
 
@@ -1811,14 +1856,23 @@ class VereningingenTestCase(FrappeTestCase):
     def create_test_volunteer_with_realistic_name(self, **kwargs):
         """Create volunteer with realistic name that could cause duplicates (for production scenario testing)"""
         common_names = [
-            ("John", "Smith"), ("Mary", "Johnson"), ("James", "Williams"),
-            ("Patricia", "Brown"), ("Robert", "Jones"), ("Jennifer", "Garcia"),
-            ("Michael", "Davis"), ("Linda", "Rodriguez"), ("David", "Martinez"),
-            ("Barbara", "Hernandez"), ("William", "Anderson"), ("Elizabeth", "Taylor")
+            ("John", "Smith"),
+            ("Mary", "Johnson"),
+            ("James", "Williams"),
+            ("Patricia", "Brown"),
+            ("Robert", "Jones"),
+            ("Jennifer", "Garcia"),
+            ("Michael", "Davis"),
+            ("Linda", "Rodriguez"),
+            ("David", "Martinez"),
+            ("Barbara", "Hernandez"),
+            ("William", "Anderson"),
+            ("Elizabeth", "Taylor"),
         ]
 
         # Use deterministic but realistic names based on test context
         import hashlib
+
         test_context = f"{self._testMethodName}_{str(kwargs)}"
         test_id = hashlib.md5(test_context.encode(), usedforsecurity=False).hexdigest()[:4]
         name_index = int(test_id, 16) % len(common_names)
@@ -1829,7 +1883,7 @@ class VereningingenTestCase(FrappeTestCase):
             member = self.create_test_member(
                 first_name=first_name,
                 last_name=last_name,
-                email=f"{first_name.lower()}.{last_name.lower()}.{test_id}@example.com"
+                email=f"{first_name.lower()}.{last_name.lower()}.{test_id}@example.com",
             )
             kwargs["member"] = member.name
 
@@ -1844,10 +1898,10 @@ class VereningingenTestCase(FrappeTestCase):
     def add_board_member_to_chapter(self, chapter, volunteer, chapter_role, **kwargs):
         """Add a board member to a chapter with proper validation"""
         defaults = {
-            "volunteer": volunteer.name if hasattr(volunteer, 'name') else volunteer,
-            "chapter_role": chapter_role.name if hasattr(chapter_role, 'name') else chapter_role,
+            "volunteer": volunteer.name if hasattr(volunteer, "name") else volunteer,
+            "chapter_role": chapter_role.name if hasattr(chapter_role, "name") else chapter_role,
             "from_date": frappe.utils.today(),
-            "is_active": 1
+            "is_active": 1,
         }
         defaults.update(kwargs)
 
@@ -1868,7 +1922,8 @@ class VereningingenTestCase(FrappeTestCase):
                     "first_name": "Test",
                     "last_name": "User",
                     "enabled": 1,
-                    "new_password": password}
+                    "new_password": password,
+                }
             )
             user.insert(ignore_permissions=True)
             self.track_doc("User", email)
@@ -1896,42 +1951,43 @@ class VereningingenTestCase(FrappeTestCase):
     def clear_member_auto_schedules(self, member_name):
         """
         Clear auto-created schedules for a member to enable controlled edge case testing.
-        
+
         This method implements the approach suggested for testing edge cases:
         1. Find all active schedules for the member
-        2. Cancel them (removes business rule blocks)  
+        2. Cancel them (removes business rule blocks)
         3. Return list of cancelled schedules for reference
-        
+
         Use this when you need to create specific test scenarios with multiple
         schedules or conflicting configurations that would normally be prevented
         by business rules.
-        
+
         Args:
             member_name (str): Name/ID of the member
-            
+
         Returns:
             list: List of cancelled schedule details
-            
+
         Example:
             member = self.create_test_member()
             membership = self.create_test_membership(member=member.name)
-            
+
             # Clear auto-schedules to enable edge case testing
             cancelled = self.clear_member_auto_schedules(member.name)
-            
+
             # Now create controlled test schedules
             schedule1 = self.create_controlled_dues_schedule(member.name, "Monthly", 25.0)
             schedule2 = self.create_controlled_dues_schedule(member.name, "Annual", 200.0)
-            
+
             # Test validation logic on the conflicting schedules
             validation_result = schedule2.validate_billing_frequency_consistency()
             self.assertFalse(validation_result["valid"])
         """
 
         # Find all active schedules for this member
-        active_schedules = frappe.get_all("Membership Dues Schedule",
+        active_schedules = frappe.get_all(
+            "Membership Dues Schedule",
             filters={"member": member_name, "status": "Active"},
-            fields=["name", "billing_frequency", "dues_rate"]
+            fields=["name", "billing_frequency", "dues_rate"],
         )
 
         cancelled_schedules = []
@@ -1946,12 +2002,14 @@ class VereningingenTestCase(FrappeTestCase):
                 # Track for cleanup
                 self.track_doc("Membership Dues Schedule", schedule.name)
 
-                cancelled_schedules.append({
-                    'name': schedule.name,
-                    'original_status': original_status,
-                    'billing_frequency': schedule_info.billing_frequency,
-                    'dues_rate': schedule_info.dues_rate
-                })
+                cancelled_schedules.append(
+                    {
+                        "name": schedule.name,
+                        "original_status": original_status,
+                        "billing_frequency": schedule_info.billing_frequency,
+                        "dues_rate": schedule_info.dues_rate,
+                    }
+                )
 
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError) as e:
                 # Log but continue - some schedules might not be cancellable
@@ -1962,67 +2020,65 @@ class VereningingenTestCase(FrappeTestCase):
     def create_controlled_dues_schedule(self, member_name, billing_frequency, dues_rate, **kwargs):
         """
         Create a controlled dues schedule for edge case testing.
-        
+
         This method creates a schedule with specific parameters, bypassing
         normal auto-creation logic. Use after clear_member_auto_schedules()
         to create test scenarios with multiple or conflicting schedules.
-        
+
         Args:
             member_name (str): Member to create schedule for
             billing_frequency (str): Monthly, Quarterly, Annual, etc.
             dues_rate (float): Amount for the schedule
             **kwargs: Additional fields to set
-            
+
         Returns:
             Document: The created schedule document
-            
+
         Example:
             # Clear auto-schedules first
             self.clear_member_auto_schedules(member.name)
-            
+
             # Create conflicting schedules for testing
             monthly = self.create_controlled_dues_schedule(member.name, "Monthly", 25.0)
             annual = self.create_controlled_dues_schedule(member.name, "Annual", 250.0)
-            
+
             # Now test validation logic
             result = annual.validate_billing_frequency_consistency()
         """
 
         # Get member's membership type if not provided
-        if 'membership_type' not in kwargs:
-            membership_type = frappe.db.get_value('Membership',
-                {'member': member_name, 'status': 'Active'},
-                'membership_type')
+        if "membership_type" not in kwargs:
+            membership_type = frappe.db.get_value(
+                "Membership", {"member": member_name, "status": "Active"}, "membership_type"
+            )
 
             if not membership_type:
                 # Fallback to any active membership type
-                membership_type = frappe.db.get_value('Membership Type',
-                    {'is_active': 1}, 'name')
+                membership_type = frappe.db.get_value("Membership Type", {"is_active": 1}, "name")
 
             if not membership_type:
-                raise frappe.ValidationError("No active membership type found for controlled schedule creation")
+                raise frappe.ValidationError(
+                    "No active membership type found for controlled schedule creation"
+                )
 
-            kwargs['membership_type'] = membership_type
+            kwargs["membership_type"] = membership_type
 
         # Set up default values
         test_id = frappe.generate_hash(length=6)
         defaults = {
-            'schedule_name': f'ControlledTest-{billing_frequency}-{test_id}',
-            'member': member_name,
-            'dues_rate': dues_rate,
-            'billing_frequency': billing_frequency,
-            'status': 'Active',
-            'auto_generate': 1,
-            'next_invoice_date': frappe.utils.today(),
-            'is_template': 0
+            "schedule_name": f"ControlledTest-{billing_frequency}-{test_id}",
+            "member": member_name,
+            "dues_rate": dues_rate,
+            "billing_frequency": billing_frequency,
+            "status": "Active",
+            "auto_generate": 1,
+            "next_invoice_date": frappe.utils.today(),
+            "is_template": 0,
         }
         defaults.update(kwargs)
 
         # Create the schedule
-        schedule = frappe.get_doc({
-            'doctype': 'Membership Dues Schedule',
-            **defaults
-        })
+        schedule = frappe.get_doc({"doctype": "Membership Dues Schedule", **defaults})
 
         schedule.insert()
 
@@ -2034,27 +2090,27 @@ class VereningingenTestCase(FrappeTestCase):
     def setup_edge_case_testing(self, member_name):
         """
         Complete setup for edge case testing with multiple schedules.
-        
+
         This convenience method combines clear_member_auto_schedules() with
         helpful context information for edge case testing.
-        
+
         Args:
             member_name (str): Member to set up for edge case testing
-            
+
         Returns:
             dict: Context information about the setup
-            
+
         Example:
             member = self.create_test_member()
             membership = self.create_test_membership(member=member.name)
-            
+
             # Set up for edge case testing
             context = self.setup_edge_case_testing(member.name)
-            
+
             # Create test scenarios
             monthly = self.create_controlled_dues_schedule(member.name, "Monthly", 25.0)
             annual = self.create_controlled_dues_schedule(member.name, "Annual", 250.0)
-            
+
             # Test validation logic
             result = annual.validate_billing_frequency_consistency()
             self.assertFalse(result["valid"])  # Should detect conflict
@@ -2067,33 +2123,34 @@ class VereningingenTestCase(FrappeTestCase):
         member_doc = frappe.get_doc("Member", member_name)
 
         # Get active membership context
-        active_memberships = frappe.get_all("Membership",
+        active_memberships = frappe.get_all(
+            "Membership",
             filters={"member": member_name, "status": "Active"},
-            fields=["name", "membership_type", "status"]
+            fields=["name", "membership_type", "status"],
         )
 
         return {
-            'member_name': member_name,
-            'member_full_name': getattr(member_doc, 'full_name', 'Unknown'),
-            'cancelled_schedules': cancelled_schedules,
-            'active_memberships': active_memberships,
-            'edge_case_ready': True,
-            'helper_methods': [
-                'create_controlled_dues_schedule(member_name, frequency, rate)',
-                'Test validation methods directly on created schedules',
-                'Business rules bypassed - can create multiple schedules per member'
-            ]
+            "member_name": member_name,
+            "member_full_name": getattr(member_doc, "full_name", "Unknown"),
+            "cancelled_schedules": cancelled_schedules,
+            "active_memberships": active_memberships,
+            "edge_case_ready": True,
+            "helper_methods": [
+                "create_controlled_dues_schedule(member_name, frequency, rate)",
+                "Test validation methods directly on created schedules",
+                "Business rules bypassed - can create multiple schedules per member",
+            ],
         }
 
     def create_payment_failure_test_scenario(self, failure_type="insufficient_funds", member=None, **kwargs):
         """
         Create a complete payment failure test scenario with SEPA error codes
-        
+
         Args:
             failure_type: Type of payment failure to simulate
             member: Member name (creates test member if None)
             **kwargs: Additional scenario parameters
-        
+
         Returns:
             dict with failure scenario, member, mandate, and test context
         """
@@ -2110,15 +2167,13 @@ class VereningingenTestCase(FrappeTestCase):
             test_member = self.create_test_member(
                 first_name="PaymentTest",
                 last_name="Member",
-                email=f"payment.{frappe.generate_hash(length=6)}@example.com"
+                email=f"payment.{frappe.generate_hash(length=6)}@example.com",
             )
             member = test_member.name
 
         # Create mandate for payment failures
         mandate = self.create_test_sepa_mandate(
-            member=member,
-            scenario="normal",  # Start with valid mandate
-            bank_code="TEST"
+            member=member, scenario="normal", bank_code="TEST"  # Start with valid mandate
         )
 
         # Generate failure scenario
@@ -2130,7 +2185,7 @@ class VereningingenTestCase(FrappeTestCase):
             "mandate": mandate,
             "failure_scenario": failure_scenario,
             "test_type": "payment_failure",
-            "created_at": frappe.utils.now()
+            "created_at": frappe.utils.now(),
         }
 
         return test_context
@@ -2143,22 +2198,22 @@ class VereningingenTestCase(FrappeTestCase):
                 "error_message": "Insufficient funds",
                 "retry_eligible": True,
                 "retry_days": 3,
-                "severity": "medium"
+                "severity": "medium",
             },
             "account_closed": {
                 "error_code": "AC04",
                 "error_message": "Account closed",
                 "retry_eligible": False,
                 "retry_days": 0,
-                "severity": "high"
+                "severity": "high",
             },
             "invalid_mandate": {
                 "error_code": "AM02",
                 "error_message": "No valid mandate",
                 "retry_eligible": False,
                 "retry_days": 0,
-                "severity": "high"
-            }
+                "severity": "high",
+            },
         }
 
         scenario = basic_scenarios.get(failure_type, basic_scenarios["insufficient_funds"])
@@ -2168,11 +2223,11 @@ class VereningingenTestCase(FrappeTestCase):
     def simulate_payment_retry_sequence(self, member_name, failure_types=None):
         """
         Simulate a complete payment retry sequence for testing retry logic
-        
+
         Args:
             member_name: Member to test retry sequence for
             failure_types: Sequence of failure types (defaults to realistic progression)
-        
+
         Returns:
             List of retry scenarios with timing and context
         """
@@ -2180,6 +2235,7 @@ class VereningingenTestCase(FrappeTestCase):
             from verenigingen.tests.support.sepa_payment_failure_scenarios import (
                 simulate_payment_failure_sequence,
             )
+
             return simulate_payment_failure_sequence(member_name, failure_types)
         except ImportError:
             # Fallback to basic retry simulation
@@ -2198,11 +2254,11 @@ class VereningingenTestCase(FrappeTestCase):
     def validate_sepa_error_handling(self, error_code, expected_behavior):
         """
         Validate that SEPA error codes are handled correctly in tests
-        
+
         Args:
             error_code: SEPA error code to validate (e.g., "AM04")
             expected_behavior: Expected system behavior dict
-        
+
         Returns:
             bool indicating if error handling matches expectations
         """
@@ -2217,8 +2273,9 @@ class VereningingenTestCase(FrappeTestCase):
             # Validate key behavior expectations
             checks = [
                 error_info.get("retry_eligible") == expected_behavior.get("should_retry", False),
-                error_info.get("customer_action_required") == expected_behavior.get("requires_customer_action", False),
-                error_info.get("severity") == expected_behavior.get("severity", "medium")
+                error_info.get("customer_action_required")
+                == expected_behavior.get("requires_customer_action", False),
+                error_info.get("severity") == expected_behavior.get("severity", "medium"),
             ]
 
             return all(checks)
@@ -2227,12 +2284,11 @@ class VereningingenTestCase(FrappeTestCase):
             basic_expectations = {
                 "AM04": {"should_retry": True, "requires_customer_action": False, "severity": "medium"},
                 "AC04": {"should_retry": False, "requires_customer_action": True, "severity": "high"},
-                "AM02": {"should_retry": False, "requires_customer_action": True, "severity": "high"}
+                "AM02": {"should_retry": False, "requires_customer_action": True, "severity": "high"},
             }
 
             expected = basic_expectations.get(error_code, {})
             return expected == expected_behavior
-
 
     # STREAMLINED FACTORY CONVENIENCE METHODS
     def create_test_member(self, **kwargs):
@@ -2362,7 +2418,8 @@ class VereningingenIntegrationTestCase(VereningingenTestCase):
                     "doctype": "Company",
                     "company_name": "Test Company",
                     "default_currency": "EUR",
-                    "country": "Netherlands"}
+                    "country": "Netherlands",
+                }
             )
             company.insert(ignore_permissions=True)
 
@@ -2397,6 +2454,7 @@ class VereningingenWorkflowTestCase(VereningingenIntegrationTestCase):
         self._workflow_stages = []
         # Initialize state manager for tracking state transitions
         from verenigingen.tests.utils.factories import TestStateManager
+
         self.state_manager = TestStateManager()
 
     def define_workflow(self, stages):

@@ -146,17 +146,27 @@ class TestReinstallOnboarding(FrappeTestCase):
         mo_dropped = (self.MO_SEED_FIELDS - self.META_KEYS) - mo_live
         step_dropped = (self.STEP_SEED_FIELDS - self.META_KEYS) - step_live
 
+        # Assert the dropped set is a SUBSET of the known-dropped set rather than
+        # exactly equal. The known-dropped fields are version-dependent: a newer
+        # Frappe (as on fresh CI) re-introduces `subtitle` / `success_message` /
+        # `documentation_url` onto Module Onboarding, so they are no longer
+        # dropped there, while an older dev schema still drops them. Either way is
+        # benign. The real regression we must catch is a NEW seed key being
+        # silently dropped (a value the author expects to persist being thrown
+        # away), which would make `mo_dropped` exceed the known set.
+        unexpected_mo = mo_dropped - self.MO_KNOWN_DROPPED
+        unexpected_step = step_dropped - self.STEP_KNOWN_DROPPED
         self.assertEqual(
-            mo_dropped,
-            self.MO_KNOWN_DROPPED,
-            "Module Onboarding seed dropped-key set drifted from MO_KNOWN_DROPPED "
-            f"(actual dropped: {mo_dropped})",
+            unexpected_mo,
+            set(),
+            "A Module Onboarding seed key is silently dropped (not on the live "
+            f"doctype and not in MO_KNOWN_DROPPED): {unexpected_mo}",
         )
         self.assertEqual(
-            step_dropped,
-            self.STEP_KNOWN_DROPPED,
-            "Onboarding Step seed dropped-key set drifted from STEP_KNOWN_DROPPED "
-            f"(actual dropped: {step_dropped})",
+            unexpected_step,
+            set(),
+            "An Onboarding Step seed key is silently dropped (not on the live "
+            f"doctype and not in STEP_KNOWN_DROPPED): {unexpected_step}",
         )
 
     def test_reinstall_creates_each_onboarding_step_document(self):

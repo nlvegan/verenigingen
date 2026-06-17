@@ -60,14 +60,43 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
     # ------------------------------------------------------------------ helpers
 
     def _ensure_customer(self):
-        """Ensure the member has a linked ERPNext Customer; return its name."""
+        """Ensure the member has a linked ERPNext Customer; return its name.
+
+        The customer's default currency is aligned with the billing company's
+        currency. Invoice generation pulls the company from Verenigingen Settings
+        and lets ERPNext default the Sales Invoice currency from the customer. On
+        an accumulated dev site the customer happens to end up matching, but on a
+        fresh CI site the customer defaults to the system currency (e.g. USD)
+        while the company's receivable account is EUR, so invoice generation
+        fails with "Party Account currency ... and document currency ... should
+        be same". Forcing the customer currency to the company currency makes
+        these tests deterministic regardless of the site's default currency.
+        """
         self.member.reload()
-        if self.member.customer:
-            return self.member.customer
-        # create_test_sales_invoice creates and links a Customer when given member=
-        inv = self.create_test_sales_invoice(member=self.member.name)
-        self.member.reload()
-        return self.member.customer
+        customer = self.member.customer
+        if not customer:
+            # create_test_sales_invoice creates and links a Customer when given member=
+            self.create_test_sales_invoice(member=self.member.name)
+            self.member.reload()
+            customer = self.member.customer
+
+        self._align_customer_currency(customer)
+        return customer
+
+    def _align_customer_currency(self, customer):
+        """Set the customer's default_currency to the billing company's currency."""
+        if not customer:
+            return
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        if not company:
+            return
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+        if not company_currency:
+            return
+        if frappe.db.get_value("Customer", customer, "default_currency") != company_currency:
+            frappe.db.set_value(
+                "Customer", customer, "default_currency", company_currency, update_modified=False
+            )
 
     def _active_schedule_for_member(self):
         return frappe.get_all(
@@ -304,9 +333,7 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
         new_date = add_months(today(), 2)
         result = mdi.adjust_dues_schedule(schedule_name, new_next_date=new_date)
         self.assertTrue(result["success"])
-        updated = frappe.db.get_value(
-            "Membership Dues Schedule", schedule_name, "next_invoice_date"
-        )
+        updated = frappe.db.get_value("Membership Dues Schedule", schedule_name, "next_invoice_date")
         self.assertEqual(getdate(updated), getdate(new_date))
 
     def test_adjust_dues_schedule_no_changes(self):
