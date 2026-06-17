@@ -6,7 +6,10 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_current_user_member_name
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import (
+    get_system_user_for_operation,
+    secure_user_context,
+)
 
 
 def get_context(context):
@@ -75,26 +78,36 @@ def handle_join_chapter_request(context, chapter, member):
         # Add member to chapter by creating Chapter Member record directly
         chapter_doc = frappe.get_doc("Chapter", chapter.name)
 
-        # Add to members child table
+        # Add to members child table. Mirror ChapterMemberManager.add_member: a
+        # member who is not Active (Terminated / Deceased / Suspended) joins
+        # disabled/Inactive, so a terminated member who still has a login cannot
+        # self-re-enable through this portal.
+        is_active_member = frappe.db.get_value("Member", member, "status") == "Active"
         chapter_doc.append(
-            "members", {"member": member, "chapter_join_date": frappe.utils.today(), "enabled": 1}
+            "members",
+            {
+                "member": member,
+                "chapter_join_date": frappe.utils.today(),
+                "enabled": 1 if is_active_member else 0,
+                "status": "Active" if is_active_member else "Inactive",
+            },
         )
 
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="save",
-            doc=chapter_doc,
-            justification=f"Add member to chapter {chapter_doc.name} via chapter join portal - chapter membership management",
-            required_permissions=["Chapter:write"],
-        )
-
-        if not result.success:
-            frappe.log_error(
-                f"Failed to add member to chapter {chapter_doc.name}: {'; '.join(result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to join chapter: {}").format("; ".join(result.errors)), frappe.ValidationError
-            )
+        # SELF-SERVICE PORTAL FLOW: the caller is a plain Verenigingen Member who
+        # does not hold "Chapter:write" and is not in ESCALATION_ALLOWED_ROLES, so
+        # secure_document_operation(required_permissions=["Chapter:write"]) used to
+        # raise "You do not have permission to request elevated system operations"
+        # for EVERY portal user — making this page unusable. Mirror the public
+        # donation flow (donate.py): perform the privileged save under the
+        # configured system user via secure_user_context(). Ownership is already
+        # established above — `member` is the caller's own session-derived record
+        # and a duplicate-membership guard ran just before this.
+        system_user = get_system_user_for_operation("chapter_join_portal")
+        with secure_user_context(
+            system_user, f"Add member {member} to chapter {chapter_doc.name} via chapter join portal"
+        ):
+            chapter_doc.save()
+            frappe.db.commit()
 
         # Set success context
         context.join_success = True

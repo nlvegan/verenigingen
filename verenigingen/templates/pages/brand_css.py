@@ -27,8 +27,12 @@ def get_context(context):
     # Set response content and headers after generating CSS
     context.css_content = css_with_timestamp
 
-    # Set headers
+    # Set headers. Mirror serve_brand_css()'s defensive guard: frappe.response
+    # may not have an initialized headers dict in every context, so create one
+    # before assigning into it (avoids a NoneType item-assignment crash).
     frappe.response.content_type = "text/css; charset=utf-8"
+    if not hasattr(frappe.response, "headers") or frappe.response.headers is None:
+        frappe.response.headers = {}
     frappe.response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     frappe.response.headers["Pragma"] = "no-cache"
     frappe.response.headers["Expires"] = "0"

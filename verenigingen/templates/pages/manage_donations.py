@@ -123,7 +123,6 @@ def get_recurring_donations(member_name):
                 "fund_designation",
                 "mollie_subscription_id",
                 "paid",
-                "payment_status",
             ],
             order_by="donation_date desc",
         )
@@ -159,7 +158,6 @@ def get_recent_donations(member_name, limit=10):
                 "amount",
                 "status",
                 "paid",
-                "payment_status",
                 "mode_of_payment",
                 "fund_designation",
             ],

@@ -7,9 +7,6 @@ from verenigingen.utils.member_utils import get_current_user_member_name, requir
 def get_context(context):
     """Get context for multi-item expense claim page"""
 
-    # DEBUG: Log that this function is being called
-    frappe.log_error("get_context() called for expense_claim_new", "Debug expense_claim_new")
-
     require_login()
 
     context.no_cache = 1
