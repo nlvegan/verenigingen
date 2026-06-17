@@ -424,10 +424,13 @@ class TestBuildMemorialBalancingEntry(_JournalClusterBase):
     def test_unmapped_main_ledger_raises(self):
         debug = []
         rows = [{"ledgerId": EXPENSE_LEDGER, "amount": 100.0, "quantity": 1}]
-        with self.assertRaises(Exception):
+        # Tightened from Exception: prod raises ValueError. A future swallow-and-
+        # return-None regression must fail loudly rather than pass any exception.
+        with self.assertRaises(ValueError) as ctx:
             _build_memorial_balancing_entry(
                 700014, rows, "999999999", 100.0, 0.0, self.company, self.cost_center, "d", debug
             )
+        self.assertIn("No mapping found for main ledger", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
@@ -593,10 +596,12 @@ class TestAddPaymentOffsetEntry(_JournalClusterBase):
     def test_unmapped_bank_ledger_raises(self):
         je = self._new_je()
         mut = {"id": 700053, "type": 3, "description": "x"}
-        with self.assertRaises(Exception):
+        # Tightened from Exception: prod raises ValueError mentioning the bank account.
+        with self.assertRaises(ValueError) as ctx:
             _add_payment_offset_entry(
                 je, mut, "999999999", self.company, self.cost_center, 0.0, 100.0, "x", []
             )
+        self.assertIn("bank account", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------

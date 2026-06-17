@@ -542,6 +542,8 @@ class TestProcessSingleMutationDispatch(_PartyClusterBase):
             result = _process_single_mutation(mutation, COMPANY, self.cost_center, [])
         self.assertEqual(result.doctype, "Journal Entry")
         self.assertEqual(result.eboekhouden_mutation_nr, "950100")
+        # Routing must produce a VALID (submitted) JE, not just any JE doc.
+        self.assertEqual(result.docstatus, 1)
 
     def test_dispatch_type7_zero_amount_creates_error_log(self):
         """Type 7 with all-zero rows routes to the zero-amount import-log path."""
