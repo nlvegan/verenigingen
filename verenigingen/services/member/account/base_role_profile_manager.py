@@ -48,6 +48,58 @@ ERROR_CODES = {
 }
 
 
+def _has_multi_profile_support() -> bool:
+    """Return True when the User doctype exposes the ``role_profiles`` child table.
+
+    Frappe v16 deprecated the single ``role_profile_name`` Link in favour of a
+    ``role_profiles`` child table (User Role Profile), allowing multiple profiles
+    simultaneously. Older Frappe (v15) — and the fresh sites the "Server Tests"
+    CI provisions — only have the single Link, so reading ``user_doc.role_profiles``
+    directly raises AttributeError there. Every read/write of role profiles must
+    branch on this capability.
+    """
+    return frappe.get_meta("User").has_field("role_profiles")
+
+
+def _read_role_profiles(user_doc) -> set:
+    """Return the set of role-profile names assigned to ``user_doc``, version-agnostic.
+
+    Uses the ``role_profiles`` child table when present (v16), otherwise falls
+    back to the deprecated ``role_profile_name`` Link (v15).
+    """
+    if _has_multi_profile_support():
+        return {rp.role_profile for rp in (getattr(user_doc, "role_profiles", None) or [])}
+    return {user_doc.role_profile_name} if user_doc.role_profile_name else set()
+
+
+def _set_single_role_profile(user_doc, role_profile: str) -> None:
+    """Assign exactly ``role_profile`` to ``user_doc`` (replacing any existing), version-agnostic.
+
+    On v16 the canonical store is the ``role_profiles`` child table — setting only
+    ``role_profile_name`` is a silent no-op (User.move_role_profile_name_to_role_profiles
+    discards it when the child table is empty). On v15 the Link IS the store, so the
+    child table write is skipped and only ``role_profile_name`` is set.
+    """
+    if _has_multi_profile_support():
+        user_doc.set("role_profiles", [{"role_profile": role_profile}])
+    user_doc.role_profile_name = role_profile
+
+
+def _remove_single_role_profile(user_doc, role_profile: str) -> None:
+    """Remove ``role_profile`` from ``user_doc`` if present, version-agnostic.
+
+    Strips it from the ``role_profiles`` child table (v16) and clears the
+    ``role_profile_name`` Link if it matches (both v15 and v16).
+    """
+    if _has_multi_profile_support():
+        remaining = [
+            rp for rp in (getattr(user_doc, "role_profiles", None) or []) if rp.role_profile != role_profile
+        ]
+        user_doc.set("role_profiles", [{"role_profile": rp.role_profile} for rp in remaining])
+    if user_doc.role_profile_name == role_profile:
+        user_doc.role_profile_name = None
+
+
 @dataclass
 class EntityConfig:
     """Configuration for entity-specific behavior"""
@@ -293,17 +345,15 @@ class BaseRoleProfileManager(ABC):
                 )
 
             # Assign the role profile if not already assigned
-            current_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
+            current_profiles = _read_role_profiles(user_doc)
             if role_profile not in current_profiles:
                 previous_role_profile = user_doc.role_profile_name or (next(iter(current_profiles), None))
 
-                # Frappe v16 deprecated the single role_profile_name Link in favour of the
-                # role_profiles child table. Setting role_profile_name alone is a no-op when
-                # the child table is empty (User.move_role_profile_name_to_role_profiles
-                # discards it), so write to the child table directly. We keep this manager's
-                # single-profile semantics by replacing the table contents.
-                user_doc.set("role_profiles", [{"role_profile": role_profile}])
-                user_doc.role_profile_name = role_profile
+                # Write to whichever store the installed Frappe exposes: the
+                # role_profiles child table on v16 (setting role_profile_name alone is a
+                # no-op there) or the role_profile_name Link on v15. Keep this manager's
+                # single-profile semantics by replacing the contents.
+                _set_single_role_profile(user_doc, role_profile)
 
                 # Save with proper permission validation
                 result = secure_document_operation(
@@ -445,7 +495,7 @@ class BaseRoleProfileManager(ABC):
             # Remove role profile if currently assigned. In Frappe v16 the assignment lives
             # in the role_profiles child table (role_profile_name is deprecated/cleared on
             # save), so check both for backwards compatibility.
-            current_profiles = {rp.role_profile for rp in (user_doc.role_profiles or [])}
+            current_profiles = _read_role_profiles(user_doc)
             if role_profile == user_doc.role_profile_name or role_profile in current_profiles:
                 previous_role_profile = role_profile
 
@@ -521,10 +571,7 @@ class BaseRoleProfileManager(ABC):
         deprecated role_profile_name Link field for v15 compatibility.
         """
         user_doc = frappe.get_doc("User", user)
-        remaining = [rp for rp in (user_doc.role_profiles or []) if rp.role_profile != role_profile]
-        user_doc.set("role_profiles", [{"role_profile": rp.role_profile} for rp in remaining])
-        if user_doc.role_profile_name == role_profile:
-            user_doc.role_profile_name = None
+        _remove_single_role_profile(user_doc, role_profile)
         secure_document_operation(
             operation="save",
             doc=user_doc,
@@ -876,7 +923,7 @@ class BaseRoleProfileManager(ABC):
             # the child table, mirroring assign_role_profile / _strip_role_profile.
             # (The preloaded user_docs dict lacks the child table, so re-fetch.)
             user_doc_full = frappe.get_doc("User", user)
-            current_profiles = {rp.role_profile for rp in (user_doc_full.role_profiles or [])}
+            current_profiles = _read_role_profiles(user_doc_full)
             if role_profile in current_profiles:
                 return {
                     "user": user,
@@ -889,8 +936,7 @@ class BaseRoleProfileManager(ABC):
                 }
 
             previous_role_profile = user_doc_full.role_profile_name or next(iter(current_profiles), None)
-            user_doc_full.set("role_profiles", [{"role_profile": role_profile}])
-            user_doc_full.role_profile_name = role_profile
+            _set_single_role_profile(user_doc_full, role_profile)
 
             save_result = secure_document_operation(
                 operation="save",

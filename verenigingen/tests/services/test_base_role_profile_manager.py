@@ -28,6 +28,7 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     ERROR_CODES,
     EntityConfig,
     _is_system_operation_authorized,
+    _read_role_profiles,
     safe_hook_execution,
     validate_all_role_profiles,
     validate_doctype_fields,
@@ -110,6 +111,16 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         user.insert()
         self.track_doc("User", user.name)
         return user.name
+
+    def _assigned_profiles(self, user):
+        """Role profiles assigned to ``user``, version-agnostic.
+
+        Reads the v16 ``role_profiles`` child table where present and falls back
+        to the v15 ``role_profile_name`` Link otherwise (the field the fresh CI
+        sites have). Reading ``user_doc.role_profiles`` directly raises
+        AttributeError on v15.
+        """
+        return _read_role_profiles(frappe.get_doc("User", user))
 
     # =================================================================
     # validate_doctype_fields
@@ -300,8 +311,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         self.assertEqual(result["action"], "assigned")
         self.assertEqual(result["role_profile"], profile)
 
-        user_doc = frappe.get_doc("User", user)
-        assigned = [rp.role_profile for rp in (user_doc.role_profiles or [])]
+        assigned = self._assigned_profiles(user)
         self.assertIn(profile, assigned)
 
     def test_assign_role_profile_idempotent(self):
@@ -376,8 +386,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         # compute a replacement so the profile is stripped pending recalc.
         self.assertIn(result["action"], ("recalculated", "removed_pending_recalc"))
 
-        user_doc = frappe.get_doc("User", user)
-        assigned = [rp.role_profile for rp in (user_doc.role_profiles or [])]
+        assigned = self._assigned_profiles(user)
         self.assertNotIn(profile, assigned)
 
     def test_remove_role_profile_disabled_user_rejected(self):
@@ -404,8 +413,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
 
         self.team_manager._strip_role_profile(user, profile)
 
-        user_doc = frappe.get_doc("User", user)
-        assigned = [rp.role_profile for rp in (user_doc.role_profiles or [])]
+        assigned = self._assigned_profiles(user)
         self.assertNotIn(profile, assigned)
 
     # =================================================================
@@ -496,8 +504,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
 
         # Assert the role profile actually landed in the v16 role_profiles child
         # table (roles derive from it). The old set_value path left this empty.
-        user_doc = frappe.get_doc("User", user)
-        self.assertIn(profile, [rp.role_profile for rp in user_doc.role_profiles])
+        self.assertIn(profile, self._assigned_profiles(user))
 
     def test_process_bulk_member_user_not_loaded(self):
         # _process_bulk_member returns a NOT_FOUND error when the user is missing
@@ -535,8 +542,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         self.assertEqual(result["result"]["action"], "assigned")
         # Assert the real grant via the v16 role_profiles child table (not just the
         # deprecated role_profile_name column, which the old code wrote as a no-op).
-        user_doc = frappe.get_doc("User", user)
-        self.assertIn(profile, [rp.role_profile for rp in user_doc.role_profiles])
+        self.assertIn(profile, self._assigned_profiles(user))
 
     def test_process_bulk_member_already_assigned(self):
         profile = self._make_role_profile()
@@ -611,8 +617,7 @@ class TestBaseRoleProfileManager(VereningingenTestCase):
         result = self.chapter_manager.assign_role_profile(user, chapter)
         self.assertTrue(result["success"])
         self.assertEqual(result["action"], "assigned")
-        user_doc = frappe.get_doc("User", user)
-        assigned = [rp.role_profile for rp in (user_doc.role_profiles or [])]
+        assigned = self._assigned_profiles(user)
         self.assertIn(profile, assigned)
 
     def test_chapter_config_constants(self):

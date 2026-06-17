@@ -100,9 +100,7 @@ class TestUserRoleProfileCalculator(VereningingenTestCase):
 
     def _ensure_chapter_role(self, role_name):
         if not frappe.db.exists("Chapter Role", role_name):
-            frappe.get_doc(
-                {"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}
-            ).insert()
+            frappe.get_doc({"doctype": "Chapter Role", "role_name": role_name, "is_active": 1}).insert()
             self.track_doc("Chapter Role", role_name)
 
     def _add_board_position(self, chapter_name, volunteer, role="Bestuurslid"):
@@ -200,9 +198,7 @@ class TestUserRoleProfileCalculator(VereningingenTestCase):
 
     def test_priority_handles_none(self):
         # Defensive: None role/profile must not raise.
-        self.assertEqual(
-            get_profile_priority_for_role(None, None), PRIORITY_BOARD_ROLE_SPECIFIC
-        )
+        self.assertEqual(get_profile_priority_for_role(None, None), PRIORITY_BOARD_ROLE_SPECIFIC)
 
     # =================================================================
     # is_active_volunteer / is_active_board_member / is_team_leader
@@ -422,8 +418,10 @@ class TestUserRoleProfileCalculator(VereningingenTestCase):
     # =================================================================
 
     def _assigned_profiles(self, user):
-        user_doc = frappe.get_doc("User", user)
-        return [rp.role_profile for rp in (user_doc.role_profiles or [])]
+        # Read via the version-robust helper: v16 exposes a `role_profiles` child
+        # table while v15 (and fresh CI sites) only have the `role_profile_name`
+        # Link. Reading `user_doc.role_profiles` directly raises AttributeError on v15.
+        return calc.get_user_role_profiles(user)
 
     def test_sync_nonexistent_user(self):
         result = sync_user_role_profile("ghost@nope.invalid")
@@ -522,14 +520,10 @@ class TestUserRoleProfileCalculator(VereningingenTestCase):
     def test_validate_data_integrity_flags_invalid_chapter_profile(self):
         # A chapter pointing at a non-existent default profile must be reported.
         chapter = self.create_test_chapter()
-        frappe.db.set_value(
-            "Chapter", chapter.name, "default_board_role_profile", "Ghost Profile ZZZ"
-        )
+        frappe.db.set_value("Chapter", chapter.name, "default_board_role_profile", "Ghost Profile ZZZ")
         result = validate_role_profile_data_integrity()
         self.assertTrue(result["success"])
-        flagged = [
-            i["chapter"] for i in result["issues"]["invalid_chapter_profiles"]
-        ]
+        flagged = [i["chapter"] for i in result["issues"]["invalid_chapter_profiles"]]
         self.assertIn(chapter.name, flagged)
 
     def test_validate_data_integrity_flags_invalid_team_profile(self):
