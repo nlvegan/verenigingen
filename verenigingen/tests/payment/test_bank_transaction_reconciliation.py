@@ -152,9 +152,7 @@ class BTRBase(EnhancedTestCase):
             "invoice": invoice,
         }
 
-    def _make_batch(
-        self, items, batch_date=None, status="Submitted", submit=True, row_status="Successful"
-    ):
+    def _make_batch(self, items, batch_date=None, status="Submitted", submit=True, row_status="Successful"):
         """Build a Direct Debit Batch from already-built member/invoice dicts.
 
         Real batch.submit() triggers generate_sepa_xml (needs org SEPA settings),
@@ -204,8 +202,15 @@ class BTRBase(EnhancedTestCase):
         return batch
 
     def _make_bank_transaction(
-        self, deposit=0.0, withdrawal=0.0, description="", date=None,
-        reference_number=None, status=None, bank_account=None, submit=False,
+        self,
+        deposit=0.0,
+        withdrawal=0.0,
+        description="",
+        date=None,
+        reference_number=None,
+        status=None,
+        bank_account=None,
+        submit=False,
     ):
         bt = frappe.new_doc("Bank Transaction")
         bt.date = date or today()
@@ -213,11 +218,20 @@ class BTRBase(EnhancedTestCase):
         bt.deposit = deposit
         bt.withdrawal = withdrawal
         bt.reference_number = reference_number or frappe.generate_hash(length=10)
-        ba = bank_account or frappe.db.get_value(
-            "Bank Account", {"is_company_account": 1}, "name"
-        ) or frappe.db.get_value("Bank Account", {}, "name")
+        ba = (
+            bank_account
+            or frappe.db.get_value("Bank Account", {"is_company_account": 1}, "name")
+            or frappe.db.get_value("Bank Account", {}, "name")
+        )
         if ba:
             bt.bank_account = ba
+            # Pin currency to the bank account's currency. frappe.new_doc applies
+            # the ambient system default currency (INR on a polluted/cross-module
+            # run), which trips Bank Transaction.validate_currency against the EUR
+            # bank account. Deriving it from the account makes this self-sufficient.
+            account = frappe.get_cached_value("Bank Account", ba, "account")
+            if account:
+                bt.currency = frappe.get_cached_value("Account", account, "account_currency")
         bt.insert()
         if status:
             frappe.db.set_value("Bank Transaction", bt.name, "status", status, update_modified=False)
@@ -354,9 +368,7 @@ class TestMatchByBatchReference(BTRBase):
         it = self._make_member_with_invoice(first_name="BatchRefAmt", grand_total=30.0)
         batch = self._make_batch([it])
         token = batch.name.replace("BATCH-", "") if batch.name.startswith("BATCH-") else batch.name
-        bt = self._make_bank_transaction(
-            deposit=batch.total_amount + 99, description=f"BATCH-{token}"
-        )
+        bt = self._make_bank_transaction(deposit=batch.total_amount + 99, description=f"BATCH-{token}")
         self.assertIsNone(self.mgr.match_by_batch_reference(self._txn_dict(bt)))
 
     def test_no_batch_pattern_returns_none(self):
@@ -376,9 +388,7 @@ class TestMatchByAmountAndReference(BTRBase):
         it = self._make_member_with_invoice(first_name="AmtRef", grand_total=42.0)
         batch = self._make_batch([it])
         # reference_number == invoice name, amount == batch item amount, within ±7d.
-        bt = self._make_bank_transaction(
-            deposit=42.0, reference_number=it["invoice"].name, date=today()
-        )
+        bt = self._make_bank_transaction(deposit=42.0, reference_number=it["invoice"].name, date=today())
         match = self.mgr.match_by_amount_and_reference(self._txn_dict(bt))
         self.assertIsNotNone(match)
         self.assertEqual(match["type"], "invoice")
@@ -403,9 +413,7 @@ class TestMatchByAmountAndReference(BTRBase):
     def test_out_of_date_window_not_matched(self):
         it = self._make_member_with_invoice(first_name="AmtOld", grand_total=42.0)
         self._make_batch([it], batch_date=add_days(today(), -60))
-        bt = self._make_bank_transaction(
-            deposit=42.0, reference_number=it["invoice"].name, date=today()
-        )
+        bt = self._make_bank_transaction(deposit=42.0, reference_number=it["invoice"].name, date=today())
         self.assertIsNone(self.mgr.match_by_amount_and_reference(self._txn_dict(bt)))
 
     def test_multiple_matches_lower_confidence(self):
@@ -414,9 +422,7 @@ class TestMatchByAmountAndReference(BTRBase):
         it2 = self._make_member_with_invoice(first_name="AmtMulti2", grand_total=55.0)
         batch = self._make_batch([it1, it2])
         # Use the batch name as the reference so the LIKE branch matches BOTH rows.
-        bt = self._make_bank_transaction(
-            deposit=55.0, reference_number=batch.name, date=today()
-        )
+        bt = self._make_bank_transaction(deposit=55.0, reference_number=batch.name, date=today())
         match = self.mgr.match_by_amount_and_reference(self._txn_dict(bt))
         self.assertIsNotNone(match)
         self.assertEqual(match["type"], "multiple")
@@ -446,17 +452,13 @@ class TestMatchByDescription(BTRBase):
         the Sales Invoice `member` field, so a MEMBERSHIP-pattern description maps
         to the related invoice without crashing."""
         it = self._make_member_with_invoice(first_name="DescMemb", grand_total=25.0)
-        bt = self._make_bank_transaction(
-            deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}"
-        )
+        bt = self._make_bank_transaction(deposit=25.0, description=f"MEMBERSHIP {it['membership'].name}")
         match = self.mgr.match_by_description(self._txn_dict(bt))
         self.assertIsNotNone(match)
         self.assertEqual(match["reference"], it["invoice"].name)
 
     def test_unknown_invoice_falls_through_to_no_match(self):
-        bt = self._make_bank_transaction(
-            deposit=12345.67, description="INVOICE SINV-DOES-NOT-EXIST-XYZ"
-        )
+        bt = self._make_bank_transaction(deposit=12345.67, description="INVOICE SINV-DOES-NOT-EXIST-XYZ")
         # Pattern matches but invoice doesn't exist, fuzzy fallback finds nothing.
         self.assertIsNone(self.mgr.match_by_description(self._txn_dict(bt)))
 
@@ -473,8 +475,10 @@ class TestFuzzyAndMemberInvoices(BTRBase):
         it = self._make_member_with_invoice(first_name="Fuzzylonglastname", grand_total=77.0)
         # Invoice must be Unpaid/Overdue with outstanding == amount and si.member set.
         frappe.db.set_value(
-            "Sales Invoice", it["invoice"].name,
-            {"status": "Unpaid", "outstanding_amount": 77.0}, update_modified=False,
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 77.0},
+            update_modified=False,
         )
         full_name = it["member"].full_name
         match = self.mgr.fuzzy_match_member_name(full_name.upper(), 77.0)
@@ -487,16 +491,20 @@ class TestFuzzyAndMemberInvoices(BTRBase):
     def test_fuzzy_no_match_for_unrelated_description(self):
         it = self._make_member_with_invoice(first_name="UniqueXyzzy", grand_total=88.0)
         frappe.db.set_value(
-            "Sales Invoice", it["invoice"].name,
-            {"status": "Unpaid", "outstanding_amount": 88.0}, update_modified=False,
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 88.0},
+            update_modified=False,
         )
         self.assertIsNone(self.mgr.fuzzy_match_member_name("ZZZZZ COMPLETELY DIFFERENT", 88.0))
 
     def test_get_member_unpaid_invoices_returns_match(self):
         it = self._make_member_with_invoice(first_name="UnpaidLook", grand_total=63.0)
         frappe.db.set_value(
-            "Sales Invoice", it["invoice"].name,
-            {"status": "Unpaid", "outstanding_amount": 63.0}, update_modified=False,
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 63.0},
+            update_modified=False,
         )
         result = self.mgr.get_member_unpaid_invoices(it["member"].name, 63.0)
         self.assertIn(it["invoice"].name, result)
@@ -504,8 +512,10 @@ class TestFuzzyAndMemberInvoices(BTRBase):
     def test_get_member_unpaid_invoices_amount_mismatch_empty(self):
         it = self._make_member_with_invoice(first_name="UnpaidNo", grand_total=63.0)
         frappe.db.set_value(
-            "Sales Invoice", it["invoice"].name,
-            {"status": "Unpaid", "outstanding_amount": 63.0}, update_modified=False,
+            "Sales Invoice",
+            it["invoice"].name,
+            {"status": "Unpaid", "outstanding_amount": 63.0},
+            update_modified=False,
         )
         self.assertEqual(self.mgr.get_member_unpaid_invoices(it["member"].name, 999.0), [])
 
@@ -521,8 +531,10 @@ class TestMatchTransactionAndReconcile(BTRBase):
         it = self._make_member_with_invoice(first_name="MatchTxn", grand_total=30.0)
         self._make_batch([it])
         bt = self._make_bank_transaction(
-            deposit=30.0, description="SEPA collection",
-            reference_number=it["invoice"].name, date=today(),
+            deposit=30.0,
+            description="SEPA collection",
+            reference_number=it["invoice"].name,
+            date=today(),
         )
         result = self.mgr.match_transaction(self._txn_dict(bt))
         self.assertTrue(result)
@@ -566,9 +578,7 @@ class TestMatchTransactionAndReconcile(BTRBase):
 
     def test_create_reconciliation_invoice_creates_payment_entry(self):
         it = self._make_member_with_invoice(first_name="ReconInv", grand_total=40.0)
-        bt = self._make_bank_transaction(
-            deposit=40.0, reference_number="REF-RECON", date=today()
-        )
+        bt = self._make_bank_transaction(deposit=40.0, reference_number="REF-RECON", date=today())
         match = {
             "type": "invoice",
             "reference": it["invoice"].name,
@@ -697,9 +707,7 @@ class TestFeesAccount(BTRBase):
         company = self.company
         parent = frappe.db.get_value(
             "Account", {"company": company, "is_group": 1, "root_type": "Expense"}, "name"
-        ) or frappe.db.get_value(
-            "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
-        )
+        ) or frappe.db.get_value("Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name")
         acc = frappe.new_doc("Account")
         acc.account_name = f"Payment Processing Fees {frappe.generate_hash(length=5)}"
         acc.company = company
@@ -731,9 +739,7 @@ class TestFeesAccount(BTRBase):
         # configured-fees-account short-circuit never fires, regardless of site.
         if frappe.db.count("Account", {"account_type": "Expense", "is_group": 0}):
             self.skipTest("Site has Expense-typed accounts; throw branch not reachable")
-        if frappe.db.get_value(
-            "Account", {"account_name": ["like", "%Payment Processing Fees%"]}, "name"
-        ):
+        if frappe.db.get_value("Account", {"account_name": ["like", "%Payment Processing Fees%"]}, "name"):
             self.skipTest("A pattern-named fees account already exists on this site")
         with patch.object(self.mgr.config, "get_fees_account_optional", return_value=None):
             with self.assertRaises(frappe.ValidationError):
@@ -747,9 +753,7 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
     def test_returns_none_when_no_mollie_bank_account_configured(self):
         # Test site has no mollie_bank_account -> get_bank_account_gl throws
         # ValidationError -> match_mollie_settlement returns None.
-        bt = self._make_bank_transaction(
-            deposit=100.0, description="mollie settlement payout", date=today()
-        )
+        bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement payout", date=today())
         self.assertIsNone(self.mgr.match_mollie_settlement(self._txn_dict(bt)))
 
     def test_returns_none_for_non_mollie_keyword_when_account_set(self):
@@ -761,8 +765,10 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
         self.mgr.config.clear_cache()
         try:
             bt = self._make_bank_transaction(
-                deposit=100.0, description="ordinary deposit no keyword",
-                date=today(), bank_account=None,
+                deposit=100.0,
+                description="ordinary deposit no keyword",
+                date=today(),
+                bank_account=None,
             )
             txn = self._txn_dict(bt)
             txn["bank_account"] = bank_acc  # force account equality
@@ -772,9 +778,7 @@ class TestMatchMollieSettlementEarlyReturns(BTRBase):
             self.mgr.config.clear_cache()
 
     def test_returns_none_for_account_mismatch(self):
-        bt = self._make_bank_transaction(
-            deposit=100.0, description="mollie settlement", date=today()
-        )
+        bt = self._make_bank_transaction(deposit=100.0, description="mollie settlement", date=today())
         txn = self._txn_dict(bt)
         txn["bank_account"] = "SOME-OTHER-GL-ACCOUNT"
         self.assertIsNone(self.mgr.match_mollie_settlement(txn))
@@ -788,9 +792,7 @@ class TestReconcileBankTransactions(BTRBase):
         result = self.mgr.reconcile_bank_transactions()
         for key in ("total_transactions", "matched", "unmatched"):
             self.assertIn(key, result)
-        self.assertEqual(
-            result["unmatched"], result["total_transactions"] - result["matched"]
-        )
+        self.assertEqual(result["unmatched"], result["total_transactions"] - result["matched"])
 
     def test_filters_by_bank_account_unknown_returns_zero(self):
         result = self.mgr.reconcile_bank_transactions(bank_account="NO-SUCH-ACCOUNT-XYZ")
@@ -832,18 +834,14 @@ class TestReconciliationSummary(BTRBase):
 class TestSepaReturnHandlers(BTRBase):
     def test_mark_payment_successful_adds_comment(self):
         it = self._make_member_with_invoice(first_name="MarkSuccess", grand_total=25.0)
-        frappe.db.set_value(
-            "Sales Invoice", it["invoice"].name, "status", "Unpaid", update_modified=False
-        )
+        frappe.db.set_value("Sales Invoice", it["invoice"].name, "status", "Unpaid", update_modified=False)
         btr.mark_payment_successful(f"E2E-{it['invoice'].name}")
         comments = frappe.get_all(
             "Comment",
             filters={"reference_doctype": "Sales Invoice", "reference_name": it["invoice"].name},
             fields=["content"],
         )
-        self.assertTrue(
-            any("SEPA payment accepted" in (c.get("content") or "") for c in comments)
-        )
+        self.assertTrue(any("SEPA payment accepted" in (c.get("content") or "") for c in comments))
 
     def test_mark_payment_successful_bad_e2e_noop(self):
         # No "E2E-" prefix -> regex doesn't match -> returns without error.
@@ -871,9 +869,7 @@ class TestBatchReconciliationGuards(BTRBase):
         as paid."""
         ok_it = self._make_member_with_invoice(first_name="GuardOK", grand_total=30.0)
         failed_it = self._make_member_with_invoice(first_name="GuardFail", grand_total=20.0)
-        batch = self._make_batch(
-            [ok_it, failed_it], row_status=["Successful", "Failed"]
-        )
+        batch = self._make_batch([ok_it, failed_it], row_status=["Successful", "Failed"])
         bt = self._make_bank_transaction(deposit=30.0, date=today())
 
         created = self.mgr.create_payment_entries_from_batch(bt, batch.name)
@@ -937,9 +933,7 @@ class TestBatchReconciliationGuards(BTRBase):
         ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
         self.assertFalse(ok, "partial collection must not report success")
         bt.reload()
-        self.assertEqual(
-            bt.status, "Unreconciled", "txn must be left Unreconciled on partial collection"
-        )
+        self.assertEqual(bt.status, "Unreconciled", "txn must be left Unreconciled on partial collection")
 
     def test_full_collection_reconciles(self):
         """S2 happy path: when the booked total matches the deposit, the

@@ -90,10 +90,22 @@ class RecoveryBase(EnhancedTestCase):
 
     @classmethod
     def _ensure_bank_account(cls, company):
-        ba = frappe.db.get_value(
-            "Bank Account", {"is_company_account": 1}, "name"
-        ) or frappe.db.get_value("Bank Account", {}, "name")
-        return ba
+        # We pin bt.currency = "EUR" below, so the chosen Bank Account MUST be an
+        # EUR account or Bank Transaction.validate_currency throws. A bare
+        # is_company_account lookup can pick up a non-EUR account left by sibling
+        # modules in a shared CI process; resolve an EUR-currency account first.
+        for filters in (
+            {"is_company_account": 1},
+            {},
+        ):
+            for ba in frappe.get_all("Bank Account", filters=filters, pluck="name"):
+                account = frappe.db.get_value("Bank Account", ba, "account")
+                if account and frappe.db.get_value("Account", account, "account_currency") == "EUR":
+                    return ba
+        # Fallback: any account (currency check below is skipped if unset).
+        return frappe.db.get_value("Bank Account", {"is_company_account": 1}, "name") or frappe.db.get_value(
+            "Bank Account", {}, "name"
+        )
 
     # --- fixture builders -------------------------------------------------
 
@@ -101,9 +113,7 @@ class RecoveryBase(EnhancedTestCase):
         member = self.sepa.create_test_member(first_name=first_name)
         customer = member.customer
         if not customer:
-            customer = self.sepa.create_test_customer(
-                customer_name=f"Cust {member.full_name}"
-            ).name
+            customer = self.sepa.create_test_customer(customer_name=f"Cust {member.full_name}").name
             member.db_set("customer", customer)
         # The status code resolves member from Customer via the Member.customer
         # back-reference query, so the Customer must point back too in some paths.
@@ -388,9 +398,7 @@ class TestCompletePartialPaymentsDryRun(RecoveryBase):
         self.assertTrue(result["dry_run"])
 
     def test_invalid_payment_id_skipped(self):
-        result = rec.complete_partial_payments(
-            payment_ids=["not-a-mollie-id"], dry_run=False
-        )
+        result = rec.complete_partial_payments(payment_ids=["not-a-mollie-id"], dry_run=False)
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(result["results"][0]["status"], "skipped")
         self.assertIn("Invalid payment ID format", result["results"][0]["reason"])
@@ -415,9 +423,7 @@ class TestCompletePartialPaymentsDryRun(RecoveryBase):
         (FrappeTypeError). Fixed."""
         import json
 
-        result = rec.complete_partial_payments(
-            payment_ids=json.dumps([self.pid]), dry_run=True
-        )
+        result = rec.complete_partial_payments(payment_ids=json.dumps([self.pid]), dry_run=True)
         self.assertEqual(result["total_requested"], 1)
 
     def test_auto_discovery_no_incomplete_returns_message(self):
@@ -505,17 +511,13 @@ class TestCompletePartialPaymentsRecovery(RecoveryBase):
         and a success increments orphans_processed."""
 
         def fake_process(payment_id, create_missing_invoice=False):
-            return _FakeResult(
-                payment_id, "error", error="Cannot determine member for payment"
-            )
+            return _FakeResult(payment_id, "error", error="Cannot determine member for payment")
 
         def fake_orphan(payment_id):
             return _FakeResult(payment_id, "success", sales_invoice="ORPH-SI")
 
         self._patch_orchestrator(process_payment=fake_process, process_orphan=fake_orphan)
-        result = rec.complete_partial_payments(
-            payment_ids=[self.pid], dry_run=False, process_orphans=True
-        )
+        result = rec.complete_partial_payments(payment_ids=[self.pid], dry_run=False, process_orphans=True)
         self.assertEqual(result["orphans_processed"], 1)
         self.assertEqual(result["completed"], 1)
         self.assertEqual(result["results"][0]["sales_invoice"], "ORPH-SI")
@@ -528,9 +530,7 @@ class TestCompletePartialPaymentsRecovery(RecoveryBase):
             return _FakeResult(payment_id, "success")
 
         self._patch_orchestrator(process_payment=fake_process, process_orphan=fake_orphan)
-        result = rec.complete_partial_payments(
-            payment_ids=[self.pid], dry_run=False, process_orphans="true"
-        )
+        result = rec.complete_partial_payments(payment_ids=[self.pid], dry_run=False, process_orphans="true")
         self.assertEqual(result["process_orphans"], True)
         self.assertEqual(result["orphans_processed"], 1)
 
@@ -544,9 +544,7 @@ class TestRepairInvoicesMissingGLEntries(RecoveryBase):
         dry_run (the GL-count check precedes the dry_run branch)."""
         member = self._make_member_with_customer("GLskip")
         si = self._make_sales_invoice(member.customer, today(), today())
-        gl_count = frappe.db.count(
-            "GL Entry", {"voucher_type": "Sales Invoice", "voucher_no": si.name}
-        )
+        gl_count = frappe.db.count("GL Entry", {"voucher_type": "Sales Invoice", "voucher_no": si.name})
         self.assertGreater(gl_count, 0, "submitted SINV should have GL entries")
 
         result = rec.repair_invoices_missing_gl_entries(invoice_names=[si.name], dry_run=True)
@@ -565,9 +563,7 @@ class TestRepairInvoicesMissingGLEntries(RecoveryBase):
 
         member = self._make_member_with_customer("GLjson")
         si = self._make_sales_invoice(member.customer, today(), today())
-        result = rec.repair_invoices_missing_gl_entries(
-            invoice_names=json.dumps([si.name]), dry_run="true"
-        )
+        result = rec.repair_invoices_missing_gl_entries(invoice_names=json.dumps([si.name]), dry_run="true")
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["total_checked"], 1)
 

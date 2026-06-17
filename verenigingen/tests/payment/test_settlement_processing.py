@@ -30,9 +30,7 @@ from verenigingen.verenigingen_payments.api import settlement_processing as api
 from verenigingen.verenigingen_payments.core.models.settlement import Settlement
 
 # Patch targets (true external boundaries only)
-_CACHE_GET = (
-    "verenigingen.verenigingen_payments.services.settlement_cache.SettlementCache.get_settlement"
-)
+_CACHE_GET = "verenigingen.verenigingen_payments.services.settlement_cache.SettlementCache.get_settlement"
 _CLIENT = "verenigingen.verenigingen_payments.clients.settlements_client.SettlementsClient."
 
 # The config-validation boundary inside the processor. Patching this forces the
@@ -59,9 +57,14 @@ _CONFIG_VALID = {
 }
 
 
-def _make_settlement(settlement_id="stl_TEST", reference="1234.5678.90",
-                     status="paidout", value="500.00", currency="EUR",
-                     settled_at="2024-06-01T10:00:00+00:00"):
+def _make_settlement(
+    settlement_id="stl_TEST",
+    reference="1234.5678.90",
+    status="paidout",
+    value="500.00",
+    currency="EUR",
+    settled_at="2024-06-01T10:00:00+00:00",
+):
     """Build a REAL Settlement model object from API-shaped dict."""
     return Settlement(
         {
@@ -77,6 +80,20 @@ def _make_settlement(settlement_id="stl_TEST", reference="1234.5678.90",
 
 class TestSettlementProcessingAPI(EnhancedTestCase):
     """Integration tests for the settlement processing API endpoints."""
+
+    def setUp(self):
+        super().setUp()
+        # Per-instance unique suffix so the hardcoded-looking settlement ids /
+        # bank-transaction reference numbers below never collide with rows left
+        # by sibling test modules in the same CI process (the status/idempotency
+        # branches look these up GLOBALLY by reference_number). Keeping the
+        # readable stl_* prefix while appending a unique token makes every
+        # assertion self-sufficient on a fresh, shared site.
+        self._sfx = frappe.generate_hash(length=8)
+
+    def _sid(self, base):
+        """Unique-but-readable settlement id / bank reference for this instance."""
+        return f"{base}_{self._sfx}"
 
     # ------------------------------------------------------------------ helpers
 
@@ -129,17 +146,23 @@ class TestSettlementProcessingAPI(EnhancedTestCase):
         mask the idempotency status with a config error. With config valid, the
         pre-existing BT must drive an "already_processed" result and NO duplicate
         row."""
-        settlement = _make_settlement(settlement_id="stl_DUP", reference="9999.0000.11")
-        self._make_bank_transaction(reference_number="stl_DUP")
+        sid = self._sid("stl_DUP")
+        settlement = _make_settlement(settlement_id=sid, reference="9999.0000.11")
+        self._make_bank_transaction(reference_number=sid)
         patches = self._patch_empty_components()
-        with patch(_CACHE_GET, return_value=settlement), \
-                patch(_VALIDATE_CONFIG, return_value=_CONFIG_VALID), \
-                patches[0], patches[1], patches[2], patches[3]:
-            result = api.process_settlement_deposit(settlement_id="stl_DUP")
+        with (
+            patch(_CACHE_GET, return_value=settlement),
+            patch(_VALIDATE_CONFIG, return_value=_CONFIG_VALID),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            result = api.process_settlement_deposit(settlement_id=sid)
         # Config succeeds -> the existing-BT check is reached and wins.
         self.assertEqual(result["status"], "already_processed")
         self.assertEqual(
-            frappe.db.count("Bank Transaction", {"reference_number": "stl_DUP"}),
+            frappe.db.count("Bank Transaction", {"reference_number": sid}),
             1,
             "Idempotency must not create a duplicate Bank Transaction",
         )
@@ -152,25 +175,34 @@ class TestSettlementProcessingAPI(EnhancedTestCase):
         _validate_configuration boundary, so the assertion holds regardless of
         the actual site config.
         """
-        settlement = _make_settlement(settlement_id="stl_NOCONFIG", reference="2222.3333.44")
+        sid = self._sid("stl_NOCONFIG")
+        settlement = _make_settlement(settlement_id=sid, reference="2222.3333.44")
         patches = self._patch_empty_components()
-        with patch(_CACHE_GET, return_value=settlement), \
-                patch(_VALIDATE_CONFIG, return_value=_CONFIG_ERROR), \
-                patches[0], patches[1], patches[2], patches[3]:
-            result = api.process_settlement_deposit(settlement_id="stl_NOCONFIG")
+        with (
+            patch(_CACHE_GET, return_value=settlement),
+            patch(_VALIDATE_CONFIG, return_value=_CONFIG_ERROR),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            result = api.process_settlement_deposit(settlement_id=sid)
         self.assertEqual(result["status"], "error")
         self.assertIn("Configuration", result["error"])
-        self.assertFalse(
-            frappe.db.exists("Bank Transaction", {"reference_number": "stl_NOCONFIG"})
-        )
+        self.assertFalse(frappe.db.exists("Bank Transaction", {"reference_number": sid}))
 
     def test_process_by_bank_reference(self):
         """Lookup via bank_reference resolves the settlement through the cache."""
         settlement = _make_settlement(settlement_id="stl_BYREF", reference="5555.6666.77")
         patches = self._patch_empty_components()
-        with patch(_CACHE_GET, return_value=settlement) as mock_cache, \
-                patch(_VALIDATE_CONFIG, return_value=_CONFIG_ERROR), \
-                patches[0], patches[1], patches[2], patches[3]:
+        with (
+            patch(_CACHE_GET, return_value=settlement) as mock_cache,
+            patch(_VALIDATE_CONFIG, return_value=_CONFIG_ERROR),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
             result = api.process_settlement_deposit(bank_reference="5555.6666.77")
         # Cache was queried with the bank_reference.
         _, kwargs = mock_cache.call_args
@@ -216,19 +248,25 @@ class TestSettlementProcessingAPI(EnhancedTestCase):
         missing config would mask the idempotency outcome as an error. With
         config valid, the pre-existing BT drives an already_processed count and
         NO duplicate row."""
-        settlement = _make_settlement(settlement_id="stl_BATCH_DUP", status="paidout")
-        self._make_bank_transaction(reference_number="stl_BATCH_DUP")
+        sid = self._sid("stl_BATCH_DUP")
+        settlement = _make_settlement(settlement_id=sid, status="paidout")
+        self._make_bank_transaction(reference_number=sid)
         patches = self._patch_empty_components()
-        with patch(_CLIENT + "list_settlements", return_value=[settlement]), \
-                patch(_VALIDATE_CONFIG, return_value=_CONFIG_VALID), \
-                patches[0], patches[1], patches[2], patches[3]:
+        with (
+            patch(_CLIENT + "list_settlements", return_value=[settlement]),
+            patch(_VALIDATE_CONFIG, return_value=_CONFIG_VALID),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
             result = api.batch_process_recent_settlements(days=7)
         self.assertEqual(result["total_settlements"], 1)
         self.assertEqual(result["processed"], 0)
         self.assertEqual(result["already_processed"], 1)
         self.assertEqual(result["errors"], 0)
         self.assertEqual(
-            frappe.db.count("Bank Transaction", {"reference_number": "stl_BATCH_DUP"}),
+            frappe.db.count("Bank Transaction", {"reference_number": sid}),
             1,
             "Batch processing must not create a duplicate Bank Transaction",
         )
@@ -240,46 +278,51 @@ class TestSettlementProcessingAPI(EnhancedTestCase):
         The missing-config state is forced deterministically via the
         _validate_configuration boundary, so the assertion holds regardless of
         the actual site config."""
-        settlement = _make_settlement(settlement_id="stl_BATCH_NEW", status="paidout")
+        sid = self._sid("stl_BATCH_NEW")
+        settlement = _make_settlement(settlement_id=sid, status="paidout")
         patches = self._patch_empty_components()
-        with patch(_CLIENT + "list_settlements", return_value=[settlement]), \
-                patch(_VALIDATE_CONFIG, return_value=_CONFIG_ERROR), \
-                patches[0], patches[1], patches[2], patches[3]:
+        with (
+            patch(_CLIENT + "list_settlements", return_value=[settlement]),
+            patch(_VALIDATE_CONFIG, return_value=_CONFIG_ERROR),
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
             result = api.batch_process_recent_settlements(days=7)
         self.assertEqual(result["total_settlements"], 1)
         self.assertEqual(result["errors"], 1)
         self.assertEqual(result["processed"], 0)
-        self.assertFalse(
-            frappe.db.exists("Bank Transaction", {"reference_number": "stl_BATCH_NEW"})
-        )
+        self.assertFalse(frappe.db.exists("Bank Transaction", {"reference_number": sid}))
 
     # ================================================== get_settlement_status
 
     def test_status_not_processed_no_mollie(self):
         """No BT exists and Mollie lookup fails -> processed False + info error."""
+        sid = self._sid("stl_UNKNOWN_999")
         with patch(_CLIENT + "get_settlement", side_effect=RuntimeError("mollie down")):
-            result = api.get_settlement_status(settlement_id="stl_UNKNOWN_999")
-        self.assertEqual(result["settlement_id"], "stl_UNKNOWN_999")
+            result = api.get_settlement_status(settlement_id=sid)
+        self.assertEqual(result["settlement_id"], sid)
         self.assertFalse(result["processed"])
         self.assertNotIn("bank_transaction", result)
         self.assertIn("settlement_info_error", result)
 
     def test_status_processed_branch(self):
         """An existing BT for the settlement -> processed True with BT details."""
-        bt = self._make_bank_transaction(reference_number="stl_STATUS_DUP", deposit=321.0)
+        sid = self._sid("stl_STATUS_DUP")
+        bt = self._make_bank_transaction(reference_number=sid, deposit=321.0)
         with patch(_CLIENT + "get_settlement", side_effect=RuntimeError("skip mollie")):
-            result = api.get_settlement_status(settlement_id="stl_STATUS_DUP")
+            result = api.get_settlement_status(settlement_id=sid)
         self.assertTrue(result["processed"])
         self.assertEqual(result["bank_transaction"], bt.name)
         self.assertEqual(result["amount"], 321.0)
 
     def test_status_with_mollie_info(self):
         """Mollie lookup succeeds -> settlement_info populated from the object."""
-        settlement = _make_settlement(
-            settlement_id="stl_INFO", reference="7777.8888.99", value="650.00"
-        )
+        sid = self._sid("stl_INFO")
+        settlement = _make_settlement(settlement_id=sid, reference="7777.8888.99", value="650.00")
         with patch(_CLIENT + "get_settlement", return_value=settlement):
-            result = api.get_settlement_status(settlement_id="stl_INFO")
+            result = api.get_settlement_status(settlement_id=sid)
         self.assertFalse(result["processed"])
         self.assertIn("settlement_info", result)
         self.assertEqual(result["settlement_info"]["reference"], "7777.8888.99")
