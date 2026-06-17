@@ -536,14 +536,22 @@ class TestStartImportType0OpeningBalances(_StartImportBase):
         super().tearDown()
 
     def _delete_opening_balance_jes(self):
+        # eboekhouden_mutation_nr="OPENING_BALANCE" is GLOBALLY unique, so a leftover
+        # OB JE for ANY company blocks creating ours. Purge by the marker alone.
+        # Cancelling a submitted OB JE can trip an on_cancel hook in the test env;
+        # force-delete works regardless of docstatus, so swallow a failed cancel and
+        # delete anyway (this is test-only cleanup, not a business operation).
         for je in frappe.get_all(
             "Journal Entry",
-            filters={"company": COMPANY, "eboekhouden_mutation_nr": "OPENING_BALANCE"},
+            filters={"eboekhouden_mutation_nr": "OPENING_BALANCE"},
             pluck="name",
         ):
-            doc = frappe.get_doc("Journal Entry", je)
-            if doc.docstatus == 1:
-                doc.cancel()
+            try:
+                doc = frappe.get_doc("Journal Entry", je)
+                if doc.docstatus == 1:
+                    doc.cancel()
+            except Exception:
+                frappe.db.rollback()
             frappe.delete_doc("Journal Entry", je, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -658,3 +666,73 @@ class TestStartImportType0OpeningBalances(_StartImportBase):
 
         self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
         self.assertEqual(fake.requested_types, [0, 1, 2, 3, 4, 5, 6, 7])
+
+    # A ledger id PRIVATE to this test. Ledger mappings are keyed by ledger_id
+    # GLOBALLY and persist across suites, so reusing a shared id (1310/1610/...)
+    # risks resolving to a SIBLING suite's company account -> an OB JE whose lines
+    # "do not belong to" COMPANY. A private id mapped to OUR own bank account keeps
+    # the JE valid no matter what other suites mapped first.
+    OB_PRIVATE_LEDGER = 8_800_777
+
+    def _ensure_private_ob_mapping(self):
+        """Point OB_PRIVATE_LEDGER at THIS company's bank account (upsert), so the
+        opening-balance build resolves to an account that belongs to COMPANY."""
+        existing = frappe.db.get_value(
+            "E-Boekhouden Ledger Mapping", {"ledger_id": str(self.OB_PRIVATE_LEDGER)}, "name"
+        )
+        if existing:
+            frappe.db.set_value("E-Boekhouden Ledger Mapping", existing, "erpnext_account", self.bank)
+        else:
+            m = frappe.new_doc("E-Boekhouden Ledger Mapping")
+            m.ledger_id = self.OB_PRIVATE_LEDGER
+            m.ledger_code = str(self.OB_PRIVATE_LEDGER)
+            m.ledger_name = "EBST OB Private Bank"
+            m.erpnext_account = self.bank
+            m.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_type0_real_opening_balances_create_submitted_je(self):
+        """Deep path: type-0 with REAL opening-balance data routes through
+        _import_opening_balances, which BUILDS, SAVES and SUBMITS a real
+        OPENING_BALANCE Journal Entry. The orchestrator converts that into
+        imported == 1. The earlier type-0 tests only exercise the empty / failure /
+        already-imported tallies; this one drives the full JE-creation path end to
+        end through the orchestrator.
+
+        A single bank (Asset) line of +1000 posts a 1000 debit; the builder adds a
+        1000 temp-diff credit so the entry balances and submits — no party needed.
+        """
+        self._ensure_private_ob_mapping()
+        doc = self._make_migration(migrate_transactions=0)
+        fake = _FakeIterator(per_type={0: [{"id": 1, "type": 0}]})
+        ob_payload = [
+            {"id": 101, "ledgerId": self.OB_PRIVATE_LEDGER, "amount": 1000.0, "date": nowdate()},
+        ]
+        api = self._ob_api(data=frappe.as_json(ob_payload))
+
+        with patch(ITERATOR_TARGET, new=fake), patch(self.OB_API_TARGET, return_value=api):
+            result = start_full_rest_import(doc.name, mutation_types=[0])
+
+        self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
+        self.assertEqual(result["stats"]["invoices_created"], 1)
+        api.make_request.assert_called_once()
+
+        # A REAL submitted OPENING_BALANCE JE was produced by the deep path.
+        je_name = frappe.db.exists(
+            "Journal Entry",
+            {
+                "company": COMPANY,
+                "eboekhouden_mutation_nr": "OPENING_BALANCE",
+                "voucher_type": "Opening Entry",
+            },
+        )
+        self.assertTrue(je_name, "expected a real OPENING_BALANCE JE from the type-0 deep path")
+        je = frappe.get_doc("Journal Entry", je_name)
+        self.assertEqual(je.docstatus, 1)
+        self.assertAlmostEqual(je.total_debit, je.total_credit, places=2)
+        self.assertEqual(je.total_debit, 1000.0)
+        # The bank line carries the +1000 as a debit; a balancing temp-diff credit
+        # makes the Opening Entry balance.
+        bank_line = next(r for r in je.accounts if r.account == self.bank)
+        self.assertEqual(bank_line.debit_in_account_currency, 1000.0)
+        self.assertGreater(len(je.accounts), 1, "expected a balancing line beyond the bank line")

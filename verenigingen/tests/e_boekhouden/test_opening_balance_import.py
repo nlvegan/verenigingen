@@ -169,13 +169,17 @@ class _OpeningBalanceBase(EnhancedTestCase):
         return m
 
     def _delete_existing_ob(self):
-        """Remove any prior OPENING_BALANCE JE so dedup branches are clean."""
+        """Remove any prior OPENING_BALANCE JE so dedup branches are clean.
+
+        ``eboekhouden_mutation_nr`` carries a GLOBAL unique index, so a single
+        "OPENING_BALANCE" JE for ANY company blocks creating one for ours
+        (IntegrityError 1062). A per-company filter therefore leaves siblings'
+        committed OB JEs in place and makes the suite fail on re-run. Purge by the
+        marker alone so every persist path starts from a genuinely clean slate.
+        """
         existing = frappe.get_all(
             "Journal Entry",
-            filters={
-                "company": self.company,
-                "eboekhouden_mutation_nr": "OPENING_BALANCE",
-            },
+            filters={"eboekhouden_mutation_nr": "OPENING_BALANCE"},
             pluck="name",
         )
         for name in existing:
@@ -516,6 +520,149 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
         self.assertFalse(result["success"])
         self.assertIn("Failed to fetch opening balances", result["error"])
 
+    def _fetch_api(self, payload):
+        """A stubbed EBoekhoudenAPI whose make_request returns ``payload`` as the
+        type-0 mutation list (JSON-encoded, the real API's wire shape)."""
+        fake = MagicMock()
+        fake.make_request.return_value = {
+            "success": True,
+            "status_code": 200,
+            "data": frappe.as_json(payload),
+        }
+        return fake
+
+    def test_api_fetch_path_persists_submitted_balanced_je(self):
+        """The DEEP path: a real (non-dry-run, no pre-existing OB) API fetch builds,
+        SAVES and SUBMITS a balanced OPENING_BALANCE JE. This is the save+submit
+        success branch of _import_opening_balances that the dry-run / already-imported
+        / failure tests never reach."""
+        payload = [
+            {"id": 1, "ledgerId": self.LEDGERS["asset"], "amount": 1000.0, "date": today()},
+            {"id": 2, "ledgerId": self.LEDGERS["liability"], "amount": 1000.0, "date": today()},
+        ]
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
+            return_value=self._fetch_api(payload),
+        ):
+            result = _import_opening_balances(
+                self.company, self.cost_center, [], dry_run=False, force=False
+            )
+        self.assertTrue(result["success"], msg=result)
+        self.assertNotIn(result["journal_entry"], (None, "DRY-RUN-PREVIEW"))
+        self.assertEqual(result["accounts_processed"], 2)
+        # No stock lines -> no Stock Reconciliations attempted.
+        self.assertEqual(result["stock_reconciliations"], [])
+        self.assertIn("imported successfully", result["message"])
+
+        je = frappe.get_doc("Journal Entry", result["journal_entry"])
+        self.assertEqual(je.docstatus, 1)  # submitted, not just saved
+        self.assertEqual(je.voucher_type, "Opening Entry")
+        self.assertAlmostEqual(je.total_debit, je.total_credit, places=2)
+        # Right sides: asset 1000 -> debit, liability 1000 -> credit (balanced, no
+        # temp-diff line needed).
+        asset_line = next(r for r in je.accounts if r.account == self.accounts["asset"])
+        liab_line = next(r for r in je.accounts if r.account == self.accounts["liability"])
+        self.assertEqual(asset_line.debit_in_account_currency, 1000.0)
+        self.assertEqual(liab_line.credit_in_account_currency, 1000.0)
+
+    def test_api_fetch_path_stock_line_runs_reconciliation_branch(self):
+        """A stock account in the OB data is EXCLUDED from the JE and routed through
+        the Stock Reconciliation branch (skipped_accounts['stock'] -> the stock
+        handler). The OB JE is still saved+submitted from the non-stock lines; the
+        reconciliation is best-effort so the run succeeds regardless of its result."""
+        payload = [
+            {"id": 1, "ledgerId": self.LEDGERS["asset"], "amount": 1000.0, "date": today()},
+            {"id": 2, "ledgerId": self.LEDGERS["liability"], "amount": 1000.0, "date": today()},
+            {"id": 3, "ledgerId": self.LEDGERS["stock"], "amount": 500.0, "date": today()},
+            # A P&L line too -> skipped as pnl, exercising the post-save summary.
+            {"id": 4, "ledgerId": self.LEDGERS["income"], "amount": 700.0, "date": today()},
+        ]
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
+            return_value=self._fetch_api(payload),
+        ):
+            result = _import_opening_balances(
+                self.company, self.cost_center, [], dry_run=False, force=False
+            )
+        self.assertTrue(result["success"], msg=result)
+        je = frappe.get_doc("Journal Entry", result["journal_entry"])
+        self.assertEqual(je.docstatus, 1)
+        # Neither the stock nor the P&L account is posted to the OB JE.
+        je_accounts = {r.account for r in je.accounts}
+        self.assertNotIn(self.accounts["stock"], je_accounts)
+        self.assertNotIn(self.accounts["income"], je_accounts)
+        # The reconciliation branch was entered: the stock account was tracked and
+        # the result carries the reconciliation key.
+        self.assertIn("stock_reconciliations", result)
+        stock_skipped = {s["account"] for s in result["skipped_accounts"]["stock"]}
+        self.assertIn(self.accounts["stock"], stock_skipped)
+        pnl_skipped = {s["account"] for s in result["skipped_accounts"]["pnl"]}
+        self.assertIn(self.accounts["income"], pnl_skipped)
+
+    def test_api_dict_payload_with_items_key_is_normalized(self):
+        """The API may return a dict ``{"items": [...]}`` rather than a bare list;
+        the import unwraps the ``items`` key before processing (dry-run keeps it
+        light — normalization runs before the dry-run check)."""
+        payload = {
+            "items": [
+                {"id": 1, "ledgerId": self.LEDGERS["asset"], "amount": 1000.0, "date": today()},
+                {"id": 2, "ledgerId": self.LEDGERS["liability"], "amount": 1000.0, "date": today()},
+            ]
+        }
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
+            return_value=self._fetch_api(payload),
+        ):
+            result = _import_opening_balances(
+                self.company, self.cost_center, [], dry_run=True, force=False
+            )
+        # Normalized to 2 mutations -> a non-empty preview (not the "No opening
+        # balances found" empty-list shape).
+        self.assertTrue(result["success"], msg=result)
+        self.assertEqual(result["journal_entry"], "DRY-RUN-PREVIEW")
+
+    def test_api_dict_payload_without_items_uses_values(self):
+        """A dict WITHOUT an ``items`` key falls back to its ``.values()`` as the
+        mutation list."""
+        payload = {
+            "a": {"id": 1, "ledgerId": self.LEDGERS["asset"], "amount": 1000.0, "date": today()},
+            "b": {"id": 2, "ledgerId": self.LEDGERS["liability"], "amount": 1000.0, "date": today()},
+        }
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
+            return_value=self._fetch_api(payload),
+        ):
+            result = _import_opening_balances(
+                self.company, self.cost_center, [], dry_run=True, force=False
+            )
+        self.assertTrue(result["success"], msg=result)
+        self.assertEqual(result["journal_entry"], "DRY-RUN-PREVIEW")
+
+    def test_api_only_pnl_lines_yields_no_valid_entries(self):
+        """When every fetched line is a P&L account (all skipped), the builder
+        returns the no-valid-entries early shape and _import_opening_balances
+        propagates it: success, journal_entry None, nothing persisted."""
+        payload = [
+            {"id": 1, "ledgerId": self.LEDGERS["income"], "amount": 1000.0, "date": today()},
+            {"id": 2, "ledgerId": self.LEDGERS["expense"], "amount": 1000.0, "date": today()},
+        ]
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI",
+            return_value=self._fetch_api(payload),
+        ):
+            result = _import_opening_balances(
+                self.company, self.cost_center, [], dry_run=False, force=False
+            )
+        self.assertTrue(result["success"], msg=result)
+        self.assertIsNone(result["journal_entry"])
+        self.assertIn("No valid opening balance entries", result["message"])
+        self.assertFalse(
+            frappe.db.exists(
+                "Journal Entry",
+                {"company": self.company, "eboekhouden_mutation_nr": "OPENING_BALANCE"},
+            )
+        )
+
 
 # ===========================================================================
 # _get_or_create_temporary_diff_account / _get_or_create_stock_temporary_account
@@ -719,11 +866,20 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
         frappe.db.commit()
         return je.name
 
+    def tearDown(self):
+        # test_without_force intentionally KEEPS its seeded OB JE; left committed it
+        # would block the next run via the GLOBAL unique index on
+        # eboekhouden_mutation_nr. Purge here so the module is repeatable.
+        self._purge_ob_jes()
+        super().tearDown()
+
     def _purge_ob_jes(self):
         # Defensive against leftover committed state from a prior run on this site.
+        # eboekhouden_mutation_nr is GLOBALLY unique, so purge the marker across ALL
+        # companies, not just FORCE_COMPANY (a sibling's leftover blocks us too).
         for name in frappe.get_all(
             "Journal Entry",
-            filters={"company": FORCE_COMPANY, "eboekhouden_mutation_nr": "OPENING_BALANCE"},
+            filters={"eboekhouden_mutation_nr": "OPENING_BALANCE"},
             pluck="name",
         ):
             d = frappe.get_doc("Journal Entry", name)
