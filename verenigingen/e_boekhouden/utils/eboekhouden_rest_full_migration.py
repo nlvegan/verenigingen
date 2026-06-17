@@ -1873,10 +1873,19 @@ def _get_or_create_temporary_diff_account(company, debug_info):
 
 def _get_or_create_stock_temporary_account(company, debug_info):
     """Get or create a temporary account for stock balances during opening balance import"""
-    account_name = f"Stock Opening Balance (Temporary) - {company}"
-
-    if frappe.db.exists("Account", account_name):
-        return account_name
+    # Look up by (account_name, company), NOT a constructed "<name> - <company>"
+    # string. ERPNext autonames accounts "<account_name> - <company_abbr>", so the
+    # old f"... - {company}" lookup never matched the account this function creates
+    # (the abbr differs from the full company name). That made it non-idempotent:
+    # every re-call hit the create path, the duplicate insert() threw, and it
+    # silently fell back to the wrong (temp-diff) account.
+    existing = frappe.db.get_value(
+        "Account",
+        {"account_name": "Stock Opening Balance (Temporary)", "company": company},
+        "name",
+    )
+    if existing:
+        return existing
 
     # Create the account under Assets
     try:
