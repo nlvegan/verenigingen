@@ -45,13 +45,58 @@ COMPANY = "TEST-EB-Invoice-Company"
 # Ledger ids/codes for the synthetic mutations. We deliberately set
 # ledger_id == ledger_code so resolve_ledger_code() and the subsequent
 # map_grootboek_to_erpnext_account() lookup (which keys on ledger_id) both work.
-INCOME_LEDGER = "8000"
-EXPENSE_LEDGER = "4000"
-RECEIVABLE_LEDGER = "1300"
-PAYABLE_LEDGER = "1600"
+#
+# These codes are GLOBALLY UNIQUE (7-digit ``71xxxxx`` range reserved for this
+# module). The "E-Boekhouden Ledger Mapping" doctype is keyed solely on
+# ledger_id (no company column), and the migration code derives global Item
+# codes from these same codes. When two test modules reuse the same low codes
+# (e.g. "8000"/"4100"), whichever module's setUpClass runs first wins the shared
+# mapping/Item and later modules resolve accounts/warehouses belonging to the
+# WRONG company -> "Account/Warehouse does not belong to Company" on a fresh,
+# multi-module CI shard. Unique codes make this module self-sufficient.
+INCOME_LEDGER = "7100008"
+EXPENSE_LEDGER = "7100004"
+RECEIVABLE_LEDGER = "7100013"
+PAYABLE_LEDGER = "7100016"
 
 CUSTOMER_RELATION = "EBCUST-IT-1"
 SUPPLIER_RELATION = "EBSUPP-IT-1"
+
+
+def _point_global_default_warehouse_at_company():
+    """Point the GLOBAL ``Stock Settings`` default warehouse at OUR company.
+
+    ``Stock Settings`` is a singleton shared across every company. ERPNext bakes
+    its ``default_warehouse`` into each new Item's per-company ``item_defaults``
+    at item-creation time, and later copies that onto invoice line items and
+    validates it belongs to the invoice company. On a fresh multi-module CI
+    shard another company's setup (e.g. the opening-balance company ``TEBOF``)
+    leaves the shared default pointing at *its* warehouse, so our generated items
+    bake in ``Stores - TEBOF`` and PI submission fails with "Warehouse
+    <Stores - TEBOF> does not belong to company TEST-EB-Invoice-Company".
+
+    Setting the shared default to a warehouse owned by OUR invoice company makes
+    any baked-in default valid for our company regardless of run order. We point
+    it at our own ``Stores - <ABBR>`` (auto-created with the company). Done before
+    every test (setUp) because a concurrent module's company creation can
+    re-point the shared singleton between our tests.
+    """
+    own_wh = frappe.db.get_value(
+        "Warehouse", {"company": COMPANY, "is_group": 0, "warehouse_name": "Stores"}, "name"
+    ) or frappe.db.get_value("Warehouse", {"company": COMPANY, "is_group": 0}, "name")
+    if not own_wh:
+        return
+    # 1) Stock Settings singleton (ERPNext reads it via cached get_single_value).
+    if frappe.db.get_single_value("Stock Settings", "default_warehouse") != own_wh:
+        frappe.db.set_single_value("Stock Settings", "default_warehouse", own_wh)
+        frappe.clear_document_cache("Stock Settings", "Stock Settings")
+    # 2) The GLOBAL "default_warehouse" default (frappe.defaults). ERPNext's
+    #    Item.update_defaults_from_item_group falls back to this global default
+    #    when creating an item with no item_defaults, so a stray cross-company
+    #    value (e.g. left by the integration-test company) gets baked into our
+    #    item. Repoint it at our own warehouse.
+    if frappe.defaults.get_global_default("default_warehouse") != own_wh:
+        frappe.db.set_default("default_warehouse", own_wh)
 
 
 class _InvoiceClusterBase(EnhancedTestCase):
@@ -67,7 +112,16 @@ class _InvoiceClusterBase(EnhancedTestCase):
         cls._ensure_ledger_mappings()
         cls._ensure_parties()
         cls._ensure_fiscal_year()
+        _point_global_default_warehouse_at_company()
         frappe.db.commit()
+
+    def setUp(self):
+        super().setUp()
+        # Re-clear EVERY test: a concurrent module's setUpClass (e.g. the
+        # opening-balance company) can re-populate the shared Stock Settings
+        # default warehouse between our tests, so clearing once in setUpClass is
+        # not enough on a multi-module CI shard.
+        _point_global_default_warehouse_at_company()
 
     # ---- bootstrap helpers (classmethods so they persist across the class) ----
 
@@ -142,9 +196,7 @@ class _InvoiceClusterBase(EnhancedTestCase):
 
     @classmethod
     def _ensure_cost_center(cls):
-        cls.cost_center = frappe.db.get_value(
-            "Cost Center", {"company": COMPANY, "is_group": 0}, "name"
-        )
+        cls.cost_center = frappe.db.get_value("Cost Center", {"company": COMPANY, "is_group": 0}, "name")
         if cls.cost_center:
             return
         # Create a root + leaf cost center
@@ -166,7 +218,13 @@ class _InvoiceClusterBase(EnhancedTestCase):
 
     @classmethod
     def _make_ledger_map(cls, ledger_id, account, name):
-        if frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}):
+        # Repoint (not skip) when a row already exists: the mapping is a GLOBAL
+        # singleton keyed on ledger_id, so a stale row from a prior run / another
+        # module must be corrected to THIS company's account, otherwise the
+        # migration resolves an account belonging to the wrong company.
+        existing = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "name")
+        if existing:
+            frappe.db.set_value("E-Boekhouden Ledger Mapping", existing, "erpnext_account", account)
             return
         m = frappe.new_doc("E-Boekhouden Ledger Mapping")
         m.ledger_id = ledger_id
@@ -265,6 +323,19 @@ class _InvoiceClusterBase(EnhancedTestCase):
         return m
 
     def _purchase_mutation(self, **overrides):
+        # Line descriptions are deliberately SERVICE-mapping and module-unique.
+        #
+        # The migration derives a GLOBAL Item code from the LINE DESCRIPTION
+        # (invoice_helpers.generate_item_code), not from the company. A description
+        # whose item group resolves to "Office Supplies"/"Products" (e.g. "Paper"
+        # at a consumable price) creates a STOCK item whose default warehouse is
+        # set to whichever company's purchase test runs first. On a fresh
+        # multi-module CI shard another company then reuses that shared stock item
+        # and PI submission fails with "Warehouse <Stores - OTHERCO> does not
+        # belong to company <ours>". Using a unique, "service"-keyword description
+        # (Priority-1 keyword match -> "Services" -> non-stock item) keeps this
+        # module's items off the warehouse-validated stock path and avoids the
+        # cross-company collision entirely.
         m = {
             "id": 900101,
             "type": 2,
@@ -272,7 +343,7 @@ class _InvoiceClusterBase(EnhancedTestCase):
             "amount": 50.00,
             "relationId": SUPPLIER_RELATION,
             "invoiceNumber": "PINV-77",
-            "description": "Office supplies",
+            "description": "EBIC consultancy service",
             # Top-level ledgerId drives _resolve_payable_account -> credit_to
             "ledgerId": PAYABLE_LEDGER,
             "Regels": [
@@ -280,7 +351,7 @@ class _InvoiceClusterBase(EnhancedTestCase):
                     "ledgerId": EXPENSE_LEDGER,
                     "amount": 50.00,
                     "quantity": 1,
-                    "description": "Paper",
+                    "description": "EBIC support service line",
                 }
             ],
         }
@@ -291,9 +362,7 @@ class _InvoiceClusterBase(EnhancedTestCase):
 class TestSalesInvoiceCreation(_InvoiceClusterBase):
     def test_basic_sales_invoice_created_and_submitted(self):
         debug = []
-        si = _create_sales_invoice(
-            self._sales_mutation(id=900201), self.company, self.cost_center, debug
-        )
+        si = _create_sales_invoice(self._sales_mutation(id=900201), self.company, self.cost_center, debug)
         self.assertIsNotNone(si, f"Sales invoice was None. debug={debug}")
         self.assertEqual(si.doctype, "Sales Invoice")
         self.assertEqual(si.docstatus, 1, "Invoice should be submitted")
@@ -314,9 +383,7 @@ class TestSalesInvoiceCreation(_InvoiceClusterBase):
 
     def test_sales_invoice_grand_total_matches_net(self):
         debug = []
-        si = _create_sales_invoice(
-            self._sales_mutation(id=900202), self.company, self.cost_center, debug
-        )
+        si = _create_sales_invoice(self._sales_mutation(id=900202), self.company, self.cost_center, debug)
         self.assertIsNotNone(si, f"debug={debug}")
         # Single 100 line, no tax -> net == grand
         self.assertEqual(flt(si.net_total), 100.00)
@@ -490,11 +557,25 @@ class TestConsolidateMixedInvoice(_InvoiceClusterBase):
         si.posting_date = nowdate()
         si.append(
             "items",
-            {"item_name": "Pos", "description": "Pos", "qty": 1, "rate": 50.0, "uom": "Unit", "cost_center": self.cost_center},
+            {
+                "item_name": "Pos",
+                "description": "Pos",
+                "qty": 1,
+                "rate": 50.0,
+                "uom": "Unit",
+                "cost_center": self.cost_center,
+            },
         )
         si.append(
             "items",
-            {"item_name": "Neg", "description": "Neg", "qty": -1, "rate": 80.0, "uom": "Unit", "cost_center": self.cost_center},
+            {
+                "item_name": "Neg",
+                "description": "Neg",
+                "qty": -1,
+                "rate": 80.0,
+                "uom": "Unit",
+                "cost_center": self.cost_center,
+            },
         )
         return si
 
@@ -569,9 +650,7 @@ class TestCreateInvoiceLineForTegenrekening(_InvoiceClusterBase):
                 transaction_type="sales",
             )
         except frappe.ValidationError:
-            self.skipTest(
-                f"Ledger {INCOME_LEDGER} not resolvable in mapper company {mapper.company}"
-            )
+            self.skipTest(f"Ledger {INCOME_LEDGER} not resolvable in mapper company {mapper.company}")
         self.assertIsInstance(line, dict)
         self.assertEqual(flt(line["qty"]), 1)
         self.assertEqual(flt(line["rate"]), 42.0)

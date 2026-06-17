@@ -59,12 +59,20 @@ COMPANY = "TEST-EB-Journal-Company"
 # Ledger ids/codes for the synthetic mutations. ledger_id == ledger_code so the
 # two-hop resolution (ledgerId -> ledger_code -> erpnext_account, keyed on
 # ledger_id) lands on the account we created.
-EXPENSE_LEDGER = "4100"
-INCOME_LEDGER = "8100"
-BANK_LEDGER = "1100"
-RECEIVABLE_LEDGER = "1310"
-PAYABLE_LEDGER = "1610"
-KRUISPOSTEN_LEDGER = "1999"  # generic asset "suspense" ledger for memorials
+#
+# These codes are GLOBALLY UNIQUE (7-digit ``72xxxxx`` range reserved for this
+# module). The "E-Boekhouden Ledger Mapping" doctype has NO company column, so a
+# shared low code (e.g. "4100"/"8100", also used by the orchestration test
+# modules) makes whichever setUpClass runs first win the global mapping; later
+# modules then resolve accounts belonging to the WRONG company and JE submission
+# fails with "Account does not belong to Company" on a fresh multi-module CI
+# shard. Unique codes make this module self-sufficient.
+EXPENSE_LEDGER = "7200004"
+INCOME_LEDGER = "7200008"
+BANK_LEDGER = "7200001"
+RECEIVABLE_LEDGER = "7200013"
+PAYABLE_LEDGER = "7200016"
+KRUISPOSTEN_LEDGER = "7200099"  # generic asset "suspense" ledger for memorials
 
 CUSTOMER_RELATION = "EBJ-CUST-1"
 SUPPLIER_RELATION = "EBJ-SUPP-1"
@@ -181,7 +189,12 @@ class _JournalClusterBase(EnhancedTestCase):
 
     @classmethod
     def _make_ledger_map(cls, ledger_id, account, name):
-        if frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}):
+        # Repoint (not skip) when a row already exists: the mapping is a GLOBAL
+        # singleton keyed on ledger_id, so a stale row from a prior run / another
+        # module must be corrected to THIS company's account.
+        existing = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "name")
+        if existing:
+            frappe.db.set_value("E-Boekhouden Ledger Mapping", existing, "erpnext_account", account)
             return
         m = frappe.new_doc("E-Boekhouden Ledger Mapping")
         m.ledger_id = ledger_id
@@ -534,9 +547,7 @@ class TestValidateMemorialBooking(_JournalClusterBase):
         rows = mut["Regels"]
         # net amount from one +100 row is 100; legs balance at 100/100.
         debug = []
-        _validate_memorial_booking(
-            je, mut, rows, 100.0, 100.0, 100.0, self.company, self.cost_center, debug
-        )
+        _validate_memorial_booking(je, mut, rows, 100.0, 100.0, 100.0, self.company, self.cost_center, debug)
         self.assertTrue(any("is balanced" in m for m in debug))
 
     def test_unbalanced_legs_raise(self):
@@ -545,9 +556,7 @@ class TestValidateMemorialBooking(_JournalClusterBase):
         rows = mut["Regels"]
         with self.assertRaises(Exception):
             # debit 100 vs credit 90 -> imbalance > tolerance.
-            _validate_memorial_booking(
-                je, mut, rows, 100.0, 100.0, 90.0, self.company, self.cost_center, []
-            )
+            _validate_memorial_booking(je, mut, rows, 100.0, 100.0, 90.0, self.company, self.cost_center, [])
 
     def test_row_sum_mismatch_raises(self):
         # rows sum to 100 net but mutation amount claims 200 -> row validation fails.
@@ -555,9 +564,7 @@ class TestValidateMemorialBooking(_JournalClusterBase):
         mut = self._memorial_mutation(id=700042)
         rows = mut["Regels"]
         with self.assertRaises(Exception):
-            _validate_memorial_booking(
-                je, mut, rows, 200.0, 100.0, 100.0, self.company, self.cost_center, []
-            )
+            _validate_memorial_booking(je, mut, rows, 200.0, 100.0, 100.0, self.company, self.cost_center, [])
 
 
 # ---------------------------------------------------------------------------
@@ -598,9 +605,7 @@ class TestAddPaymentOffsetEntry(_JournalClusterBase):
         # The offset leg always brings the JE to balance.
         je = self._new_je()
         mut = {"id": 700052, "type": 3, "description": "x"}
-        _add_payment_offset_entry(
-            je, mut, BANK_LEDGER, self.company, self.cost_center, 0.0, 100.0, "x", []
-        )
+        _add_payment_offset_entry(je, mut, BANK_LEDGER, self.company, self.cost_center, 0.0, 100.0, "x", [])
         # offset alone: 100 debit. Together with the (simulated) 100 credit rows it nets to 0.
         offset_debit = flt(je.accounts[0].debit_in_account_currency)
         self.assertAlmostEqual(offset_debit - 100.0, 0.0, places=2)
