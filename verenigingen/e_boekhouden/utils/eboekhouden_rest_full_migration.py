@@ -960,7 +960,12 @@ def _get_or_create_generic_party(party_type, description, debug_info):
 
         from .eboekhouden_payment_naming import get_meaningful_description
 
-        clean_description = get_meaningful_description(description) if description else ""
+        # get_meaningful_description expects a mutation DICT (it reads
+        # mutation.get("Omschrijving")/mutation.get("description")). Passing the raw
+        # description string here threw AttributeError ('str' has no .get') on every
+        # non-empty description, so this function always fell into its except and
+        # returned the "Default {party_type}" fallback without creating a named party.
+        clean_description = get_meaningful_description({"description": description}) if description else ""
 
         if clean_description and len(clean_description) >= 5:
             party_name_candidate = f"{clean_description[:40]} (eBoekhouden Import)"
