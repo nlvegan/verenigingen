@@ -29,7 +29,7 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_rest_orchestration_start
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import getdate, nowdate
@@ -504,3 +504,157 @@ class TestStartImportPerTypeExceptionCaptured(_StartImportBase):
         self.assertEqual(sorted(fake.requested_types), [2, 7])
         joined = "\n".join(result["stats"]["errors"])
         self.assertIn("Error importing mutation type 2", joined)
+
+
+# ---------------------------------------------------------------------------
+# 7. type-0 opening-balance branch
+# ---------------------------------------------------------------------------
+
+
+class TestStartImportType0OpeningBalances(_StartImportBase):
+    """The type-0 branch routes to _import_opening_balances (which fetches via
+    EBoekhoudenAPI, NOT the iterator) and converts its result into the batch
+    tally: success + journal_entry -> imported 1; success + no JE -> 0; failure
+    -> failed len(iterator mutations). Type 0 is exempt from date filtering and
+    is auto-prepended for a full import.
+
+    The iterator's type-0 list only gates entry into the branch (and supplies
+    len(mutations) for the failure count); the actual OB data comes from the
+    EBoekhoudenAPI boundary, which we stub exactly like test_opening_balance_import.
+    """
+
+    OB_API_TARGET = "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI"
+
+    def setUp(self):
+        super().setUp()
+        # start_full_rest_import COMMITS, so an OPENING_BALANCE JE created in one
+        # test leaks into the next on the shared site. Force a clean slate.
+        self._delete_opening_balance_jes()
+
+    def tearDown(self):
+        self._delete_opening_balance_jes()
+        super().tearDown()
+
+    def _delete_opening_balance_jes(self):
+        for je in frappe.get_all(
+            "Journal Entry",
+            filters={"company": COMPANY, "eboekhouden_mutation_nr": "OPENING_BALANCE"},
+            pluck="name",
+        ):
+            doc = frappe.get_doc("Journal Entry", je)
+            if doc.docstatus == 1:
+                doc.cancel()
+            frappe.delete_doc("Journal Entry", je, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_opening_balance_je(self):
+        """Pre-create a balanced draft Opening Entry JE tagged OPENING_BALANCE so
+        _import_opening_balances' already-imported early-return fires (success +
+        journal_entry) with no API call. Two plain asset lines => balanced, no
+        party required."""
+        offset = self._make_account("EBST OB Offset", "", "Asset")
+        je = frappe.new_doc("Journal Entry")
+        je.company = COMPANY
+        je.posting_date = nowdate()
+        je.voucher_type = "Opening Entry"
+        je.eboekhouden_mutation_nr = "OPENING_BALANCE"
+        je.append(
+            "accounts",
+            {"account": self.bank, "debit_in_account_currency": 100, "cost_center": self.cost_center},
+        )
+        je.append(
+            "accounts",
+            {"account": offset, "credit_in_account_currency": 100, "cost_center": self.cost_center},
+        )
+        je.insert(ignore_permissions=True)
+        return je
+
+    @staticmethod
+    def _ob_api(*, data=None, success=True, status_code=200, error=None):
+        api = MagicMock()
+        payload = {"success": success, "status_code": status_code}
+        if data is not None:
+            payload["data"] = data
+        if error is not None:
+            payload["error"] = error
+        api.make_request.return_value = payload
+        return api
+
+    def test_type0_existing_ob_counts_one_imported(self):
+        """An already-imported OPENING_BALANCE => _import_opening_balances returns
+        success + journal_entry => the type-0 branch tallies imported == 1 with no
+        API fetch."""
+        self._make_opening_balance_je()
+        doc = self._make_migration(migrate_transactions=0)
+        fake = _FakeIterator(per_type={0: [{"id": 1, "type": 0}]})
+
+        with patch(ITERATOR_TARGET, new=fake):
+            result = start_full_rest_import(doc.name, mutation_types=[0])
+
+        self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
+        self.assertEqual(result["stats"]["invoices_created"], 1)
+        self.assertEqual(fake.requested_types, [0])
+
+    def test_type0_empty_opening_balances_imports_zero(self):
+        """OB API returns an empty list => success + journal_entry None => the
+        branch tallies imported == 0, run still succeeds."""
+        doc = self._make_migration(migrate_transactions=0)
+        fake = _FakeIterator(per_type={0: [{"id": 1, "type": 0}]})
+        api = self._ob_api(data="[]")
+
+        with patch(ITERATOR_TARGET, new=fake), patch(self.OB_API_TARGET, return_value=api):
+            result = start_full_rest_import(doc.name, mutation_types=[0])
+
+        self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
+        self.assertEqual(result["stats"]["invoices_created"], 0)
+        api.make_request.assert_called_once()
+        # Nothing persisted under the OPENING_BALANCE marker.
+        self.assertFalse(
+            frappe.db.exists(
+                "Journal Entry", {"company": COMPANY, "eboekhouden_mutation_nr": "OPENING_BALANCE"}
+            )
+        )
+
+    def test_type0_api_failure_counts_all_as_failed(self):
+        """An OB fetch failure => _import_opening_balances returns success False =>
+        the branch tallies failed == len(iterator mutations) and surfaces the OB
+        error in stats; the overall run is NOT aborted."""
+        doc = self._make_migration(migrate_transactions=0)
+        ob_muts = [{"id": 1, "type": 0}, {"id": 2, "type": 0}]
+        fake = _FakeIterator(per_type={0: ob_muts})
+        api = self._ob_api(success=False, status_code=500, error="boom")
+
+        with patch(ITERATOR_TARGET, new=fake), patch(self.OB_API_TARGET, return_value=api):
+            result = start_full_rest_import(doc.name, mutation_types=[0])
+
+        self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
+        self.assertEqual(result["stats"]["invoices_created"], 0)
+        self.assertEqual(result["stats"]["total_mutations"], len(ob_muts))
+        joined = "\n".join(result["stats"]["errors"])
+        self.assertIn("Failed to fetch opening balances", joined)
+
+    def test_type0_is_exempt_from_date_filtering(self):
+        """Type 0 is NOT date-filtered: an OB mutation dated OUTSIDE the window
+        still routes to the OB import (a non-zero type would be filtered out)."""
+        doc = self._make_migration(date_from="2024-01-01", date_to="2024-01-31", migrate_transactions=0)
+        fake = _FakeIterator(per_type={0: [{"id": 1, "type": 0, "date": "2023-06-15"}]})
+        api = self._ob_api(data="[]")
+
+        with patch(ITERATOR_TARGET, new=fake), patch(self.OB_API_TARGET, return_value=api):
+            result = start_full_rest_import(doc.name, mutation_types=[0])
+
+        self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
+        # The OB import was still attempted despite the out-of-window date.
+        api.make_request.assert_called_once()
+
+    def test_type0_auto_added_first_for_full_import(self):
+        """A full import (migrate_transactions=1, no date_from) with the DEFAULT
+        type set prepends type 0 so opening balances are fetched FIRST."""
+        doc = self._make_migration(migrate_transactions=1)  # no date_from => is_full_import
+        fake = _FakeIterator(per_type={})  # every type empty => cheap
+
+        with patch(ITERATOR_TARGET, new=fake):
+            result = start_full_rest_import(doc.name, mutation_types=None)
+
+        self.assertTrue(result["success"], msg=f"unexpected failure: {result}")
+        self.assertEqual(fake.requested_types, [0, 1, 2, 3, 4, 5, 6, 7])
