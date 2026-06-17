@@ -11,7 +11,6 @@ verenigingen/verenigingen_payments/mollie/
 │   ├── unified_payment_api.py  # Payment operations API
 │   ├── monitoring_api.py       # Health & metrics endpoints
 │   ├── subscription_sync.py    # Subscription synchronization
-│   ├── payment_sync_system.py  # Payment reconciliation
 │   ├── payment_audit.py        # Audit and compliance
 │   └── dashboard.py            # Status dashboard
 ├── core/                       # Core components
@@ -163,7 +162,6 @@ GET /api/method/verenigingen.verenigingen_payments.mollie.api.monitoring_api.get
 ### Synchronization
 ```
 POST /api/method/verenigingen.verenigingen_payments.mollie.api.subscription_sync.sync_subscriptions
-POST /api/method/verenigingen.verenigingen_payments.mollie.api.payment_sync_system.reconcile_payments
 ```
 
 ## Logging

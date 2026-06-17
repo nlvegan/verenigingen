@@ -161,7 +161,6 @@
 ./verenigingen/api/payment_dashboard.py
 ./verenigingen/api/payment_plan_management.py
 ./verenigingen/api/payment_processing.py
-./verenigingen/api/payment_sync_system.py
 ./verenigingen/api/performance_api_validator.py
 ./verenigingen/api/performance_convenience.py
 ./verenigingen/api/performance_measurement_api.py

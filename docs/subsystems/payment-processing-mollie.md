@@ -39,7 +39,6 @@ DocType at `vereinigingen_payments/doctype/mollie_settings/`:
 - `payment_webhook.py` -- Webhook endpoint for payment status updates
 - `webhooks.py` -- Additional webhook handling
 - `unified_payment_api.py` -- Unified API for creating payments
-- `payment_sync_system.py` -- Payment synchronization
 - `subscription_sync.py` -- Subscription status sync
 - `monitoring_api.py` -- Integration monitoring
 - `dashboard.py` -- Mollie dashboard data
