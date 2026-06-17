@@ -513,8 +513,23 @@ class MijnroodCSVImport(Document):
         if self.create_user_accounts and processed_members:
             self._update_account_creation_tracking()
 
+        # Capture the finalized fields before the reload below. reload() restores
+        # the row from the DB - where the background processor last wrote
+        # import_status="In Progress" - so any in-memory values set above are
+        # discarded unless re-applied afterwards (otherwise a successful import
+        # is never marked "Completed" and import_summary is never persisted).
+        final_import_status = self.import_status
+        final_import_summary = self.import_summary
+        final_error_log = self.error_log
+
         # Reload to avoid timestamp mismatch from concurrent progress updates
         self.reload()
+
+        # Re-apply the finalized fields AFTER reload so they aren't wiped out
+        # (same reason the notes assignment below happens post-reload).
+        self.import_status = final_import_status
+        self.import_summary = final_import_summary
+        self.error_log = final_error_log
 
         # Set notes AFTER reload so it doesn't get wiped out
         self.notes = self._generate_itemized_member_list(created_members, updated_members, skipped_members)
