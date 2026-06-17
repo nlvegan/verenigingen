@@ -581,8 +581,8 @@ class MollieConfigurationService:
             validation = get_mollie_config().validate_all_mollie_accounts(raise_on_error=False)
             if not validation["valid"]:
                 frappe.log_error(
-                    f"GL Account validation failed: {validation['errors']}",
-                    "Mollie Configuration"
+                    message=f"GL Account validation failed: {validation['errors']}",
+                    title="Mollie Configuration",
                 )
 
             # Strict validation that raises on error

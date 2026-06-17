@@ -35,11 +35,23 @@ class TestPontoSettingsExtra(EnhancedTestCase):
         super().tearDown()
 
     def test_get_active_client_secret_sandbox_empty(self):
-        """Sandbox secret resolution returns '' when not set (no raise)."""
-        settings = frappe.get_single("Ponto Settings")
-        settings.sandbox_mode = 1
-        # get_password(raise_exception=False) on unset field -> "" via `or ""`
-        self.assertEqual(settings.get_active_client_secret(), "")
+        """Sandbox secret resolution returns '' when not set (no raise).
+
+        Ponto Settings is a singleton shared across the whole suite; a sibling
+        test class may have persisted a sandbox secret. Establish our own empty
+        state (under singleton backup so it is restored) so the unset-secret
+        branch is exercised deterministically on a fresh / polluted site alike.
+        """
+        from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+
+        with singleton_backup("Ponto Settings"):
+            settings = frappe.get_single("Ponto Settings")
+            settings.sandbox_mode = 1
+            settings.sandbox_client_secret = ""
+            settings.save()
+            settings.reload()
+            # get_password(raise_exception=False) on unset field -> "" via `or ""`
+            self.assertEqual(settings.get_active_client_secret(), "")
 
     def test_get_webhook_application_id_explicit(self):
         """Explicit webhook_application_id is returned verbatim."""
@@ -125,9 +137,7 @@ class TestPontoSettingsExtra(EnhancedTestCase):
         settings.flags.ignore_save_passwords = []
         settings.before_save()
         settings.before_save()
-        self.assertEqual(
-            settings.flags.ignore_save_passwords.count("ibanity_access_token"), 1
-        )
+        self.assertEqual(settings.flags.ignore_save_passwords.count("ibanity_access_token"), 1)
 
     def test_clear_configuration_cache(self):
         """clear_configuration_cache removes the cached settings value."""

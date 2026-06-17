@@ -307,7 +307,7 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
 
     except Exception as e:
         result["error"] = str(e)
-        frappe.log_error(f"Global payments retrieval error: {e}", "Mollie Payment Processing")
+        frappe.log_error(message=f"Global payments retrieval error: {e}", title="Mollie Payment Processing")
 
     return result
 
@@ -340,7 +340,10 @@ def retrieve_customer_payments_for_processing(customer_id: str, limit: int = 250
         return service.retrieve_customer_payments_for_processing(customer_id, int(limit))
 
     except Exception as e:
-        frappe.log_error(f"Mollie retrieve customer payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie retrieve customer payments error: {str(e)}",
+            title="Mollie retrieve customer payments error",
+        )
         return {"error": str(e), "customer_id": customer_id}
 
 
@@ -405,7 +408,10 @@ def batch_process_dues_payments(payment_ids: str, customer_id: str = None):
         return service.batch_process_dues_payments(payment_ids, customer_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie batch process dues payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie batch process dues payments error: {str(e)}",
+            title="Mollie batch process dues payments error",
+        )
         return {"error": str(e), "payment_ids": payment_ids}
 
 
@@ -473,7 +479,10 @@ def bulk_retrieve_all_member_payments(
         return service.bulk_retrieve_all_member_payments(days_back, max_payments, payment_status_filter)
 
     except Exception as e:
-        frappe.log_error(f"Bulk retrieve member payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Bulk retrieve member payments error: {str(e)}",
+            title="Bulk retrieve member payments error",
+        )
         return {"error": str(e)}
 
 
@@ -522,7 +531,9 @@ def bulk_process_member_payments(
                 payment_modes_decoded = html.unescape(payment_modes)
                 payment_modes = frappe.parse_json(payment_modes_decoded)
             except (ValueError, TypeError) as e:
-                frappe.log_error(f"Could not parse payment_modes: {e}")
+                frappe.log_error(
+                    message=f"Could not parse payment_modes: {e}", title="Could not parse payment_modes"
+                )
                 payment_modes = None
 
         # Log deprecation warning if old parameter is used
@@ -611,7 +622,10 @@ def bulk_process_member_payments(
         return service.bulk_process_member_payments(payment_ids, docstatus, payment_modes)
 
     except Exception as e:
-        frappe.log_error(f"Bulk process member payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Bulk process member payments error: {str(e)}",
+            title="Bulk process member payments error",
+        )
         return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}
 
 
@@ -701,7 +715,9 @@ def scan_incomplete_payments() -> dict:
         return result
 
     except Exception as e:
-        frappe.log_error(f"Scan incomplete payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Scan incomplete payments error: {str(e)}", title="Scan incomplete payments error"
+        )
         return {"error": str(e)}
 
 
@@ -764,7 +780,9 @@ def preview_payment_recovery(payment_ids: str = None, max_payments: int = 100):
         return result
 
     except Exception as e:
-        frappe.log_error(f"Preview payment recovery error: {str(e)}")
+        frappe.log_error(
+            message=f"Preview payment recovery error: {str(e)}", title="Preview payment recovery error"
+        )
         return {"error": str(e)}
 
 
@@ -830,7 +848,9 @@ def execute_payment_recovery(payment_ids: str = None, max_payments: int = 50):
         return result
 
     except Exception as e:
-        frappe.log_error(f"Execute payment recovery error: {str(e)}")
+        frappe.log_error(
+            message=f"Execute payment recovery error: {str(e)}", title="Execute payment recovery error"
+        )
         return {"error": str(e)}
 
 
@@ -864,5 +884,5 @@ def get_payment_status(payment_id: str):
         return get_payment_processing_status(payment_id)
 
     except Exception as e:
-        frappe.log_error(f"Get payment status error: {str(e)}")
+        frappe.log_error(message=f"Get payment status error: {str(e)}", title="Get payment status error")
         return {"error": str(e)}

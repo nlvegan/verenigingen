@@ -220,6 +220,14 @@ def _check_redis_required() -> None:
         return
     _redis_requirement_checked = True
 
+    # The test runner executes in a single process, so the in-memory lock
+    # fallback is safe there even though the CI site may declare multiple
+    # gunicorn workers. Without this, every first SEPA-idempotency call in a
+    # CI shard would raise (the dev site only passes because developer_mode is
+    # on). Skip the multi-worker requirement under the test harness.
+    if frappe.flags.in_test:
+        return
+
     # Allow in-memory for development mode
     if frappe.conf.get("developer_mode"):
         return

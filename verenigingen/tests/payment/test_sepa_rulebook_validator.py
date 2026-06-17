@@ -173,7 +173,13 @@ class TestValidateSepaXmlHappyPath(FrappeTestCase):
         self.validator = SEPARulebookValidator()
 
     def test_valid_xml_is_compliant(self):
-        result = self.validator.validate_sepa_xml(_build_xml())
+        # Use a collection date that is guaranteed to be a weekday: otherwise the
+        # NL002 "weekend" info rule fires whenever today()+10 lands on a Sat/Sun,
+        # dropping compliance_score to 99 (a calendar-dependent flake on CI).
+        collection_date = date.today() + timedelta(days=10)
+        while collection_date.weekday() >= 5:  # 5=Sat, 6=Sun
+            collection_date += timedelta(days=1)
+        result = self.validator.validate_sepa_xml(_build_xml(collection_date=collection_date.isoformat()))
         self.assertTrue(result["is_compliant"], msg=f"issues: {result['issues']}")
         self.assertEqual(result["compliance_score"], 100)
         self.assertEqual(result["total_issues"], 0)
@@ -421,7 +427,9 @@ class TestMandateRules(FrappeTestCase):
 
     # MND005 mandate age
     def test_mandate_age_recent_ok(self):
-        xml = _build_xml(transactions=[self._txn(mandate_sign_date=(date.today() - timedelta(days=60)).isoformat())])
+        xml = _build_xml(
+            transactions=[self._txn(mandate_sign_date=(date.today() - timedelta(days=60)).isoformat())]
+        )
         self.assertEqual(self._run("MND005", xml), [])
 
     def test_mandate_age_too_old(self):
@@ -564,7 +572,9 @@ class TestNetherlandsRules(FrappeTestCase):
     def test_unknown_dutch_bank_code_warning(self):
         # MOCK is a valid-checksum IBAN but NOT in NL001's recognised codes.
         mock_iban = "NL82MOCK0123456789"
-        xml = _build_xml(creditor_iban=mock_iban, transactions=[self._txn(debtor_iban=mock_iban)], ctrl_sum="25.00")
+        xml = _build_xml(
+            creditor_iban=mock_iban, transactions=[self._txn(debtor_iban=mock_iban)], ctrl_sum="25.00"
+        )
         issues = self._run("NL001", xml)
         self.assertTrue(any("Unknown Dutch bank code" in i.message for i in issues))
         self.assertTrue(all(i.severity == ValidationSeverity.WARNING for i in issues))
@@ -597,7 +607,9 @@ class TestNetherlandsRules(FrappeTestCase):
     def test_country_specific_rule_skipped_for_other_country(self):
         # Running full validation with country=DE should skip NL rules entirely.
         mock_iban = "NL82MOCK0123456789"
-        xml = _build_xml(creditor_iban=mock_iban, transactions=[self._txn(debtor_iban=mock_iban)], ctrl_sum="25.00")
+        xml = _build_xml(
+            creditor_iban=mock_iban, transactions=[self._txn(debtor_iban=mock_iban)], ctrl_sum="25.00"
+        )
         result = self.v.validate_sepa_xml(xml, country="DE")
         self.assertFalse(any(i["rule_id"] in ("NL001", "NL002") for i in result["issues"]))
 

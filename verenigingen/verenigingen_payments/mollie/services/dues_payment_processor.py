@@ -831,9 +831,11 @@ class DuesPaymentProcessor:
                 # DEPRECATED: Legacy mode causes GL entry issues when invoice not linked.
                 # All payments must use Bank Transaction for proper reconciliation.
                 frappe.log_error(
-                    f"[Mollie] DEPRECATED: 'Payment Entry' creation_mode for payment {payment_id}. "
-                    f"Update Mollie Settings to 'Bank Transaction'. Falling back to BT mode.",
-                    "Deprecated Payment Entry Mode",
+                    message=(
+                        f"[Mollie] DEPRECATED: 'Payment Entry' creation_mode for payment {payment_id}. "
+                        f"Update Mollie Settings to 'Bank Transaction'. Falling back to BT mode."
+                    ),
+                    title="Deprecated Payment Entry Mode",
                 )
                 creation_mode = "Bank Transaction"
 

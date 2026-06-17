@@ -86,6 +86,19 @@ class TestPontoConfigurationService(FrappeTestCase):
     def setUp(self):
         super().setUp()
         # Tests run as Administrator (System Manager) — passes permission gate.
+        # Re-establish the committed fixture baseline. In a sharded CI run a
+        # sibling suite (or an earlier test) may have committed a different
+        # organization_id to the shared Ponto Settings singleton; reset it so
+        # the value-asserting read tests are deterministic regardless of order.
+        if frappe.db.get_value("Ponto Settings", "Ponto Settings", "organization_id") != "org-test-001":
+            frappe.db.set_value(
+                "Ponto Settings",
+                "Ponto Settings",
+                "organization_id",
+                "org-test-001",
+                update_modified=False,
+            )
+            frappe.db.commit()
         PontoConfigurationService.clear_cache()
 
     def tearDown(self):
@@ -135,24 +148,35 @@ class TestPontoConfigurationService(FrappeTestCase):
         self.assertEqual(second["organization_id"], "org-test-001")
 
     def test_cache_hit_does_not_reflect_uncommitted_db_change(self):
-        """A cached read returns the cached value, not a fresh DB read."""
-        PontoConfigurationService.get_settings()  # warm cache
-        # Direct DB change WITHOUT clearing cache.
-        frappe.db.set_value(
-            "Ponto Settings", "Ponto Settings", "organization_id", "changed-in-db",
-            update_modified=False,
-        )
-        cached = PontoConfigurationService.get_settings()
-        self.assertEqual(cached["organization_id"], "org-test-001")
-        # After clearing cache, the new value is visible.
-        PontoConfigurationService.clear_cache()
-        fresh = PontoConfigurationService.get_settings()
-        self.assertEqual(fresh["organization_id"], "changed-in-db")
-        # Restore.
-        frappe.db.set_value(
-            "Ponto Settings", "Ponto Settings", "organization_id", "org-test-001",
-            update_modified=False,
-        )
+        """A cached read returns the cached value, not a fresh DB read.
+
+        This test mutates the committed Ponto Settings singleton (the
+        configuration_service re-reads from the DB on a cache miss, so the
+        change must be persisted to be observable). Run it under a singleton
+        backup so the mutation is *committed-restore* safe: in a sharded CI run
+        a sibling test's commit can defeat the per-test transaction rollback,
+        leaking ``changed-in-db`` into the other read tests. singleton_backup
+        restores+commits the original value regardless of transaction state.
+        """
+        from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+
+        with singleton_backup("Ponto Settings"):
+            PontoConfigurationService.get_settings()  # warm cache
+            # Direct DB change WITHOUT clearing cache.
+            frappe.db.set_value(
+                "Ponto Settings",
+                "Ponto Settings",
+                "organization_id",
+                "changed-in-db",
+                update_modified=False,
+            )
+            cached = PontoConfigurationService.get_settings()
+            self.assertEqual(cached["organization_id"], "org-test-001")
+            # After clearing cache, the new value is visible.
+            PontoConfigurationService.clear_cache()
+            fresh = PontoConfigurationService.get_settings()
+            self.assertEqual(fresh["organization_id"], "changed-in-db")
+        # singleton_backup restored org-test-001 (committed); drop the stale cache.
         PontoConfigurationService.clear_cache()
 
     def test_clear_cache_removes_entry(self):
@@ -186,16 +210,12 @@ class TestPontoConfigurationService(FrappeTestCase):
 
     def test_get_active_client_id_production(self):
         """When sandbox_mode is off, the production client id is returned."""
-        frappe.db.set_value(
-            "Ponto Settings", "Ponto Settings", "sandbox_mode", 0, update_modified=False
-        )
+        frappe.db.set_value("Ponto Settings", "Ponto Settings", "sandbox_mode", 0, update_modified=False)
         PontoConfigurationService.clear_cache()
         try:
             self.assertEqual(PontoConfigurationService.get_active_client_id(), "test_prod_client")
         finally:
-            frappe.db.set_value(
-                "Ponto Settings", "Ponto Settings", "sandbox_mode", 1, update_modified=False
-            )
+            frappe.db.set_value("Ponto Settings", "Ponto Settings", "sandbox_mode", 1, update_modified=False)
             PontoConfigurationService.clear_cache()
 
     def test_get_active_client_id_missing_throws(self):
@@ -209,8 +229,11 @@ class TestPontoConfigurationService(FrappeTestCase):
                 PontoConfigurationService.get_active_client_id()
         finally:
             frappe.db.set_value(
-                "Ponto Settings", "Ponto Settings", "sandbox_client_id",
-                "test_sandbox_client", update_modified=False,
+                "Ponto Settings",
+                "Ponto Settings",
+                "sandbox_client_id",
+                "test_sandbox_client",
+                update_modified=False,
             )
             PontoConfigurationService.clear_cache()
 
@@ -241,20 +264,14 @@ class TestPontoConfigurationService(FrappeTestCase):
 
     def test_get_bank_account_for_disabled_mapping_returns_none(self):
         """Disabled mapping (B) yields no bank account even if one were linked."""
-        self.assertIsNone(
-            PontoConfigurationService.get_bank_account_for_ponto_account(ACCOUNT_ID_B)
-        )
+        self.assertIsNone(PontoConfigurationService.get_bank_account_for_ponto_account(ACCOUNT_ID_B))
 
     def test_get_bank_account_for_enabled_unmapped_returns_none(self):
         """Enabled mapping with no bank_account linked returns None."""
-        self.assertIsNone(
-            PontoConfigurationService.get_bank_account_for_ponto_account(ACCOUNT_ID_A)
-        )
+        self.assertIsNone(PontoConfigurationService.get_bank_account_for_ponto_account(ACCOUNT_ID_A))
 
     def test_get_first_enabled_ponto_account_id(self):
-        self.assertEqual(
-            PontoConfigurationService.get_first_enabled_ponto_account_id(), ACCOUNT_ID_A
-        )
+        self.assertEqual(PontoConfigurationService.get_first_enabled_ponto_account_id(), ACCOUNT_ID_A)
 
     def test_get_first_enabled_bank_account_none_when_unlinked(self):
         self.assertIsNone(PontoConfigurationService.get_first_enabled_bank_account())
@@ -306,8 +323,11 @@ class TestPontoConfigurationService(FrappeTestCase):
             self.assertIn("sandbox_client_id", result["missing_fields"])
         finally:
             frappe.db.set_value(
-                "Ponto Settings", "Ponto Settings", "sandbox_client_id",
-                "test_sandbox_client", update_modified=False,
+                "Ponto Settings",
+                "Ponto Settings",
+                "sandbox_client_id",
+                "test_sandbox_client",
+                update_modified=False,
             )
             PontoConfigurationService.clear_cache()
 
@@ -321,9 +341,7 @@ class TestPontoConfigurationService(FrappeTestCase):
         # Cache cleared by the update.
         self.assertIsNone(frappe.cache().get_value(PontoConfigurationService.CACHE_KEY))
         # Global last_sync_time persisted.
-        self.assertIsNotNone(
-            frappe.db.get_value("Ponto Settings", "Ponto Settings", "last_sync_time")
-        )
+        self.assertIsNotNone(frappe.db.get_value("Ponto Settings", "Ponto Settings", "last_sync_time"))
         # Mapping row last_sync_time persisted.
         row_sync = frappe.db.get_value(
             "Ponto Bank Account Mapping",
@@ -333,11 +351,14 @@ class TestPontoConfigurationService(FrappeTestCase):
         self.assertIsNotNone(row_sync)
 
     def test_increment_transactions_imported_adds_count(self):
-        before = frappe.db.get_value(
-            "Ponto Bank Account Mapping",
-            {"parent": "Ponto Settings", "ponto_account_id": ACCOUNT_ID_A},
-            "transactions_imported",
-        ) or 0
+        before = (
+            frappe.db.get_value(
+                "Ponto Bank Account Mapping",
+                {"parent": "Ponto Settings", "ponto_account_id": ACCOUNT_ID_A},
+                "transactions_imported",
+            )
+            or 0
+        )
         PontoConfigurationService.increment_transactions_imported(ACCOUNT_ID_A, 5)
         after = frappe.db.get_value(
             "Ponto Bank Account Mapping",

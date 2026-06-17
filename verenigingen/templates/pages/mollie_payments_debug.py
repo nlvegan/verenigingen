@@ -68,7 +68,9 @@ def debug_customer(customer_id):
         return service.debug_customer(customer_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie debug customer error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie debug customer error: {str(e)}", title="Mollie debug customer error"
+        )
         return {"error": str(e), "customer_id": customer_id}
 
 
@@ -84,7 +86,9 @@ def debug_subscription(subscription_id, customer_id=None):
         return service.debug_subscription(subscription_id, customer_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie debug subscription error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie debug subscription error: {str(e)}", title="Mollie debug subscription error"
+        )
         return {"error": str(e), "subscription_id": subscription_id}
 
 
@@ -100,7 +104,7 @@ def debug_mandate(mandate_id, customer_id=None):
         return service.debug_mandate(mandate_id, customer_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie debug mandate error: {str(e)}")
+        frappe.log_error(message=f"Mollie debug mandate error: {str(e)}", title="Mollie debug mandate error")
         return {"error": str(e), "mandate_id": mandate_id}
 
 
@@ -116,7 +120,10 @@ def admin_cancel_subscription(customer_id, subscription_id, reason="Administrati
         return service.admin_cancel_subscription(customer_id, subscription_id, reason)
 
     except Exception as e:
-        frappe.log_error(f"Admin subscription cancellation error: {str(e)}")
+        frappe.log_error(
+            message=f"Admin subscription cancellation error: {str(e)}",
+            title="Admin subscription cancellation error",
+        )
         frappe.throw(_(f"Failed to cancel subscription: {str(e)}"))
 
 
@@ -132,7 +139,9 @@ def admin_revoke_mandate(customer_id, mandate_id, reason="Administrative revocat
         return service.admin_revoke_mandate(customer_id, mandate_id, reason)
 
     except Exception as e:
-        frappe.log_error(f"Admin mandate revocation error: {str(e)}")
+        frappe.log_error(
+            message=f"Admin mandate revocation error: {str(e)}", title="Admin mandate revocation error"
+        )
         frappe.throw(_(f"Failed to revoke mandate: {str(e)}"))
 
 
@@ -165,7 +174,7 @@ def create_mandate(
         # Validation errors have user-friendly messages, pass them through
         frappe.throw(str(validation_error))
     except Exception as e:
-        frappe.log_error(f"Create mandate error: {str(e)}")
+        frappe.log_error(message=f"Create mandate error: {str(e)}", title="Create mandate error")
         frappe.throw(_("Failed to create mandate. Please contact support."))
 
 
@@ -186,7 +195,9 @@ def admin_delete_customer(customer_id, reason="Administrative deletion", confirm
         return service.admin_delete_customer(customer_id, reason, confirmation_text)
 
     except Exception as e:
-        frappe.log_error(f"Admin customer deletion error: {str(e)}")
+        frappe.log_error(
+            message=f"Admin customer deletion error: {str(e)}", title="Admin customer deletion error"
+        )
         frappe.throw(_(f"Failed to delete customer: {str(e)}"))
 
 
@@ -202,7 +213,9 @@ def list_customers(limit=20):
         return service.list_customers(limit)
 
     except Exception as e:
-        frappe.log_error(f"Mollie list customers API error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie list customers API error: {str(e)}", title="Mollie list customers API error"
+        )
         return {"error": str(e), "limit": limit}
 
 
@@ -218,7 +231,9 @@ def search_customers_by_name(search_term, limit=20):
         return service.search_customers_by_name(search_term, limit)
 
     except Exception as e:
-        frappe.log_error(f"Mollie search customers API error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie search customers API error: {str(e)}", title="Mollie search customers API error"
+        )
         return {"error": str(e), "search_term": search_term}
 
 
@@ -249,7 +264,7 @@ def list_payments(customer_id=None, limit=20, status_filter=None):
         return service.list_payments(customer_id, limit, status_filter)
 
     except Exception as e:
-        frappe.log_error(f"Mollie list payments error: {str(e)}")
+        frappe.log_error(message=f"Mollie list payments error: {str(e)}", title="Mollie list payments error")
         return {"error": str(e), "customer_id": customer_id, "limit": limit}
 
 
@@ -265,7 +280,7 @@ def debug_refund(refund_id, payment_id=None):
         return service.debug_refund(refund_id, payment_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie debug refund error: {str(e)}")
+        frappe.log_error(message=f"Mollie debug refund error: {str(e)}", title="Mollie debug refund error")
         return {"error": str(e), "refund_id": refund_id}
 
 
@@ -281,7 +296,9 @@ def list_chargebacks(customer_id=None, limit=20):
         return service.list_chargebacks(customer_id, limit)
 
     except Exception as e:
-        frappe.log_error(f"Mollie list chargebacks error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie list chargebacks error: {str(e)}", title="Mollie list chargebacks error"
+        )
         return {"error": str(e), "customer_id": customer_id}
 
 
@@ -297,7 +314,7 @@ def debug_webhook_delivery(payment_id):
         return service.debug_webhook_delivery(payment_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie debug webhook error: {str(e)}")
+        frappe.log_error(message=f"Mollie debug webhook error: {str(e)}", title="Mollie debug webhook error")
         return {"error": str(e), "payment_id": payment_id}
 
 
@@ -318,7 +335,7 @@ def test_webhook_processing(payment_id):
         return service.test_webhook_processing(payment_id)
 
     except Exception as e:
-        frappe.log_error(f"Webhook test error: {str(e)}")
+        frappe.log_error(message=f"Webhook test error: {str(e)}", title="Webhook test error")
         return {"error": str(e), "payment_id": payment_id, "status": "error", "timestamp": frappe.utils.now()}
 
 
@@ -334,7 +351,10 @@ def admin_cancel_payment(payment_id, reason="Administrative cancellation"):
         return service.admin_cancel_payment(payment_id, reason)
 
     except Exception as e:
-        frappe.log_error(f"Mollie admin payment cancellation error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie admin payment cancellation error: {str(e)}",
+            title="Mollie admin payment cancellation error",
+        )
         return {"error": str(e), "payment_id": payment_id}
 
 
@@ -358,7 +378,10 @@ def create_test_payment(amount, description, customer_id=None, due_date=None):
         return service.create_test_payment(amount, description, customer_id, due_date)
 
     except Exception as e:
-        frappe.log_error(f"Mollie test payment creation error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie test payment creation error: {str(e)}",
+            title="Mollie test payment creation error",
+        )
         return {"error": str(e), "status": "error"}
 
 
@@ -376,7 +399,10 @@ def create_subscription(customer_id, amount, interval, description, mandate_id=N
         return service.create_subscription(customer_id, amount, interval, description, mandate_id, start_date)
 
     except Exception as e:
-        frappe.log_error(f"Mollie subscription creation error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie subscription creation error: {str(e)}",
+            title="Mollie subscription creation error",
+        )
         return {"error": str(e), "customer_id": customer_id, "status": "error"}
 
 
@@ -417,7 +443,10 @@ def create_scheduled_subscription(
         )
 
     except Exception as e:
-        frappe.log_error(f"Mollie scheduled subscription creation error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie scheduled subscription creation error: {str(e)}",
+            title="Mollie scheduled subscription creation error",
+        )
         return {"error": str(e), "customer_id": customer_id, "status": "error"}
 
 
@@ -448,7 +477,9 @@ def list_subscriptions(customer_id, limit=50, active_only=True):
         return service.list_subscriptions(customer_id, limit, active_only)
 
     except Exception as e:
-        frappe.log_error(f"Mollie list subscriptions error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie list subscriptions error: {str(e)}", title="Mollie list subscriptions error"
+        )
         return {"error": str(e), "customer_id": customer_id}
 
 
@@ -475,7 +506,10 @@ def retrieve_customer_payments_for_processing(customer_id, limit=250):
         return service.retrieve_customer_payments_for_processing(customer_id, int(limit))
 
     except Exception as e:
-        frappe.log_error(f"Mollie retrieve customer payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie retrieve customer payments error: {str(e)}",
+            title="Mollie retrieve customer payments error",
+        )
         return {"error": str(e), "customer_id": customer_id}
 
 
@@ -541,7 +575,10 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
         return service.batch_process_dues_payments(payment_ids, customer_id)
 
     except Exception as e:
-        frappe.log_error(f"Mollie batch process dues payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Mollie batch process dues payments error: {str(e)}",
+            title="Mollie batch process dues payments error",
+        )
         return {"error": str(e), "payment_ids": payment_ids}
 
 
@@ -563,7 +600,7 @@ def get_balance_info():
         return get_primary_balance_info()
 
     except Exception as e:
-        frappe.log_error(f"Get balance info error: {str(e)}")
+        frappe.log_error(message=f"Get balance info error: {str(e)}", title="Get balance info error")
         return {"error": str(e)}
 
 
@@ -592,7 +629,10 @@ def process_recent_balance_transactions(days, limit=250):
         )
 
     except Exception as e:
-        frappe.log_error(f"Process recent balance transactions error: {str(e)}")
+        frappe.log_error(
+            message=f"Process recent balance transactions error: {str(e)}",
+            title="Process recent balance transactions error",
+        )
         return {"error": str(e)}
 
 
@@ -611,7 +651,9 @@ def process_balance_date_range(from_date, until_date, limit=250):
         return process_balance_transactions(from_date=from_date, until_date=until_date, limit=int(limit))
 
     except Exception as e:
-        frappe.log_error(f"Process balance date range error: {str(e)}")
+        frappe.log_error(
+            message=f"Process balance date range error: {str(e)}", title="Process balance date range error"
+        )
         return {"error": str(e)}
 
 
@@ -630,7 +672,10 @@ def process_balance_historical_data(months_back, batch_size=250):
         return process_historical_data(months_back=int(months_back), batch_size=int(batch_size))
 
     except Exception as e:
-        frappe.log_error(f"Process historical balance data error: {str(e)}")
+        frappe.log_error(
+            message=f"Process historical balance data error: {str(e)}",
+            title="Process historical balance data error",
+        )
         return {"error": str(e)}
 
 
@@ -655,7 +700,10 @@ def check_balance_transaction_status(transaction_id, include_mollie_data=False):
         )
 
     except Exception as e:
-        frappe.log_error(f"Check balance transaction status error: {str(e)}")
+        frappe.log_error(
+            message=f"Check balance transaction status error: {str(e)}",
+            title="Check balance transaction status error",
+        )
         return {"error": str(e)}
 
 
@@ -674,7 +722,9 @@ def search_balance_transactions(search_term, limit=50):
         return search_transactions_by_description(search_term=search_term, limit=int(limit))
 
     except Exception as e:
-        frappe.log_error(f"Search balance transactions error: {str(e)}")
+        frappe.log_error(
+            message=f"Search balance transactions error: {str(e)}", title="Search balance transactions error"
+        )
         return {"error": str(e)}
 
 
@@ -693,7 +743,9 @@ def fetch_recent_for_search(limit=100):
         return fetch_recent_transactions_for_search(limit=int(limit))
 
     except Exception as e:
-        frappe.log_error(f"Fetch recent transactions error: {str(e)}")
+        frappe.log_error(
+            message=f"Fetch recent transactions error: {str(e)}", title="Fetch recent transactions error"
+        )
         return {"error": str(e)}
 
 
@@ -712,7 +764,10 @@ def get_balance_processing_statistics(days=30):
         return get_processing_statistics(days=int(days))
 
     except Exception as e:
-        frappe.log_error(f"Get balance processing statistics error: {str(e)}")
+        frappe.log_error(
+            message=f"Get balance processing statistics error: {str(e)}",
+            title="Get balance processing statistics error",
+        )
         return {"error": str(e)}
 
 
@@ -750,7 +805,9 @@ def sync_membership_end_dates_from_mollie(dry_run=True):
         return service.sync_membership_end_dates_from_mollie(dry_run=dry_run)
 
     except Exception as e:
-        frappe.log_error(f"Sync membership end dates error: {str(e)}")
+        frappe.log_error(
+            message=f"Sync membership end dates error: {str(e)}", title="Sync membership end dates error"
+        )
         return {"error": str(e)}
 
 
@@ -798,7 +855,10 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
         return service.bulk_retrieve_all_member_payments(days_back, max_payments, payment_status_filter)
 
     except Exception as e:
-        frappe.log_error(f"Bulk retrieve member payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Bulk retrieve member payments error: {str(e)}",
+            title="Bulk retrieve member payments error",
+        )
         return {"error": str(e)}
 
 
@@ -845,7 +905,9 @@ def bulk_process_member_payments(payment_ids, docstatus=0, payment_modes=None, c
                 payment_modes_decoded = html.unescape(payment_modes)
                 payment_modes = frappe.parse_json(payment_modes_decoded)
             except (ValueError, TypeError) as e:
-                frappe.log_error(f"Could not parse payment_modes: {e}")
+                frappe.log_error(
+                    message=f"Could not parse payment_modes: {e}", title="Could not parse payment_modes"
+                )
                 payment_modes = None
 
         # Log deprecation warning if old parameter is used
@@ -937,7 +999,10 @@ def bulk_process_member_payments(payment_ids, docstatus=0, payment_modes=None, c
         return service.bulk_process_member_payments(payment_ids, docstatus, payment_modes)
 
     except Exception as e:
-        frappe.log_error(f"Bulk process member payments error: {str(e)}")
+        frappe.log_error(
+            message=f"Bulk process member payments error: {str(e)}",
+            title="Bulk process member payments error",
+        )
         return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}
 
 
@@ -1054,7 +1119,7 @@ def check_all_customers_for_new_payments(days_back=7, all_history=False, limit_p
         return result
 
     except Exception as e:
-        frappe.log_error(f"Bulk payment check error: {str(e)}")
+        frappe.log_error(message=f"Bulk payment check error: {str(e)}", title="Bulk payment check error")
         return {"error": str(e)}
 
 
@@ -1139,5 +1204,7 @@ def process_discovered_payments(payment_ids, dry_run=False):
         return checker.process_discovered_payments(payment_ids=payment_ids, dry_run=dry_run)
 
     except Exception as e:
-        frappe.log_error(f"Bulk payment processing error: {str(e)}")
+        frappe.log_error(
+            message=f"Bulk payment processing error: {str(e)}", title="Bulk payment processing error"
+        )
         return {"error": str(e), "payment_ids": payment_ids if isinstance(payment_ids, list) else []}
