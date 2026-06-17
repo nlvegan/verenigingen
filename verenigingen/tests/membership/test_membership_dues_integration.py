@@ -288,10 +288,23 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
         invoice_name = invoice.name
         self._pay_invoice(invoice)
 
-        # The paid invoice row must still exist and be Paid (guards against a
-        # silently-lost row giving a misleading zero YTD below).
-        self.assertTrue(
-            frappe.db.exists("Sales Invoice", invoice_name),
+        # Re-resolve the invoice by the per-test-unique naming_series — a field
+        # this test fully controls and which NO sibling shard can collide on.
+        # Relying on the raw name alone was fragile: when the SI used the shared
+        # default series (ACC-SINV-.YYYY.-), two shards could draw the SAME name
+        # from the contended ``tabSeries`` counter, and a sibling's rolled-back
+        # transaction would then delete the row THIS test submitted ("invoice
+        # vanished after pe.submit()"). The unique series makes the name
+        # collision-free; re-querying by that series confirms the row survived
+        # without depending on any globally-raced identifier.
+        surviving = frappe.get_all(
+            "Sales Invoice",
+            filters={"naming_series": unique_series, "docstatus": 1},
+            pluck="name",
+        )
+        self.assertEqual(
+            surviving,
+            [invoice_name],
             "submitted invoice must survive payment",
         )
         self.assertEqual(frappe.db.get_value("Sales Invoice", invoice_name, "status"), "Paid")

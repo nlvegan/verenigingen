@@ -157,7 +157,7 @@ class BTRBase(EnhancedTestCase):
 
     # ---- builders ----------------------------------------------------------
 
-    def _make_member_with_invoice(self, first_name="BTR", grand_total=25.0, submit=True):
+    def _make_member_with_invoice(self, first_name="BTR", grand_total=25.0, submit=True, **si_kwargs):
         f = self.sepa
         member = f.create_test_member(first_name=first_name)
         customer = member.customer
@@ -173,6 +173,7 @@ class BTRBase(EnhancedTestCase):
             membership=membership.name,
             grand_total=grand_total,
             submit=submit,
+            **si_kwargs,
         )
         return {
             "member": member,
@@ -586,7 +587,20 @@ class TestMatchTransactionAndReconcile(BTRBase):
         match therefore reconciles. (Former bug: it treated 'batch' like 'invoice'
         and passed the batch name as an invoice name, marking the txn Unreconciled.)
         """
-        it = self._make_member_with_invoice(first_name="BatchBug", grand_total=30.0)
+        # Pin a per-test-unique invoice naming_series. create_payment_entries_from_batch
+        # has an idempotency guard (_invoice_has_submitted_payment_entry) that skips a
+        # batch row whose invoice already has a SUBMITTED Payment Entry. The default
+        # Sales Invoice series (ACC-SINV-.YYYY.-) draws its counter from the shared
+        # ``tabSeries`` row, so under 8 parallel CI shards two shards can mint the SAME
+        # invoice name; if a sibling already booked a PE against that name, OUR row is
+        # wrongly skipped -> no PE booked -> allocated_total != deposit_total -> the
+        # reconciliation gate returns False (the observed ``ok is False``). A unique
+        # series gives this invoice a globally-collision-free name, so the idempotency
+        # guard can only ever see THIS test's (initially PE-free) invoice.
+        unique_series = f"BTRSINV-{frappe.generate_hash(length=8).upper()}-.#####"
+        it = self._make_member_with_invoice(
+            first_name="BatchBug", grand_total=30.0, naming_series=unique_series
+        )
         batch = self._make_batch([it])
         # Pin the bank-transaction deposit to the batch total the PRODUCTION code
         # actually compares against. create_reconciliation gates "Reconciled" on

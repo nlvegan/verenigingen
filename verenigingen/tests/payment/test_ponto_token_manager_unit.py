@@ -66,18 +66,24 @@ class TestPontoTokenManagerUnit(FrappeTestCase):
     def setUp(self):
         super().setUp()
         # CI shards multiple test processes onto ONE site sharing ONE redis
-        # cache. TOKEN_CACHE_KEY / EXPIRY_CACHE_KEY are FIXED, non-namespaced
-        # strings, so a sibling shard's set/delete on those keys races and wipes
-        # the token this test just cached (forcing a second, unexpected HTTP
-        # fetch). Make the keys unique per test instance; the token manager reads
-        # them via ``self.``/``cls.`` so the patched class attrs are what it uses.
-        suffix = frappe.generate_hash(length=12)
-        self._orig_token_key = PontoTokenManager.TOKEN_CACHE_KEY
-        self._orig_expiry_key = PontoTokenManager.EXPIRY_CACHE_KEY
-        PontoTokenManager.TOKEN_CACHE_KEY = f"ponto_access_token:test:{suffix}"
-        PontoTokenManager.EXPIRY_CACHE_KEY = f"ponto_token_expiry:test:{suffix}"
-        self.addCleanup(setattr, PontoTokenManager, "TOKEN_CACHE_KEY", self._orig_token_key)
-        self.addCleanup(setattr, PontoTokenManager, "EXPIRY_CACHE_KEY", self._orig_expiry_key)
+        # cache. A sibling shard's frappe.clear_cache() FLUSHES the entire shared
+        # redis db, wiping the token this test just cached (regardless of key
+        # uniqueness) -- so the second get_valid_token() call sees an empty cache
+        # and re-hits the (mocked) OAuth2 endpoint, breaking
+        # ``mock_post.assert_called_once()``. Isolate the cache to a per-process
+        # in-memory dict for the duration of each test so the token persists
+        # across the two calls and is immune to a sibling's FLUSH. The token
+        # manager still calls frappe.cache().get_value/set_value/delete_value and
+        # branches on presence + the cached expiry timestamp, so the real
+        # cache/refresh LOGIC is still exercised. Patch frappe.cache (resolved
+        # fresh on every call) before any cache access below.
+        from verenigingen.tests.fixtures.fake_cache import isolate_cache_keys
+
+        self._cache_ctx = isolate_cache_keys(
+            PontoTokenManager.TOKEN_CACHE_KEY, PontoTokenManager.EXPIRY_CACHE_KEY
+        )
+        self._cache_ctx.__enter__()
+        self.addCleanup(self._cache_ctx.__exit__, None, None, None)
         PontoTokenManager.clear_cache()
         # Explicit credentials => _get_credentials never hits settings/DB.
         self.tm = PontoTokenManager(client_id="explicit_client", client_secret="explicit_secret")

@@ -233,57 +233,63 @@ class TestInitialSetupCompleteFlag(FrappeTestCase):
     Verenigingen Settings.initial_setup_complete flag used to make
     execute_after_install() idempotent."""
 
-    def setUp(self):
-        # Preserve the live flag so this test never permanently changes install
-        # state on the shared test site.
-        self._had_settings = bool(frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"))
-        if self._had_settings:
-            self._original_flag = frappe.db.get_value(
-                "Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete"
-            )
-        else:
-            self._original_flag = None
-
-    def tearDown(self):
-        if self._had_settings:
-            frappe.db.set_value(
-                "Verenigingen Settings",
-                "Verenigingen Settings",
-                "initial_setup_complete",
-                self._original_flag,
-            )
-            frappe.db.commit()
-
     def test_mark_then_is_complete_roundtrip(self):
-        if not self._had_settings:
-            self.skipTest("Verenigingen Settings single doc not present on this site")
-        # Force the flag off, confirm reader sees False.
-        # Verenigingen Settings is a Single doctype, whose value may be served
-        # from the document/value cache. On a fully-installed site the flag is
-        # already 1 in cache, so the reader can return the stale cached True even
-        # after we write 0 to tabSingles. Clear the cache so the reader hits the
-        # freshly-written value.
-        frappe.db.set_value("Verenigingen Settings", "Verenigingen Settings", "initial_setup_complete", 0)
-        frappe.db.commit()
-        self._bust_single_value_cache()
-        self.assertFalse(setup_mod._is_initial_setup_complete())
+        # Verenigingen Settings is a Single doctype: its `initial_setup_complete`
+        # flag lives in ONE globally-shared `tabSingles` row. The original test
+        # wrote 0 (with a real commit, since the production reader/writer commit)
+        # and read it back -- but in CI, 8 shards run as parallel processes
+        # against ONE shared DB, so a SIBLING shard's _mark_initial_setup_complete
+        # (or any write to that Single) can flip the row to 1 between our write
+        # and our read. The committed write defeats the per-test transaction
+        # rollback, so there is no way to make a REAL round-trip through that
+        # shared row deterministic under parallel shards.
+        #
+        # _is_initial_setup_complete / _mark_initial_setup_complete are thin
+        # wrappers over frappe.db.exists + frappe.db.get_value/set_value on that
+        # Single. Patch those three to an in-process dict so the round-trip
+        # (mark -> is_complete reads True; force 0 -> reads False) exercises the
+        # real function LOGIC -- the exists-guard, the bool() coercion, the
+        # get-after-set -- without touching the globally-shared row a sibling
+        # could clobber. This is immune to concurrent shards because the backing
+        # store is per-process memory.
+        from unittest.mock import patch
 
-        # Mark complete, confirm reader sees True.
-        setup_mod._mark_initial_setup_complete()
-        self._bust_single_value_cache()
-        self.assertTrue(setup_mod._is_initial_setup_complete())
+        store = {"flag": 0}
 
-    @staticmethod
-    def _bust_single_value_cache():
-        # _is_initial_setup_complete() reads via frappe.db.get_value on the
-        # Verenigingen Settings *Single*. The read is served from the per-connection
-        # `frappe.db.value_cache`, which is normally flushed on commit — but under
-        # FrappeTestCase the test transaction is rolled back, not committed, so a
-        # value primed by an earlier read (or a sibling test in the same shard)
-        # survives our write and the reader returns the stale flag. clear_document_cache
-        # busts the redis/doc cache but NOT value_cache, so clear both.
-        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
-        frappe.db.value_cache.clear()
+        def fake_exists(doctype, name=None, *a, **k):
+            if doctype == "Verenigingen Settings":
+                return "Verenigingen Settings"
+            return _real_exists(doctype, name, *a, **k)
+
+        def fake_get_value(doctype, name, fieldname, *a, **k):
+            if doctype == "Verenigingen Settings" and fieldname == "initial_setup_complete":
+                return store["flag"]
+            return _real_get_value(doctype, name, fieldname, *a, **k)
+
+        def fake_set_value(doctype, name, fieldname, value=None, *a, **k):
+            if doctype == "Verenigingen Settings" and fieldname == "initial_setup_complete":
+                store["flag"] = value
+                return None
+            return _real_set_value(doctype, name, fieldname, value, *a, **k)
+
+        _real_exists = frappe.db.exists
+        _real_get_value = frappe.db.get_value
+        _real_set_value = frappe.db.set_value
+
+        with (
+            patch.object(frappe.db, "exists", side_effect=fake_exists),
+            patch.object(frappe.db, "get_value", side_effect=fake_get_value),
+            patch.object(frappe.db, "set_value", side_effect=fake_set_value),
+            patch.object(frappe.db, "commit"),
+        ):
+            # Flag starts off -> reader sees False.
+            store["flag"] = 0
+            self.assertFalse(setup_mod._is_initial_setup_complete())
+
+            # Mark complete -> reader sees True (set then get-back through logic).
+            setup_mod._mark_initial_setup_complete()
+            self.assertEqual(store["flag"], 1)
+            self.assertTrue(setup_mod._is_initial_setup_complete())
 
     def test_is_complete_returns_bool(self):
         result = setup_mod._is_initial_setup_complete()

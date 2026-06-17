@@ -86,15 +86,21 @@ class TestPontoConfigurationService(FrappeTestCase):
     def setUp(self):
         super().setUp()
         # CI shards multiple test processes onto ONE site sharing ONE redis
-        # cache. PontoConfigurationService.CACHE_KEY is a FIXED, non-namespaced
-        # string, so a sibling shard's set/delete on that key races and wipes the
-        # value this test caches (cache reads None mid-test). Make the key unique
-        # per test instance; get_settings/clear_cache read ``cls.CACHE_KEY`` live,
-        # so the patched value is the one they use. Clear the (now-unique) key
-        # after patching so we start from a known-empty state.
-        self._orig_cache_key = PontoConfigurationService.CACHE_KEY
-        PontoConfigurationService.CACHE_KEY = f"ponto_settings_cache:test:{frappe.generate_hash(length=12)}"
-        self.addCleanup(setattr, PontoConfigurationService, "CACHE_KEY", self._orig_cache_key)
+        # cache. A sibling shard's frappe.clear_cache() FLUSHES the entire shared
+        # redis db, wiping ANY value this test caches (regardless of key
+        # uniqueness) between a set_value and the following get_value -> the cache
+        # round-trip reads None mid-test. Isolate the cache to a per-process
+        # in-memory dict for the duration of each test so the set->get is
+        # deterministic and immune to a sibling's FLUSH. The service still calls
+        # frappe.cache().get_value/set_value/delete_value and branches on the
+        # result, so the real caching LOGIC (miss->fetch->store, hit->serve
+        # cached, clear->evict) is still exercised. Patch frappe.cache (resolved
+        # fresh on every call in the service) before any cache access below.
+        from verenigingen.tests.fixtures.fake_cache import isolate_cache_keys
+
+        self._cache_ctx = isolate_cache_keys(PontoConfigurationService.CACHE_KEY)
+        self._cache_ctx.__enter__()
+        self.addCleanup(self._cache_ctx.__exit__, None, None, None)
         PontoConfigurationService.clear_cache()
         # Tests run as Administrator (System Manager) — passes permission gate.
         # Re-establish the committed fixture baseline. In a sharded CI run a

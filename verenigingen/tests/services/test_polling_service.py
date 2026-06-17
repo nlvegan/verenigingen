@@ -329,25 +329,29 @@ class TestSyncLock(EnhancedTestCase):
     """acquire_sync_lock / release_sync_lock against the REAL Frappe cache.
 
     CI shards multiple test processes onto ONE site sharing ONE redis cache.
-    The production lock key ``_SYNC_LOCK_KEY`` is a FIXED, non-namespaced string,
-    so a sibling shard's acquire/release on the same key races and wipes the
-    value this test just set (lock reads None / second acquire wrongly succeeds).
-    To eliminate the collision we monkeypatch the module-level key to a value
-    unique per test instance; ``acquire_sync_lock``/``release_sync_lock`` resolve
-    ``_SYNC_LOCK_KEY`` as a module global at call time, so the patched value is
-    what they use. Tests read the live ``ps._SYNC_LOCK_KEY`` (never a stale
-    imported copy) so assertions hit the same unique key.
+    A sibling shard's frappe.clear_cache() FLUSHES the entire shared redis db,
+    wiping the lock value this test just set (regardless of key uniqueness) --
+    so a later get_value reads None: ``test_lock_stores_run_id`` sees None and
+    ``test_acquire_then_second_acquire_blocked`` finds the key gone and wrongly
+    re-acquires. Isolate the lock cache to a per-process in-memory dict for the
+    duration of each test so the set->get round-trip is deterministic and immune
+    to a sibling's FLUSH. ``acquire_sync_lock``/``release_sync_lock`` still call
+    frappe.cache().get_value/set_value/delete_value and branch on presence, so
+    the real lock LOGIC (free->acquire, held->block, release->reacquire) is
+    still exercised. Patch frappe.cache (resolved fresh on every call) for the
+    test's duration; assertions also go through the same patched frappe.cache().
     """
 
     def setUp(self):
         super().setUp()
         import verenigingen.mijnrood_sync.services.polling_service as ps
+        from verenigingen.tests.fixtures.fake_cache import isolate_cache_keys
 
         self.ps = ps
-        self._orig_lock_key = ps._SYNC_LOCK_KEY
-        ps._SYNC_LOCK_KEY = f"mijnrood_sync:run_lock:test:{frappe.generate_hash(length=12)}"
-        self.addCleanup(setattr, ps, "_SYNC_LOCK_KEY", self._orig_lock_key)
-        # Clear the (now-unique) key so we start from a known-empty state.
+        self._cache_ctx = isolate_cache_keys(ps._SYNC_LOCK_KEY)
+        self._cache_ctx.__enter__()
+        self.addCleanup(self._cache_ctx.__exit__, None, None, None)
+        # Clear the lock so we start from a known-empty (in-process) state.
         ps.release_sync_lock()
 
     def tearDown(self):
