@@ -101,13 +101,24 @@ class AccountMigrationService:
 
             for acc in root_accounts:
                 try:
-                    # Check if a root account of this type already exists
+                    # Check if this root account already exists.
+                    #
+                    # Match on the IDENTITY that actually determines the Account's
+                    # primary key ("<account_number> - <account_name> - <abbr>")
+                    # i.e. (company, account_number, account_name) -- NOT on
+                    # ``parent_account in ["", None]``. ERPNext may assign a parent
+                    # to a created root account (depending on whether a company root
+                    # group already exists), so a parentless-only lookup misses the
+                    # account it just created and the next create attempt then dies
+                    # with IntegrityError 1062 (Duplicate entry) on a fresh company.
+                    # Keying on the create identity makes the lookup and the create
+                    # agree, so the second run correctly reports "existing".
                     existing_account = frappe.db.get_value(
                         "Account",
                         {
                             "company": self.company,
-                            "root_type": acc["root_type"],
-                            "parent_account": ["in", ["", None]],
+                            "account_number": acc["account_number"],
+                            "account_name": acc["account_name"],
                             "is_group": 1,
                         },
                         "name",

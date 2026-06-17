@@ -484,6 +484,13 @@ def _persist_submitted_sales_invoice(company, customer, debit_to, eb_invoice_num
     si.append("items", {"item_code": item_code, "qty": 1, "rate": rate, "income_account": income})
     si.set_missing_values()
     si.insert(ignore_permissions=True)
+    # Guarantee a Fiscal Year covers the posting date for THIS company before
+    # submit. The class-level _ensure_current_fiscal_year() runs in setUpClass,
+    # but its company-restriction clear does not always survive the test runner's
+    # transaction handling on a fresh site, so re-assert coverage here (idempotent).
+    from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+    ensure_fiscal_year_exists(si.posting_date, company)
     si.submit()
     return si.name
 

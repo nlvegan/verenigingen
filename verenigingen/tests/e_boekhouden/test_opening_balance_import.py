@@ -452,6 +452,12 @@ class TestImportOpeningBalances(_OpeningBalanceBase):
             },
         )
         je.save()
+        # Guarantee the posting date's Fiscal Year covers this company before
+        # submit (idempotent); the setUpClass restriction-clear does not always
+        # survive the test runner's transaction handling on a fresh site.
+        from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+        ensure_fiscal_year_exists(je.posting_date, self.company)
         je.submit()
         frappe.db.commit()
         return je.name
@@ -861,6 +867,12 @@ class TestOpeningBalanceForceReimport(EnhancedTestCase):
             },
         )
         je.save()
+        # Guarantee the posting date's Fiscal Year covers this company before
+        # submit (idempotent); the setUpClass restriction-clear does not always
+        # survive the test runner's transaction handling on a fresh site.
+        from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+        ensure_fiscal_year_exists(je.posting_date, FORCE_COMPANY)
         je.submit()
         frappe.db.commit()
         return je.name

@@ -2807,6 +2807,15 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
 
     try:
         je.save()
+        # Guarantee the posting date's Fiscal Year covers this company before
+        # submit, otherwise ERPNext raises FiscalYearError for a date that is in
+        # a FY restricted to other companies.
+        from .invoice_helpers import ensure_fiscal_year_exists
+
+        try:
+            ensure_fiscal_year_exists(je.posting_date, company, debug_info)
+        except Exception as fy_error:
+            debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
         je.submit()
         debug_info.append(f"Created Journal Entry {je.name}")
         return je

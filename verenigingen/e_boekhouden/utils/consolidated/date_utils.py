@@ -58,8 +58,16 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
         )
 
         if existing_fy:
-            debug_info.append(f"Fiscal year {existing_fy[0].name} exists for date {transaction_date}")
-            return existing_fy[0].name
+            fy_name = existing_fy[0].name
+            debug_info.append(f"Fiscal year {fy_name} exists for date {transaction_date}")
+            # A Fiscal Year row existing for the date is NOT sufficient: ERPNext's
+            # get_fiscal_years(date, company=X) only returns a FY whose `companies`
+            # child table is EMPTY (applies to all companies) or explicitly lists X.
+            # If the located FY is restricted to OTHER companies, submitting a dated
+            # document for `company` still raises FiscalYearError. Ensure `company`
+            # is covered so the subsequent submit succeeds.
+            _ensure_company_in_fiscal_year(fy_name, company, debug_info)
+            return fy_name
 
         # No fiscal year found - create one for the calendar year
         year = transaction_date.year
@@ -124,3 +132,27 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
         )
         # Re-raise so caller knows creation failed
         raise
+
+
+def _ensure_company_in_fiscal_year(fy_name, company, debug_info):
+    """Make a Fiscal Year usable for ``company``.
+
+    ERPNext's ``get_fiscal_years(date, company=X)`` returns a FY only when its
+    ``companies`` child table is empty (global) or explicitly lists X. When a
+    company-restricted FY covers the transaction date but does NOT list our
+    company, document submission raises ``FiscalYearError`` even though the FY
+    "exists". Append our company to the FY's ``companies`` table (idempotent)
+    and clear the cached fiscal-year list so the next lookup sees the change.
+    """
+    company_rows = frappe.db.get_all("Fiscal Year Company", filters={"parent": fy_name}, pluck="company")
+    # Empty companies table => FY already applies to every company; nothing to do.
+    if not company_rows or company in company_rows:
+        return
+
+    fy = frappe.get_doc("Fiscal Year", fy_name)
+    fy.append("companies", {"company": company})
+    fy.save(ignore_permissions=True)
+    # FiscalYear.on_update clears the "fiscal_years" cache; be explicit in case
+    # this runs outside a normal document save context.
+    frappe.cache().delete_key("fiscal_years")
+    debug_info.append(f"Added company {company} to fiscal year {fy_name}")

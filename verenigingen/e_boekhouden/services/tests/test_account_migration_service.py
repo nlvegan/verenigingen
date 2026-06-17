@@ -121,13 +121,26 @@ class TestAccountMigrationService(EnhancedTestCase):
         self._track(account.name)
         return account.name
 
+    # The five Dutch root accounts ensure_root_accounts() seeds, keyed by the
+    # (account_number, account_name) identity that determines the Account name.
+    DUTCH_ROOTS = (
+        ("0", "Activa", "Asset"),
+        ("3", "Passiva", "Liability"),
+        ("5", "Eigen Vermogen", "Equity"),
+        ("8", "Opbrengsten", "Income"),
+        ("6", "Kosten", "Expense"),
+    )
+
     def _ensure_dutch_roots(self):
         """Seed the Dutch root accounts via the service and track them."""
         result = self.service.ensure_root_accounts()
-        # Track any roots that exist so tearDown can clean up.
+        # Track every top-level group account for this company so tearDown can
+        # clean up. Match on is_group alone (not on a parentless filter): ERPNext
+        # may assign a parent_account to a created root depending on existing
+        # structure, and a parentless-only query would miss those rows.
         for acc in frappe.get_all(
             "Account",
-            filters={"company": self.company, "parent_account": ["in", ["", None]], "is_group": 1},
+            filters={"company": self.company, "is_group": 1},
             pluck="name",
         ):
             self._track(acc)
@@ -193,15 +206,19 @@ class TestAccountMigrationService(EnhancedTestCase):
         result = self._ensure_dutch_roots()
         self.assertTrue(result["success"], msg=result)
 
-        # Verify one root group account exists for each root_type.
-        for root_type in ["Asset", "Liability", "Equity", "Income", "Expense"]:
+        # Verify the root group account for each root_type was created. Match on
+        # the (account_number, account_name, root_type) seed identity rather than a
+        # ``parent_account in ["", None]`` filter: ERPNext may attach a parent to a
+        # created root, so the parentless filter is unreliable on a fresh company.
+        for account_number, account_name, root_type in self.DUTCH_ROOTS:
             root = frappe.db.get_value(
                 "Account",
                 {
                     "company": self.company,
+                    "account_number": account_number,
+                    "account_name": account_name,
                     "root_type": root_type,
                     "is_group": 1,
-                    "parent_account": ["in", ["", None]],
                 },
                 "name",
             )

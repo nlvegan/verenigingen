@@ -516,6 +516,16 @@ class PaymentProcessor(BaseTransactionProcessor):
             else:
                 self.debug_info.append("⚠️ Bank Transaction creation failed/skipped")
 
+            # Guarantee the posting date's Fiscal Year covers this company before
+            # submit; a date in a FY restricted to other companies otherwise
+            # raises FiscalYearError on submit.
+            from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+            try:
+                ensure_fiscal_year_exists(je.posting_date, self.company, self.debug_info)
+            except Exception as fy_error:
+                self.debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+
             # Submit Journal Entry
             je.submit()
 

@@ -314,6 +314,13 @@ class _BatchClusterBase(EnhancedTestCase):
             {"account": self.bank, "debit_in_account_currency": 50, "cost_center": self.cost_center},
         )
         je.insert(ignore_permissions=True)
+        # Guarantee the posting date's Fiscal Year covers this company before
+        # submit (idempotent); the setUpClass company-restriction handling does
+        # not always survive the test runner's transaction handling on a fresh
+        # site.
+        from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+        ensure_fiscal_year_exists(je.posting_date, COMPANY)
         je.submit()
         return je
 

@@ -223,6 +223,16 @@ class StockProcessor(BaseTransactionProcessor):
             },
         )
 
+        # Guarantee the posting date's Fiscal Year covers this company before
+        # submit; a date in a FY restricted to other companies otherwise raises
+        # FiscalYearError on submit.
+        from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+        try:
+            ensure_fiscal_year_exists(stock_reco.posting_date, self.company, self.debug_info)
+        except Exception as fy_error:
+            self.debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+
         # Insert and submit with race condition handling
         stock_reco.flags.ignore_permissions = False  # Use proper permissions
         stock_reco, was_duplicate = submit_with_duplicate_handling(stock_reco)
