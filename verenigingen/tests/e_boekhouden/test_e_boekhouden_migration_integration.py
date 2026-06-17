@@ -641,6 +641,31 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         invoice.submit()
         return invoice.name
         
+    def _ensure_bank_account_master(self, company, gl_account):
+        """Create a Bank Account *master* linking a Bank to the GL account.
+
+        PaymentEntryHandler._determine_bank_account resolves a ledger to a
+        Bank/Cash account via resolve_bank_account_for_ledger, which needs this
+        master doctype (a Bank-type GL account + ledger mapping alone is not
+        enough). Without it the handler returns None and the payment tests below
+        silently skip instead of asserting anything.
+        """
+        if frappe.db.exists("Bank Account", {"account": gl_account, "company": company}):
+            return
+        bank_name = "TEST-Migration-Integration Bank"
+        if not frappe.db.exists("Bank", bank_name):
+            frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(ignore_permissions=True)
+        frappe.get_doc(
+            {
+                "doctype": "Bank Account",
+                "account_name": "TEST Triodos Bank Account",
+                "bank": bank_name,
+                "account": gl_account,
+                "company": company,
+                "is_company_account": 1,
+            }
+        ).insert(ignore_permissions=True)
+
     def _create_test_ledger_mappings(self):
         """Create test E-Boekhouden ledger mappings"""
         # Bank account mapping
@@ -651,6 +676,10 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
             mapping.ledger_name = "Triodos Bank"
             mapping.erpnext_account = self.triodos_account
             mapping.insert()
+
+        # The handler needs a Bank Account master for the bank GL account that
+        # ledger 1001 maps to, otherwise process_payment_mutation returns None.
+        self._ensure_bank_account_master(self.test_company, self.triodos_account)
             
         # Receivable account mapping
         if not frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": 1300}):
@@ -664,7 +693,13 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
     def test_customer_payment_processing_single_invoice(self):
         """Test processing customer payment for single invoice"""
         # Use unique mutation ID to avoid duplicate detection
-        mutation_id = int(self.factory.get_next_sequence('mutation_id')) + 100000
+        # Time-based unique id: the handler commits created Payment Entries
+        # (atomic_migration_operation), so they survive test rollback. A repeating
+        # sequence id would collide with a prior run's committed PE and trip the
+        # duplicate-detection early-return (0 references). See test_payment_entry_handler.
+        import time
+
+        mutation_id = int(time.time() * 1000) % 100000000 + 100000
 
         mutation_data = {
             "id": mutation_id,
@@ -691,15 +726,12 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         try:
             payment_entry_name = self.handler.process_payment_mutation(mutation_data)
 
-            # Handler may return None if infrastructure not fully set up
-            if payment_entry_name is None:
-                self.skipTest(
-                    "PaymentEntryHandler returned None - requires full E-Boekhouden "
-                    "infrastructure (ledger mappings, bank accounts, mode of payment)"
-                )
-
-            # Verify payment entry was created
-            self.assertIsNotNone(payment_entry_name)
+            # Verify payment entry was created (setUp now wires the Bank Account
+            # master the handler needs, so a None here is a real regression).
+            self.assertIsNotNone(
+                payment_entry_name,
+                f"process_payment_mutation returned None. Debug: {self.handler.debug_log}",
+            )
             self.assertTrue(frappe.db.exists("Payment Entry", payment_entry_name))
             
             # Verify payment entry details
@@ -738,7 +770,10 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         invoice2.submit()
 
         # Use unique mutation ID to avoid duplicate detection
-        mutation_id = int(self.factory.get_next_sequence('mutation_id')) + 200000
+        # Time-based unique id — see the note in the single-invoice test above.
+        import time
+
+        mutation_id = int(time.time() * 1000) % 100000000 + 200000
 
         mutation_data = {
             "id": mutation_id,
@@ -772,24 +807,23 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         try:
             payment_entry_name = self.handler.process_payment_mutation(mutation_data)
 
-            # Handler may return None if infrastructure not fully set up
-            if payment_entry_name is None:
-                self.skipTest(
-                    "PaymentEntryHandler returned None - requires full E-Boekhouden "
-                    "infrastructure (ledger mappings, bank accounts, mode of payment)"
-                )
-
-            # Verify payment entry was created
-            self.assertIsNotNone(payment_entry_name)
+            # Verify payment entry was created (setUp now wires the Bank Account
+            # master the handler needs, so a None here is a real regression).
+            self.assertIsNotNone(
+                payment_entry_name,
+                f"process_payment_mutation returned None. Debug: {self.handler.debug_log}",
+            )
             pe = frappe.get_doc("Payment Entry", payment_entry_name)
-            
+
             self.assertEqual(pe.payment_type, "Pay")
             self.assertEqual(pe.party_type, "Supplier")
             self.assertEqual(pe.party, self.test_supplier)
             self.assertEqual(pe.paid_amount, 125.00)
             
             # Verify multiple invoice allocations (FIFO or 1:1 depending on strategy)
-            self.assertGreater(len(pe.references), 0)
+            self.assertGreater(
+                len(pe.references), 0, f"no references. Debug: {self.handler.debug_log}"
+            )
             
         finally:
             self.handler._get_or_create_party = original_method

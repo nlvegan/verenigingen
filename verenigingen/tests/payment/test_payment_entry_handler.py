@@ -255,38 +255,39 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         
         # Enhanced Test Factory handles cleanup automatically
     
-    def test_payment_without_party(self):
-        """Test payment creation without party (relation ID)."""
+    def test_payment_without_party_returns_none(self):
+        """A type 3/4 payment with no relationId declines to create a PE.
+
+        PaymentEntryHandler._get_or_create_party returns None for a falsy
+        relation_id, and process_payment_mutation then returns None at the
+        "Could not determine party" guard. Customer/supplier payments inherently
+        need a party; party-less money movements are types 5/6, handled
+        elsewhere as Journal Entries. This pins that contract instead of
+        skipping when (correctly) no Payment Entry is produced.
+        """
         import time
 
-        # Use unique mutation ID
         unique_mutation_id = int(time.time() * 1000) % 10000000 + 2000
 
-        # Use a ledger ID that's likely to exist (Triodos bank account)
         mutation = {
             "id": unique_mutation_id,
             "type": 3,
             "date": nowdate(),
             "amount": 50.00,
-            "ledgerId": 10440,  # Triodos - more likely to have mapping
-            "description": "TEST-PAYMENT Anonymous payment"
+            "ledgerId": self.BANK_LEDGER_ID,
+            "description": "TEST-PAYMENT Anonymous payment (no relationId)",
         }
 
-        # Process payment
         payment_name = self.handler.process_payment_mutation(mutation)
 
-        # Check if payment was created - if not, check debug log for reason
-        if payment_name is None:
-            debug_log = " ".join(self.handler.debug_log)
-            # Skip test if it failed due to missing configuration (not a code bug)
-            if "ERROR" in debug_log or "not found" in debug_log.lower():
-                self.skipTest(f"Payment creation requires configuration: {debug_log[-200:]}")
-
-        self.assertIsNotNone(payment_name, f"Payment creation failed. Debug: {self.handler.debug_log}")
-
-        pe = frappe.get_doc("Payment Entry", payment_name)
-        # Party may or may not be None depending on handler implementation
-        self.assertEqual(pe.reference_no, f"EB-{unique_mutation_id}")
+        # No party => handler returns None and creates no Payment Entry.
+        self.assertIsNone(payment_name)
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"eboekhouden_mutation_nr": str(unique_mutation_id)}),
+            "no Payment Entry should be persisted for a party-less payment",
+        )
+        # The decline reason is the missing party, not some unrelated failure.
+        self.assertIn("party", " ".join(self.handler.debug_log).lower())
 
         # Enhanced Test Factory handles cleanup automatically
     
