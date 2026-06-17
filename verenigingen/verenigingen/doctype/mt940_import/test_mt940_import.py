@@ -25,8 +25,9 @@ Controller surface covered:
     - whitelisted: submit_import, create_mollie_bulk_import,
       get_mollie_bulk_import_history
 
-Diagnostic endpoints debug_import / debug_duplicates / debug_enhanced_import are
-flagged as dev helpers (see module docstring in the handoff) and not padded.
+debug_import / debug_duplicates back live "Test/Debug" form buttons
+(mt940_import.js) and run in production; they are intentionally not covered here.
+The dead debug_enhanced_import endpoint was removed (no callers).
 """
 
 import frappe

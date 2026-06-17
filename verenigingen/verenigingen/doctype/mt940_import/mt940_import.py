@@ -347,50 +347,6 @@ def debug_duplicates(bank_account, file_url):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def debug_enhanced_import(bank_account, file_url):
-    """Debug method for testing enhanced MT940 import with SEPA features"""
-    try:
-        # Get file content from attachment
-        file_doc = frappe.get_doc("File", {"file_url": file_url})
-        file_path = file_doc.get_full_path()
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            mt940_content = f.read()
-
-        # Encode as base64 for processing
-        file_content_b64 = base64.b64encode(mt940_content.encode("utf-8")).decode("utf-8")
-
-        # Use enhanced validation function
-        from verenigingen.utils.mt940_import import validate_mt940_file
-
-        company = frappe.db.get_value("Bank Account", bank_account, "company")
-        validation_result = validate_mt940_file(file_content_b64)
-
-        # Check enhanced fields status
-        from verenigingen.utils.mt940_enhanced_fields import get_field_creation_status
-
-        field_status = get_field_creation_status()
-
-        return {
-            "validation_result": validation_result,
-            "enhanced_fields_status": field_status,
-            "bank_account": bank_account,
-            "company": company,
-            "file_size": len(mt940_content),
-            "enhanced_features": {
-                "sepa_data_extraction": True,
-                "dutch_banking_codes": True,
-                "enhanced_duplicate_detection": True,
-                "transaction_type_classification": True,
-            },
-        }
-
-    except Exception as e:
-        return {"error": str(e), "traceback": frappe.get_traceback()}
-
-
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def estimate_mollie_bulk_import(from_date, to_date, strategy="hybrid"):
     """API endpoint to estimate Mollie bulk import size"""
