@@ -1886,7 +1886,7 @@ def _get_or_create_stock_temporary_account(company, debug_info):
                WHERE company = %s
                AND root_type = 'Asset'
                AND is_group = 1
-               AND account_name LIKE '%Current%'
+               AND account_name LIKE '%%Current%%'
                LIMIT 1""",
             company,
         )
@@ -3426,79 +3426,39 @@ def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, deb
         row_amount: Amount from E-Boekhouden (positive or negative)
         debug_info: List to append debug messages to
 
+    Convention (verified against actual E-Boekhouden transactions): the "amount"
+    field is the CREDIT side, so a POSITIVE row amount CREDITS the row account and
+    DEBITS the offsetting main account; a negative amount reverses it.
+      - Mutation 1334: Row=Kruisposten, Main=Te betalen, Amount=+8445.03
+        → Credit Kruisposten, Debit Te betalen (zeroing an opening balance)
+
     Returns:
         tuple: (row_debit, row_credit, main_debit, main_credit)
     """
     debug_info.append(
-        f"_get_memorial_booking_amounts called: row_ledger={row_ledger_id}, main_ledger={main_ledger_id}, amount={row_amount}"
+        f"_get_memorial_booking_amounts: row_ledger={row_ledger_id}, main_ledger={main_ledger_id}, amount={row_amount}"
     )
-    try:
-        from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
-        # Get E-Boekhouden account categories
-        settings = frappe.get_single("E-Boekhouden Settings")
-        api = EBoekhoudenAPI(settings)
+    # NOTE: a prior version fetched E-Boekhouden ledger "categories" via the API but
+    # never used them (the logic is purely amount-based), and its except-fallback
+    # used the OPPOSITE debit/credit convention. That meant memorial bookings
+    # imported WITHOUT API credentials (CI, or a transient token failure mid-import)
+    # silently landed on the wrong side of the ledger. The dead API call was removed
+    # and the single verified convention below is used everywhere.
+    abs_amount = abs(row_amount)
+    if row_amount > 0:
+        # Positive amount: credit the row, debit the main.
+        row_debit, row_credit = 0, abs_amount
+        main_debit, main_credit = abs_amount, 0
+    else:
+        # Negative amount: debit the row, credit the main.
+        row_debit, row_credit = abs_amount, 0
+        main_debit, main_credit = 0, abs_amount
 
-        row_category = None
-        main_category = None
-
-        # Fetch row account category
-        if row_ledger_id:
-            try:
-                result = api.make_request(f"v1/ledger/{row_ledger_id}")
-                if result["success"]:
-                    ledger_data = json.loads(result["data"])
-                    row_category = ledger_data.get("category")
-            except Exception as e:
-                debug_info.append(f"Failed to get row ledger category: {str(e)}")
-
-        # Fetch main account category
-        if main_ledger_id:
-            try:
-                result = api.make_request(f"v1/ledger/{main_ledger_id}")
-                if result["success"]:
-                    ledger_data = json.loads(result["data"])
-                    main_category = ledger_data.get("category")
-            except Exception as e:
-                debug_info.append(f"Failed to get main ledger category: {str(e)}")
-
-        abs_amount = abs(row_amount)
-        debug_info.append(
-            f"Memorial booking logic: row_category={row_category}, main_category={main_category}, amount={row_amount}"
-        )
-
-        # E-Boekhouden memorial booking semantics (based on actual transactions):
-        # Positive row amount means row account gets CREDITED (regardless of account type)
-        # Main account gets the offsetting DEBIT
-        #
-        # This is counter-intuitive but verified by:
-        # - Mutation 1334: Row=Kruisposten, Main=Te betalen, Amount=+8445.03
-        #   → Credit Kruisposten, Debit Te betalen (zeroing opening balance)
-        #
-        # The "amount" field represents the CREDIT side of the entry
-
-        if row_amount > 0:
-            # Positive amount: ALWAYS credit the row, debit the main
-            row_debit, row_credit = 0, abs_amount
-            main_debit, main_credit = abs_amount, 0
-
-        else:
-            # Negative amount: ALWAYS debit the row, credit the main
-            row_debit, row_credit = abs_amount, 0
-            main_debit, main_credit = 0, abs_amount
-
-        debug_info.append(
-            f"Calculated amounts - Row: Dr {row_debit}, Cr {row_credit} | Main: Dr {main_debit}, Cr {main_credit}"
-        )
-        return row_debit, row_credit, main_debit, main_credit
-
-    except Exception as e:
-        debug_info.append(f"Error in memorial booking calculation: {str(e)}")
-        # Fallback to original logic if category lookup fails
-        if row_amount > 0:
-            return row_amount, 0, 0, row_amount
-        else:
-            return 0, -row_amount, -row_amount, 0
+    debug_info.append(
+        f"Memorial amounts - Row: Dr {row_debit}, Cr {row_credit} | Main: Dr {main_debit}, Cr {main_credit}"
+    )
+    return row_debit, row_credit, main_debit, main_credit
 
 
 def start_full_rest_import(migration_name, mutation_types=None):
