@@ -364,6 +364,18 @@ class TestAssignPartyToEntry(_JournalClusterBase):
         self.assertTrue(line.get("party"), "memorial receivable should get company-as-customer party")
         self.assertTrue(frappe.db.exists("Customer", line["party"]))
 
+    def test_memorial_payable_uses_company_as_supplier(self):
+        # type 7 + payable: party is the company-as-supplier (internal), NOT the
+        # relation supplier -- mirror of the receivable memorial branch above.
+        line = {"account": self.payable}
+        _assign_party_to_entry(line, self.payable, 7, SUPPLIER_RELATION, self.company, "d", [])
+        self.assertEqual(line["party_type"], "Supplier")
+        self.assertTrue(line.get("party"), "memorial payable should get company-as-supplier party")
+        self.assertTrue(frappe.db.exists("Supplier", line["party"]))
+        # The type-7 branch ignores relation_id in favour of the internal company party.
+        self.assertNotEqual(line["party"], self.supplier)
+        self.assertIn("(Internal)", line["party"])
+
 
 # ---------------------------------------------------------------------------
 # _build_memorial_balancing_entry

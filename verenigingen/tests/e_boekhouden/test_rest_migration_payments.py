@@ -8,11 +8,7 @@ PaymentEntryHandler / PaymentProcessor internals, which live in
 
 - ``_create_payment_entry``                -> Payment Entry (types 3/4)
 - ``_create_money_transfer_payment_entry`` -> Journal Entry (types 5/6)
-- ``_process_money_transfer_mutation``     -> Journal Entry (orphaned helper)
 - ``_resolve_account_mapping``             -> ledger_id -> ERPNext account
-- ``_resolve_money_source_account`` / ``_resolve_money_destination_account``
-- ``_get_appropriate_income_account`` / ``_get_appropriate_expense_account``
-  / ``_get_appropriate_payment_account``
 
 These are REAL integration tests against a dedicated EUR company
 (``TEST-EB-Payment-Company``). They assert concrete financial outcomes:
@@ -36,13 +32,7 @@ from frappe.utils import flt, today
 from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _create_money_transfer_payment_entry,
     _create_payment_entry,
-    _get_appropriate_expense_account,
-    _get_appropriate_income_account,
-    _get_appropriate_payment_account,
-    _process_money_transfer_mutation,
     _resolve_account_mapping,
-    _resolve_money_destination_account,
-    _resolve_money_source_account,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -177,32 +167,6 @@ def _persist_supplier(name, relation_id=None):
     return doc.name
 
 
-def _make_payment_mapping(company, account_type, erpnext_account, code):
-    """Create an 'Account Type' E-Boekhouden Payment Mapping row.
-
-    NOTE: the DocType's ``account_type`` Select only allows 'Bank' or 'Cash',
-    so only ``bank_account`` / ``cash_account`` keys are reachable via the
-    DocType path of get_payment_account_mappings().
-    """
-    if frappe.db.exists(
-        "E-Boekhouden Payment Mapping",
-        {"company": company, "mapping_type": "Account Type", "account_type": account_type},
-    ):
-        return
-    mop = frappe.db.get_value("Mode of Payment", {}, "name")
-    doc = frappe.new_doc("E-Boekhouden Payment Mapping")
-    doc.mapping_type = "Account Type"
-    doc.company = company
-    doc.eboekhouden_account_code = code
-    doc.account_name = erpnext_account
-    doc.erpnext_account = erpnext_account
-    doc.account_type = account_type
-    doc.mode_of_payment = mop
-    doc.priority = 1
-    doc.active = 1
-    doc.insert(ignore_permissions=True)
-
-
 def _clear_payment_mappings(company):
     rows = frappe.get_all("E-Boekhouden Payment Mapping", filters={"company": company}, pluck="name")
     for r in rows:
@@ -238,7 +202,6 @@ def _ensure_current_fiscal_year():
 
 # Ledger id constants (ledger_id == ledger_code by recipe).
 BANK_LEDGER = 800100  # primary bank
-BANK2_LEDGER = 800200  # second bank (transfer destination)
 INCOME_LEDGER = 800300  # income account (type 5 rows)
 EXPENSE_LEDGER = 800400  # expense account (type 6 rows)
 
@@ -253,7 +216,6 @@ class _PaymentTestBase(EnhancedTestCase):
 
         # GL accounts under the auto-created roots
         cls.bank = _make_leaf_account(cls.company, "TEB Bank One", "Asset", "Bank")
-        cls.bank2 = _make_leaf_account(cls.company, "TEB Bank Two", "Asset", "Bank")
         cls.cash = _make_leaf_account(cls.company, "TEB Cash", "Asset", "Cash")
         cls.income = _make_leaf_account(cls.company, "TEB Income", "Income", "Income Account")
         cls.expense = _make_leaf_account(cls.company, "TEB Expense", "Expense", "Expense Account")
@@ -268,13 +230,11 @@ class _PaymentTestBase(EnhancedTestCase):
 
         # Ledger mappings (ledger_id == ledger_code)
         _persist_ledger_mapping(BANK_LEDGER, cls.bank)
-        _persist_ledger_mapping(BANK2_LEDGER, cls.bank2)
         _persist_ledger_mapping(INCOME_LEDGER, cls.income)
         _persist_ledger_mapping(EXPENSE_LEDGER, cls.expense)
 
-        # Bank Account DocTypes for JE money-transfer reconciliation
+        # Bank Account DocType for JE money-transfer reconciliation
         _make_bank_account_doctype(cls.company, cls.bank, "TEB Bank One Acct")
-        _make_bank_account_doctype(cls.company, cls.bank2, "TEB Bank Two Acct")
 
         # Parties resolvable purely from DB by relation code
         cls.customer = _persist_customer("TEB Customer", relation_id="REL-CUST-1")
@@ -323,88 +283,6 @@ class TestAccountResolutionHelpers(_PaymentTestBase):
     def test_resolve_account_mapping_falsy_ledger_returns_none(self):
         self.assertIsNone(_resolve_account_mapping(None, []))
         self.assertIsNone(_resolve_account_mapping(0, []))
-
-    # ---- _get_appropriate_payment_account (cash preferred, bank fallback) ----
-
-    def test_payment_account_prefers_cash_mapping(self):
-        _make_payment_mapping(self.company, "Cash", self.cash, "CASHCODE")
-        _make_payment_mapping(self.company, "Bank", self.bank, "BANKCODE")
-        debug = []
-        result = _get_appropriate_payment_account(self.company, debug)
-        self.assertEqual(result["erpnext_account"], self.cash)
-        self.assertEqual(result["account_type"], "Cash")
-
-    def test_payment_account_falls_back_to_bank_when_no_cash(self):
-        _make_payment_mapping(self.company, "Bank", self.bank, "BANKCODE")
-        debug = []
-        result = _get_appropriate_payment_account(self.company, debug)
-        self.assertEqual(result["erpnext_account"], self.bank)
-        self.assertEqual(result["account_type"], "Bank")
-
-    # ---- _get_appropriate_income_account / _get_appropriate_expense_account ----
-    #
-    # The E-Boekhouden Payment Mapping DocType's account_type Select only allows
-    # Bank/Cash, so income/expense keys can NEVER come from the DocType path.
-    # They are only available from the default-mapping fallback (root_type-based),
-    # which kicks in when the company has NO payment-mapping rows.
-
-    def test_income_account_from_default_fallback(self):
-        # No mapping rows -> get_payment_account_mappings() falls back to defaults,
-        # which sets income_account from the first Income-root leaf account.
-        debug = []
-        result = _get_appropriate_income_account(self.company, debug)
-        self.assertEqual(result["account_type"], "Income")
-        income_root_account = frappe.db.get_value(
-            "Account", result["erpnext_account"], "root_type"
-        )
-        self.assertEqual(income_root_account, "Income")
-
-    def test_expense_account_from_default_fallback(self):
-        debug = []
-        result = _get_appropriate_expense_account(self.company, debug)
-        self.assertEqual(result["account_type"], "Expense")
-        expense_root = frappe.db.get_value("Account", result["erpnext_account"], "root_type")
-        self.assertEqual(expense_root, "Expense")
-
-    def test_income_account_throws_when_only_bankcash_mappings_exist(self):
-        # With Bank/Cash mapping rows present, mappings is non-empty so the
-        # default fallback is skipped and income_account is absent -> throw.
-        _make_payment_mapping(self.company, "Cash", self.cash, "CASHCODE")
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            _get_appropriate_income_account(self.company, [])
-
-    def test_expense_account_throws_when_only_bankcash_mappings_exist(self):
-        _make_payment_mapping(self.company, "Bank", self.bank, "BANKCODE")
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            _get_appropriate_expense_account(self.company, [])
-
-    # ---- _resolve_money_source_account (type 5, money received) ----
-
-    def test_money_source_with_relation_returns_income(self):
-        # relationId present -> source is an income account
-        mutation = {"relationId": "REL-X", "type": 5}
-        result = _resolve_money_source_account(mutation, self.company, [])
-        self.assertEqual(result["account_type"], "Income")
-
-    def test_money_source_without_relation_returns_payment_account(self):
-        _make_payment_mapping(self.company, "Cash", self.cash, "CASHCODE")
-        mutation = {"type": 5}  # no relationId
-        result = _resolve_money_source_account(mutation, self.company, [])
-        self.assertEqual(result["erpnext_account"], self.cash)
-        self.assertIn(result["account_type"], ("Cash", "Bank"))
-
-    # ---- _resolve_money_destination_account (type 6, money paid) ----
-
-    def test_money_destination_with_relation_returns_expense(self):
-        mutation = {"relationId": "REL-Y", "type": 6}
-        result = _resolve_money_destination_account(mutation, self.company, [])
-        self.assertEqual(result["account_type"], "Expense")
-
-    def test_money_destination_without_relation_returns_payment_account(self):
-        _make_payment_mapping(self.company, "Bank", self.bank, "BANKCODE")
-        mutation = {"type": 6}
-        result = _resolve_money_destination_account(mutation, self.company, [])
-        self.assertEqual(result["erpnext_account"], self.bank)
 
 
 # ===========================================================================
@@ -485,8 +363,7 @@ class TestCreatePaymentEntry(_PaymentTestBase):
 
 
 # ===========================================================================
-# 3. _create_money_transfer_payment_entry / _process_money_transfer_mutation
-#    (types 5/6 -> Journal Entry)
+# 3. _create_money_transfer_payment_entry  (types 5/6 -> Journal Entry)
 # ===========================================================================
 
 
@@ -601,60 +478,3 @@ class TestMoneyTransferJournalEntry(_PaymentTestBase):
         income_lines = [a for a in saved.accounts if a.account == self.income]
         self.assertEqual(len(income_lines), 1)
         self.assertEqual(flt(income_lines[0].credit_in_account_currency, 2), 45.0)
-
-
-# ===========================================================================
-# 4. _process_money_transfer_mutation  (orphaned helper: explicit source/dest)
-# ===========================================================================
-
-
-class TestProcessMoneyTransferMutation(_PaymentTestBase):
-    """Directly exercises the orphaned _process_money_transfer_mutation helper,
-    which builds a Journal Entry transferring between two explicitly-provided
-    account mappings.
-
-    PRODUCTION BUG (documented, NOT worked around):
-    _process_money_transfer_mutation sets je.voucher_type = "Bank Entry" but
-    NEVER sets je.cheque_no / je.cheque_date. ERPNext's
-    JournalEntry.validate_cheque_info() (on_submit) REQUIRES a Reference No &
-    Reference Date for the "Bank Entry" voucher type, so je.submit() ALWAYS
-    raises ValidationError. This helper can therefore never produce a submitted
-    document. It is currently dead code (no callers in the app), so the bug is
-    latent -- but if it were ever wired up it would fail 100% of the time.
-    The functional path (_create_money_transfer_payment_entry via
-    PaymentProcessor) correctly uses voucher_type="Journal Entry" + cheque_no.
-
-    These tests pin the bug: the accounts are built correctly (asserted on the
-    pre-submit doc), but submit() raises. A future fix that sets cheque_no/date
-    will turn the second assertion red, signalling the helper is now usable.
-    """
-
-    def test_transfer_builds_correct_lines_but_submit_fails_missing_reference(self):
-        debug = []
-        amount = 150.0
-        mut = {
-            "id": self._uid(),
-            "type": 5,
-            "date": today(),
-            "amount": amount,
-            "ledgerId": BANK_LEDGER,
-            "description": "internal transfer bank1->bank2",
-            "rows": [{"ledgerId": BANK_LEDGER, "amount": amount, "description": "transfer"}],
-        }
-        from_mapping = {"erpnext_account": self.bank}
-        to_mapping = {"erpnext_account": self.bank2}
-
-        # The helper builds the JE in memory and calls save()+submit() internally.
-        # submit() raises because voucher_type="Bank Entry" has no reference no/date.
-        with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
-            _process_money_transfer_mutation(
-                mut, self.company, self.cost_center, from_mapping, to_mapping, debug
-            )
-        self.assertIn("Reference No", str(ctx.exception))
-        # The debug trail shows the helper DID compute the intended transfer
-        # direction (from -> to) before submit blew up -- so the only defect is
-        # the missing Bank Entry reference, not the account logic.
-        self.assertTrue(
-            any(f"from {self.bank} to {self.bank2}" in m for m in debug),
-            f"expected transfer-direction debug line, got: {debug}",
-        )

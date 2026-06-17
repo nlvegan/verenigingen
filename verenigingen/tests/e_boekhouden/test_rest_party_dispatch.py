@@ -5,8 +5,6 @@ verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py
 
 Target functions:
     _get_or_create_customer / _get_or_create_supplier
-    _get_or_create_generic_party / _get_or_create_generic_customer /
-        _get_or_create_generic_supplier
     _get_or_create_company_party / _get_or_create_company_as_customer /
         _get_or_create_company_as_supplier
     _process_single_mutation (type -> handler dispatcher)
@@ -20,7 +18,7 @@ party resolution degrades gracefully:
   - _get_or_create_customer/_supplier call EBoekhoudenPartyResolver, whose API
     fetch fails and which then (a) reuses an existing party matched on
     eboekhouden_relation_code, or (b) creates a provisional party.
-  - the generic / company helpers go through BankTransactionParser.find_or_create_party
+  - the company helpers go through BankTransactionParser.find_or_create_party
     which is purely DB-driven (no API).
 
 For _process_single_mutation we only exercise the type->handler routing that is
@@ -49,9 +47,6 @@ from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
     _get_or_create_company_as_supplier,
     _get_or_create_company_party,
     _get_or_create_customer,
-    _get_or_create_generic_customer,
-    _get_or_create_generic_party,
-    _get_or_create_generic_supplier,
     _get_or_create_supplier,
     _log_batch_summary,
     _process_single_mutation,
@@ -329,43 +324,6 @@ class TestPartyGetOrCreate(_PartyClusterBase):
         self.assertTrue(frappe.db.exists("Supplier", name1))
         name2 = _get_or_create_supplier(relation, "Some supplier", [])
         self.assertEqual(name1, name2)
-
-
-class TestGenericPartyGetOrCreate(_PartyClusterBase):
-    def test_generic_customer_created_with_description_name(self):
-        """A long description yields a named customer ending in the import marker."""
-        desc = "Conference catering invoice ABC"
-        name = _get_or_create_generic_customer(desc, [])
-        self.assertTrue(frappe.db.exists("Customer", name))
-        self.assertIn("(eBoekhouden Import)", name)
-
-    def test_generic_customer_idempotent(self):
-        """Same description => same customer on the second call (find-or-create)."""
-        desc = "Repeat vendor description XYZ"
-        first = _get_or_create_generic_customer(desc, [])
-        second = _get_or_create_generic_customer(desc, [])
-        self.assertEqual(first, second)
-
-    def test_generic_supplier_created_and_idempotent(self):
-        desc = "Office supplies recurring vendor"
-        first = _get_or_create_generic_supplier(desc, [])
-        second = _get_or_create_generic_supplier(desc, [])
-        self.assertTrue(frappe.db.exists("Supplier", first))
-        self.assertEqual(first, second)
-
-    def test_generic_party_short_description_takes_fallback_path_not_error(self):
-        """A <5-char description takes the generic-fallback path and yields a REAL
-        party -- NOT the 'Default Customer' string the get_meaningful_description
-        string-vs-dict bug used to return. (We don't assert the exact fallback name
-        because find_or_create_party's fuzzy matching may legitimately reuse an
-        existing party.)"""
-        name = _get_or_create_generic_party("Customer", "ab", [])
-        self.assertTrue(frappe.db.exists("Customer", name))
-        self.assertNotEqual(name, "Default Customer")
-
-    def test_generic_party_empty_description_uses_fallback_name(self):
-        name = _get_or_create_generic_party("Supplier", "", [])
-        self.assertTrue(frappe.db.exists("Supplier", name))
 
 
 class TestCompanyPartyGetOrCreate(_PartyClusterBase):
