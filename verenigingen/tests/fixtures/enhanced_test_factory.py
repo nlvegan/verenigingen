@@ -1346,6 +1346,16 @@ class EnhancedTestDataFactory:
         if attributes:
             template_data.update(attributes)
 
+        # A template MUST reference a Membership Type — validate_template_or_instance()
+        # throws "Templates must specify a Membership Type" otherwise. Earlier callers
+        # got away without one because a "data-accumulated" dev site already had a
+        # template they could adopt; a fresh CI shard has none, so the insert below
+        # would fail. Resolve (or create) a real type when the caller didn't pass one.
+        if not template_data.get("membership_type"):
+            template_data["membership_type"] = self._resolve_template_membership_type(
+                template_data.get("dues_rate", 50.00)
+            )
+
         template = frappe.get_doc(template_data)
         try:
             template.insert()
@@ -1362,6 +1372,25 @@ class EnhancedTestDataFactory:
         self.track_document("Membership Dues Schedule", template.name, priority=3)
 
         return template
+
+    def _resolve_template_membership_type(self, dues_rate: float) -> str:
+        """Return the name of a Membership Type suitable for a dues template.
+
+        Adopt any existing active type whose minimum the template rate satisfies
+        (``Template dues rate cannot be less than membership type minimum``);
+        otherwise create one sized to the template rate. Self-contained so the
+        factory never depends on a pre-seeded type on a fresh CI shard.
+        """
+        existing = frappe.db.get_value(
+            "Membership Type",
+            {"is_active": 1, "minimum_amount": ["<=", dues_rate]},
+            "name",
+        )
+        if existing:
+            return existing
+        return self.ensure_membership_type(
+            "ETDF Template Type", {"amount": dues_rate}
+        ).name
 
     @staticmethod
     def _find_dues_schedule_template(template_name: str):
