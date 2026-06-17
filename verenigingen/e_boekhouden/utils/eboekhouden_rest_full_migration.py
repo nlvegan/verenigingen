@@ -1809,10 +1809,20 @@ def _get_or_create_temporary_diff_account(company, debug_info):
         debug_info.append(f"Using existing temporary account (root: {any_temp[0].root_type}): {account_name}")
         return account_name
 
-    # PRIORITY 4: Only try to create if no temporary accounts exist at all
-    account_name = f"Temporary Differences - {company}"
-    if frappe.db.exists("Account", account_name):
-        return account_name
+    # PRIORITY 4: Only try to create if no temporary accounts exist at all.
+    # Look up by (account_name, company), NOT a constructed "<name> - <company>"
+    # string: ERPNext autonames "<account_name> - <abbr>", so the old
+    # f"Temporary Differences - {company}" exists-check never matched the account
+    # this path creates (same abbr-vs-full-name bug fixed in the stock helper).
+    # In practice PRIORITY 1-3 already return a found temp account, so this is a
+    # defensive guard against a duplicate insert rather than the primary path.
+    existing = frappe.db.get_value(
+        "Account",
+        {"account_name": "Temporary Differences", "company": company},
+        "name",
+    )
+    if existing:
+        return existing
 
     # Create the account under Equity as last resort
     try:
