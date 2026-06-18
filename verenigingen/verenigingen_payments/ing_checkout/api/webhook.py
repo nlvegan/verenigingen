@@ -19,6 +19,7 @@ API Documentation: https://developer.pay.nl/docs/exchanges
 """
 
 import json
+import re
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
@@ -37,6 +38,19 @@ from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security impo
     log_webhook,
     verify_ing_checkout_webhook,
 )
+
+
+def _safe_savepoint_name(prefix: str, identifier: Optional[str]) -> str:
+    """Build a SQL-safe savepoint identifier.
+
+    Frappe's ``frappe.db.savepoint()`` interpolates the name unquoted into
+    ``SAVEPOINT <name>``. Pay.nl IDs contain hyphens (e.g. ``EX-1234-5678``),
+    which MariaDB parses as an arithmetic expression -> "Syntax error in query"
+    and the webhook crashes before it ever processes. Replace every
+    non-alphanumeric character with an underscore so the savepoint is valid.
+    """
+    raw = f"{prefix}_{identifier or 'unknown'}"
+    return re.sub(r"[^0-9A-Za-z_]", "_", raw)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -158,7 +172,7 @@ def handle_payment():
         )
 
         # Process the payment with savepoint for atomicity
-        savepoint_name = f"ing_payment_{order_id}"
+        savepoint_name = _safe_savepoint_name("ing_payment", order_id)
         try:
             frappe.db.savepoint(savepoint_name)
             result = _process_payment_webhook(order_id, payload)
@@ -291,7 +305,7 @@ def handle_mandate():
         error_handler.log_info(f"Processing mandate webhook: mandate={mandate_id}", {"status": status})
 
         # Process mandate status update with savepoint
-        savepoint_name = f"ing_mandate_{mandate_id}"
+        savepoint_name = _safe_savepoint_name("ing_mandate", mandate_id)
         try:
             frappe.db.savepoint(savepoint_name)
             result = _process_mandate_webhook(mandate_id, payload)
@@ -409,7 +423,7 @@ def handle_direct_debit():
         )
 
         # Process with savepoint
-        savepoint_name = f"ing_debit_{reference_id}"
+        savepoint_name = _safe_savepoint_name("ing_debit", reference_id)
         try:
             frappe.db.savepoint(savepoint_name)
             result = _process_direct_debit_webhook(reference_id, payload)
