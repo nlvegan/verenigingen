@@ -11,7 +11,6 @@ verenigingen/verenigingen_payments/mollie/
 │   ├── unified_payment_api.py  # Payment operations API
 │   ├── monitoring_api.py       # Health & metrics endpoints
 │   ├── subscription_sync.py    # Subscription synchronization
-│   ├── payment_audit.py        # Audit and compliance
 │   └── dashboard.py            # Status dashboard
 ├── core/                       # Core components
 │   ├── client.py               # Primary Mollie API client
