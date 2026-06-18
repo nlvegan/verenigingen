@@ -79,12 +79,18 @@ class TestMemberPortalUtils(EnhancedTestCase):
     def test_set_home_page_missing_user(self):
         result = set_member_home_page(user_email="does-not-exist-xyz@example.invalid")
         self.assertFalse(result["success"])
+        # The message must interpolate the email (regression guard for the
+        # missing-f-prefix bug that returned the literal "{user_email}").
+        self.assertIn("does-not-exist-xyz@example.invalid", result["message"])
 
     def test_set_home_page_success_persists(self):
         _, email = self._make_portal_member()
         result = set_member_home_page(user_email=email, home_page="/member_portal")
         self.assertTrue(result["success"], msg=result.get("message"))
         self.assertEqual(result["home_page"], "/member_portal")
+        # The success message must interpolate the home page (regression guard
+        # for the missing-f-prefix bug that returned the literal "{home_page}").
+        self.assertIn("/member_portal", result["message"])
         # The change is actually written to the User doctype.
         self.assertEqual(frappe.db.get_value("User", email, "home_settings"), "/member_portal")
 

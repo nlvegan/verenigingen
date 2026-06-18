@@ -402,12 +402,32 @@ class TestEventHandlers(EnhancedTestCase):
         self.assertIsNone(queue_member_payment_history_update_handler_safe(doc))
 
     def test_expense_handler_maps_on_cancel_to_claim_cancelled(self):
-        """The handler swallows downstream failures (queue path may hit RQ);
-        we assert it does not raise and that an Error Log is the worst case."""
+        """The handler maps the doc-event method to an event_type and forwards it
+        to the enqueue boundary: on_cancel -> 'claim_cancelled', else
+        'payment_made'. We patch only the enqueue method (the RQ/IO boundary) and
+        assert the mapped event_type + doc name actually reach it."""
+        from unittest.mock import patch
+
         doc = frappe.new_doc("Expense Claim")
         doc.name = "EXP-HANDLER-1"
-        # Must not raise regardless of queue availability.
-        queue_expense_event_processing_handler(doc, method="on_cancel")
+
+        captured = {}
+
+        def _capture(expense_doc_name, event_type):
+            captured["doc"] = expense_doc_name
+            captured["event_type"] = event_type
+            return "job-fake"
+
+        with patch.object(BackgroundJobManager, "queue_expense_event_processing", side_effect=_capture):
+            queue_expense_event_processing_handler(doc, method="on_cancel")
+        self.assertEqual(captured["doc"], "EXP-HANDLER-1")
+        self.assertEqual(captured["event_type"], "claim_cancelled")
+
+        # Any other method maps to the default 'payment_made'.
+        captured.clear()
+        with patch.object(BackgroundJobManager, "queue_expense_event_processing", side_effect=_capture):
+            queue_expense_event_processing_handler(doc, method="on_submit")
+        self.assertEqual(captured["event_type"], "payment_made")
 
     def test_donor_handler_does_not_raise(self):
         doc = frappe.new_doc("Payment Entry")
