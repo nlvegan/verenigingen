@@ -451,7 +451,10 @@ class HistoryIntegrityManager:
             return False
 
         try:
-            return getdate(entry_date) >= add_days(today(), -grace_days)
+            # add_days() returns a date STRING; wrap in getdate() so we compare
+            # date-to-date. Without this the comparison raised TypeError (caught
+            # below) and the grace period silently never applied.
+            return getdate(entry_date) >= getdate(add_days(today(), -grace_days))
         except Exception:
             return False
 
