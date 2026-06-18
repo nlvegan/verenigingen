@@ -33,8 +33,18 @@ class MonitoringSystemTestRunner:
         self.results = {}
 
     def run_all_tests(self):
-        """Run comprehensive end-to-end monitoring system tests."""
-        frappe.set_user("Administrator")
+        """Run comprehensive end-to-end monitoring system tests.
+
+        This is a console-only diagnostic runner (invoked via
+        ``run_comprehensive_tests()``), not a pytest test. It must be run as
+        Administrator; we assert that rather than silently switching users so
+        the runner never escalates privileges implicitly.
+        """
+        if frappe.session.user != "Administrator":
+            raise PermissionError(
+                "MonitoringSystemTestRunner.run_all_tests must be run as Administrator "
+                f"(current user: {frappe.session.user})"
+            )
 
         print("\n" + "=" * 60)
         print("COMPREHENSIVE MONITORING SYSTEM TEST SUITE")
