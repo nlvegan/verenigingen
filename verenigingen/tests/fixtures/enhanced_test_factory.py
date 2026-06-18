@@ -1388,9 +1388,7 @@ class EnhancedTestDataFactory:
         )
         if existing:
             return existing
-        return self.ensure_membership_type(
-            "ETDF Template Type", {"amount": dues_rate}
-        ).name
+        return self.ensure_membership_type("ETDF Template Type", {"amount": dues_rate}).name
 
     @staticmethod
     def _find_dues_schedule_template(template_name: str):
@@ -1867,6 +1865,16 @@ class EnhancedTestCase(FrappeTestCase):
         # CRITICAL: Ensure Administrator context for all tests
         # This prevents permission errors and test contamination from other tests
         frappe.set_user("Administrator")
+
+        # CRITICAL: Restore the frappe.form_dict LocalProxy. Some tests set request
+        # args by assigning `frappe.form_dict = frappe._dict({...})` directly, which
+        # REPLACES the module-level LocalProxy with a static dict for the rest of the
+        # process. After that, every later test that uses the correct idiom
+        # (`frappe.local.form_dict = ...`) is invisible to `frappe.form_dict`, so
+        # page get_context() reads an empty dict (e.g. ponto_pay / payment_* portal
+        # tests failed only inside the full CI shard, never in isolation). Re-binding
+        # the proxy at the start of each test makes form_dict reads order-independent.
+        frappe.form_dict = frappe.local("form_dict")
 
         # CLEANUP: Remove stale test data from previous test runs
         # Only run once per test class (not per method) to avoid timeout
