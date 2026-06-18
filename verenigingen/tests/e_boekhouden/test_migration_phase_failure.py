@@ -13,9 +13,13 @@ Run with:
 
 import unittest
 
+import frappe
+
 from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
     _migration_phase_failed,
     _resolve_migration_status,
+    check_rest_api_status,
+    update_account_type_mapping,
 )
 
 
@@ -71,6 +75,67 @@ class TestResolveMigrationStatus(unittest.TestCase):
         self.assertEqual(status, "Failed")
         self.assertIn("Transactions", operation)
         self.assertIn("Cost Centers", operation)
+
+
+class TestUpdateAccountTypeMappingValidation(unittest.TestCase):
+    """Input-validation branches of update_account_type_mapping.
+
+    These branches return structured error dicts (no raise) before any account
+    lookup, so they are deterministic and need no fixtures.
+    """
+
+    def test_missing_parameters(self):
+        """Any missing required parameter returns MISSING_PARAMETERS."""
+        for args in (("", "Bank", "Co"), ("Acc", "", "Co"), ("Acc", "Bank", "")):
+            result = update_account_type_mapping(*args)
+            self.assertFalse(result["success"])
+            self.assertEqual(result["error_code"], "MISSING_PARAMETERS")
+
+    def test_invalid_account_type(self):
+        """An account type not in Account.account_type options is rejected.
+
+        This branch runs before account lookup, so the company need not exist.
+        """
+        result = update_account_type_mapping("Some Account", "DefinitelyNotAType", "AnyCompany")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_code"], "INVALID_ACCOUNT_TYPE")
+        self.assertIn("DefinitelyNotAType", result["error"])
+
+    def test_valid_type_but_missing_account(self):
+        """A valid account type but unknown account name -> ACCOUNT_NOT_FOUND.
+
+        Uses a real Account.account_type option so validation passes and we
+        reach the lookup, which fails because neither the name nor the
+        display-name match for the (nonexistent) company.
+        """
+        options = frappe.get_meta("Account").get_field("account_type").options
+        valid_type = next(t.strip() for t in options.split("\n") if t.strip())
+        result = update_account_type_mapping("NO-SUCH-ACCOUNT-XYZ", valid_type, "NO-SUCH-COMPANY-XYZ")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_code"], "ACCOUNT_NOT_FOUND")
+
+
+class TestCheckRestApiStatusNoToken(unittest.TestCase):
+    """check_rest_api_status without configured credentials."""
+
+    def test_no_token_reports_not_configured(self):
+        """With no api_token/rest_api_token, returns configured=False.
+
+        The veg11/test sites have no live eBoekhouden credentials, so this
+        exercises the no-creds early return rather than a real API call.
+        """
+        settings = frappe.get_single("E-Boekhouden Settings")
+        # raise_exception=False: a half-configured token (field set, stored
+        # password missing) reads as None here, matching how the function under
+        # test now treats it — i.e. as "not configured".
+        has_token = settings.get_password("api_token", raise_exception=False) or settings.get_password(
+            "rest_api_token", raise_exception=False
+        )
+        if has_token:
+            self.skipTest("Site has eBoekhouden API token configured")
+        result = check_rest_api_status()
+        self.assertFalse(result["configured"])
+        self.assertIn("not configured", result["message"].lower())
 
 
 if __name__ == "__main__":

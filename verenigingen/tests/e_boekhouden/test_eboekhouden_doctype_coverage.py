@@ -17,7 +17,6 @@ from frappe.utils import nowdate, now_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-
 def _insert_test_doc(doc):
     """Persist ``doc`` with permissions bypassed (test fixture helper).
 
@@ -126,6 +125,193 @@ class TestEBoekhoudenMigration(EnhancedTestCase):
             doc = self._make_migration(migration_status=status)
             _insert_test_doc(doc)
             self.assertEqual(doc.migration_status, status)
+
+    # ------------------------------------------------------------------
+    # onload: default company defaulting from E-Boekhouden Settings
+    # ------------------------------------------------------------------
+    def _setup_settings_default_company(self, value):
+        """Persist E-Boekhouden Settings.default_company (fixture helper).
+
+        The default test user lacks write on the Single, so the permission
+        bypass lives in this helper to keep test bodies declarative (the
+        enforcer treats ``_setup_*`` helpers as fixture context)."""
+        settings = frappe.get_single("E-Boekhouden Settings")
+        settings.default_company = value
+        settings.flags.ignore_permissions = True
+        settings.save(ignore_permissions=True)
+
+    def test_onload_defaults_company_from_settings(self):
+        """A new doc with no company gets company from Settings.default_company.
+
+        onload only fills in company when the doc is new AND has no company.
+        Drive it directly with a bare new_doc (no company set) so the branch
+        that reads E-Boekhouden Settings.default_company executes.
+        """
+        original = frappe.db.get_single_value("E-Boekhouden Settings", "default_company")
+        self._setup_settings_default_company(self.company)
+        try:
+            doc = frappe.new_doc("E-Boekhouden Migration")
+            # new_doc may prefill company from a field/user default depending on
+            # site state; clear it so the onload branch that reads
+            # Settings.default_company (the behavior under test) actually runs.
+            doc.company = None
+            doc.onload()
+            self.assertEqual(doc.company, self.company)
+        finally:
+            self._setup_settings_default_company(original)
+
+    def test_onload_keeps_existing_company(self):
+        """onload does not overwrite a company that is already set."""
+        doc = frappe.new_doc("E-Boekhouden Migration")
+        doc.company = self.company
+        doc.onload()
+        self.assertEqual(doc.company, self.company)
+
+    # ------------------------------------------------------------------
+    # parse_account_group_mappings: structured table vs legacy text fields
+    # ------------------------------------------------------------------
+    def test_parse_account_group_mappings_prefers_table(self):
+        """The structured group_type_mappings table wins over text fields and
+        yields rich {group_name, root_type, account_type} dicts."""
+        doc = self._make_migration()
+        settings = frappe.new_doc("E-Boekhouden Settings")
+        settings.append(
+            "group_type_mappings",
+            {
+                "group_code": "001",
+                "group_name": "Vaste activa",
+                "root_type": "Asset",
+                "account_type": "Fixed Asset",
+            },
+        )
+        # Even with legacy text present, the table takes precedence.
+        settings.balance_sheet_group_mappings = "999 Should Be Ignored"
+
+        result = doc.parse_account_group_mappings(settings)
+        self.assertEqual(
+            result,
+            {
+                "001": {
+                    "group_name": "Vaste activa",
+                    "root_type": "Asset",
+                    "account_type": "Fixed Asset",
+                }
+            },
+        )
+
+    def test_parse_account_group_mappings_table_skips_incomplete_rows(self):
+        """Table rows missing group_code/group_name/root_type are skipped, so an
+        all-incomplete table falls through to the (empty) text-field parse."""
+        doc = self._make_migration()
+        settings = frappe.new_doc("E-Boekhouden Settings")
+        settings.append(
+            "group_type_mappings",
+            {"group_code": "001", "group_name": "No root type", "root_type": ""},
+        )
+        result = doc.parse_account_group_mappings(settings)
+        self.assertEqual(result, {})
+
+    def test_parse_account_group_mappings_legacy_text_fields(self):
+        """With no table, legacy balance-sheet and P/L text fields parse into a
+        flat code->name dict."""
+        doc = self._make_migration()
+        settings = frappe.new_doc("E-Boekhouden Settings")
+        settings.set("group_type_mappings", [])
+        settings.balance_sheet_group_mappings = "001 Vaste activa\n002 Liquide middelen"
+        settings.pl_group_mappings = "055 Opbrengsten"
+
+        result = doc.parse_account_group_mappings(settings)
+        self.assertEqual(
+            result,
+            {"001": "Vaste activa", "002": "Liquide middelen", "055": "Opbrengsten"},
+        )
+
+    def test_parse_account_group_mappings_empty_returns_empty(self):
+        """No table and no text fields -> empty dict (not an error)."""
+        doc = self._make_migration()
+        settings = frappe.new_doc("E-Boekhouden Settings")
+        settings.set("group_type_mappings", [])
+        settings.balance_sheet_group_mappings = ""
+        settings.pl_group_mappings = ""
+        self.assertEqual(doc.parse_account_group_mappings(settings), {})
+
+    # ------------------------------------------------------------------
+    # get_suspense_account: DB fallback chain
+    # ------------------------------------------------------------------
+    def test_get_suspense_account_falls_back_to_liability(self):
+        """Pin the suspense->temporary->leaf-Liability fallback chain exactly.
+
+        Mirror the function's own lookups and assert it returns precisely what
+        the chain dictates: a real 'suspense' account if one exists, else a
+        'temporary' one, else (the last-resort branch under test) a leaf
+        Liability account whose root_type is Liability.
+        """
+        suspense = frappe.db.get_value(
+            "Account", {"company": self.company, "account_name": ["like", "%suspense%"]}, "name"
+        )
+        temporary = frappe.db.get_value(
+            "Account", {"company": self.company, "account_name": ["like", "%temporary%"]}, "name"
+        )
+        liability = frappe.db.get_value(
+            "Account",
+            {"company": self.company, "root_type": "Liability", "is_group": 0},
+            "name",
+        )
+        doc = self._make_migration()
+        result = doc.get_suspense_account(self.company)
+        if suspense:
+            self.assertEqual(result, suspense)
+        elif temporary:
+            self.assertEqual(result, temporary)
+        else:
+            if not liability:
+                self.skipTest("No leaf liability account for company")
+            # Last-resort fallback: a leaf Liability account.
+            self.assertEqual(result, liability)
+            self.assertEqual(frappe.db.get_value("Account", result, "root_type"), "Liability")
+
+    def test_get_suspense_account_unknown_company_returns_none(self):
+        """An unknown company has no accounts -> None (no crash)."""
+        doc = self._make_migration()
+        self.assertIsNone(doc.get_suspense_account("NONEXISTENT-COMPANY-XYZ"))
+
+    # ------------------------------------------------------------------
+    # check_data_quality / check_migration_data_quality endpoint
+    # ------------------------------------------------------------------
+    def test_check_data_quality_report_shape(self):
+        """check_data_quality returns a structured quality report dict."""
+        doc = self._make_migration()
+        _insert_test_doc(doc)
+        report = doc.check_data_quality()
+        self.assertIn("issues", report)
+        self.assertIn("statistics", report)
+        self.assertIn("recommendations", report)
+        self.assertEqual(report["company"], self.company)
+
+    def test_check_migration_data_quality_endpoint(self):
+        """The whitelisted endpoint wraps the report and persists a summary."""
+        from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
+            check_migration_data_quality,
+        )
+
+        doc = self._make_migration()
+        _insert_test_doc(doc)
+        result = check_migration_data_quality(doc.name)
+        self.assertTrue(result["success"])
+        self.assertIn("statistics", result["report"])
+        # The endpoint stores the report JSON into migration_summary.
+        doc.reload()
+        self.assertTrue(doc.migration_summary)
+
+    def test_check_migration_data_quality_missing_migration(self):
+        """A nonexistent migration name returns success=False, not a raise."""
+        from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
+            check_migration_data_quality,
+        )
+
+        result = check_migration_data_quality("NO-SUCH-MIGRATION-XYZ")
+        self.assertFalse(result["success"])
+        self.assertIn("error", result)
 
 
 class TestEBoekhoudenSettings(EnhancedTestCase):
@@ -248,6 +434,7 @@ class TestEBoekhoudenSettings(EnhancedTestCase):
         expected_vw_keys = {"income_ranges", "expense_ranges", "income_keywords", "expense_keywords"}
         self.assertEqual(set(rules["vw_rules"].keys()), expected_vw_keys)
 
+    # Mock justified: External Service - the eBoekhouden REST HTTP boundary, not business logic
     @patch("requests.post")
     def test_validate_api_connection_no_token(self, mock_post):
         """validate_api_connection returns failure when no session token obtained."""
@@ -274,15 +461,11 @@ class TestEBoekhoudenSettings(EnhancedTestCase):
 
         # Disjoint ranges must NOT log.
         settings._check_range_overlaps([("0000", "0999"), ("1000", "1999")], "no overlap")
-        self.assertEqual(
-            overlap_log_count(), baseline, "Disjoint ranges must not log an overlap warning"
-        )
+        self.assertEqual(overlap_log_count(), baseline, "Disjoint ranges must not log an overlap warning")
 
         # Overlapping ranges (0000-2999 vs 1000-3999) MUST log exactly one warning.
         settings._check_range_overlaps([("0000", "2999"), ("1000", "3999")], "test category")
-        self.assertEqual(
-            overlap_log_count(), baseline + 1, "Overlapping ranges must log exactly one warning"
-        )
+        self.assertEqual(overlap_log_count(), baseline + 1, "Overlapping ranges must log exactly one warning")
 
 
 class TestEBoekhoudenDashboard(EnhancedTestCase):

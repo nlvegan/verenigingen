@@ -122,6 +122,43 @@ class TestSuggestAccountTypeForGroup(unittest.TestCase):
         self.assertEqual(s["account_type"], "")
         self.assertIn("manually", s["notes"])
 
+    def test_bal_bank_when_both_bank_and_kas(self):
+        # Name mentions both "bank" and "kas" -> the kas-only guard fails, so the
+        # account_type stays "Bank" (a combined account is classified as Bank).
+        s = _suggest_account_type_for_group("002", "Bankrekeningen en kasgeld")
+        self.assertEqual(s["account_type"], "Bank")
+
+    def test_bal_receivable_takes_priority_over_code_fallback(self):
+        # Keyword classification must win over the digit-range fallback: code 0xx
+        # would fall back to Asset/empty, but "vordering" pins account_type.
+        s = _suggest_account_type_for_group("008", "Overige vorderingen")
+        self.assertEqual(s["root_type"], "Asset")
+        self.assertEqual(s["account_type"], "Receivable")
+        self.assertEqual(s["confidence"], "High")
+
+    def test_pl_income_wins_when_both_income_and_expense_words(self):
+        # Income keywords are checked before expense keywords: "opbrengsten" +
+        # "kosten" in one name resolves to Income (keyword-order contract).
+        s = _suggest_account_type_for_group("070", "Opbrengsten minus kosten", is_balance_sheet=False)
+        self.assertEqual(s["root_type"], "Income")
+        self.assertEqual(s["account_type"], "Income Account")
+
+    def test_pl_expense_personnel_keyword(self):
+        s = _suggest_account_type_for_group("056", "Salarissen en lonen", is_balance_sheet=False)
+        self.assertEqual(s["root_type"], "Expense")
+        self.assertEqual(s["account_type"], "Expense Account")
+        self.assertEqual(s["confidence"], "High")
+
+    def test_bal_general_liability_via_lening(self):
+        s = _suggest_account_type_for_group("020", "Langlopende leningen")
+        self.assertEqual(s["root_type"], "Liability")
+        self.assertEqual(s["account_type"], "Current Liability")
+
+    def test_group_name_preserved_in_output(self):
+        s = _suggest_account_type_for_group("055", "Opbrengsten")
+        self.assertEqual(s["group_name"], "Opbrengsten")
+        self.assertEqual(s["group_code"], "055")
+
 
 class TestMightBeGroupCostCenter(unittest.TestCase):
     """might_be_group_cost_center: has a longer-code sibling under same 2-char prefix."""
@@ -244,6 +281,37 @@ class TestSettingsController(_SettingsTestBase):
             self.assertEqual(parsed["001"]["root_type"], "Asset")
         finally:
             settings.set("group_type_mappings", original)
+
+    # ---- _check_range_overlaps with mixed-length codes ----
+    def test_check_range_overlaps_mixed_length_detects(self):
+        """zfill normalization makes '0'-'999' vs '5'-'50' overlap correctly."""
+        settings = self._get_settings()
+
+        def cnt():
+            return frappe.db.count("Error Log", {"error": ("like", "%Range overlap detected%")})
+
+        baseline = cnt()
+        # 5..50 is fully inside 0..999 -> exactly one overlap warning.
+        settings._check_range_overlaps([("0", "999"), ("5", "50")], "mixed")
+        self.assertEqual(cnt(), baseline + 1)
+
+    def test_check_range_overlaps_mixed_length_disjoint(self):
+        """'10'-'20' vs '3'-'5' must NOT be flagged (numeric, not naive lexical)."""
+        settings = self._get_settings()
+
+        def cnt():
+            return frappe.db.count("Error Log", {"error": ("like", "%Range overlap detected%")})
+
+        baseline = cnt()
+        settings._check_range_overlaps([("10", "20"), ("3", "5")], "disjoint")
+        self.assertEqual(cnt(), baseline)
+
+    def test_parse_ranges_invalid_lines_dropped_but_valid_kept(self):
+        """A mix of valid and malformed range lines: only valid tuples returned."""
+        settings = self._get_settings()
+        result = settings._parse_ranges("0000-2999\nbadline\n3000-3999\n9-5")
+        # "badline" (no dash) and "9-5" (start>end) are dropped; two valid remain.
+        self.assertEqual(result, [("0000", "2999"), ("3000", "3999")])
 
     # ---- _get_session_token (HTTP stubbed) ----
     @patch("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.requests.post")
