@@ -8,7 +8,7 @@ Designed as a two-stage manual function with the aim to become a scheduled task.
 """
 
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -195,11 +195,19 @@ class BulkPaymentChecker:
         if limit > 10000:
             limit = 10000
 
-        # Get total count (for progress tracking)
+        # Get total count (for progress tracking).
+        # NOTE: a ["not in", ["", None]] filter compiles to SQL
+        # `NOT IN ('', NULL)`, which - by SQL's three-valued logic - matches
+        # NOTHING (any comparison against NULL yields UNKNOWN), so the count was
+        # always 0. That silently broke the progress total (result["total_members"]),
+        # so bulk runs reported 0 members to process. (The error-budget breaker is
+        # derived from len(members) below, not this count, so it was unaffected.)
+        # Use an explicit "is set" filter that mirrors the IS NOT NULL AND != ''
+        # listing query below.
         total_count = frappe.db.count(
             "Member",
             filters={
-                "mollie_customer_id": ["not in", ["", None]],
+                "mollie_customer_id": ["is", "set"],
             },
         )
 

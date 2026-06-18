@@ -5,7 +5,7 @@ Validation utilities for payments, IBANs, and other financial data.
 """
 
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Union
 
 import frappe
@@ -228,7 +228,11 @@ class PaymentDataValidator:
 
             return True
 
-        except (ValueError, TypeError, OverflowError):
+        # InvalidOperation (a decimal.DecimalException / ArithmeticError) is
+        # raised by Decimal(str(amount)) for non-numeric strings like "abc" and
+        # for None ("None") — it is NOT a ValueError/TypeError, so it must be
+        # listed explicitly or validate_amount crashes instead of returning False.
+        except (ValueError, TypeError, OverflowError, InvalidOperation):
             return False
 
     @classmethod
@@ -397,7 +401,10 @@ class BusinessRuleValidator:
                 if age < 16:
                     errors.append("Member must be at least 16 years old")
 
-            except (ValueError, TypeError):
+            # frappe.utils.getdate raises frappe.exceptions.ValidationError (not a
+            # ValueError/TypeError) for unparseable date strings, so it must be
+            # caught explicitly or this crashes instead of reporting the error.
+            except (ValueError, TypeError, frappe.exceptions.ValidationError):
                 errors.append("Invalid birth date format")
 
         return errors

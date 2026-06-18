@@ -80,10 +80,22 @@ class MollieWebhookError(MollieIntegrationError):
         payment_id: Optional[str] = None,
         original_error: Optional[Exception] = None,
         details: Optional[Dict] = None,
+        customer_id: Optional[str] = None,
+        subscription_id: Optional[str] = None,
+        mandate_id: Optional[str] = None,
     ):
+        # BUG FIX: the MollieClient raises MolliePaymentError with customer_id /
+        # subscription_id / mandate_id context kwargs (e.g. debug_customer,
+        # debug_subscription, debug_mandate, revoke_mandate). Those were not
+        # accepted here, so every one of those error paths raised
+        # "TypeError: __init__() got an unexpected keyword argument 'customer_id'"
+        # which masked the genuine MolliePaymentError. Accept and store them.
         super().__init__(message, details)
         self.payment_id = payment_id
         self.original_error = original_error
+        self.customer_id = customer_id
+        self.subscription_id = subscription_id
+        self.mandate_id = mandate_id
 
 
 class MollieSecurityError(MollieWebhookError):

@@ -58,11 +58,17 @@ class MollieDataValidator:
             self._validate_subscription_id(data["custom_mollie_subscription_id"])
 
         # Validate subscription status
-        if data.get("subscription_status"):
+        # BUG FIX: the guard previously checked the key "subscription_status"
+        # while the value was read from "custom_subscription_status". The live
+        # hook (validate_mollie_customer_data) only ever supplies the
+        # "custom_subscription_status" key, so the guard was always falsy and
+        # subscription-status / payment-date validation never ran. Read and
+        # guard on the same "custom_subscription_status" key consistently.
+        if data.get("custom_subscription_status"):
             self._validate_subscription_status(data["custom_subscription_status"])
 
         # Validate next payment date logic
-        if data.get("custom_next_payment_date") and data.get("subscription_status"):
+        if data.get("custom_next_payment_date") and data.get("custom_subscription_status"):
             self._validate_payment_date_logic(
                 data["custom_subscription_status"], data["custom_next_payment_date"]
             )
