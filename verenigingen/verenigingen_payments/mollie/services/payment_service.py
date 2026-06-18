@@ -20,8 +20,7 @@ Includes the critical subscription creation workflow from the original implement
 
 import json
 import warnings
-from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
 
@@ -33,10 +32,9 @@ if TYPE_CHECKING:
 else:
     Payment = Any
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt
 
-from ..core.mollie_models import Money
-from ..exceptions import MollieIntegrationError, MollieValidationError
+from ..exceptions import MollieIntegrationError
 from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
 
 
@@ -69,9 +67,6 @@ class PaymentService:
             self.client = MollieClient()
         else:
             self.client = client
-
-        # TODO: Initialize validator when PaymentDataValidator is available
-        self.validator = None
 
         # Initialize gateway for backward compatibility
         self._init_gateway()
@@ -254,118 +249,6 @@ class PaymentService:
                 "info": _("Please try a single donation instead or contact support"),
             }
 
-    def create_donation_payment(
-        self,
-        donor_id: str,
-        amount: Union[Decimal, float],
-        description: str,
-        redirect_url: str,
-        is_recurring: bool = False,
-        metadata: Optional[Dict] = None,
-    ) -> Payment:
-        """
-        Create a payment for a donation using the new unified client.
-
-        Args:
-            donor_id: Frappe donor document ID
-            amount: Payment amount in EUR
-            description: Payment description
-            redirect_url: URL to redirect after payment
-            is_recurring: Whether this sets up a recurring donation
-            metadata: Additional payment metadata
-
-        Returns:
-            Created payment object
-
-        Raises:
-            MollieValidationError: If payment data is invalid
-            MollieIntegrationError: If payment creation fails
-        """
-        # Validate amount
-        if not self.validator.validate_amount(amount):
-            raise MollieValidationError(f"Invalid payment amount: {amount}")
-
-        # Get or create Mollie customer for donor
-        donor = frappe.get_doc("Donor", donor_id)
-        customer_id = self._get_or_create_customer(donor)
-
-        # Prepare payment metadata
-        payment_metadata = {
-            "donor_id": donor_id,
-            "payment_type": "donation",
-            "is_recurring": is_recurring,
-            **(metadata or {}),
-        }
-
-        # Create payment
-        money = Money(amount=Decimal(str(amount)), currency="EUR")
-        payment = self.client.create_payment(
-            amount=money,
-            description=description,
-            redirect_url=redirect_url,
-            webhook_url=self._get_webhook_url(),
-            customer_id=customer_id,
-            metadata=payment_metadata,
-        )
-
-        # Update donor record with payment info
-        self._update_donor_payment_info(donor, payment)
-
-        return payment
-
-    def create_membership_payment(
-        self,
-        member_id: str,
-        membership_fee: Union[Decimal, float],
-        membership_type: str,
-        redirect_url: str,
-        setup_subscription: bool = False,
-    ) -> Payment:
-        """
-        Create a payment for membership dues.
-
-        Args:
-            member_id: Frappe member document ID
-            membership_fee: Fee amount in EUR
-            membership_type: Type of membership
-            redirect_url: URL to redirect after payment
-            setup_subscription: Whether to set up recurring payments
-
-        Returns:
-            Created payment object
-        """
-        # Validate member and fee
-        member = frappe.get_doc("Member", member_id)
-        if not self.validator.validate_amount(membership_fee):
-            raise MollieValidationError(f"Invalid membership fee: {membership_fee}")
-
-        # Get or create Mollie customer
-        customer_id = self._get_or_create_customer_from_member(member)
-
-        # Prepare payment metadata
-        payment_metadata = {
-            "member_id": member_id,
-            "payment_type": "membership_dues",
-            "membership_type": membership_type,
-            "setup_subscription": setup_subscription,
-        }
-
-        # Create payment
-        money = Money(amount=Decimal(str(membership_fee)), currency="EUR")
-        payment = self.client.create_payment(
-            amount=money,
-            description=f"Membership dues - {membership_type}",
-            redirect_url=redirect_url,
-            webhook_url=self._get_webhook_url(),
-            customer_id=customer_id,
-            metadata=payment_metadata,
-        )
-
-        # Update member record
-        self._update_member_payment_info(member, payment)
-
-        return payment
-
     def get_payment_status(self, payment_id: str) -> Dict[str, Any]:
         """
         Get current payment status from Mollie.
@@ -526,107 +409,6 @@ class PaymentService:
             frappe.log_error(f"Mollie customer creation error: {e}", "Mollie Customer Error")
             return {"status": "error", "message": "Customer creation failed"}
 
-    def _get_or_create_customer(self, donor) -> str:
-        """
-        Get existing Mollie customer ID or create new customer for donor.
-        Uses row locking to prevent duplicate customer creation on concurrent requests.
-        """
-        donor_name = donor.name
-
-        # Use row lock to prevent race condition
-        frappe.db.begin()
-        try:
-            # Acquire row lock - other requests will wait here
-            locked_row = frappe.db.sql(
-                """
-                SELECT mollie_customer_id, donor_name, donor_email
-                FROM `tabDonor` WHERE name = %s FOR UPDATE
-                """,
-                donor_name,
-                as_dict=True,
-            )
-
-            if not locked_row:
-                frappe.db.commit()
-                raise ValueError(f"Donor {donor_name} not found")
-
-            donor_data = locked_row[0]
-            existing_customer_id = donor_data.get("mollie_customer_id")
-
-            # Check if customer already exists (may have been created by concurrent request)
-            if existing_customer_id:
-                frappe.db.commit()  # Release lock
-                return existing_customer_id
-
-            # Create new customer while holding the lock
-            customer = self.client.create_customer(
-                name=donor_data.get("donor_name") or "",
-                email=donor_data.get("donor_email"),
-                metadata={"donor_id": donor_name},
-            )
-
-            # Update donor record while holding lock
-            frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
-            frappe.db.commit()  # Commit and release lock
-
-            return customer.id
-
-        except Exception as e:
-            frappe.db.rollback()
-            raise
-
-    def _get_or_create_customer_from_member(self, member) -> str:
-        """
-        Get existing Mollie customer ID or create new customer for member.
-        Uses row locking to prevent duplicate customer creation on concurrent requests.
-        """
-        member_name = member.name
-
-        # Use row lock to prevent race condition
-        frappe.db.begin()
-        try:
-            # Acquire row lock - other requests will wait here
-            locked_row = frappe.db.sql(
-                """
-                SELECT mollie_customer_id, first_name, last_name, email
-                FROM `tabMember` WHERE name = %s FOR UPDATE
-                """,
-                member_name,
-                as_dict=True,
-            )
-
-            if not locked_row:
-                frappe.db.commit()
-                raise ValueError(f"Member {member_name} not found")
-
-            member_data = locked_row[0]
-            existing_customer_id = member_data.get("mollie_customer_id")
-
-            # Check if customer already exists (may have been created by concurrent request)
-            if existing_customer_id:
-                frappe.db.commit()  # Release lock
-                return existing_customer_id
-
-            # Create new customer while holding the lock
-            full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
-            customer = self.client.create_customer(
-                name=full_name,
-                email=member_data.get("email"),
-                metadata={"member_id": member_name},
-            )
-
-            # Update member record while holding lock
-            frappe.db.set_value(
-                "Member", member_name, "mollie_customer_id", customer.id, update_modified=False
-            )
-            frappe.db.commit()  # Commit and release lock
-
-            return customer.id
-
-        except Exception as e:
-            frappe.db.rollback()
-            raise
-
     def _get_webhook_url(self) -> str:
         """Get webhook URL based on environment (test vs live)."""
         base_url = frappe.utils.get_url()
@@ -643,33 +425,6 @@ class PaymentService:
             if self.gateway and hasattr(self.gateway, "is_test_mode"):
                 return self.gateway.is_test_mode()
             return True  # Default to test mode for safety
-
-    def _update_donor_payment_info(self, donor, payment: Payment):
-        """Update donor record with payment information.
-
-        Security:
-            Uses ignore_permissions=True because this is called from:
-            1. Webhook processing (authenticated via HMAC signature validation)
-            2. Payment creation flows where donor is already loaded with validation
-        """
-        donor.append(
-            "payment_history",
-            {
-                "payment_id": payment.id,
-                "amount": extract_amount_float(payment.amount),
-                "currency": extract_amount_currency(payment.amount),
-                "status": payment.status,
-                "created_at": payment.created_at,
-                "description": payment.description,
-            },
-        )
-        # SECURITY: ignore_permissions acceptable - authenticated webhook or validated payment flow
-        donor.save(ignore_permissions=True)
-
-    def _update_member_payment_info(self, member, payment: Payment):
-        """Update member record with payment information."""
-        # This will be handled by existing member payment history system
-        pass
 
     def _process_donation_payment(self, payment: Payment) -> Dict[str, Any]:
         """Process a completed donation payment."""

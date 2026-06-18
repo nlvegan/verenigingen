@@ -18,7 +18,6 @@ from verenigingen.verenigingen_payments.mollie.services.handlers import (
     find_donation_for_payment as _handler_find_donation_for_payment,
     find_donation_for_payment_by_id as _handler_find_donation_for_payment_by_id,
     find_donation_for_subscription_payment as _handler_find_donation_for_subscription_payment,
-    process_payment_refunds as _handler_process_payment_refunds,
 )
 
 
@@ -1111,7 +1110,13 @@ def _validate_payment_amount(payment):
 
 def _validate_webhook_signature():
     """
-    Validate Mollie webhook signature using webhook secret key
+    Validate Mollie webhook signature using webhook secret key.
+
+    NOTE: This is a STRICT HMAC validator that REQUIRES a signature header,
+    distinct from the lenient ``verify_mollie_webhook_signature`` used by the
+    active ``authenticate_mollie_webhook`` path. It currently has no production
+    caller (only behavioural tests exercise it). Kept as a maintained utility
+    pending a decision to wire it in or remove it.
 
     Raises:
         frappe.PermissionError: If signature validation fails
@@ -1161,25 +1166,6 @@ def _validate_webhook_signature():
     except Exception as e:
         frappe.logger().error(f"❌ Webhook signature validation error: {e}")
         frappe.throw(f"Webhook validation failed: {e}", frappe.PermissionError)
-
-
-def _process_payment_refunds(payment_id, payment):
-    """
-    Process any refunds associated with this payment.
-
-    DELEGATED: This function now delegates to the extracted RefundHandler.
-
-    This function is called when a webhook is received for a payment that might contain refund events.
-    It fetches all refunds for the payment and processes any that haven't been handled yet.
-
-    Args:
-        payment_id (str): Mollie payment ID
-        payment: Mollie payment object
-
-    Returns:
-        dict: Processing results including any refunds processed
-    """
-    return _handler_process_payment_refunds(payment_id, payment)
 
 
 def _notify_member_of_payment_failure(member, payment, failure_count):
