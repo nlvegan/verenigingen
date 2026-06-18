@@ -142,7 +142,7 @@ class MonitoringSystemTestRunner:
         print("\nPHASE 2: Dashboard and System Alert Testing")
         print("-" * 50)
 
-        results = {"system_alert": {}, "resource_monitor": {}, "dashboard_apis": {}}
+        results = {"system_alert": {}, "dashboard_apis": {}}
 
         # Test System Alert DocType
         try:
@@ -168,28 +168,6 @@ class MonitoringSystemTestRunner:
         except Exception as e:
             results["system_alert"]["error"] = str(e)
             print(f"  System Alert: {str(e)}")
-
-        # Test Resource Monitor
-        try:
-            from verenigingen.utils.resource_monitor import ResourceMonitor
-
-            rm = ResourceMonitor()
-
-            metrics = rm.get_current_metrics()
-            required_metrics = ["cpu_percent", "memory_percent", "disk_usage", "active_users"]
-            has_all = all(k in metrics for k in required_metrics)
-
-            results["resource_monitor"]["metrics"] = "PASS" if has_all else "FAIL"
-            print(f"  Resource Monitor: Metrics collected (CPU: {metrics.get('cpu_percent')}%)")
-
-            # Test resource checking
-            status = rm.check_resource_usage()
-            results["resource_monitor"]["check"] = "PASS" if status else "FAIL"
-            print("  Resource Monitor: Usage check completed")
-
-        except Exception as e:
-            results["resource_monitor"]["error"] = str(e)
-            print(f"  Resource Monitor: {str(e)}")
 
         # Test Dashboard APIs
         try:
@@ -335,15 +313,13 @@ class MonitoringSystemTestRunner:
         print("\nPERFORMANCE TESTING")
         print("-" * 50)
 
-        results = {"response_times": {}, "resource_usage": {}, "scalability": {}}
+        results = {"response_times": {}, "scalability": {}}
 
         try:
             from verenigingen.services.monitoring.monitoring_metrics_service import (
                 MonitoringMetricsService,
             )
-            from verenigingen.utils.resource_monitor import ResourceMonitor
 
-            rm = ResourceMonitor()
             service = MonitoringMetricsService()
 
             # Test API response times
@@ -356,16 +332,6 @@ class MonitoringSystemTestRunner:
             results["response_times"]["api_average"] = f"{avg_response:.3f}s"
             results["response_times"]["status"] = "PASS" if avg_response < 1 else "FAIL"
             print(f"  Performance: API response {avg_response:.3f}s average")
-
-            # Test resource usage
-            metrics = rm.get_current_metrics()
-            cpu = metrics.get("cpu_percent", 0)
-            memory = metrics.get("memory_percent", 0)
-
-            results["resource_usage"]["cpu"] = f"{cpu}%"
-            results["resource_usage"]["memory"] = f"{memory}%"
-            results["resource_usage"]["status"] = "PASS" if cpu < 80 and memory < 80 else "WARNING"
-            print(f"  Performance: Resource usage CPU={cpu}%, Memory={memory}%")
 
             # Test scalability (create multiple alerts)
             from verenigingen.utils.alert_manager import AlertManager

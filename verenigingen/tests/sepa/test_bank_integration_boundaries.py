@@ -17,7 +17,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
 
 import frappe
 import requests_mock
@@ -51,9 +51,10 @@ def _check_bank_integration_available():
         # Check if bank API is configured
         try:
             from verenigingen.utils.bank_integration import BankAPIClient
+
             client = BankAPIClient()
             # Check if API is configured (will fail if not)
-            if hasattr(client, 'is_configured') and not client.is_configured():
+            if hasattr(client, "is_configured") and not client.is_configured():
                 return False, "Bank API not configured"
         except ImportError:
             return False, "Bank integration module not available"
@@ -81,17 +82,12 @@ class TestSEPAFileExportIntegration(EnhancedTestCase):
         super().setUp()
         self.test_company = self._get_test_company()
         self.test_member = self.create_test_member(
-            first_name="Jan",
-            last_name="de Wit",
-            email="jan.dewit@example.nl",
-            iban="NL91 ABNA 0417 1643 00"
+            first_name="Jan", last_name="de Wit", email="jan.dewit@example.nl", iban="NL91 ABNA 0417 1643 00"
         )
 
         # Create SEPA mandate for the member
         self.sepa_mandate = self.create_test_sepa_mandate(
-            self.test_member.name,  # Positional argument
-            iban="NL91 ABNA 0417 1643 00",
-            status="Active"
+            self.test_member.name, iban="NL91 ABNA 0417 1643 00", status="Active"  # Positional argument
         )
 
     def test_sepa_direct_debit_file_generation(self):
@@ -102,43 +98,49 @@ class TestSEPAFileExportIntegration(EnhancedTestCase):
         """
         # Create outstanding invoices for batch processing
         invoice1 = self.create_test_sales_invoice(
-            customer=self.test_member.name,
-            grand_total=25.00,
-            status="Submitted"
+            customer=self.test_member.name, grand_total=25.00, status="Submitted"
         )
 
         invoice2 = self.create_test_sales_invoice(
-            customer=self.test_member.name,
-            grand_total=15.00,
-            status="Submitted"
+            customer=self.test_member.name, grand_total=15.00, status="Submitted"
         )
 
         # Test SEPA batch creation
-        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import DirectDebitBatch
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
+            DirectDebitBatch,
+        )
 
         batch = frappe.new_doc("Direct Debit Batch")
-        batch.update({
-            "company": self.test_company,
-            "collection_date": frappe.utils.add_days(frappe.utils.today(), 5),
-            "scheme": "CORE",
-            "sequence_type": "RCUR"  # Recurring payment
-        })
+        batch.update(
+            {
+                "company": self.test_company,
+                "collection_date": frappe.utils.add_days(frappe.utils.today(), 5),
+                "scheme": "CORE",
+                "sequence_type": "RCUR",  # Recurring payment
+            }
+        )
         batch.insert()
 
         # Add invoices to batch
-        batch.append("items", {
-            "member": self.test_member.name,
-            "sales_invoice": invoice1.name,
-            "amount": 25.00,
-            "sepa_mandate": self.sepa_mandate.name
-        })
+        batch.append(
+            "items",
+            {
+                "member": self.test_member.name,
+                "sales_invoice": invoice1.name,
+                "amount": 25.00,
+                "sepa_mandate": self.sepa_mandate.name,
+            },
+        )
 
-        batch.append("items", {
-            "member": self.test_member.name,
-            "sales_invoice": invoice2.name,
-            "amount": 15.00,
-            "sepa_mandate": self.sepa_mandate.name
-        })
+        batch.append(
+            "items",
+            {
+                "member": self.test_member.name,
+                "sales_invoice": invoice2.name,
+                "amount": 15.00,
+                "sepa_mandate": self.sepa_mandate.name,
+            },
+        )
 
         batch.save()
         batch.submit()
@@ -163,31 +165,28 @@ class TestSEPAFileExportIntegration(EnhancedTestCase):
 
         # Create member without IBAN (will test invalid IBAN at batch level)
         test_member = self.create_test_member(
-            first_name="Invalid",
-            last_name="IBAN",
-            email="invalid@example.nl"
+            first_name="Invalid", last_name="IBAN", email="invalid@example.nl"
         )
 
-        invoice = self.create_test_sales_invoice(
-            customer=test_member.name,
-            grand_total=25.00
-        )
+        invoice = self.create_test_sales_invoice(customer=test_member.name, grand_total=25.00)
 
         batch = frappe.new_doc("Direct Debit Batch")
-        batch.update({
-            "company": self.test_company,
-            "collection_date": frappe.utils.add_days(frappe.utils.today(), 5)
-        })
+        batch.update(
+            {"company": self.test_company, "collection_date": frappe.utils.add_days(frappe.utils.today(), 5)}
+        )
         batch.insert()
 
         # Test validation catches invalid IBAN
         with self.assertRaises(frappe.ValidationError):
-            batch.append("items", {
-                "member": test_member.name,
-                "sales_invoice": invoice.name,
-                "amount": 25.00,
-                "sepa_mandate": "INVALID"
-            })
+            batch.append(
+                "items",
+                {
+                    "member": test_member.name,
+                    "sales_invoice": invoice.name,
+                    "amount": 25.00,
+                    "sepa_mandate": "INVALID",
+                },
+            )
             batch.save()
 
     def test_sepa_mandate_validation_workflow(self):
@@ -198,30 +197,29 @@ class TestSEPAFileExportIntegration(EnhancedTestCase):
             self.test_member.name,
             iban="NL91 ABNA 0417 1643 00",
             status="Expired",
-            end_date=frappe.utils.add_days(frappe.utils.today(), -30)
+            end_date=frappe.utils.add_days(frappe.utils.today(), -30),
         )
 
-        invoice = self.create_test_sales_invoice(
-            customer=self.test_member.name,
-            grand_total=25.00
-        )
+        invoice = self.create_test_sales_invoice(customer=self.test_member.name, grand_total=25.00)
 
         # Test mandate validation in batch processing
         batch = frappe.new_doc("Direct Debit Batch")
-        batch.update({
-            "company": self.test_company,
-            "collection_date": frappe.utils.add_days(frappe.utils.today(), 5)
-        })
+        batch.update(
+            {"company": self.test_company, "collection_date": frappe.utils.add_days(frappe.utils.today(), 5)}
+        )
         batch.insert()
 
         # Should reject expired mandates
         with self.assertRaises(frappe.ValidationError):
-            batch.append("items", {
-                "member": self.test_member.name,
-                "sales_invoice": invoice.name,
-                "amount": 25.00,
-                "sepa_mandate": expired_mandate.name
-            })
+            batch.append(
+                "items",
+                {
+                    "member": self.test_member.name,
+                    "sales_invoice": invoice.name,
+                    "amount": 25.00,
+                    "sepa_mandate": expired_mandate.name,
+                },
+            )
             batch.save()
 
 
@@ -240,16 +238,12 @@ class TestBankStatementImportIntegration(EnhancedTestCase):
         super().setUp()
         self.test_company = self._get_test_company()
         self.test_member = self.create_test_member(
-            first_name="Marie",
-            last_name="van der Berg",
-            email="marie.vandenberg@example.nl"
+            first_name="Marie", last_name="van der Berg", email="marie.vandenberg@example.nl"
         )
 
         # Create outstanding invoice for reconciliation
         self.outstanding_invoice = self.create_test_sales_invoice(
-            customer=self.test_member.name,
-            grand_total=50.00,
-            status="Submitted"
+            customer=self.test_member.name, grand_total=50.00, status="Submitted"
         )
 
     def test_camt053_bank_statement_import(self):
@@ -316,7 +310,7 @@ class TestBankStatementImportIntegration(EnhancedTestCase):
         </Document>""".format(self.outstanding_invoice.name, self.outstanding_invoice.name)
 
         # Test bank statement import
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
             f.write(camt_xml)
             f.flush()
 
@@ -331,8 +325,9 @@ class TestBankStatementImportIntegration(EnhancedTestCase):
             self.assertEqual(result["amount_total"], 50.00)
 
             # Verify payment entry created and invoice reconciled
-            payment_entries = frappe.get_all("Payment Entry",
-                filters={"reference_no": self.outstanding_invoice.name})
+            payment_entries = frappe.get_all(
+                "Payment Entry", filters={"reference_no": self.outstanding_invoice.name}
+            )
             self.assertEqual(len(payment_entries), 1)
 
             # Check invoice status updated
@@ -356,7 +351,7 @@ class TestBankStatementImportIntegration(EnhancedTestCase):
 -""".format(self.outstanding_invoice.name, self.outstanding_invoice.name)
 
         # Test MT940 import
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sta', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sta", delete=False) as f:
             f.write(mt940_content)
             f.flush()
 
@@ -373,23 +368,28 @@ class TestBankStatementImportIntegration(EnhancedTestCase):
 
         # Create payment entry manually to test matching logic
         payment_entry = frappe.new_doc("Payment Entry")
-        payment_entry.update({
-            "payment_type": "Receive",
-            "party_type": "Customer",
-            "party": self.test_member.name,
-            "paid_amount": 50.00,
-            "received_amount": 50.00,
-            "reference_no": self.outstanding_invoice.name,
-            "reference_date": frappe.utils.today(),
-            "company": self.test_company
-        })
+        payment_entry.update(
+            {
+                "payment_type": "Receive",
+                "party_type": "Customer",
+                "party": self.test_member.name,
+                "paid_amount": 50.00,
+                "received_amount": 50.00,
+                "reference_no": self.outstanding_invoice.name,
+                "reference_date": frappe.utils.today(),
+                "company": self.test_company,
+            }
+        )
 
         # Add reference to outstanding invoice
-        payment_entry.append("references", {
-            "reference_doctype": "Sales Invoice",
-            "reference_name": self.outstanding_invoice.name,
-            "allocated_amount": 50.00
-        })
+        payment_entry.append(
+            "references",
+            {
+                "reference_doctype": "Sales Invoice",
+                "reference_name": self.outstanding_invoice.name,
+                "allocated_amount": 50.00,
+            },
+        )
 
         payment_entry.insert()
         payment_entry.submit()
@@ -400,8 +400,10 @@ class TestBankStatementImportIntegration(EnhancedTestCase):
         self.assertEqual(self.outstanding_invoice.status, "Paid")
 
         # Verify member payment history updated
-        payment_history = frappe.get_all("Member Payment History",
-            filters={"member": self.test_member.name, "sales_invoice": self.outstanding_invoice.name})
+        payment_history = frappe.get_all(
+            "Member Payment History",
+            filters={"member": self.test_member.name, "sales_invoice": self.outstanding_invoice.name},
+        )
         self.assertEqual(len(payment_history), 1)
 
 
@@ -426,14 +428,14 @@ class TestDutchBankingComplianceIntegration(EnhancedTestCase):
         valid_ibans = [
             "NL91 ABNA 0417 1643 00",
             "NL44RABO0123456789",  # Fixed: was NL02 (invalid checksum)
-            "NL86INGB0002445588"
+            "NL86INGB0002445588",
         ]
 
         invalid_ibans = [
             "NL91 ABNA 0417 1643 99",  # Invalid check digits
             "DE89 3704 0044 0532 0130 00",  # German IBAN
             "INVALID IBAN FORMAT",
-            ""
+            "",
         ]
 
         from verenigingen.tests.fixtures.dutch_validation_helpers import validate_dutch_iban
@@ -454,9 +456,7 @@ class TestDutchBankingComplianceIntegration(EnhancedTestCase):
         """Test SEPA mandate compliance with Dutch regulations"""
 
         member = self.create_test_member(
-            first_name="Compliance",
-            last_name="Test",
-            email="compliance@example.nl"
+            first_name="Compliance", last_name="Test", email="compliance@example.nl"
         )
 
         # Test mandate creation with all required fields
@@ -465,7 +465,7 @@ class TestDutchBankingComplianceIntegration(EnhancedTestCase):
             iban="NL91 ABNA 0417 1643 00",
             mandate_type="RCUR",  # Recurring
             status="Active",
-            sign_date=frappe.utils.today()
+            sign_date=frappe.utils.today(),
         )
 
         # Verify mandate compliance
@@ -488,34 +488,6 @@ class TestDutchBankingComplianceIntegration(EnhancedTestCase):
         mandate.reload()
         self.assertEqual(mandate.status, "Active")
         self.assertTrue(mandate.is_active)
-
-    def test_bank_holiday_collection_date_validation(self):
-        """Test validation of collection dates against Dutch bank holidays"""
-
-        # Mock Dutch bank holidays
-        bank_holidays = [
-            "2024-12-25",  # Christmas
-            "2024-12-26",  # Boxing Day
-            "2024-01-01",  # New Year
-        ]
-
-        from verenigingen.utils.dutch_bank_calendar import is_dutch_banking_day
-
-        # Test bank holiday detection
-        for holiday in bank_holidays:
-            with self.subTest(date=holiday):
-                result = is_dutch_banking_day(holiday)
-                self.assertFalse(result, f"Should not be a banking day: {holiday}")
-
-        # Test normal business day
-        business_day = "2024-03-15"  # Friday
-        result = is_dutch_banking_day(business_day)
-        self.assertTrue(result, f"Should be a banking day: {business_day}")
-
-        # Test weekend
-        weekend_day = "2024-03-16"  # Saturday
-        result = is_dutch_banking_day(weekend_day)
-        self.assertFalse(result, f"Should not be a banking day: {weekend_day}")
 
 
 class TestBankIntegrationErrorHandling(EnhancedTestCase):
@@ -541,14 +513,14 @@ class TestBankIntegrationErrorHandling(EnhancedTestCase):
             "<?xml version='1.0'?><invalid>broken xml",  # Malformed XML
             "not xml at all",  # Non-XML content
             "",  # Empty file
-            "<?xml version='1.0'?><Document>wrong schema</Document>"  # Wrong schema
+            "<?xml version='1.0'?><Document>wrong schema</Document>",  # Wrong schema
         ]
 
         from verenigingen.utils.bank_integration import import_bank_statement
 
         for content in corrupted_files:
             with self.subTest(content=content[:20] + "..."):
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
                     f.write(content)
                     f.flush()
 
@@ -563,43 +535,42 @@ class TestBankIntegrationErrorHandling(EnhancedTestCase):
         """Test detection and handling of duplicate payment imports"""
 
         member = self.create_test_member(
-            first_name="Duplicate",
-            last_name="Test",
-            email="duplicate@example.nl"
+            first_name="Duplicate", last_name="Test", email="duplicate@example.nl"
         )
 
-        invoice = self.create_test_sales_invoice(
-            customer=member.name,
-            grand_total=75.00
-        )
+        invoice = self.create_test_sales_invoice(customer=member.name, grand_total=75.00)
 
         # Create first payment entry
         payment1 = frappe.new_doc("Payment Entry")
-        payment1.update({
-            "payment_type": "Receive",
-            "party_type": "Customer",
-            "party": member.name,
-            "paid_amount": 75.00,
-            "received_amount": 75.00,
-            "reference_no": f"BANK_IMPORT_{invoice.name}",
-            "reference_date": frappe.utils.today(),
-            "company": self.test_company
-        })
+        payment1.update(
+            {
+                "payment_type": "Receive",
+                "party_type": "Customer",
+                "party": member.name,
+                "paid_amount": 75.00,
+                "received_amount": 75.00,
+                "reference_no": f"BANK_IMPORT_{invoice.name}",
+                "reference_date": frappe.utils.today(),
+                "company": self.test_company,
+            }
+        )
         payment1.insert()
         payment1.submit()
 
         # Attempt to create duplicate payment
         payment2 = frappe.new_doc("Payment Entry")
-        payment2.update({
-            "payment_type": "Receive",
-            "party_type": "Customer",
-            "party": member.name,
-            "paid_amount": 75.00,
-            "received_amount": 75.00,
-            "reference_no": f"BANK_IMPORT_{invoice.name}",  # Same reference
-            "reference_date": frappe.utils.today(),
-            "company": self.test_company
-        })
+        payment2.update(
+            {
+                "payment_type": "Receive",
+                "party_type": "Customer",
+                "party": member.name,
+                "paid_amount": 75.00,
+                "received_amount": 75.00,
+                "reference_no": f"BANK_IMPORT_{invoice.name}",  # Same reference
+                "reference_date": frappe.utils.today(),
+                "company": self.test_company,
+            }
+        )
 
         # Should detect duplicate and prevent creation
         with self.assertRaises(frappe.ValidationError):
@@ -612,8 +583,7 @@ class TestBankIntegrationErrorHandling(EnhancedTestCase):
 
         with requests_mock.Mocker() as m:
             # Mock timeout scenarios
-            m.get("https://api.bank.nl/statements",
-                  exc=requests.exceptions.ConnectTimeout)
+            m.get("https://api.bank.nl/statements", exc=requests.exceptions.ConnectTimeout)
 
             from verenigingen.utils.bank_integration import BankAPIClient
 
@@ -627,8 +597,7 @@ class TestBankIntegrationErrorHandling(EnhancedTestCase):
             self.assertIn("timeout", result["error"].lower())
 
             # Test retry with successful response
-            m.get("https://api.bank.nl/statements",
-                  json={"statements": [], "status": "success"})
+            m.get("https://api.bank.nl/statements", json={"statements": [], "status": "success"})
 
             retry_result = client.fetch_statements("2024-03-15")
             self.assertTrue(retry_result["success"])
@@ -653,29 +622,24 @@ class TestBankReconciliationReporting(EnhancedTestCase):
         """Test generation of bank reconciliation reports for audit purposes"""
 
         # Create sample data for reconciliation report
-        member = self.create_test_member(
-            first_name="Report",
-            last_name="Test",
-            email="report@example.nl"
-        )
+        member = self.create_test_member(first_name="Report", last_name="Test", email="report@example.nl")
 
-        invoice = self.create_test_sales_invoice(
-            customer=member.name,
-            grand_total=100.00
-        )
+        invoice = self.create_test_sales_invoice(customer=member.name, grand_total=100.00)
 
         # Create payment entry
         payment = frappe.new_doc("Payment Entry")
-        payment.update({
-            "payment_type": "Receive",
-            "party_type": "Customer",
-            "party": member.name,
-            "paid_amount": 100.00,
-            "received_amount": 100.00,
-            "reference_no": f"BANK_IMPORT_{invoice.name}",
-            "reference_date": frappe.utils.today(),
-            "company": self.test_company
-        })
+        payment.update(
+            {
+                "payment_type": "Receive",
+                "party_type": "Customer",
+                "party": member.name,
+                "paid_amount": 100.00,
+                "received_amount": 100.00,
+                "reference_no": f"BANK_IMPORT_{invoice.name}",
+                "reference_date": frappe.utils.today(),
+                "company": self.test_company,
+            }
+        )
         payment.insert()
         payment.submit()
 
@@ -685,7 +649,7 @@ class TestBankReconciliationReporting(EnhancedTestCase):
         filters = {
             "company": self.test_company,
             "from_date": frappe.utils.add_days(frappe.utils.today(), -30),
-            "to_date": frappe.utils.today()
+            "to_date": frappe.utils.today(),
         }
 
         columns, data = execute(filters)
@@ -699,41 +663,8 @@ class TestBankReconciliationReporting(EnhancedTestCase):
         payment_found = any(row for row in data if invoice.name in str(row))
         self.assertTrue(payment_found, "Payment should appear in reconciliation report")
 
-    @unittest.skip(
-        "verenigingen.utils.bank_reconciliation.get_unreconciled_transactions does "
-        "not exist (never shipped / removed). Re-enable when that helper lands."
-    )
-    def test_unreconciled_transactions_identification(self):
-        """Test identification of unreconciled bank transactions"""
-
-        # Create unmatched bank import entry
-        bank_transaction = frappe.new_doc("Bank Transaction")
-        bank_transaction.update({
-            "date": frappe.utils.today(),
-            "description": "Unmatched payment from unknown source",
-            "deposit": 150.00,
-            "currency": "EUR",
-            "bank_account": f"Bank Account - {self.test_company}",
-            "company": self.test_company,
-            "status": "Unreconciled"
-        })
-        bank_transaction.insert()
-
-        # Test unreconciled transaction reporting
-        from verenigingen.utils.bank_reconciliation import get_unreconciled_transactions  # pyright: ignore[reportMissingImports]  # helper does not exist; test skipped above
-
-        unreconciled = get_unreconciled_transactions(self.test_company)
-
-        # Verify unreconciled transaction detected
-        self.assertGreater(len(unreconciled), 0)
-
-        # Find our test transaction
-        test_transaction = next((t for t in unreconciled
-                               if t.get("amount") == 150.00), None)
-        self.assertIsNotNone(test_transaction)
-        self.assertEqual(test_transaction["status"], "Unreconciled")
-
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

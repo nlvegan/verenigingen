@@ -355,7 +355,6 @@
 ./verenigingen/utils/cleanup_function_summary.py
 ./verenigingen/utils/database_query_analyzer.py
 ./verenigingen/utils/department_hierarchy.py
-./verenigingen/utils/donation_emails.py
 ./verenigingen/utils/donation_history_manager.py
 ./verenigingen/utils/dutch_name_utils.py
 ./verenigingen/utils/email_queue_cleanup.py
@@ -402,13 +401,9 @@
 ./verenigingen/utils/performance/data_retention.py
 ./verenigingen/utils/performance_event_handlers.py
 ./verenigingen/utils/performance_integration.py
-./verenigingen/utils/performance_integration_safe.py
 ./verenigingen/utils/performance_test_20250801.py
-./verenigingen/utils/permission_security_validator.py
 ./verenigingen/utils/portal_customization.py
-./verenigingen/utils/portal_menu_enhancer.py
 ./verenigingen/utils/project_permissions.py
-./verenigingen/utils/resource_monitor.py
 ./verenigingen/utils/run_clean_import_test.py
 ./verenigingen/utils/safe_member_optimizer.py
 ./verenigingen/utils/schema_validation.py
