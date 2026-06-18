@@ -489,7 +489,19 @@ class TestEBoekhoudenItemMapping(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.company = frappe.db.get_value("Company", {}, "name")
+        # Derive the company from a real group account so we are guaranteed a
+        # company that actually has a chart of accounts. Picking an arbitrary
+        # Company (frappe.db.get_value("Company", {})) can land on one with no
+        # CoA, leaving parent_account=None -> "root account must be a group".
+        self._parent_account = frappe.db.get_value(
+            "Account",
+            {"is_group": 1, "root_type": "Expense"},
+            ["name", "company"],
+            as_dict=True,
+        ) or frappe.db.get_value("Account", {"is_group": 1}, ["name", "company"], as_dict=True)
+        if not self._parent_account:
+            self.skipTest("No group account available to parent a test account")
+        self.company = self._parent_account.company
         # Ensure a test account with account_number exists
         self.test_account = self._ensure_test_account()
         # Ensure a test item exists
@@ -505,24 +517,11 @@ class TestEBoekhoudenItemMapping(EnhancedTestCase):
         if acct_name:
             return acct_name
 
-        # Find a parent group account
-        parent = frappe.db.get_value(
-            "Account",
-            {"company": self.company, "is_group": 1, "root_type": "Expense"},
-            "name",
-        )
-        if not parent:
-            parent = frappe.db.get_value(
-                "Account",
-                {"company": self.company, "is_group": 1},
-                "name",
-            )
-
         doc = frappe.new_doc("Account")
         doc.account_name = "EB Test Account 01"
         doc.account_number = "EBTEST01"
         doc.company = self.company
-        doc.parent_account = parent
+        doc.parent_account = self._parent_account.name
         doc.is_group = 0
         doc.insert(ignore_permissions=True)
         return doc.name
@@ -588,13 +587,14 @@ class TestEBoekhoudenPaymentMapping(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.company = frappe.db.get_value("Company", {}, "name")
-        # Find a real account belonging to this company
-        self.test_account = frappe.db.get_value(
-            "Account",
-            {"company": self.company, "is_group": 0},
-            "name",
-        )
+        # Derive the company from a real leaf account so the company is
+        # guaranteed to have a chart of accounts; an arbitrary Company may have
+        # none, leaving test_account=None -> "Account None does not belong to
+        # company".
+        self.test_account = frappe.db.get_value("Account", {"is_group": 0}, "name")
+        if not self.test_account:
+            self.skipTest("No leaf account available")
+        self.company = frappe.db.get_value("Account", self.test_account, "company")
         self.mode_of_payment = frappe.db.get_value("Mode of Payment", {}, "name")
 
     def _make_payment_mapping(self, **kwargs):
