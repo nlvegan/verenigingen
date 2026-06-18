@@ -1139,6 +1139,13 @@ class UnifiedWebhookWrapperService:
     def _update_donation_status(self, donation, payment_data):
         """Update donation status based on payment data."""
         try:
+            # Reload first: _create_donation_financial_entries -> the Journal
+            # Entry creator writes Donation.journal_entry via frappe.db.set_value
+            # (DB only, the in-memory object is untouched). Without this reload
+            # the donation.save() below writes back the stale in-memory
+            # journal_entry (None), clobbering the just-created JE link.
+            donation.reload()
+
             # Mark donation as paid
             donation.paid = 1
             if hasattr(donation, "payment_status"):
