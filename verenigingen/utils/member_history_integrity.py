@@ -253,9 +253,14 @@ class HistoryIntegrityManager:
                     {"reference": ref_value, "reason": reason, "idx": entry.idx, "history_type": history_type}
                 )
 
-            # Sort remaining entries by date (newest first)
+            # Sort remaining entries by date (newest first). Normalize through
+            # getdate() so a row with a populated date (returned as datetime.date)
+            # and a row falling back to the "1900-01-01" string never get compared
+            # directly — date < str raises TypeError in Python 3.
             if child_table:
-                child_table.sort(key=lambda x: getattr(x, sort_field, "") or "1900-01-01", reverse=True)
+                child_table.sort(
+                    key=lambda x: getdate(getattr(x, sort_field, None) or "1900-01-01"), reverse=True
+                )
 
             # AUDIT TRAIL: Create audit log if entries were removed
             if removed:
@@ -376,9 +381,13 @@ class HistoryIntegrityManager:
                     {"reference": ref_value, "reason": reason, "idx": entry.idx, "history_type": "payment"}
                 )
 
-            # Sort remaining entries by date (newest first)
+            # Sort remaining entries by date (newest first). Normalize through
+            # getdate() so populated dates (datetime.date) and the "1900-01-01"
+            # string fallback are never compared directly (date < str raises).
             if child_table:
-                child_table.sort(key=lambda x: getattr(x, "posting_date", "") or "1900-01-01", reverse=True)
+                child_table.sort(
+                    key=lambda x: getdate(getattr(x, "posting_date", None) or "1900-01-01"), reverse=True
+                )
 
             # AUDIT TRAIL: Create audit log if entries were removed
             if removed:

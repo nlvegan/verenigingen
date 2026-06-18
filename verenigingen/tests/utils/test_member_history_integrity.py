@@ -22,7 +22,7 @@ _is_within_grace_period, _create_audit_log and cleanup_member_history.
 """
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.member_history_integrity import (
@@ -205,6 +205,39 @@ class TestMemberHistoryIntegrity(EnhancedTestCase):
         # newest first
         self.assertEqual(member.payment_history[0].invoice, inv2)
         self.assertEqual(member.payment_history[1].invoice, inv1)
+
+    def test_fee_history_sort_tolerates_missing_change_date(self):
+        """Regression: a KEPT fee row whose change_date is None must not break the
+        newest-first sort. change_date is the sort field but not a required-to-keep
+        field, so a row with a populated date (datetime.date, as DB-loaded rows
+        are) and a row with None coexist. The sort key normalizes through
+        getdate() because a raw ``date < str`` comparison (date vs the
+        "1900-01-01" fallback) raises TypeError in Python 3 and would otherwise
+        abort the whole cleanup.
+        """
+        member = self._make_member("FeeSortMixed")
+        ds = self._make_dues_schedule(member)
+        member.fee_change_history = []
+        member.payment_history = []
+
+        # Two rows on the same (existing) schedule with DIFFERENT amounts both
+        # survive cleanup (the duplicate-with-different-amounts case is flagged
+        # for manual review, not removed) — giving us two kept rows to sort.
+        # One carries a real date object; the other a None change_date.
+        row_a = self._append_fee_row(member, ds, new_rate=25.0, change_date=today())
+        row_a.change_date = getdate(today())
+        row_b = self._append_fee_row(member, ds, new_rate=30.0, change_date=today())
+        row_b.change_date = None  # force the mixed-type sort path on a kept row
+
+        manager = HistoryIntegrityManager(member)
+        # Pre-fix this raised TypeError (date < '1900-01-01'); must not now.
+        manager.cleanup_fee_history()
+
+        # Both rows are kept and the dated row sorts ahead of the undated
+        # (1900 fallback) one.
+        self.assertEqual(len(member.fee_change_history), 2)
+        self.assertEqual(member.fee_change_history[0].new_dues_rate, 25.0)
+        self.assertIsNone(member.fee_change_history[1].change_date)
 
     # ------------------------------------------------------------------ #
     # cleanup_fee_history (generic _cleanup_history)
