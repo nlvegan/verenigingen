@@ -771,11 +771,16 @@ class UnifiedWebhookWrapperService:
                 results.append("Donation status updated")
 
             if "payment_history" in missing_components:
-                # Try to get existing journal entry name from database if not created above
+                # Try to get existing journal entry name from database if not created above.
+                # Journal Entry has no `reference_no` column (that is a Payment Entry field);
+                # the donation Journal Entry creator stores the Mollie payment id in
+                # `cheque_no`, so we must match on that. Querying `reference_no` here raised
+                # "Unknown column 'reference_no'" and aborted the whole partial-processing
+                # backfill whenever the JE had to be looked up from the DB.
                 if not journal_entry_name:
                     journal_entry_name = frappe.db.get_value(
                         "Journal Entry",
-                        {"reference_no": payment_id, "docstatus": ["!=", 2]},
+                        {"cheque_no": payment_id, "docstatus": ["!=", 2]},
                         "name",
                     )
                 if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
