@@ -29,6 +29,11 @@ class TestPageManageDonations(EnhancedTestCase):
             email=self.email,
             birth_date="1990-01-01",
         )
+        # The factory may uniquify the member's email for isolation, so read the
+        # stored value back. get_donation_summary() matches donations by
+        # member.email, so the donor + donations MUST use the member's actual
+        # email — otherwise the aggregate finds nothing (total_donations == 0).
+        self.email = self.member.email
         self.user = self._ensure_user(self.email)
         self.member.db_set("user", self.user)
         self.donor = self.create_test_donor(donor_email=self.email)
