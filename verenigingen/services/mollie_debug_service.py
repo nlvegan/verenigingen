@@ -1645,12 +1645,15 @@ class MollieDebugService(StatelessService):
         if times is not None:
             try:
                 times_int = int(times)
-                if times_int < 1:
-                    raise ValueError(_("Times must be at least 1"))
-                if times_int > 999:
-                    raise ValueError(_("Times cannot exceed 999 payments"))
             except (ValueError, TypeError):
                 raise ValueError(_("Invalid times format - must be a number"))
+            # Range checks must live outside the int() try/except - otherwise the
+            # specific out-of-range ValueErrors below get swallowed and reported
+            # as the generic "Invalid times format" message.
+            if times_int < 1:
+                raise ValueError(_("Times must be at least 1"))
+            if times_int > 999:
+                raise ValueError(_("Times cannot exceed 999 payments"))
 
         return amount_float, interval_count_int, mollie_interval
 
@@ -2072,21 +2075,25 @@ class MollieDebugService(StatelessService):
         # Validate due date if provided
         validated_due_date = None
         if due_date:
+            # Parse the format separately from the business-range checks. The old
+            # code wrapped both in one try and tried to distinguish a parse error
+            # via `"strptime" in str(e.__class__)` - but e.__class__ is always
+            # ValueError, so that branch never fired: the friendly format message
+            # was dead code and the raw strptime error leaked to the caller.
             try:
                 due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
-                tomorrow = (datetime.now() + timedelta(days=1)).date()
-                max_date = (datetime.now() + timedelta(days=100)).date()
+            except ValueError:
+                raise ValueError(_("Invalid due date format. Use YYYY-MM-DD"))
 
-                if due_date_obj < tomorrow:
-                    raise ValueError(_("Due date must be at least tomorrow"))
-                if due_date_obj > max_date:
-                    raise ValueError(_("Due date cannot be more than 100 days from now"))
+            tomorrow = (datetime.now() + timedelta(days=1)).date()
+            max_date = (datetime.now() + timedelta(days=100)).date()
 
-                validated_due_date = due_date
-            except ValueError as e:
-                if "strptime" in str(e.__class__):
-                    raise ValueError(_("Invalid due date format. Use YYYY-MM-DD"))
-                raise
+            if due_date_obj < tomorrow:
+                raise ValueError(_("Due date must be at least tomorrow"))
+            if due_date_obj > max_date:
+                raise ValueError(_("Due date cannot be more than 100 days from now"))
+
+            validated_due_date = due_date
 
         try:
             # Get site URL for redirect
