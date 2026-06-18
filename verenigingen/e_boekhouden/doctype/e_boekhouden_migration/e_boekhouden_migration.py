@@ -1738,8 +1738,13 @@ def check_rest_api_status():
     try:
         settings = frappe.get_single("E-Boekhouden Settings")
 
-        # Check if API token is configured (either field name could be used)
-        api_token = settings.get_password("api_token") or settings.get_password("rest_api_token")
+        # Check if API token is configured (either field name could be used).
+        # raise_exception=False so a half-configured token (field set but the
+        # stored password missing) is treated as "not configured" rather than
+        # raising "Password not found" — a status check must never 500.
+        api_token = settings.get_password("api_token", raise_exception=False) or settings.get_password(
+            "rest_api_token", raise_exception=False
+        )
         if not api_token:
             return {"configured": False, "message": "REST API token not configured"}
 
@@ -1998,25 +2003,6 @@ def update_account_type_mapping(account_name: str, new_account_type: str, compan
             "error": f"Update failed: {error_short}",
             "error_code": "UPDATE_ERROR",
         }
-
-    def _get_migration_currency(self, settings):
-        """Get currency for migration with explicit validation"""
-        # Check settings default currency
-        if hasattr(settings, "default_currency") and settings.default_currency:
-            return settings.default_currency
-
-        # Get company default currency
-        if hasattr(self, "company") and self.company:
-            company_currency = frappe.db.get_value("Company", self.company, "default_currency")
-            if company_currency:
-                return company_currency
-
-        # Final fallback with logging
-        frappe.log_error(
-            f"No currency configured in E-Boekhouden Settings or Company settings for migration '{self.name}', using 'EUR' fallback",
-            "E-Boekhouden Migration Currency Configuration",
-        )
-        return "EUR"
 
 
 @frappe.whitelist()

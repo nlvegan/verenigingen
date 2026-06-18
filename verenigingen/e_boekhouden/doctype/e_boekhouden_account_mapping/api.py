@@ -376,8 +376,8 @@ def export_migration_config():
                 "account_code",
                 "account_name",
                 "document_type",
-                "category",
-                "confidence",
+                "transaction_category",
+                "priority",
                 "is_active",
                 "usage_count",
             ],
@@ -425,18 +425,20 @@ def import_migration_config(config):
             else:
                 doc = frappe.new_doc("E-Boekhouden Account Mapping")
 
-            # Update fields
+            # Update fields. These must match real DocType fieldnames; writing
+            # phantom names (e.g. "target_document_type") would be silently
+            # dropped on save, so an exported config would lose document_type,
+            # ranges and patterns on re-import.
             for field in [
                 "account_code",
                 "account_name",
-                "target_account_type",
-                "target_document_type",
+                "document_type",
                 "transaction_category",
                 "priority",
-                "description",
-                "account_code_start",
-                "account_code_end",
-                "description_pattern",
+                "is_active",
+                "account_range_start",
+                "account_range_end",
+                "description_patterns",
             ]:
                 if field in mapping_data:
                     setattr(doc, field, mapping_data[field])
@@ -582,7 +584,10 @@ def bulk_update_mappings(updates):
                 doc = frappe.get_doc("E-Boekhouden Account Mapping", update["mapping_id"])
 
                 if "account_type" in update and update["account_type"]:
-                    doc.target_account_type = update["account_type"]
+                    # Real fieldname is document_type (matches add/update_account_mapping).
+                    # The old phantom "target_account_type" was silently dropped on save,
+                    # so account-type changes in a bulk update never persisted.
+                    doc.document_type = update["account_type"]
 
                 if "priority" in update and update["priority"]:
                     doc.priority = int(update["priority"])
@@ -674,9 +679,14 @@ def apply_suggested_mappings(suggestions):
                 doc = frappe.new_doc("E-Boekhouden Account Mapping")
                 doc.account_code = suggestion["account_code"]
                 doc.account_name = suggestion["account_name"]
-                doc.target_account_type = suggestion["suggested_type"]
                 doc.priority = 50  # Medium priority for auto-suggested
-                doc.description = f"Auto-suggested with {suggestion['confidence']} confidence"
+                # NOTE: suggested_type is an ERPNext *account type* (e.g. "Bank",
+                # "Income Account") for which this DocType has no field. The old
+                # code wrote it to a phantom "target_account_type" attribute that
+                # was silently dropped on save, so it was never persisted; we omit
+                # it rather than crash document_type's Select validation. The
+                # confidence note likewise had no real field ("description" is not
+                # a fieldname here) and is dropped.
                 doc.insert()
                 created_count += 1
 
