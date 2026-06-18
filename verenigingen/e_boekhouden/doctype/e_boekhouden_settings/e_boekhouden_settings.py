@@ -227,12 +227,19 @@ class EBoekhoudenSettings(Document):
                 # Check if ranges overlap
                 # Range1 overlaps Range2 if: start1 <= end2 AND start2 <= end1
                 if padded_start1 <= padded_end2 and padded_start2 <= padded_end1:
+                    # Pass the detail as `message` (Long Text) with a short `title`.
+                    # The long string must NOT be the title: frappe.log_error treats
+                    # the first positional arg as the title, which is stored in the
+                    # 140-char `method` field and raises CharacterLengthExceededError
+                    # in strict/test mode — crashing overlap detection.
                     frappe.log_error(
-                        f"Range overlap detected in '{category_hint}...': "
-                        f"Range '{start1}-{end1}' overlaps with '{start2}-{end2}'. "
-                        "This may cause unexpected account classification behavior. "
-                        "Consider revising your ranges to eliminate overlaps.",
-                        "Settings Validation Warning",
+                        message=(
+                            f"Range overlap detected in '{category_hint}': "
+                            f"Range '{start1}-{end1}' overlaps with '{start2}-{end2}'. "
+                            "This may cause unexpected account classification behavior. "
+                            "Consider revising your ranges to eliminate overlaps."
+                        ),
+                        title="Settings Validation Warning",
                     )
                     # Note: We log but don't reject - overlaps might be intentional in some cases
 

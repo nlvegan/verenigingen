@@ -130,15 +130,21 @@ class TestEBoekhoudenMigration(EnhancedTestCase):
     # onload: default company defaulting from E-Boekhouden Settings
     # ------------------------------------------------------------------
     def _setup_settings_default_company(self, value):
-        """Persist E-Boekhouden Settings.default_company (fixture helper).
+        """Set E-Boekhouden Settings.default_company via db.set_value (fixture helper).
 
-        The default test user lacks write on the Single, so the permission
-        bypass lives in this helper to keep test bodies declarative (the
-        enforcer treats ``_setup_*`` helpers as fixture context)."""
-        settings = frappe.get_single("E-Boekhouden Settings")
-        settings.default_company = value
-        settings.flags.ignore_permissions = True
-        settings.save(ignore_permissions=True)
+        A full settings.save() validates the default_company Link, which fails on
+        a fresh CI site when restoring the original value — a transient test
+        company that has since been rolled back (LinkValidationError). db.set_value
+        bypasses that validation; clearing the document cache makes onload's
+        frappe.get_single() read the new value."""
+        frappe.db.set_value(
+            "E-Boekhouden Settings",
+            "E-Boekhouden Settings",
+            "default_company",
+            value,
+            update_modified=False,
+        )
+        frappe.clear_document_cache("E-Boekhouden Settings", "E-Boekhouden Settings")
 
     def test_onload_defaults_company_from_settings(self):
         """A new doc with no company gets company from Settings.default_company.
