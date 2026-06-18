@@ -124,6 +124,15 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
     def setUp(self):
         super().setUp()
         self.service = TransactionService()
+        # This class submits a Sales Invoice in _Test Company dated today. On a
+        # fresh CI runner _Test Company has no Fiscal Year covering today() (and
+        # erpnext's bootstrap FY can be restricted to a single company), so submit
+        # fails with "Date <today> is not in any active Fiscal Year". This is a
+        # FrappeTestCase (not EnhancedTestCase), so seed the FY explicitly. The
+        # helper is idempotent and date-driven (self-heals each calendar year).
+        from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
+
+        ensure_test_fiscal_year_for_all_companies()
         self._ensure_mode_of_payment()
         self.invoice = self._make_submitted_invoice(rate=25.00)
 

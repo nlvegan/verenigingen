@@ -100,9 +100,7 @@ class TestIdentifyPaymentType(EnhancedTestCase):
 
     def test_dues_by_customer_id(self):
         cust_id = f"cst_{frappe.generate_hash(length=8)}"
-        frappe.db.set_value(
-            "Member", self.member.name, "mollie_customer_id", cust_id, update_modified=False
-        )
+        frappe.db.set_value("Member", self.member.name, "mollie_customer_id", cust_id, update_modified=False)
         self.assertEqual(self.proc.identify_payment_type(_payment(customer_id=cust_id)), PaymentType.DUES)
 
     def test_unknown_when_no_match(self):
@@ -177,7 +175,9 @@ class TestGetMemberWithCustomer(EnhancedTestCase):
 
     def test_returns_member_and_customer(self):
         member = self.create_test_member(
-            first_name="WithCust", last_name="Member", email=f"wc.{frappe.generate_hash(length=6)}@example.com"
+            first_name="WithCust",
+            last_name="Member",
+            email=f"wc.{frappe.generate_hash(length=6)}@example.com",
         )
         member.reload()
         m, cust = self.proc._get_member_with_customer(member.name)
@@ -194,9 +194,7 @@ class TestProcessDuesPaymentBranches(EnhancedTestCase):
 
     def test_already_processed_both(self):
         proc = _bare_processor(
-            bank_tx_creator=_StubBankTxCreator(
-                already={"payment_entry": "PE-1", "bank_transaction": "BT-1"}
-            )
+            bank_tx_creator=_StubBankTxCreator(already={"payment_entry": "PE-1", "bank_transaction": "BT-1"})
         )
         result = proc.process_dues_payment("tr_x", payment=_payment())
         self.assertEqual(result["status"], "already_processed")
@@ -205,9 +203,7 @@ class TestProcessDuesPaymentBranches(EnhancedTestCase):
 
     def test_already_processed_pe_only(self):
         proc = _bare_processor(
-            bank_tx_creator=_StubBankTxCreator(
-                already={"payment_entry": "PE-9", "bank_transaction": None}
-            )
+            bank_tx_creator=_StubBankTxCreator(already={"payment_entry": "PE-9", "bank_transaction": None})
         )
         result = proc.process_dues_payment("tr_x", payment=_payment())
         self.assertEqual(result["status"], "already_processed")
@@ -229,9 +225,7 @@ class TestProcessDuesPaymentBranches(EnhancedTestCase):
         # the classifier return DUES with no member_id, and the matcher finds no
         # member -> error branch.
         proc = _bare_processor()
-        result = proc.process_dues_payment(
-            "tr_x", payment=_payment(description="contributie 2025")
-        )
+        result = proc.process_dues_payment("tr_x", payment=_payment(description="contributie 2025"))
         # classifier -> dues (low confidence keyword), matcher -> no member
         self.assertEqual(result["payment_type"], PaymentType.DUES)
         self.assertEqual(result["status"], "error")
@@ -263,14 +257,26 @@ class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
             item = frappe.new_doc("Item")
             item.item_code = item_name
             item.item_name = item_name
-            item.item_group = "Services" if frappe.db.exists("Item Group", "Services") else frappe.get_value("Item Group", {"is_group": 0}, "name")
-            item.stock_uom = "Unit" if frappe.db.exists("UOM", "Unit") else frappe.get_value("UOM", {}, "name")
+            item.item_group = (
+                "Services"
+                if frappe.db.exists("Item Group", "Services")
+                else frappe.get_value("Item Group", {"is_group": 0}, "name")
+            )
+            item.stock_uom = (
+                "Unit" if frappe.db.exists("UOM", "Unit") else frappe.get_value("UOM", {}, "name")
+            )
             item.is_stock_item = 0
             item.insert(ignore_permissions=True)
 
         inv = frappe.new_doc("Sales Invoice")
         inv.customer = self.customer
         inv.company = self.company
+        # Match the document currency to the company's receivable account currency.
+        # Without this the invoice can default to USD (e.g. from a USD selling
+        # price list on a fresh CI site) while Debtors - _TC is in the company
+        # currency (INR) -> "Party Account currency and document currency should be
+        # same". Pinning to the company currency keeps them aligned everywhere.
+        inv.currency = frappe.get_value("Company", self.company, "default_currency")
         inv.member = self.member.name
         inv.is_membership_invoice = 1
         inv.append(
