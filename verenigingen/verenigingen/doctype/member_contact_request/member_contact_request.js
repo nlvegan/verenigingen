@@ -131,8 +131,9 @@ frappe.ui.form.on('Member Contact Request', {
 			}
 		}
 
-		// Hide CRM fields for portal users
-		if (frappe.user_roles.includes('Member') && !frappe.user_roles.includes('System Manager')) {
+		// Hide CRM fields for portal users.
+		// Members hold "Verenigingen Member" (the bare "Member" role does not exist).
+		if (frappe.user_roles.includes('Verenigingen Member') && !frappe.user_roles.includes('System Manager')) {
 			frm.set_df_property('crm_integration_section', 'hidden', 1);
 			frm.set_df_property('notes', 'hidden', 1);
 			frm.set_df_property('assigned_to', 'hidden', 1);

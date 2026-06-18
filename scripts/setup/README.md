@@ -4,15 +4,11 @@ Setup and configuration scripts for system initialization and feature setup.
 
 ## Available Scripts
 
-- **`setup_member_portal_home.py`** - Set up member portal home page configuration
 - **`add_chapter_tracking_fields.py`** - Add chapter tracking fields to the system
 
 ## Usage
 
 ```bash
-# Set up member portal home page
-python scripts/setup/setup_member_portal_home.py
-
 # Add chapter tracking fields
 python scripts/setup/add_chapter_tracking_fields.py
 ```

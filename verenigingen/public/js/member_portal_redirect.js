@@ -82,8 +82,9 @@ function checkMemberPortalRedirect() {
 		return;
 	}
 
-	// Check if user has member role and should be on member portal
-	if (frappe.user_roles && frappe.user_roles.includes('Member')) {
+	// Check if user has member role and should be on member portal.
+	// Members hold "Verenigingen Member" (the bare "Member" role does not exist).
+	if (frappe.user_roles && frappe.user_roles.includes('Verenigingen Member')) {
 		// If on homepage or generic pages, redirect to member portal
 		const currentPath = window.location.pathname;
 

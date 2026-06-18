@@ -24,10 +24,11 @@ class TestRoleConstants(unittest.TestCase):
         self.assertEqual(Roles.CHAPTER_BOARD_MEMBER, "Verenigingen Chapter Board Member")
 
     def test_verenigingen_member_constant(self):
-        """VERENIGINGEN_MEMBER is the 'Verenigingen Member' role — distinct from
-        MEMBER ('Member'), which is a different role."""
+        """VERENIGINGEN_MEMBER is the 'Verenigingen Member' role — the role members
+        actually hold. (The bare 'Member' role does not exist on the site; the
+        former Roles.MEMBER constant was a phantom and has been removed.)"""
         self.assertEqual(Roles.VERENIGINGEN_MEMBER, "Verenigingen Member")
-        self.assertNotEqual(Roles.VERENIGINGEN_MEMBER, Roles.MEMBER)
+        self.assertFalse(hasattr(Roles, "MEMBER"), "phantom Roles.MEMBER must not be reintroduced")
 
     def test_hr_user_constant(self):
         """HR_USER is the framework 'HR User' role."""

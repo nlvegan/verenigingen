@@ -19,7 +19,6 @@ class Roles:
     # hard-coded the non-existent "Finance Manager", silently denying access.
     # Reference this constant rather than re-typing the literal.
     FINANCIAL_MANAGER = "Verenigingen Financial Manager"
-    MEMBER = "Member"
     VOLUNTEER = "Verenigingen Volunteer"
     VOLUNTEER_MANAGER = "Volunteer Manager"
     AUDITOR = "Verenigingen Auditor"
@@ -30,7 +29,9 @@ class Roles:
     HR_MANAGER = "HR Manager"
     HR_USER = "HR User"
     TEAM_LEADER = "Team Leader"
-    # Distinct from MEMBER ("Member") — "Verenigingen Member" is a separate role.
+    # The role members actually hold. There is no bare "Member" role on the site,
+    # so never reintroduce a Roles.MEMBER = "Member" constant — it silently never
+    # matches (the phantom-role bug).
     VERENIGINGEN_MEMBER = "Verenigingen Member"
     VOLUNTEER_COORDINATOR = "Volunteer Coordinator"
     WEBHOOK_USER = "Verenigingen Webhook User"

@@ -65,9 +65,6 @@ python scripts/validation/validation_check.py
 ### Setup Scripts
 
 ```bash
-# Set up member portal home page
-python scripts/setup/setup_member_portal_home.py
-
 # Add chapter tracking fields
 python scripts/setup/add_chapter_tracking_fields.py
 

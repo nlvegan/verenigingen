@@ -8,10 +8,7 @@ and as a system/admin user — hitting the real DB and the real branches rather
 than mocking business logic.
 
 Covered functions:
-- set_member_home_page (Guest / missing-user / success / default-session)
-- set_all_members_home_page (permission-denied / bulk success)
 - get_member_portal_stats (real aggregate counts)
-- sync_member_user_home_pages (real catch-up count)
 - get_user_appropriate_home_page (Guest / member / volunteer / admin / default)
 - format_coverage_period (every billing-frequency branch + bad-input guards)
 - enhance_outstanding_invoices_with_coverage (empty / coverage / due-date fallback)
@@ -26,25 +23,12 @@ from verenigingen.utils.member_portal_utils import (
     format_coverage_period,
     get_member_portal_stats,
     get_user_appropriate_home_page,
-    set_all_members_home_page,
-    set_member_home_page,
     setup_portal_context,
-    sync_member_user_home_pages,
 )
 
 
 class TestMemberPortalUtils(EnhancedTestCase):
     # ------------------------------------------------------------------ helpers
-    def _ensure_member_role(self):
-        """The module's SQL filters on the literal role name 'Member'.
-
-        On a fresh CI site only 'Verenigingen Member' exists, so create the
-        'Member' role if missing — this mirrors the role the production code
-        was written against and lets the real bulk/stats/sync branches run.
-        """
-        if not frappe.db.exists("Role", "Member"):
-            frappe.get_doc({"doctype": "Role", "role_name": "Member", "desk_access": 1}).insert()
-
     def _make_portal_member(self, roles=None):
         """Create a User (with given roles) + a Member linked to that User.
 
@@ -53,8 +37,6 @@ class TestMemberPortalUtils(EnhancedTestCase):
         """
         if roles is None:
             roles = ["Verenigingen Member"]
-        if "Member" in roles:
-            self._ensure_member_role()
         user = self.factory.create_user_with_roles(roles=roles)
         member = self.factory.create_member(
             first_name="Portal",
@@ -66,102 +48,28 @@ class TestMemberPortalUtils(EnhancedTestCase):
         return member, user.email
 
     def _make_user(self, roles):
-        if "Member" in roles:
-            self._ensure_member_role()
         return self.factory.create_user_with_roles(roles=roles)
-
-    # ------------------------------------------------- set_member_home_page
-    def test_set_home_page_rejects_guest(self):
-        result = set_member_home_page(user_email="Guest")
-        self.assertFalse(result["success"])
-        self.assertIn("Guest", result["message"])
-
-    def test_set_home_page_missing_user(self):
-        result = set_member_home_page(user_email="does-not-exist-xyz@example.invalid")
-        self.assertFalse(result["success"])
-        # The message must interpolate the email (regression guard for the
-        # missing-f-prefix bug that returned the literal "{user_email}").
-        self.assertIn("does-not-exist-xyz@example.invalid", result["message"])
-
-    def test_set_home_page_success_persists(self):
-        _, email = self._make_portal_member()
-        result = set_member_home_page(user_email=email, home_page="/member_portal")
-        self.assertTrue(result["success"], msg=result.get("message"))
-        self.assertEqual(result["home_page"], "/member_portal")
-        # The success message must interpolate the home page (regression guard
-        # for the missing-f-prefix bug that returned the literal "{home_page}").
-        self.assertIn("/member_portal", result["message"])
-        # The change is actually written to the User doctype.
-        self.assertEqual(frappe.db.get_value("User", email, "home_settings"), "/member_portal")
-
-    def test_set_home_page_defaults_to_session_user(self):
-        _, email = self._make_portal_member()
-        with self.set_user(email):
-            # No user_email -> falls back to frappe.session.user (the member user).
-            result = set_member_home_page(home_page="/member_portal")
-        # Member users lack User:write, so this should fail gracefully (not crash)
-        # while having resolved the session user rather than erroring on None.
-        self.assertIn("success", result)
-        self.assertIsInstance(result["success"], bool)
-
-    # --------------------------------------------- set_all_members_home_page
-    def test_set_all_members_returns_structured_result_for_member_user(self):
-        # In Frappe a normal user can edit their OWN User doc, so has_permission
-        # ("User","write") is True even for a member user -> the bulk op proceeds
-        # and returns the success-shaped result rather than throwing. We assert
-        # the contract (structured dict, never an unhandled exception).
-        plain_user = self._make_user(roles=["Verenigingen Member"])
-        with self.set_user(plain_user.email):
-            result = set_all_members_home_page()
-        self.assertIn("success", result)
-        self.assertTrue(result["success"])
-        self.assertIn("updated_count", result)
-        self.assertIn("total_members", result)
-
-    def test_set_all_members_bulk_success(self):
-        # Ensure at least one Member-role user exists with a non-portal home page.
-        target_user = self._make_user(roles=["Member"])
-        frappe.db.set_value("User", target_user.email, "home_settings", "/app")
-        result = set_all_members_home_page(home_page="/member_portal")
-        self.assertTrue(result["success"], msg=result.get("message"))
-        self.assertIn("updated_count", result)
-        self.assertIn("total_members", result)
-        self.assertGreaterEqual(result["total_members"], 1)
-        # Our target should now point at the portal.
-        self.assertEqual(
-            frappe.db.get_value("User", target_user.email, "home_settings"),
-            "/member_portal",
-        )
 
     # ------------------------------------------------ get_member_portal_stats
     def test_member_portal_stats_shape_and_values(self):
-        member, email = self._make_portal_member(roles=["Member"])
-        frappe.db.set_value("User", email, "home_settings", "/member_portal")
+        # Baseline, then add a user holding the real member role
+        # ("Verenigingen Member") + a linked Member record. The stats SQL filters
+        # on that role; if it still filtered on the phantom "Member" role (which
+        # does not exist on prod) the count would not move.
+        before = get_member_portal_stats()
+        self.assertNotIn("error", before)
+        self._make_portal_member(roles=["Verenigingen Member"])
         stats = get_member_portal_stats()
         self.assertNotIn("error", stats)
-        for key in (
-            "total_member_users",
-            "members_with_portal_home",
-            "members_with_linked_records",
-            "portal_adoption_rate",
-        ):
+        for key in ("total_member_users", "members_with_linked_records"):
             self.assertIn(key, stats)
-        # We just created a Member-role user on the portal home page + a linked Member.
-        self.assertGreaterEqual(stats["total_member_users"], 1)
-        self.assertGreaterEqual(stats["members_with_portal_home"], 1)
-        self.assertGreaterEqual(stats["members_with_linked_records"], 1)
-        # adoption rate is a percentage in [0, 100].
-        self.assertGreaterEqual(stats["portal_adoption_rate"], 0)
-        self.assertLessEqual(stats["portal_adoption_rate"], 100)
-
-    # ------------------------------------------- sync_member_user_home_pages
-    def test_sync_member_home_pages_catches_up(self):
-        # A Member-role user with an empty/'/app' home page is a candidate to sync.
-        user = self._make_user(roles=["Member"])
-        frappe.db.set_value("User", user.email, "home_settings", "/app")
-        count = sync_member_user_home_pages()
-        self.assertIsInstance(count, int)
-        self.assertGreaterEqual(count, 0)
+        # The home_settings-based adoption metric was removed: routing is handled
+        # by auth_hooks + member_portal_redirect.js, not a per-user field.
+        self.assertNotIn("members_with_portal_home", stats)
+        self.assertNotIn("portal_adoption_rate", stats)
+        # The new Verenigingen Member user must be counted (role filter regression).
+        self.assertEqual(stats["total_member_users"], before["total_member_users"] + 1)
+        self.assertEqual(stats["members_with_linked_records"], before["members_with_linked_records"] + 1)
 
     # ------------------------------------------ get_user_appropriate_home_page
     def test_home_page_guest(self):
@@ -169,8 +77,16 @@ class TestMemberPortalUtils(EnhancedTestCase):
             self.assertEqual(get_user_appropriate_home_page(), "/web")
 
     def test_home_page_member_linked(self):
-        _, email = self._make_portal_member(roles=["Member"])
+        _, email = self._make_portal_member(roles=["Verenigingen Member"])
         with self.set_user(email):
+            self.assertEqual(get_user_appropriate_home_page(), "/member_portal")
+
+    def test_home_page_member_role_without_record(self):
+        # A user with the "Verenigingen Member" role but NO linked Member record
+        # must still resolve to the portal via the role branch. This is the
+        # phantom-role regression: the check used the non-existent "Member" role.
+        user = self._make_user(roles=["Verenigingen Member"])
+        with self.set_user(user.email):
             self.assertEqual(get_user_appropriate_home_page(), "/member_portal")
 
     def test_home_page_volunteer_role(self):

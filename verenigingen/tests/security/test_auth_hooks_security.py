@@ -266,6 +266,14 @@ class TestAuthHooksSecurity(EnhancedTestCase):
 
     # ===== ROLE CHECKING SECURITY TESTS =====
 
+    def test_has_member_role_true_for_verenigingen_member(self):
+        """Regression: a user holding the real "Verenigingen Member" role must be
+        recognized. The check previously tested the phantom "Member" role (which
+        does not exist on the site), so it returned False for every real member
+        and the role-based portal redirect never fired."""
+        result = auth_hooks.has_member_role(self.test_member_user.name)
+        self.assertTrue(result, "Verenigingen Member user should be recognized as a member")
+
     def test_has_member_role_with_invalid_user(self):
         """Test has_member_role handles invalid users safely"""
         # Test with None user

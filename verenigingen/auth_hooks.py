@@ -187,7 +187,9 @@ def has_member_role(user):
             return False
 
         user_roles = safe_get_roles(user)
-        return "Member" in user_roles
+        # Members hold the "Verenigingen Member" role; the bare "Member" role
+        # does not exist on this site (phantom role), so checking it never matched.
+        return Roles.VERENIGINGEN_MEMBER in user_roles
     except Exception as e:
         frappe.logger().error(f"Error checking member role for user {repr(user)}: {str(e)}")
         return False
