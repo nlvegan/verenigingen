@@ -139,7 +139,10 @@ class BackgroundJobManager:
         """Update job status"""
         try:
             cache_key = f"job_status_{job_name}"
-            job_status = frappe.cache().get(cache_key) or {}
+            # NOTE: use get_value (not the raw redis .get) -- set_value/get_value
+            # are the matched cache API; .get() bypasses make_key + unpickling and
+            # always returns None, silently losing every tracked job's status.
+            job_status = frappe.cache().get_value(cache_key) or {}
 
             job_status.update({"status": status, "updated_at": now(), "result": result, "error": error})
 
@@ -184,7 +187,9 @@ class BackgroundJobManager:
         """Get job status"""
         try:
             cache_key = f"job_status_{job_name}"
-            return frappe.cache().get(cache_key) or {"status": "Unknown", "job_name": job_name}
+            # get_value matches set_value (see create_job_status_record). The raw
+            # redis .get() bypasses make_key/unpickling and always misses.
+            return frappe.cache().get_value(cache_key) or {"status": "Unknown", "job_name": job_name}
         except Exception as e:
             frappe.log_error(f"Failed to get job status for {job_name}: {e}")
             return {"status": "Error", "job_name": job_name, "error": str(e)}
@@ -452,7 +457,8 @@ def refresh_member_financial_history_optimized(member_doc, payment_entry: str = 
     try:
         # Use intelligent caching
         cache_key = f"payment_history_optimized_{member_doc.name}_{member_doc.modified}"
-        cached_result = frappe.cache().get(cache_key)
+        # get_value matches the set_value below; raw .get() never hit this cache.
+        cached_result = frappe.cache().get_value(cache_key)
 
         if cached_result and not payment_entry:  # Skip cache if specific payment triggered update
             return {"status": "cached", "cache_hit": True, "execution_time": 0.001}
