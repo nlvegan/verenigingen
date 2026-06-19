@@ -36,6 +36,19 @@ from verenigingen.verenigingen_payments.utils.payment_services.refund_utility im
 REFUND_MODULE = "verenigingen.verenigingen_payments.utils.payment_services.refund_utility"
 
 
+def _bank_company():
+    """Return a company that actually has a Bank account.
+
+    create_test_payment_entry defaults company to the first Company in the list,
+    which under cross-shard pollution can be one with no Bank account (e.g. the
+    ERPNext '_Test'/'Wind Power LLC' companies) -> a 'Pay'-type Payment Entry
+    then fails with 'No Bank account found'. Pinning a bank-equipped company makes
+    these tests independent of the ambient default company.
+    """
+    company = frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "company")
+    return company or frappe.get_list("Company", limit=1)[0].name
+
+
 def _make_supplier(test_case):
     """Create a real Supplier party for Pay-type reversal Payment Entries."""
     supplier = frappe.new_doc("Supplier")
@@ -76,6 +89,7 @@ class TestRefundUtilityValidation(EnhancedTestCase):
         # A "Pay" type payment cannot be refunded
         pe = self.create_test_payment_entry(
             payment_type="Pay",
+            company=_bank_company(),
             paid_amount=50.0,
             reference_no="tr_some_payment",
             party_type="Supplier",
@@ -157,6 +171,7 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
         # Create a submitted Pay-type reversal consuming 70 of the 100
         self.create_test_payment_entry(
             payment_type="Pay",
+            company=_bank_company(),
             paid_amount=70.0,
             reference_no="re_existing_70",
             party_type="Supplier",
@@ -190,6 +205,7 @@ class TestPaymentRefundInfo(EnhancedTestCase):
         )
         self.create_test_payment_entry(
             payment_type="Pay",
+            company=_bank_company(),
             paid_amount=20.0,
             reference_no="re_info_1",
             party_type="Supplier",
