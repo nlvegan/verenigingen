@@ -88,10 +88,17 @@ def _ensure_mollie_clearing_on_test_company():
         acct.insert(ignore_permissions=True)
         name = acct.name
     # Point Mollie Settings at this clearing account. The dues PE processor reads
-    # Mollie Settings.mollie_clearing_account (a shared Single); a sibling test in
-    # the same shard can leave it unset/cleared, yielding "Mollie Clearing Account
-    # not configured in Mollie Settings". Establish it so the precondition holds.
+    # it via MollieConfigurationService.get_settings(), which serves a Redis-cached
+    # snapshot (key "mollie_settings_cache"), NOT the live Single. A sibling test in
+    # the same shard can populate that cache while the field is empty, yielding
+    # "Mollie Clearing Account not configured in Mollie Settings". So set the DB
+    # value AND invalidate the service cache so the next read reloads from DB.
+    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+        MollieConfigurationService,
+    )
+
     frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", name)
+    MollieConfigurationService.clear_cache()
     return name
 
 
