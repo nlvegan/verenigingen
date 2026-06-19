@@ -87,6 +87,11 @@ def _ensure_mollie_clearing_on_test_company():
         acct.account_currency = frappe.get_value("Company", company, "default_currency")
         acct.insert(ignore_permissions=True)
         name = acct.name
+    # Point Mollie Settings at this clearing account. The dues PE processor reads
+    # Mollie Settings.mollie_clearing_account (a shared Single); a sibling test in
+    # the same shard can leave it unset/cleared, yielding "Mollie Clearing Account
+    # not configured in Mollie Settings". Establish it so the precondition holds.
+    frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", name)
     return name
 
 
