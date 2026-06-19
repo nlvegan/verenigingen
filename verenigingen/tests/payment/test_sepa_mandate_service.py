@@ -9,8 +9,6 @@ Complements the SEPA sequence-type tests in tests/sepa/ which focus on
 sequence determination rather than the lookup/validation/caching surface here.
 """
 
-import unittest
-
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -90,45 +88,33 @@ class TestSEPAMandateService(VereningingenTestCase):
     def test_validate_status_empty(self):
         self.assertEqual(self.service.validate_mandate_status_batch([]), {})
 
-    @unittest.expectedFailure
-    def test_validate_mandate_status_batch_PRODUCTION_BUG(self):
-        """
-        PRODUCTION BUG (characterized):
-        SEPAMandateService.validate_mandate_status_batch() SELECTs columns
-        `valid_from`, `valid_until`, `date_signed` from `tabSEPA Mandate`, but
-        those columns do NOT exist on the SEPA Mandate doctype (verified against
-        the schema: only `sign_date` and `expiry_date` exist). Any non-empty
-        call therefore raises a 1054 "Unknown column" OperationalError.
+    def test_validate_mandate_status_batch_active_is_valid(self):
+        """A normal Active mandate passes batch validation.
 
-        See: verenigingen_payments/utils/sepa_mandate_service.py:224-241
-
-        This test asserts the *intended* behaviour (a valid Active mandate passes
-        validation). It is marked expectedFailure because the query crashes.
-        FIX (money-relevant, left for maintainer review): map valid_until ->
-        expiry_date and drop the non-existent valid_from/date_signed checks, OR
-        add the columns. Not auto-fixed because it changes validity semantics.
+        Regression guard for the fixed 1054 bug: the query used to SELECT the
+        non-existent valid_from/valid_until/date_signed columns and crashed on any
+        non-empty call. It now reads the real sign_date/expiry_date columns.
         """
         results = self.service.validate_mandate_status_batch([self.mandate.name])
         self.assertIn(self.mandate.name, results)
         self.assertTrue(results[self.mandate.name]["valid"])
+        self.assertEqual(results[self.mandate.name]["issues"], [])
 
-    def test_validate_mandate_status_batch_raises_on_missing_columns(self):
-        """Companion to the expectedFailure: pins the CURRENT crash behaviour so
-        a future fix flips this test (it will stop raising).
+    def test_validate_mandate_status_batch_flags_expired(self):
+        """A mandate whose expiry_date is in the past is flagged expired/invalid."""
+        frappe.db.set_value("SEPA Mandate", self.mandate.name, "expiry_date", "2020-01-01")
+        results = self.service.validate_mandate_status_batch([self.mandate.name])
+        result = results[self.mandate.name]
+        self.assertFalse(result["valid"])
+        self.assertIn("Mandate has expired", result["issues"])
 
-        Narrowed to the DB OperationalError (1054 Unknown column) rather than a
-        bare Exception so this can't pass on an unrelated failure. Built as a
-        tuple across whichever MySQL driver is installed (this site uses MySQLdb).
-        """
-        db_errors = []
-        for mod, attr in (("MySQLdb", "OperationalError"), ("pymysql.err", "OperationalError")):
-            try:
-                db_errors.append(getattr(__import__(mod, fromlist=[attr]), attr))
-            except ImportError:
-                pass
-
-        with self.assertRaises(tuple(db_errors)):
-            self.service.validate_mandate_status_batch([self.mandate.name])
+    def test_validate_mandate_status_batch_flags_inactive(self):
+        """A non-Active mandate is flagged invalid with a status issue."""
+        suspended = self.create_test_sepa_mandate(scenario="suspended")
+        results = self.service.validate_mandate_status_batch([suspended.name])
+        result = results[suspended.name]
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("not Active" in i for i in result["issues"]))
 
     # ------------------------------------------------------------------
     # get_sepa_invoices_with_mandates (real query, returns list)

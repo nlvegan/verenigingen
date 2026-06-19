@@ -220,7 +220,11 @@ class SEPAMandateService:
         if not mandate_names:
             return {}
 
-        # Query all mandates at once
+        # Query all mandates at once.
+        # Columns match the SEPA Mandate schema: sign_date / expiry_date (NOT the
+        # non-existent valid_from / valid_until / date_signed this used to select,
+        # which made any non-empty call raise OperationalError 1054). Validity
+        # semantics mirror sepa_mandate_lifecycle_service / _validation_service.
         mandates = frappe.db.sql(
             """
             SELECT
@@ -229,9 +233,8 @@ class SEPAMandateService:
                 iban,
                 bic,
                 mandate_id,
-                valid_from,
-                valid_until,
-                date_signed,
+                sign_date,
+                expiry_date,
                 member
             FROM `tabSEPA Mandate`
             WHERE name IN %(mandate_names)s
@@ -251,12 +254,13 @@ class SEPAMandateService:
                 validation_result["valid"] = False
                 validation_result["issues"].append(f"Mandate status is {mandate.status}, not Active")
 
-            # Check validity period
-            if mandate.valid_from and getdate(mandate.valid_from) > today_date:
+            # Check validity period (a future sign_date is not yet valid; a past
+            # expiry_date is expired) — same rule as sepa_mandate_lifecycle_service.
+            if mandate.sign_date and getdate(mandate.sign_date) > today_date:
                 validation_result["valid"] = False
                 validation_result["issues"].append("Mandate not yet valid")
 
-            if mandate.valid_until and getdate(mandate.valid_until) < today_date:
+            if mandate.expiry_date and getdate(mandate.expiry_date) < today_date:
                 validation_result["valid"] = False
                 validation_result["issues"].append("Mandate has expired")
 
