@@ -18,6 +18,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded
+from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
 
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from ..services.complete_payment_service import CompletePaymentService
@@ -46,6 +47,15 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
         # Get payment ID from parameter or fallback to form_dict (for direct API calls)
         if not payment_id:
             payment_id = frappe.form_dict.get("id") or (frappe.local.form_dict or {}).get("id")
+
+        # Structured logging of webhook receipt (entry-point only; does not alter flow).
+        log_webhook_received(
+            webhook_id=payment_id or "unknown",
+            webhook_type="mollie",
+            payload_size=len(frappe.request.data)
+            if getattr(frappe, "request", None) and getattr(frappe.request, "data", None)
+            else 0,
+        )
 
         if not payment_id:
             frappe.throw(_("Payment ID is required"))

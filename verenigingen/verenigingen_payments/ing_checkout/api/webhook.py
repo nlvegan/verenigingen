@@ -38,6 +38,7 @@ from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security impo
     log_webhook,
     verify_ing_checkout_webhook,
 )
+from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
 
 
 def _safe_savepoint_name(prefix: str, identifier: Optional[str]) -> str:
@@ -162,13 +163,13 @@ def handle_payment():
         order_id = payload.get("id")
         order_object = payload.get("object", {})
         reference = order_object.get("reference")
-        status = order_object.get("status", {})
-        status_code = status.get("code")
-        status_action = status.get("action")
 
-        error_handler.log_info(
-            f"Processing payment webhook: order={order_id}, reference={reference}",
-            {"status_code": status_code, "action": status_action},
+        log_webhook_received(
+            webhook_id=order_id or reference or "unknown",
+            webhook_type="ing_checkout",
+            payload_size=len(frappe.request.data)
+            if getattr(frappe, "request", None) and getattr(frappe.request, "data", None)
+            else 0,
         )
 
         # Process the payment with savepoint for atomicity
