@@ -24,34 +24,54 @@ class PaymentLogger:
 
     @staticmethod
     def log_debug(message: str, category: str, context: Optional[Dict[str, Any]] = None):
-        """Log debug messages with structured context."""
+        """Log debug messages with structured context. Never raises.
+
+        This sink is called from inside money-path try/except blocks, so a logging
+        failure must never propagate into (and mask/alter) the real outcome.
+        """
         structured_message = PaymentLogger._format_message(message, category, context)
-        frappe.logger().debug(structured_message)
+        try:
+            frappe.logger().debug(structured_message)
+        except Exception:
+            pass
 
     @staticmethod
     def log_info(message: str, category: str, context: Optional[Dict[str, Any]] = None):
-        """Log info messages with structured context."""
+        """Log info messages with structured context. Never raises."""
         structured_message = PaymentLogger._format_message(message, category, context)
-        frappe.logger().info(structured_message)
+        try:
+            frappe.logger().info(structured_message)
+        except Exception:
+            pass
 
     @staticmethod
     def log_warning(message: str, category: str, context: Optional[Dict[str, Any]] = None):
-        """Log warning messages with structured context."""
+        """Log warning messages with structured context. Never raises."""
         structured_message = PaymentLogger._format_message(message, category, context)
-        frappe.logger().warning(structured_message)
+        try:
+            frappe.logger().warning(structured_message)
+        except Exception:
+            pass
 
     @staticmethod
     def log_error(
         message: str, category: str, context: Optional[Dict[str, Any]] = None, exc_info: bool = False
     ):
-        """Log error messages to both logger and Frappe error log."""
+        """Log error messages to both logger and Frappe error log. Never raises."""
         structured_message = PaymentLogger._format_message(message, category, context)
 
         # Log to standard logger
-        frappe.logger().error(structured_message, exc_info=exc_info)
+        try:
+            frappe.logger().error(structured_message, exc_info=exc_info)
+        except Exception:
+            pass
 
-        # Also log to Frappe error log for visibility in desk
-        frappe.log_error(title=f"{category}: {message}", message=structured_message)
+        # Also log to Frappe error log for visibility in desk. Truncate the title
+        # to <=140 chars to avoid CharacterLengthExceededError on long messages.
+        try:
+            frappe.log_error(title=f"{category}: {message}"[:140], message=structured_message)
+        except Exception:
+            pass
 
     @staticmethod
     def log_payment_event(event_type: str, payment_id: str, details: Dict[str, Any]):

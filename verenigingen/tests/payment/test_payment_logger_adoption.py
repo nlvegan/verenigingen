@@ -1,14 +1,17 @@
 """
-Wiring tests for the PaymentLogger `log_webhook_received` adoption (Task 4).
+Wiring tests for the PaymentLogger structured-logging adoption.
 
-These assert that the structured-logging convenience function
-``log_webhook_received`` fires once at the genuine live webhook entry point for
-each gateway. They are deliberately scoped to the entry-point logging only: the
-downstream processing collaborators and request/auth context are stubbed at
-their module boundary so ONLY the entry-point wiring under test is exercised.
+``TestWebhookReceivedLogging`` (Task 4) asserts ``log_webhook_received`` fires
+once at the genuine live webhook entry point for each gateway. ``TestPaymentInitiatedLogging``
+(Task 5) asserts ``log_payment_initiated`` fires at the gateway-agnostic
+``PaymentHook.initiate_payment`` chokepoint on a successful normalized result.
+They are deliberately scoped to the entry-point logging only: the downstream
+processing collaborators and request/auth/SDK context are stubbed at their
+module boundary so ONLY the entry-point wiring under test is exercised.
 
-Canonical convenience function:
+Canonical convenience functions:
     verenigingen.verenigingen_payments.utils.payment_services.logging_utils.log_webhook_received
+    verenigingen.verenigingen_payments.utils.payment_services.logging_utils.log_payment_initiated
 """
 
 from unittest.mock import MagicMock, patch
