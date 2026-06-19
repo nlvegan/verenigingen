@@ -26,8 +26,9 @@ def get_eur_test_company() -> str:
     """Return a EUR company that also has an active Fiscal Year for today.
 
     Prefers ``TEST-Payment-Integration-Company`` (EUR + current FY); otherwise
-    falls back to the first EUR company whose Fiscal Year covers today; otherwise
-    CREATES the preferred company (get-or-create). The company used to be created
+    falls back to the first EUR company whose Fiscal Year covers today --
+    EXCLUDING erpnext's volatile ``_Test Company*`` defaults (see the loop comment);
+    otherwise CREATES the preferred company (get-or-create). The company used to be created
     only as a side effect of one e_boekhouden test, so SEPA tests raised
     RuntimeError on any shard/order where that test had not run first. Creating it
     on demand here makes SEPA tests self-sufficient regardless of suite ordering.
@@ -36,6 +37,19 @@ def get_eur_test_company() -> str:
         return _PREFERRED_EUR_COMPANY
 
     for company in frappe.get_all("Company", filters={"default_currency": "EUR"}, pluck="name"):
+        # Never borrow erpnext's own default companies (_Test Company /
+        # _Test Company 2). They share the current calendar-year Fiscal Year, and
+        # erpnext's lazy make_test_records rewrites that FY's company restrictions
+        # on the FIRST dated Sales Invoice of a shard -- re-scoping it to
+        # _Test Company and excluding the others. A shard that resolves to
+        # _Test Company 2 here BEFORE that rewrite then fails mid-submit with
+        # "Date <today> is not in any active Fiscal Year for _Test Company 2": an
+        # order-dependent flake that passes in isolation but fails on some shard
+        # orderings. _create_eur_test_company() builds
+        # TEST-Payment-Integration-Company with its OWN dedicated FY that erpnext
+        # never touches, so it resolves deterministically regardless of suite order.
+        if company.startswith("_Test Company"):
+            continue
         if _company_is_eur_with_current_fy(company):
             return company
 
