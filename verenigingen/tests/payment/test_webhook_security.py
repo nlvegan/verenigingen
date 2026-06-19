@@ -159,3 +159,63 @@ class TestWebhookSecurity(VereningingenTestCase):
     def test_log_security_event_unknown_type_is_noop(self):
         # Unknown event type hits no branch; must not raise.
         log_webhook_security_event("mystery", {"x": 1})
+
+    # ------------------------------------------------------------------
+    # PaymentLogger adoption: log_signature_validation_failed wiring
+    # ------------------------------------------------------------------
+    def test_ing_invalid_signature_logs_event(self):
+        """ING signature-validation failure must emit log_signature_validation_failed."""
+        from verenigingen.verenigingen_payments.ing_checkout.utils import webhook_security as ing_ws
+
+        # Mock justified: verify_webhook_signature is the crypto boundary (force a
+        # reject so the real verify_ing_checkout_webhook reaches its signature-fail
+        # branch); get_webhook_secret is an outbound config read (force a secret so
+        # the signature layer is engaged); log_signature_validation_failed is the
+        # observability event whose wiring is under test. No business logic is faked.
+        with patch.object(ing_ws, "verify_webhook_signature", return_value=False), patch.object(
+            ing_ws, "get_webhook_secret", return_value="secret"
+        ), patch.object(ing_ws, "log_signature_validation_failed") as mock_log:
+            with self.assertRaises(ing_ws.INGCheckoutWebhookError):
+                ing_ws.verify_ing_checkout_webhook(b"{}", "bad-sig", skip_ip_validation=True)
+        mock_log.assert_called_once()
+        # webhook_id is the gateway tag, expected_vs_actual reports signature presence.
+        _, kwargs = mock_log.call_args
+        self.assertEqual(kwargs["webhook_id"], "ing_checkout")
+        self.assertEqual(kwargs["expected_vs_actual"], {"signature_present": True})
+
+    def test_mollie_invalid_signature_logs_event(self):
+        """Mollie signature-validation failure must emit log_signature_validation_failed."""
+        from types import SimpleNamespace
+
+        import verenigingen.utils.webhook_rate_limiter as rl_mod
+        import verenigingen.utils.webhook_security as canonical_ws
+        from verenigingen.verenigingen_payments.mollie.utils import webhook_security as mollie_ws
+
+        # Stub request: real attributes the function reads (payload + signature header).
+        fake_request = SimpleNamespace(
+            get_data=lambda as_text=True: '{"id": "tr_x"}',
+            headers={"X-Mollie-Signature": "sha256=deadbeef"},
+        )
+        # Rate limiter must pass so control reaches the signature-validation try/except.
+        fake_limiter = SimpleNamespace(check_rate_limit=lambda ip, wid: (True, ""))
+
+        def _raise_auth(*args, **kwargs):
+            raise canonical_ws.WebhookAuthenticationError("bad signature")
+
+        # Mock justified: verify_mollie_webhook_signature is the crypto boundary
+        # (force it to raise so the real except block is reached); the rate limiter
+        # and frappe.request are outbound/infra stubs (not business logic) needed to
+        # reach that block; log_signature_validation_failed is the event under test.
+        with patch.object(frappe, "request", fake_request), patch.dict(
+            frappe.form_dict, {"id": "tr_x"}, clear=False
+        ), patch.object(rl_mod, "get_webhook_rate_limiter", return_value=fake_limiter), patch.object(
+            canonical_ws, "verify_mollie_webhook_signature", side_effect=_raise_auth
+        ), patch.object(
+            mollie_ws, "log_signature_validation_failed"
+        ) as mock_log:
+            with self.assertRaises(canonical_ws.WebhookAuthenticationError):
+                mollie_ws.authenticate_mollie_webhook()
+        mock_log.assert_called_once()
+        _, kwargs = mock_log.call_args
+        self.assertEqual(kwargs["webhook_id"], "mollie")
+        self.assertIn("error", kwargs["expected_vs_actual"])

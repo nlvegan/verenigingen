@@ -48,6 +48,9 @@ from verenigingen.utils.webhook.logging import (
     create_webhook_log as _unified_create_log,
     is_duplicate_webhook as _unified_is_duplicate,
 )
+from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
+    log_signature_validation_failed,
+)
 
 # Cache for Pay.nl IP addresses (refreshed every hour)
 _paynl_ip_cache = {"ips": [], "last_updated": None}
@@ -268,6 +271,10 @@ def verify_ing_checkout_webhook(
             if verify_webhook_signature(payload, signature, secret):
                 signature_validated = True
             else:
+                log_signature_validation_failed(
+                    webhook_id="ing_checkout",
+                    expected_vs_actual={"signature_present": bool(signature)},
+                )
                 raise INGCheckoutWebhookError(
                     message="Invalid webhook signature",
                     details={"reason": "Signature verification failed"},

@@ -13,6 +13,9 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
+from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
+    log_signature_validation_failed,
+)
 
 
 def authenticate_mollie_webhook() -> str:
@@ -73,9 +76,9 @@ def authenticate_mollie_webhook() -> str:
         frappe.logger().info("Mollie webhook signature validated successfully")
 
     except WebhookAuthenticationError as e:
-        frappe.log_error(
-            f"Mollie webhook signature validation failed: {e}",
-            "Mollie Webhook Security Error",
+        log_signature_validation_failed(
+            webhook_id="mollie",
+            expected_vs_actual={"error": str(e)},
         )
         raise
 
