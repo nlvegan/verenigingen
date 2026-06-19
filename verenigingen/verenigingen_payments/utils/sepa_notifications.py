@@ -437,11 +437,19 @@ class SEPAMandateNotificationManager:
                     )
                     message = frappe.render_template(template_path, email_data["context"])
 
-                # Send email with proper security validation
+                # Send email with proper security validation.
+                # Communication's "recipients" ("To") field is a Small Text that
+                # rejects a Python list ("Value for To cannot be a list"); the batch
+                # builds recipients as a list (see line ~370), so join to a
+                # comma-separated string or secure_document_operation fails and the
+                # whole batch send is silently swallowed by the except below.
+                recipients = email_data["recipients"]
+                if isinstance(recipients, (list, tuple)):
+                    recipients = ", ".join(recipients)
                 communication_doc = frappe.get_doc(
                     {
                         "doctype": "Communication",
-                        "recipients": email_data["recipients"],
+                        "recipients": recipients,
                         "subject": email_data["subject"],
                         "content": message,
                         "communication_type": "Automated Message",

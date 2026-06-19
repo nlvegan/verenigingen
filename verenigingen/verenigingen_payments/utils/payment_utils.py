@@ -478,14 +478,12 @@ def refresh_payment_cache():
 
         for pattern in cache_patterns:
             try:
-                keys = frappe.cache().get_keys(pattern)
-                for key in keys:
-                    try:
-                        frappe.cache().delete_key(key)
-                    except (ConnectionError, TimeoutError) as cache_error:
-                        frappe.logger().warning(f"Cache delete failed for '{key}': {cache_error}")
-                    except Exception as e:
-                        frappe.logger().error(f"Unexpected cache error for '{key}': {e}")
+                # Use delete_keys(): it resolves the wildcard and deletes the
+                # already site-prefixed keys with make_keys=False. The previous
+                # get_keys()+delete_key() loop double-prefixed each key (get_keys
+                # returns prefixed keys, delete_key re-applies the prefix), so it
+                # silently deleted nothing -- this refresh was a no-op.
+                frappe.cache().delete_keys(pattern)
             except (ConnectionError, TimeoutError) as cache_error:
                 frappe.logger().warning(f"Cache key lookup failed for pattern '{pattern}': {cache_error}")
             except Exception as e:

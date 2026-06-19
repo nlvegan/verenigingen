@@ -231,7 +231,7 @@ def batch_preload_party_lookups(ibans: list) -> dict:
     # Batch load Bank Account -> Party mappings by IBAN
     bank_account_results = frappe.db.sql(
         """
-        SELECT iban, party, party_type
+        SELECT iban, bank_account_no, party, party_type
         FROM `tabBank Account`
         WHERE (bank_account_no IN %(ibans)s OR iban IN %(ibans)s)
         AND party IS NOT NULL
