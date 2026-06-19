@@ -997,6 +997,11 @@ def api_security_framework(
                 # callable(getattr(result, "to_dict", None)) is False for any dict /
                 # frappe._dict, so those serialise as-is; only real OperationResult-like
                 # objects (with a bound to_dict method) get converted.
+                #
+                # Contract: any object returned from a @*_api endpoint that exposes a
+                # callable `to_dict` MUST accept a `scrub_sensitive` keyword (as
+                # OperationResult does). We intentionally do NOT fall back to a no-arg
+                # to_dict() on TypeError — that would mask a genuine signature mismatch.
                 to_dict = getattr(result, "to_dict", None)
                 if callable(to_dict):
                     return to_dict(scrub_sensitive=True)
