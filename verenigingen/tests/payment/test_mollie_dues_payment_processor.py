@@ -87,18 +87,6 @@ def _ensure_mollie_clearing_on_test_company():
         acct.account_currency = frappe.get_value("Company", company, "default_currency")
         acct.insert(ignore_permissions=True)
         name = acct.name
-    # Point Mollie Settings at this clearing account. The dues PE processor reads
-    # it via MollieConfigurationService.get_settings(), which serves a Redis-cached
-    # snapshot (key "mollie_settings_cache"), NOT the live Single. A sibling test in
-    # the same shard can populate that cache while the field is empty, yielding
-    # "Mollie Clearing Account not configured in Mollie Settings". So set the DB
-    # value AND invalidate the service cache so the next read reloads from DB.
-    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
-        MollieConfigurationService,
-    )
-
-    frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", name)
-    MollieConfigurationService.clear_cache()
     return name
 
 
@@ -247,15 +235,6 @@ class TestProcessDuesPaymentBranches(EnhancedTestCase):
 class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
     def setUp(self):
         super().setUp()
-        # This class submits a Sales Invoice in _Test Company dated today(). On a
-        # fresh CI runner _Test Company has no Fiscal Year covering today (and
-        # erpnext's bootstrap FY can be restricted to a single company), so the
-        # submit raises "Date <today> is not in any active Fiscal Year". Whether a
-        # covering FY already exists depends on which sibling test ran first in the
-        # shard, so seed it explicitly (idempotent, date-driven — self-heals yearly).
-        from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
-
-        ensure_test_fiscal_year_for_all_companies()
         self.proc = _bare_processor()
         self.company = "_Test Company"
         self.clearing = _ensure_mollie_clearing_on_test_company()

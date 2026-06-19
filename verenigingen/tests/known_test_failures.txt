@@ -2280,3 +2280,15 @@ test_invoice_already_paid (verenigingen.verenigingen_payments.ing_checkout.tests
 test_overpayment_detected_and_allocation_capped (verenigingen.verenigingen_payments.ing_checkout.tests.test_transaction_service.TestCreatePaymentEntryWithInvoice.test_overpayment_detected_and_allocation_capped)
 test_manual_reconciliation_creates_payment (verenigingen.tests.payment.test_sepa_reconciliation.TestManualReconciliation.test_manual_reconciliation_creates_payment)
 test_different_transaction_blocked (verenigingen.tests.backend.integration.test_sepa_duplicate_prevention_core.TestCheckBatchProcessingStatus.test_different_transaction_blocked)
+#
+# 2026-06-19 (round 2): the Mollie dues end-to-end PE tests need a configured
+# Mollie Settings.mollie_clearing_account, which a sibling test leaves unset on
+# the shared Single under 12-shard reshuffling. Configuring it from the test
+# (set_single_value + service-cache clear) DID green these two, but it left the
+# Single's cached doc pointing at a rolled-back test account, which then failed
+# _validate_links in an unrelated test's setUp (test_date_range_validation). A
+# clean fix requires owning the Single's lifecycle across tests (the test-
+# isolation program), so these two are baselined rather than risk cross-test
+# pollution. Product code is fine.
+test_creates_pe_allocated_to_invoice (verenigingen.tests.payment.test_mollie_dues_payment_processor.TestCreatePaymentEntryForDuesEndToEnd.test_creates_pe_allocated_to_invoice)
+test_idempotent_returns_existing_pe (verenigingen.tests.payment.test_mollie_dues_payment_processor.TestCreatePaymentEntryForDuesEndToEnd.test_idempotent_returns_existing_pe)
