@@ -374,11 +374,16 @@ class BankAPIClient:
                     "error": "Bank API not configured. Please configure Bank Integration Settings",
                 }
 
-            # Prepare OAuth2 headers for PSD2 compliance
+            # Prepare OAuth2 headers for PSD2 compliance.
+            # frappe.local.request is absent when fetch_statements runs outside an
+            # HTTP request (scheduled job / console), so guard it before reading
+            # the caller IP rather than dereferencing .environ on None.
+            _request = getattr(frappe.local, "request", None)
+            psu_ip = _request.environ.get("REMOTE_ADDR", "127.0.0.1") if _request else "127.0.0.1"
             headers = {
                 "Authorization": f"Bearer {bank_settings.get('access_token', '')}",
                 "X-Request-ID": frappe.generate_hash(length=16),
-                "PSU-IP-Address": frappe.local.request.environ.get("REMOTE_ADDR", "127.0.0.1"),
+                "PSU-IP-Address": psu_ip,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }
@@ -392,45 +397,9 @@ class BankAPIClient:
                 api_url, headers=headers, params=params, timeout=30  # 30 second timeout for bank APIs
             )
 
-            # Handle response
-            if response.status_code == 200:
-                response_data = response.json()
-
-                # Extract transactions in standardized format
-                transactions = []
-                if "transactions" in response_data:
-                    for txn in response_data["transactions"]["booked"]:
-                        transactions.append(
-                            {
-                                "transaction_id": txn.get("transactionId"),
-                                "amount": float(txn.get("transactionAmount", {}).get("amount", 0)),
-                                "currency": txn.get("transactionAmount", {}).get("currency", "EUR"),
-                                "booking_date": txn.get("bookingDate"),
-                                "value_date": txn.get("valueDate"),
-                                "reference": txn.get("remittanceInformationUnstructured", ""),
-                                "counterparty_name": txn.get("debtorName") or txn.get("creditorName", ""),
-                                "counterparty_account": txn.get("debtorAccount", {}).get("iban")
-                                or txn.get("creditorAccount", {}).get("iban", ""),
-                            }
-                        )
-
-                return {
-                    "success": True,
-                    "statements": transactions,
-                    "date": date,
-                    "bank": bank_settings.get("bank_name", "Unknown"),
-                    "account": bank_settings.get("account_id", ""),
-                }
-
-            elif response.status_code == 401:
-                return {"success": False, "error": "Unauthorized. Please refresh bank API token"}
-            elif response.status_code == 429:
-                return {"success": False, "error": "Rate limit exceeded. Please try again later"}
-            else:
-                return {
-                    "success": False,
-                    "error": f"Bank API error: {response.status_code} - {response.text}",
-                }
+            # Handle response (mapping/status-code branching extracted so it can be
+            # unit-tested without DB/settings coupling — see _handle_statement_response)
+            return self._handle_statement_response(response, bank_settings, date)
 
         except requests.exceptions.Timeout:
             return {"success": False, "error": "Bank API request timeout - please try again later"}
@@ -439,6 +408,51 @@ class BankAPIClient:
         except Exception as e:
             frappe.log_error(f"Bank API integration error: {str(e)}", "Bank Integration Error")
             return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+    def _handle_statement_response(self, response, bank_settings, date: str) -> Dict:
+        """Map a PSD2 bank-API HTTP response to the standardized statements dict.
+
+        Pure of any DB/settings lookup (``bank_settings`` is passed in), so the
+        status-code branching and transaction mapping are unit-testable directly.
+        """
+        if response.status_code == 200:
+            response_data = response.json()
+
+            # Extract transactions in standardized format
+            transactions = []
+            if "transactions" in response_data:
+                for txn in response_data["transactions"]["booked"]:
+                    transactions.append(
+                        {
+                            "transaction_id": txn.get("transactionId"),
+                            "amount": float(txn.get("transactionAmount", {}).get("amount", 0)),
+                            "currency": txn.get("transactionAmount", {}).get("currency", "EUR"),
+                            "booking_date": txn.get("bookingDate"),
+                            "value_date": txn.get("valueDate"),
+                            "reference": txn.get("remittanceInformationUnstructured", ""),
+                            "counterparty_name": txn.get("debtorName") or txn.get("creditorName", ""),
+                            "counterparty_account": txn.get("debtorAccount", {}).get("iban")
+                            or txn.get("creditorAccount", {}).get("iban", ""),
+                        }
+                    )
+
+            return {
+                "success": True,
+                "statements": transactions,
+                "date": date,
+                "bank": bank_settings.get("bank_name", "Unknown"),
+                "account": bank_settings.get("account_id", ""),
+            }
+
+        elif response.status_code == 401:
+            return {"success": False, "error": "Unauthorized. Please refresh bank API token"}
+        elif response.status_code == 429:
+            return {"success": False, "error": "Rate limit exceeded. Please try again later"}
+        else:
+            return {
+                "success": False,
+                "error": f"Bank API error: {response.status_code} - {response.text}",
+            }
 
 
 def import_bank_statement(file_path: str, format_type: str) -> Dict:
