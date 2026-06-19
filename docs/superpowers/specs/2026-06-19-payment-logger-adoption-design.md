@@ -30,7 +30,7 @@ Import the convenience functions from the canonical module
 
 | Event fn | Site | Add / Replace |
 |---|---|---|
-| `log_payment_initiated(payment_id, amount, payment_method)` | `verenigingen_payments/utils/payment_gateways.py` — `MollieGateway.process_payment`, immediately after a successful `client.payments.create` (payment id is known) | **Add** |
+| `log_payment_initiated(payment_id, amount, payment_method)` | `verenigingen_payments/hooks/payment_hook.py` — `PaymentHook.initiate_payment`, at the successful-result return (gateway-agnostic chokepoint: covers mollie / sepa / bank_transfer / cash). Uses `method`, validated `amount`, and `result.get("payment_id")` | **Add** |
 | `log_refund_initiated(payment_id, refund_id, amount, reason)` | `verenigingen_payments/utils/payment_services/refund_utility.py` — `initiate_refund`, in the `refund_result["status"] == "success"` branch (~L237); and the equivalent success branch in `initiate_donation_refund` | **Add** |
 | `log_concurrent_refund_detected(payment_id, attempted_amount, available_amount)` | `refund_utility.py` — the `INSUFFICIENT_REFUNDABLE_AMOUNT` guard (`if amount > available_amount`, ~L224) and its donation twin (~L553), before the error return | **Add** |
 | `log_webhook_received(webhook_id, webhook_type, payload_size)` | Mollie webhook entry handler and ING checkout webhook entry handler (at handler start, once a webhook/payment id is available) | **Add** |
