@@ -34,6 +34,7 @@ from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation.api_validators import APIValidator
 from verenigingen.utils.validation.iban_validator import validate_iban
 from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
+from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_payment_initiated
 
 # Payment amount limits
 MAX_PAYMENT_AMOUNT = 100000.00  # €100k reasonable max for association payments
@@ -292,7 +293,14 @@ class PaymentHook:
             result = gateway.process_payment(ref_doc, form_data)
 
             # Normalize response to standard format
-            return cls._normalize_gateway_response(method, result)
+            normalized = cls._normalize_gateway_response(method, result)
+            if normalized.get("success") and normalized.get("payment_id"):
+                log_payment_initiated(
+                    payment_id=normalized["payment_id"],
+                    amount=amount,
+                    payment_method=method,
+                )
+            return normalized
 
         except Exception as e:
             # Log detailed error for administrators, return generic message to users
