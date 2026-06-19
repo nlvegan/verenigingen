@@ -179,3 +179,334 @@ class TestDonation(EnhancedTestCase):
         except frappe.DoesNotExistError:
             # Settings don't exist, that's fine for basic tests
             pass
+
+    # ------------------------------------------------------------------
+    # Helpers (privileged data creation lives here, not in test bodies)
+    # ------------------------------------------------------------------
+    def _ensure_mode_of_payment(self, name="Test Payment"):
+        """Ensure a Mode of Payment exists for use in donations."""
+        if not frappe.db.exists("Mode of Payment", name):
+            mode = frappe.new_doc("Mode of Payment")
+            mode.mode_of_payment = name
+            mode.insert()
+        return name
+
+    def _make_donation(self, **overrides):
+        """Build (not insert) a Donation with sane defaults for the test donor."""
+        donation = frappe.new_doc("Donation")
+        donation.donor = overrides.pop("donor", self.test_donor.name)
+        donation.amount = overrides.pop("amount", 100)
+        donation.donation_date = overrides.pop("donation_date", frappe.utils.today())
+        donation.company = overrides.pop("company", self.test_company)
+        donation.mode_of_payment = overrides.pop("mode_of_payment", self._ensure_mode_of_payment())
+        for key, value in overrides.items():
+            setattr(donation, key, value)
+        return donation
+
+    def _insert_donation(self, **overrides):
+        """Build and insert a Donation (inserts trigger email enqueue -> patch sendmail)."""
+        donation = self._make_donation(**overrides)
+        with patch("frappe.sendmail"):
+            donation.insert()
+        return donation
+
+    def _make_donor(self, **overrides):
+        """Create and insert a Donor with a unique name/email."""
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = overrides.pop(
+            "donor_name", f"Helper Donor {self.test_run_id} {frappe.generate_hash()[:6]}"
+        )
+        donor.donor_type = overrides.pop("donor_type", "Individual")
+        donor.donor_email = overrides.pop(
+            "donor_email", f"helper-{self.test_run_id}-{frappe.generate_hash()[:6]}@example.com"
+        )
+        for key, value in overrides.items():
+            setattr(donor, key, value)
+        donor.insert()
+        return donor
+
+    # ------------------------------------------------------------------
+    # validate() — donor requirement
+    # ------------------------------------------------------------------
+    def test_missing_donor_throws_for_non_website_user(self):
+        """A non-website user must explicitly select a Donor (validate throws)."""
+        donation = self._make_donation()
+        donation.donor = None
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    # ------------------------------------------------------------------
+    # validate_anbi_agreement()
+    # ------------------------------------------------------------------
+    def test_anbi_number_without_date_throws(self):
+        """ANBI Agreement Number without a date is rejected."""
+        donation = self._make_donation()
+        donation.anbi_agreement_number = "ANBI-2024-001"
+        donation.anbi_agreement_date = None
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_anbi_date_without_number_throws(self):
+        """ANBI Agreement Date without a number is rejected."""
+        donation = self._make_donation()
+        donation.anbi_agreement_number = None
+        donation.anbi_agreement_date = frappe.utils.today()
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_anbi_number_and_date_together_is_valid(self):
+        """Providing both ANBI number and date passes validation and persists."""
+        donation = self._insert_donation(
+            anbi_agreement_number="ANBI-2024-099",
+            anbi_agreement_date=frappe.utils.today(),
+        )
+        donation.reload()
+        self.assertEqual(donation.anbi_agreement_number, "ANBI-2024-099")
+
+    # ------------------------------------------------------------------
+    # validate_donation_purpose()
+    # ------------------------------------------------------------------
+    def test_campaign_purpose_requires_reference(self):
+        """Campaign purpose type without a campaign reference is rejected."""
+        donation = self._make_donation(donation_purpose_type="Campaign")
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_campaign_purpose_accepts_notes_fallback(self):
+        """Campaign purpose is allowed when a 'Campaign:' marker is in notes
+        (fallback for campaigns that do not yet exist as Donation Campaign docs)."""
+        donation = self._insert_donation(
+            donation_purpose_type="Campaign",
+            donation_notes="Campaign: Spring Fundraiser 2024",
+        )
+        donation.reload()
+        self.assertEqual(donation.donation_purpose_type, "Campaign")
+
+    def test_chapter_purpose_requires_chapter(self):
+        """Chapter purpose type without a chapter reference is rejected."""
+        donation = self._make_donation(donation_purpose_type="Chapter")
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_invalid_chapter_reference_throws(self):
+        """A non-existent chapter reference is rejected."""
+        donation = self._make_donation(
+            donation_purpose_type="Chapter",
+            chapter_reference=f"Nonexistent Chapter {frappe.generate_hash()[:8]}",
+        )
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_valid_chapter_purpose(self):
+        """A donation earmarked for an existing chapter validates and persists."""
+        chapter = frappe.get_all("Chapter", limit=1)
+        self.assertTrue(chapter, "Test environment must have at least one Chapter")
+        chapter_name = chapter[0].name
+        donation = self._insert_donation(
+            donation_purpose_type="Chapter",
+            chapter_reference=chapter_name,
+        )
+        donation.reload()
+        self.assertEqual(donation.chapter_reference, chapter_name)
+
+    def test_specific_goal_requires_description_for_privileged_user(self):
+        """Specific Goal without a description throws for a user who can write."""
+        donation = self._make_donation(donation_purpose_type="Specific Goal")
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_specific_goal_with_description_is_valid(self):
+        """Specific Goal with a description validates and persists."""
+        donation = self._insert_donation(
+            donation_purpose_type="Specific Goal",
+            specific_goal_description="Build a new shelter for rescued animals",
+        )
+        donation.reload()
+        self.assertEqual(donation.donation_purpose_type, "Specific Goal")
+
+    # ------------------------------------------------------------------
+    # get_earmarking_summary()
+    # ------------------------------------------------------------------
+    def test_earmarking_summary_general(self):
+        """General donations summarize to the General Fund."""
+        donation = self._insert_donation(donation_purpose_type="General")
+        self.assertEqual(donation.get_earmarking_summary(), "General Fund")
+
+    def test_earmarking_summary_chapter(self):
+        """Chapter donations summarize with the chapter name."""
+        chapter_name = frappe.get_all("Chapter", limit=1)[0].name
+        donation = self._insert_donation(donation_purpose_type="Chapter", chapter_reference=chapter_name)
+        self.assertEqual(donation.get_earmarking_summary(), f"Chapter: {chapter_name}")
+
+    def test_earmarking_summary_specific_goal_short(self):
+        """Short specific-goal descriptions are returned in full."""
+        donation = self._insert_donation(
+            donation_purpose_type="Specific Goal",
+            specific_goal_description="Short goal",
+        )
+        self.assertEqual(donation.get_earmarking_summary(), "Specific Goal: Short goal")
+
+    def test_earmarking_summary_specific_goal_long_truncates(self):
+        """Long specific-goal descriptions are truncated to 50 chars with an ellipsis."""
+        long_desc = "x" * 80
+        donation = self._insert_donation(
+            donation_purpose_type="Specific Goal",
+            specific_goal_description=long_desc,
+        )
+        summary = donation.get_earmarking_summary()
+        self.assertTrue(summary.startswith("Specific Goal: " + "x" * 50))
+        self.assertTrue(summary.endswith("..."))
+
+    # ------------------------------------------------------------------
+    # generate_anbi_report_data()
+    # ------------------------------------------------------------------
+    def test_generate_anbi_report_data_none_without_agreement_number(self):
+        """No ANBI agreement number -> no report data."""
+        donation = self._insert_donation()
+        self.assertIsNone(donation.generate_anbi_report_data())
+
+    def test_generate_anbi_report_data_with_agreement_number(self):
+        """With an ANBI agreement number, report data reflects the donation/donor."""
+        donation = self._insert_donation(
+            anbi_agreement_number="ANBI-2024-555",
+            anbi_agreement_date=frappe.utils.today(),
+            amount=250,
+        )
+        data = donation.generate_anbi_report_data()
+        self.assertIsNotNone(data)
+        self.assertEqual(data["anbi_agreement_number"], "ANBI-2024-555")
+        self.assertEqual(data["amount"], 250)
+        self.assertEqual(data["donor_name"], self.test_donor.donor_name)
+        self.assertEqual(data["donation_id"], donation.name)
+        # Regression: generate_anbi_report_data() used to crash with
+        # AttributeError on self.donation_type (no such field on Donation).
+        # It now tolerates the missing field and returns None for it.
+        self.assertIsNone(data["donation_type"])
+
+    # ------------------------------------------------------------------
+    # on_payment_authorized()  (legacy hook)
+    # ------------------------------------------------------------------
+    def test_on_payment_authorized_sets_paid(self):
+        """The legacy on_payment_authorized hook marks the donation as paid."""
+        donation = self._insert_donation(paid=0)
+        self.assertEqual(donation.paid, 0)
+        with patch("frappe.sendmail"):
+            donation.on_payment_authorized()
+        donation.reload()
+        self.assertEqual(donation.paid, 1)
+
+    # ------------------------------------------------------------------
+    # validate_periodic_donation_agreement() — error branches
+    # ------------------------------------------------------------------
+    def test_periodic_agreement_donor_mismatch_throws(self):
+        """A donation whose donor does not match the agreement donor is rejected."""
+        with patch("frappe.sendmail"):
+            linked = self._create_periodic_agreement_donation()
+        agreement_name = linked.periodic_donation_agreement
+
+        other_donor = self._make_donor()
+        donation = self._make_donation(
+            donor=other_donor.name,
+            periodic_donation_agreement=agreement_name,
+        )
+        with self.assertRaises(frappe.ValidationError):
+            with patch("frappe.sendmail"):
+                donation.insert()
+
+    def test_periodic_agreement_autopopulates_anbi_fields(self):
+        """Linking a periodic agreement copies its ANBI number/date onto the donation
+        and forces status to Recurring + belastingdienst_reportable."""
+        with patch("frappe.sendmail"):
+            donation = self._create_periodic_agreement_donation()
+        donation.reload()
+        agreement = frappe.get_doc("Periodic Donation Agreement", donation.periodic_donation_agreement)
+        if agreement.agreement_number:
+            self.assertEqual(donation.anbi_agreement_number, agreement.agreement_number)
+        self.assertEqual(donation.status, "Recurring")
+        self.assertEqual(donation.belastingdienst_reportable, 1)
+
+    # ------------------------------------------------------------------
+    # Whitelisted: create_donor_from_donation
+    # ------------------------------------------------------------------
+    def test_create_donor_from_donation_explicit_type(self):
+        """create_donor_from_donation creates a Donor with the given fields."""
+        from verenigingen.verenigingen.doctype.donation.donation import create_donor_from_donation
+
+        email = f"new-donor-{self.test_run_id}-{frappe.generate_hash()[:6]}@example.com"
+        donor = create_donor_from_donation(
+            donor_name="API Created Donor", email=email, phone="+31612345678", donor_type="Individual"
+        )
+        self.assertTrue(frappe.db.exists("Donor", donor.name))
+        self.assertEqual(donor.donor_email, email)
+        self.assertEqual(donor.donor_type, "Individual")
+        self.assertEqual(donor.phone, "+31612345678")
+
+    def test_create_donor_from_donation_defaults_type_from_settings(self):
+        """When donor_type is omitted it falls back to the Verenigingen Settings default."""
+        from verenigingen.verenigingen.doctype.donation.donation import create_donor_from_donation
+
+        default_type = frappe.db.get_single_value("Verenigingen Settings", "default_donor_type")
+        email = f"defaulted-donor-{self.test_run_id}-{frappe.generate_hash()[:6]}@example.com"
+        donor = create_donor_from_donation(donor_name="Defaulted Donor", email=email)
+        self.assertTrue(frappe.db.exists("Donor", donor.name))
+        if default_type:
+            self.assertEqual(donor.donor_type, default_type)
+
+    # ------------------------------------------------------------------
+    # Whitelisted: generate_anbi_agreement_number
+    # ------------------------------------------------------------------
+    def test_generate_anbi_agreement_number_format(self):
+        """The generated ANBI agreement number follows ANBI-<year>-<NNN>."""
+        from verenigingen.verenigingen.doctype.donation.donation import generate_anbi_agreement_number
+
+        number = generate_anbi_agreement_number()
+        parts = number.split("-")
+        self.assertEqual(parts[0], "ANBI")
+        self.assertEqual(len(parts), 3)
+        self.assertEqual(len(parts[2]), 3)
+        self.assertTrue(parts[2].isdigit())
+
+    def test_generate_anbi_agreement_number_increments(self):
+        """The generated number increments off the most recent stored ANBI number."""
+        from verenigingen.verenigingen.doctype.donation.donation import generate_anbi_agreement_number
+
+        # Persist a donation with a known ANBI number so it is the latest by creation
+        self._insert_donation(
+            anbi_agreement_number="ANBI-2099-042",
+            anbi_agreement_date=frappe.utils.today(),
+        )
+        number = generate_anbi_agreement_number()
+        self.assertEqual(number, "ANBI-2099-043")
+
+    # ------------------------------------------------------------------
+    # get_company_for_donations
+    # ------------------------------------------------------------------
+    def test_get_company_for_donations_returns_company(self):
+        """get_company_for_donations returns a real, existing company."""
+        from verenigingen.verenigingen.doctype.donation.donation import get_company_for_donations
+
+        company = get_company_for_donations()
+        self.assertTrue(company)
+        self.assertTrue(frappe.db.exists("Company", company))
+
+    # ------------------------------------------------------------------
+    # on_update() — paid transition enqueues payment confirmation
+    # ------------------------------------------------------------------
+    def test_marking_paid_enqueues_payment_confirmation(self):
+        """Marking a donation paid for the first time enqueues the payment email."""
+        donation = self._insert_donation(paid=0)
+        with (
+            patch("verenigingen.verenigingen.doctype.donation.donation.frappe.enqueue") as mock_enqueue,
+            patch("frappe.sendmail"),
+        ):
+            donation.paid = 1
+            donation.save()
+        enqueued = [c for c in mock_enqueue.call_args_list if "send_payment_confirmation_email" in str(c)]
+        self.assertTrue(enqueued, "Expected payment confirmation email to be enqueued on paid transition")

@@ -345,7 +345,10 @@ def create_opportunity_from_contact_request(contact_request_name: str):
             "customer_name": lead_doc.lead_name,
             "contact_email": lead_doc.email_id,
             "contact_mobile": lead_doc.phone,
-            "source": lead_doc.source,
+            # Use .get() so a Lead schema without a `source` field (e.g. when the
+            # CRM `source` field is not installed) does not raise AttributeError
+            # and abort opportunity creation.
+            "source": lead_doc.get("source"),
             "opportunity_type": "Sales",
             "title": f"Follow-up: {contact_request.subject}",
             "with_items": 0,

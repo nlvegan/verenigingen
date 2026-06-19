@@ -214,7 +214,10 @@ class Donation(Document):
             "amount": self.amount,
             "donor_name": donor_doc.donor_name,
             "donor_email": getattr(donor_doc, "donor_email", ""),
-            "donation_type": self.donation_type,
+            # The Donation DocType has no `donation_type` field (it was removed);
+            # mirror the reporting service's dict-based variant which uses a
+            # tolerant .get() so this stays None instead of raising AttributeError.
+            "donation_type": getattr(self, "donation_type", None),
         }
 
     def validate_donation_purpose(self):
@@ -392,15 +395,13 @@ def get_anbi_donations_for_reporting(from_date, to_date):
 def generate_anbi_agreement_number():
     """Generate next ANBI agreement number"""
     # Get the latest ANBI agreement number
-    latest = frappe.db.sql(
-        """
+    latest = frappe.db.sql("""
         SELECT anbi_agreement_number
         FROM `tabDonation`
         WHERE anbi_agreement_number IS NOT NULL
         ORDER BY creation DESC
         LIMIT 1
-    """
-    )
+    """)
 
     if latest and latest[0][0]:
         try:

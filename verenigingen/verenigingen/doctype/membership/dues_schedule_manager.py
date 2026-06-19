@@ -143,6 +143,18 @@ def create_direct_debit_batch(date=None):
     )
 
     for membership in memberships:
+        # Skip memberships whose linked Member no longer exists. Orphaned
+        # memberships (member deleted while the membership stayed Active) would
+        # otherwise crash the whole batch run with DoesNotExistError. Log the skip
+        # so the underlying data-integrity problem (orphaned Active memberships)
+        # stays visible rather than being silently swallowed.
+        if not membership.member or not frappe.db.exists("Member", membership.member):
+            frappe.logger().warning(
+                f"create_direct_debit_batch: skipping membership {membership.name} "
+                f"with missing member {membership.member!r}"
+            )
+            continue
+
         # Get member and check payment method
         member = frappe.get_doc("Member", membership.member)
         if not hasattr(member, "payment_method") or member.payment_method != "SEPA Direct Debit":
@@ -271,6 +283,16 @@ def get_unpaid_membership_invoices():
     unpaid_invoices = []
 
     for membership in memberships:
+        # Skip memberships whose linked Member no longer exists, otherwise an
+        # orphaned membership crashes the whole selector with DoesNotExistError.
+        # Log so the orphaned-Active-membership data issue stays visible.
+        if not membership.member or not frappe.db.exists("Member", membership.member):
+            frappe.logger().warning(
+                f"get_unpaid_membership_invoices: skipping membership {membership.name} "
+                f"with missing member {membership.member!r}"
+            )
+            continue
+
         # Get member and check payment method
         member_doc = frappe.get_doc("Member", membership.member)
         if not hasattr(member_doc, "payment_method") or member_doc.payment_method != "SEPA Direct Debit":

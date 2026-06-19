@@ -61,7 +61,11 @@ class ExpulsionReportEntry(Document):
 
     def update_status_based_on_appeals(self):
         """Update status based on any active appeals"""
-        if self.name:  # Only for existing records
+        # The "Termination Appeals Process" doctype is optional and not shipped
+        # on every install. Guard against querying a non-existent table, which
+        # would otherwise raise DoesNotExistError on every save of an existing
+        # record and make the doctype unusable.
+        if self.name and frappe.db.exists("DocType", "Termination Appeals Process"):
             # Check for active appeals
             active_appeals = frappe.get_all(
                 "Termination Appeals Process",
@@ -280,29 +284,40 @@ def get_expulsion_statistics(filters: dict | None = None):
 
     result = frappe.db.sql(query, values, as_dict=True)[0]
 
-    # Get chapter breakdown
+    # Get chapter breakdown. Append the "chapter_involved IS NOT NULL" filter
+    # with the correct WHERE/AND keyword depending on whether report filters are
+    # present; previously a missing where_clause left a dangling "AND" and the
+    # query raised a syntax error whenever called without filters.
+    chapter_condition = (
+        "AND chapter_involved IS NOT NULL" if where_clause else "WHERE chapter_involved IS NOT NULL"
+    )
     chapter_query = f"""
         SELECT
             chapter_involved,
             COUNT(*) as count
         FROM `tabExpulsion Report Entry`
         {where_clause}
-        AND chapter_involved IS NOT NULL
+        {chapter_condition}
         GROUP BY chapter_involved
         ORDER BY count DESC
     """
 
     chapter_breakdown = frappe.db.sql(chapter_query, values, as_dict=True)
 
-    # Get monthly trend (last 12 months)
-    trend_query = """
+    # Get monthly trend (last 12 months). This must be an f-string so the
+    # additional conditions are interpolated; previously the literal text
+    # "{('AND ' + ...)}" was sent to MySQL, producing a syntax error. The
+    # date-format literals are doubled (%%Y-%%m) so the pyformat param-style
+    # interpolation used by frappe.db.sql does not treat them as placeholders.
+    trend_conditions = ("AND " + " AND ".join(conditions)) if conditions else ""
+    trend_query = f"""
         SELECT
-            DATE_FORMAT(expulsion_date, '%Y-%m') as month,
+            DATE_FORMAT(expulsion_date, '%%Y-%%m') as month,
             COUNT(*) as count
         FROM `tabExpulsion Report Entry`
         WHERE expulsion_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-        {('AND ' + ' AND '.join(conditions)) if conditions else ''}
-        GROUP BY DATE_FORMAT(expulsion_date, '%Y-%m')
+        {trend_conditions}
+        GROUP BY DATE_FORMAT(expulsion_date, '%%Y-%%m')
         ORDER BY month
     """
 
@@ -354,32 +369,61 @@ def generate_expulsion_governance_report(date_range=None, chapter: str = None, i
     else:
         where_clause = ""
 
-    detailed_query = f"""
-        SELECT
-            ere.name,
-            ere.member_name,
-            ere.member_id,
-            ere.expulsion_date,
-            ere.expulsion_type,
-            ere.chapter_involved,
-            ere.initiated_by,
-            ere.approved_by,
-            ere.status,
-            ere.under_appeal,
-            ere.appeal_date,
-            ere.reversal_date,
-            ere.reversal_reason,
-            CASE
-                WHEN tap.name IS NOT NULL THEN 'Yes'
-                ELSE 'No'
-            END as has_appeal,
-            tap.appeal_status,
-            tap.decision_outcome
-        FROM `tabExpulsion Report Entry` ere
-        LEFT JOIN `tabTermination Appeals Process` tap ON ere.name = tap.expulsion_entry
-        {where_clause}
-        ORDER BY ere.expulsion_date DESC
-    """
+    # The "Termination Appeals Process" doctype is optional and not shipped on
+    # every install. Only join against it when the table actually exists,
+    # otherwise the whole report query raises a ProgrammingError (1146).
+    appeals_available = bool(frappe.db.exists("DocType", "Termination Appeals Process"))
+
+    if appeals_available:
+        detailed_query = f"""
+            SELECT
+                ere.name,
+                ere.member_name,
+                ere.member_id,
+                ere.expulsion_date,
+                ere.expulsion_type,
+                ere.chapter_involved,
+                ere.initiated_by,
+                ere.approved_by,
+                ere.status,
+                ere.under_appeal,
+                ere.appeal_date,
+                ere.reversal_date,
+                ere.reversal_reason,
+                CASE
+                    WHEN tap.name IS NOT NULL THEN 'Yes'
+                    ELSE 'No'
+                END as has_appeal,
+                tap.appeal_status,
+                tap.decision_outcome
+            FROM `tabExpulsion Report Entry` ere
+            LEFT JOIN `tabTermination Appeals Process` tap ON ere.name = tap.expulsion_entry
+            {where_clause}
+            ORDER BY ere.expulsion_date DESC
+        """
+    else:
+        detailed_query = f"""
+            SELECT
+                ere.name,
+                ere.member_name,
+                ere.member_id,
+                ere.expulsion_date,
+                ere.expulsion_type,
+                ere.chapter_involved,
+                ere.initiated_by,
+                ere.approved_by,
+                ere.status,
+                ere.under_appeal,
+                ere.appeal_date,
+                ere.reversal_date,
+                ere.reversal_reason,
+                'No' as has_appeal,
+                NULL as appeal_status,
+                NULL as decision_outcome
+            FROM `tabExpulsion Report Entry` ere
+            {where_clause}
+            ORDER BY ere.expulsion_date DESC
+        """
 
     detailed_data = frappe.db.sql(detailed_query, values, as_dict=True)
 
@@ -393,14 +437,24 @@ def generate_expulsion_governance_report(date_range=None, chapter: str = None, i
     # Generate compliance analysis
     compliance_issues = []
 
-    # Check for expulsions without proper documentation
+    # Check for expulsions without proper documentation.
+    # NOTE: this must be an f-string so the {where_clause} placeholder is
+    # interpolated; previously the literal text "{where_clause}" was sent to
+    # MySQL, producing a syntax error. The documentation filter is appended with
+    # AND/WHERE depending on whether report filters are present so the SQL stays
+    # valid in both cases.
+    doc_condition = (
+        "AND mtr.disciplinary_documentation IS NULL"
+        if where_clause
+        else "WHERE mtr.disciplinary_documentation IS NULL"
+    )
     missing_docs = frappe.db.sql(
-        """
+        f"""
         SELECT COUNT(*) as count
         FROM `tabExpulsion Report Entry` ere
         LEFT JOIN `tabMembership Termination Request` mtr ON ere.member_id = mtr.member
         {where_clause}
-        AND mtr.disciplinary_documentation IS NULL
+        {doc_condition}
     """,
         values,
     )[0][0]
@@ -410,16 +464,22 @@ def generate_expulsion_governance_report(date_range=None, chapter: str = None, i
             {"issue": "Missing Documentation", "count": missing_docs, "severity": "High"}
         )
 
-    # Check for overdue appeals
-    overdue_appeals = frappe.db.count(
-        "Termination Appeals Process",
-        {"appeal_status": ["in", ["Under Review", "Pending Decision"]], "review_deadline": ["<", today()]},
-    )
-
-    if overdue_appeals > 0:
-        compliance_issues.append(
-            {"issue": "Overdue Appeal Reviews", "count": overdue_appeals, "severity": "Critical"}
+    # Check for overdue appeals. The "Termination Appeals Process" doctype is
+    # optional and not shipped on every install; guard the count to avoid a
+    # ProgrammingError (1146) on the missing table.
+    if appeals_available:
+        overdue_appeals = frappe.db.count(
+            "Termination Appeals Process",
+            {
+                "appeal_status": ["in", ["Under Review", "Pending Decision"]],
+                "review_deadline": ["<", today()],
+            },
         )
+
+        if overdue_appeals > 0:
+            compliance_issues.append(
+                {"issue": "Overdue Appeal Reviews", "count": overdue_appeals, "severity": "Critical"}
+            )
 
     return {
         "summary": stats["summary"],
@@ -464,13 +524,19 @@ def get_member_expulsion_history(member_id: str):
         order_by="expulsion_date desc",
     )
 
-    # Enhance with appeal information
+    # Enhance with appeal information. The "Termination Appeals Process" doctype
+    # is optional and not shipped on every install; guard against querying a
+    # non-existent doctype (which raises DoesNotExistError).
+    appeals_available = bool(frappe.db.exists("DocType", "Termination Appeals Process"))
     for record in history:
-        appeals = frappe.get_all(
-            "Termination Appeals Process",
-            filters={"expulsion_entry": record.name},
-            fields=["name", "appeal_status", "decision_outcome", "appeal_date"],
-        )
+        if appeals_available:
+            appeals = frappe.get_all(
+                "Termination Appeals Process",
+                filters={"expulsion_entry": record.name},
+                fields=["name", "appeal_status", "decision_outcome", "appeal_date"],
+            )
+        else:
+            appeals = []
         record["appeals"] = appeals
 
     return history

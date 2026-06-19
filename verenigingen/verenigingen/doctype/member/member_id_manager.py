@@ -214,6 +214,9 @@ class MemberIDManager:
 
         if current_counter is None:
             current_counter = MemberIDManager._initialize_counter()
+        else:
+            # frappe.cache().get() returns bytes; coerce before arithmetic/comparison
+            current_counter = cint(current_counter)
 
         # If settings value is higher, update counter
         if settings_start > current_counter:
@@ -282,7 +285,10 @@ def reset_member_id_counter(counter_value):
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions"))
 
-    if not frappe.user.has_role(Roles.SYSTEM_MANAGER):
+    # Use frappe.get_roles() rather than frappe.user.has_role(): frappe.user is a
+    # username string (LocalProxy[str]), not a User object, so `.has_role()` raised
+    # AttributeError in every context. get_roles() is the canonical role check.
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can reset the member ID counter"))
 
     counter_value = cint(counter_value)
@@ -307,7 +313,9 @@ def migrate_member_id_counter():
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions"))
 
-    if not frappe.user.has_role(Roles.SYSTEM_MANAGER):
+    # See reset_member_id_counter: frappe.user is a username string, not a User
+    # object, so frappe.user.has_role() crashes; use frappe.get_roles().
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can run the member ID counter migration"))
 
     MemberIDManager.sync_counter_with_settings()
@@ -332,6 +340,9 @@ def get_next_member_id_preview():
 
     if current_counter is None:
         current_counter = MemberIDManager._initialize_counter()
+    else:
+        # frappe.cache().get() returns bytes; coerce before arithmetic
+        current_counter = cint(current_counter)
 
     return {"next_id": current_counter + 1, "current_counter": current_counter}
 
@@ -351,6 +362,9 @@ def get_member_id_statistics():
     current_counter = frappe.cache().get(counter_key)
     if current_counter is None:
         current_counter = MemberIDManager._initialize_counter()
+    else:
+        # frappe.cache().get() returns bytes; coerce before arithmetic
+        current_counter = cint(current_counter)
 
     stats["next_id"] = current_counter + 1
     stats["current_counter"] = current_counter

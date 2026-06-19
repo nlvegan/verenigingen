@@ -297,9 +297,14 @@ class PerformanceOptimizationSetup(Document):
         """Verify cache backend is available and working"""
         try:
             cache = frappe.cache()
-            # Test cache operations
+            # Test cache operations.
+            # NOTE: set_value's 3rd positional arg is `user`, not a TTL. Passing a
+            # bare `1` there scoped the write to user=1 while the read below used no
+            # user, so the probe ALWAYS returned None and reported the cache as
+            # unavailable even when Redis was healthy. TTL must be passed via the
+            # expires_in_sec keyword.
             test_key = "perf_opt_test"
-            cache.set_value(test_key, "test", 1)
+            cache.set_value(test_key, "test", expires_in_sec=60)
             result = cache.get_value(test_key)
             cache.delete_value(test_key)
             return result == "test"
@@ -319,8 +324,14 @@ class PerformanceOptimizationSetup(Document):
                 "settings_cache_ttl": 3600,  # 1 hour
             }
 
-            # Store configuration in this document for reference
-            self.caching_details = json.dumps(caching_config, indent=2)
+            # Store configuration in this document for reference. setup_caching_layer
+            # runs inside on_submit (docstatus == 1) where self.save() is rejected,
+            # so write directly with db_set (keeps the in-memory doc in sync too).
+            # db_set is a no-op-safe write even when the doc is not yet inserted.
+            if self.get("name") and not self.is_new():
+                self.db_set("caching_details", json.dumps(caching_config, indent=2))
+            else:
+                self.caching_details = json.dumps(caching_config, indent=2)
 
             # Verify Redis is available and working
             if not self._verify_cache_backend():
@@ -438,12 +449,15 @@ class PerformanceOptimizationSetup(Document):
             "cache_backend_verified": getattr(self, "_cache_verified", False),
         }
 
-        self.indexing_details = json.dumps(optimization_summary, indent=2)
-
-        # Update this document with completion status
-        self.optimization_status = "Completed"
-        self.optimization_completion_date = frappe.utils.now()
-        self.save()
+        # Persist completion details. This runs inside on_submit (docstatus == 1),
+        # so a full self.save() is rejected by Frappe's "cannot change field after
+        # submission" guard (it sees optimization_status Pending -> Completed and
+        # raises), which silently failed the whole after_migrate optimization run.
+        # Use db_set() to write these read-only bookkeeping fields directly and
+        # keep the in-memory document in sync.
+        self.db_set("indexing_details", json.dumps(optimization_summary, indent=2))
+        self.db_set("optimization_status", "Completed")
+        self.db_set("optimization_completion_date", frappe.utils.now())
 
         # ADDED: Simple performance validation
         self._validate_optimizations_working()
@@ -471,13 +485,19 @@ def run_performance_optimization():
             doc = frappe.get_doc(
                 {
                     "doctype": "Performance Optimization Setup",
-                    "name": "default",
                     "optimization_name": "Default Performance Optimization",
                     "enable_database_indexing": 1,
                     "enable_caching_layer": 1,
                     "optimization_status": "Pending",
                 }
             )
+            # Pin the singleton name. The DocType has no autoname rule, so a "name"
+            # key in the dict above is ignored and Frappe assigns a random hash;
+            # that broke the frappe.db.exists(..., "default") singleton guard both
+            # here (re-creating a fresh doc on every after_migrate) and in
+            # get_optimization_status() (which then always reported "Not Applied").
+            doc.name = "default"
+            doc.flags.name_set = True
             doc.insert(ignore_permissions=True)  # System setup needs to bypass permissions
 
         # Run optimizations
