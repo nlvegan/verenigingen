@@ -197,6 +197,65 @@ class TestSecurityDecorators(VereningingenTestCase):
                 self.assertEqual(result["param1"], "value1")
                 self.assertEqual(result["param2"], "value2")
 
+    def test_frappe_dict_result_serialised_as_is(self):
+        """Regression: a frappe._dict return value must NOT crash the wrapper.
+
+        frappe._dict sets ``__getattr__ = dict.get``, so ``result.to_dict`` is
+        None (not absent) and ``hasattr(result, "to_dict")`` is True. The old
+        wrapper did ``if hasattr(result, "to_dict"): result.to_dict(...)`` and
+        thereby called ``None(...)`` -> "'NoneType' object is not callable" on
+        every API call returning e.g. ``frappe.db.get_value(as_dict=True)``.
+        The hardened wrapper guards on ``callable(...)`` and serialises the
+        frappe._dict as-is.
+        """
+
+        @standard_api(OperationType.REPORTING)
+        def returns_frappe_dict():
+            # Mirrors the common get_value(as_dict=True) / get_cached_doc().as_dict() shape
+            return frappe._dict({"regional_coordinator": "alice", "backup_coordinator": "bob"})
+
+        # Runs as the default Administrator test user (no auth mocking) — this test
+        # exercises the wrapper's response-serialisation path, not the auth boundary.
+        result = returns_frappe_dict()
+
+        self.assertEqual(result["regional_coordinator"], "alice")
+        self.assertEqual(result["backup_coordinator"], "bob")
+
+    def test_plain_dict_result_passed_through(self):
+        """A plain dict (no to_dict attr) is returned unchanged by the wrapper."""
+
+        @standard_api(OperationType.REPORTING)
+        def returns_plain_dict():
+            return {"status": "ok", "count": 3}
+
+        result = returns_plain_dict()
+
+        self.assertEqual(result, {"status": "ok", "count": 3})
+
+    def test_operation_result_still_converted_to_dict(self):
+        """The wrapper must still convert genuine OperationResult-like objects.
+
+        Hardening the guard to callable() must not regress the intended
+        behaviour: an object exposing a real, callable ``to_dict`` is converted,
+        and the ``scrub_sensitive=True`` kwarg is honoured.
+        """
+
+        class FakeOperationResult:
+            def __init__(self):
+                self.success = True
+
+            def to_dict(self, scrub_sensitive=False):
+                # Prove the wrapper passes scrub_sensitive=True (existing contract)
+                return {"success": self.success, "scrubbed": scrub_sensitive}
+
+        @standard_api(OperationType.REPORTING)
+        def returns_operation_result():
+            return FakeOperationResult()
+
+        result = returns_operation_result()
+
+        self.assertEqual(result, {"success": True, "scrubbed": True})
+
     def test_convenience_decorators(self):
         """Test convenience decorators for common patterns"""
 

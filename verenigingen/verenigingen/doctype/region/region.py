@@ -273,12 +273,10 @@ def get_regional_coordinator(region_name: str):
     if not coordinators:
         return None
 
-    # Return a plain dict, not a frappe._dict. The @standard_api response
-    # wrapper does `if hasattr(result, "to_dict"): result.to_dict(...)`, and
-    # frappe._dict.__getattr__ returns None for the missing `to_dict` attribute
-    # (so hasattr is True but the attribute is None) -> calling it raises
-    # "'NoneType' object is not callable" on the API path. A plain dict has no
-    # `to_dict`, so the wrapper serialises it as-is.
+    # Return a plain dict, not a frappe._dict. (The @standard_api response wrapper
+    # is now hardened to guard on callable(result.to_dict) rather than hasattr, so a
+    # frappe._dict would serialise correctly too — but returning a plain dict here is
+    # explicit and keeps the endpoint independent of that wrapper detail.)
     return dict(coordinators)
 
 

@@ -958,7 +958,11 @@ def ensure_member_id(doc: str | dict = None):
     # without compensating here, callers that re-serialise via stdlib json
     # (logging, debug, server scripts) would otherwise hit AttributeError.
     result = _load_member_for_shim(doc, "write").ensure_member_id()
-    return result.to_dict() if hasattr(result, "to_dict") else result
+    # callable(), not hasattr(): a frappe._dict has __getattr__ = dict.get, so
+    # `result.to_dict` is None (not absent) and hasattr() would be True, making
+    # `result.to_dict()` raise "'NoneType' object is not callable".
+    to_dict = getattr(result, "to_dict", None)
+    return to_dict() if callable(to_dict) else result
 
 
 @frappe.whitelist()

@@ -989,8 +989,17 @@ def api_security_framework(
                 # Convert OperationResult to dict for JSON serialization
                 # Use scrub_sensitive=True to prevent traceback/exception metadata
                 # from leaking into HTTP responses (e.g. from OperationResult.from_exception)
-                if hasattr(result, "to_dict"):
-                    return result.to_dict(scrub_sensitive=True)
+                #
+                # Guard on callable(), not hasattr(): a frappe._dict (e.g. from
+                # frappe.db.get_value(as_dict=True)) sets __getattr__ = dict.get, so
+                # `result.to_dict` returns None for the missing key and hasattr() is
+                # True -> calling it would raise "'NoneType' object is not callable".
+                # callable(getattr(result, "to_dict", None)) is False for any dict /
+                # frappe._dict, so those serialise as-is; only real OperationResult-like
+                # objects (with a bound to_dict method) get converted.
+                to_dict = getattr(result, "to_dict", None)
+                if callable(to_dict):
+                    return to_dict(scrub_sensitive=True)
                 return result
 
             except Exception as e:
