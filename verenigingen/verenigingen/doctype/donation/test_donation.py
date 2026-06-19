@@ -305,9 +305,9 @@ class TestDonation(EnhancedTestCase):
 
     def test_valid_chapter_purpose(self):
         """A donation earmarked for an existing chapter validates and persists."""
-        chapter = frappe.get_all("Chapter", limit=1)
-        self.assertTrue(chapter, "Test environment must have at least one Chapter")
-        chapter_name = chapter[0].name
+        # Create our own Chapter — a fresh CI shard has none (querying for an
+        # arbitrary existing Chapter is order-dependent and fails in isolation).
+        chapter_name = self.create_test_chapter().name
         donation = self._insert_donation(
             donation_purpose_type="Chapter",
             chapter_reference=chapter_name,
@@ -341,7 +341,8 @@ class TestDonation(EnhancedTestCase):
 
     def test_earmarking_summary_chapter(self):
         """Chapter donations summarize with the chapter name."""
-        chapter_name = frappe.get_all("Chapter", limit=1)[0].name
+        # Create our own Chapter (a fresh CI shard has none — see above).
+        chapter_name = self.create_test_chapter().name
         donation = self._insert_donation(donation_purpose_type="Chapter", chapter_reference=chapter_name)
         self.assertEqual(donation.get_earmarking_summary(), f"Chapter: {chapter_name}")
 
