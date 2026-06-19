@@ -149,6 +149,14 @@ def convert_frequency_to_mollie_interval(frequency: str) -> str:
         "Quarterly": "3 months",
         "Semi-Annual": "6 months",
         "Annual": "12 months",
+        # Donation.recurring_frequency Select vocabulary (Daily/Weekly/Bi-weekly/
+        # Monthly/Quarterly/Yearly). Mollie supports day/week/month intervals;
+        # without these, Yearly/Weekly/etc. silently defaulted to monthly and a
+        # yearly donor would be billed every month.
+        "Daily": "1 day",
+        "Weekly": "1 week",
+        "Bi-Weekly": "2 weeks",  # "bi-weekly".title() == "Bi-Weekly"
+        "Yearly": "12 months",
         # Direct interval pass-through
         "1 Month": "1 month",
         "3 Months": "3 months",

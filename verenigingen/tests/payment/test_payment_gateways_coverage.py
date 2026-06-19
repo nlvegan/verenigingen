@@ -401,31 +401,50 @@ class TestSubscriptionActivationSuccess(EnhancedTestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertIn("No donation ID", result["reason"])
 
-    @unittest.expectedFailure
-    def test_activate_donation_subscription_no_agreement_branch_is_broken(self):
-        """PRODUCTION BUG (characterized, not fixed):
-        _activate_donation_subscription_after_first_payment reads
-        `donation.donation_agreement` (payment_gateways.py:1373), but the Donation
-        DocType has no such field (the real field is `periodic_donation_agreement`),
-        and there is no `Donation Agreement` DocType (it is `Periodic Donation
-        Agreement`). So when a first payment carries a donation_id, attribute access
-        raises AttributeError -> the outer except returns status="error" instead of
-        the intended skipped/success result. The recurring-donation subscription
-        creation path via this helper is therefore dead.
+    def test_activate_donation_subscription_success_persists_id_on_donation(self):
+        """Fixed bug: the helper now sources the subscription from the Donation
+        itself (amount + recurring_frequency) and stores the Mollie subscription id
+        on donation.mollie_subscription_id. Previously it read a nonexistent
+        `donation.donation_agreement` / "Donation Agreement" doctype and always
+        errored, so recurring-donation subscriptions were never created.
 
-        This test asserts the *intended* "skipped: No donation agreement found"
-        behaviour and is expected to FAIL until the field/doctype names are
-        corrected (money-ambiguous -> left for maintainers to fix).
+        No subscription_interval in metadata here -> the recurring_frequency ->
+        Mollie-interval conversion branch is exercised.
         """
-        donor = self.create_test_donor(donor_name="Agreementless Donor")
+        donor = self.create_test_donor(donor_name="Recurring Donor")
         donation = self.create_test_donation(
-            amount=10.0, mode_of_payment="Bank Transfer", donor=donor.name, paid=0
+            amount=12.0, mode_of_payment="Bank Transfer", donor=donor.name, paid=0
         )
+        donation.db_set("recurring_frequency", "Monthly")
+
         gw = _bare_gateway()
-        payment = _StubPayment(metadata={"donation_id": donation.name})
+        payment = _StubPayment(customer_id="cst_donation", metadata={"donation_id": donation.name})
         result = pg._activate_donation_subscription_after_first_payment(gw, payment)
-        # Intended behaviour: a donation with no agreement is skipped.
-        self.assertEqual(result["status"], "skipped")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_stub")
+        self.assertEqual(result["customer_id"], "cst_donation")
+        self.assertEqual(result["donation_id"], donation.name)
+        # The subscription id is persisted on the donation that owns the field.
+        donation.reload()
+        self.assertEqual(donation.mollie_subscription_id, "sub_stub")
+
+    def test_activate_donation_subscription_falls_back_to_donation_customer(self):
+        """When the payment has no customer_id, the donation's mollie_customer_id
+        is used; the metadata subscription_interval takes precedence over the
+        donation frequency when present."""
+        donor = self.create_test_donor(donor_name="Customerless Payment Donor")
+        donation = self.create_test_donation(
+            amount=20.0, mode_of_payment="Bank Transfer", donor=donor.name, paid=0
+        )
+        donation.db_set("mollie_customer_id", "cst_from_donation")
+
+        gw = _bare_gateway()
+        payment = _StubPayment(metadata={"donation_id": donation.name, "subscription_interval": "3 months"})
+        result = pg._activate_donation_subscription_after_first_payment(gw, payment)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["customer_id"], "cst_from_donation")
 
 
 # ===========================================================================

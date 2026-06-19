@@ -139,6 +139,23 @@ class TestFrequencyConversion(FrappeTestCase):
         result = convert_frequency_to_mollie_interval("Annual")
         self.assertEqual(result, "12 months")
 
+    def test_convert_donation_select_vocabulary(self):
+        """Donation.recurring_frequency Select values map to valid Mollie intervals.
+
+        Regression: Yearly/Weekly/Bi-weekly/Daily previously fell through to the
+        default '1 month', so e.g. a Yearly donor would be billed monthly.
+        """
+        cases = {
+            "Daily": "1 day",
+            "Weekly": "1 week",
+            "Bi-weekly": "2 weeks",  # case-insensitive: normalized to 'Bi-Weekly'
+            "Monthly": "1 month",
+            "Quarterly": "3 months",
+            "Yearly": "12 months",
+        }
+        for freq, expected in cases.items():
+            self.assertEqual(convert_frequency_to_mollie_interval(freq), expected, msg=freq)
+
     def test_convert_direct_interval_passthrough(self):
         """Test direct interval formats pass through unchanged"""
         intervals = ["1 month", "3 months", "6 months", "12 months"]

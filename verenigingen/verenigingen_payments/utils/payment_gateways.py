@@ -1363,35 +1363,35 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         dict: Subscription creation result
     """
     try:
-        # Get donation and agreement info from payment metadata
-        donation_id = payment.metadata.get("donation_id")
+        # Get donation from payment metadata
+        donation_id = (payment.metadata or {}).get("donation_id")
         if not donation_id:
             return {"status": "skipped", "reason": "No donation ID in payment metadata"}
 
-        # Get donation and associated agreement
+        # The recurring-subscription configuration lives on the Donation itself
+        # (amount / recurring_frequency / mollie_* fields); the optional
+        # Periodic Donation Agreement is an ANBI tax construct, not where the
+        # Mollie subscription is sourced or stored.
         donation = frappe.get_doc("Donation", donation_id)
-        if not donation.donation_agreement:
-            return {"status": "skipped", "reason": "No donation agreement found"}
 
-        agreement = frappe.get_doc("Donation Agreement", donation.donation_agreement)
-
-        # Get customer ID from payment
-        customer_id = payment.customer_id
+        # Get customer ID from the payment (fall back to the donation's Mollie customer)
+        customer_id = payment.customer_id or donation.get("mollie_customer_id")
         if not customer_id:
             return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
 
-        # Create subscription data based on agreement
+        # Interval: prefer the Mollie-formatted interval the checkout flow stored in
+        # metadata; otherwise derive it from the donation's recurring frequency.
+        interval = (payment.metadata or {}).get(
+            "subscription_interval"
+        ) or convert_frequency_to_mollie_interval(donation.get("recurring_frequency"))
+
         subscription_data = {
-            "amount": format_mollie_amount(agreement.amount),
-            "interval": convert_frequency_to_mollie_interval(agreement.recurring_frequency),
-            "description": f"Recurring donation - {getattr(donation, 'donation_category', None) or donation.donation_purpose_type}",
-            "startDate": agreement.next_due_date.strftime("%Y-%m-%d") if agreement.next_due_date else None,
+            "amount": format_mollie_amount(donation.amount),
+            "interval": interval,
+            "description": f"Recurring donation - {donation.donation_purpose_type}",
             "metadata": {
-                "donation_agreement_id": agreement.name,
                 "donation_id": donation_id,
                 "donor_id": donation.donor,
-                "donation_type": getattr(donation, "donation_category", None)
-                or donation.donation_purpose_type,
                 "purpose": donation.donation_purpose_type,
             },
         }
@@ -1400,20 +1400,18 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         customer = gateway.client.customers.get(customer_id)
         subscription = customer.subscriptions.create(data=subscription_data)
 
-        # Update donation agreement with subscription details
-        agreement.db_set("mollie_subscription_id", subscription.id)
-        agreement.db_set("status", "Active")
+        # Persist the subscription id on the donation (the doctype that owns the field)
+        donation.db_set("mollie_subscription_id", subscription.id)
 
         frappe.logger().info(
-            f"Successfully created subscription {subscription.id} for donation agreement {agreement.name}"
+            f"Successfully created subscription {subscription.id} for donation {donation.name}"
         )
 
         return {
             "status": "success",
             "subscription_id": subscription.id,
             "customer_id": customer_id,
-            "agreement_id": agreement.name,
-            "next_payment": subscription_data.get("startDate"),
+            "donation_id": donation.name,
         }
 
     except Exception as e:
