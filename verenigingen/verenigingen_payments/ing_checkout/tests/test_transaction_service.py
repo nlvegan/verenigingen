@@ -133,6 +133,19 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
         from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
 
         ensure_test_fiscal_year_for_all_companies()
+        # Neutralise any leaked default Sales Taxes template on _Test Company. A
+        # sibling test in the same shard can leave one flagged is_default=1; ERPNext
+        # then auto-applies it to our no-taxes fixture invoice (see
+        # accounts_controller.set_taxes), inflating grand_total above `rate` and
+        # breaking the exact allocation/overpayment math below. Clearing the flag
+        # for the duration of this test keeps the fixture's total == rate.
+        # (FrappeTestCase rolls the change back at tearDown.)
+        frappe.db.set_value(
+            "Sales Taxes and Charges Template",
+            {"company": TEST_COMPANY, "is_default": 1},
+            "is_default",
+            0,
+        )
         self._ensure_mode_of_payment()
         self.invoice = self._make_submitted_invoice(rate=25.00)
 

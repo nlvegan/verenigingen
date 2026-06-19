@@ -30,6 +30,14 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         """
         super().setUp()
 
+        # cancel_recurring_donation is gated to the DEVELOPMENT environment by the
+        # API security framework (reads frappe.conf.developer_mode). A sibling test
+        # in the same shard can leave that shared flag toggled off, making the gate
+        # raise "Function not available in production environment". Force it on
+        # (save/restore the raw key — frappe.conf is a frappe._dict).
+        self._original_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
         self.test_member = self.create_test_member(
             first_name="Test",
             last_name="Portal User",
@@ -51,6 +59,13 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         # Recurring donation owned by this donor. "Recurring" is the only valid
         # recurring status in the Donation schema (One-time / Promised / Recurring).
         self.test_donation = self._create_recurring_donation(amount=25.0)
+
+    def tearDown(self):
+        if self._original_dev_mode is None:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = self._original_dev_mode
+        super().tearDown()
 
     # The portal endpoints are @self_service_api(FINANCIAL, implicit_allowed=True):
     # any authenticated user passes auth (LOW), and access to a specific donation

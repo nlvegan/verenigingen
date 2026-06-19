@@ -204,6 +204,15 @@ class ReconBase(EnhancedTestCase):
         ) or frappe.db.get_value("Bank Account", {}, "name")
         if bank_account:
             bt.bank_account = bank_account
+            # Pin the transaction currency to the bank account's own currency.
+            # frappe.new_doc() otherwise stamps `currency` from the global
+            # "currency" default, which a sibling test (creating a non-EUR
+            # entity) can leave polluted to USD on the shared DB — tripping
+            # Bank Transaction.validate_currency ("Transaction currency cannot be
+            # different from Bank Account currency"). Pinning makes this hermetic.
+            gl_account = frappe.db.get_value("Bank Account", bank_account, "account")
+            if gl_account:
+                bt.currency = frappe.db.get_value("Account", gl_account, "account_currency")
         bt.insert()
         if submit:
             bt.submit()

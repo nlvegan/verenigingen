@@ -235,6 +235,15 @@ class TestProcessDuesPaymentBranches(EnhancedTestCase):
 class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        # This class submits a Sales Invoice in _Test Company dated today(). On a
+        # fresh CI runner _Test Company has no Fiscal Year covering today (and
+        # erpnext's bootstrap FY can be restricted to a single company), so the
+        # submit raises "Date <today> is not in any active Fiscal Year". Whether a
+        # covering FY already exists depends on which sibling test ran first in the
+        # shard, so seed it explicitly (idempotent, date-driven — self-heals yearly).
+        from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
+
+        ensure_test_fiscal_year_for_all_companies()
         self.proc = _bare_processor()
         self.company = "_Test Company"
         self.clearing = _ensure_mollie_clearing_on_test_company()

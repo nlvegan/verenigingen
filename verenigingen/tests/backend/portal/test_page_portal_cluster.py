@@ -28,6 +28,25 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class PortalPageTestBase(EnhancedTestCase):
     """Shared helpers: a member with a linked, role-bearing User account."""
 
+    def setUp(self):
+        super().setUp()
+        # Several portal endpoints under test are gated to the DEVELOPMENT
+        # environment by the API security framework, which reads
+        # frappe.conf.developer_mode. A sibling test in the same shard can leave
+        # developer_mode toggled off (it's a shared, non-transactional flag), so
+        # the gate then raises "Function not available in production environment".
+        # Force it on for these tests (save/restore the raw key — frappe.conf is a
+        # frappe._dict, so patch.object does not work on it).
+        self._original_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+    def tearDown(self):
+        if self._original_dev_mode is None:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = self._original_dev_mode
+        super().tearDown()
+
     def _make_member_with_user(self, first_name="Portal", last_name="User"):
         """Create a Member linked to a real User (member resolved from session)."""
         member = self.create_test_member(

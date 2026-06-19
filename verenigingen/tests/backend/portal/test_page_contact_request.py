@@ -20,6 +20,12 @@ class TestPageContactRequest(EnhancedTestCase):
         super().setUp()
         self._original_form_dict = frappe.form_dict
         self._original_response = frappe.local.response
+        # submit_contact_request is gated to the DEVELOPMENT environment by the API
+        # security framework (reads frappe.conf.developer_mode). A sibling test in
+        # the same shard can leave that shared flag off, making the gate raise
+        # "Function not available in production environment". Force it on.
+        self._original_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
 
         self.email = f"contact-{frappe.generate_hash()[:8]}@example.com"
         self.member = self.create_test_member(
@@ -37,6 +43,10 @@ class TestPageContactRequest(EnhancedTestCase):
     def tearDown(self):
         frappe.form_dict = self._original_form_dict
         frappe.local.response = self._original_response
+        if self._original_dev_mode is None:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = self._original_dev_mode
         super().tearDown()
 
     def _ensure_member_user(self, email):

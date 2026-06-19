@@ -138,7 +138,16 @@ class TestSEPAReconciliation(VereningingenTestCase):
                 "posting_date": today(),
                 "items": [
                     {
-                        "item_code": frappe.db.get_value("Item", {"item_group": ["!=", ""]}, "name") or "Test Item",
+                        # Exclude template ("has_variants") and disabled items: selecting the
+                        # first row by item_group alone is non-deterministic on the shared
+                        # site DB, and under some parallel orderings resolves to
+                        # `_Test Variant Item` (a template) -> "Item ... is a template, please
+                        # select one of its variants". Restrict to a real, sellable item.
+                        "item_code": frappe.db.get_value(
+                            "Item",
+                            {"item_group": ["!=", ""], "has_variants": 0, "disabled": 0, "is_sales_item": 1},
+                            "name",
+                        ) or "Test Item",
                         "qty": 1,
                         "rate": 100}
                 ]}
