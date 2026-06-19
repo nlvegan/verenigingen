@@ -187,6 +187,50 @@ class TestRefundUtilityInitiation(EnhancedTestCase):
         self.assertEqual(result["error_code"], "INSUFFICIENT_REFUNDABLE_AMOUNT")
         self.assertEqual(result["details"]["total_reversed"], 70.0)
 
+    def test_successful_refund_logs_refund_initiated(self):
+        # Mock justified: MolliePaymentService.create_refund is the outbound Mollie HTTP
+        # call; log_refund_initiated is the observability event whose wiring is under test.
+        with patch(f"{REFUND_MODULE}.MolliePaymentService") as mock_mollie, patch(
+            f"{REFUND_MODULE}.log_refund_initiated"
+        ) as mock_log:
+            mock_mollie.return_value.create_refund.return_value = {
+                "status": "success",
+                "refund_id": "re_test_123",
+                "amount": 10.0,
+            }
+            result = initiate_refund(
+                payment_entry_name=self.pe.name, amount=10.0, reason="customer request"
+            )
+        self.assertEqual(result["status"], "success")
+        mock_log.assert_called_once()
+        called = list(mock_log.call_args.args) + list((mock_log.call_args.kwargs or {}).values())
+        self.assertIn("re_test_123", called)
+        self.assertIn(10.0, called)
+
+    def test_over_refund_logs_concurrent_refund_detected(self):
+        self.create_test_payment_entry(
+            payment_type="Pay",
+            company=_bank_company(),
+            paid_amount=70.0,
+            reference_no="re_existing_70b",
+            party_type="Supplier",
+            party=_make_supplier(self),
+            custom_original_payment_id=self.payment_id,
+            custom_reversal_type="Refund",
+            submit=True,
+        )
+        # Mock justified: log_concurrent_refund_detected is the observability event under test;
+        # MolliePaymentService must never be reached on the blocked path.
+        with patch(f"{REFUND_MODULE}.MolliePaymentService") as mock_mollie, patch(
+            f"{REFUND_MODULE}.log_concurrent_refund_detected"
+        ) as mock_log:
+            result = initiate_refund(payment_entry_name=self.pe.name, amount=50.0)
+            mock_mollie.return_value.create_refund.assert_not_called()
+        self.assertEqual(result["error_code"], "INSUFFICIENT_REFUNDABLE_AMOUNT")
+        mock_log.assert_called_once()
+        called = list(mock_log.call_args.args) + list((mock_log.call_args.kwargs or {}).values())
+        self.assertIn(50.0, called)
+
 
 class TestPaymentRefundInfo(EnhancedTestCase):
     def test_payment_not_found(self):

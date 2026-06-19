@@ -25,6 +25,10 @@ from verenigingen.utils.payment_services.constants import (
 )
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
+    log_concurrent_refund_detected,
+    log_refund_initiated,
+)
 
 # Known reversal types for null safety
 KNOWN_REVERSAL_TYPES = ("Refund", "Chargeback")
@@ -222,6 +226,11 @@ def initiate_refund(
         available_amount = max_refund_amount - total_reversed
 
         if amount > available_amount:
+            log_concurrent_refund_detected(
+                payment_id=mollie_payment_id,
+                attempted_amount=amount,
+                available_amount=available_amount,
+            )
             return _create_error_response(
                 f"Only {available_amount} available for refund (already reversed: {total_reversed})",
                 error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
@@ -241,6 +250,12 @@ def initiate_refund(
         )
 
         if refund_result["status"] == "success":
+            log_refund_initiated(
+                payment_id=mollie_payment_id,
+                refund_id=refund_result["refund_id"],
+                amount=refund_result["amount"],
+                reason=reason or f"Refund for payment {payment_entry_name}",
+            )
             # Return success - webhook will handle creating reverse Payment Entry
             return _create_success_response(
                 "Refund initiated successfully",
@@ -548,6 +563,11 @@ def initiate_donation_refund(
             amount = min(available_amount, refund_info["data"]["net_amount"])
 
         if amount > available_amount:
+            log_concurrent_refund_detected(
+                payment_id=payment_to_refund.name,
+                attempted_amount=amount,
+                available_amount=available_amount,
+            )
             return _create_error_response(
                 f"Only {available_amount} available for refund from this payment",
                 error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
