@@ -124,7 +124,10 @@ def get_mollie_settings(reference_docname, gateway_name):
             get_mollie_settings,
         )
 
-        return get_mollie_settings(gateway_name)
+        # Mollie Settings is a Single doctype, so the accessor takes no gateway
+        # argument. Passing gateway_name here raised TypeError on every checkout
+        # render (swallowed below into a generic "configuration error").
+        return get_mollie_settings()
     except Exception as e:
         frappe.log_error(f"Error loading Mollie settings '{gateway_name}': {str(e)}", "Mollie Settings Error")
         frappe.throw(_("Payment gateway configuration error. Please contact support."))

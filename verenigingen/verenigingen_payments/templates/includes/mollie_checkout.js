@@ -47,7 +47,7 @@ $(document).ready(() => {
 
 		// Call server to initialize/check payment
 		frappe.call({
-			method: 'verenigingen.templates.pages.mollie_checkout.make_payment',
+			method: 'verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment',
 			freeze: false,
 			headers: {
 				'X-Requested-With': 'XMLHttpRequest'
@@ -181,7 +181,7 @@ $(document).ready(() => {
 		}
 
 		frappe.call({
-			method: 'verenigingen.templates.pages.mollie_checkout.get_payment_status_only',
+			method: 'verenigingen.verenigingen_payments.templates.pages.mollie_checkout.get_payment_status_only',
 			args: {
 				reference_doctype: pageConfig.reference_doctype,
 				reference_docname: pageConfig.reference_docname
