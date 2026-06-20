@@ -445,7 +445,10 @@ def get_termination_statistics():
             "pending_requests": frappe.db.count("Membership Termination Request", {"status": "Pending"}),
             "executed_requests": frappe.db.count("Membership Termination Request", {"status": "Executed"}),
             "this_month": frappe.db.count(
-                "Membership Termination Request", {"request_date": [">=", today().replace(day=1)]}
+                # today() returns a string, so .replace(day=1) would be str.replace
+                # (wrong args). Use getdate() to get a date before replacing the day.
+                "Membership Termination Request",
+                {"request_date": [">=", getdate(today()).replace(day=1)]},
             ),
         }
 
@@ -479,12 +482,15 @@ def audit_termination_compliance():
             "data_integrity_issues": [],
         }
 
-        # Check for orphaned termination requests (member doesn't exist)
+        # Check for orphaned termination requests (member doesn't exist).
+        # Join on the `member` Link field, NOT `member_name`: member_name is a
+        # Data field fetched from member.full_name (a person's name), so joining
+        # it against Member.name (the ID) flags every request as orphaned.
         orphaned_requests = frappe.db.sql(
             """
-            SELECT mtr.name, mtr.member_name
+            SELECT mtr.name, mtr.member, mtr.member_name
             FROM `tabMembership Termination Request` mtr
-            LEFT JOIN `tabMember` m ON mtr.member_name = m.name
+            LEFT JOIN `tabMember` m ON mtr.member = m.name
             WHERE m.name IS NULL
         """,
             as_dict=True,
@@ -495,7 +501,7 @@ def audit_termination_compliance():
         if orphaned_requests:
             for request in orphaned_requests:
                 audit_results["data_integrity_issues"].append(
-                    f"Termination request {request.name} references non-existent member {request.member_name}"
+                    f"Termination request {request.name} references non-existent member {request.member}"
                 )
 
         # Check for stale requests (approved but not executed after 30 days)
@@ -518,13 +524,15 @@ def audit_termination_compliance():
                     f"Request {request.name} has been approved but not executed for over 30 days"
                 )
 
-        # Check for members with multiple active termination requests
+        # Check for members with multiple active termination requests.
+        # Group by the `member` Link field (the stable ID), not member_name
+        # (a non-unique display name fetched from full_name).
         duplicate_requests = frappe.db.sql(
             """
-            SELECT member_name, COUNT(*) as count
+            SELECT member, COUNT(*) as count
             FROM `tabMembership Termination Request`
             WHERE status IN ('Draft', 'Pending', 'Approved')
-            GROUP BY member_name
+            GROUP BY member
             HAVING COUNT(*) > 1
         """,
             as_dict=True,
@@ -533,7 +541,7 @@ def audit_termination_compliance():
         if duplicate_requests:
             for dup in duplicate_requests:
                 audit_results["compliance_issues"].append(
-                    f"Member {dup.member_name} has {dup.count} active termination requests"
+                    f"Member {dup.member} has {dup.count} active termination requests"
                 )
 
         # Log significant issues
