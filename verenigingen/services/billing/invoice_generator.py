@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
@@ -694,15 +694,21 @@ class InvoiceGenerator(StatelessService):
             invoice.membership = member_doc.current_membership_plan
 
         # Set payment terms or default due date
-        # Days from coverage period start — ensures due_date >= posting_date
-        # even when billing retroactively, avoiding ERPNext's validate_due_date rejection.
         if payment_config["payment_terms"]:
             invoice.payment_terms_template = payment_config["payment_terms"]
         else:
             due_date_days = (
                 frappe.db.get_single_value("Verenigingen Payments Settings", "default_due_date_days") or 45
             )
-            invoice.due_date = add_days(coverage_start, due_date_days)
+            # Anchor the due date on the LATER of coverage_start and posting_date. For
+            # retroactive/catch-up billing coverage_start can be months in the past, so
+            # add_days(coverage_start, 45) lands before posting_date (= today); ERPNext
+            # then rejects the invoice ("Due Date cannot be before Posting Date") and the
+            # failure is swallowed into the Error Log. Clamping to posting_date keeps a
+            # valid grace period without ever producing a past due date. (The old comment
+            # claiming the coverage_start anchor already guaranteed this was wrong.)
+            anchor = max(getdate(coverage_start), getdate(invoice.posting_date))
+            invoice.due_date = add_days(anchor, due_date_days)
 
         # Set SEPA mandate if applicable
         if payment_config["sepa_mandate_id"]:
