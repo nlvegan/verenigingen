@@ -106,7 +106,7 @@ def refresh_all_expense_approvers():
         "success": True,
         "updated": updated_count,
         "errors": error_count,
-        "message": "Updated {updated_count} employee records, {error_count} errors",
+        "message": f"Updated {updated_count} employee records, {error_count} errors",
     }
 
 
@@ -126,7 +126,7 @@ def validate_expense_approver_setup():
     )
 
     if employees_without_approvers:
-        issues.append("{len(employees_without_approvers)} employees without expense approvers")
+        issues.append(f"{len(employees_without_approvers)} employees without expense approvers")
 
     # Check for approvers who don't have expense approver role
     approvers_without_role = frappe.db.sql(
@@ -147,7 +147,7 @@ def validate_expense_approver_setup():
     )
 
     if approvers_without_role:
-        issues.append("{len(approvers_without_role)} approvers without 'Expense Approver' role")
+        issues.append(f"{len(approvers_without_role)} approvers without 'Expense Approver' role")
 
     # Check for inactive approvers
     inactive_approvers = frappe.db.sql(
@@ -163,7 +163,7 @@ def validate_expense_approver_setup():
     )
 
     if inactive_approvers:
-        issues.append("{len(inactive_approvers)} employees have inactive approvers")
+        issues.append(f"{len(inactive_approvers)} employees have inactive approvers")
 
     return {
         "valid": len(issues) == 0,
@@ -225,7 +225,7 @@ def fix_expense_approver_issues():
 
     frappe.db.commit()
 
-    return {"success": True, "fixed": fixed_count, "message": "Fixed {fixed_count} expense approver issues"}
+    return {"success": True, "fixed": fixed_count, "message": f"Fixed {fixed_count} expense approver issues"}
 
 
 def is_native_expense_system_ready():
