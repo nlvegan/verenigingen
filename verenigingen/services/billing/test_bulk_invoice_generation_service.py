@@ -627,18 +627,42 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
     def test_process_parallel_splits_and_enqueues(self):
         """_process_parallel must split schedules into chunks and enqueue a
         background job per chunk, returning parallel_mode=True with the right
-        job count and message. We pass a synthetic 120-name list (no real
-        invoice generation happens — the worker is enqueued, not run inline)."""
+        job count and message.
+
+        We patch frappe.enqueue with a recorder so NO real job is written to the
+        shared `long` RQ queue (otherwise the worker fn `process_invoice_chunk`
+        would later run inline on our FAKE-SCHED-* names and the leaked jobs
+        would pollute get_parallel_status for sibling tests). The branch under
+        test is the chunk-splitting + per-chunk enqueue accounting, which a fake
+        enqueue exercises fully.
+        """
+        import verenigingen.services.billing.bulk_invoice_generation_service as mod
+
         schedule_names = [f"FAKE-SCHED-{i}" for i in range(120)]
         result = BulkGenerationResult()
         cutoff = getdate(today())
 
-        out = self.svc._process_parallel(schedule_names, cutoff, test_mode=False, result=result)
+        enqueued = []
+        real_enqueue = mod.frappe.enqueue
+
+        def recording_enqueue(method, **kwargs):
+            enqueued.append(kwargs.get("schedule_names"))
+            return f"job-{len(enqueued)}"
+
+        mod.frappe.enqueue = recording_enqueue
+        try:
+            out = self.svc._process_parallel(schedule_names, cutoff, test_mode=False, result=result)
+        finally:
+            mod.frappe.enqueue = real_enqueue
 
         self.assertTrue(out.parallel_mode)
         # num_workers = min(8, max(4, 120//100)) = max(4,1)=4 ; chunk_size=ceil(120/4)=30
         # -> 4 chunks of 30. All 4 should enqueue cleanly (job_count == 4).
         self.assertEqual(out.job_count, 4)
+        self.assertEqual(len(enqueued), 4)
+        # Every schedule name was distributed across exactly the 4 chunks.
+        self.assertEqual(sum(len(chunk) for chunk in enqueued), 120)
+        self.assertEqual(sorted(n for chunk in enqueued for n in chunk), sorted(schedule_names))
         self.assertIn("4 parallel jobs", out.message)
         self.assertIn("120 invoices", out.message)
 
@@ -868,6 +892,30 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
             _safe_log_error,
         )
 
+        import verenigingen.services.billing.bulk_invoice_generation_service as mod
+
+        # Happy path: writes an Error Log row (assert the side-effect happened).
         self.expectErrorLog()
-        # Normal path: writes an Error Log.
+        marker = frappe.utils.now_datetime()
         _safe_log_error("Gap Test Title", "SCHED-1", RuntimeError("kaboom"))
+        wrote = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", marker], "method": "Gap Test Title"},
+            limit=1,
+        )
+        self.assertTrue(wrote, "happy path should have written an Error Log row")
+
+        # Fallback path: force frappe.log_error to raise so the inner
+        # frappe.logger().error fallback is exercised; _safe_log_error must
+        # still swallow it and not propagate.
+        real_log_error = mod.frappe.log_error
+
+        def boom(*a, **k):
+            raise RuntimeError("log_error itself failed")
+
+        mod.frappe.log_error = boom
+        try:
+            # Must NOT raise even though the primary logger is broken.
+            _safe_log_error("Gap Fallback Title", "SCHED-2", ValueError("inner"))
+        finally:
+            mod.frappe.log_error = real_log_error
