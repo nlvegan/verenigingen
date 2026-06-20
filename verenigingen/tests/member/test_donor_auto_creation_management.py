@@ -389,7 +389,7 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         result = mgmt.test_customer_eligibility(customer_name=customer.name, amount=100)
         self.assertTrue(result["success"])
         data = result["data"]
-        self.assertIn("would_create", data)
+        self.assertTrue(data["would_create"])
         self.assertTrue(data["conditions"]["auto_creation_enabled"])
         self.assertTrue(data["conditions"]["donations_account_configured"])
 
