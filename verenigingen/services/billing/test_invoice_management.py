@@ -356,14 +356,16 @@ class TestInvoiceManagement(EnhancedTestCase):
         mt = self._make_membership_type()
         member = self._make_member()
         # Due now + auto_generate so it matches the bulk filter.
-        self._make_dues_schedule(member, mt, status="Active", auto_generate=1, next_invoice_date=today())
-        data = im.bulk_generate_dues_invoices(dry_run=True, max_invoices=50)["data"]
+        ds = self._make_dues_schedule(member, mt, status="Active", auto_generate=1, next_invoice_date=today())
+        # max_invoices high enough to include our just-created schedule even on a
+        # shared DB with many other eligible schedules (dry-run -> non-destructive).
+        data = im.bulk_generate_dues_invoices(dry_run=True, max_invoices=100000)["data"]
         self.assertGreaterEqual(data["schedules_found"], 1)
         self.assertEqual(data["invoices_generated"], 0)
-        # Dry-run marks would_generate on eligible schedules.
-        would = [p for p in data["processed_schedules"] if p.get("would_generate")]
-        # At least our schedule should be eligible OR have a documented reason.
-        self.assertTrue(data["eligible_schedules"] >= 0 and isinstance(data["processed_schedules"], list))
+        # Our due-today auto_generate schedule must be classified would_generate.
+        ours = next((p for p in data["processed_schedules"] if p.get("schedule") == ds.name), None)
+        self.assertIsNotNone(ours, f"our schedule not in processed list; errors={data.get('errors')}")
+        self.assertTrue(ours.get("would_generate"), f"expected would_generate, got {ours}")
 
     def test_bulk_generate_counts_orphan_in_run(self):
         self._make_orphaned_schedule()  # auto_generate=1, due today
@@ -442,7 +444,9 @@ class TestInvoiceManagement(EnhancedTestCase):
         """An invalid-membership-type Membership is detected in the
         invalid_memberships category (dry run -> would_delete, no mutation)."""
         membership_name, _member_name = self._make_membership_with_invalid_type()
-        data = im.cleanup_orphaned_membership_data(dry_run=True, max_cleanup=50)["data"]
+        # max_cleanup must exceed the global invalid-membership count so our own
+        # record is in scope on a shared DB (dry-run -> no mutation, safe to scan all).
+        data = im.cleanup_orphaned_membership_data(dry_run=True, max_cleanup=100000)["data"]
         self.assertGreaterEqual(data["invalid_memberships"]["found"], 1)
         my_item = next(
             (
@@ -458,22 +462,14 @@ class TestInvoiceManagement(EnhancedTestCase):
         self.assertTrue(frappe.db.exists("Membership", membership_name))
 
     def test_cleanup_membership_data_invalid_type_member_exists_skipped(self):
-        """When the member still exists, a non-dry-run invalid-membership cleanup
-        marks the item 'member_exists_skipped' (the member-exists guard branch)
-        rather than deleting it."""
-        membership_name, member_name = self._make_membership_with_invalid_type()
-        # Member exists -> must be skipped, not deleted.
-        data = im.cleanup_orphaned_membership_data(dry_run=False, max_cleanup=50)["data"]
-        my_item = next(
-            (
-                it
-                for it in data["processed_items"]
-                if it.get("type") == "invalid_membership" and it.get("name") == membership_name
-            ),
-            None,
+        """The member-exists guard branch ('member_exists_skipped') only fires in
+        non-dry-run mode. cleanup_orphaned_membership_data is a GLOBAL operation that
+        frappe.db.commit()s its deletions (invoice_management.py:1010), so a real run
+        here would permanently delete OTHER suites' orphaned memberships from the
+        shared test DB. Skipped to avoid destructive cross-suite pollution; the
+        member-exists branch needs a scoped API param or an isolated fixture DB to
+        test safely. FLAG for Foppe."""
+        self.skipTest(
+            "global destructive cleanup (commits deletions) — unsafe against shared test DB; "
+            "needs scoped API or isolated dataset"
         )
-        self.assertIsNotNone(my_item)
-        self.assertEqual(my_item["action"], "member_exists_skipped")
-        # Membership preserved because its member still exists.
-        self.assertTrue(frappe.db.exists("Membership", membership_name))
-        self.assertTrue(frappe.db.exists("Member", member_name))
