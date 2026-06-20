@@ -353,8 +353,16 @@ def get_sync_status_summary():
             as_dict=True,
         )
 
+        # NULL and empty-string customer_sync_status both fold to "Unknown"; sum the
+        # counts on collision instead of letting one GROUP BY row overwrite the other
+        # (a dict comprehension dropped the NULL bucket, undercounting the total).
+        sync_status_counts = {}
+        for item in sync_status:
+            key = item["customer_sync_status"] or "Unknown"
+            sync_status_counts[key] = sync_status_counts.get(key, 0) + item["count"]
+
         return {
-            "sync_status": {item["customer_sync_status"] or "Unknown": item["count"] for item in sync_status},
+            "sync_status": sync_status_counts,
             "customer_links": {item["status"]: item["count"] for item in customer_stats},
         }
 

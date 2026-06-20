@@ -480,6 +480,38 @@ class TestAPISecurity(EnhancedTestCase):
         self.assertIsNotNone(result["error"]["message"])
         self.assertEqual(result.get("meta", {}).get("has_duplicates"), False)
 
+    def test_api_success_categorizes_duplicates(self):
+        """The success path returns duplicates bucketed by confidence level.
+
+        A shared email is a 1.0 (high-confidence) match, so checking the second
+        member must report has_duplicates True with the email match landing in
+        the high_confidence bucket and the summary counts agreeing.
+        """
+        import uuid
+
+        shared_email = f"dup.api.{uuid.uuid4().hex[:8]}@example.com"
+        member1 = self.create_test_member(
+            first_name="Api", last_name="DupOne", email=shared_email, birth_date="1985-05-05"
+        )
+        # Second member shares the email (definitive 1.0 match against member1).
+        self.create_test_member(
+            first_name="Api", last_name="DupTwo", email=shared_email, birth_date="1985-05-05"
+        )
+
+        result = check_duplicate_for_approval(member1.name)
+
+        # Decorator serializes the OperationResult; the success payload is under data.
+        self.assertTrue(result["success"], result)
+        data = result["data"]
+        self.assertTrue(data["has_duplicates"])
+        self.assertGreaterEqual(data["duplicate_count"], 1)
+        # The email match (1.0) is high-confidence.
+        self.assertGreaterEqual(data["summary"]["high"], 1)
+        # Summary counts are internally consistent with the bucket lengths.
+        self.assertEqual(data["summary"]["high"], len(data["high_confidence"]))
+        self.assertEqual(data["summary"]["medium"], len(data["medium_confidence"]))
+        self.assertEqual(data["summary"]["low"], len(data["low_confidence"]))
+
     def test_api_permission_check(self):
         """API should check user permissions"""
         # Create the member as the default (System Manager) test user from setUp().
