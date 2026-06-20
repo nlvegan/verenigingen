@@ -18,7 +18,6 @@ import frappe
 from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import (
     cleanup_duplicate_bank_accounts,
     create_bank_account_record,
-    create_bank_accounts_for_existing_coa,
     create_missing_bank_accounts,
     discover_missing_bank_accounts,
     extract_bank_info_from_account_name,

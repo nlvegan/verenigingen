@@ -13,7 +13,6 @@ import json
 import xml.etree.ElementTree as ET
 
 import frappe
-import requests
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
