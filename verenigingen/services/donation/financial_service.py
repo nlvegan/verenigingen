@@ -5,7 +5,7 @@ Handles all financial operations for donations including payment entries,
 sales invoices, and earmarking journal entries.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
