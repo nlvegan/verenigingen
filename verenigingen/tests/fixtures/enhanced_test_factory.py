@@ -192,6 +192,8 @@ from faker import Faker
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate
 
+from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
+
 from .field_validator import FieldValidationError, FieldValidator
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
@@ -1846,7 +1848,7 @@ class EnhancedTestDataFactory:
         return scenario
 
 
-class EnhancedTestCase(FrappeTestCase):
+class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     """
     🔍 Business Logic Validation Framework - Production Issue Discovery
 
@@ -1861,6 +1863,10 @@ class EnhancedTestCase(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Error Log guard: mark the start of this test so tearDown can detect any
+        # frappe.log_error() written during it (see ErrorLogGuardMixin).
+        self._test_start_time = frappe.utils.now()
 
         # CRITICAL: Ensure Administrator context for all tests
         # This prevents permission errors and test contamination from other tests
@@ -2077,6 +2083,10 @@ class EnhancedTestCase(FrappeTestCase):
         The class-level cleanup (_cleanup_stale_test_data) still runs to catch any
         records that escaped rollback due to explicit db.commit() calls in code.
         """
+        # Error Log guard: snapshot logs written during the test BEFORE the rollback
+        # below erases any uncommitted frappe.log_error() rows (see ErrorLogGuardMixin).
+        self._capture_test_error_logs()
+
         # Stop capturing FIRST, so the drains below (rollback/delete/commit) and any
         # framework bookkeeping they emit (e.g. "Deleted Document" rows, which are
         # meant to persist) are not captured. addCleanup also calls this as an
@@ -2147,6 +2157,10 @@ class EnhancedTestCase(FrappeTestCase):
             frappe.logger().warning(f"Settings restoration failed in tearDown: {e}")
 
         super().tearDown()
+
+        # LAST: warn (default) or fail (VERENIGINGEN_FAIL_ON_ERROR_LOG=1) on captured
+        # Error Logs. Done after cleanup so a raise here never skips teardown.
+        self._finalize_error_log_check()
 
     def _drain_tracked_documents(self):
         """Delete factory-tracked documents that survived per-method rollback.

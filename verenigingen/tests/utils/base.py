@@ -40,8 +40,10 @@ from frappe.tests.utils import FrappeTestCase
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
+from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 
-class VereningingenTestCase(FrappeTestCase):
+
+class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     """
     🔧 Operational Testing Framework - Mocking, Integration & Workflow Testing
 
@@ -122,8 +124,9 @@ class VereningingenTestCase(FrappeTestCase):
 
     def tearDown(self):
         """Clean up test-specific data"""
-        # Check for errors that occurred during this test BEFORE cleanup
-        self._check_test_errors()
+        # Capture Error Logs written during this test BEFORE any cleanup/rollback --
+        # an uncommitted frappe.log_error() row is erased by the rollbacks below.
+        self._capture_test_error_logs()
 
         # Restore original session user
         frappe.session.user = self._original_session_user
@@ -145,6 +148,10 @@ class VereningingenTestCase(FrappeTestCase):
         self._cleanup_test_mocks()
 
         super().tearDown()
+
+        # LAST: warn (default) or fail (VERENIGINGEN_FAIL_ON_ERROR_LOG=1) on captured
+        # Error Logs. Done after cleanup so a raise here never skips teardown.
+        self._finalize_error_log_check()
 
     def _report_cleanup_summary(self):
         """Report summary of cleanup results, highlighting any failures."""
@@ -205,43 +212,8 @@ class VereningingenTestCase(FrappeTestCase):
                 doc_info["cleanup_error"] = str(e)
                 break  # Don't retry for these errors
 
-    def _check_test_errors(self):
-        """Check for errors that occurred during this test"""
-        try:
-            test_errors = frappe.db.sql(
-                """
-                SELECT error, creation
-                FROM `tabError Log`
-                WHERE creation >= %s
-                ORDER BY creation DESC
-                LIMIT 5
-            """,
-                (self._test_start_time,),
-                as_dict=True,
-            )
-
-            if test_errors:
-                error_summary = []
-                for error in test_errors:
-                    # Truncate long errors for readability
-                    error_text = error.error[:200] + "..." if len(error.error) > 200 else error.error
-                    error_summary.append(f"  - {error.creation}: {error_text}")
-
-                error_msg = f"Errors occurred during test {self._testMethodName}:\n" + "\n".join(
-                    error_summary
-                )
-
-                # Use frappe.logger to avoid failing tests due to error logging issues
-                frappe.logger().error(f"Test Error Detection: {error_msg}")
-
-                # For now, just log the errors rather than failing tests
-                # In the future, we can make this configurable or fail on critical errors
-                print(f"WARNING: {error_msg}")
-
-        except (frappe.db.OperationalError, AttributeError) as e:
-            # Don't let error checking itself break tests (DB or attribute errors possible)
-            frappe.logger().error(f"Error during test error checking: {str(e)}")
-            print(f"Warning: Could not check for test errors: {str(e)}")
+    # Error Log detection now lives in ErrorLogGuardMixin (error_log_guard.py); tearDown
+    # calls _capture_test_error_logs() early and _finalize_error_log_check() last.
 
     def _setup_test_request_context(self):
         """Set up proper request context for API security framework"""

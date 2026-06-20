@@ -315,6 +315,47 @@ Place new test files in the appropriate domain subdirectory:
 5. Use exact field names from DocType JSON files
 6. Do not bypass permissions or validation
 7. Run tests via Frappe test runner (not direct Python)
+8. For swallow-prone code (anything that catches and `frappe.log_error`s), wrap the
+   exercised call in `with self.assertNoErrorLog():` — see below
+
+## Detecting Swallowed Errors (Error Log guard)
+
+Verenigingen production code logs-and-swallows pervasively (~2,150 `frappe.log_error`
+call sites): a path catches an exception, writes an **Error Log**, and returns a
+fallback instead of raising. A naive test then asserts on the fallback value and
+**passes green while a real bug silently logged an error**. Both base classes guard
+against this via `ErrorLogGuardMixin` (`verenigingen/tests/utils/error_log_guard.py`).
+
+**Automatic check (both base classes).** Every test's `tearDown` snapshots Error Log
+rows written during the test (captured *before* rollback). By default it only prints a
+warning (historical behaviour). Run the suite with the env flag to make any logged
+error **fail** the test:
+
+```bash
+VERENIGINGEN_FAIL_ON_ERROR_LOG=1 bench --site veg11.veganisme.org run-tests --app verenigingen --module <module>
+```
+
+If a test *intentionally* exercises an error-logging path, declare it so the auto-check
+stays quiet: `self.expectErrorLog("Some title substring")`.
+
+**Explicit assertion (recommended in coverage sweeps).** Wrap the specific call under
+test so a swallowed error fails immediately — independent of the env flag:
+
+```python
+with self.assertNoErrorLog():
+    result = some_module.do_the_thing(member)
+self.assertEqual(result.status, "ok")
+
+# allow a known-noisy substring only for this block:
+with self.assertNoErrorLog(ignore=["Mollie configuration_missing"]):
+    ...
+```
+
+`assertNoErrorLog()` honours only its own `ignore=` argument, not `expectErrorLog()`.
+
+**Caveat:** logs written via `log_error(..., defer_insert=True)` or while
+`frappe.flags.read_only` is set are flushed after the request and are NOT visible to
+the guard.
 
 ## Common Issues and Solutions
 
