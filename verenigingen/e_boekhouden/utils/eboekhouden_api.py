@@ -210,15 +210,15 @@ class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
 
     def get_invoice_documents(self, invoice_id, params=None):
         """Get documents for a specific invoice"""
-        return self.make_request("v1/invoice/{invoice_id}/document", params=params)
+        return self.make_request(f"v1/invoice/{invoice_id}/document", params=params)
 
     def download_document(self, document_id):
         """Download a specific document"""
-        return self.make_request("v1/document/{document_id}/download")
+        return self.make_request(f"v1/document/{document_id}/download")
 
     def get_invoice_detail(self, invoice_id):
         """Get detailed invoice information including attachments"""
-        return self.make_request("v1/invoice/{invoice_id}")
+        return self.make_request(f"v1/invoice/{invoice_id}")
 
 
 class EBoekhoudenXMLParser:
@@ -466,7 +466,7 @@ def preview_customers():
 
                 return {
                     "success": True,
-                    "message": "Found {len(customers)} customers",
+                    "message": f"Found {len(customers)} customers",
                     "customers": simplified_customers,
                     "total_count": len(customers),
                 }
@@ -511,7 +511,7 @@ def preview_suppliers():
 
                 return {
                     "success": True,
-                    "message": "Found {len(suppliers)} suppliers",
+                    "message": f"Found {len(suppliers)} suppliers",
                     "suppliers": simplified_suppliers,
                     "total_count": len(suppliers),
                 }
