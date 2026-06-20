@@ -37,28 +37,26 @@ class AgeValidationResult:
 class AgeValidator:
     """Centralized age validation utility with configurable business rules"""
 
-    # Age validation contexts with different requirements
+    # Age validation contexts. Minimum ages are NOT stored here — they are sourced
+    # solely from Verenigingen Settings (see _get_configurable_min_age). Only the
+    # (non-configurable) max_age and message templates are context-local.
     CONTEXTS = {
         "membership": {
-            "min_age": 16,
             "max_age": 120,
             "error_template": _("Member must be at least {min_age} years old (current age: {age:.1f})"),
             "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
         },
         "volunteer": {
-            "min_age": 16,
             "max_age": 120,
             "error_template": _("Volunteers must be at least {min_age} years old (current age: {age:.1f})"),
             "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
         },
         "voting": {
-            "min_age": 18,
             "max_age": 120,
             "error_template": _("Voting rights require minimum age of {min_age} (current age: {age:.1f})"),
             "max_error_template": _("Please verify birth date - age {age:.1f} years seems unrealistic"),
         },
         "student_membership": {
-            "min_age": 18,
             "max_age": 30,
             "error_template": _(
                 "Student memberships are available for ages {min_age}-{max_age} (current age: {age:.1f})"
@@ -68,7 +66,6 @@ class AgeValidator:
             ),
         },
         "youth_membership": {
-            "min_age": 16,
             "max_age": 17,
             "error_template": _(
                 "Youth memberships are available for ages {min_age}-{max_age} (current age: {age:.1f})"
@@ -78,7 +75,6 @@ class AgeValidator:
             ),
         },
         "senior_membership": {
-            "min_age": 65,
             "max_age": 120,
             "error_template": _(
                 "Senior memberships are available for ages {min_age}+ (current age: {age:.1f})"
@@ -144,10 +140,10 @@ class AgeValidator:
         # Get context configuration
         context_config = cls.CONTEXTS.get(context, cls.CONTEXTS["membership"])
 
-        # Use custom ages if provided, otherwise fall back to configurable settings or context defaults
+        # Minimum age is sourced solely from Verenigingen Settings (no hardcoded fallback).
         min_age = custom_min_age
         if min_age is None:
-            min_age = cls._get_configurable_min_age(context, context_config["min_age"])
+            min_age = cls._get_configurable_min_age(context)
 
         max_age = custom_max_age or context_config["max_age"]
 
@@ -216,40 +212,39 @@ class AgeValidator:
         return cls.validate_age(birth_date, context=context, throw_on_error=throw_on_error)
 
     @classmethod
-    def _get_configurable_min_age(cls, context: str, fallback_age: int) -> int:
+    def _get_configurable_min_age(cls, context: str) -> int:
         """
-        Get minimum age from configurable settings with fallback to context defaults
+        Get the minimum age for a context from Verenigingen Settings.
+
+        Verenigingen Settings is the single source of truth (the fields carry doctype
+        defaults, so they are always populated after migrate). There is intentionally
+        no hardcoded fallback: a missing/zero setting is a configuration error, not
+        something to silently paper over.
 
         Args:
             context: Validation context
-            fallback_age: Fallback age if no configuration found
 
         Returns:
             Minimum age requirement
         """
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-
-            # Map contexts to setting fields
-            context_field_map = {
-                "membership": "minimum_membership_age",
-                "volunteer": "minimum_volunteer_age",
-                "voting": "minimum_voting_age",
-                "student_membership": "minimum_student_age",
-                "youth_membership": "minimum_youth_age",
-                "senior_membership": "minimum_senior_age",
-            }
-
-            field_name = context_field_map.get(context)
-            if field_name and hasattr(settings, field_name):
-                configured_age = getattr(settings, field_name)
-                if configured_age is not None and configured_age > 0:
-                    return int(configured_age)
-        except Exception:
-            # If settings cannot be loaded, fall back to defaults
-            pass
-
-        return fallback_age
+        # Map contexts to setting fields; an unknown context uses the membership rule,
+        # mirroring how validate_age normalises unknown contexts to "membership".
+        context_field_map = {
+            "membership": "minimum_membership_age",
+            "volunteer": "minimum_volunteer_age",
+            "voting": "minimum_voting_age",
+            "student_membership": "minimum_student_age",
+            "youth_membership": "minimum_youth_age",
+            "senior_membership": "minimum_senior_age",
+        }
+        field_name = context_field_map.get(context, "minimum_membership_age")
+        configured_age = frappe.db.get_single_value("Verenigingen Settings", field_name)
+        if configured_age is None or int(configured_age) <= 0:
+            frappe.throw(
+                _("{0} is not configured in Verenigingen Settings").format(field_name),
+                frappe.ValidationError,
+            )
+        return int(configured_age)
 
 
 class DateRangeValidator:

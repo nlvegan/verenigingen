@@ -144,6 +144,11 @@ def validate_member_age_requirements(member_doc, allow_parental_consent=None):
             if not volunteer_result.is_valid:
                 frappe.throw(volunteer_result.message, frappe.ValidationError)
 
+    except frappe.ValidationError:
+        # Age-limit rejections (minimum age from Verenigingen Settings) MUST block the
+        # save. Previously the broad except below swallowed this throw, so the rule was
+        # dead and under-age members saved silently.
+        raise
     except Exception as e:
         handle_service_error(
             e,
