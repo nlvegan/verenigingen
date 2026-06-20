@@ -96,9 +96,14 @@ def create_member_iban_history(member):
         if not (hasattr(member, "iban") and member.iban):
             return OperationResult.ok({"message": "No IBAN provided, skipping history creation"})
 
-        # Check if IBAN history already exists to avoid duplicates
+        # Check if IBAN history already exists to avoid duplicates.
+        # "Member IBAN History" is a child table whose rows link to the member
+        # via `parent` (== member.name); it has NO `member` column. Filtering on
+        # a phantom `member` key is silently dropped by Frappe, so the dedup
+        # check always returned None and every approval appended a duplicate row.
         existing_history = frappe.db.exists(
-            "Member IBAN History", {"member": member.name, "iban": member.iban}
+            "Member IBAN History",
+            {"parent": member.name, "parenttype": "Member", "iban": member.iban},
         )
 
         if existing_history:
