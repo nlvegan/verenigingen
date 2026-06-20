@@ -71,6 +71,22 @@ class _ExpenseFixtureMixin:
         chapter.save()
         return chapter
 
+    def _make_employee(self, *, expense_approver=None, name_hint="EmpApr"):
+        """Create a minimal real Employee (no expense_approver by default)."""
+        gender = frappe.db.get_value("Gender", {}, "name") or "Other"
+        emp = frappe.new_doc("Employee")
+        emp.first_name = f"{name_hint}{frappe.generate_hash(length=5)}"
+        emp.gender = gender
+        emp.date_of_birth = "1990-01-01"
+        emp.date_of_joining = "2020-01-01"
+        emp.status = "Active"
+        emp.company = self._company()
+        if expense_approver:
+            emp.expense_approver = expense_approver
+        emp.insert(ignore_permissions=True)
+        self.factory.track_document("Employee", emp.name, priority=0)
+        return emp
+
 
 # ---------------------------------------------------------------------------
 # 1. VolunteerExpenseSubmissionService — access / cost-center / receipts
@@ -512,13 +528,22 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
         )
 
         chapter = self.ensure_test_chapter("PortalAccessChap")
-        # Add the member as a chapter member; the helper adds via the child table.
-        # validate_volunteer_organization_access keys on the Chapter Member row.
+        # The volunteer's member is a direct Chapter Member -> access granted.
+        # (Regression: the check previously filtered Chapter Member on a phantom
+        # `volunteer` column, which never matched and denied genuine members.)
         self._add_chapter_member(chapter.name, self.member.name)
-        # Whether or not Chapter Member has a 'volunteer' column, the function
-        # returns a bool and must not raise.
         result = validate_volunteer_organization_access(self.volunteer.name, "Chapter", chapter.name)
-        self.assertIsInstance(result, bool)
+        self.assertTrue(result)
+
+    def test_validate_org_access_chapter_denied_without_membership(self):
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
+            validate_volunteer_organization_access,
+        )
+
+        chapter = self.ensure_test_chapter("PortalAccessChapDeny")
+        # No chapter membership and no team-fallback -> access denied.
+        result = validate_volunteer_organization_access(self.volunteer.name, "Chapter", chapter.name)
+        self.assertFalse(result)
 
     def test_validate_org_access_team_direct(self):
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
@@ -780,15 +805,34 @@ class TestNativeExpenseHelpersDeep(_ExpenseFixtureMixin, EnhancedTestCase):
     def test_validate_setup_issue_strings_are_formatted(self):
         """Regression: issue strings must interpolate counts, not emit literal
         '{len(...)}'.  Prior to the fix these were plain strings missing the
-        f-prefix, so any reported issue contained a literal placeholder."""
+        f-prefix.  Seed a real Employee with NO expense_approver linked to a
+        Volunteer so the 'employees_without_approvers' branch actually runs and
+        produces an issue string -- otherwise the assertion loop is vacuous."""
         from verenigingen.services.volunteer.native_expense_helpers import (
             validate_expense_approver_setup,
         )
 
+        emp = self._make_employee(expense_approver=None)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", emp.name)
+
         result = validate_expense_approver_setup()
+
+        # The seeded employee-without-approver must surface a diagnostic issue.
+        self.assertTrue(
+            result["employees_without_approvers"],
+            "Seeded approver-less employee should appear in the validation result",
+        )
+        self.assertTrue(result["issues"], "A non-empty issues list is expected")
+
+        # Every issue string must have its counts interpolated (no placeholders),
+        # and at least one must carry the real digit count.
         for issue in result["issues"]:
             self.assertNotIn("{len(", issue, f"Unformatted placeholder leaked: {issue!r}")
             self.assertNotIn("{", issue, f"Unformatted placeholder leaked: {issue!r}")
+        self.assertTrue(
+            any("employees without expense approvers" in i and i[0].isdigit() for i in result["issues"]),
+            f"Expected an interpolated count in: {result['issues']!r}",
+        )
 
     # -- is_native_expense_system_ready --
 
