@@ -80,7 +80,11 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
             {"company": inv.company, "account_type": "Income Account", "is_group": 0},
             "name",
         )
-        item = frappe.db.get_value("Item", {"is_sales_item": 1}, "name")
+        # Exclude template items (has_variants=1): on CI the first sales item is
+        # erpnext's "_Test Variant Item" template, which Sales Invoice rejects with
+        # "is a template, please select one of its variants". veg11 happens to return
+        # a plain item first, hiding the order-dependence.
+        item = frappe.db.get_value("Item", {"is_sales_item": 1, "has_variants": 0}, "name")
         inv.append("items", {"item_code": item, "qty": 1, "rate": 2.0, "income_account": income})
         # Runs as Administrator (EnhancedTestCase) — no permission bypass needed.
         inv.insert()

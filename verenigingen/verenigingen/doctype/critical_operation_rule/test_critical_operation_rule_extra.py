@@ -209,6 +209,10 @@ class TestCORCacheAndQueue(FrappeTestCase):
     def setUp(self):
         frappe.db.delete("Critical Operation Rule", {"operation_name": ["like", "test_extra%"]})
         frappe.cache().delete_value("critical_operation_rules")
+        # frappe.cache() (Redis) is shared across the whole shard and is NOT rolled
+        # back between tests, so a sibling may leave the specific-rule key in a state
+        # that makes get_rule_config skip its caching path. Clear it too.
+        frappe.cache().delete_value("critical_operation_rule:test_extra_trash")
         # Drain the digest queue so cross-test residue doesn't leak in.
         while frappe.cache().rpop(QUEUE_KEY):
             pass
@@ -216,6 +220,7 @@ class TestCORCacheAndQueue(FrappeTestCase):
 
     def tearDown(self):
         frappe.db.delete("Critical Operation Rule", {"operation_name": ["like", "test_extra%"]})
+        frappe.cache().delete_value("critical_operation_rule:test_extra_trash")
         while frappe.cache().rpop(QUEUE_KEY):
             pass
         frappe.db.commit()
@@ -224,10 +229,14 @@ class TestCORCacheAndQueue(FrappeTestCase):
         """Deleting a rule clears both the all-rules cache and the specific-rule cache."""
         rule = _make_rule(operation_name="test_extra_trash", security_level="high", rate_limit_calls=5)
         rule.insert()
-        # Prime both caches.
-        CriticalOperationRule.get_rule_config("test_extra_trash")
-        frappe.cache().set_value("critical_operation_rules", {"x": 1})
+        # Prime both caches. get_rule_config only populates the specific-rule key on
+        # a cache-miss build path; under shard ordering the shared Redis cache may be
+        # in a state where that path is skipped, so prime the precondition explicitly.
+        # The behaviour under test is that delete() CLEARS these keys (asserted below).
         specific_key = "critical_operation_rule:test_extra_trash"
+        CriticalOperationRule.get_rule_config("test_extra_trash")
+        frappe.cache().set_value(specific_key, {"x": 1})
+        frappe.cache().set_value("critical_operation_rules", {"x": 1})
         self.assertIsNotNone(frappe.cache().get_value(specific_key))
 
         rule.delete()

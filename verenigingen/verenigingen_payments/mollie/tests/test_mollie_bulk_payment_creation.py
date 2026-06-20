@@ -716,8 +716,11 @@ class TestCreateBulkPayments(_BulkPageTest):
 class TestGetWebhookUrl(_BulkPageTest):
     def test_url_targets_webhook_method_and_has_env_param(self):
         url = page.get_webhook_url()
+        # The webhook endpoint lives at mollie.api.webhooks.mollie_payment_webhook;
+        # the old verenigingen.utils.payment_gateways path never existed (it was the
+        # 404 bug fixed in 54e5009c). Assert the real, whitelisted endpoint.
         self.assertIn(
-            "/api/method/verenigingen.utils.payment_gateways.mollie_payment_webhook",
+            "/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.mollie_payment_webhook",
             url,
         )
         self.assertRegex(url, r"\?env=(test|live)$")
