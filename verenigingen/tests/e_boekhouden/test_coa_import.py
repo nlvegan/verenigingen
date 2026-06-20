@@ -16,9 +16,17 @@ import unittest
 import frappe
 
 from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import (
+    cleanup_duplicate_bank_accounts,
+    create_bank_account_record,
+    create_bank_accounts_for_existing_coa,
+    create_missing_bank_accounts,
+    discover_missing_bank_accounts,
     extract_bank_info_from_account_name,
+    find_bank_accounts_in_coa,
+    fix_bank_account_mappings,
     generate_dutch_iban,
     generate_iban_if_possible,
+    get_or_create_bank,
     has_account_number_pattern,
     identify_bank_code_from_name,
     identify_bank_name,
@@ -322,6 +330,222 @@ class TestValidateBankAccountMappings(EnhancedTestCase):
         )
         # A genuinely mismapped account must NOT be counted as valid.
         self.assertNotIn(ba_name, result["valid_account_names"])
+
+
+# ---------------------------------------------------------------------------
+# DB-backed bank creation / discovery flow (no live API)
+# ---------------------------------------------------------------------------
+class _BankFlowBase(EnhancedTestCase):
+    """Dedicated company + a Bank-type CoA leaf account whose name encodes a
+    Triodos account number, so the discovery/creation flow has real data."""
+
+    COMPANY = "TEST CoA BankFlow Co"
+    ABBR = "TCBF"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = cls._persist_company()
+        cls.bank_account_label = "Triodos - 19.83.96.716 - Algemeen"
+        cls.bank_gl_account = cls._persist_bank_gl_account(cls.bank_account_label)
+
+    @classmethod
+    def _persist_company(cls):
+        if frappe.db.exists("Company", cls.COMPANY):
+            return cls.COMPANY
+        doc = frappe.new_doc("Company")
+        doc.company_name = cls.COMPANY
+        doc.abbr = cls.ABBR
+        doc.default_currency = "EUR"
+        doc.country = "Netherlands"
+        doc.insert(ignore_permissions=True)
+        return cls.COMPANY
+
+    @classmethod
+    def _persist_bank_gl_account(cls, account_name):
+        full = f"{account_name} - {cls.ABBR}"
+        if frappe.db.exists("Account", full):
+            return full
+        parent = frappe.db.get_value(
+            "Account", {"company": cls.COMPANY, "root_type": "Asset", "is_group": 1}, "name"
+        )
+        doc = frappe.new_doc("Account")
+        doc.account_name = account_name
+        doc.company = cls.COMPANY
+        doc.parent_account = parent
+        doc.account_type = "Bank"
+        doc.root_type = "Asset"
+        doc.is_group = 0
+        doc.insert(ignore_permissions=True)
+        return doc.name
+
+    def _insert_account(self, acct_name, account_type, root_type="Asset"):
+        full = f"{acct_name} - {self.ABBR}"
+        if frappe.db.exists("Account", full):
+            return full
+        parent = frappe.db.get_value(
+            "Account", {"company": self.company, "root_type": root_type, "is_group": 1}, "name"
+        )
+        doc = frappe.new_doc("Account")
+        doc.account_name = acct_name
+        doc.company = self.company
+        doc.parent_account = parent
+        doc.account_type = account_type
+        doc.root_type = root_type
+        doc.is_group = 0
+        doc.insert(ignore_permissions=True)
+        return doc.name
+
+    def _insert_bank_account_mapped_to(self, account_name, label):
+        bank = frappe.db.get_value("Bank", {}, "name") or get_or_create_bank({"bank_name": "Unknown Bank"})
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = label
+        ba.bank = bank
+        ba.account = account_name
+        ba.company = self.company
+        ba.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return ba.name
+
+
+class TestGetOrCreateBank(EnhancedTestCase):
+    def test_creates_bank_with_swift_for_triodos(self):
+        # Remove any pre-existing Triodos Bank so we exercise the create branch.
+        frappe.db.delete("Bank", {"bank_name": "Triodos Bank"})
+        frappe.db.commit()
+        name = get_or_create_bank({"bank_name": "Triodos Bank"})
+        self.assertEqual(name, "Triodos Bank")
+        self.assertEqual(frappe.db.get_value("Bank", name, "swift_number"), "TRIONL2U")
+
+    def test_idempotent_returns_existing(self):
+        first = get_or_create_bank({"bank_name": "ING Bank"})
+        second = get_or_create_bank({"bank_name": "ING Bank"})
+        self.assertEqual(first, second)
+        self.assertEqual(frappe.db.count("Bank", {"bank_name": "ING Bank"}), 1)
+
+    def test_missing_bank_name_defaults_to_unknown(self):
+        name = get_or_create_bank({})
+        self.assertEqual(name, "Unknown Bank")
+        self.assertTrue(frappe.db.exists("Bank", "Unknown Bank"))
+
+
+class TestCreateBankAccountRecord(_BankFlowBase):
+    def test_creates_bank_account_mapped_to_coa(self):
+        account_doc = frappe.get_doc("Account", self.bank_gl_account)
+        bank_info = extract_bank_info_from_account_name(self.bank_account_label)
+        bank_name = get_or_create_bank(bank_info)
+
+        # Clear any prior Bank Account on this GL account so we hit the create path.
+        for existing in frappe.get_all("Bank Account", filters={"account": self.bank_gl_account}, pluck="name"):
+            frappe.delete_doc("Bank Account", existing, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+        created = create_bank_account_record(
+            account=account_doc, bank_name=bank_name, bank_info=bank_info, company=self.company
+        )
+        self.assertIsNotNone(created)
+        # The new Bank Account must be mapped to the CoA account and carry currency.
+        self.assertEqual(frappe.db.get_value("Bank Account", created, "account"), self.bank_gl_account)
+        self.assertEqual(frappe.db.get_value("Bank Account", created, "company"), self.company)
+        self.assertEqual(frappe.db.get_value("Bank Account", created, "bank_account_no"), "19.83.96.716")
+
+    def test_returns_none_for_nonexistent_coa_account(self):
+        # account.name points at a CoA account that does not exist -> guarded None.
+        fake = frappe._dict({"name": "NO-SUCH-ACCOUNT - TCBF", "account_name": "Ghost"})
+        result = create_bank_account_record(
+            account=fake, bank_name="Unknown Bank", bank_info={"bank_name": "Unknown Bank"}, company=self.company
+        )
+        self.assertIsNone(result)
+
+
+class TestFindAndDiscoverBankAccounts(_BankFlowBase):
+    def test_find_bank_accounts_in_coa_detects_seeded_account(self):
+        # find_bank_accounts_in_coa() reads its company from E-Boekhouden Settings.
+        result = _setup_find_in_coa(self.company)
+        self.assertTrue(result["success"])
+        names = [a["account"]["name"] for a in result["accounts"]]
+        self.assertIn(self.bank_gl_account, names)
+
+    def test_discover_missing_bank_accounts(self):
+        # Ensure the seeded Bank GL account has NO Bank Account record -> reported missing.
+        for existing in frappe.get_all("Bank Account", filters={"account": self.bank_gl_account}, pluck="name"):
+            frappe.delete_doc("Bank Account", existing, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+        result = discover_missing_bank_accounts(company=self.company)
+        self.assertTrue(result["success"])
+        missing_names = [m["account"] for m in result["missing_bank_accounts"]]
+        self.assertIn(self.bank_gl_account, missing_names)
+
+    def test_create_missing_bank_accounts_then_idempotent(self):
+        for existing in frappe.get_all("Bank Account", filters={"account": self.bank_gl_account}, pluck="name"):
+            frappe.delete_doc("Bank Account", existing, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+        result = create_missing_bank_accounts(company=self.company)
+        self.assertTrue(result["success"])
+        # The seeded account must now have a Bank Account record.
+        self.assertTrue(frappe.db.exists("Bank Account", {"account": self.bank_gl_account}))
+        created_names = [c["account"] for c in result["created_accounts"]]
+        self.assertIn(self.bank_gl_account, created_names)
+
+        # Re-running discovery must no longer report it missing.
+        again = discover_missing_bank_accounts(company=self.company)
+        self.assertNotIn(self.bank_gl_account, [m["account"] for m in again["missing_bank_accounts"]])
+
+
+class TestFixBankAccountMappings(_BankFlowBase):
+    def test_fixes_non_bank_account_type(self):
+        # Seed a Receivable GL account and map a Bank Account to it (wrong type),
+        # then assert fix_bank_account_mappings flips it to type 'Bank'.
+        recv_name = self._insert_account("BankFlow Recv", "Receivable", "Asset")
+        self._insert_bank_account_mapped_to(recv_name, "BankFlow Mismatch BA")
+        self.assertEqual(frappe.db.get_value("Account", recv_name, "account_type"), "Receivable")
+
+        result = fix_bank_account_mappings(company=self.company)
+        self.assertTrue(result["success"])
+        # The Receivable account must have been switched to Bank.
+        self.assertEqual(frappe.db.get_value("Account", recv_name, "account_type"), "Bank")
+        fixed_accounts = [f["account"] for f in result["fixed_accounts"]]
+        self.assertIn(recv_name, fixed_accounts)
+
+
+class TestCleanupDuplicateBankAccounts(_BankFlowBase):
+    def _insert_unmapped_bank_account(self, label):
+        bank = frappe.db.get_value("Bank", {}, "name") or get_or_create_bank({"bank_name": "Unknown Bank"})
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = label
+        ba.bank = bank
+        ba.company = self.company
+        ba.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return ba.name
+
+    def test_deletes_problematic_named_accounts(self):
+        ba_name = self._insert_unmapped_bank_account("Unknown Bank - None")
+        self.assertTrue(frappe.db.exists("Bank Account", ba_name))
+
+        result = cleanup_duplicate_bank_accounts()
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(result["deleted_count"], 1)
+        self.assertFalse(frappe.db.exists("Bank Account", ba_name))
+
+
+def _setup_find_in_coa(company):
+    """find_bank_accounts_in_coa reads company from E-Boekhouden Settings, so set
+    it temporarily for the duration of the call."""
+    settings = frappe.get_single("E-Boekhouden Settings")
+    prev = settings.default_company
+    settings.default_company = company
+    settings.flags.ignore_permissions = True
+    settings.save(ignore_permissions=True)
+    frappe.db.commit()
+    try:
+        return find_bank_accounts_in_coa()
+    finally:
+        settings.default_company = prev
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
 
 
 if __name__ == "__main__":

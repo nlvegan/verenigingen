@@ -25,6 +25,7 @@ import unittest
 import frappe
 
 from verenigingen.e_boekhouden.utils.cleanup_utils import (
+    _cleanup_linked_bank_transactions,
     _cleanup_orphaned_bank_transactions,
     cleanup_cancelled_payment_gl_entries,
     cleanup_chart_of_accounts,
@@ -319,6 +320,197 @@ class TestCleanupListHelpers(_CleanupTestBase):
         result = cleanup_purchase_invoices(["NO-SUCH-PI-XYZ"], "test")
         self.assertEqual(result["deleted"], 0)
         self.assertEqual(len(result["errors"]), 1)
+
+
+class TestCleanupChartOfAccountsForceMode(_CleanupTestBase):
+    def _insert_eboekhouden_leaf(self, company, acct_name, grootboek):
+        """Create a fresh eBoekhouden-flagged leaf Expense account on ``company``."""
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        full = f"{acct_name} - {abbr}"
+        if frappe.db.exists("Account", full):
+            return full
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "root_type": "Expense", "is_group": 1}, "name"
+        )
+        doc = frappe.new_doc("Account")
+        doc.account_name = acct_name
+        doc.company = company
+        doc.parent_account = parent
+        doc.root_type = "Expense"
+        doc.is_group = 0
+        doc.eboekhouden_grootboek_nummer = grootboek
+        doc.insert(ignore_permissions=True)
+        return doc.name
+
+    def _insert_plain_company(self, name, abbr):
+        if frappe.db.exists("Company", name):
+            return name
+        doc = frappe.new_doc("Company")
+        doc.company_name = name
+        doc.abbr = abbr
+        doc.default_currency = "EUR"
+        doc.country = "Netherlands"
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return name
+
+    def _seed_account_gl(self, company, account):
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        ge = frappe.new_doc("GL Entry")
+        ge.posting_date = frappe.utils.today()
+        ge.account = account
+        ge.company = company
+        ge.debit = 3
+        ge.credit = 0
+        ge.cost_center = cost_center
+        ge.voucher_type = "Journal Entry"
+        ge.voucher_no = "EBKH-CLEANUP-FORCE-VOUCHER"
+        ge.db_insert()
+        return ge.name
+
+    def test_force_delete_removes_account_and_its_gl_entries(self):
+        # An eBoekhouden leaf with a GL entry is SKIPPED in safe mode but FORCE
+        # mode deletes its GL entries first and then force-deletes the account.
+        if not frappe.get_meta("Account").has_field("eboekhouden_grootboek_nummer"):
+            self.skipTest("eboekhouden_grootboek_nummer custom field not installed")
+        company = self._persist_isolated_company()
+        full = self._insert_eboekhouden_leaf(company, "EBkh Force Leaf", "98877")
+        gl_name = self._seed_account_gl(company, full)
+        frappe.db.commit()
+        self.assertTrue(frappe.db.exists("GL Entry", gl_name))
+
+        result = cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=1)
+        self.assertTrue(result["success"])
+        self.assertFalse(frappe.db.exists("Account", full))
+        self.assertFalse(frappe.db.exists("GL Entry", gl_name))
+        self.assertGreaterEqual(result["results"]["accounts_deleted"], 1)
+
+    def test_safe_mode_skips_account_with_gl_entries(self):
+        # In SAFE mode, an eBoekhouden leaf with a GL entry must be preserved.
+        if not frappe.get_meta("Account").has_field("eboekhouden_grootboek_nummer"):
+            self.skipTest("eboekhouden_grootboek_nummer custom field not installed")
+        company = self._persist_isolated_company()
+        full = self._insert_eboekhouden_leaf(company, "EBkh Safe GL Leaf", "98866")
+        gl_name = self._seed_account_gl(company, full)
+        frappe.db.commit()
+
+        result = cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=0)
+        self.assertTrue(result["success"])
+        # Account preserved because it carries transaction history.
+        self.assertTrue(frappe.db.exists("Account", full))
+        self.assertGreaterEqual(result["results"]["accounts_skipped"], 1)
+        self.assertTrue(any("has GL entries" in e for e in result["results"]["errors"]))
+
+        # Cleanup our seeded rows.
+        frappe.db.delete("GL Entry", {"name": gl_name})
+        frappe.delete_doc("Account", full, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_delete_all_skips_root_system_accounts(self):
+        # delete_all=1 enumerates ALL accounts, including the "Asset"/"Income"/...
+        # root group accounts which must be SKIPPED as system accounts.
+        # Use a throwaway company so wiping its accounts doesn't disturb siblings.
+        company = self._insert_plain_company("TEST EBkh Cleanup DelAll Co", "TECDA")
+        result = cleanup_chart_of_accounts(company, delete_all_accounts=1, force_delete=0)
+        self.assertTrue(result["success"])
+        # Any account whose name is one of the five protected system names must be
+        # flagged as a skipped system account (never deleted). The vanilla ERPNext
+        # CoA exposes "Income" and "Equity" under those exact names.
+        skipped_system = [e for e in result["results"]["errors"] if "System account" in e]
+        self.assertTrue(skipped_system, msg=f"errors: {result['results']['errors'][:10]}")
+        # Each protected-name account that exists must still exist after cleanup.
+        for root_name in ("Income", "Equity"):
+            self.assertTrue(
+                frappe.db.exists(
+                    "Account",
+                    {"company": company, "account_name": root_name, "is_group": 1},
+                ),
+                msg=f"protected system account {root_name} was deleted",
+            )
+
+    def test_insufficient_permissions_raises_handled(self):
+        # Run as a user WITHOUT Account delete permission -> the upfront permission
+        # check throws, caught and returned as {"success": False}.
+        with self.set_user("Guest"):
+            result = cleanup_chart_of_accounts(self.company, delete_all_accounts=0, force_delete=0)
+        self.assertFalse(result["success"])
+        self.assertIn("error", result)
+        # The failure must specifically be the permission gate, not an unrelated crash.
+        self.assertIn("ermission", result["error"])
+
+
+class TestCleanupOrphanedReferences(_CleanupTestBase):
+    def test_deletes_orphaned_payment_entry_reference(self):
+        # Seed a Payment Entry Reference child row pointing at a non-existent Sales
+        # Invoice -> cleanup_orphaned_gl_entries must remove it.
+        company = self._persist_isolated_company()
+        account = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 0, "root_type": "Asset", "account_type": "Bank"},
+            "name",
+        ) or frappe.db.get_value(
+            "Account", {"company": company, "is_group": 0, "root_type": "Expense"}, "name"
+        )
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Receive"
+        pe.company = company
+        pe.posting_date = frappe.utils.today()
+        pe.paid_amount = 1
+        pe.received_amount = 1
+        pe.paid_to = account
+        pe.paid_from = account
+        pe.docstatus = 1
+        pe.db_insert()
+        per = frappe.new_doc("Payment Entry Reference")
+        per.parent = pe.name
+        per.parenttype = "Payment Entry"
+        per.parentfield = "references"
+        per.reference_doctype = "Sales Invoice"
+        per.reference_name = "SINV-NOEXIST-EBKH-9999"
+        per.allocated_amount = 1
+        per.db_insert()
+        frappe.db.commit()
+        self.assertTrue(frappe.db.exists("Payment Entry Reference", per.name))
+
+        result = cleanup_orphaned_gl_entries()
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(result["deleted_payment_references"], 1)
+        self.assertFalse(frappe.db.exists("Payment Entry Reference", per.name))
+
+        # Cleanup the seeded PE.
+        frappe.db.delete("Payment Entry", {"name": pe.name})
+        frappe.db.commit()
+
+
+class TestCleanupLinkedBankTransactions(_CleanupTestBase):
+    def test_deletes_bank_transaction_linked_to_payment_entry(self):
+        # Seed a Bank Transaction with a child Bank Transaction Payments row that
+        # references a (non-existent) Payment Entry name, then assert the helper
+        # finds + deletes the parent Bank Transaction.
+        company = self._persist_isolated_company()
+        bt = frappe.new_doc("Bank Transaction")
+        bt.date = frappe.utils.today()
+        bt.reference_number = "EB-LINKED-PE-TEST"
+        bt.deposit = 1
+        bt.company = company
+        bt.db_insert()
+        link = frappe.new_doc("Bank Transaction Payments")
+        link.parent = bt.name
+        link.parenttype = "Bank Transaction"
+        link.parentfield = "payment_entries"
+        link.payment_document = "Payment Entry"
+        link.payment_entry = "PE-EBKH-LINK-TARGET"
+        link.db_insert()
+        frappe.db.commit()
+        self.assertTrue(frappe.db.exists("Bank Transaction", bt.name))
+
+        result = _cleanup_linked_bank_transactions("PE-EBKH-LINK-TARGET")
+        self.assertGreaterEqual(result["deleted"], 1)
+        self.assertFalse(frappe.db.exists("Bank Transaction", bt.name))
+
+    def test_no_links_returns_zero(self):
+        result = _cleanup_linked_bank_transactions("PE-EBKH-NO-LINKS-AT-ALL")
+        self.assertEqual(result["deleted"], 0)
+        self.assertEqual(result["errors"], [])
 
 
 if __name__ == "__main__":
