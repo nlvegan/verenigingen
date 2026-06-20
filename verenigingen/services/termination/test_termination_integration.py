@@ -473,3 +473,146 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.assertIn("error", status)
         self.assertFalse(status["is_suspended"])
         self.assertFalse(status["can_unsuspend"])
+
+    def test_get_member_suspension_status_reports_disabled_user(self):
+        """user_suspended reflects a disabled linked user account."""
+        member = self._make_member()
+        user = self._make_user(member, enabled=0)
+        status = ti.get_member_suspension_status(member.name)
+        self.assertTrue(status["user_suspended"])
+        self.assertEqual(status["member_status"], "Active")
+
+    # ==================================================================
+    # cancel_dues_schedule_safe — docstatus==2 inconsistency branch
+    # ==================================================================
+    def test_cancel_dues_schedule_safe_docstatus2_inconsistency(self):
+        """A schedule with docstatus=2 but a non-Cancelled status is repaired
+        directly to Cancelled (data-inconsistency branch)."""
+        member = self._make_member()
+        self.create_test_membership(member_name=member.name)
+        schedule = self.create_test_dues_schedule(member.name)
+        # Force the inconsistent state the branch is designed to repair.
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            schedule.name,
+            {"docstatus": 2, "status": "Active"},
+            update_modified=False,
+        )
+        result = ti.cancel_dues_schedule_safe(schedule.name)
+        self.assertTrue(result)
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule.name, "status"),
+            "Cancelled",
+        )
+
+    def test_cancel_dues_schedule_safe_already_cancelled_idempotent(self):
+        member = self._make_member()
+        self.create_test_membership(member_name=member.name)
+        schedule = self.create_test_dues_schedule(member.name)
+        ti.cancel_dues_schedule_safe(schedule.name)
+        # second call is a no-op True
+        self.assertTrue(ti.cancel_dues_schedule_safe(schedule.name))
+
+    # ==================================================================
+    # deactivate_user_account_safe — disciplinary disable path
+    # ==================================================================
+    def test_deactivate_user_account_safe_disciplinary_clears_roles(self):
+        """Disciplinary termination (not suspend_only) disables the user and
+        strips all but essential roles for audit purposes."""
+        member = self._make_member()
+        user = self._make_user(member, enabled=1)
+        # Give the user a non-essential role so we can prove it gets stripped.
+        user_doc = frappe.get_doc("User", user.name)
+        user_doc.append("roles", {"role": "Verenigingen Member"})
+        user_doc.save()
+        result = ti.deactivate_user_account_safe(
+            member.name, "Disciplinary Action", "policy breach", suspend_only=False
+        )
+        self.assertTrue(result)
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+        user_doc.reload()
+        remaining = {r.role for r in user_doc.roles}
+        self.assertNotIn("Verenigingen Member", remaining)
+
+    def test_deactivate_user_account_safe_disciplinary_suspend_only_keeps_roles(self):
+        """suspend_only=True even for a disciplinary type only disables (does not
+        clear roles)."""
+        member = self._make_member()
+        user = self._make_user(member, enabled=1)
+        user_doc = frappe.get_doc("User", user.name)
+        user_doc.append("roles", {"role": "Verenigingen Member"})
+        user_doc.save()
+        result = ti.deactivate_user_account_safe(
+            member.name, "Disciplinary Action", "breach", suspend_only=True
+        )
+        self.assertTrue(result)
+        user_doc.reload()
+        self.assertIn("Verenigingen Member", {r.role for r in user_doc.roles})
+
+    # ==================================================================
+    # unsuspend_member_safe — restore non-Active pre-suspension status
+    # ==================================================================
+    def test_unsuspend_member_safe_restores_pre_suspension_status_from_notes(self):
+        """The pre-suspension status recorded in notes is restored on unsuspend
+        (not the default 'Active')."""
+        member = self._make_member()
+        # Suspend from a non-Active status so restore must read it from notes.
+        frappe.db.set_value("Member", member.name, "status", "Quit")
+        member.reload()
+        ti.suspend_member_safe(member.name, "policy", suspend_teams=False)
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Suspended")
+        result = ti.unsuspend_member_safe(member.name, "appeal upheld")
+        self.assertTrue(result["success"])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "status"), "Quit")
+
+    # ==================================================================
+    # terminate_employee_records_safe — actual employee update branches
+    # ==================================================================
+    def _make_employee_for_member(self, member, user_email):
+        company = (
+            frappe.db.get_single_value("Verenigingen Settings", "company")
+            or frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
+            or frappe.db.get_value("Company", {}, "name")
+        )
+        emp = frappe.new_doc("Employee")
+        emp.first_name = "TermInt"
+        emp.last_name = "Emp"
+        emp.employee_name = "TermInt Emp"
+        emp.user_id = user_email
+        emp.company = company
+        emp.date_of_birth = "1990-01-01"
+        emp.date_of_joining = today()
+        emp.gender = "Other"
+        emp.status = "Active"
+        emp.insert()
+        return emp
+
+    def test_terminate_employee_records_safe_deceased_sets_left(self):
+        member = self._make_member()
+        user = self._make_user(member)
+        emp = self._make_employee_for_member(member, user.name)
+        result = ti.terminate_employee_records_safe(member.name, "Deceased", today(), "passed away")
+        self.assertEqual(result["employees_terminated"], 1)
+        emp.reload()
+        self.assertEqual(emp.status, "Left")
+        self.assertEqual(emp.reason_for_leaving, "Deceased")
+        self.assertEqual(str(emp.relieving_date), today())
+
+    def test_terminate_employee_records_safe_voluntary_resignation(self):
+        member = self._make_member()
+        user = self._make_user(member)
+        emp = self._make_employee_for_member(member, user.name)
+        result = ti.terminate_employee_records_safe(member.name, "Voluntary", today(), "left")
+        self.assertEqual(result["employees_terminated"], 1)
+        emp.reload()
+        self.assertEqual(emp.status, "Left")
+        self.assertEqual(emp.reason_for_leaving, "Resignation")
+
+    def test_terminate_employee_records_safe_disciplinary_quit(self):
+        member = self._make_member()
+        user = self._make_user(member)
+        emp = self._make_employee_for_member(member, user.name)
+        result = ti.terminate_employee_records_safe(member.name, "Disciplinary Action", today(), "breach")
+        self.assertEqual(result["employees_terminated"], 1)
+        emp.reload()
+        self.assertEqual(emp.reason_for_leaving, "Quit")
