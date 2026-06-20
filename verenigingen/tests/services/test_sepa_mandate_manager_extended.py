@@ -121,13 +121,16 @@ class TestSEPAMandateManagerExtended(EnhancedTestCase):
         self._active_mandate(mandate_iban)
 
         results = self.manager.check_discrepancies()
-        # The differing IBAN is either auto-fixed (deactivated) or surfaced as a mismatch
-        touched = [
-            r
-            for r in (results["iban_mismatches"] + results["auto_fixed"])
-            if r.get("member") == self.member.name
-        ]
-        self.assertGreaterEqual(len(touched), 1)
+        # The two IBANs differ by far more than 2 characters, so they are NOT
+        # "too similar" -> _should_auto_fix_iban_change returns True -> the old
+        # mandate is auto-deactivated and recorded under auto_fixed (not flagged
+        # as a manual mismatch).
+        auto_fixed = [r for r in results["auto_fixed"] if r.get("member") == self.member.name]
+        self.assertEqual(len(auto_fixed), 1)
+        self.assertEqual(auto_fixed[0]["action"], "deactivated_old_mandate")
+        # And it is NOT also surfaced as a manual-review mismatch
+        mismatches = [r for r in results["iban_mismatches"] if r.get("member") == self.member.name]
+        self.assertEqual(len(mismatches), 0)
 
     # ========== name / IBAN comparison helpers ==========
 
@@ -159,10 +162,36 @@ class TestSEPAMandateManagerExtended(EnhancedTestCase):
         self.assertEqual(self.manager._normalize_iban("nl91-abna-0417-1643-00"), "NL91ABNA0417164300")
         self.assertEqual(self.manager._normalize_iban(""), "")
 
-    def test_check_company_sepa_settings_returns_string(self):
-        """Company SEPA-settings check returns a (possibly empty) string, never raises."""
+    def test_check_company_sepa_settings_reports_missing(self):
+        """
+        When a required company SEPA setting is unconfigured, the check returns a
+        WARNING string that names each missing setting (asserting the real
+        warning-formatting branch, not merely that *some* string came back).
+
+        This drives the method with an explicit set of missing settings so the
+        assertion is deterministic regardless of site configuration.
+        """
+        # Probe the underlying state: which required settings are absent here?
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        payments_settings = get_payments_settings()
+        general_settings = frappe.get_single("Verenigingen Settings")
+        expected_missing = []
+        if not getattr(payments_settings, "company_iban", None):
+            expected_missing.append("Company IBAN")
+        if not getattr(payments_settings, "creditor_id", None):
+            expected_missing.append("SEPA Creditor ID (Incassant ID)")
+        if not getattr(general_settings, "company_name", None):
+            expected_missing.append("Company Name")
+
         result = self.manager._check_company_sepa_settings()
         self.assertIsInstance(result, str)
+        if expected_missing:
+            self.assertIn("Missing Company SEPA Settings", result)
+            for setting in expected_missing:
+                self.assertIn(setting, result)
+        else:
+            self.assertEqual(result, "")
 
     # ========== standalone utilities ==========
 

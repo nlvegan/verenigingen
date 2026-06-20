@@ -49,24 +49,26 @@ class TestDonationFinancialService(EnhancedTestCase):
         self.assertEqual(donation.mode_of_payment, "Bank Transfer")
         self.assertEqual(donation.bank_reference, "BANK-REF-FS-1")
 
-    def test_create_donation_from_bank_transfer_missing_donation_type_setting_raises(self):
+    def test_create_donation_from_bank_transfer_without_donation_type_succeeds(self):
         """
-        Documents the phantom 'default_donation_type' setting:
-        when no donation_type is supplied the service falls back to
-        get_single_value('Verenigingen Settings', 'default_donation_type'),
-        which does not exist on the DocType and raises ValidationError.
+        With no donation_type supplied the donation is still created.
 
-        See FLAG in handoff: default_donation_type / default_donation_item are
-        phantom Verenigingen Settings fields.
+        Regression guard: previously the default path called
+        get_single_value('Verenigingen Settings', 'default_donation_type') —
+        a phantom settings field — which raised ValidationError on every call
+        that did not pass an explicit donation_type. That crashing lookup was
+        removed (donation_type is not a Donation column anyway).
         """
-        with self.assertRaises(frappe.ValidationError):
-            self.service.create_donation_from_bank_transfer(
+        with self.assertNoErrorLog():
+            donation = self.service.create_donation_from_bank_transfer(
                 donor=self.donor.name,
                 amount=10.0,
                 date=today(),
                 bank_reference="BANK-REF-FS-2",
-                # no donation_type -> triggers phantom-setting lookup
+                # no donation_type -> must not crash
             )
+        self.assertTrue(frappe.db.exists("Donation", donation.name))
+        self.assertEqual(donation.docstatus, 1)
 
     # ========== create_sepa_donation ==========
 
@@ -229,6 +231,21 @@ class TestDonationFinancialService(EnhancedTestCase):
         donation = self.create_test_donation(donor=self.donor.name)
         svc = DonationFinancialService(donation)
         self.assertIsNone(svc._get_customer_name())
+
+    def test_get_customer_name_returns_linked_customer(self):
+        """_get_customer_name returns the Customer linked to the donor (positive branch)."""
+        customer = frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": f"FS Customer {frappe.generate_hash(length=6)}",
+                "customer_type": "Individual",
+                "donor": self.donor.name,
+            }
+        )
+        customer.insert()
+        donation = self.create_test_donation(donor=self.donor.name)
+        svc = DonationFinancialService(donation)
+        self.assertEqual(svc._get_customer_name(), customer.name)
 
     def test_get_company_for_donations_returns_company(self):
         """The company resolver returns the configured Verenigingen Settings company."""
