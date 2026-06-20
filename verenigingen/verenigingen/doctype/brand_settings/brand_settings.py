@@ -940,13 +940,17 @@ def check_owl_theme_integration():
         # Check if Owl Theme Settings document exists
         owl_settings = frappe.get_single("Owl Theme Settings")
 
-        # Get active brand settings
-        active_brand = frappe.get_all("Brand Settings", fields=["name", "description"], limit=1)
+        # Get active brand settings. Brand Settings is a Single doctype, so it must
+        # be read via get_single -- frappe.get_all("Brand Settings") raises (no row
+        # table), which previously broke this whole success path whenever Owl Theme
+        # was actually installed.
+        brand = frappe.get_single("Brand Settings")
+        active_brand = {"name": brand.name, "description": brand.get("description")}
 
         return {
             "installed": True,
             "owl_settings_exists": bool(owl_settings),
-            "active_brand_settings": active_brand[0] if active_brand else None,
+            "active_brand_settings": active_brand,
             "message": "Owl Theme integration is available",
         }
 
