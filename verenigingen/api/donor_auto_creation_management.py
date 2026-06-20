@@ -250,10 +250,14 @@ def get_donations_gl_accounts() -> OperationResult[Dict[str, Any]]:
         OperationResult: Available donation GL accounts
     """
     try:
-        # Get income accounts that could be used for donations
+        # Get income accounts that could be used for donations.
+        # ERPNext stores income accounts under account_type == "Income Account"
+        # (there is no bare "Income" account_type), so filtering on "Income"
+        # always returned an empty list and silently broke the donations-account
+        # selector.
         accounts = frappe.db.get_all(
             "Account",
-            filters={"account_type": "Income", "is_group": 0, "disabled": 0},
+            filters={"account_type": "Income Account", "is_group": 0, "disabled": 0},
             fields=["name", "account_name", "account_number", "company"],
             order_by="account_name",
         )
@@ -460,10 +464,11 @@ def check_test_accounts() -> OperationResult[Dict[str, Any]]:
         OperationResult: Available test accounts information
     """
     try:
-        # Check income accounts
+        # Check income accounts. ERPNext uses account_type == "Income Account"
+        # (not bare "Income"), so the previous filter always returned nothing.
         income_accounts = frappe.db.get_all(
             "Account",
-            filters={"account_type": "Income", "is_group": 0},
+            filters={"account_type": "Income Account", "is_group": 0},
             fields=["name", "account_name", "disabled"],
             limit=10,
         )
