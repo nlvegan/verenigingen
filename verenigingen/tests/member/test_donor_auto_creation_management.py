@@ -295,15 +295,21 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         )
 
     def test_check_test_accounts_lists_income_accounts(self):
-        """REGRESSION mirror: check_test_accounts' income_accounts list must
-        include a real income account (same wrong "Income" filter as above)."""
+        """REGRESSION mirror: with the old wrong "Income" account_type filter,
+        income_accounts was ALWAYS empty. check_test_accounts caps the list at
+        limit=10 (no order_by), so on a site with >10 income accounts our specific
+        one need not appear — assert the list is non-empty instead, since empty vs
+        non-empty is exactly what the "Income Account" fix restored."""
         income_account, _company, _cash = self._income_account()
         if not income_account:
             self.skipTest("No income account provisioned on this site")
         result = mgmt.check_test_accounts()
         self.assertTrue(result["success"])
         income_names = [a["name"] for a in result["data"]["income_accounts"]]
-        self.assertIn(income_account, income_names)
+        # Non-empty proves the filter now matches Income Accounts (old "Income" -> []).
+        self.assertGreaterEqual(len(income_names), 1)
+        # Respects the production limit=10 cap.
+        self.assertLessEqual(len(income_names), 10)
 
     # --------------------------------------------- simulate_auto_creation happy path
 
