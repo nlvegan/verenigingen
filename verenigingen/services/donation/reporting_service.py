@@ -70,6 +70,11 @@ class DonationReportingService(StatelessService):
                 "donation_date": ["between", [from_date, to_date]],
                 "docstatus": 1,
             },
+            # NOTE: the Donation DocType has no ``donation_type`` column —
+            # selecting it raised an OperationalError (1054 Unknown column),
+            # breaking this whitelisted ANBI reporting API on every call.
+            # _generate_anbi_report_data_from_dict reads it via dict.get(), which
+            # safely returns None, so it is simply omitted from the SELECT.
             fields=[
                 "name",
                 "donor",
@@ -77,7 +82,6 @@ class DonationReportingService(StatelessService):
                 "amount",
                 "anbi_agreement_number",
                 "anbi_agreement_date",
-                "donation_type",
             ],
         )
 
@@ -115,7 +119,13 @@ class DonationReportingService(StatelessService):
         donations = frappe.get_all(
             "Donation",
             filters=filters,
-            fields=["name", "donor", "donation_date", "amount", "donation_type", "paid"],
+            fields=[
+                "name",
+                "donor",
+                "donation_date",
+                "amount",
+                "paid",
+            ],  # Donation has no donation_type column
             order_by="donation_date desc",
         )
 
@@ -152,7 +162,13 @@ class DonationReportingService(StatelessService):
         donations = frappe.get_all(
             "Donation",
             filters=filters,
-            fields=["name", "donor", "donation_date", "amount", "donation_type", "paid"],
+            fields=[
+                "name",
+                "donor",
+                "donation_date",
+                "amount",
+                "paid",
+            ],  # Donation has no donation_type column
             order_by="donation_date desc",
         )
 
@@ -253,6 +269,11 @@ class DonationReportingService(StatelessService):
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
 
+        # NOTE: the Donation DocType has no ``company`` column — selecting it
+        # raised an OperationalError (1054 Unknown column), breaking this
+        # whitelisted accounting-summary API on every call. ``company`` was never
+        # used below, so it is dropped (same schema fix as elsewhere in this file
+        # and donor_service).
         donations = frappe.get_all(
             "Donation",
             filters=filters,
@@ -262,7 +283,6 @@ class DonationReportingService(StatelessService):
                 "donation_purpose_type",
                 "chapter_reference",
                 "campaign",
-                "company",
             ],
         )
 

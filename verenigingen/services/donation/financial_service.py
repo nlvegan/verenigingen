@@ -509,6 +509,11 @@ class DonationFinancialService(StatelessService):
                 "donation_purpose_type": "Chapter",
                 "chapter_reference": chapter,
                 "donation_notes": notes or f"Donation earmarked for {chapter}",
+                # WHY: mode_of_payment is a mandatory field on Donation. Without it
+                # this whitelisted API raised MandatoryError on every call. Default
+                # to "Bank Transfer" to mirror create_donation_from_bank_transfer
+                # (chapter pledges are typically settled by transfer).
+                "mode_of_payment": "Bank Transfer",
             }
         ).insert()
 
@@ -522,10 +527,15 @@ class DonationFinancialService(StatelessService):
             Dict with reconciliation report including discrepancies
         """
         # Get all paid donations
+        # WHY: the Donation DocType has no ``company`` column — selecting it raises
+        # an OperationalError (1054 Unknown column), which broke this whitelisted
+        # reconcile API on every call. ``company`` was never used in the report
+        # below, so it is simply dropped. Mirrors the schema fix in
+        # donor_service.get_donor_summary for the same DocType.
         donations = frappe.get_all(
             "Donation",
             filters={"paid": 1, "docstatus": 1},
-            fields=["name", "amount", "donation_date", "company"],
+            fields=["name", "amount", "donation_date"],
         )
 
         reconciliation_report = {
