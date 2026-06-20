@@ -571,18 +571,18 @@ def fix_account_types():
         # Fix Receivable accounts
         for account in receivable_accounts:
             frappe.db.set_value("Account", account.name, "account_type", "Current Asset")
-            fixed_accounts.append("{account.name} (Receivable → Current Asset)")
+            fixed_accounts.append(f"{account.name} (Receivable → Current Asset)")
 
         # Fix Payable accounts
         for account in payable_accounts:
             frappe.db.set_value("Account", account.name, "account_type", "Current Liability")
-            fixed_accounts.append("{account.name} (Payable → Current Liability)")
+            fixed_accounts.append(f"{account.name} (Payable → Current Liability)")
 
         frappe.db.commit()
 
         return {
             "success": True,
-            "message": "Fixed {len(fixed_accounts)} accounts",
+            "message": f"Fixed {len(fixed_accounts)} accounts",
             "fixed_accounts": fixed_accounts,
         }
 
@@ -617,7 +617,7 @@ def explore_invoice_fields():
                 import json
 
                 data = json.loads(result["data"])
-                results["test_{i}"] = {
+                results[f"test_{i}"] = {
                     "params": params,
                     "success": True,
                     "items_count": len(data.get("items", [])),
@@ -627,7 +627,7 @@ def explore_invoice_fields():
                 # If we found items, analyze the first one in detail
                 if data.get("items"):
                     first_item = data["items"][0]
-                    results["test_{i}"]["first_item_analysis"] = {
+                    results[f"test_{i}"]["first_item_analysis"] = {
                         "all_keys": list(first_item.keys()),
                         "file_related_keys": [
                             k
@@ -651,7 +651,7 @@ def explore_invoice_fields():
                     # Stop after finding the first successful result with data
                     break
             else:
-                results["test_{i}"] = {
+                results[f"test_{i}"] = {
                     "params": params,
                     "success": False,
                     "error": result.get("error"),
