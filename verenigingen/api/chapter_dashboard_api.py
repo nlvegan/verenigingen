@@ -229,13 +229,19 @@ def quick_approve_member(member_name: str, chapter_name: str | None = None):
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             from verenigingen.utils.secure_operations import secure_document_operation
 
+            # WHY: frappe.get_user() returns a UserPermissions object, which has
+            # no `full_name` attribute -> AttributeError. That exception was caught
+            # by the broad except below and surfaced as {"success": False}, so the
+            # caller saw a *failure* even though the membership approval had already
+            # committed. Use frappe.utils.get_fullname(session.user) instead.
+            approver_full_name = frappe.utils.get_fullname(frappe.session.user)
             comment_doc = frappe.get_doc(
                 {
                     "doctype": "Comment",
                     "comment_type": "Info",
                     "reference_doctype": "Member",
                     "reference_name": member_name,
-                    "content": f"Member approved via chapter dashboard by {frappe.get_user().full_name}",
+                    "content": f"Member approved via chapter dashboard by {approver_full_name}",
                 }
             )
 
