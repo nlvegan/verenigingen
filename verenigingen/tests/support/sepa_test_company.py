@@ -93,23 +93,43 @@ def _create_eur_test_company() -> str:
 
 
 def _ensure_current_fiscal_year(company_name: str) -> None:
-    """Ensure a Fiscal Year covering today exists and includes ``company_name``."""
-    year = getdate().year
-    fy_name = f"FY-{year}"
+    """Ensure a Fiscal Year covering today exists, scoped to ``company_name`` alone.
 
-    if not frappe.db.exists("Fiscal Year", fy_name):
-        fy = frappe.new_doc("Fiscal Year")
-        fy.year = fy_name
-        fy.year_start_date = f"{year}-01-01"
-        fy.year_end_date = f"{year}-12-31"
-        fy.append("companies", {"company": company_name})
-        fy.insert(ignore_permissions=True)
+    The app's EUR test company gets its OWN dedicated, single-company Fiscal Year
+    (``FY-<abbr>-<year>``) rather than sharing the generic ``FY-<year>``. Two
+    reasons make the dedicated, scoped FY the correct design rather than a shared
+    or unrestricted one:
+
+    1. **Scoping is mandatory, not optional.** ``FY-<year>`` overlaps erpnext's
+       default ``<year>`` Fiscal Year on dates. erpnext's overlap guard rejects two
+       overlapping Fiscal Years unless each is restricted to specific companies, so
+       an unrestricted (empty ``companies``) FY cannot coexist with the default one.
+
+    2. **Sharing one FY across tests is the root of the flake.** Other tests (e.g.
+       ``test_erpnext_integration_comprehensive``) append THEIR companies to the
+       shared ``FY-<year>`` and leave dangling ``companies`` rows when those
+       companies roll back; re-saving the shared FY later then fails
+       ``_validate_links`` with an order-dependent ``LinkValidationError``. A
+       Fiscal Year that only this company ever touches sidesteps the whole class.
+
+    While erpnext's default ``<year>`` FY stays unrestricted it covers every company
+    (so ``get_fiscal_year(company)`` resolves to it); once erpnext's lazy
+    ``make_test_records`` re-scopes ``<year>`` to ``_Test Company`` on a shard's
+    first dated invoice, ``get_fiscal_year`` falls back to this dedicated FY.
+    """
+    year = getdate().year
+    abbr = frappe.db.get_value("Company", company_name, "abbr") or company_name
+    fy_name = f"FY-{abbr}-{year}"
+
+    if frappe.db.exists("Fiscal Year", fy_name):
         return
 
-    fy = frappe.get_doc("Fiscal Year", fy_name)
-    if not any(c.company == company_name for c in fy.companies):
-        fy.append("companies", {"company": company_name})
-        fy.save(ignore_permissions=True)
+    fy = frappe.new_doc("Fiscal Year")
+    fy.year = fy_name
+    fy.year_start_date = f"{year}-01-01"
+    fy.year_end_date = f"{year}-12-31"
+    fy.append("companies", {"company": company_name})
+    fy.insert(ignore_permissions=True)
 
 
 def _company_is_eur_with_current_fy(company: str) -> bool:
