@@ -147,6 +147,37 @@ class ErrorLogGuardMixin:
         if new:
             self.fail(format_error_log_failure(new, prefix=msg))
 
+    @contextmanager
+    def production_validation(self):
+        """Run the wrapped block with ``frappe.flags.in_import`` forced ``False`` so
+        ERPNext's import-only validation suppressions do NOT mask production behaviour.
+
+        ``EnhancedTestCase.setUp`` sets ``frappe.flags.in_import = True`` to bypass
+        user-creation throttling. As a side effect ERPNext skips/self-heals several
+        validations whenever ``in_import`` is set -- most consequentially
+        ``validate_due_date()`` (accounts_controller.py), which silently clamps a
+        ``due_date`` that falls before ``posting_date`` instead of raising. That hid a
+        real retroactive-billing bug from the ENTIRE suite (the dues invoice generator
+        emitted a past due_date; ERPNext logged-and-swallowed it 641x; see commit
+        6efbaf41). Production invoice generation runs with ``in_import`` False.
+
+        Wrap any submission/validation you want to mirror production in this block::
+
+            with self.production_validation():
+                invoice = schedule.generate_invoice(force=True)
+            self.assertGreaterEqual(getdate(invoice.due_date), getdate(invoice.posting_date))
+
+        Restores the prior flag value on exit, including on exception. Note: with the
+        flag off, user-creation throttling is back in effect, so do not create Users
+        inside the block -- only wrap the operation whose validation you care about.
+        """
+        saved = getattr(frappe.flags, "in_import", False)
+        frappe.flags.in_import = False
+        try:
+            yield
+        finally:
+            frappe.flags.in_import = saved
+
     # --- hooks the concrete base class wires into its tearDown ---------------
 
     def _capture_test_error_logs(self):

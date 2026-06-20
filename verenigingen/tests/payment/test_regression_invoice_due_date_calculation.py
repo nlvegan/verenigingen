@@ -141,15 +141,11 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         # user-creation throttling). ERPNext's validate_due_date() has a special case
         # (accounts_controller.py: `if frappe.flags.in_import and due < posting: due =
         # posting`) that SELF-HEALS a past due_date ONLY during imports -- which masks
-        # this bug from the entire test suite. Production invoice generation runs with
-        # in_import False, so reproduce that here.
-        saved_in_import = frappe.flags.in_import
-        frappe.flags.in_import = False
-        try:
+        # this bug from the entire test suite. production_validation() clears the flag
+        # so invoice generation mirrors production.
+        with self.production_validation():
             # The bug: this generate raises "Due Date cannot be before Posting Date".
             invoice_doc = schedule.generate_invoice(force=True)
-        finally:
-            frappe.flags.in_import = saved_in_import
         invoice_name = invoice_doc.name if hasattr(invoice_doc, "name") else invoice_doc
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
         self.assertGreaterEqual(

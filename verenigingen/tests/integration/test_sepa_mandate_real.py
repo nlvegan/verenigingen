@@ -388,11 +388,9 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
 
         # Make status change. EnhancedTestCase.setUp sets frappe.flags.in_import
         # = True (to bypass user-creation throttling), which also suppresses
-        # Version (audit trail) creation. Temporarily clear it so the status
-        # change is recorded in the version history asserted below.
-        original_in_import = frappe.flags.in_import
-        frappe.flags.in_import = False
-        try:
+        # Version (audit trail) creation. production_validation() clears it so the
+        # status change is recorded in the version history asserted below.
+        with self.production_validation():
             with self.as_user(self.admin_user.email):
                 mandate.status = "Active"
                 mandate.signed_date = today()
@@ -401,8 +399,6 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
                 # ignore_version=False so the status change is recorded in the
                 # audit trail asserted below.
                 mandate.save(ignore_version=False)
-        finally:
-            frappe.flags.in_import = original_in_import
 
         mandate.reload()
 

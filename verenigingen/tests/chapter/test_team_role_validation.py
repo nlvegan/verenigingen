@@ -132,10 +132,9 @@ class TestTeamRoleValidation(EnhancedTestCase):
             # Enhanced Test Factory handles cleanup automatically
         
         # Test invalid permissions level. EnhancedTestCase sets frappe.flags.in_import = True,
-        # which makes Frappe skip Select-option validation; clear it so the real validation runs.
-        prev_in_import = getattr(frappe.flags, "in_import", False)
-        frappe.flags.in_import = False
-        try:
+        # which makes Frappe skip Select-option validation; production_validation() clears
+        # it so the real validation runs.
+        with self.production_validation():
             with self.assertRaises(frappe.ValidationError):
                 invalid_role = frappe.get_doc({
                     "doctype": "Team Role",
@@ -144,8 +143,6 @@ class TestTeamRoleValidation(EnhancedTestCase):
                     "is_active": 1
                 })
                 invalid_role.insert()
-        finally:
-            frappe.flags.in_import = prev_in_import
         
         print("✅ Permissions level validation working correctly")
     

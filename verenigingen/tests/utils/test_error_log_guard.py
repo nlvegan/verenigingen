@@ -87,3 +87,38 @@ class TestErrorLogGuard(VereningingenTestCase):
         rows = [{"method": f"T{i}", "error": "e", "creation": "now"} for i in range(15)]
         msg = format_error_log_failure(rows)
         self.assertIn("and 5 more", msg)
+
+
+class TestProductionValidation(VereningingenTestCase):
+    """The production_validation() context manager neutralizes frappe.flags.in_import
+    so ERPNext's import-only validation suppressions (e.g. validate_due_date's
+    self-heal) do NOT mask production behaviour inside the wrapped block."""
+
+    def setUp(self):
+        super().setUp()
+        self._saved_in_import = getattr(frappe.flags, "in_import", False)
+        self.addCleanup(lambda: setattr(frappe.flags, "in_import", self._saved_in_import))
+
+    def test_neutralizes_in_import_inside_block(self):
+        frappe.flags.in_import = True
+        with self.production_validation():
+            self.assertFalse(frappe.flags.in_import)
+
+    def test_restores_prior_true_flag_after_block(self):
+        frappe.flags.in_import = True
+        with self.production_validation():
+            pass
+        self.assertTrue(frappe.flags.in_import)
+
+    def test_restores_prior_false_flag_after_block(self):
+        frappe.flags.in_import = False
+        with self.production_validation():
+            self.assertFalse(frappe.flags.in_import)
+        self.assertFalse(frappe.flags.in_import)
+
+    def test_restores_flag_on_exception(self):
+        frappe.flags.in_import = True
+        with self.assertRaises(ValueError):
+            with self.production_validation():
+                raise ValueError("boom")
+        self.assertTrue(frappe.flags.in_import)

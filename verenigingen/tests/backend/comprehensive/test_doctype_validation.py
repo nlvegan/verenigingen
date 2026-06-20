@@ -77,16 +77,13 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
                 )
 
                 # EnhancedTestCase runs with frappe.flags.in_import=True, which
-                # SKIPS Frappe's Select-field validation. Clear it so the invalid
-                # Select value is actually rejected (production behavior).
-                prev_in_import = frappe.flags.in_import
-                frappe.flags.in_import = False
-                try:
+                # SKIPS Frappe's Select-field validation. production_validation()
+                # clears it so the invalid Select value is actually rejected
+                # (production behavior).
+                with self.production_validation():
                     # This should raise a validation exception
                     with self.assertRaises(frappe.ValidationError):
                         volunteer.insert()
-                finally:
-                    frappe.flags.in_import = prev_in_import
 
     def test_member_status_validation(self):
         """Test member status field validation"""

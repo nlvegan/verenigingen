@@ -63,28 +63,26 @@ class TestValidationRegression(EnhancedTestCase):
                 for invalid_value in validation_data["invalid"]:
                     with self.subTest(doctype=doctype_name, field=field_name, value=invalid_value):
                         # EnhancedTestCase runs with frappe.flags.in_import=True,
-                        # which SUPPRESSES Frappe's Select-field validation. Clear
-                        # it for this insert so an invalid Select option actually
-                        # raises, otherwise this regression check is a false green.
-                        prev_in_import = frappe.flags.in_import
-                        frappe.flags.in_import = False
-                        try:
-                            doc_data = self._get_minimal_doc_data(doctype_name)
-                            doc_data[field_name] = invalid_value
+                        # which SUPPRESSES Frappe's Select-field validation.
+                        # production_validation() clears it for this insert so an
+                        # invalid Select option actually raises, otherwise this
+                        # regression check is a false green.
+                        with self.production_validation():
+                            try:
+                                doc_data = self._get_minimal_doc_data(doctype_name)
+                                doc_data[field_name] = invalid_value
 
-                            doc = frappe.get_doc(doc_data)
+                                doc = frappe.get_doc(doc_data)
 
-                            # This should raise a ValidationError
-                            with self.assertRaises(frappe.ValidationError):
-                                doc.insert()
+                                # This should raise a ValidationError
+                                with self.assertRaises(frappe.ValidationError):
+                                    doc.insert()
 
-                        except AssertionError:
-                            raise  # Re-raise assertion errors
-                        except Exception:
-                            # Other exceptions are also acceptable for invalid values
-                            pass
-                        finally:
-                            frappe.flags.in_import = prev_in_import
+                            except AssertionError:
+                                raise  # Re-raise assertion errors
+                            except Exception:
+                                # Other exceptions are also acceptable for invalid values
+                                pass
 
     def _get_minimal_doc_data(self, doctype_name):
         """Get minimal data required to create a document"""
