@@ -335,3 +335,36 @@ class TestTerminationUtils(EnhancedTestCase):
             ),
             "member with 2 active requests should be flagged as duplicate",
         )
+
+    def test_audit_compliance_same_fullname_different_members_not_duplicate(self):
+        """Two DIFFERENT members that share the same full_name, each with one
+        active request, must NOT be flagged as duplicates.
+
+        This is the strongest discriminator for the GROUP BY fix: grouping on
+        member_name (full_name) would wrongly collapse them into one group of 2
+        and flag a duplicate; grouping on the `member` ID keeps them separate.
+        """
+        m1 = self._make_member()
+        m2 = self._make_member()
+        # The factory uniquifies names, so force an identical full_name (the
+        # field the OLD audit wrongly grouped on) onto both distinct members.
+        shared_full_name = f"Shared Name {frappe.generate_hash(length=6)}"
+        frappe.db.set_value("Member", m1.name, "full_name", shared_full_name)
+        frappe.db.set_value("Member", m2.name, "full_name", shared_full_name)
+        self.assertNotEqual(m1.name, m2.name)
+        self._make_termination_request(m1, status="Pending")
+        self._make_termination_request(m2, status="Pending")
+        result = tu.audit_termination_compliance()
+        # OLD code grouped by member_name (the now-shared full_name) and would
+        # emit a duplicate issue mentioning that name. NEW code groups by the
+        # member ID and must not. Check both the IDs and the shared name so the
+        # assertion fails against the OLD grouping regardless of which field the
+        # message echoes.
+        self.assertFalse(
+            any(
+                "active termination" in issue
+                and (m1.name in issue or m2.name in issue or shared_full_name in issue)
+                for issue in result["compliance_issues"]
+            ),
+            "distinct members sharing a full_name must not be flagged as duplicates",
+        )

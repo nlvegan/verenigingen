@@ -510,8 +510,12 @@ class TestTerminationIntegration(EnhancedTestCase):
         self.create_test_membership(member_name=member.name)
         schedule = self.create_test_dues_schedule(member.name)
         ti.cancel_dues_schedule_safe(schedule.name)
-        # second call is a no-op True
+        # second call is a no-op True and must leave the status Cancelled
         self.assertTrue(ti.cancel_dues_schedule_safe(schedule.name))
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule.name, "status"),
+            "Cancelled",
+        )
 
     # ==================================================================
     # deactivate_user_account_safe — disciplinary disable path
