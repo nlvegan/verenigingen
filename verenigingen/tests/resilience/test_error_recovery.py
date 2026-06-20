@@ -20,7 +20,6 @@ from verenigingen.verenigingen_payments.core.resilience.rate_limiter import Toke
 from verenigingen.verenigingen_payments.core.resilience.retry_policy import SmartRetryPolicy, RetryStrategy
 from verenigingen.verenigingen_payments.core.http_client import ResilientHTTPClient
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
-from verenigingen.verenigingen_payments.workflows.subscription_manager import SubscriptionManager
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
     ImmutableAuditTrail,
     AuditEventType,

@@ -59,26 +59,6 @@ class TestMollieConfigurationMigration(FrappeTestCase):
         if not get_mollie_config().is_backend_api_enabled():
             self.assertEqual(result["status"], "skipped")
 
-    def test_subscription_manager_uses_config_service(self):
-        """Test that subscription_manager uses configuration service"""
-        from verenigingen.verenigingen_payments.workflows.subscription_manager import (
-            sync_all_subscription_payments,
-        )
-
-        # This should not error - it should check backend API via config service
-        result = sync_all_subscription_payments()
-
-        self.assertIsInstance(result, dict)
-
-        # If backend API not enabled, should return skipped with status field
-        # If enabled, returns dict with total_members, synced, failed, etc.
-        if not get_mollie_config().is_backend_api_enabled():
-            self.assertIn("status", result)
-            self.assertEqual(result["status"], "skipped")
-        else:
-            # When enabled, returns sync results
-            self.assertIn("total_members", result)
-
     def test_balance_report_uses_config_service(self):
         """Test that mollie_balance_report uses configuration service"""
         from verenigingen.verenigingen_payments.report.mollie_balance_report.mollie_balance_report import (

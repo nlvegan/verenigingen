@@ -20,19 +20,16 @@ from verenigingen.verenigingen_payments.clients.balances_client import BalancesC
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.clients.invoices_client import InvoicesClient
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
-from verenigingen.verenigingen_payments.workflows.subscription_manager import SubscriptionManager
-from verenigingen.verenigingen_payments.workflows.dispute_resolution import DisputeResolutionWorkflow
 from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 
 
 @unittest.skip(
     "Mollie internals drift: every test instantiates the workflow managers/clients with a "
-    "settings_name arg (e.g. SubscriptionManager('Mollie Settings')), but the constructors were "
-    "refactored to inconsistent signatures — SubscriptionManager/ReconciliationEngine/"
-    "FinancialDashboard now take no args, WebhookValidator takes a security_manager, and only "
-    "DisputeResolutionWorkflow/BalancesClient still take settings_name. These are full e2e flows "
-    "(subscription lifecycle, settlement reconciliation, dispute resolution, month-end close, "
-    "error recovery) that need reworking against the current constructor signatures and manager "
+    "settings_name arg (e.g. ReconciliationEngine('Mollie Settings')), but the constructors were "
+    "refactored to inconsistent signatures — ReconciliationEngine/FinancialDashboard now take no "
+    "args, WebhookValidator takes a security_manager, and only BalancesClient still takes "
+    "settings_name. These are full e2e flows (settlement reconciliation, month-end close, error "
+    "recovery) that need reworking against the current constructor signatures and manager "
     "method APIs. (The tearDown reference_id->description fix has already been applied so the "
     "class loads cleanly.)"
 )
@@ -71,106 +68,6 @@ class TestE2EWorkflowValidation(EnhancedTestCase):
         # Mollie Settings is a Single; its document name is "Mollie Settings".
         self.settings_name = "Mollie Settings"
         self.test_data = {}
-    
-    def test_complete_member_subscription_lifecycle(self):
-        """Test complete member subscription lifecycle from signup to renewal"""
-        
-        print("\n=== Testing Complete Member Subscription Lifecycle ===")
-        
-        # Step 1: Member signup
-        member = self._create_member_with_subscription()
-        self.test_data['member'] = member
-        print(f"✓ Step 1: Created member {member.name}")
-        
-        # Step 2: Initialize subscription
-        sub_manager = SubscriptionManager(self.settings_name)
-        
-        with patch.object(sub_manager.subscriptions_client, 'create_subscription') as mock_create:
-            mock_create.return_value = MagicMock(
-                id="sub_lifecycle_test",
-                customer_id=member.mollie_customer_id,
-                status="active",
-                amount=MagicMock(value="25.00", currency="EUR"),
-                interval="1 month",
-                next_payment_date=datetime.now() + timedelta(days=30),
-                created_at=datetime.now()
-            )
-            
-            result = sub_manager.create_subscription(
-                member_name=member.name,
-                amount=25.00,
-                interval="1 month"
-            )
-            
-            self.assertTrue(result["success"])
-            self.test_data['subscription_id'] = result["subscription_id"]
-            print(f"✓ Step 2: Created subscription {result['subscription_id']}")
-        
-        # Step 3: First payment webhook
-        payment_webhook = self._simulate_payment_webhook(
-            subscription_id=self.test_data['subscription_id'],
-            amount=25.00
-        )
-        
-        # Step 3: Process webhook (signature validation step omitted — the legacy
-        # core/security WebhookValidator was removed; rewrite against the live
-        # utils/webhook_security path when this drifted e2e flow is reworked).
-        print("✓ Step 3: Processed first payment webhook")
-        
-        # Step 4: Create and link invoice
-        invoice = self._create_membership_invoice(member, 25.00)
-        self.test_data['invoice'] = invoice
-        print(f"✓ Step 4: Created invoice {invoice.name}")
-        
-        # Step 5: Process payment and reconcile
-        with patch.object(sub_manager, '_get_unpaid_invoice') as mock_invoice:
-            mock_invoice.return_value = invoice
-            
-            payment_result = sub_manager.process_subscription_payment(payment_webhook)
-            self.assertTrue(payment_result.get("success", False))
-            print("✓ Step 5: Payment processed and reconciled")
-        
-        # Step 6: Financial reporting
-        dashboard = FinancialDashboard(self.settings_name)
-        
-        with patch.object(dashboard, '_get_recent_payments') as mock_payments:
-            mock_payments.return_value = [{
-                "payment_id": payment_webhook["id"],
-                "member": member.name,
-                "amount": 25.00,
-                "status": "paid",
-                "date": datetime.now()
-            }]
-            
-            metrics = dashboard.get_real_time_metrics()
-            self.assertIn("payments", metrics)
-            self.assertGreater(metrics["payments"]["total"], 0)
-            print("✓ Step 6: Financial metrics updated")
-        
-        # Step 7: Subscription renewal
-        renewal_date = datetime.now() + timedelta(days=30)
-        renewal_webhook = self._simulate_payment_webhook(
-            subscription_id=self.test_data['subscription_id'],
-            amount=25.00,
-            payment_id="tr_renewal_test"
-        )
-        
-        with patch.object(sub_manager, '_get_unpaid_invoice') as mock_invoice:
-            # Create renewal invoice
-            renewal_invoice = self._create_membership_invoice(member, 25.00, renewal_date)
-            mock_invoice.return_value = renewal_invoice
-            
-            renewal_result = sub_manager.process_subscription_payment(renewal_webhook)
-            self.assertTrue(renewal_result.get("success", False))
-            print("✓ Step 7: Subscription renewed successfully")
-        
-        # Step 8: Verify complete history
-        payment_history = self._get_member_payment_history(member.name)
-        self.assertGreaterEqual(len(payment_history), 2)
-        print(f"✓ Step 8: Payment history verified ({len(payment_history)} payments)")
-        
-        print("✅ Complete member subscription lifecycle validated!")
-        return True
     
     def test_settlement_reconciliation_workflow(self):
         """Test complete settlement and reconciliation workflow"""
@@ -239,116 +136,6 @@ class TestE2EWorkflowValidation(EnhancedTestCase):
         print(f"✓ Step 7: Audit trail complete ({len(audit_logs)} logs)")
         
         print("✅ Settlement reconciliation workflow validated!")
-        return True
-    
-    def test_dispute_resolution_workflow(self):
-        """Test complete dispute resolution workflow"""
-        
-        print("\n=== Testing Dispute Resolution Workflow ===")
-        
-        # Step 1: Create disputed payment
-        payment = {
-            "id": "tr_dispute_test",
-            "amount": {"value": "100.00", "currency": "EUR"},
-            "description": "Test payment for dispute",
-            "customer_id": "cst_test123",
-            "created_at": datetime.now().isoformat()
-        }
-        print(f"✓ Step 1: Created payment {payment['id']}")
-        
-        # Step 2: Receive chargeback notification
-        chargeback = {
-            "id": "chb_test123",
-            "payment_id": payment["id"],
-            "amount": {"value": "100.00", "currency": "EUR"},
-            "reason": "fraudulent",
-            "created_at": datetime.now().isoformat()
-        }
-        
-        # Step 3: Create dispute case
-        dispute_workflow = DisputeResolutionWorkflow(self.settings_name)
-        
-        with patch.object(dispute_workflow.chargebacks_client, 'get_chargeback') as mock_get:
-            mock_get.return_value = MagicMock(
-                id=chargeback["id"],
-                payment_id=payment["id"],
-                amount=MagicMock(
-                    value="100.00",
-                    currency="EUR",
-                    decimal_value=Decimal("100.00")
-                ),
-                reason="fraudulent",
-                created_at=datetime.now(),
-                get_reason_code=lambda: "fraudulent",
-                get_reason_description=lambda: "Fraudulent transaction",
-                is_reversed=lambda: False
-            )
-            
-            case = dispute_workflow.create_dispute_case(
-                payment["id"],
-                chargeback["id"]
-            )
-            
-            self.assertIsNotNone(case["case_id"])
-            self.assertEqual(case["priority"], "high")
-            print(f"✓ Step 2-3: Dispute case created ({case['case_id']})")
-        
-        # Step 4: Collect evidence
-        evidence = [
-            {
-                "type": "transaction_log",
-                "description": "Payment authorization log",
-                "strength_score": 80
-            },
-            {
-                "type": "customer_history", 
-                "description": "Long-standing customer with good history",
-                "strength_score": 70
-            },
-            {
-                "type": "3ds_authentication",
-                "description": "3D Secure authentication completed",
-                "strength_score": 90
-            }
-        ]
-        
-        for ev in evidence:
-            self._add_dispute_evidence(case["case_id"], ev)
-        
-        print(f"✓ Step 4: Evidence collected ({len(evidence)} pieces)")
-        
-        # Step 5: Submit dispute response
-        response = dispute_workflow.submit_dispute_response(
-            case_id=case["case_id"],
-            evidence_ids=["ev_001", "ev_002", "ev_003"],
-            response_text="Transaction was properly authorized with 3D Secure authentication."
-        )
-        
-        self.assertTrue(response["success"])
-        print("✓ Step 5: Dispute response submitted")
-        
-        # Step 6: Simulate resolution (win scenario)
-        outcome = dispute_workflow.update_dispute_outcome(
-            case_id=case["case_id"],
-            outcome="won",
-            recovered_amount=100.00
-        )
-        
-        self.assertEqual(outcome["outcome"], "won")
-        self.assertEqual(outcome["recovered_amount"], 100.00)
-        print("✓ Step 6: Dispute resolved (won)")
-        
-        # Step 7: Update financial records
-        self._reverse_chargeback_entry(payment["id"], 100.00)
-        print("✓ Step 7: Financial records updated")
-        
-        # Step 8: Analyze patterns
-        analysis = dispute_workflow.analyze_dispute_patterns(30)
-        self.assertIn("win_rate", analysis)
-        self.assertGreater(analysis["win_rate"], 0)
-        print(f"✓ Step 8: Pattern analysis complete (win rate: {analysis['win_rate']:.1f}%)")
-        
-        print("✅ Dispute resolution workflow validated!")
         return True
     
     def test_month_end_closing_workflow(self):
