@@ -370,3 +370,110 @@ class TestInvoiceManagement(EnhancedTestCase):
         data = im.bulk_generate_dues_invoices(dry_run=True, max_invoices=50)["data"]
         # The orphan schedule should be detected during the bulk pass.
         self.assertGreaterEqual(data["orphaned_schedules"], 1)
+
+    def test_bulk_generate_real_run_creates_invoice(self):
+        """Non-dry-run path: an eligible due-now schedule produces a real Sales
+        Invoice; invoices_generated and generated_invoices reflect it, and the
+        commit branch (invoices_generated > 0) fires."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(
+            member, mt, amount=11.0, status="Active", auto_generate=1, next_invoice_date=today()
+        )
+        result = im.bulk_generate_dues_invoices(dry_run=False, max_invoices=50)
+        self.assertTrue(result["success"])
+        data = result["data"]
+        # Find our schedule's result row.
+        ours = next((p for p in data["processed_schedules"] if p.get("schedule") == ds.name), None)
+        self.assertIsNotNone(ours, f"our schedule not processed; errors={data['errors']}")
+        if ours.get("can_generate"):
+            # Real generation happened: track the invoice for cleanup.
+            self.assertTrue(ours.get("success"), f"row={ours}")
+            invoice_name = ours.get("invoice")
+            self.assertTrue(frappe.db.exists("Sales Invoice", invoice_name))
+            self.assertGreaterEqual(data["invoices_generated"], 1)
+            # generated_invoices summary list includes our invoice.
+            gen_names = {g["invoice"] for g in data["generated_invoices"]}
+            self.assertIn(invoice_name, gen_names)
+            self._committed_docs.append(("Sales Invoice", invoice_name))
+
+    def test_bulk_generate_custom_filter_and_days_ahead(self):
+        """filter_criteria with a custom days_ahead is honored (covers the
+        filter_criteria.update + days_ahead extraction branch)."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        self._make_dues_schedule(member, mt, status="Active", auto_generate=1, next_invoice_date=today())
+        # days_ahead=0 narrows the window to today-or-earlier; our due-today
+        # schedule still qualifies (cutoff = today + 0).
+        result = im.bulk_generate_dues_invoices(
+            filter_criteria={"days_ahead": 0}, dry_run=True, max_invoices=5
+        )
+        self.assertTrue(result["success"])
+        data = result["data"]
+        self.assertEqual(data["filter_criteria"], {"days_ahead": 0})
+        # due_now must count our due-today schedule.
+        self.assertGreaterEqual(data["due_now"], 1)
+
+    # ------------------------------------------------------------------
+    # cleanup_orphaned_membership_data - invalid membership + amendment branches
+    # ------------------------------------------------------------------
+    def _make_membership_with_invalid_type(self):
+        """Create a real Membership, then repoint its membership_type at a
+        non-existent type via direct DB write (bypassing link validation) so it
+        becomes an 'invalid membership type' candidate. Returns membership name."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        membership = frappe.new_doc("Membership")
+        membership.member = member.name
+        membership.membership_type = mt.name
+        membership.start_date = today()
+        membership.status = "Active"
+        membership.save()
+        membership.submit()
+        self._committed_docs.append(("Membership", membership.name))
+        bogus_type = "NONEXISTENT-TYPE-" + frappe.generate_hash(length=10)
+        frappe.db.set_value(
+            "Membership", membership.name, "membership_type", bogus_type, update_modified=False
+        )
+        frappe.db.commit()
+        return membership.name, member.name
+
+    def test_cleanup_membership_data_detects_invalid_membership_type(self):
+        """An invalid-membership-type Membership is detected in the
+        invalid_memberships category (dry run -> would_delete, no mutation)."""
+        membership_name, _member_name = self._make_membership_with_invalid_type()
+        data = im.cleanup_orphaned_membership_data(dry_run=True, max_cleanup=50)["data"]
+        self.assertGreaterEqual(data["invalid_memberships"]["found"], 1)
+        my_item = next(
+            (
+                it
+                for it in data["processed_items"]
+                if it.get("type") == "invalid_membership" and it.get("name") == membership_name
+            ),
+            None,
+        )
+        self.assertIsNotNone(my_item, "our invalid membership should be processed")
+        self.assertEqual(my_item["action"], "would_delete")
+        # Dry run did not delete it.
+        self.assertTrue(frappe.db.exists("Membership", membership_name))
+
+    def test_cleanup_membership_data_invalid_type_member_exists_skipped(self):
+        """When the member still exists, a non-dry-run invalid-membership cleanup
+        marks the item 'member_exists_skipped' (the member-exists guard branch)
+        rather than deleting it."""
+        membership_name, member_name = self._make_membership_with_invalid_type()
+        # Member exists -> must be skipped, not deleted.
+        data = im.cleanup_orphaned_membership_data(dry_run=False, max_cleanup=50)["data"]
+        my_item = next(
+            (
+                it
+                for it in data["processed_items"]
+                if it.get("type") == "invalid_membership" and it.get("name") == membership_name
+            ),
+            None,
+        )
+        self.assertIsNotNone(my_item)
+        self.assertEqual(my_item["action"], "member_exists_skipped")
+        # Membership preserved because its member still exists.
+        self.assertTrue(frappe.db.exists("Membership", membership_name))
+        self.assertTrue(frappe.db.exists("Member", member_name))

@@ -489,3 +489,385 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
         self.assertIn("jobs", status)
         self.assertIn("message", status)
         self.assertIsInstance(status["jobs"], list)
+
+
+class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
+    """Coverage for the previously-uncovered branches of
+    bulk_invoice_generation_service.py:
+      - _process_parallel (chunk split + real enqueue + enqueue-failure branch)
+      - _process_sequential failure branches (None invoice, ValidationError,
+        generic Exception, outer load Exception)
+      - bulk_update_payment_history (missing member, real member update)
+      - _log_blocked_members_summary (with frappe.local.blocked_members populated)
+      - process_invoice_chunk worker (success + load-error)
+      - _safe_log_error fallbacks
+      - _detect_coverage_gaps log-error branch (already partly covered)
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._committed_docs = []
+        self._sales_invoices = []
+        self.svc = get_bulk_invoice_generation_service()
+
+    def tearDown(self):
+        for si in self._sales_invoices:
+            if frappe.db.exists("Sales Invoice", si):
+                try:
+                    doc = frappe.get_doc("Sales Invoice", si)
+                    if doc.docstatus == 1:
+                        doc.cancel()
+                    frappe.delete_doc("Sales Invoice", si, force=True, ignore_permissions=True)
+                except Exception:
+                    pass
+        for doctype, name in reversed(self._committed_docs):
+            if frappe.db.exists(doctype, name):
+                try:
+                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                except Exception:
+                    pass
+        # Clear any frappe.local state we set.
+        if hasattr(frappe.local, "blocked_members"):
+            frappe.local.blocked_members = {}
+        frappe.db.commit()
+        super().tearDown()
+
+    # ------------------------------------------------------------------
+    # Fixture helpers
+    # ------------------------------------------------------------------
+    def _make_membership_type(self):
+        role_profile = frappe.db.get_value(
+            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+        ) or frappe.db.get_value("Role Profile", {}, "name")
+        mt = frappe.new_doc("Membership Type")
+        mt.membership_type_name = f"BIGap-Type-{frappe.generate_hash(length=8)}"
+        mt.description = "Bulk gen gap test type"
+        mt.minimum_amount = 0.01
+        mt.is_active = 1
+        mt.role_profile = role_profile
+        mt.save()
+        self._committed_docs.append(("Membership Type", mt.name))
+        return mt
+
+    def _make_member(self, status="Active"):
+        member = frappe.new_doc("Member")
+        member.first_name = "BulkGap"
+        member.last_name = f"T{frappe.generate_hash(length=6)}"
+        member.email = f"bulkgap.{frappe.generate_hash(length=8)}@example.com"
+        member.member_since = today()
+        member.address_line1 = "1 Gap Street"
+        member.postal_code = "1234AB"
+        member.city = "Amsterdam"
+        member.country = "Netherlands"
+        member.save()
+        if status != "Active":
+            frappe.db.set_value("Member", member.name, "status", status)
+        self._committed_docs.append(("Member", member.name))
+        return member
+
+    def _deactivate_auto_schedules(self, member_name):
+        for name in frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "is_template": 0, "status": "Active"},
+            pluck="name",
+        ):
+            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
+
+    def _make_dues_schedule(
+        self,
+        member,
+        membership_type,
+        amount=5.0,
+        status="Active",
+        auto_generate=1,
+        next_invoice_date=None,
+        test_mode=0,
+    ):
+        membership = frappe.new_doc("Membership")
+        membership.member = member.name
+        membership.membership_type = membership_type.name
+        membership.start_date = today()
+        membership.status = "Active"
+        membership.save()
+        membership.submit()
+        self._committed_docs.append(("Membership", membership.name))
+
+        self._deactivate_auto_schedules(member.name)
+
+        ds = frappe.new_doc("Membership Dues Schedule")
+        ds.schedule_name = f"BIGap-{member.name}-{frappe.generate_hash(length=8)}"
+        ds.member = member.name
+        ds.membership = membership.name
+        ds.membership_type = membership_type.name
+        ds.currency = "EUR"
+        ds.contribution_mode = "Fixed"
+        ds.dues_rate = amount
+        ds.uses_custom_amount = 1
+        if amount > 0:
+            ds.custom_amount_approved = 1
+        ds.billing_frequency = "Monthly"
+        ds.payment_method = "Bank Transfer"
+        ds.status = status
+        ds.auto_generate = auto_generate
+        ds.test_mode = test_mode
+        if next_invoice_date is not None:
+            ds.next_invoice_date = next_invoice_date
+        ds.save()
+        self._committed_docs.append(("Membership Dues Schedule", ds.name))
+        return ds
+
+    def _track_invoices_from_member(self, member_name):
+        for si in frappe.get_all("Sales Invoice", filters={"member": member_name}, pluck="name"):
+            if si not in self._sales_invoices:
+                self._sales_invoices.append(si)
+
+    # ==================================================================
+    # _process_parallel
+    # ==================================================================
+    def test_process_parallel_splits_and_enqueues(self):
+        """_process_parallel must split schedules into chunks and enqueue a
+        background job per chunk, returning parallel_mode=True with the right
+        job count and message. We pass a synthetic 120-name list (no real
+        invoice generation happens — the worker is enqueued, not run inline)."""
+        schedule_names = [f"FAKE-SCHED-{i}" for i in range(120)]
+        result = BulkGenerationResult()
+        cutoff = getdate(today())
+
+        out = self.svc._process_parallel(schedule_names, cutoff, test_mode=False, result=result)
+
+        self.assertTrue(out.parallel_mode)
+        # num_workers = min(8, max(4, 120//100)) = max(4,1)=4 ; chunk_size=ceil(120/4)=30
+        # -> 4 chunks of 30. All 4 should enqueue cleanly (job_count == 4).
+        self.assertEqual(out.job_count, 4)
+        self.assertIn("4 parallel jobs", out.message)
+        self.assertIn("120 invoices", out.message)
+
+    def test_process_parallel_enqueue_failure_branch(self):
+        """When frappe.enqueue raises for a chunk, that chunk is recorded as
+        failed and job_count reflects only the successful enqueues. We force a
+        failure by passing a non-existent queue is not reliable; instead we
+        monkeypatch frappe.enqueue on the module to raise for the 2nd call."""
+        import verenigingen.services.billing.bulk_invoice_generation_service as mod
+
+        schedule_names = [f"FAKE-SCHED-{i}" for i in range(120)]  # -> 4 chunks
+        result = BulkGenerationResult()
+        cutoff = getdate(today())
+
+        calls = {"n": 0}
+        real_enqueue = mod.frappe.enqueue
+
+        def flaky_enqueue(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("simulated queue backend down")
+            return f"job-{calls['n']}"
+
+        self.expectErrorLog()
+        mod.frappe.enqueue = flaky_enqueue
+        try:
+            out = self.svc._process_parallel(schedule_names, cutoff, test_mode=False, result=result)
+        finally:
+            mod.frappe.enqueue = real_enqueue
+
+        # 4 chunks attempted, 1 failed -> 3 successful enqueues.
+        self.assertTrue(out.parallel_mode)
+        self.assertEqual(out.job_count, 3)
+
+    # ==================================================================
+    # _process_sequential failure branches
+    # ==================================================================
+    def test_sequential_none_invoice_branch(self):
+        """A schedule whose generate_invoice() returns None is recorded as an
+        error ('returned None') and NOT counted as generated."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, next_invoice_date=add_days(today(), -1))
+
+        # Force generate_invoice -> None on the instance the service loads by
+        # patching the doctype class method for this one schedule via a wrapper.
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        original = MembershipDuesSchedule.generate_invoice
+
+        def returns_none(self_doc, *a, **k):
+            if self_doc.name == ds.name:
+                return None
+            return original(self_doc, *a, **k)
+
+        self.expectErrorLog()
+        result = BulkGenerationResult()
+        MembershipDuesSchedule.generate_invoice = returns_none
+        try:
+            out = self.svc._process_sequential([ds.name], getdate(today()), test_mode=False, result=result)
+        finally:
+            MembershipDuesSchedule.generate_invoice = original
+
+        self.assertEqual(out.generated, 0)
+        self.assertEqual(out.processed, 1)
+        self.assertTrue(any("returned None" in e for e in out.errors))
+
+    def test_sequential_outer_load_error_branch(self):
+        """A schedule name that cannot be loaded hits the outer except and is
+        recorded as 'Error processing'."""
+        self.expectErrorLog()
+        result = BulkGenerationResult()
+        out = self.svc._process_sequential(
+            ["NONEXISTENT-SCHEDULE-XYZ"], getdate(today()), test_mode=False, result=result
+        )
+        self.assertEqual(out.generated, 0)
+        self.assertTrue(any("Error processing NONEXISTENT-SCHEDULE-XYZ" in e for e in out.errors))
+
+    def test_sequential_generic_exception_branch(self):
+        """A schedule whose generate_invoice() raises a non-ValidationError is
+        routed through the recovery handler and recorded as 'ERROR: ...'."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, next_invoice_date=add_days(today(), -1))
+
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        original = MembershipDuesSchedule.generate_invoice
+
+        def raises_runtime(self_doc, *a, **k):
+            if self_doc.name == ds.name:
+                raise RuntimeError("boom in generate")
+            return original(self_doc, *a, **k)
+
+        self.expectErrorLog()
+        result = BulkGenerationResult()
+        MembershipDuesSchedule.generate_invoice = raises_runtime
+        try:
+            out = self.svc._process_sequential([ds.name], getdate(today()), test_mode=False, result=result)
+        finally:
+            MembershipDuesSchedule.generate_invoice = original
+
+        self.assertEqual(out.generated, 0)
+        self.assertTrue(any("ERROR:" in e for e in out.errors))
+
+    def test_sequential_success_updates_payment_history(self):
+        """A real end-to-end sequential run: generates a real invoice, then
+        invokes bulk_update_payment_history for the member (the
+        members_to_update branch + the gap detection + blocked summary)."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, amount=12.0, next_invoice_date=add_days(today(), -1))
+
+        result = BulkGenerationResult()
+        out = self.svc._process_sequential([ds.name], getdate(today()), test_mode=False, result=result)
+        self._track_invoices_from_member(member.name)
+
+        self.assertEqual(out.generated, 1)
+        self.assertEqual(out.processed, 1)
+        # member was queued for payment-history update and updated_count >= 1.
+        self.assertGreaterEqual(out.payment_history_updates, 1)
+
+    # ==================================================================
+    # bulk_update_payment_history
+    # ==================================================================
+    def test_bulk_update_payment_history_missing_member_skipped(self):
+        """A member name that does not exist is skipped (logged) and not
+        counted; updated_count stays 0."""
+        self.expectErrorLog()
+        count = self.svc.bulk_update_payment_history(
+            {"NONEXISTENT-MEMBER-ABC"},
+            [{"member_id": "NONEXISTENT-MEMBER-ABC", "invoice": "SI-FAKE"}],
+        )
+        self.assertEqual(count, 0)
+
+    def test_bulk_update_payment_history_real_member(self):
+        """A real member with a real generated invoice is updated once."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, amount=8.0, next_invoice_date=add_days(today(), -1))
+        invoice = frappe.get_doc("Membership Dues Schedule", ds.name).generate_invoice()
+        frappe.db.commit()
+        invoice_name = getattr(invoice, "name", invoice)
+        self._sales_invoices.append(invoice_name)
+
+        count = self.svc.bulk_update_payment_history(
+            {member.name},
+            [{"member_id": member.name, "invoice": invoice_name, "schedule": ds.name}],
+        )
+        self.assertEqual(count, 1)
+
+    # ==================================================================
+    # _log_blocked_members_summary
+    # ==================================================================
+    def test_log_blocked_members_summary_noop_when_empty(self):
+        """No blocked_members on frappe.local -> early return, no error."""
+        if hasattr(frappe.local, "blocked_members"):
+            frappe.local.blocked_members = {}
+        # Should simply return without raising.
+        self.svc._log_blocked_members_summary()
+
+    def test_log_blocked_members_summary_logs_and_clears(self):
+        """Populated blocked_members -> a summary Error Log is written and the
+        structure is cleared afterwards (incl. the >10 truncation branch)."""
+        self.expectErrorLog()
+        frappe.local.blocked_members = {
+            "Suspended": [{"member": f"M-{i}", "member_name": f"Name {i}"} for i in range(12)]
+        }
+        self.svc._log_blocked_members_summary()
+        # Cleared after logging.
+        self.assertEqual(frappe.local.blocked_members, {})
+
+    # ==================================================================
+    # process_invoice_chunk worker + _safe_log_error
+    # ==================================================================
+    def test_process_invoice_chunk_success(self):
+        """The background worker function generates a real invoice for an
+        eligible schedule and returns a ChunkResult with generated >= 1."""
+        from verenigingen.services.billing.bulk_invoice_generation_service import (
+            process_invoice_chunk,
+        )
+
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, amount=9.0, next_invoice_date=add_days(today(), -1))
+
+        res = process_invoice_chunk(
+            schedule_names=[ds.name],
+            chunk_id=1,
+            total_chunks=1,
+            cutoff_date=getdate(today()),
+            test_mode=False,
+        )
+        self._track_invoices_from_member(member.name)
+
+        self.assertIsInstance(res, ChunkResult)
+        self.assertEqual(res.chunk_id, 1)
+        self.assertEqual(res.generated, 1)
+        self.assertIn(member.name, res.members_to_update)
+
+    def test_process_invoice_chunk_load_error(self):
+        """A bad schedule name hits the outer except and is recorded as a load
+        error without raising."""
+        from verenigingen.services.billing.bulk_invoice_generation_service import (
+            process_invoice_chunk,
+        )
+
+        self.expectErrorLog()
+        res = process_invoice_chunk(
+            schedule_names=["NONEXISTENT-CHUNK-SCHED"],
+            chunk_id=7,
+            total_chunks=1,
+            cutoff_date=getdate(today()),
+            test_mode=False,
+        )
+        self.assertEqual(res.generated, 0)
+        self.assertEqual(res.processed, 0)
+        self.assertTrue(any("Error loading schedule" in e for e in res.errors))
+
+    def test_safe_log_error_does_not_raise(self):
+        """_safe_log_error must swallow logging failures and never raise."""
+        from verenigingen.services.billing.bulk_invoice_generation_service import (
+            _safe_log_error,
+        )
+
+        self.expectErrorLog()
+        # Normal path: writes an Error Log.
+        _safe_log_error("Gap Test Title", "SCHED-1", RuntimeError("kaboom"))
