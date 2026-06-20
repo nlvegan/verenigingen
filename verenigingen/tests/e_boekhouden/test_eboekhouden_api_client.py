@@ -58,6 +58,16 @@ class _FakeSettings:
         return None
 
 
+def _insert_test_doc(doc):
+    """Persist ``doc`` with permissions bypassed (test fixture helper).
+
+    These coverage tests run as the FrappeTestCase default user, which lacks
+    insert permission on Account. The bypass lives in this fixture helper so test
+    bodies stay declarative (matches the helper in test_eboekhouden_doctype_coverage.py)."""
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
 def _http_response(status_code=200, text="", headers=None):
     """Build a MagicMock shaped like a requests.Response for the HTTP boundary."""
     resp = MagicMock()
@@ -340,6 +350,94 @@ class TestEBoekhoudenAPIPreviewEndpoints(EnhancedTestCase):
             result = preview_chart_of_accounts()
         self.assertFalse(result["success"])
         self.assertIn("parse", result["error"].lower())
+
+
+class TestExploreInvoiceFields(EnhancedTestCase):
+    """explore_invoice_fields aggregates per-probe results under distinct keys.
+
+    Regression guard: the result keys were the literal string 'test_{i}', so all
+    five probes collapsed onto a single key instead of test_0..test_4.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._init_patch = patch(
+            "verenigingen.utils.settings_utils.get_e_boekhouden_settings",
+            return_value=_FakeSettings(),
+        )
+        # explore_invoice_fields builds EBoekhoudenAPI(settings) from the single,
+        # so patch frappe.get_single in that module to return the fake settings.
+        self._single_patch = patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_api.frappe.get_single",
+            return_value=_FakeSettings(),
+        )
+        self._init_patch.start()
+        self._single_patch.start()
+        self.addCleanup(self._init_patch.stop)
+        self.addCleanup(self._single_patch.stop)
+
+    def test_failing_probes_use_distinct_keys(self):
+        """Each failing probe records under its own test_<i> key."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import explore_invoice_fields
+
+        with patch.object(
+            EBoekhoudenAPI,
+            "get_invoices",
+            return_value={"success": False, "error": "nope", "status_code": 500},
+        ):
+            result = explore_invoice_fields()
+        self.assertTrue(result["success"])
+        # All 5 probes fail -> 5 distinct keys, not a single overwritten one.
+        self.assertEqual(set(result["results"].keys()), {f"test_{i}" for i in range(5)})
+
+
+class TestFixAccountTypes(EnhancedTestCase):
+    """fix_account_types remaps Receivable/Payable imported accounts.
+
+    Regression guard: the fixed_accounts entries and message were plain strings,
+    so they returned literal '{account.name} ...' / 'Fixed {len(...)} accounts'.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.company = frappe.db.get_value("Company", {}, "name")
+        self.parent = frappe.db.get_value(
+            "Account", {"company": self.company, "is_group": 1, "root_type": "Asset"}, "name"
+        ) or frappe.db.get_value("Account", {"company": self.company, "is_group": 1}, "name")
+        if not self.parent:
+            self.skipTest("No group account to parent a test account")
+
+    def test_receivable_account_message_interpolated(self):
+        """A Receivable account with an account_number is remapped and listed by name."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import fix_account_types
+
+        acct = frappe.new_doc("Account")
+        acct.account_name = f"EB Recv {frappe.generate_hash()[:6]}"
+        acct.account_number = f"R{frappe.generate_hash()[:6]}"
+        acct.company = self.company
+        acct.parent_account = self.parent
+        acct.is_group = 0
+        acct.account_type = "Receivable"
+        _insert_test_doc(acct)
+
+        result = fix_account_types()
+        self.assertTrue(result["success"])
+        # Message embeds the real count (no literal placeholder).
+        self.assertNotIn("{len(", result["message"])
+        self.assertRegex(result["message"], r"Fixed \d+ accounts")
+        # Our account's real name appears in the fixed list, not a literal placeholder.
+        self.assertTrue(
+            any(acct.name in entry for entry in result["fixed_accounts"]),
+            "fixed_accounts should contain the interpolated account name",
+        )
+        self.assertFalse(
+            any("{account.name}" in entry for entry in result["fixed_accounts"]),
+            "fixed_accounts must not contain a literal placeholder",
+        )
+        # The account was actually remapped in the DB.
+        self.assertEqual(
+            frappe.db.get_value("Account", acct.name, "account_type"), "Current Asset"
+        )
 
 
 class TestEBoekhoudenXMLParser(EnhancedTestCase):
