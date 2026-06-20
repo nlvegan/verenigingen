@@ -129,6 +129,10 @@ class TestCleanupChartOfAccounts(_CleanupTestBase):
         result = cleanup_chart_of_accounts(self.company, delete_all_accounts="false", force_delete="0")
         self.assertTrue(result["success"])
         self.assertIn("results", result)
+        # "false" must parse to falsy: delete_all_accounts=False scopes to eBoekhouden
+        # accounts only, and this fresh company has none -> nothing deleted. If the
+        # string were mis-parsed as truthy it would attempt to delete the default CoA.
+        self.assertEqual(result["results"]["accounts_deleted"], 0)
 
     def test_deletes_fresh_eboekhouden_leaf_account(self):
         if not frappe.get_meta("Account").has_field("eboekhouden_grootboek_nummer"):

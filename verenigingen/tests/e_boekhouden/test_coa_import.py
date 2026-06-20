@@ -117,10 +117,11 @@ class TestIdentifyBankNameEnhanced(unittest.TestCase):
         self.assertEqual(identify_bank_name_enhanced("Donaties direct"), "Unknown Bank")
 
     def test_rekening_substring_does_not_misclassify_as_ing(self):
-        # Regression: "betaalrekening" contains the substring "ing", which used to
-        # match the "ing" -> "ING Bank" pattern and misclassify a Knab account as
-        # ING. Word-boundary matching now requires "ing" to start a word, so the
-        # specific "knab" keyword wins instead.
+        # Guards the existing word-boundary behavior: "betaalrekening" contains the
+        # substring "ing", which under naive substring matching would hit the
+        # "ing" -> "ING Bank" pattern and misclassify a Knab account. _matches_bank_keyword
+        # requires "ing" to start a word, so the specific "knab" keyword wins instead.
+        # A regression to substring matching would break this.
         # eboekhouden_coa_import.py (identify_bank_name_enhanced + _matches_bank_keyword).
         self.assertEqual(identify_bank_name_enhanced("Knab betaalrekening"), "Knab")
         # A genuine ING name still resolves to ING Bank.
@@ -226,10 +227,10 @@ class TestExtractBankInfoFromAccountName(unittest.TestCase):
         self.assertEqual(info["description"], "Zakelijk")
 
     def test_rekening_substring_does_not_misclassify_rabobank_as_ing(self):
-        # Regression (same root cause as identify_bank_name_enhanced): a Rabobank
-        # account named "... rekening" used to match the "ing" substring and be
-        # misidentified as ING Bank. Word-boundary matching now resolves it to
-        # Rabobank via the "rabo" keyword. eboekhouden_coa_import.py.
+        # Guards existing behavior (same root cause as identify_bank_name_enhanced): a
+        # Rabobank account named "... rekening" would, under substring matching, hit the
+        # "ing" substring and be misidentified as ING Bank. Word-boundary matching
+        # resolves it to Rabobank via the "rabo" keyword. eboekhouden_coa_import.py.
         info = extract_bank_info_from_account_name("Rabobank - Zakelijke rekening")
         self.assertEqual(info["bank_name"], "Rabobank")
 

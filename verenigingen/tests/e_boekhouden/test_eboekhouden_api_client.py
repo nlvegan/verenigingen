@@ -390,6 +390,31 @@ class TestExploreInvoiceFields(EnhancedTestCase):
         # All 5 probes fail -> 5 distinct keys, not a single overwritten one.
         self.assertEqual(set(result["results"].keys()), {f"test_{i}" for i in range(5)})
 
+    def test_successful_probe_with_items_interpolates_key(self):
+        """The first successful probe with items records under test_0 and BREAKS
+        (eboekhouden_api.py:651). Guards the success-branch f-strings (:619, :629)
+        which the all-failing case never exercises -- the key and its
+        first_item_analysis sub-key must interpolate to "test_0", not "test_{i}"."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import explore_invoice_fields
+
+        payload = json.dumps({"items": [{"invoiceId": 1, "documentUrl": "x"}]})
+        with patch.object(
+            EBoekhoudenAPI,
+            "get_invoices",
+            return_value={"success": True, "data": payload},
+        ):
+            result = explore_invoice_fields()
+        self.assertTrue(result["success"])
+        # Loop breaks after the first items-bearing probe -> exactly test_0, and the
+        # literal placeholder must NOT survive interpolation.
+        self.assertEqual(set(result["results"].keys()), {"test_0"})
+        self.assertNotIn("test_{i}", result["results"])
+        entry = result["results"]["test_0"]
+        self.assertTrue(entry["success"])
+        self.assertEqual(entry["items_count"], 1)
+        self.assertIn("first_item_analysis", entry)
+        self.assertIn("invoiceId", entry["first_item_analysis"]["all_keys"])
+
 
 class TestFixAccountTypes(EnhancedTestCase):
     """fix_account_types remaps Receivable/Payable imported accounts.
