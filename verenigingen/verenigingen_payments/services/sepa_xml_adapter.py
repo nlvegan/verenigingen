@@ -345,6 +345,17 @@ class SEPAXMLAdapter:
             self._get_sequence_type(invoice_sequence_type) if invoice_sequence_type else batch_sequence_type
         )
 
+        # Validate the debtor IBAN up front. An invalid IBAN raises here and is caught
+        # by the per-invoice handler in _build_transactions_from_batch, which records it
+        # as a skipped transaction and lets the batch continue. Previously the IBAN was
+        # only checked at the final XML-validation step, where one bad IBAN raised for
+        # the ENTIRE batch — stopping every other member's debit.
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
+        iban_result = validate_iban(invoice_item.iban or "")
+        if not iban_result["valid"]:
+            raise ValueError(f"Invalid debtor IBAN: {iban_result['message']}")
+
         # Build debtor
         debtor = SEPADebtor(
             name=invoice_item.member_name or "UNKNOWN",

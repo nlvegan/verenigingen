@@ -437,6 +437,68 @@ class TestSEPAXMLAdapterXMLGeneration(FrappeTestCase):
                     self.skipTest(f"SEPA configuration incomplete: {str(e)}")
                 raise
 
+    def _mock_invoice(self, invoice_id, iban, member_name="Test Member"):
+        inv = MagicMock()
+        inv.invoice = invoice_id
+        inv.amount = 50.00
+        inv.currency = "EUR"
+        inv.member_name = member_name
+        inv.iban = iban
+        inv.bic = "ABNANL2A"
+        inv.mandate_reference = f"MAND-{invoice_id}"
+        inv.mandate_sign_date = date(2024, 6, 15)
+        inv.member = None
+        inv.sequence_type = "RCUR"
+        return inv
+
+    def test_one_invalid_debtor_iban_skips_only_that_row(self):
+        """A single bad debtor IBAN must skip ONLY that transaction, not abort the
+        whole batch.
+
+        Regression: debtor IBANs were validated only at the final XML-build step,
+        which accumulated errors and raised for the ENTIRE batch ("SEPA validation
+        failed: ... Invalid debtor IBAN"), so one bad IBAN stopped every other
+        member's debit. The IBAN is now validated per-transaction so the offending
+        row is skipped into the validation summary and the batch still generates.
+        """
+        mock_batch = MagicMock()
+        mock_batch.name = "BATCH-IBAN-001"
+        mock_batch.batch_date = date.today()
+        mock_batch.batch_type = "CORE"
+        mock_batch.sequence_type = "RCUR"
+        mock_batch.entry_count = 2
+        mock_batch.total_amount = 100.00
+        mock_batch.invoices = [
+            self._mock_invoice("INV-VALID-001", "NL91ABNA0417164300", "Valid Member"),
+            self._mock_invoice("INV-BADIBAN-002", "NL00BANK0000000000", "Bad Iban Member"),
+        ]
+
+        mock_settings = {
+            "organization_name": "Test Vereniging",
+            "iban": "NL91ABNA0417164300",
+            "bic": "ABNANL2A",
+            "creditor_id": "NL12ZZZ123456789",
+        }
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
+
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=mock_settings):
+            xml_string = self.adapter.generate_xml_for_batch(
+                batch_doc=mock_batch,
+                message_id="MSG-IBAN-001",
+                payment_info_id="PMT-IBAN-001",
+            )
+
+        # Batch generated despite the bad IBAN, with exactly the one valid transaction.
+        root = ET.fromstring(xml_string)
+        txns = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DrctDbtTxInf")
+        self.assertEqual(len(txns), 1, "Only the valid-IBAN transaction should be in the XML")
+        self.assertIn("NL91ABNA0417164300", xml_string)
+        self.assertNotIn("NL00BANK0000000000", xml_string)
+        # The bad row is recorded as skipped, not silently dropped.
+        self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
