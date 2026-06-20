@@ -601,7 +601,12 @@ def generate_expulsion_report(filters: dict | None = None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def initiate_disciplinary_termination(member: str, reason, evidence=None, reporter=None):
-    """Initiate disciplinary termination procedure for a member"""
+    """Initiate disciplinary termination procedure for a member.
+
+    Creates the disciplinary Membership Termination Request in Draft. Submitting it
+    for approval is a separate governance step (it requires a secondary approver and
+    runs the approval/notification workflow), driven from the request form.
+    """
     try:
         # Validate input
         if not member:
@@ -623,7 +628,7 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
             "Membership Termination Request",
             {
                 "member": member,
-                "termination_type": "Disciplinary",
+                "termination_type": ["in", ["Policy Violation", "Disciplinary Action", "Expulsion"]],
                 "status": ["in", ["Draft", "Pending", "Approved"]],
             },
         )
@@ -634,7 +639,10 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
         # Create disciplinary termination request
         termination_request = frappe.new_doc("Membership Termination Request")
         termination_request.member = member
-        termination_request.termination_type = "Disciplinary"
+        # "Disciplinary Action" is the canonical disciplinary Select value the workflow
+        # recognises (DISCIPLINARY_TERMINATION_TYPES); the old "Disciplinary" was not a
+        # valid option, so every call failed on insert.
+        termination_request.termination_type = "Disciplinary Action"
         termination_request.termination_reason = reason
         termination_request.requested_by = reporter or frappe.session.user
         termination_request.request_date = today()
@@ -642,26 +650,25 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
         termination_request.requires_board_approval = 1
         termination_request.requires_governance_review = 1
 
-        # Add evidence if provided
+        # Add evidence if provided. Disciplinary terminations require
+        # `disciplinary_documentation` (see validate_termination_request); the old
+        # code wrote to a non-existent `supporting_documentation` field, so validation
+        # always failed with "Documentation is required for disciplinary terminations".
         if evidence:
-            termination_request.supporting_documentation = evidence
+            termination_request.disciplinary_documentation = evidence
 
         # Set disciplinary-specific fields
         termination_request.disciplinary_procedure = 1
         termination_request.investigation_required = 1
 
-        # Save the request
+        # Save the request as Draft. Submission for approval is a separate step on the
+        # request form: it requires a secondary approver (governance rule) and runs the
+        # approval-notification workflow, which is out of scope for "initiate".
         termination_request.insert()
         termination_request.add_audit_entry(
             "Disciplinary Procedure Initiated",
             f"Disciplinary termination initiated by {frappe.session.user}. Reason: {reason}",
         )
-
-        # Submit for approval workflow
-        termination_request.submit_for_approval()
-
-        # Send notifications to relevant parties
-        termination_request.send_approval_notification()
 
         # Notify the member if required by policy
         # TODO: Add notify_member_of_disciplinary_action field to Verenigingen Settings doctype

@@ -331,68 +331,56 @@ class TestMembershipTerminationRequest(VereningingenTestCase):
     # ============================================================ disciplinary duplicate guard
 
     def _seed_disciplinary_request(self, status):
-        """Create a request and force termination_type='Disciplinary' + a status.
+        """Create a real disciplinary request (type 'Disciplinary Action') at `status`.
 
-        'Disciplinary' is the legacy termination_type the duplicate guard in
-        initiate_disciplinary_termination looks for; it is not a valid Select
-        option, so we insert a normal disciplinary request and rewrite the two
-        fields directly via the DB (bypassing validation) to mirror what the
-        legacy create path produced.
+        The duplicate guard in initiate_disciplinary_termination blocks a new request
+        when any in-progress request of a disciplinary type
+        (Policy Violation / Disciplinary Action / Expulsion) exists.
         """
-        doc = self._make_disciplinary_request()
-        frappe.db.set_value(
-            "Membership Termination Request",
-            doc.name,
-            {"termination_type": "Disciplinary", "status": status},
-        )
+        doc = self._make_disciplinary_request(termination_type="Disciplinary Action")
+        frappe.db.set_value("Membership Termination Request", doc.name, "status", status)
         return doc
 
     def test_disciplinary_guard_blocks_when_pending_exists(self):
         self._seed_disciplinary_request(status="Pending")
-        result = mtr.initiate_disciplinary_termination(
-            member=self.member.name, reason="repeat offence"
-        )
+        result = mtr.initiate_disciplinary_termination(member=self.member.name, reason="repeat offence")
         self.assertFalse(result["success"])
         self.assertIn("already a pending disciplinary", result["error"].lower())
 
     def test_disciplinary_guard_blocks_when_approved_exists(self):
         # Approved-but-not-yet-Executed counts as still in progress.
         self._seed_disciplinary_request(status="Approved")
-        result = mtr.initiate_disciplinary_termination(
-            member=self.member.name, reason="repeat offence"
-        )
+        result = mtr.initiate_disciplinary_termination(member=self.member.name, reason="repeat offence")
         self.assertFalse(result["success"])
         self.assertIn("already a pending disciplinary", result["error"].lower())
 
     def test_disciplinary_guard_blocks_when_draft_exists(self):
         self._seed_disciplinary_request(status="Draft")
-        result = mtr.initiate_disciplinary_termination(
-            member=self.member.name, reason="repeat offence"
-        )
+        result = mtr.initiate_disciplinary_termination(member=self.member.name, reason="repeat offence")
         self.assertFalse(result["success"])
         self.assertIn("already a pending disciplinary", result["error"].lower())
 
     def test_disciplinary_guard_allows_when_only_finished_exist(self):
         # Rejected / Executed / Cancelled requests are finished and must NOT block
-        # a fresh disciplinary request. We assert the duplicate guard does not fire:
-        # the function proceeds past the guard (and then fails later on the known
-        # broken legacy create path), so the error must NOT be the duplicate one.
+        # a fresh disciplinary request: the new request must be created successfully.
         for finished in ("Rejected", "Executed", "Cancelled"):
             with self.subTest(status=finished):
                 doc = self._seed_disciplinary_request(status=finished)
                 result = mtr.initiate_disciplinary_termination(
-                    member=self.member.name, reason="fresh case"
+                    member=self.member.name,
+                    reason="fresh case",
+                    evidence="<p>Documented incident report.</p>",
                 )
-                # Guard did not block: either it succeeded or it failed downstream,
-                # but never with the duplicate-pending message.
-                if not result["success"]:
-                    self.assertNotIn(
-                        "already a pending disciplinary", result["error"].lower()
-                    )
+                self.assertTrue(result["success"], msg=result.get("error"))
+                self.track_doc("Membership Termination Request", result["termination_request"])
                 # Clean up so the next subTest's member has no in-progress request.
                 frappe.db.set_value(
-                    "Membership Termination Request", doc.name, "status", "Cancelled"
+                    "Membership Termination Request",
+                    result["termination_request"],
+                    "status",
+                    "Cancelled",
                 )
+                frappe.db.set_value("Membership Termination Request", doc.name, "status", "Cancelled")
 
     # ============================================================ validate invariant (Pending)
 
@@ -465,6 +453,30 @@ class TestMembershipTerminationRequest(VereningingenTestCase):
     def test_initiate_disciplinary_termination_requires_reason(self):
         result = mtr.initiate_disciplinary_termination(member=self.member.name, reason="")
         self.assertFalse(result["success"])
+
+    def test_initiate_disciplinary_termination_creates_valid_request(self):
+        """The happy path must actually create a disciplinary request (Draft).
+
+        Regression: the function set termination_type='Disciplinary' (not a valid
+        Select option) and wrote evidence to a non-existent 'supporting_documentation'
+        field, so every call failed on insert/validation and silently returned
+        {"success": False} into the Error Log. It must produce a real Draft request
+        whose type is recognised by the disciplinary workflow.
+        """
+        with self.assertNoErrorLog():
+            result = mtr.initiate_disciplinary_termination(
+                member=self.member.name,
+                reason="Serious breach of code of conduct",
+                evidence="<p>Documented incident report attached.</p>",
+            )
+        self.assertTrue(result["success"], msg=result.get("error"))
+        name = result["termination_request"]
+        self.track_doc("Membership Termination Request", name)
+        doc = frappe.get_doc("Membership Termination Request", name)
+        # type must be one the disciplinary workflow recognises
+        self.assertIn(doc.termination_type, ["Policy Violation", "Disciplinary Action", "Expulsion"])
+        self.assertTrue(doc.disciplinary_documentation)
+        self.assertEqual(doc.status, "Draft")
 
     # ============================================================ permission guard
 
