@@ -396,12 +396,19 @@ def validate_volunteer_organization_access(
         bool: True if volunteer has access
     """
     try:
-        frappe.get_doc("Volunteer", volunteer_name)
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
 
         if organization_type == "Chapter":
-            # Direct chapter membership check
-            direct_membership = frappe.db.exists(
-                "Chapter Member", {"parent": organization_name, "volunteer": volunteer_name}
+            # Direct chapter membership check. Chapter Member is keyed on the
+            # MEMBER (it has no `volunteer` column), so resolve the volunteer's
+            # member first -- mirroring _validate_chapter_access in
+            # expense_submission_service. Filtering on a non-existent `volunteer`
+            # column silently matched nothing, denying genuine chapter members.
+            member = getattr(volunteer_doc, "member", None)
+            direct_membership = (
+                frappe.db.exists("Chapter Member", {"parent": organization_name, "member": member})
+                if member
+                else None
             )
 
             if direct_membership:
