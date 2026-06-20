@@ -538,21 +538,27 @@ def get_suspension_list(
         if offset < 0:
             offset = 0
 
-        # Build filters
+        # Build filters.
+        # NOTE: "current_chapter_display" is an HTML display field with no DB column;
+        # filtering/selecting it raised (1054 Unknown column). The persisted chapter
+        # link is "current_chapter".
         filters = {"status": "Suspended"}
         if chapter:
-            filters["current_chapter_display"] = chapter
+            filters["current_chapter"] = chapter
 
-        # Get suspended members with optimized query
+        # Get suspended members with optimized query.
+        # NOTE: Member has no structured suspension_date / suspension_reason fields
+        # (suspension is recorded as status="Suspended" plus a note); selecting them
+        # raised and made this whole endpoint dead. Use the fields that exist and
+        # order by modification time (closest proxy for "recently suspended").
         fields = [
             "name",
             "full_name",
             "email",
             "status",
-            "current_chapter_display",
-            "suspension_date",
-            "suspension_reason",
+            "current_chapter",
             "creation",
+            "modified",
         ]
 
         members = frappe.get_all(
@@ -561,7 +567,7 @@ def get_suspension_list(
             fields=fields,
             limit=limit,
             start=offset,
-            order_by="suspension_date desc, creation desc",
+            order_by="modified desc, creation desc",
         )
 
         # Get total count for pagination
@@ -573,10 +579,10 @@ def get_suspension_list(
             if member.get("email"):
                 user_exists = frappe.db.exists("User", member["email"])
                 if user_exists:
-                    # Get volunteer linked to this user/member
-                    volunteer_name = frappe.db.get_value(
-                        "Verenigingen Volunteer", {"user": member["email"]}, "name"
-                    )
+                    # Get volunteer linked to this user/member. The doctype is
+                    # "Volunteer" ("Verenigingen Volunteer" does not exist and made
+                    # this lookup raise inside the dead order_by path above).
+                    volunteer_name = frappe.db.get_value("Volunteer", {"user": member["email"]}, "name")
                     if volunteer_name:
                         team_count = frappe.db.count(
                             "Team Member", {"volunteer": volunteer_name, "docstatus": 1}
