@@ -16,9 +16,15 @@ Test Coverage:
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import date, timedelta
+from datetime import timedelta
 
 import frappe
+# Use frappe's getdate() (site-timezone "today"), NOT datetime.date.today()
+# (process/UTC "today"): the validation service under test compares sign dates
+# against frappe.utils.getdate(), so a Python-UTC date diverges from it in the
+# window after UTC midnight when the site tz is behind UTC -- intermittently
+# flagging a "today" sign date as in the future.
+from frappe.utils import getdate
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.sepa_mandate_validation_service import SEPAMandateValidationService
 from verenigingen.utils.validation.iban_validator import generate_test_iban, generate_invalid_iban
@@ -59,7 +65,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_dates_valid_range(self):
         """Test validation of valid date ranges"""
-        today = date.today()
+        today = getdate()
         past_date = today - timedelta(days=30)
         future_date = today + timedelta(days=365)
 
@@ -76,7 +82,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_dates_sign_after_expiry(self):
         """Test validation when sign date is after expiry date"""
-        today = date.today()
+        today = getdate()
         sign_date = today - timedelta(days=10)
         expiry_date = today - timedelta(days=30)  # Earlier than sign date
 
@@ -92,7 +98,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_dates_future_sign_date(self):
         """Test validation when sign date is in the future"""
-        today = date.today()
+        today = getdate()
         future_sign_date = today + timedelta(days=10)
 
         mandate = self._create_mock_mandate(
@@ -107,7 +113,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_dates_same_dates_allowed(self):
         """Test that same sign and expiry dates are allowed"""
-        today = date.today()
+        today = getdate()
 
         mandate = self._create_mock_mandate(
             sign_date=today,
@@ -134,7 +140,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_dates_only_sign_date(self):
         """Test validation with only sign date provided"""
-        past_date = date.today() - timedelta(days=30)
+        past_date = getdate() - timedelta(days=30)
 
         mandate = self._create_mock_mandate(
             sign_date=past_date,
@@ -148,7 +154,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_dates_only_expiry_date(self):
         """Test validation with only expiry date provided"""
-        future_date = date.today() + timedelta(days=365)
+        future_date = getdate() + timedelta(days=365)
 
         mandate = self._create_mock_mandate(
             sign_date=None,
@@ -330,8 +336,8 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
 
     def test_validate_mandate_business_rules_ooff_mandate_long_validity(self):
         """Test business rules for one-off mandate with long validity period"""
-        sign_date = date.today() - timedelta(days=10)
-        expiry_date = date.today() + timedelta(days=40)  # More than 30 days
+        sign_date = getdate() - timedelta(days=10)
+        expiry_date = getdate() + timedelta(days=40)  # More than 30 days
 
         mandate = self._create_mock_mandate(
             mandate_type='OOFF',
@@ -496,8 +502,8 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
             account_holder_name='Jan van der Berg',
             iban='NL91 INGB 0001 2345 67',
             bic='INGBNL2A',
-            sign_date=date.today() - timedelta(days=10),
-            expiry_date=date.today() + timedelta(days=365)
+            sign_date=getdate() - timedelta(days=10),
+            expiry_date=getdate() + timedelta(days=365)
         )
 
         # Mock all external dependencies
@@ -540,7 +546,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
     def test_edge_case_weekend_sign_date(self):
         """Test mandate signed on weekend (should be valid)"""
         # Find a past Saturday
-        today = date.today()
+        today = getdate()
         days_back = today.weekday() + 2  # Go back to last Saturday
         if today.weekday() == 5:  # If today is Saturday
             days_back = 0
@@ -564,7 +570,7 @@ class TestSEPAMandateValidationService(EnhancedTestCase):
             iban=None,  # Missing IBAN
             account_holder_name=None,  # Missing account holder
             member='NON-EXISTENT',  # Non-existent member
-            sign_date=date.today() + timedelta(days=10)  # Future sign date
+            sign_date=getdate() + timedelta(days=10)  # Future sign date
         )
 
         # Mock duplicate mandate ID

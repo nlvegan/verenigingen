@@ -282,9 +282,14 @@ class TestChapterExpenseReport(VereningingenTestCase):
 
     def test_build_expense_row_overdue_pending(self):
         """Test overdue pending expense indicator"""
-        import datetime
+        from frappe.utils import add_days, today
 
-        old_date = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+        # Use frappe's today() (site tz), matching build_expense_row's internal
+        # days_to_approval computation against frappe.utils.today(). A Python-UTC
+        # datetime.date.today() drifts a day in the window after UTC midnight when
+        # the site tz is behind UTC, making days_to_approval 9 (below the 10/11
+        # tolerance) and intermittently failing the gate.
+        old_date = add_days(today(), -10)
 
         # Test overdue expense indicator without attachment mocking
         row = build_expense_row(
