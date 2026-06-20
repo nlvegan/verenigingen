@@ -413,10 +413,9 @@ class PostalCodeValidator(BaseValidator):
             curr = int(numeric_patterns[i])
 
             if curr == prev + 1:
-                if len(current_range) == 1:
-                    current_range.append(numeric_patterns[i])
-                else:
-                    current_range[-1] = numeric_patterns[i]
+                # Keep the full run of consecutive codes so the 3+ threshold
+                # below reflects how many codes the range would replace.
+                current_range.append(numeric_patterns[i])
             else:
                 if len(current_range) > 1:
                     ranges.append(current_range)
