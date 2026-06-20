@@ -7,9 +7,8 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus
-from verenigingen.utils.error_handling import cache_with_ttl, handle_api_error, validate_required_fields
+from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_member_name_for_user
-from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_utils import performance_monitor
 
@@ -28,6 +27,19 @@ def validate_member_exists(member_id: str | None) -> str:
     if not member:
         frappe.throw(_("Member not found"), frappe.DoesNotExistError)
     return member
+
+
+def _unwrap_internal_result(result):
+    """Normalize the result of an in-process call to another @*_api endpoint.
+
+    The security decorators serialize an OperationResult into a plain dict even for
+    internal (non-HTTP) calls, so a sibling endpoint cannot rely on attribute access
+    (``.success`` / ``.data``). This helper returns a ``(success, data, raw)`` tuple
+    that works whether the callee returned the serialized dict or an OperationResult.
+    """
+    if isinstance(result, dict):
+        return bool(result.get("success")), result.get("data"), result
+    return bool(result.success), result.data, result
 
 
 @frappe.whitelist()
@@ -493,11 +505,11 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
 
         schedule_result = get_payment_schedule(member)
 
-        # Handle OperationResult from get_payment_schedule
-        if not schedule_result.success:
-            return schedule_result
-
-        schedule = schedule_result.data
+        # get_payment_schedule is itself a @*_api endpoint, so an in-process call
+        # receives a serialized dict (not an OperationResult). Normalize before use.
+        success, schedule, raw = _unwrap_internal_result(schedule_result)
+        if not success:
+            return raw
 
         if schedule and len(schedule) > 0:
             next_payment_data = {
@@ -610,11 +622,11 @@ def export_payment_history_csv(year=None) -> OperationResult[Dict[str, Any]]:
 
         history_result = get_payment_history(member, year)
 
-        # Handle OperationResult from get_payment_history
-        if not history_result.success:
-            return history_result
-
-        history = history_result.data
+        # get_payment_history is itself a @*_api endpoint, so an in-process call
+        # receives a serialized dict (not an OperationResult). Normalize before use.
+        success, history, raw = _unwrap_internal_result(history_result)
+        if not success:
+            return raw
 
         import csv
         from io import StringIO
