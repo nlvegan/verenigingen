@@ -6,7 +6,7 @@
 
 This utility was deleted in commit 51705976 ("remove 87 orphaned utils") even
 though it was NOT orphaned -- the "Sync mandates" button on the
-mollie_member_reconciliation portal page calls it. These tests guard the JS
+verenigingen/www/mollie_member_reconciliation.html page calls it. These tests guard the JS
 button contract (the dotted method path must resolve to a whitelisted function
 returning a report with a `summary` block) and the core no-Mollie-call paths.
 """
@@ -133,6 +133,23 @@ class TestMandateSyncUtility(VereningingenTestCase):
         utility._process_member(self._member(), dry_run=True)
         self.assertEqual(len(utility.results["invalid_mandates"]), 1)
         self.assertEqual(len(utility.results["updated"]), 0)
+
+    def test_single_pending_mandate_is_used(self):
+        """No valid mandate but one pending -> fall back to pending, bucket updated."""
+        utility = self._utility_with_mandates(["pending"])
+        utility._process_member(self._member(), dry_run=True)
+        self.assertEqual(len(utility.results["updated"]), 1)
+        self.assertEqual(utility.results["updated"][0]["mandate_id"], "mdt_0")
+        self.assertEqual(len(utility.results["multiple_mandates"]), 0)
+
+    def test_valid_is_preferred_over_pending(self):
+        """With one valid + one pending, prefer the valid one -- and do NOT trip the
+        >1 manual-review branch (preferred_mandates is the valid-only list)."""
+        utility = self._utility_with_mandates(["valid", "pending"])
+        utility._process_member(self._member(), dry_run=True)
+        self.assertEqual(len(utility.results["updated"]), 1)
+        self.assertEqual(utility.results["updated"][0]["mandate_id"], "mdt_0")  # the valid one
+        self.assertEqual(len(utility.results["multiple_mandates"]), 0)
 
     def test_sdk_unavailable_buckets_error(self):
         # The error branch deliberately logs via frappe.log_error; mark it expected
