@@ -530,7 +530,13 @@ def create_bulk_payments(payments_json: str) -> Dict:
 def get_webhook_url() -> str:
     """Get the webhook URL for payment notifications with environment parameter"""
     site_url = frappe.utils.get_url()
-    base_url = f"{site_url}/api/method/verenigingen.utils.payment_gateways.mollie_payment_webhook"
+    # NOTE: must match the real whitelisted endpoint. The old path
+    # (verenigingen.utils.payment_gateways.mollie_payment_webhook) names a module that
+    # does not exist, so Mollie's callbacks 404'd and payment status updates were
+    # silently lost (surfaced via ~120 "No module named ..." Error Logs).
+    base_url = (
+        f"{site_url}/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.mollie_payment_webhook"
+    )
 
     # Add environment parameter based on Mollie Settings test_mode
     try:
