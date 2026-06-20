@@ -1105,27 +1105,33 @@ def create_enhanced_bank_transaction_from_mt940(
             if transaction_data.get("purpose"):
                 description_parts.append(str(transaction_data["purpose"]))
 
-            # Check if extra_details is just a TRCD code - if so, translate it
-            extra_details = transaction_data.get("extra_details", "")
-            if extra_details:
-                # Extract TRCD code if present (trailing slash is optional)
-                trcd_match = re.search(r"/TRCD/(\d+)/?", extra_details)
-                if trcd_match:
-                    trcd_code = trcd_match.group(1)
-                    # Use human-readable description from DUTCH_BOOKING_CODES
-                    trcd_description = DUTCH_BOOKING_CODES.get(trcd_code)
-                    if trcd_description:
-                        # Use counterparty name to make description more useful
-                        counterparty = sepa_data.get("counterparty", "")
-                        if counterparty:
-                            description_parts.append(f"{trcd_description} - {counterparty}")
-                        else:
-                            description_parts.append(trcd_description)
+            # Translate a TRCD booking code into a human-readable description.
+            # The /TRCD/<code>/ blob canonically lives in the :86: structured
+            # field, which the mt940 library parses into `transaction_details`;
+            # `extra_details` is only the short :61: supplementary field. Inspect
+            # both so genuine library output is translated, not just hand-built
+            # transactions whose code happens to sit in extra_details.
+            extra_details = transaction_data.get("extra_details", "") or ""
+            detail_text = str(transaction_data.get("transaction_details", "") or "")
+            trcd_match = re.search(r"/TRCD/(\d+)/?", detail_text) or re.search(
+                r"/TRCD/(\d+)/?", str(extra_details)
+            )
+            if trcd_match:
+                trcd_code = trcd_match.group(1)
+                # Use human-readable description from DUTCH_BOOKING_CODES
+                trcd_description = DUTCH_BOOKING_CODES.get(trcd_code)
+                if trcd_description:
+                    # Use counterparty name to make description more useful
+                    counterparty = sepa_data.get("counterparty", "")
+                    if counterparty:
+                        description_parts.append(f"{trcd_description} - {counterparty}")
                     else:
-                        # Unknown code, just use the raw extra_details
-                        description_parts.append(str(extra_details))
-                else:
+                        description_parts.append(trcd_description)
+                elif extra_details:
+                    # Unknown code, just use the raw extra_details
                     description_parts.append(str(extra_details))
+            elif extra_details:
+                description_parts.append(str(extra_details))
 
             description = " | ".join(filter(None, description_parts))
 

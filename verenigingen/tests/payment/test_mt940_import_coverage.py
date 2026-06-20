@@ -592,21 +592,16 @@ class TestMT940TrcdDescriptionFallback(EnhancedTestCase):
         self.assertIn("99999", bt.description)
         self.assertEqual(float(bt.withdrawal), 12.0)
 
-    def test_trcd_in_transaction_details_not_translated_characterization(self):
-        """CHARACTERIZATION of a real prod bug (reported in the task summary).
+    def test_trcd_in_transaction_details_translated_from_library_output(self):
+        """End-to-end check on GENUINE library output (the reported prod bug).
 
         The TRCD_ONLY_DESCRIPTION sample puts /TRCD/00100/ in the SEPA blob that
         the WoLpH/mt940 library parses into the `transaction_details` field (with
         `extra_details` empty). create_enhanced_bank_transaction_from_mt940's
-        TRCD-translation fallback only inspects `extra_details` (mt940_import.py
-        ~line 1109), so for genuine library output the TRCD code is NEVER
-        translated and the description falls back to the default placeholder.
-
-        extract_sepa_data_enhanced correctly joins extra_details +
-        transaction_details + purpose, so the inconsistency is localised to this
-        description fallback. This test pins the CURRENT (buggy) behaviour; if the
-        fallback is fixed to read transaction_details too, update this to expect
-        'Inkomende overboeking'.
+        TRCD-translation fallback must inspect `transaction_details` (where /TRCD/
+        canonically lives), not only `extra_details` (the short :61: supplementary
+        field), so for real library output the booking code is translated to its
+        Dutch description and suffixed with the counterparty name.
         """
         result = M.process_mt940_document(S.TRCD_ONLY_DESCRIPTION, self.bank_account, self.company)
         self.assertTrue(result["success"], msg=result.get("message"))
@@ -617,6 +612,8 @@ class TestMT940TrcdDescriptionFallback(EnhancedTestCase):
             filters={"bank_account": self.bank_account},
             fields=["description", "deposit"],
         )[0]
-        # Current behaviour: TRCD not translated -> default description.
-        self.assertEqual(bt.description, M.DEFAULT_TRANSACTION_DESCRIPTION)
+        # 00100 -> 'Inkomende overboeking', suffixed with the CNTP counterparty.
+        self.assertIn("Inkomende overboeking", bt.description)
+        self.assertIn("Stichting Goede Doelen", bt.description)
+        self.assertNotEqual(bt.description, M.DEFAULT_TRANSACTION_DESCRIPTION)
         self.assertEqual(float(bt.deposit), 300.00)
