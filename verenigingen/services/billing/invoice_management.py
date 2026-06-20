@@ -78,12 +78,17 @@ def bulk_generate_dues_invoices(
         # Build filter criteria for dues schedules
         base_filters = {"status": "Active", "auto_generate": 1, "is_template": 0}
 
-        # Add custom filters if provided
+        # `days_ahead` is a CONTROL parameter (it tunes the cutoff window), NOT a
+        # DocType field. It must be extracted before merging the remaining custom
+        # filters into base_filters, otherwise it leaks into the SQL WHERE clause
+        # and crashes the whole endpoint with "Unknown column 'days_ahead'".
+        days_ahead = filter_criteria.get("days_ahead", 7) if filter_criteria else 7
+
+        # Add custom filters if provided (excluding control-only keys)
         if filter_criteria:
-            base_filters.update(filter_criteria)
+            base_filters.update({k: v for k, v in filter_criteria.items() if k != "days_ahead"})
 
         # Add date-based filtering (due now or within specified days)
-        days_ahead = filter_criteria.get("days_ahead", 7) if filter_criteria else 7
         cutoff_date = add_days(today(), days_ahead)
         base_filters["next_invoice_date"] = ["<=", cutoff_date]
 
