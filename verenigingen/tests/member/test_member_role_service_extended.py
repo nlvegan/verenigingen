@@ -46,11 +46,22 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
             pluck="role_profile",
         )
 
+    def _require_role_profiles(self):
+        """add_member_roles_to_user assigns via the Frappe v16 ``role_profiles`` child
+        table (and these tests read the ``User Role Profile`` child doctype). Both are
+        absent on older Frappe (e.g. the CI runner), where the production append raises
+        ``'NoneType' has no attribute 'options'``. Skip there; these run on the v16
+        dev/prod sites. The version-agnostic fallback is covered by
+        ``test_assign_individual_roles_directly``."""
+        if not frappe.get_meta("User").has_field("role_profiles"):
+            self.skipTest("requires Frappe v16 User.role_profiles child table")
+
     # ============================================================ add_member_roles_to_user
 
     def test_add_default_profile_assigns_via_child_table(self):
         # No explicit profile -> defaults to "Verenigingen Member" and writes it
         # to the role_profiles child table (the v16 canonical store).
+        self._require_role_profiles()
         user = self._make_user()
         with self.assertNoErrorLog():
             result = self.service.add_member_roles_to_user(user.name)
@@ -60,6 +71,7 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
     def test_add_roles_clears_preexisting_roles(self):
         # The method intentionally clears ALL existing roles before applying the
         # member profile (member accounts should hold only member roles).
+        self._require_role_profiles()
         user = self._make_user(roles=["System Manager"])
         self.assertIn("System Manager", [r.role for r in user.roles])
 
@@ -70,6 +82,7 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         self.assertNotIn("System Manager", roles_after)
 
     def test_add_volunteer_profile_when_specified(self):
+        self._require_role_profiles()
         user = self._make_user()
         result = self.service.add_member_roles_to_user(
             user.name, role_profile_name="Verenigingen Volunteer"
@@ -80,7 +93,9 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
     def test_add_nonexistent_profile_falls_back_to_individual_roles(self):
         # When the requested Role Profile does not exist, the method falls back to
         # _assign_individual_member_roles, which adds Verenigingen Member + All
-        # directly (no role profile written).
+        # directly (no role profile written). Still skipped pre-v16 because the
+        # final assertion reads the User Role Profile child doctype.
+        self._require_role_profiles()
         user = self._make_user()
         result = self.service.add_member_roles_to_user(
             user.name, role_profile_name="NoSuchProfile-XYZ"
@@ -94,6 +109,7 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         self.assertNotIn("NoSuchProfile-XYZ", self._profile_names(user.name))
 
     def test_add_roles_enables_disabled_user(self):
+        self._require_role_profiles()
         user = self._make_user()
         frappe.db.set_value("User", user.name, "enabled", 0)
         self.service.add_member_roles_to_user(user.name)
