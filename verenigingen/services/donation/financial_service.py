@@ -399,20 +399,21 @@ class DonationFinancialService(StatelessService):
         Returns:
             Created and submitted donation document
         """
-        if not donation_type:
-            donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
-
-        company = self._get_company_for_donations()
+        # NOTE: donation_type is accepted for backwards compatibility but the
+        # Donation DocType has no donation_type column (it was removed), so the
+        # value is not persisted. The previous default-path lookup of the phantom
+        # "default_donation_type" Verenigingen Settings field raised a
+        # ValidationError on every call without an explicit donation_type; that
+        # crashing lookup has been removed. company is likewise not a Donation
+        # column and is no longer written.
         donation = frappe.get_doc(
             {
                 "doctype": "Donation",
-                "company": company,
                 "donor": donor,
                 "donation_date": getdate(date),
                 "amount": flt(amount),
                 "mode_of_payment": "Bank Transfer",
                 "bank_reference": bank_reference,
-                "donation_type": donation_type,
                 "paid": 1,
             }
         ).insert()
@@ -444,21 +445,19 @@ class DonationFinancialService(StatelessService):
         Returns:
             Created donation document (not submitted - SEPA batch will process)
         """
-        if not donation_type:
-            donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
-
-        company = self._get_company_for_donations()
+        # NOTE: donation_type is accepted for backwards compatibility but is not a
+        # Donation column (removed); the crashing phantom "default_donation_type"
+        # settings lookup and the phantom company write have been removed. See
+        # create_donation_from_bank_transfer for details.
         status = "Recurring" if recurring_frequency else "Promised"
 
         donation = frappe.get_doc(
             {
                 "doctype": "Donation",
-                "company": company,
                 "donor": donor,
                 "donation_date": getdate(date),
                 "amount": flt(amount),
                 "mode_of_payment": "SEPA Direct Debit",
-                "donation_type": donation_type,
                 "status": status,
                 "sepa_mandate": sepa_mandate,
                 "recurring_frequency": recurring_frequency,
@@ -494,18 +493,15 @@ class DonationFinancialService(StatelessService):
         if not frappe.db.exists("Chapter", chapter):
             frappe.throw(_("Chapter {0} does not exist").format(chapter))
 
-        if not donation_type:
-            donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
-
-        company = self._get_company_for_donations()
+        # NOTE: donation_type is accepted for backwards compatibility but is not a
+        # Donation column (removed); the crashing phantom "default_donation_type"
+        # settings lookup and the phantom company write have been removed.
         donation = frappe.get_doc(
             {
                 "doctype": "Donation",
-                "company": company,
                 "donor": donor,
                 "donation_date": getdate(date) if date else getdate(),
                 "amount": flt(amount),
-                "donation_type": donation_type,
                 "donation_purpose_type": "Chapter",
                 "chapter_reference": chapter,
                 "donation_notes": notes or f"Donation earmarked for {chapter}",
