@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 
@@ -1275,28 +1275,49 @@ class TestVIPImportCreateAndProcess(FrappeTestCase):
         self.assertEqual(stats["volunteers_skipped"], 1)
 
     def test_create_volunteer_underage_throws(self):
-        """A member younger than the minimum volunteer age cannot become a volunteer."""
+        """A member below the minimum *volunteer* age cannot become a volunteer.
+
+        The member-layer age enforcement (commit 36bb501b) blocks creating a member
+        below ``minimum_membership_age`` outright, so a genuinely under-age member can
+        no longer reach ``_create_volunteer`` at all. The scenario that DOES reach the
+        volunteer-age gate is a member old enough to join but younger than a higher
+        ``minimum_volunteer_age`` (a legitimate config: e.g. join at 16, volunteer at
+        18). Configure that gap and assert ``_create_volunteer`` rejects them.
+        """
         from verenigingen.verenigingen.doctype.vip_import.vip_import import _create_volunteer
 
-        uid = self._uid()
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Young",
-                "last_name": "Person",
-                "member_id": f"VIP-YOUNG-{uid}",
-                "email": f"young.{uid}@example.com",
-                "status": "Active",
-                "birth_date": today(),  # newborn -> definitely under min age
-            }
-        )
-        member.flags.bulk_member_operations = True
-        member.insert(ignore_permissions=True)
-        self._created_members.append(member.name)
-        frappe.db.commit()
+        settings = frappe.get_single("Verenigingen Settings")
+        orig_membership_age = settings.get("minimum_membership_age")
+        orig_volunteer_age = settings.get("minimum_volunteer_age")
+        try:
+            frappe.db.set_single_value("Verenigingen Settings", "minimum_membership_age", 16)
+            frappe.db.set_single_value("Verenigingen Settings", "minimum_volunteer_age", 21)
+            frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
-        with self.assertRaises(frappe.ValidationError):
-            _create_volunteer({"volunteer_status": "Active"}, member)
+            uid = self._uid()
+            member = frappe.get_doc(
+                {
+                    "doctype": "Member",
+                    "first_name": "Young",
+                    "last_name": "Person",
+                    "member_id": f"VIP-YOUNG-{uid}",
+                    "email": f"young.{uid}@example.com",
+                    "status": "Active",
+                    # 18: old enough to be a member (>=16), too young to volunteer (<21)
+                    "birth_date": add_days(today(), -365 * 18),
+                }
+            )
+            member.flags.bulk_member_operations = True
+            member.insert(ignore_permissions=True)
+            self._created_members.append(member.name)
+            frappe.db.commit()
+
+            with self.assertRaises(frappe.ValidationError):
+                _create_volunteer({"volunteer_status": "Active"}, member)
+        finally:
+            frappe.db.set_single_value("Verenigingen Settings", "minimum_membership_age", orig_membership_age)
+            frappe.db.set_single_value("Verenigingen Settings", "minimum_volunteer_age", orig_volunteer_age)
+            frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
 
 class TestVIPImportFinalStatusAndAccountCreation(FrappeTestCase):

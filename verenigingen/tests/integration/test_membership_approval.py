@@ -624,6 +624,15 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     mock_settings.side_effect = lambda doctype, field, *args: {
                         ("Verenigingen Settings", "member_contact_email"): "admin@example.com",
                         ("Verenigingen Settings", "support_email"): "support@example.com",
+                        # The approval path validates membership age via
+                        # AgeValidator -> get_minimum_age, which reads these settings
+                        # and throws "<field> is not configured" when they are None.
+                        # The narrow mock above used to return None for them, so once
+                        # 36bb501b began enforcing the configured minimum age (dropping
+                        # the hardcoded fallback) these tests broke. Provide the real
+                        # configured defaults so the age check passes.
+                        ("Verenigingen Settings", "minimum_membership_age"): 16,
+                        ("Verenigingen Settings", "minimum_volunteer_age"): 16,
                         ("Global Defaults", "default_company"): "Test Company",
                     }.get((doctype, field))
 
@@ -696,6 +705,15 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     mock_settings.side_effect = lambda doctype, field, *args: {
                         ("Verenigingen Settings", "member_contact_email"): "admin@example.com",
                         ("Verenigingen Settings", "support_email"): "support@example.com",
+                        # The approval path validates membership age via
+                        # AgeValidator -> get_minimum_age, which reads these settings
+                        # and throws "<field> is not configured" when they are None.
+                        # The narrow mock above used to return None for them, so once
+                        # 36bb501b began enforcing the configured minimum age (dropping
+                        # the hardcoded fallback) these tests broke. Provide the real
+                        # configured defaults so the age check passes.
+                        ("Verenigingen Settings", "minimum_membership_age"): 16,
+                        ("Verenigingen Settings", "minimum_volunteer_age"): 16,
                         ("Global Defaults", "default_company"): "Test Company",
                     }.get((doctype, field))
 
@@ -747,6 +765,15 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
                     mock_settings.side_effect = lambda doctype, field, *args: {
                         ("Verenigingen Settings", "member_contact_email"): "admin@example.com",
                         ("Verenigingen Settings", "support_email"): "support@example.com",
+                        # The approval path validates membership age via
+                        # AgeValidator -> get_minimum_age, which reads these settings
+                        # and throws "<field> is not configured" when they are None.
+                        # The narrow mock above used to return None for them, so once
+                        # 36bb501b began enforcing the configured minimum age (dropping
+                        # the hardcoded fallback) these tests broke. Provide the real
+                        # configured defaults so the age check passes.
+                        ("Verenigingen Settings", "minimum_membership_age"): 16,
+                        ("Verenigingen Settings", "minimum_volunteer_age"): 16,
                         ("Global Defaults", "default_company"): "Test Company",
                     }.get((doctype, field))
 
