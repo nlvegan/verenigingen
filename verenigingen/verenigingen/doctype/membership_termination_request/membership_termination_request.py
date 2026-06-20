@@ -600,13 +600,23 @@ def generate_expulsion_report(filters: dict | None = None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def initiate_disciplinary_termination(member: str, reason, evidence=None, reporter=None):
+def initiate_disciplinary_termination(
+    member: str,
+    reason,
+    evidence=None,
+    reporter=None,
+    termination_type=None,
+    secondary_approver=None,
+):
     """Initiate disciplinary termination procedure for a member.
 
-    Creates the disciplinary Membership Termination Request in Draft. Submitting it
-    for approval is a separate governance step (it requires a secondary approver and
-    runs the approval/notification workflow), driven from the request form.
+    Creates the disciplinary Membership Termination Request in Draft. The caller (the
+    request form's disciplinary dialog) chooses the disciplinary subtype
+    (Policy Violation / Disciplinary Action / Expulsion; defaults to Disciplinary
+    Action) and may pre-assign a secondary approver. Submitting for approval is a
+    separate governance step driven from the request form.
     """
+    DISCIPLINARY_TYPES = ["Policy Violation", "Disciplinary Action", "Expulsion"]
     try:
         # Validate input
         if not member:
@@ -614,6 +624,10 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
 
         if not reason:
             frappe.throw(_("Reason is required for disciplinary termination"))
+
+        termination_type = termination_type or "Disciplinary Action"
+        if termination_type not in DISCIPLINARY_TYPES:
+            frappe.throw(_("Termination type {0} is not a disciplinary type").format(termination_type))
 
         # Check if member exists and is active
         member_doc = frappe.get_doc("Member", member)
@@ -639,16 +653,15 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
         # Create disciplinary termination request
         termination_request = frappe.new_doc("Membership Termination Request")
         termination_request.member = member
-        # "Disciplinary Action" is the canonical disciplinary Select value the workflow
-        # recognises (DISCIPLINARY_TERMINATION_TYPES); the old "Disciplinary" was not a
-        # valid option, so every call failed on insert.
-        termination_request.termination_type = "Disciplinary Action"
+        # Use the chosen disciplinary subtype (validated above). The old code forced an
+        # invalid "Disciplinary" Select value, so every call failed on insert.
+        termination_request.termination_type = termination_type
         termination_request.termination_reason = reason
         termination_request.requested_by = reporter or frappe.session.user
         termination_request.request_date = today()
         termination_request.status = "Draft"
-        termination_request.requires_board_approval = 1
-        termination_request.requires_governance_review = 1
+        if secondary_approver:
+            termination_request.secondary_approver = secondary_approver
 
         # Add evidence if provided. Disciplinary terminations require
         # `disciplinary_documentation` (see validate_termination_request); the old
@@ -656,10 +669,6 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
         # always failed with "Documentation is required for disciplinary terminations".
         if evidence:
             termination_request.disciplinary_documentation = evidence
-
-        # Set disciplinary-specific fields
-        termination_request.disciplinary_procedure = 1
-        termination_request.investigation_required = 1
 
         # Save the request as Draft. Submission for approval is a separate step on the
         # request form: it requires a secondary approver (governance rule) and runs the
@@ -677,6 +686,8 @@ def initiate_disciplinary_termination(member: str, reason, evidence=None, report
         return {
             "success": True,
             "termination_request": termination_request.name,
+            # `request_id` is the key the request-form JS reads from the response.
+            "request_id": termination_request.name,
             "message": _("Disciplinary termination procedure has been initiated for {0}").format(
                 member_doc.full_name
             ),

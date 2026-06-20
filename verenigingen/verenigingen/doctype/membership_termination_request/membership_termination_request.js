@@ -623,9 +623,16 @@ frappe.membership_termination.show_dialog = function (member_id, member_name) {
 
 				frappe.call({
 					method: API_METHODS.INITIATE_DISCIPLINARY,
+					// Arg names must match initiate_disciplinary_termination(member, reason,
+					// evidence, ..., termination_type, secondary_approver). The execution-time
+					// options (cancel_sepa_mandates etc.) are applied when the request is
+					// executed, not at initiation, so they are not sent here.
 					args: {
-						member_id,
-						termination_data
+						member: member_id,
+						reason: termination_data.termination_reason,
+						evidence: termination_data.documentation,
+						termination_type: termination_data.termination_type,
+						secondary_approver: termination_data.secondary_approver
 					},
 					callback(r) {
 						if (r.message) {

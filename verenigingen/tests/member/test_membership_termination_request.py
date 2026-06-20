@@ -446,6 +446,31 @@ class TestMembershipTerminationRequest(VereningingenTestCase):
 
     # ============================================================ disciplinary initiation
 
+    def test_initiate_disciplinary_termination_honors_type_and_approver(self):
+        """The chosen disciplinary subtype and secondary approver (collected by the
+        dialog) must be applied, and the result must expose request_id for the UI."""
+        with self.assertNoErrorLog():
+            result = mtr.initiate_disciplinary_termination(
+                member=self.member.name,
+                reason="Grave misconduct",
+                evidence="<p>Documented incident report.</p>",
+                termination_type="Expulsion",
+                secondary_approver="Administrator",
+            )
+        self.assertTrue(result["success"], msg=result.get("error"))
+        self.track_doc("Membership Termination Request", result["termination_request"])
+        doc = frappe.get_doc("Membership Termination Request", result["termination_request"])
+        self.assertEqual(doc.termination_type, "Expulsion")
+        self.assertEqual(doc.secondary_approver, "Administrator")
+        self.assertEqual(result["request_id"], result["termination_request"])
+
+    def test_initiate_disciplinary_termination_rejects_non_disciplinary_type(self):
+        """A non-disciplinary termination_type must be rejected, not silently created."""
+        result = mtr.initiate_disciplinary_termination(
+            member=self.member.name, reason="x", termination_type="Voluntary"
+        )
+        self.assertFalse(result["success"])
+
     def test_initiate_disciplinary_termination_requires_member(self):
         result = mtr.initiate_disciplinary_termination(member="", reason="x")
         self.assertFalse(result["success"])
