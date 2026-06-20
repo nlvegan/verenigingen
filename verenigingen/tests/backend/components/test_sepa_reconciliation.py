@@ -158,7 +158,15 @@ class TestSEPAReconciliation(VereningingenTestCase):
         # Batch Invoice child row's mandatory `membership` link).
         membership_name = frappe.db.get_value("Membership", {"member": self.test_member.name}, "name")
         if not membership_name:
-            membership_type = frappe.db.get_value("Membership Type", {"is_active": 1}, "name")
+            # Don't rely on an active Membership Type pre-existing in the shared
+            # site DB: under shard rebucketing no predecessor test may have created
+            # one, so get_value({"is_active": 1}) returns None and the Membership
+            # insert below fails with MandatoryError (membership_type). Get-or-create
+            # a stable active type so this setUp is self-sufficient regardless of
+            # suite order.
+            from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+
+            membership_type = ensure_membership_type_exists("Test Recon Membership Type")
             membership = frappe.get_doc(
                 {
                     "doctype": "Membership",

@@ -18,28 +18,40 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestVolunteerProfilePage(EnhancedTestCase):
     def setUp(self):
         super().setUp()
-        self.user_email = f"vol-prof-{frappe.generate_hash()[:8]}@test.invalid"
-        self.member = self._make_member_with_user(self.user_email)
+        self.member = self._make_member_with_user(
+            f"vol-prof-{frappe.generate_hash()[:8]}@test.invalid"
+        )
+        # Use the member's STORED email (see _make_member_with_user) as the login.
+        self.user_email = self.member.email
         self.volunteer = self.create_test_volunteer(
             member=self.member.name, volunteer_name="Profile Volunteer"
         )
 
     def _make_member_with_user(self, email):
-        if not frappe.db.exists("User", email):
+        # create_test_member uniquifies the address under shared-DB collision
+        # avoidance (it appends a suffix when the local part's last chars hold no
+        # digit), so member.email may differ from `email`. The profile page
+        # resolves the volunteer via Member.email == session.user, so the User and
+        # session MUST use the member's actual stored email -- otherwise the happy
+        # path intermittently saw "No volunteer record found" (~0.8% of runs, when
+        # the random hash triggered the suffixing). Build the member first, then
+        # mint the User from its real email.
+        member = self.create_test_member(
+            first_name="Prof", last_name="Member", email=email, birth_date="1990-01-01"
+        )
+        login_email = member.email
+        if not frappe.db.exists("User", login_email):
             frappe.get_doc(
                 {
                     "doctype": "User",
-                    "email": email,
+                    "email": login_email,
                     "first_name": "Prof",
                     "last_name": "User",
                     "send_welcome_email": 0,
                     "roles": [{"role": "Verenigingen Member"}],
                 }
             ).insert(ignore_permissions=True)
-        member = self.create_test_member(
-            first_name="Prof", last_name="Member", email=email, birth_date="1990-01-01"
-        )
-        member.db_set("user", email)
+        member.db_set("user", login_email)
         return member
 
     def test_guest_is_rejected(self):
@@ -49,9 +61,10 @@ class TestVolunteerProfilePage(EnhancedTestCase):
                 profile.get_context(ctx)
 
     def test_no_volunteer_record_sets_error_message(self):
-        other_email = f"prof-novol-{frappe.generate_hash()[:8]}@test.invalid"
-        self._make_member_with_user(other_email)
-        with self.as_user(other_email):
+        other_member = self._make_member_with_user(
+            f"prof-novol-{frappe.generate_hash()[:8]}@test.invalid"
+        )
+        with self.as_user(other_member.email):
             ctx = frappe._dict()
             profile.get_context(ctx)
         self.assertIn("No volunteer record found", ctx.error_message)
