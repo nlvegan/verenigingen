@@ -132,6 +132,70 @@ class TestMemberIDGenerationNoExplicitTransaction(SingletonBackupMixin, FrappeTe
         )
 
 
+class TestTerminationTemplatesRender(FrappeTestCase):
+    """Render the termination email templates with the REAL service-built context.
+
+    Regression: the senders provided a flattened context (member_name, request_id, ...)
+    while the templates reference `member`/`doc` objects (and a field `reason_for_termination`
+    that does not exist), so every render raised jinja UndefinedError, swallowed as
+    "Termination Approved Email Error" / "Termination Approval Email Error". These tests
+    render the actual DB Email Template with the context each sender builds and assert it
+    does not raise.
+    """
+
+    def _make_request_and_member(self):
+        h = frappe.generate_hash(length=6)
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Notice",
+                "last_name": f"Render{h}",
+                "email": f"notice.render.{h}@test.invalid",
+                "status": "Active",
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(lambda: frappe.delete_doc("Member", member.name, force=True, ignore_permissions=True))
+        request = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": member.name,
+                "termination_type": "Policy Violation",
+                "termination_reason": "Render-test reason",
+                "disciplinary_documentation": "<p>doc</p>",
+                "secondary_approver": "Administrator",
+                "requested_by": "Administrator",
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(
+            lambda: frappe.delete_doc(
+                "Membership Termination Request", request.name, force=True, ignore_permissions=True
+            )
+        )
+        return request, member
+
+    def _render(self, template_name, context):
+        tpl = frappe.get_doc("Email Template", template_name)
+        body = tpl.response_html or tpl.response
+        # Raises jinja UndefinedError if the context is missing a referenced variable.
+        frappe.render_template(body, context)
+        frappe.render_template(tpl.subject, context)
+
+    def test_pending_approval_template_renders(self):
+        from verenigingen.services.approval.termination_approval_service import TerminationApprovalService
+
+        request, member = self._make_request_and_member()
+        svc = TerminationApprovalService(request)
+        self._render("Termination Approval Required", svc._pending_approval_context(member))
+
+    def test_execution_notice_template_renders(self):
+        from verenigingen.services.approval.termination_approval_service import TerminationApprovalService
+
+        request, member = self._make_request_and_member()
+        request.termination_date = frappe.utils.today()
+        svc = TerminationApprovalService(request)
+        self._render("Termination Execution Notice", svc._execution_notice_context(member))
+
+
 class TestApprovalServiceErrorHandling(FrappeTestCase):
     """Verify approval services use correct error key from EmailService."""
 

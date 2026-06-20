@@ -217,6 +217,29 @@ class TerminationApprovalService(StatefulService):
 
     # ====== Notifications ======
 
+    def _pending_approval_context(self, member) -> dict:
+        """Context for the 'Termination Approval Required' template. The template uses
+        member_name, approver_name, base_url and doc — provide all of them (the doc is
+        the request itself) so the render never hits an undefined variable."""
+        return {
+            "doc": self.request,
+            "member": member,
+            "member_name": member.full_name,
+            "member_id": self.request.member,
+            "approver_name": frappe.db.get_value("User", self.request.secondary_approver, "full_name")
+            or self.request.secondary_approver,
+            "base_url": frappe.utils.get_url(),
+            "request_id": self.request.name,
+            "termination_type": self.request.termination_type,
+            "termination_reason": self.request.termination_reason,
+            "requested_by": self.request.requested_by,
+            "requires_documentation": self.requires_secondary_approval(),
+            "portal_link": frappe.utils.get_url()
+            + "/app/membership-termination-request/"
+            + self.request.name,
+            "current_year": frappe.utils.now_datetime().year,
+        }
+
     def send_approval_notification(self) -> None:
         """Send notification to secondary approver that a request is pending their review."""
         if not self.request.secondary_approver:
@@ -231,19 +254,7 @@ class TerminationApprovalService(StatefulService):
             result = email_service.send_templated_email(
                 template_name="Termination Approval Required",
                 recipients=[self.request.secondary_approver],
-                context={
-                    "member_name": member.full_name,
-                    "member_id": self.request.member,
-                    "request_id": self.request.name,
-                    "termination_type": self.request.termination_type,
-                    "termination_reason": self.request.termination_reason,
-                    "requested_by": self.request.requested_by,
-                    "requires_documentation": self.requires_secondary_approval(),
-                    "portal_link": frappe.utils.get_url()
-                    + "/app/membership-termination-request/"
-                    + self.request.name,
-                    "current_year": frappe.utils.now_datetime().year,
-                },
+                context=self._pending_approval_context(member),
                 reference_doctype="Membership Termination Request",
                 reference_name=self.request.name,
                 notification_key="termination_pending_approval",
@@ -259,6 +270,35 @@ class TerminationApprovalService(StatefulService):
         except Exception as e:
             frappe.log_error(f"Error sending approval notification: {str(e)}")
 
+    def _execution_notice_context(self, member) -> dict:
+        """Context for the 'Termination Execution Notice' template. The template reads
+        member.first_name/name, doc.termination_type/termination_reason, company,
+        company_address, outstanding_amount and termination_date — provide all of them
+        so the render never hits an undefined variable (the missing member/doc was the
+        cause of the swallowed 'Termination Approved Email Error')."""
+        company = getattr(self.request, "company", None) or frappe.defaults.get_global_default("company")
+        return {
+            "doc": self.request,
+            "member": member,
+            "member_name": member.full_name,
+            "company": company or "",
+            "company_address": "",
+            "outstanding_amount": None,
+            "request_id": self.request.name,
+            "termination_type": self.request.termination_type,
+            "termination_date": (
+                frappe.utils.formatdate(self.request.termination_date)
+                if self.request.termination_date
+                else None
+            ),
+            "approved_by": self.request.approved_by,
+            "approver_notes": self.request.approver_notes,
+            "portal_link": frappe.utils.get_url()
+            + "/app/membership-termination-request/"
+            + self.request.name,
+            "current_year": frappe.utils.now_datetime().year,
+        }
+
     def send_approved_notification(self) -> None:
         """Send notification to requester that their termination request was approved."""
         if not self.request.requested_by:
@@ -273,22 +313,7 @@ class TerminationApprovalService(StatefulService):
             result = email_service.send_templated_email(
                 template_name="Termination Execution Notice",
                 recipients=[self.request.requested_by],
-                context={
-                    "member_name": member.full_name,
-                    "request_id": self.request.name,
-                    "termination_type": self.request.termination_type,
-                    "termination_date": (
-                        frappe.utils.formatdate(self.request.termination_date)
-                        if self.request.termination_date
-                        else None
-                    ),
-                    "approved_by": self.request.approved_by,
-                    "approver_notes": self.request.approver_notes,
-                    "portal_link": frappe.utils.get_url()
-                    + "/app/membership-termination-request/"
-                    + self.request.name,
-                    "current_year": frappe.utils.now_datetime().year,
-                },
+                context=self._execution_notice_context(member),
                 reference_doctype="Membership Termination Request",
                 reference_name=self.request.name,
                 notification_key="termination_approved",
