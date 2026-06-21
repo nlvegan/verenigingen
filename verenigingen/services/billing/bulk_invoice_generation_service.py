@@ -896,6 +896,13 @@ def process_invoice_chunk(
                 invoice = schedule.generate_invoice()
                 if invoice:
                     result.generated += 1
+                    # NOTE: ChunkResult.invoices is hook-only metadata for this
+                    # parallel worker; payment history is updated by the invoice's
+                    # own on-submit hook, NOT via bulk_update_payment_history. Do
+                    # NOT feed this dict to bulk_update_payment_history: it stores
+                    # the SalesInvoice doc object under "invoice", and that path
+                    # expects the invoice NAME (string) — see _process_sequential,
+                    # which stores invoice.name + invoice_doc for that reason.
                     invoice_data = {
                         "schedule": schedule_name,
                         "member": schedule.member_name,
