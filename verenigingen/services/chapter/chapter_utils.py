@@ -251,12 +251,24 @@ def get_user_board_positions(
         if active_only:
             filters["is_active"] = 1
 
-        # Get board positions with role information
+        # Get board positions with role information.
+        # Chapter Board Member stores dates in `from_date`/`to_date` (NOT
+        # start_date/end_date). Selecting/ordering on the phantom columns made
+        # frappe.get_all raise, which the broad except below swallowed — so this
+        # function (and is_chapter_board_member, which depends on it) silently
+        # returned [] for every real board member. Alias the real columns back to
+        # the documented `start_date`/`end_date` output keys.
         positions = frappe.get_all(
             "Chapter Board Member",
             filters=filters,
-            fields=["parent as chapter", "chapter_role", "is_active", "start_date", "end_date"],
-            order_by="parent, start_date desc",
+            fields=[
+                "parent as chapter",
+                "chapter_role",
+                "is_active",
+                "from_date as start_date",
+                "to_date as end_date",
+            ],
+            order_by="parent, from_date desc",
         )
 
         # Enrich with role permission information
