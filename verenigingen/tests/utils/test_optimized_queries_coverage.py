@@ -174,6 +174,13 @@ class TestOptimizedMemberQueries(EnhancedTestCase):
         # COUNT without DISTINCT (or a mis-scoped outstanding SUM) would diverge
         # from the flat recompute below.
         self._pay_invoice(inv1)
+        # A THIRD (paid) invoice gives a SECOND Payment Entry. With >=2 payments the
+        # pre-fix invoice-side SUM(outstanding) fans out by payment_count (the unpaid
+        # 50.0 invoice would be counted twice -> 100.0), which is exactly what the
+        # fan-out fix repairs for get_members_with_payment_data. The unpaid invoice
+        # (50.0) still leaves total_outstanding == 50.0 under the correct query.
+        inv3 = self.create_test_sales_invoice(member.name, grand_total=70.0)
+        self._pay_invoice(inv3)
 
         rows = OptimizedMemberQueries.get_members_with_payment_data({"customer": member.customer})
         my = [r for r in rows if r["member_name"] == member.name]
@@ -195,11 +202,12 @@ class TestOptimizedMemberQueries(EnhancedTestCase):
         )[0][0]
 
         self.assertEqual(row["invoice_count"], expected_count)
-        # DISTINCT correctness: invoice_count must stay 2 despite the PE fan-out.
-        self.assertEqual(row["invoice_count"], 2)
+        # DISTINCT correctness: invoice_count must stay 3 despite the PE fan-out.
+        self.assertEqual(row["invoice_count"], 3)
         self.assertEqual(row["payment_count"], expected_payment_count)
-        self.assertEqual(row["payment_count"], 1)
-        # Only the unpaid (50.0) invoice contributes to outstanding.
+        self.assertEqual(row["payment_count"], 2)
+        # Only the unpaid (50.0) invoice contributes to outstanding. With 2 payments,
+        # the pre-fix SUM would fan this to 100.0 -> asserting 50.0 guards the fix.
         self.assertEqual(float(row["total_outstanding"] or 0), float(expected_outstanding or 0))
         self.assertEqual(float(row["total_outstanding"] or 0), 50.0)
         self.assertEqual(row["customer_name"], member.customer)
