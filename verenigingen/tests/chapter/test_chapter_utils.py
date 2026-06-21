@@ -270,6 +270,11 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         self.assertEqual(pos["chapter"], self.chapter_fin.name)
         self.assertEqual(pos["chapter_role"], self.financial_role.name)
         self.assertEqual(pos["permissions_level"], "Financial")
+        # Pin the documented output keys (from_date/to_date are aliased to
+        # start_date/end_date); this fails if the alias is dropped/renamed.
+        self.assertIn("start_date", pos)
+        self.assertEqual(str(pos["start_date"]), frappe.utils.today())
+        self.assertIn("end_date", pos)
 
     def test_get_user_board_positions_chapter_filter(self):
         from verenigingen.services.chapter.chapter_utils import get_user_board_positions
@@ -447,10 +452,19 @@ class TestChapterUtilsDuesSplit(EnhancedTestCase):
     def test_get_chapter_split_percentage_default(self):
         from verenigingen.services.chapter.chapter_utils import get_chapter_split_percentage
 
+        # With no per-chapter override (None or 0 both mean "use the default" per
+        # SplitPercentage.from_chapter) the wrapper returns the configured default.
+        # Derive the expected value from settings (site-independent) rather than
+        # hardcoding it.
+        override = frappe.db.get_value("Chapter", self.chapter.name, "chapter_split_percentage")
+        self.assertIn(override, (None, 0, 0.0), f"Fresh chapter should have no override, got {override}")
+        expected_default = float(
+            frappe.db.get_single_value("Verenigingen Settings", "default_chapter_split_percentage")
+            or 60.0
+        )
         pct = get_chapter_split_percentage(self.chapter.name)
         self.assertIsInstance(pct, float)
-        self.assertGreaterEqual(pct, 0.0)
-        self.assertLessEqual(pct, 100.0)
+        self.assertEqual(pct, expected_default)
 
     def test_get_chapter_split_percentage_custom(self):
         from verenigingen.services.chapter.chapter_utils import get_chapter_split_percentage

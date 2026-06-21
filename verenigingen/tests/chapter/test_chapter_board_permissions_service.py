@@ -88,6 +88,11 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
         frappe.db.commit()
         # Second call hits the early "already exist" return True branch.
         self.assertTrue(update_membership_permissions())
+        frappe.db.commit()
+        rows = frappe.get_all(
+            "DocPerm", filters={"parent": "Membership", "role": TARGET_ROLE}, fields=["name"]
+        )
+        self.assertEqual(len(rows), 1, "Idempotent update must not duplicate the Membership perm row")
 
     def test_reset_result_is_consistent_with_row_removal(self):
         """reset's success flag must reflect whether the rows were actually removed.
