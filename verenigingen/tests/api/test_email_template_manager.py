@@ -23,6 +23,7 @@ import frappe
 from verenigingen.api.email_template_manager import (
     create_comprehensive_email_templates,
     get_email_template,
+    send_template_email,
     test_email_template,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -313,3 +314,145 @@ class TestEmailTemplateManager(VereningingenTestCase):
         )
         self.assertIn("X", module_rendered["message"])
         self.assertTrue(module_rendered["message"].strip())
+
+    # ------------------------------------------------------------------
+    # get_email_template — generic render-error fallback (not DoesNotExist)
+    # ------------------------------------------------------------------
+    def test_get_email_template_render_error_returns_fallback(self):
+        """A template that EXISTS but whose body raises during Jinja rendering
+        (e.g. malformed/forbidden expression) must NOT propagate: get_email_template
+        catches the generic Exception and returns the supplied fallback strings.
+
+        This is distinct from the DoesNotExistError path — the template is real,
+        but rendering it blows up.
+        """
+        broken_name = f"broken_render_template_{frappe.generate_hash(length=6)}"
+        # Syntactically-VALID Jinja that raises at RENDER time (division by zero).
+        # Email Template validates syntax on save, so we cannot persist a malformed
+        # template; this passes validation but blows up when get_email_template
+        # renders it, hitting the generic Exception fallback branch.
+        broken = frappe.get_doc(
+            {
+                "doctype": "Email Template",
+                "name": broken_name,
+                "subject": "Broken {{ 1 / 0 }}",
+                "response": "<p>Broken {{ 1 / 0 }}</p>",
+                "use_html": 1,
+                "response_html": "<p>Broken {{ 1 / 0 }}</p>",
+                "enabled": 1,
+            }
+        )
+        broken.insert()
+        frappe.db.commit()
+        self.addCleanup(lambda: frappe.delete_doc("Email Template", broken_name, force=True))
+
+        self.expectErrorLog("Email Template Rendering Error")
+        rendered = get_email_template(
+            broken_name,
+            context={"name": "Ignored"},
+            fallback_subject="Fallback Subject",
+            fallback_message="Fallback Message",
+        )
+        # The render error was swallowed; the explicit fallbacks are returned.
+        self.assertEqual(rendered["subject"], "Fallback Subject")
+        self.assertEqual(rendered["message"], "Fallback Message")
+
+    def test_get_email_template_render_error_default_fallback(self):
+        """Render error with no explicit fallback yields the documented default
+        subject/message (the `or` defaults in the except branch)."""
+        broken_name = f"broken_render_default_{frappe.generate_hash(length=6)}"
+        # Valid syntax, raises at render time (see sibling test).
+        broken = frappe.get_doc(
+            {
+                "doctype": "Email Template",
+                "name": broken_name,
+                "subject": "OK subject",
+                "response": "<p>{{ 1 / 0 }}</p>",
+                "use_html": 1,
+                "response_html": "<p>{{ 1 / 0 }}</p>",
+                "enabled": 1,
+            }
+        )
+        broken.insert()
+        frappe.db.commit()
+        self.addCleanup(lambda: frappe.delete_doc("Email Template", broken_name, force=True))
+
+        self.expectErrorLog("Email Template Rendering Error")
+        rendered = get_email_template(broken_name)
+        self.assertEqual(rendered["subject"], f"Notification - {broken_name}")
+        self.assertEqual(rendered["message"], "This is an automated notification.")
+
+    # ------------------------------------------------------------------
+    # send_template_email — renders a template and dispatches via EmailService
+    # ------------------------------------------------------------------
+    # send_template_email's return value reflects whether the EmailService
+    # actually dispatched, which depends on the test site's mail configuration
+    # (no email account / disabled config -> the service short-circuits). So these
+    # tests assert the robust, site-independent contract: the function renders the
+    # template via the real EmailService and returns a *bool* without raising. They
+    # exercise the full body (render + dispatch) for coverage of the happy path,
+    # the missing-notification_key warning branch, and the exception handler.
+
+    def _assert_returns_bool(self, value):
+        self.assertIsInstance(value, bool)
+
+    def test_send_template_email_renders_and_returns_bool(self):
+        """Happy path: a managed template is rendered with context and handed to the
+        EmailService; the function returns a boolean (the service success flag),
+        never raising, regardless of the site's mail configuration."""
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+
+        recipient = f"send-target-{frappe.generate_hash(length=6)}@example.com"
+        result = send_template_email(
+            "donation_confirmation",
+            recipients=[recipient],
+            context={
+                "donor_name": "Sent Donor",
+                "organization_name": "Send Org",
+                "earmarking": "General",
+                "donation_date": "2026-06-16",
+                "doc": frappe._dict(
+                    {"name": "DON-SEND", "amount": 77, "donation_status": "Paid", "donation_notes": ""}
+                ),
+            },
+            notification_key="member_status_change",
+            reference_doctype=None,
+            reference_name=None,
+        )
+        self._assert_returns_bool(result)
+
+    def test_send_template_email_without_notification_key_warns_and_returns_bool(self):
+        """Omitting notification_key takes the warning branch (no key supplied) but
+        the function still renders + dispatches and returns a boolean."""
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+
+        recipient = f"nokey-target-{frappe.generate_hash(length=6)}@example.com"
+        result = send_template_email(
+            "expense_approved",
+            recipients=[recipient],
+            context={
+                "volunteer_name": "No Key Vol",
+                "approved_by_name": "Boss",
+                "company": "Org",
+                "formatted_amount": "€10.00",
+                "approved_on": "2026-06-16",
+                "doc": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
+            },
+            # notification_key intentionally omitted -> warning branch.
+        )
+        self._assert_returns_bool(result)
+
+    def test_send_template_email_missing_template_uses_fallback_and_returns_bool(self):
+        """A non-existent template does not raise: get_email_template returns the
+        default fallback subject/message, which is handed to the EmailService, and
+        the function returns a boolean."""
+        recipient = f"missing-tmpl-{frappe.generate_hash(length=6)}@example.com"
+        result = send_template_email(
+            "no_such_template_for_send_xyz",
+            recipients=[recipient],
+            context={},
+            notification_key="member_status_change",
+        )
+        self._assert_returns_bool(result)

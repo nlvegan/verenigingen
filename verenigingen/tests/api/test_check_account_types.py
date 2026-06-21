@@ -56,6 +56,24 @@ class TestCheckAccountTypes(VereningingenTestCase):
             pluck="name",
         )[0]
 
+    def _parent_for(self, root_type):
+        """First group account of ``root_type`` in the test company.
+
+        The reason text in ``_get_suggestion_reason`` is keyed purely off the raw
+        eBoekhouden code prefix, so an account only has to be *flagged*
+        (suggested_type != stored type) for its reason branch to be exercised.
+        Parenting under the matching root keeps root_type stable so the only
+        mismatch is account_type, guaranteeing the flag.
+        """
+        parents = frappe.get_all(
+            "Account",
+            filters={"company": self.company, "is_group": 1, "root_type": root_type},
+            limit=1,
+            pluck="name",
+        )
+        self.assertTrue(parents, f"no {root_type} group account in {self.company}")
+        return parents[0]
+
     # ------------------------------------------------------------------
     # Helpers (named _persist_* / _setup_* so the test-quality-enforcer
     # permits the elevated inserts that infra setup legitimately needs).
@@ -369,3 +387,99 @@ class TestCheckAccountTypes(VereningingenTestCase):
         # The good account was still corrected.
         frappe.db.commit()
         self.assertEqual(frappe.db.get_value("Account", good.name, "account_type"), "Bank")
+
+    # ==================================================================
+    # _get_suggestion_reason — the per-code-pattern reason strings
+    # ==================================================================
+    # Each test flags an account whose stored account_type deliberately differs
+    # from the type the classification service suggests for the seeded code, then
+    # asserts the human-readable reason that drives the admin UI. The reason text
+    # is keyed off the raw code prefix, independent of the suggested type.
+
+    def test_reason_fixed_asset_02xxx(self):
+        """02xxx ('Gebouwen') -> Fixed Asset; reason mentions the 02 prefix."""
+        parent = self._parent_for("Asset")
+        acct = self._persist_account("EBKH Gebouwen", "02100", "Bank", "Asset", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["suggested_type"], "Fixed Asset")
+        self.assertEqual(issue["reason"], "Fixed Asset (account code starts with 02)")
+
+    def test_reason_current_asset_14xxx(self):
+        """14xxx classifies as Stock(Asset); reason text is the 14 prefix label."""
+        parent = self._parent_for("Asset")
+        acct = self._persist_account("EBKH Vooruit", "14000", "Bank", "Asset", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["reason"], "Current Asset (account code starts with 14)")
+
+    def test_reason_payable_44xxx(self):
+        """44xxx ('Crediteuren') -> Payable; reason mentions the 44 prefix."""
+        parent = self._parent_for("Liability")
+        acct = self._persist_account("EBKH Crediteuren", "44000", "Current Liability", "Liability", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["suggested_type"], "Payable")
+        self.assertEqual(issue["reason"], "Payable/Current Liability (account code starts with 44)")
+
+    def test_reason_current_liability_17xxx(self):
+        """17xxx ('Crediteuren kort') -> Payable; reason text is the 17/18 label.
+
+        The account name 'Crediteuren kort' makes the service classify 17000 as
+        Payable; we store it as Current Liability so it is flagged, and the 17/18
+        prefix drives the reason string.
+        """
+        parent = self._parent_for("Liability")
+        acct = self._persist_account("Crediteuren kort", "17000", "Current Liability", "Liability", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["suggested_type"], "Payable")
+        self.assertEqual(issue["reason"], "Current Liability (account code starts with 17/18)")
+
+    def test_reason_equity_5xxxx(self):
+        """5xxxx ('Eigen vermogen') -> Equity; reason mentions the 5 prefix.
+
+        Stored with a blank account_type (Not Set) so the suggested 'Equity'
+        differs and the account is flagged; root stays Equity under the parent.
+        """
+        parent = self._parent_for("Equity")
+        acct = self._persist_account("Eigen vermogen", "50000", "", "Equity", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["suggested_type"], "Equity")
+        self.assertEqual(issue["current_type"], "Not Set")
+        self.assertEqual(issue["reason"], "Equity (account code starts with 5)")
+
+    def test_reason_expense_6xxx(self):
+        """6xxxx ('Inkoop kosten') -> Expense Account; reason mentions 6/7 prefix."""
+        parent = self._parent_for("Expense")
+        acct = self._persist_account("EBKH Inkoop", "60000", "Income Account", "Expense", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["suggested_type"], "Expense Account")
+        self.assertEqual(issue["reason"], "Expense (account code starts with 6/7)")
+
+    def test_reason_tax_account_1540(self):
+        """A 1540 BTW code that classifies to a type other than its stored one is
+        flagged with the BTW/tax reason (the tax branch fires only when no earlier
+        prefix matched)."""
+        # 15700 'BTW af te dragen' -> Tax/Liability; store as Current Liability so
+        # it is flagged. '1570' is in '15700' -> tax reason branch.
+        parent = self._parent_for("Liability")
+        acct = self._persist_account("EBKH BTW Af", "15700", "Current Liability", "Liability", parent)
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["suggested_type"], "Tax")
+        self.assertEqual(issue["reason"], "Tax account (BTW-related account code)")
+
+    def test_reason_generic_fallback_for_unmatched_code(self):
+        """A code matching no specific prefix and no tax marker yields the generic
+        '(account code ...)' fallback reason. 995xx classifies (via description) to
+        Income Account; stored as Expense Account so it is flagged, and 995xx hits
+        none of the prefix branches -> generic reason."""
+        acct = self._persist_account(
+            "Vreemde Opbrengsten", "99500", "Expense Account", "Income", self.income_parent
+        )
+        issue = self._find_issue(self._call_review()["data"]["issues"], acct.name)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["reason"], "Based on account code pattern (99500)")
