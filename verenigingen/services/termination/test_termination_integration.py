@@ -364,7 +364,7 @@ class TestTerminationIntegration(EnhancedTestCase):
                 "status": "Active",
             },
         )
-        team_doc.save(ignore_permissions=True)
+        team_doc.save()
         return team, team_doc.team_members[-1].name
 
     def test_suspend_team_memberships_safe_soft_disables_not_deletes(self):
