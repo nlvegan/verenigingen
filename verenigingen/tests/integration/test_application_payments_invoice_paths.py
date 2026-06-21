@@ -12,9 +12,6 @@ skips:
       billing-period coverage math, and the custom-amount supporter / reduced
       description branches.
     - create_membership_invoice: default-amount delegation.
-    - process_application_payment: real Payment Entry creation + membership
-      activation, plus the guard for non-approved applications.
-    - get_payment_instructions_html: HTML rendering branch.
     - create_contact_for_customer: error branch returns None + logs.
 
 Real DB only — Member/Membership/Membership Type/Customer/Item are created via
@@ -224,64 +221,6 @@ class TestCreateMembershipInvoiceDefaultAmount(_InvoicePathBase):
         self.track_doc("Sales Invoice", invoice.name)
 
         self.assertAlmostEqual(invoice.items[0].rate, expected)
-
-
-class TestProcessApplicationPayment(_InvoicePathBase):
-    """process_application_payment() Payment Entry + activation + guard."""
-
-    def _ensure_mode_of_payment(self, name="Bank Transfer"):
-        from verenigingen.services.member.approval.application_helpers import (
-            ensure_payment_modes_exist,
-        )
-
-        ensure_payment_modes_exist()
-        return name
-
-    def test_rejects_non_approved_application(self):
-        member = self.create_test_member(first_name="Pay", last_name=f"NA{self.factory.test_run_id}")
-        # Default application_status is not "Approved".
-        frappe.db.set_value("Member", member.name, "application_status", "Pending")
-        member.reload()
-        with self.assertRaises(frappe.ValidationError):
-            ap.process_application_payment(member.name, "Bank Transfer")
-
-    def test_rejects_when_no_application_invoice_linked(self):
-        """Approved member with no `application_invoice` attribute throws cleanly
-        instead of raising AttributeError on the phantom field.
-
-        `application_invoice` is not a persisted Member field, so a reloaded
-        Member never carries it; the guard added in process_application_payment
-        turns that into a clear ValidationError (matching the defensive getattr
-        pattern used by the other application_invoice consumers)."""
-        member = self.create_test_member(first_name="Pay", last_name=f"NI{self.factory.test_run_id}")
-        frappe.db.set_value("Member", member.name, "application_status", "Approved")
-        member.reload()
-        self.assertFalse(getattr(member, "application_invoice", None))
-
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            ap.process_application_payment(member.name, "Bank Transfer")
-        self.assertIn("No application invoice", str(ctx.exception))
-
-
-class TestGetPaymentInstructionsHtml(EnhancedTestCase):
-    """get_payment_instructions_html() renders the instructions block."""
-
-    def test_renders_html_with_and_without_payment_url(self):
-        invoice = frappe._dict(
-            {"name": "SINV-TEST-1", "grand_total": 25.0, "currency": "EUR", "due_date": today()}
-        )
-        html_with = ap.get_payment_instructions_html(invoice, payment_url="https://pay.example/x")
-        html_without = ap.get_payment_instructions_html(invoice, payment_url=None)
-        for html in (html_with, html_without):
-            self.assertIn("Payment Instructions", html)
-            self.assertIn("Invoice Details", html)
-            # CHARACTERIZATION: the returned block is a plain triple-quoted string
-            # (no f-prefix), so the {invoice.name} / {frappe.utils.fmt_money(...)}
-            # placeholders are NOT interpolated — they ship as literal braces.
-            # This pins that known dead-template behaviour; if someone converts it
-            # to an f-string (rendering real values) this assertion will flag it
-            # so the placeholders get reviewed rather than silently changing.
-            self.assertIn("{invoice.name}", html)
 
 
 class TestCreateContactForCustomerErrorBranch(EnhancedTestCase):

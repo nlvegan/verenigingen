@@ -299,41 +299,29 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             invoice = create_membership_invoice(member, membership, membership_type, amount=100.00)
             self.track_doc("Sales Invoice", invoice.name)
 
-            # Process the payment
-            from verenigingen.utils.application_payments import process_application_payment
-
-            # Set the application_invoice field on member if it exists
-            if hasattr(member, "application_invoice"):
-                member.application_invoice = invoice.name
-                member.save()
-
-                payment_result = process_application_payment(
-                    member_name, "SEPA Direct Debit", payment_reference="TEST-LIFECYCLE-001"
-                )
-            else:
-                # Alternative: Process payment directly
-                payment_entry = frappe.get_doc(
-                    {
-                        "doctype": "Payment Entry",
-                        "payment_type": "Receive",
-                        "party_type": "Customer",
-                        "party": member.customer or invoice.customer,
-                        "paid_amount": invoice.grand_total,
-                        "received_amount": invoice.grand_total,
-                        "reference_no": "TEST-LIFECYCLE-001",
-                        "reference_date": frappe.utils.today(),
-                        "mode_of_payment": "Bank",
-                        "references": [
-                            {
-                                "reference_doctype": "Sales Invoice",
-                                "reference_name": invoice.name,
-                                "allocated_amount": invoice.grand_total}
-                        ]}
-                )
-                payment_entry.insert()
-                payment_entry.submit()
-                self.track_doc("Payment Entry", payment_entry.name)
-                payment_result = {"success": True}
+            # Process the payment directly via a Payment Entry against the invoice.
+            payment_entry = frappe.get_doc(
+                {
+                    "doctype": "Payment Entry",
+                    "payment_type": "Receive",
+                    "party_type": "Customer",
+                    "party": member.customer or invoice.customer,
+                    "paid_amount": invoice.grand_total,
+                    "received_amount": invoice.grand_total,
+                    "reference_no": "TEST-LIFECYCLE-001",
+                    "reference_date": frappe.utils.today(),
+                    "mode_of_payment": "Bank",
+                    "references": [
+                        {
+                            "reference_doctype": "Sales Invoice",
+                            "reference_name": invoice.name,
+                            "allocated_amount": invoice.grand_total}
+                    ]}
+            )
+            payment_entry.insert()
+            payment_entry.submit()
+            self.track_doc("Payment Entry", payment_entry.name)
+            payment_result = {"success": True}
 
         # Record state
         if payment_result.get("payment_skipped"):

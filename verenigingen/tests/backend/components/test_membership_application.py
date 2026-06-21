@@ -17,7 +17,6 @@ from verenigingen.api.membership_application import (
     reject_membership_application,
     submit_application,
 )
-from verenigingen.utils.application_payments import process_application_payment
 
 
 def _ensure_region(region_name: str, region_code: str) -> str:
@@ -268,7 +267,8 @@ class TestMembershipApplication(VereningingenTestCase):
         self.assertEqual(member.review_notes, "Does not meet requirements")
 
     def test_payment_processing(self):
-        """Test payment processing for approved application"""
+        """Test that an approved application reaches the Approved state and
+        provisions the related volunteer record."""
         # Submit and approve application
         result = submit_application(**self.application_data)
         member_name = result["data"]["member_record"]
@@ -276,37 +276,9 @@ class TestMembershipApplication(VereningingenTestCase):
         # VereningingenTestCase handles Administrator context appropriately
         approve_membership_application(member_name)
 
-        # Process payment - skip if application_invoice field doesn't exist
-        try:
-            payment_result = process_application_payment(
-                member_name, payment_method="Bank Transfer", payment_reference="TEST-PAY-001"
-            )
-            payment_success = payment_result.get("success", False)
-        except AttributeError as e:
-            if "application_invoice" in str(e):
-                print("⚠️ Payment processing skipped - application_invoice field not implemented")
-                payment_success = False
-                payment_result = {"success": False, "error": "Field not implemented"}
-            else:
-                raise
-
-        if payment_success:
-            self.assertTrue(payment_result["success"])
-            payment_data = payment_result.get("data", payment_result)
-
-            # Verify member activated
-            member = frappe.get_doc("Member", member_name)
-            self.assertEqual(member.application_status, "Completed")
-            self.assertEqual(member.status, "Active")
-            self.assertEqual(member.application_payment_status, "Completed")
-
-            # Verify membership activated
-            membership = frappe.get_doc("Membership", payment_data["membership"])
-            self.assertEqual(membership.status, "Active")
-        else:
-            # Payment processing not implemented - verify approval worked
-            member = frappe.get_doc("Member", member_name)
-            self.assertEqual(member.application_status, "Approved")
+        # Verify approval worked
+        member = frappe.get_doc("Member", member_name)
+        self.assertEqual(member.application_status, "Approved")
 
         # Verify volunteer record created
         volunteer = frappe.get_doc("Volunteer", {"member": member_name})
@@ -1359,7 +1331,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         frappe.delete_doc("Member", member.name, force=True)
 
     def test_volunteer_record_creation_after_payment(self):
-        """Test that volunteer record is created after payment completion"""
+        """Test that volunteer record is created after application approval"""
         # Submit application with volunteer interest
         volunteer_data = self.application_data.copy()
         volunteer_data["interested_in_volunteering"] = 1
@@ -1375,25 +1347,9 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         # VereningingenTestCase handles Administrator context appropriately
         approve_membership_application(member_name)
 
-        # Process payment to complete the workflow - skip if not implemented
-        try:
-            payment_result = process_application_payment(
-                member_name, payment_method="Bank Transfer", payment_reference="TEST-VOL-001"
-            )
-            payment_success = payment_result.get("success", False)
-        except AttributeError as e:
-            if "application_invoice" in str(e):
-                print("⚠️ Payment processing skipped - application_invoice field not implemented")
-                payment_success = False
-            else:
-                raise
-
-        if payment_success:
-            self.assertTrue(payment_result["success"])
-
         # Verify volunteer record was created
         volunteer_exists = frappe.db.exists("Volunteer", {"member": member_name})
-        self.assertTrue(volunteer_exists, "Volunteer record should be created after payment")
+        self.assertTrue(volunteer_exists, "Volunteer record should be created after approval")
 
         if volunteer_exists:
             volunteer = frappe.get_doc("Volunteer", {"member": member_name})
@@ -1412,28 +1368,12 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         non_volunteer_data["interested_in_volunteering"] = 0
         non_volunteer_data["email"] = f"nonvol_{self.test_email}"
 
-        # Submit, approve and complete payment
+        # Submit and approve application
         result = submit_application(**non_volunteer_data)
         member_name = result["data"]["member_record"]
 
         # VereningingenTestCase handles Administrator context appropriately
         approve_membership_application(member_name)
-
-        # Process payment - skip if not implemented
-        try:
-            payment_result = process_application_payment(
-                member_name, payment_method="Bank Transfer", payment_reference="TEST-NONVOL-001"
-            )
-            payment_success = payment_result.get("success", False)
-        except AttributeError as e:
-            if "application_invoice" in str(e):
-                print("⚠️ Payment processing skipped - application_invoice field not implemented")
-                payment_success = False
-            else:
-                raise
-
-        if payment_success:
-            self.assertTrue(payment_result["success"])
 
         # Verify NO volunteer record was created
         volunteer_exists = frappe.db.exists("Volunteer", {"member": member_name})
