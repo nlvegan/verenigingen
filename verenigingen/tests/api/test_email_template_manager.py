@@ -18,6 +18,8 @@ Every Email Template the module manages is force-deleted in tearDown so we never
 leave duplicate/garbage template docs on the test site.
 """
 
+from unittest.mock import MagicMock, patch
+
 import frappe
 
 from verenigingen.api.email_template_manager import (
@@ -27,6 +29,7 @@ from verenigingen.api.email_template_manager import (
     test_email_template,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.operation_result import OperationResult
 
 # The exact set of Email Templates create_comprehensive_email_templates() manages.
 # Kept in sync with the module's `templates` list so cleanup is exhaustive.
@@ -385,74 +388,117 @@ class TestEmailTemplateManager(VereningingenTestCase):
     # ------------------------------------------------------------------
     # send_template_email — renders a template and dispatches via EmailService
     # ------------------------------------------------------------------
-    # send_template_email's return value reflects whether the EmailService
-    # actually dispatched, which depends on the test site's mail configuration
-    # (no email account / disabled config -> the service short-circuits). So these
-    # tests assert the robust, site-independent contract: the function renders the
-    # template via the real EmailService and returns a *bool* without raising. They
-    # exercise the full body (render + dispatch) for coverage of the happy path,
-    # the missing-notification_key warning branch, and the exception handler.
+    # send_template_email's own RETURN value just mirrors the service's success
+    # flag, which is site-dependent (mail config). The site-independent, regression-
+    # catching contract is WHAT it hands to the EmailService: the RENDERED (not raw)
+    # subject/message, the recipients, and the notification_key. We observe the
+    # EmailService dispatch boundary (the external send) by patching the service
+    # factory the function imports at call time and capturing send_simple_email's
+    # arguments — no business logic is mocked; the template render + plumbing all run.
 
-    def _assert_returns_bool(self, value):
-        self.assertIsInstance(value, bool)
+    def _spy_email_service(self):
+        """Patch the EmailService factory send_template_email imports and return a
+        MagicMock whose .send_simple_email records its call and returns success.
+        Yields (patcher, spy_send) — caller starts/stops the patcher."""
+        spy_service = MagicMock()
+        spy_service.send_simple_email.return_value = OperationResult.ok({"sent": True})
+        patcher = patch(
+            "verenigingen.services.communication.email_service.get_email_service",
+            return_value=spy_service,
+        )
+        return patcher, spy_service.send_simple_email
 
-    def test_send_template_email_renders_and_returns_bool(self):
-        """Happy path: a managed template is rendered with context and handed to the
-        EmailService; the function returns a boolean (the service success flag),
-        never raising, regardless of the site's mail configuration."""
+    def test_send_template_email_passes_rendered_content_to_service(self):
+        """Happy path: the RENDERED subject/message (context substituted) and the
+        recipients + notification_key are handed to EmailService.send_simple_email.
+        A regression that dropped the body or sent the raw template would fail."""
         self._delete_managed_templates()
         create_comprehensive_email_templates()
 
         recipient = f"send-target-{frappe.generate_hash(length=6)}@example.com"
-        result = send_template_email(
-            "donation_confirmation",
-            recipients=[recipient],
-            context={
-                "donor_name": "Sent Donor",
-                "organization_name": "Send Org",
-                "earmarking": "General",
-                "donation_date": "2026-06-16",
-                "doc": frappe._dict(
-                    {"name": "DON-SEND", "amount": 77, "donation_status": "Paid", "donation_notes": ""}
-                ),
-            },
-            notification_key="member_status_change",
-            reference_doctype=None,
-            reference_name=None,
-        )
-        self._assert_returns_bool(result)
+        patcher, spy_send = self._spy_email_service()
+        patcher.start()
+        try:
+            result = send_template_email(
+                "donation_confirmation",
+                recipients=[recipient],
+                context={
+                    "donor_name": "Sent Donor",
+                    "organization_name": "Send Org",
+                    "earmarking": "General",
+                    "donation_date": "2026-06-16",
+                    "doc": frappe._dict(
+                        {"name": "DON-SEND", "amount": 77, "donation_status": "Paid", "donation_notes": ""}
+                    ),
+                },
+                notification_key="member_status_change",
+            )
+        finally:
+            patcher.stop()
 
-    def test_send_template_email_without_notification_key_warns_and_returns_bool(self):
-        """Omitting notification_key takes the warning branch (no key supplied) but
-        the function still renders + dispatches and returns a boolean."""
+        self.assertTrue(result, "service reported success -> function returns True")
+        spy_send.assert_called_once()
+        kwargs = spy_send.call_args.kwargs
+        self.assertEqual(kwargs["recipients"], [recipient])
+        self.assertEqual(kwargs["notification_key"], "member_status_change")
+        # Subject was rendered: '{{ doc.name }}' -> 'DON-SEND'.
+        self.assertEqual(kwargs["subject"], "Thank you for your donation - DON-SEND")
+        # Body carries the substituted context, not the raw Jinja markers.
+        self.assertIn("Sent Donor", kwargs["message"])
+        self.assertIn("77", kwargs["message"])
+        self.assertNotIn("{{ donor_name }}", kwargs["message"])
+
+    def test_send_template_email_without_notification_key_passes_none(self):
+        """Omitting notification_key (the warning branch) still dispatches, and the
+        service receives notification_key=None (not a defaulted test key)."""
         self._delete_managed_templates()
         create_comprehensive_email_templates()
 
         recipient = f"nokey-target-{frappe.generate_hash(length=6)}@example.com"
-        result = send_template_email(
-            "expense_approved",
-            recipients=[recipient],
-            context={
-                "volunteer_name": "No Key Vol",
-                "approved_by_name": "Boss",
-                "company": "Org",
-                "formatted_amount": "€10.00",
-                "approved_on": "2026-06-16",
-                "doc": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
-            },
-            # notification_key intentionally omitted -> warning branch.
-        )
-        self._assert_returns_bool(result)
+        patcher, spy_send = self._spy_email_service()
+        patcher.start()
+        try:
+            result = send_template_email(
+                "expense_approved",
+                recipients=[recipient],
+                context={
+                    "volunteer_name": "No Key Vol",
+                    "approved_by_name": "Boss",
+                    "company": "Org",
+                    "formatted_amount": "€10.00",
+                    "approved_on": "2026-06-16",
+                    "doc": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
+                },
+                # notification_key intentionally omitted -> warning branch.
+            )
+        finally:
+            patcher.stop()
 
-    def test_send_template_email_missing_template_uses_fallback_and_returns_bool(self):
+        self.assertTrue(result)
+        kwargs = spy_send.call_args.kwargs
+        self.assertIsNone(kwargs["notification_key"])
+        # The expense_approved template rendered with the volunteer's name.
+        self.assertIn("No Key Vol", kwargs["message"])
+
+    def test_send_template_email_missing_template_passes_fallback_content(self):
         """A non-existent template does not raise: get_email_template returns the
-        default fallback subject/message, which is handed to the EmailService, and
-        the function returns a boolean."""
+        default fallback subject/message, and THOSE exact fallback strings are what
+        reach the EmailService."""
         recipient = f"missing-tmpl-{frappe.generate_hash(length=6)}@example.com"
-        result = send_template_email(
-            "no_such_template_for_send_xyz",
-            recipients=[recipient],
-            context={},
-            notification_key="member_status_change",
-        )
-        self._assert_returns_bool(result)
+        patcher, spy_send = self._spy_email_service()
+        patcher.start()
+        try:
+            result = send_template_email(
+                "no_such_template_for_send_xyz",
+                recipients=[recipient],
+                context={},
+                notification_key="member_status_change",
+            )
+        finally:
+            patcher.stop()
+
+        self.assertTrue(result)
+        kwargs = spy_send.call_args.kwargs
+        # The documented default fallback strings from get_email_template.
+        self.assertEqual(kwargs["subject"], "Notification - no_such_template_for_send_xyz")
+        self.assertEqual(kwargs["message"], "This is an automated notification.")
