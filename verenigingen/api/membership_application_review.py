@@ -1016,9 +1016,16 @@ def update_payment_history_for_invoice(member_name: str, invoice_name: str):
 
         # Verify invoice belongs to this member
         if invoice.customer != member.customer:
+            # Pass the long detail as `message` (longtext) and keep a short `title`:
+            # frappe.log_error maps the FIRST positional arg to the Error Log `method`
+            # field (Data, max 140), so a long first arg raises CharacterLengthExceededError
+            # under strict validation — defeating this swallow path.
             frappe.log_error(
-                f"Invoice {invoice_name} customer ({invoice.customer}) does not match member {member_name} customer ({member.customer})",
-                "Payment History Update Error",
+                title="Payment History Update Error",
+                message=(
+                    f"Invoice {invoice_name} customer ({invoice.customer}) does not match "
+                    f"member {member_name} customer ({member.customer})"
+                ),
             )
             return
 
@@ -1040,12 +1047,12 @@ def update_payment_history_for_invoice(member_name: str, invoice_name: str):
             )
         else:
             frappe.log_error(
-                f"Failed to update payment history for member {member_name} with invoice {invoice_name}",
-                "Payment History Update Error",
+                title="Payment History Update Error",
+                message=f"Failed to update payment history for member {member_name} with invoice {invoice_name}",
             )
 
     except Exception as e:
         frappe.log_error(
-            f"Error updating payment history for member {member_name} with invoice {invoice_name}: {str(e)}",
-            "Payment History Update Error",
+            title="Payment History Update Error",
+            message=f"Error updating payment history for member {member_name} with invoice {invoice_name}: {str(e)}",
         )

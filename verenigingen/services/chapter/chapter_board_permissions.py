@@ -70,14 +70,20 @@ def update_membership_permissions():
         )
 
         if not result.success:
-            frappe.log_error(f"Failed to update Membership DocType permissions: {'; '.join(result.errors)}")
+            frappe.log_error(
+                title="Update Membership Permissions Failed",
+                message=f"Failed to update Membership DocType permissions: {'; '.join(result.errors)}",
+            )
             return False
 
         frappe.logger().info("Added Chapter Board Member permissions to Membership DocType")
         return True
 
     except Exception as e:
-        frappe.log_error(f"Error updating Membership permissions: {str(e)}")
+        frappe.log_error(
+            title="Update Membership Permissions Error",
+            message=f"Error updating Membership permissions: {str(e)}",
+        )
         return False
 
 
@@ -125,7 +131,8 @@ def update_membership_termination_request_permissions():
 
         if not result.success:
             frappe.log_error(
-                f"Failed to update Membership Termination Request permissions: {'; '.join(result.errors)}"
+                title="Update Termination Request Permissions Failed",
+                message=f"Failed to update Membership Termination Request permissions: {'; '.join(result.errors)}",
             )
             return False
 
@@ -133,7 +140,10 @@ def update_membership_termination_request_permissions():
         return True
 
     except Exception as e:
-        frappe.log_error(f"Error updating Membership Termination Request permissions: {str(e)}")
+        frappe.log_error(
+            title="Update Termination Request Permissions Error",
+            message=f"Error updating Membership Termination Request permissions: {str(e)}",
+        )
         return False
 
 
@@ -184,7 +194,10 @@ def update_volunteer_expense_permissions():
         )
 
         if not result.success:
-            frappe.log_error(f"Failed to update Volunteer Expense permissions: {'; '.join(result.errors)}")
+            frappe.log_error(
+                title="Update Volunteer Expense Permissions Failed",
+                message=f"Failed to update Volunteer Expense permissions: {'; '.join(result.errors)}",
+            )
             return False
 
         frappe.logger().info(f"{action} Chapter Board Member permissions for Volunteer Expense")
@@ -255,7 +268,10 @@ def validate_permission_security():
             return True, []
 
     except Exception as e:
-        frappe.log_error(f"Error validating permission security: {str(e)}")
+        frappe.log_error(
+            title="Validate Permission Security Error",
+            message=f"Error validating permission security: {str(e)}",
+        )
         return False, [f"Validation error: {str(e)}"]
 
 
@@ -297,7 +313,10 @@ def setup_chapter_board_permissions():
         return result
 
     except Exception as e:
-        frappe.log_error(f"Error setting up chapter board permissions: {str(e)}")
+        frappe.log_error(
+            title="Setup Chapter Board Permissions Error",
+            message=f"Error setting up chapter board permissions: {str(e)}",
+        )
         return {
             "success": False,
             "error": str(e),
@@ -350,9 +369,17 @@ def reset_chapter_board_permissions():
             )
 
             if not result.success:
+                # Pass the long detail as `message` (longtext) with a short `title`:
+                # frappe.log_error maps the FIRST positional arg to the Error Log
+                # `method` field (Data, max 140). A long single-arg call raises
+                # CharacterLengthExceededError under strict length validation, which
+                # would crash this reset path instead of recording the failure.
                 frappe.log_error(
-                    f"Failed to reset Chapter Board Member permissions for {doctype_name}: "
-                    f"{'; '.join(result.errors)}"
+                    title="Reset Chapter Board Permissions Failed",
+                    message=(
+                        f"Failed to reset Chapter Board Member permissions for {doctype_name}: "
+                        f"{'; '.join(result.errors)}"
+                    ),
                 )
                 failed.append(doctype_name)
                 continue
@@ -377,7 +404,10 @@ def reset_chapter_board_permissions():
         }
 
     except Exception as e:
-        frappe.log_error(f"Error resetting chapter board permissions: {str(e)}")
+        frappe.log_error(
+            title="Reset Chapter Board Permissions Error",
+            message=f"Error resetting chapter board permissions: {str(e)}",
+        )
         return {
             "success": False,
             "error": str(e),
