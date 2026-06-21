@@ -5,6 +5,12 @@ from frappe.utils import today
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
 
+# Machine-readable marker written into a Team Member row's `notes` when a
+# membership is soft-disabled by suspension. Restoration (unsuspension) only
+# re-enables rows carrying this marker, so team rows that were already inactive
+# *before* suspension are never wrongly reactivated.
+SUSPENSION_TEAM_MARKER = "[SUSPENDED-TEAM-MEMBERSHIP]"
+
 
 def cancel_membership_safe(
     membership_name, cancellation_date=None, cancellation_reason=None, cancellation_type="Immediate"
@@ -706,7 +712,11 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
 
 def suspend_team_memberships_safe(member_name, termination_date, reason):
     """
-    Suspend or remove all team memberships for terminated member
+    Soft-disable all active team memberships for a suspended/terminated member.
+
+    Rows are marked inactive (and stamped with a suspension marker in `notes`)
+    rather than deleted, so `restore_team_memberships_safe` can re-enable them on
+    unsuspension. Returns the number of memberships affected.
     """
     try:
         if not termination_date:
@@ -731,34 +741,38 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
 
         for team_membership in team_memberships:
             try:
-                team_member_doc = frappe.get_doc("Team Member", team_membership.name)
+                # Team Member is a child table (istable=1, never submittable) so rows are
+                # always docstatus=0. We SOFT-disable (not delete) the row so that an
+                # unsuspension can restore it — mirroring how user-account suspension
+                # toggles `enabled` rather than deleting the User. Already-inactive rows
+                # are skipped so we never count or re-stamp them.
+                if not frappe.db.get_value("Team Member", team_membership.name, "is_active"):
+                    continue
 
-                # Cancel the team membership document
-                if team_member_doc.docstatus == 1:
-                    try:
-                        team_member_doc.cancel()
-                        teams_affected += 1
-                        frappe.logger().info(
-                            f"Cancelled team membership for {team_membership.volunteer} in team {team_membership.parent}"
-                        )
-                    except frappe.PermissionError as pe:
-                        frappe.logger().error(
-                            f"Permission denied for team membership cancellation {team_member_doc.name}: {str(pe)}"
-                        )
-                        continue
-                elif team_member_doc.docstatus == 0:
-                    # Delete draft team memberships
-                    try:
-                        team_member_doc.delete()
-                        teams_affected += 1
-                        frappe.logger().info(
-                            f"Deleted draft team membership for {team_membership.volunteer} in team {team_membership.parent}"
-                        )
-                    except frappe.PermissionError as pe:
-                        frappe.logger().error(
-                            f"Permission denied for team membership deletion {team_member_doc.name}: {str(pe)}"
-                        )
-                        continue
+                try:
+                    existing_notes = frappe.db.get_value("Team Member", team_membership.name, "notes")
+                    suspension_note = f"{SUSPENSION_TEAM_MARKER} Suspended on {termination_date} - {reason}"
+                    new_notes = f"{existing_notes}\n{suspension_note}" if existing_notes else suspension_note
+                    frappe.db.set_value(
+                        "Team Member",
+                        team_membership.name,
+                        {
+                            "is_active": 0,
+                            "status": "Inactive",
+                            "to_date": termination_date,
+                            "notes": new_notes,
+                        },
+                        update_modified=False,
+                    )
+                    teams_affected += 1
+                    frappe.logger().info(
+                        f"Suspended team membership for {team_membership.volunteer} in team {team_membership.parent}"
+                    )
+                except frappe.PermissionError as pe:
+                    frappe.logger().error(
+                        f"Permission denied for team membership suspension {team_membership.name}: {str(pe)}"
+                    )
+                    continue
 
             except Exception as e:
                 frappe.logger().error(f"Failed to suspend team membership {team_membership.name}: {str(e)}")
@@ -800,6 +814,69 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
 
     except Exception as e:
         frappe.logger().error(f"Failed to suspend team memberships for {member_name}: {str(e)}")
+        return 0
+
+
+def restore_team_memberships_safe(member_name, restoration_reason):
+    """
+    Restore team memberships that were soft-disabled by a prior suspension.
+
+    Counterpart to `suspend_team_memberships_safe`. Only re-enables rows that
+    carry the suspension marker in their `notes` (written when suspended), so
+    team rows that were already inactive before suspension are left untouched.
+    Returns the number of memberships restored.
+    """
+    try:
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        if not volunteer_name:
+            return 0
+
+        teams_restored = 0
+
+        suspended_memberships = frappe.get_all(
+            "Team Member",
+            filters={
+                "volunteer": volunteer_name,
+                "is_active": 0,
+                "notes": ["like", f"%{SUSPENSION_TEAM_MARKER}%"],
+                "docstatus": ["!=", 2],
+            },
+            fields=["name", "parent", "notes"],
+        )
+
+        for membership in suspended_memberships:
+            try:
+                restoration_note = f"Team membership restored on {today()} - {restoration_reason}"
+                new_notes = (
+                    f"{membership.notes}\n{restoration_note}" if membership.notes else restoration_note
+                )
+                frappe.db.set_value(
+                    "Team Member",
+                    membership.name,
+                    {
+                        "is_active": 1,
+                        "status": "Active",
+                        "to_date": None,
+                        "notes": new_notes,
+                    },
+                    update_modified=False,
+                )
+                teams_restored += 1
+                frappe.logger().info(
+                    f"Restored team membership for volunteer {volunteer_name} in team {membership.parent}"
+                )
+            except frappe.PermissionError as pe:
+                frappe.logger().error(
+                    f"Permission denied for team membership restoration {membership.name}: {str(pe)}"
+                )
+                continue
+            except Exception as e:
+                frappe.logger().error(f"Failed to restore team membership {membership.name}: {str(e)}")
+
+        return teams_restored
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to restore team memberships for {member_name}: {str(e)}")
         return 0
 
 
@@ -1011,6 +1088,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
             "errors": [],
             "member_unsuspended": False,
             "user_unsuspended": False,
+            "teams_restored": 0,
         }
 
         # Check if member is actually suspended
@@ -1085,10 +1163,15 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
                 results["user_unsuspended"] = True
                 results["actions_taken"].append(f"User account reactivated ({user_email})")
 
-        # Note: Team memberships are not automatically restored as they may have been
-        # legitimately changed during suspension. Manual team re-assignment is recommended.
+        # 3. Restore team memberships that suspension soft-disabled. Suspension
+        # records each disabled row with a marker in its `notes`, so this only
+        # re-enables rows that suspension itself disabled (not ones that were
+        # already inactive beforehand).
         if restore_teams:
-            results["actions_taken"].append("Note: Team memberships require manual restoration")
+            teams_restored = restore_team_memberships_safe(member_name, unsuspension_reason)
+            results["teams_restored"] = teams_restored
+            if teams_restored > 0:
+                results["actions_taken"].append(f"Restored {teams_restored} team membership(s)")
 
         frappe.logger().info(f"Successfully unsuspended member {member_name}")
         return results

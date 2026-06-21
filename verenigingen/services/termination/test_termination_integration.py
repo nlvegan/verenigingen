@@ -339,6 +339,112 @@ class TestTerminationIntegration(EnhancedTestCase):
     def test_suspend_team_memberships_safe_missing_member_returns_zero(self):
         self.assertEqual(ti.suspend_team_memberships_safe("NONEXISTENT-MEMBER", today(), "x"), 0)
 
+    def _add_team_membership(self, volunteer, team=None, team_role_name="Team Member"):
+        """Append an active Team Member row for the volunteer and return (team, row_name)."""
+        # Adding a Team Member triggers the Team controller's assignment-history /
+        # notification hooks, which log (and swallow) "Team ... not found" errors
+        # against the not-yet-committed team. That is unrelated to the termination
+        # logic under test, so allow it past the Error Log guard.
+        self.expectErrorLog(
+            "Team Assignment History Error",
+            "Team Notification Error",
+            "Team Event Emission Error",
+        )
+        if team is None:
+            team = self.create_test_team()
+        team_role = self.ensure_team_role(team_role_name)
+        team_doc = frappe.get_doc("Team", team.name)
+        team_doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer.name,
+                "team_role": team_role.name,
+                "from_date": today(),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+        team_doc.save(ignore_permissions=True)
+        return team, team_doc.team_members[-1].name
+
+    def test_suspend_team_memberships_safe_soft_disables_not_deletes(self):
+        """Suspending must NOT physically delete Team Member rows (otherwise they can
+        never be restored). It should soft-disable them so unsuspend can re-enable."""
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        team, row_name = self._add_team_membership(volunteer)
+
+        affected = ti.suspend_team_memberships_safe(member.name, today(), "suspended")
+        self.assertEqual(affected, 1)
+
+        # The row must still exist (not deleted) ...
+        self.assertTrue(frappe.db.exists("Team Member", row_name))
+        # ... and be soft-disabled.
+        self.assertEqual(frappe.db.get_value("Team Member", row_name, "is_active"), 0)
+        self.assertEqual(frappe.db.get_value("Team Member", row_name, "status"), "Inactive")
+        self.assertEqual(str(frappe.db.get_value("Team Member", row_name, "to_date")), today())
+
+    def test_suspend_unsuspend_team_round_trip_restores_membership(self):
+        """End-to-end: suspending then unsuspending a member with restore_teams=True
+        restores the active team membership."""
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        team, row_name = self._add_team_membership(volunteer)
+
+        suspend_result = ti.suspend_member_safe(member.name, "policy", suspend_teams=True)
+        self.assertTrue(suspend_result["success"])
+        self.assertEqual(suspend_result["teams_suspended"], 1)
+        # Soft-disabled during suspension.
+        self.assertEqual(frappe.db.get_value("Team Member", row_name, "is_active"), 0)
+
+        unsuspend_result = ti.unsuspend_member_safe(member.name, "appeal upheld", restore_teams=True)
+        self.assertTrue(unsuspend_result["success"])
+        self.assertEqual(unsuspend_result.get("teams_restored"), 1)
+        # Membership restored to active.
+        self.assertTrue(frappe.db.exists("Team Member", row_name))
+        self.assertEqual(frappe.db.get_value("Team Member", row_name, "is_active"), 1)
+        self.assertEqual(frappe.db.get_value("Team Member", row_name, "status"), "Active")
+
+    def test_unsuspend_member_safe_restore_teams_false_leaves_teams_disabled(self):
+        """With restore_teams=False the suspended team rows stay disabled."""
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        team, row_name = self._add_team_membership(volunteer)
+
+        ti.suspend_member_safe(member.name, "policy", suspend_teams=True)
+        result = ti.unsuspend_member_safe(member.name, "appeal", restore_teams=False)
+        self.assertTrue(result["success"])
+        self.assertEqual(result.get("teams_restored", 0), 0)
+        self.assertEqual(frappe.db.get_value("Team Member", row_name, "is_active"), 0)
+
+    def test_restore_only_touches_rows_suspension_disabled(self):
+        """A row that was already inactive *before* suspension (no suspension marker)
+        must NOT be reactivated on unsuspend — only suspension-disabled rows restore."""
+        member = self._make_member()
+        volunteer = self._make_volunteer(member)
+        team, active_row = self._add_team_membership(volunteer)
+        # A second membership that is already inactive (legitimately) before suspension.
+        _, preinactive_row = self._add_team_membership(volunteer, team=team)
+        frappe.db.set_value(
+            "Team Member",
+            preinactive_row,
+            {"is_active": 0, "status": "Inactive"},
+            update_modified=False,
+        )
+
+        ti.suspend_member_safe(member.name, "policy", suspend_teams=True)
+        # Only the previously-active row gets suspended/marked.
+        self.assertEqual(frappe.db.get_value("Team Member", active_row, "is_active"), 0)
+        self.assertEqual(frappe.db.get_value("Team Member", preinactive_row, "is_active"), 0)
+
+        result = ti.unsuspend_member_safe(member.name, "appeal", restore_teams=True)
+        self.assertTrue(result["success"])
+        # Exactly one row restored (the one suspension disabled); the pre-inactive
+        # row carries no marker and stays inactive.
+        self.assertEqual(result.get("teams_restored"), 1)
+        self.assertEqual(frappe.db.get_value("Team Member", active_row, "is_active"), 1)
+        self.assertEqual(frappe.db.get_value("Team Member", preinactive_row, "is_active"), 0)
+
     # ==================================================================
     # deactivate_user_account_safe / reactivate_user_account_safe
     # ==================================================================
