@@ -81,7 +81,7 @@ class EBoekhoudenMigration(Document):
             self.db_set(
                 {
                     "migration_status": "Failed",
-                    "error_message": str(e),
+                    "error_log": str(e),
                     "end_time": frappe.utils.now_datetime(),
                 }
             )
@@ -2020,7 +2020,7 @@ def run_migration_background(migration_name: str, setup_only: bool = False):
         migration.db_set(
             {
                 "migration_status": "Failed",
-                "error_message": str(e),
+                "error_log": str(e),
                 "end_time": frappe.utils.now_datetime(),
             }
         )
