@@ -146,20 +146,47 @@ class TestOptimizedMemberQueries(EnhancedTestCase):
         self.assertTrue(member.customer, "Enhanced factory should populate member.customer")
         return member
 
+    def _pay_invoice(self, invoice):
+        """Create and submit a Payment Entry fully allocated to `invoice`.
+
+        Used to introduce real Payment Entry rows so the optimized queries'
+        ``LEFT JOIN tabPayment Entry`` actually fans out the invoice rows — the
+        scenario where a missing ``COUNT(DISTINCT ...)`` / outstanding-SUM bug
+        would surface.
+        """
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        pe = get_payment_entry("Sales Invoice", invoice.name)
+        pe.reference_no = f"REF-{frappe.generate_hash(length=6)}"
+        pe.reference_date = today()
+        pe.insert()
+        pe.submit()
+        self.track_doc("Payment Entry", pe.name)
+        return pe
+
     def test_get_members_with_payment_data_aggregates_match(self):
         member = self._member_with_customer()
         # Two submitted invoices (the factory submits unless status="Draft").
-        self.create_test_sales_invoice(member.name, grand_total=100.0)
+        inv1 = self.create_test_sales_invoice(member.name, grand_total=100.0)
         self.create_test_sales_invoice(member.name, grand_total=50.0)
+        # Pay one invoice fully -> introduces a Payment Entry row AND clears that
+        # invoice's outstanding. The PE join now fans out invoice rows, so a
+        # COUNT without DISTINCT (or a mis-scoped outstanding SUM) would diverge
+        # from the flat recompute below.
+        self._pay_invoice(inv1)
 
         rows = OptimizedMemberQueries.get_members_with_payment_data({"customer": member.customer})
         my = [r for r in rows if r["member_name"] == member.name]
         self.assertEqual(len(my), 1, "Exactly one aggregated row for the member")
         row = my[0]
 
-        # Independent recomputation scoped to this customer.
+        # Independent recomputation scoped to this customer (flat, no JOIN).
         expected_count = frappe.db.count(
             "Sales Invoice", {"customer": member.customer, "docstatus": 1}
+        )
+        expected_payment_count = frappe.db.count(
+            "Payment Entry",
+            {"party": member.customer, "party_type": "Customer", "docstatus": 1},
         )
         expected_outstanding = frappe.db.sql(
             """SELECT COALESCE(SUM(outstanding_amount), 0) FROM `tabSales Invoice`
@@ -168,7 +195,13 @@ class TestOptimizedMemberQueries(EnhancedTestCase):
         )[0][0]
 
         self.assertEqual(row["invoice_count"], expected_count)
+        # DISTINCT correctness: invoice_count must stay 2 despite the PE fan-out.
+        self.assertEqual(row["invoice_count"], 2)
+        self.assertEqual(row["payment_count"], expected_payment_count)
+        self.assertEqual(row["payment_count"], 1)
+        # Only the unpaid (50.0) invoice contributes to outstanding.
         self.assertEqual(float(row["total_outstanding"] or 0), float(expected_outstanding or 0))
+        self.assertEqual(float(row["total_outstanding"] or 0), 50.0)
         self.assertEqual(row["customer_name"], member.customer)
 
     def test_get_members_with_payment_data_status_filter(self):
@@ -182,12 +215,31 @@ class TestOptimizedMemberQueries(EnhancedTestCase):
 
     def test_get_member_financial_summary_matches_independent_query(self):
         member = self._member_with_customer()
-        self.create_test_sales_invoice(member.name, grand_total=80.0)
+        # One paid invoice + one unpaid invoice + an active mandate, so every
+        # aggregate column in the JOIN is exercised against the flat recompute.
+        paid_inv = self.create_test_sales_invoice(member.name, grand_total=80.0)
+        self.create_test_sales_invoice(member.name, grand_total=30.0)
+        self._pay_invoice(paid_inv)
+
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+        mandate = frappe.new_doc("SEPA Mandate")
+        mandate.member = member.name
+        mandate.member_name = member.full_name
+        mandate.mandate_id = f"M-{frappe.generate_hash(length=8)}"
+        mandate.iban = generate_test_iban("TEST")
+        mandate.bic = "TESTNL2A"
+        mandate.status = "Active"
+        mandate.account_holder_name = member.full_name
+        mandate.sign_date = today()
+        mandate.insert()
+        self.track_doc("SEPA Mandate", mandate.name)
 
         summary = OptimizedMemberQueries.get_member_financial_summary([member.name])
         self.assertIn(member.name, summary)
         data = summary[member.name]
 
+        # Independent (flat) recomputations scoped to this customer.
         expected_total_invoices = frappe.db.count(
             "Sales Invoice", {"customer": member.customer, "docstatus": 1}
         )
@@ -196,8 +248,28 @@ class TestOptimizedMemberQueries(EnhancedTestCase):
                WHERE customer=%s AND docstatus=1""",
             member.customer,
         )[0][0]
+        expected_paid = frappe.db.sql(
+            """SELECT COALESCE(SUM(paid_amount),0) FROM `tabPayment Entry`
+               WHERE party=%s AND party_type='Customer' AND docstatus=1""",
+            member.customer,
+        )[0][0]
+        expected_unpaid = frappe.db.count(
+            "Sales Invoice",
+            {"customer": member.customer, "docstatus": 1, "outstanding_amount": [">", 0]},
+        )
+        expected_mandates = frappe.db.count(
+            "SEPA Mandate", {"member": member.name, "status": "Active"}
+        )
+
         self.assertEqual(data["total_invoices"], expected_total_invoices)
+        self.assertEqual(data["total_invoices"], 2)
         self.assertEqual(float(data["total_invoiced"] or 0), float(expected_invoiced or 0))
+        self.assertEqual(float(data["total_paid"] or 0), float(expected_paid or 0))
+        self.assertEqual(float(data["total_paid"] or 0), 80.0)
+        self.assertEqual(data["unpaid_invoices"], expected_unpaid)
+        self.assertEqual(data["unpaid_invoices"], 1)
+        self.assertEqual(data["active_mandates"], expected_mandates)
+        self.assertEqual(data["active_mandates"], 1)
 
     def test_get_member_financial_summary_empty_returns_empty(self):
         self.assertEqual(OptimizedMemberQueries.get_member_financial_summary([]), {})
@@ -307,29 +379,51 @@ class TestOptimizedSEPAQueries(EnhancedTestCase):
             {"success": True, "updated_count": 0},
         )
 
-    def test_bulk_update_mandate_phantom_column_is_swallowed(self):
-        """FLAG: bulk_update_mandate_payment_history writes to a NON-EXISTENT
-        column `last_payment_date` on SEPA Mandate (no such field/column). The
-        function is dead (no callers); when forced to run with a member that has
-        a payment, the resulting 'Unknown column' OperationalError is caught by
-        the broad except and reported as success/0 updates. This test
-        characterizes that latent breakage; see the FLAG in the sweep report.
+    def test_bulk_update_mandate_payment_history_is_dead_and_broken(self):
+        """Characterize the two latent defects in the (caller-less, dead)
+        bulk_update_mandate_payment_history:
+
+        1. PHANTOM COLUMN: it would call
+           ``frappe.db.set_value("SEPA Mandate", ..., "last_payment_date", ...)``
+           but SEPA Mandate has no ``last_payment_date`` column/field.
+        2. TRANSACTION INCOMPATIBILITY: it calls ``frappe.db.begin()`` mid-flow.
+           Inside any active transaction (a Frappe request, or this test) that
+           raises 'This statement can cause implicit commit' BEFORE the phantom
+           write is ever reached, and the broad except matches the 'implicit
+           commit' pattern and masks it as a benign 'Test environment' success.
+
+        Net effect for callers: the function never updates anything and never
+        surfaces a real error. Flagged for follow-up (delete or rewrite).
         """
         self.assertFalse(
             frappe.db.has_column("SEPA Mandate", "last_payment_date"),
             "If this fails, the phantom column was added and the function should be revisited",
         )
+        # A member with a customer + a submitted (paid) invoice so the inner
+        # latest-payment subquery WOULD return a date and reach the phantom write
+        # were it not for the begin() failure characterized below.
         member = self.create_test_member()
+        member.reload()
+        self.assertTrue(member.customer)
+        invoice = self.create_test_sales_invoice(member.name, grand_total=25.0)
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        pe = get_payment_entry("Sales Invoice", invoice.name)
+        pe.reference_no = f"REF-{frappe.generate_hash(length=6)}"
+        pe.reference_date = today()
+        pe.insert()
+        pe.submit()
+        self.track_doc("Payment Entry", pe.name)
+
         mandate = self._make_mandate(member)
-        # Provide a payment_entries arg so the path runs; the member has no
-        # payment so latest_payment is None and set_value (which would target the
-        # phantom column) is never reached -> updated_count stays 0 but success
-        # is reported. No Error Log is written on this branch.
+
         result = OptimizedSEPAQueries.bulk_update_mandate_payment_history(
-            [mandate.name], ["PE-fake"]
+            [mandate.name], [pe.name]
         )
-        self.assertIn("success", result)
+        # begin() trips the implicit-commit guard -> swallowed as a "Test
+        # environment" success with zero updates (no real work done).
         self.assertEqual(result["updated_count"], 0)
+        self.assertIn("Test environment", result.get("message", ""))
 
 
 class TestOptimizedVolunteerQueries(EnhancedTestCase):
