@@ -22922,22 +22922,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "bulk_update_mandate_payment_history",
-  "operation_name": "bulk_update_mandate_payment_history",
-  "operation_type": "admin",
-  "description": "Update bulk mandate payment history information",
-  "enabled": 1,
-  "security_level": "medium",
-  "business_context": "Payment processing and financial transaction management",
-  "required_roles": "System Manager\nVerenigingen Staff",
-  "rate_limit_calls": 5000,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "standard",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "bulk_update_payment_history",
   "operation_name": "bulk_update_payment_history",
   "operation_type": "admin",
