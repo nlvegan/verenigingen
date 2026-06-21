@@ -1454,10 +1454,9 @@ def get_termination_permission_query(user):
 
     # Add national chapter if configured
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if hasattr(settings, "national_chapter") and settings.national_chapter:
-            if settings.national_chapter not in user_chapters:
-                user_chapters.append(settings.national_chapter)
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        if national_chapter and national_chapter not in user_chapters:
+            user_chapters.append(national_chapter)
     except Exception:
         pass
 

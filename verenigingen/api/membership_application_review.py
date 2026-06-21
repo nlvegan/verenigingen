@@ -774,10 +774,9 @@ def get_user_chapter_access(**kwargs):
     # Check national chapter access
     national_access = False
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if hasattr(settings, "national_chapter") and settings.national_chapter:
-            if settings.national_chapter in user_chapters:
-                national_access = True
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        if national_chapter and national_chapter in user_chapters:
+            national_access = True
     except Exception:
         pass
 

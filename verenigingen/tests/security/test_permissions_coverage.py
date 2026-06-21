@@ -227,16 +227,75 @@ class TestPermissionQueryBuilders(PermissionsCoverageBase):
         self.assertIn(self.chapter_a.name, board_cond)
 
     def test_termination_query_includes_national_chapter(self):
+        """A board member must additionally see termination requests scoped to the
+        configured national_board_chapter. The national chapter (here chapter_b,
+        where board_user has NO board seat) must be appended to the query.
+
+        The Single is configured via NON-committed set_single_value so it rolls
+        back with the test and production reads it in the same transaction (no
+        parallel-shard race from a committed Single)."""
         from verenigingen.permissions import get_termination_permission_query
 
-        settings = frappe.get_single("Verenigingen Settings")
-        original = settings.get("national_chapter")
-        settings.db_set("national_chapter", self.chapter_b.name)
-        try:
+        # Pre-condition: without a national chapter the board user is scoped to
+        # chapter_a only and chapter_b never appears.
+        baseline = get_termination_permission_query(self.board_user.name)
+        self.assertNotIn(self.chapter_b.name, baseline)
+
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "national_board_chapter", self.chapter_b.name
+        )
+        cond = get_termination_permission_query(self.board_user.name)
+        self.assertIn(self.chapter_b.name, cond, "national chapter must be appended for board user")
+
+    def test_termination_query_national_board_grants_visibility_e2e(self):
+        """End-to-end: a board member of the configured national_board_chapter
+        can actually SELECT a termination request for a member of that national
+        chapter, while a regular (non-board) member cannot.
+
+        other_member belongs to chapter_b. board_user has a board seat only in
+        chapter_a, so without the national grant the board_user's query excludes
+        other_member (fail-before for the national grantor). Once chapter_b is the
+        national chapter, the national-chapter block is the SOLE grantor of
+        visibility for other_member."""
+        from verenigingen.permissions import get_termination_permission_query
+
+        termination = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": self.other_member.name,
+                "termination_type": "Voluntary",
+                "termination_reason": "Coverage test national-chapter visibility",
+                "request_date": today(),
+                "requested_by": self.staff_user.name,
+                "status": "Draft",
+            }
+        ).insert()
+
+        def board_can_see():
             cond = get_termination_permission_query(self.board_user.name)
-            self.assertIn(self.chapter_b.name, cond, "national chapter must be appended for board user")
-        finally:
-            settings.db_set("national_chapter", original)
+            rows = frappe.db.sql(
+                f"SELECT name FROM `tabMembership Termination Request` "
+                f"WHERE name = %s AND {cond}",
+                termination.name,
+            )
+            return bool(rows)
+
+        # Pre-condition (no national chapter configured): board_user (board of
+        # chapter_a only) cannot see a chapter_b member's termination request, and
+        # a regular member with no board seat is denied entirely.
+        self.assertFalse(board_can_see(), "board_user must not see chapter_b termination pre-national-grant")
+        self.assertEqual(
+            get_termination_permission_query(self.regular_user.name),
+            "1=0",
+            "non-board member gets no termination visibility",
+        )
+
+        # Configure chapter_b as the national board chapter -> the national block
+        # is now the sole grantor of visibility for other_member.
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "national_board_chapter", self.chapter_b.name
+        )
+        self.assertTrue(board_can_see(), "national board member must see national-chapter termination")
 
     def test_volunteer_query_admin_member_and_management(self):
         from verenigingen.permissions import get_volunteer_permission_query

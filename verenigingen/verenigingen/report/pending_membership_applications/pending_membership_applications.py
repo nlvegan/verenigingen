@@ -252,8 +252,7 @@ def get_user_chapter_filter():
 
     # Check for national chapter access (existing logic preserved)
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        national_chapter = getattr(settings, "national_chapter", None)
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
         if len(accessible_chapters) == 1 and accessible_chapters[0] == national_chapter and national_chapter:
             # National chapter access - can see all including unassigned
             return None
