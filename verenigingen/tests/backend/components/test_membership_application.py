@@ -2,10 +2,9 @@ import unittest
 
 import frappe
 from frappe.utils import add_days, now_datetime, today
-from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster
+
 # Note: approve_membership_application / reject_membership_application
 # imported here are the DEPRECATED shims in api.membership_application.
 # They emit DeprecationWarning and delegate to the canonical
@@ -17,6 +16,8 @@ from verenigingen.api.membership_application import (
     reject_membership_application,
     submit_application,
 )
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 def _ensure_region(region_name: str, region_code: str) -> str:
@@ -124,9 +125,9 @@ class TestMembershipApplication(VereningingenTestCase):
     def setUp(self):
         """Set up for each test using factory methods"""
         super().setUp()
-        
+
         self.test_email = f"test_{frappe.generate_hash(length=8)}@example.com"
-        
+
         # Use the dedicated "Test Membership" type (minimum_amount=15, created in
         # setUpClass). Picking an arbitrary existing type via get_all(limit=1) is
         # unsafe on the shared test site — other types have a €50 minimum that
@@ -141,13 +142,13 @@ class TestMembershipApplication(VereningingenTestCase):
             membership_type.insert()
             self.track_doc("Membership Type", membership_type.name)
         self.test_membership_type = "Test Membership"
-        
+
         # Create test chapter using factory method
         self.test_chapter = self.create_test_chapter(
             chapter_name="Test Chapter Application",
             postal_codes="1000-1999"
         )
-        
+
         self.application_data = {
             "first_name": "Test",
             "last_name": "Applicant",
@@ -764,7 +765,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         # Verify invoice has basic fields (billing_period fields may not exist)
         self.assertTrue(invoice.posting_date, "Invoice should have posting date")
         self.assertTrue(invoice.due_date, "Invoice should have due date")
-        
+
         # Note: billing_period_start/end fields don't exist in standard Sales Invoice
         # These would be custom fields if needed
 
@@ -858,7 +859,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
                 filters={"member": member_name, "membership": membership.name},
                 fields=["name", "dues_rate", "status", "contribution_mode"]
             )
-            
+
             if dues_schedules:
                 dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
@@ -935,7 +936,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
                 filters={"member": member_name, "membership": membership.name},
                 fields=["name", "status", "dues_rate", "effective_date"]
             )
-            
+
             if dues_schedules:
                 dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
@@ -1178,7 +1179,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             filters={"member": member_name, "membership": membership.name},
             fields=["name", "dues_rate"]
         )
-        
+
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
             self.assertEqual(
@@ -1527,7 +1528,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             filters={"member": member_name, "membership": membership.name},
             fields=["name", "dues_rate"]
         )
-        
+
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
@@ -1595,7 +1596,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             filters={"member": member_name, "membership": membership.name},
             fields=["name", "dues_rate"]
         )
-        
+
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
@@ -1672,8 +1673,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
         # Both should have the same custom amount configuration
         if dues_schedule1 and dues_schedule2:
             self.assertEqual(
-                float(dues_schedule1.amount), 
-                float(dues_schedule2.amount), 
+                float(dues_schedule1.amount),
+                float(dues_schedule2.amount),
                 f"Identical custom amounts should have same dues schedule amounts"
             )
 
@@ -1763,7 +1764,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
             filters={"member": member_name, "membership": membership.name},
             fields=["name", "dues_rate", "contribution_mode"]
         )
-        
+
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
@@ -1908,8 +1909,8 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
             # Should have same amount configuration
             self.assertEqual(
-                float(dues_schedule2.amount), 
-                custom_amount, 
+                float(dues_schedule2.amount),
+                custom_amount,
                 "Should have same dues schedule amount for same custom amount"
             )
             edge_cases_passed += 1
