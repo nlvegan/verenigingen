@@ -309,8 +309,17 @@ def process_application_payment(member_name, payment_method, payment_reference=N
     if member.application_status != "Approved":
         frappe.throw(_("Payment can only be processed for approved applications"))
 
-    # Get the invoice
-    invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
+    # Get the invoice. `application_invoice` is an optional attribute that is only
+    # present when the approval flow set it (membership_creation_service), so it
+    # is read defensively here exactly as the other consumers do
+    # (membership_application_review, payment_processing, background_approval_api)
+    # rather than via a direct attribute access that would raise AttributeError
+    # on a Member that never had an application invoice linked.
+    application_invoice = getattr(member, "application_invoice", None)
+    if not application_invoice:
+        frappe.throw(_("No application invoice is linked to member {0}").format(member.name))
+
+    invoice = frappe.get_doc("Sales Invoice", application_invoice)
 
     # Create payment entry
     payment_entry = frappe.get_doc(
@@ -402,7 +411,10 @@ def get_payment_instructions_html(invoice, payment_url):
     settings = frappe.get_single("Verenigingen Settings")
 
     # bank_info = ""
-    if settings.bank_account_number:
+    # `bank_account_number` is not a Verenigingen Settings field, so read it via
+    # getattr to avoid an AttributeError. The branch body is intentionally a no-op
+    # (the bank-info block below is commented out); this only preserves the guard.
+    if getattr(settings, "bank_account_number", None):
         pass
         # bank_info = """
         # <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0;">
