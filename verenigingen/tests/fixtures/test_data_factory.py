@@ -590,21 +590,25 @@ class CoreTestDataFactory:
     # CORE METHOD 4: Membership Type Creation
     def create_test_membership_type(self, **kwargs):
         """Create membership type with intelligent defaults"""
-        # Use existing template if not provided
+        # Use existing template if not provided. If none exists yet, leave the
+        # field UNSET: MembershipType.after_insert auto-creates a dues schedule
+        # template for the new type (and we align its rate below).
+        #
+        # The old code fell back to a literal "Template-Annual", which does not
+        # exist on a fresh CI site -> insert() raised LinkValidationError and the
+        # caller's setUp crashed. It only triggered order-dependently (when no
+        # other test had created a template yet), so it surfaced as a flaky
+        # shard failure rather than a consistent one.
         if 'dues_schedule_template' not in kwargs:
-            # Find an existing template we can use
             existing_template = frappe.db.get_value(
-                "Membership Dues Schedule", 
-                {"is_template": 1}, 
-                "name", 
+                "Membership Dues Schedule",
+                {"is_template": 1},
+                "name",
                 order_by="creation desc"
             )
             if existing_template:
                 kwargs['dues_schedule_template'] = existing_template
-            else:
-                # Fallback - this shouldn't happen in production data
-                kwargs['dues_schedule_template'] = "Template-Annual"
-        
+
         # Get a role profile for the membership type (required field)
         role_profile = kwargs.get("role_profile")
         if not role_profile:
@@ -626,6 +630,28 @@ class CoreTestDataFactory:
         membership_type = frappe.get_doc({"doctype": "Membership Type", **defaults})
         membership_type.insert(ignore_permissions=True)
         self.track_doc("Membership Type", membership_type.name)
+
+        # When we did not supply a template, MembershipType.after_insert created
+        # one at a default rate that may sit below this type's minimum_amount.
+        # That makes a later membership submit fail with "Template dues rate (...)
+        # cannot be less than membership type minimum (...)". Align the auto-created
+        # template's rate with the type (mirrors ensure_membership_type_exists()).
+        if not defaults.get("dues_schedule_template"):
+            template = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"is_template": 1, "membership_type": membership_type.name},
+                "name",
+            )
+            if template:
+                amount = defaults["minimum_amount"]
+                template_doc = frappe.get_doc("Membership Dues Schedule", template)
+                template_doc.suggested_amount = amount
+                template_doc.dues_rate = amount
+                template_doc.minimum_amount = amount * 0.5
+                template_doc.save(ignore_permissions=True)
+                if membership_type.dues_schedule_template != template:
+                    membership_type.dues_schedule_template = template
+                    membership_type.save(ignore_permissions=True)
         return membership_type
 
     # CORE METHOD 5: Volunteer Creation
