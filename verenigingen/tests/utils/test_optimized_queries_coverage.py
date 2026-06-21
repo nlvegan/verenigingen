@@ -377,62 +377,6 @@ class TestOptimizedSEPAQueries(EnhancedTestCase):
         with self.assertRaises(ValueError):
             OptimizedSEPAQueries.get_active_mandates_for_members(["x'; DROP --"])
 
-    def test_bulk_update_mandate_empty_inputs_short_circuit(self):
-        self.assertEqual(
-            OptimizedSEPAQueries.bulk_update_mandate_payment_history([], []),
-            {"success": True, "updated_count": 0},
-        )
-        self.assertEqual(
-            OptimizedSEPAQueries.bulk_update_mandate_payment_history(["M-1"], []),
-            {"success": True, "updated_count": 0},
-        )
-
-    def test_bulk_update_mandate_payment_history_is_dead_and_broken(self):
-        """Characterize the two latent defects in the (caller-less, dead)
-        bulk_update_mandate_payment_history:
-
-        1. PHANTOM COLUMN: it would call
-           ``frappe.db.set_value("SEPA Mandate", ..., "last_payment_date", ...)``
-           but SEPA Mandate has no ``last_payment_date`` column/field.
-        2. TRANSACTION INCOMPATIBILITY: it calls ``frappe.db.begin()`` mid-flow.
-           Inside any active transaction (a Frappe request, or this test) that
-           raises 'This statement can cause implicit commit' BEFORE the phantom
-           write is ever reached, and the broad except matches the 'implicit
-           commit' pattern and masks it as a benign 'Test environment' success.
-
-        Net effect for callers: the function never updates anything and never
-        surfaces a real error. Flagged for follow-up (delete or rewrite).
-        """
-        self.assertFalse(
-            frappe.db.has_column("SEPA Mandate", "last_payment_date"),
-            "If this fails, the phantom column was added and the function should be revisited",
-        )
-        # A member with a customer + a submitted (paid) invoice so the inner
-        # latest-payment subquery WOULD return a date and reach the phantom write
-        # were it not for the begin() failure characterized below.
-        member = self.create_test_member()
-        member.reload()
-        self.assertTrue(member.customer)
-        invoice = self.create_test_sales_invoice(member.name, grand_total=25.0)
-        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
-        pe = get_payment_entry("Sales Invoice", invoice.name)
-        pe.reference_no = f"REF-{frappe.generate_hash(length=6)}"
-        pe.reference_date = today()
-        pe.insert()
-        pe.submit()
-        self.track_doc("Payment Entry", pe.name)
-
-        mandate = self._make_mandate(member)
-
-        result = OptimizedSEPAQueries.bulk_update_mandate_payment_history(
-            [mandate.name], [pe.name]
-        )
-        # begin() trips the implicit-commit guard -> swallowed as a "Test
-        # environment" success with zero updates (no real work done).
-        self.assertEqual(result["updated_count"], 0)
-        self.assertIn("Test environment", result.get("message", ""))
-
 
 class TestOptimizedVolunteerQueries(EnhancedTestCase):
     """Volunteer assignment UNION query vs independent recomputation."""
