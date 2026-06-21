@@ -105,6 +105,8 @@ class AuditEventType(Enum):
     API_CALL_FAILED = "api_call_failed"
     CSRF_VALIDATION_SUCCESS = "csrf_validation_success"
     CSRF_VALIDATION_FAILED = "csrf_validation_failed"
+    VALIDATION_FAILED = "validation_failed"
+    VALIDATION_WARNINGS = "validation_warnings"
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
     UNAUTHORIZED_ACCESS_ATTEMPT = "unauthorized_access_attempt"
     PERMISSION_DENIED = "permission_denied"
@@ -128,6 +130,7 @@ class AuditEventType(Enum):
     PERFORMANCE_ALERT = "performance_alert"
     AUDIT_SYSTEM_INITIALIZED = "audit_system_initialized"
     SECURITY_SYSTEM_INITIALIZED = "security_system_initialized"
+    VALIDATION_SYSTEM_INITIALIZED = "validation_system_initialized"
 
     # Parameter Security Events
     PARAMETER_TAMPERING = "parameter_tampering"

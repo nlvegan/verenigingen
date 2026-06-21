@@ -390,9 +390,14 @@ class SecurityMonitor:
                 },
             )
 
-        # Auto-resolve low-severity incidents after time period
+        # Auto-resolve low-severity incidents.
+        # NOTE: ``frappe.enqueue`` has no ``delay`` parameter, so the old
+        # ``delay=300`` was forwarded as a kwarg to ``_auto_resolve_incident``,
+        # which raised ``TypeError: ... unexpected keyword argument 'delay'`` in
+        # the worker EVERY time a LOW incident was created -> auto-resolution was
+        # entirely broken. Enqueue the job without the bogus kwarg so it runs.
         if threat_level == ThreatLevel.LOW:
-            frappe.enqueue(self._auto_resolve_incident, incident_id=incident_id, delay=300)  # 5 minutes
+            frappe.enqueue(self._auto_resolve_incident, incident_id=incident_id)
 
     def _auto_resolve_incident(self, incident_id: str):
         """Auto-resolve low-severity incidents"""
@@ -947,9 +952,12 @@ class SecurityTester:
             round((test_results["tests_passed"] / total_tests) * 100, 1) if total_tests > 0 else 0
         )
 
-        # Log test execution
+        # Log test execution. NOTE: the API Audit Log Select only accepts the
+        # event types enumerated on the doctype; "security_tests_executed" is not
+        # one of them, so it was rejected and the audit record silently dropped
+        # (an Error Log was written instead). Use the valid "other" event type.
         self.audit_logger.log_event(
-            "security_tests_executed",
+            "other",
             AuditSeverity.INFO,
             details={
                 "overall_score": test_results["overall_score"],
@@ -1141,8 +1149,11 @@ def setup_security_monitoring():
 
     # Log setup completion
     audit_logger = get_audit_logger()
+    # NOTE: "security_monitoring_initialized" is not a valid API Audit Log event
+    # type, so it was rejected and the init audit record silently dropped (an
+    # Error Log was written instead). Use the valid "security_system_initialized".
     audit_logger.log_event(
-        "security_monitoring_initialized",
+        "security_system_initialized",
         AuditSeverity.INFO,
         details={
             "monitoring_thresholds": _security_monitor.thresholds,

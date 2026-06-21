@@ -809,9 +809,12 @@ def setup_enhanced_validation():
     _schema_registry = SchemaRegistry()
     _enhanced_validator = EnhancedValidator()
 
-    # Log setup completion
+    # Log setup completion. NOTE: "enhanced_validation_initialized" was not a
+    # valid API Audit Log event type, so this audit row was rejected and silently
+    # dropped (only an Error Log remained). Use the registered
+    # "validation_system_initialized" type.
     _enhanced_validator.audit_logger.log_event(
-        "enhanced_validation_initialized",
+        "validation_system_initialized",
         AuditSeverity.INFO,
         details={
             "schemas_registered": len(_schema_registry.schemas),

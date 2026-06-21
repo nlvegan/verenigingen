@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, now, today
+from frappe.utils import add_days, add_to_date, now, today
 
 from verenigingen.utils.constants import Roles
 
@@ -141,6 +141,7 @@ class SEPAAuditLogger:
         ip_address: str = None,
         details: Dict[str, Any] = None,
         sensitive_data: bool = False,
+        check_alerts: bool = True,
     ) -> str:
         """
         Log an audit event
@@ -152,6 +153,12 @@ class SEPAAuditLogger:
             ip_address: IP address (defaults to current request IP)
             details: Additional event details
             sensitive_data: Whether event contains sensitive data
+            check_alerts: Run threshold-alert checking after storing the event.
+                The threshold-alert path itself logs a SUSPICIOUS_ACTIVITY
+                meta-event; it passes check_alerts=False so that meta-event does
+                not re-enter alert checking and recurse infinitely (the
+                SUSPICIOUS_ACTIVITY threshold is count=1/window=1, which would
+                otherwise self-trigger on every alert).
 
         Returns:
             Event ID for tracking
@@ -216,8 +223,10 @@ class SEPAAuditLogger:
             # Log to file system
             self._log_to_file(audit_event)
 
-            # Check for alert conditions
-            self._check_alert_conditions(audit_event)
+            # Check for alert conditions (skipped for alert meta-events to
+            # prevent infinite recursion — see check_alerts docstring)
+            if check_alerts:
+                self._check_alert_conditions(audit_event)
 
             return event_id
 
@@ -436,7 +445,11 @@ class SEPAAuditLogger:
     def _count_recent_events(self, event_type: str, window_minutes: int) -> int:
         """Count recent events of specific type from both audit tables"""
         try:
-            cutoff_time = add_days(now(), days=0, hours=0, minutes=-window_minutes)
+            # NOTE: frappe.utils.add_days(date, days) takes only those two args.
+            # The previous add_days(now(), hours=0, minutes=-window) raised
+            # TypeError, which the bare except below swallowed -> this method
+            # always returned 0, silently disabling ALL security alert thresholds.
+            cutoff_time = add_to_date(now(), minutes=-window_minutes)
             total_count = 0
 
             if self._is_sepa_event(event_type):
@@ -465,7 +478,9 @@ class SEPAAuditLogger:
                 "Security Alert: {0} events of type '{1}' in {2} minutes (threshold: {3})"
             ).format(count, event_type, threshold["window_minutes"], threshold["count"])
 
-            # Log critical alert
+            # Log critical alert. check_alerts=False: this SUSPICIOUS_ACTIVITY
+            # meta-event must not re-enter alert checking, or it would recurse
+            # infinitely (SUSPICIOUS_ACTIVITY threshold is count=1/window=1).
             self.log_event(
                 AuditEventType.SUSPICIOUS_ACTIVITY,
                 AuditSeverity.CRITICAL,
@@ -476,6 +491,7 @@ class SEPAAuditLogger:
                     "threshold": threshold,
                     "alert_message": alert_message,
                 },
+                check_alerts=False,
             )
 
             # Send notification to administrators
@@ -853,18 +869,24 @@ def log_sensitive_operation(
     """
     logger = get_audit_logger()
 
-    # Determine if this is a SEPA operation
-    sepa_operations = {
-        "batch_creation",
-        "batch_processing",
-        "sepa_xml_generation",
-        "mandate_validation",
-        "payment_processing",
-        "bank_submission",
+    # Map SEPA operations to event types that actually exist in
+    # SEPAAuditLogger.SEPA_EVENT_TYPES (so they route to the SEPA Audit Log and
+    # have process_type mappings). The previous ``f"sepa_{operation}"`` produced
+    # names in NEITHER SEPA_EVENT_TYPES nor the API Audit Log Select options
+    # (e.g. "sepa_batch_creation", and the double-prefixed
+    # "sepa_sepa_xml_generation"), so EVERY SEPA sensitive-operation audit was
+    # silently rejected and dropped (only an Error Log remained).
+    sepa_operation_event_types = {
+        "batch_creation": "sepa_batch_created",
+        "batch_processing": "sepa_batch_processed",
+        "sepa_xml_generation": "sepa_xml_generated",
+        "mandate_validation": "sepa_mandate_validated",
+        "payment_processing": "payment_processing",
+        "bank_submission": "bank_submission",
     }
 
-    if operation in sepa_operations:
-        event_type = f"sepa_{operation}"
+    if operation in sepa_operation_event_types:
+        event_type = sepa_operation_event_types[operation]
     else:
         event_type = AuditEventType.SENSITIVE_DATA_ACCESS
 
