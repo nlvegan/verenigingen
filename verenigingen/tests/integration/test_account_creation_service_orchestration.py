@@ -244,6 +244,8 @@ class TestLinkExistingUserCommit(_ACRBase):
         success, error = self.svc.link_existing_user(member, email, validate_names=True)
         self.assertTrue(success, error)
         self.assertIsNone(error)
+        # Idempotent: the existing link is unchanged (not rewritten/duplicated).
+        self.assertEqual(frappe.db.get_value("Member", member.name, "user"), email)
 
 
 class TestValidateMissingArtifactCompletion(_ACRBase):

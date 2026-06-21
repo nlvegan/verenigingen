@@ -275,6 +275,13 @@ class TestGetPaymentInstructionsHtml(EnhancedTestCase):
         for html in (html_with, html_without):
             self.assertIn("Payment Instructions", html)
             self.assertIn("Invoice Details", html)
+            # CHARACTERIZATION: the returned block is a plain triple-quoted string
+            # (no f-prefix), so the {invoice.name} / {frappe.utils.fmt_money(...)}
+            # placeholders are NOT interpolated — they ship as literal braces.
+            # This pins that known dead-template behaviour; if someone converts it
+            # to an f-string (rendering real values) this assertion will flag it
+            # so the placeholders get reviewed rather than silently changing.
+            self.assertIn("{invoice.name}", html)
 
 
 class TestCreateContactForCustomerErrorBranch(EnhancedTestCase):
