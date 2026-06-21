@@ -204,7 +204,11 @@ class TestCacheInvalidationManager(EnhancedTestCase):
     # ---- bulk pattern invalidation --------------------------------------
 
     def test_bulk_invalidate_member_pattern_clears_stat_counters(self):
-        # _bulk_invalidate_member_caches deletes the cache_stats:hits/misses keys.
+        # NOTE: _bulk_invalidate_member_caches is largely a logging STUB -- it only
+        # logs "Would invalidate" for the member_data:* / member_financial_summary:*
+        # patterns and does NOT actually purge them. Its one real side effect is
+        # clearing the cache_stats:hits/misses counters, which is what we assert
+        # here. Do not read this green test as "bulk member-data invalidation works".
         frappe.cache().set_value("cache_stats:hits", 5)
         frappe.cache().set_value("cache_stats:misses", 3)
 
