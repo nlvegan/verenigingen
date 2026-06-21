@@ -408,21 +408,22 @@ def invalidate_customer_cache(customer_name: str):
 def refresh_financial_cache():
     """Refresh all financial data caches"""
     try:
-        # Clear all financial cache keys
-        cache_pattern_keys = ["customer_invoices:*", "outstanding_invoices:*", "payment_summary:*"]
+        # Clear all financial cache keys.
+        #
+        # Use frappe.cache().delete_keys(pattern) rather than a manual
+        # get_keys(pattern) + delete_key(key) loop. get_keys() returns keys
+        # WITH the namespace prefix already applied (e.g.
+        # "_<hash>|customer_invoices:CUST-1"), but delete_key() defaults to
+        # make_keys=True and re-applies the prefix, producing a double-prefixed
+        # key that never matches anything — so the manual loop silently deleted
+        # nothing. delete_keys() handles the prefixing correctly internally.
+        cache_pattern_keys = ["customer_invoices", "outstanding_invoices", "payment_summary"]
 
         for pattern in cache_pattern_keys:
             try:
-                keys = frappe.cache().get_keys(pattern)
-                for key in keys:
-                    try:
-                        frappe.cache().delete_key(key)
-                    except (ConnectionError, TimeoutError) as cache_error:
-                        frappe.logger().warning(f"Cache delete failed for '{key}': {cache_error}")
-                    except Exception as e:
-                        frappe.logger().error(f"Unexpected cache error for '{key}': {e}")
+                frappe.cache().delete_keys(pattern)
             except (ConnectionError, TimeoutError) as cache_error:
-                frappe.logger().warning(f"Cache key lookup failed for pattern '{pattern}': {cache_error}")
+                frappe.logger().warning(f"Cache delete failed for pattern '{pattern}': {cache_error}")
             except Exception as e:
                 frappe.logger().error(f"Unexpected cache error for pattern '{pattern}': {e}")
 
