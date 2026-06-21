@@ -68,7 +68,7 @@ class DepartmentHierarchyManager:
         )
 
         for team in national_teams:
-            dept_name = "{team.team_name} ({team.team_type or 'Team'})"
+            dept_name = f"{team.team_name} ({team.team_type or 'Team'})"
             self._ensure_department(dept_name, parent="National Teams")
 
     def _resolve_department_name(self, dept_name):

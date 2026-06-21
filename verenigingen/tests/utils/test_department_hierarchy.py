@@ -187,6 +187,45 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         mgr = DepartmentHierarchyManager()
         self.assertEqual(mgr.get_volunteer_department(vol.name), "National Organization")
 
+    # ------------------------------------------------------- _create_team_departments
+    def test_create_team_departments_interpolates_team_name(self):
+        """REGRESSION (BUG 3): _create_team_departments built dept_name from a
+        non-f-string literal ("{team.team_name} ({team.team_type ...})"), so the
+        created Department was literally named "{team.team_name} (...)" instead
+        of the real team name. That literal then never matched the correctly
+        f-stringed lookup in get_volunteer_department, breaking team-department
+        routing entirely.
+
+        We create a real national (chapter-less) Team and run
+        _create_team_departments, then assert a Department exists whose
+        department_name is the correctly interpolated value and that the literal
+        placeholder name was NOT created.
+
+        secure_document_operation does not commit, so the created Departments
+        roll back with the test transaction.
+        """
+        self._ensure_company()
+        mgr = DepartmentHierarchyManager()
+        # The "National Teams" parent must exist for the team dept to attach.
+        mgr._ensure_department("National Teams", parent=None)
+
+        team = self._make_team(chapter=None, team_type="Working Group")
+        expected_name = f"{team.team_name} ({team.team_type or 'Team'})"
+        literal_name = "{team.team_name} ({team.team_type or 'Team'})"
+
+        mgr._create_team_departments()
+
+        # The literal, un-interpolated department must NOT have been created.
+        self.assertIsNone(
+            frappe.db.get_value("Department", {"department_name": literal_name}, "name"),
+            "literal placeholder department should never be created (missing f-prefix bug)",
+        )
+        # The correctly interpolated department MUST exist.
+        self.assertTrue(
+            frappe.db.get_value("Department", {"department_name": expected_name}, "name"),
+            f"expected a Department named {expected_name!r} for the national team",
+        )
+
     # ------------------------------------------------------- _ensure_department
     def test_ensure_department_creates_then_returns_existing(self):
         company = self._ensure_company()
