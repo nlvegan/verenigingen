@@ -10,7 +10,7 @@ helper, which sit on the same module.
 """
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.optimized_queries import (

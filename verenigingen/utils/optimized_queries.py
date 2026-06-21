@@ -21,15 +21,12 @@ Performance Goals:
 - Reduce database calls by 70-80% for core operations
 """
 
-import json
 
 # Database import not needed for this module functionality
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional
 
 import frappe
-from frappe import _
-from frappe.utils import cint, cstr, flt, get_datetime, getdate, now, nowdate
 
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
