@@ -244,11 +244,19 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         permission level) gains access to the national chapter.
 
         This exercises the "Check national chapter access" branch of
-        get_user_accessible_chapters. The branch was previously inert because it
-        called a non-existent frappe.get_cached_single() (AttributeError, swallowed
-        by the broad except) and read a phantom `national_chapter` field instead of
-        the real `national_board_chapter`. Pre-fix this assertion fails because the
-        national chapter is never appended.
+        get_user_accessible_chapters, which previously crashed-and-swallowed because
+        it called a non-existent frappe.get_cached_single() (AttributeError) and read
+        a phantom `national_chapter` field instead of the real `national_board_chapter`.
+        The fix repoints it to frappe.db.get_single_value(..., "national_board_chapter").
+
+        NOTE on regression strength: this asserts the documented behaviour (a national
+        board member sees the national chapter) but is a CHARACTERIZATION test, not a
+        strict fail-before/pass-after guard. The earlier main board-positions loop
+        already admits ANY chapter where the volunteer holds a qualifying active seat
+        -- including the national chapter -- so the national branch is behaviourally
+        redundant and the result is identical with the bug present. The strict
+        regression anchors for THIS branch are the negative/level tests below plus the
+        loop tests; this case documents the intended national-access semantics.
         """
         from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
