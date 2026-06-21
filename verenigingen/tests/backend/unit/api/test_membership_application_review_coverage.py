@@ -34,15 +34,37 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 def _grant_medium_access(email):
-    """Grant the role profile needed to pass the @standard_api MEDIUM gate.
+    """Grant MEDIUM access needed to pass the @standard_api gate.
 
     get_user_chapter_access is decorated @standard_api (SecurityLevel.MEDIUM);
     a sub-MEDIUM caller is denied with a raised PermissionError before the body
-    runs. The Verenigingen Volunteer role profile satisfies the MEDIUM gate.
+    runs.
+
+    The authorization policy grants MEDIUM to "Verenigingen Volunteer" via BOTH
+    the role-profile path (rule 4) and the individual-role path (rule 5). We assign
+    the *role* directly — not just the role_profile_name Link — because:
+
+      - On Frappe v16 the single `role_profile_name` Link is deprecated/cleared in
+        favour of the `role_profiles` child table, so a bare `db.set_value` of
+        role_profile_name silently resolves to no profiles (observed in CI:
+        `user_profiles=[]` -> rule_7_deny -> PermissionError). The role-based path
+        does not depend on that field.
+      - Role membership is resolved through `frappe.get_roles()`, which `set_user`
+        recomputes deterministically, so it is immune to the versioned
+        `user_role_profiles` cache churn that other shards trigger via
+        `invalidate_user_role_cache()`. The previous `delete_keys("user_role_profiles")`
+        was the wrong (and order-dependent) invalidation entry point.
+
+    Assigning the role makes rule 5 (individual_role -> MEDIUM) grant access
+    regardless of role-profile cache state, fixing the full-shard order-dependence.
     """
-    frappe.db.set_value("User", email, "role_profile_name", "Verenigingen Volunteer")
+    user = frappe.get_doc("User", email)
+    if not any(r.role == "Verenigingen Volunteer" for r in user.roles):
+        user.append("roles", {"role": "Verenigingen Volunteer"})
+        user.save()
     frappe.db.commit()
-    frappe.cache().delete_keys("user_role_profiles")
+    # Recompute the freshly-saved role set so the next set_user() sees the new role.
+    frappe.clear_cache(user=email)
 
 
 def _ensure_membership_type():
@@ -252,9 +274,7 @@ class TestGetPendingApplications(EnhancedTestCase):
 
     def test_lists_pending_member(self):
         membership_type = _ensure_membership_type()
-        member = self._pending_member(
-            application_date=today(), membership_type=membership_type
-        )
+        member = self._pending_member(application_date=today(), membership_type=membership_type)
         result = get_pending_applications()
         names = [r["name"] for r in result]
         self.assertIn(member.name, names)
@@ -408,14 +428,10 @@ class TestUpdatePaymentHistoryForInvoice(EnhancedTestCase):
         self.expectErrorLog("Payment History Update Error")
         # frappe.get_doc on the missing invoice raises inside the try block; the
         # function logs and returns without propagating.
-        self.assertIsNone(
-            update_payment_history_for_invoice(member.name, "NONEXISTENT-SINV-COV-12345")
-        )
+        self.assertIsNone(update_payment_history_for_invoice(member.name, "NONEXISTENT-SINV-COV-12345"))
 
     def test_nonexistent_member_is_logged_and_swallowed(self):
         self.expectErrorLog("Payment History Update Error")
         self.assertIsNone(
-            update_payment_history_for_invoice(
-                "NONEXISTENT-MEMBER-COV-12345", "NONEXISTENT-SINV-COV-12345"
-            )
+            update_payment_history_for_invoice("NONEXISTENT-MEMBER-COV-12345", "NONEXISTENT-SINV-COV-12345")
         )

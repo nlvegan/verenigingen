@@ -15,6 +15,7 @@ polluting other suites.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.fake_cache import isolate_cache_keys
 from verenigingen.utils.cache_invalidation import (
     CacheInvalidationManager,
     on_document_cancel,
@@ -45,24 +46,31 @@ class TestCacheInvalidationManager(EnhancedTestCase):
     # ---- direct member cache invalidation -------------------------------
 
     def test_invalidate_member_cache_removes_cached_data(self):
-        QueryCache.set_cached_member_data(self.member.name, {"hello": "world"})
-        self.assertIsNotNone(QueryCache.get_cached_member_data(self.member.name))
+        # Isolate member_data so the set->assert-present round-trip is immune to a
+        # sibling CI shard's frappe.clear_cache() redis FLUSH (the production
+        # invalidate->miss path still runs against the isolated store).
+        with isolate_cache_keys("member_data:"):
+            QueryCache.set_cached_member_data(self.member.name, {"hello": "world"})
+            self.assertIsNotNone(QueryCache.get_cached_member_data(self.member.name))
 
-        CacheInvalidationManager._invalidate_member_cache(self.member.name)
+            CacheInvalidationManager._invalidate_member_cache(self.member.name)
 
-        self.assertIsNone(
-            QueryCache.get_cached_member_data(self.member.name),
-            "member cache should miss after invalidation",
-        )
+            self.assertIsNone(
+                QueryCache.get_cached_member_data(self.member.name),
+                "member cache should miss after invalidation",
+            )
 
     def test_invalidate_volunteer_assignments_cache(self):
-        key = f"volunteer_assignments:{self.member.name}"
-        frappe.cache().set_value(key, [{"a": 1}])
-        self.assertIsNotNone(frappe.cache().get_value(key))
+        # Isolate volunteer_assignments so the set->assert-present round-trip is
+        # immune to a sibling shard's redis FLUSH.
+        with isolate_cache_keys("volunteer_assignments:"):
+            key = f"volunteer_assignments:{self.member.name}"
+            frappe.cache().set_value(key, [{"a": 1}])
+            self.assertIsNotNone(frappe.cache().get_value(key))
 
-        CacheInvalidationManager._invalidate_volunteer_assignments_cache(self.member.name)
+            CacheInvalidationManager._invalidate_volunteer_assignments_cache(self.member.name)
 
-        self.assertIsNone(frappe.cache().get_value(key))
+            self.assertIsNone(frappe.cache().get_value(key))
 
     # ---- document-change dispatch ---------------------------------------
 
@@ -80,38 +88,47 @@ class TestCacheInvalidationManager(EnhancedTestCase):
 
     def test_unmapped_doctype_is_noop(self):
         # A doctype not present in CACHE_DEPENDENCIES must return early.
-        QueryCache.set_cached_member_data(self.member.name, {"cached": True})
+        # Isolate member_data: the assertion is that the cached value SURVIVES the
+        # no-op dispatch, which a sibling shard's redis FLUSH would otherwise evict.
+        with isolate_cache_keys("member_data:"):
+            QueryCache.set_cached_member_data(self.member.name, {"cached": True})
 
-        # "User" is not in CACHE_DEPENDENCIES; pass any real document.
-        user_doc = frappe.get_doc("User", "Administrator")
-        with self.assertNoErrorLog():
-            CacheInvalidationManager.invalidate_on_document_change(user_doc, "on_update")
+            # "User" is not in CACHE_DEPENDENCIES; pass any real document.
+            user_doc = frappe.get_doc("User", "Administrator")
+            with self.assertNoErrorLog():
+                CacheInvalidationManager.invalidate_on_document_change(user_doc, "on_update")
 
-        # Member cache untouched because dispatch returned early.
-        self.assertEqual(
-            QueryCache.get_cached_member_data(self.member.name), {"cached": True}
-        )
+            # Member cache untouched because dispatch returned early.
+            self.assertEqual(QueryCache.get_cached_member_data(self.member.name), {"cached": True})
 
     def test_member_update_clears_financial_summary_caches(self):
         # Member is in CACHE_DEPENDENCIES with invalidate_financial=True.
-        keys = [
-            f"member_financial_summary:{self.member.name}",
-            f"member_payment_history:{self.member.name}",
-            f"member_outstanding_balance:{self.member.name}",
-        ]
-        for k in keys:
-            frappe.cache().set_value(k, {"x": 1})
-        for k in keys:
-            self.assertIsNotNone(frappe.cache().get_value(k))
+        # Isolate the financial summary keys so the set->assert-present round-trip
+        # is immune to a sibling shard's redis FLUSH; the production clear path
+        # still runs against the isolated store.
+        with isolate_cache_keys(
+            "member_financial_summary:",
+            "member_payment_history:",
+            "member_outstanding_balance:",
+        ):
+            keys = [
+                f"member_financial_summary:{self.member.name}",
+                f"member_payment_history:{self.member.name}",
+                f"member_outstanding_balance:{self.member.name}",
+            ]
+            for k in keys:
+                frappe.cache().set_value(k, {"x": 1})
+            for k in keys:
+                self.assertIsNotNone(frappe.cache().get_value(k))
 
-        member_doc = frappe.get_doc("Member", self.member.name)
-        CacheInvalidationManager.invalidate_on_document_change(member_doc, "on_update")
+            member_doc = frappe.get_doc("Member", self.member.name)
+            CacheInvalidationManager.invalidate_on_document_change(member_doc, "on_update")
 
-        for k in keys:
-            self.assertIsNone(
-                frappe.cache().get_value(k),
-                f"financial cache {k} should be cleared on member change",
-            )
+            for k in keys:
+                self.assertIsNone(
+                    frappe.cache().get_value(k),
+                    f"financial cache {k} should be cleared on member change",
+                )
 
     # ---- affected-member resolution -------------------------------------
 
@@ -147,17 +164,22 @@ class TestCacheInvalidationManager(EnhancedTestCase):
     # ---- stats tracking --------------------------------------------------
 
     def test_tracking_increments_total_and_per_doctype(self):
-        # Start from a clean stats baseline for a deterministic assertion.
-        frappe.cache().delete_value(STATS_KEY)
+        # Isolate the global stats key so the production write->read round-trip is
+        # immune to a sibling CI shard's redis FLUSH (which would otherwise evict
+        # cache_invalidation_stats between _track_cache_invalidation's set and the
+        # get, leaving stats == {}).
+        with isolate_cache_keys(STATS_KEY):
+            # Start from a clean stats baseline for a deterministic assertion.
+            frappe.cache().delete_value(STATS_KEY)
 
-        member_doc = frappe.get_doc("Member", self.member.name)
-        CacheInvalidationManager.invalidate_on_document_change(member_doc, "on_update")
-        CacheInvalidationManager.invalidate_on_document_change(member_doc, "on_update")
+            member_doc = frappe.get_doc("Member", self.member.name)
+            CacheInvalidationManager.invalidate_on_document_change(member_doc, "on_update")
+            CacheInvalidationManager.invalidate_on_document_change(member_doc, "on_update")
 
-        stats = CacheInvalidationManager.get_cache_invalidation_stats()
-        self.assertEqual(stats.get("total_invalidations"), 2)
-        self.assertEqual(stats.get("Member_on_update"), 2)
-        self.assertIn("last_invalidation", stats)
+            stats = CacheInvalidationManager.get_cache_invalidation_stats()
+            self.assertEqual(stats.get("total_invalidations"), 2)
+            self.assertEqual(stats.get("Member_on_update"), 2)
+            self.assertIn("last_invalidation", stats)
 
     def test_get_stats_returns_dict_when_empty(self):
         frappe.cache().delete_value(STATS_KEY)
@@ -166,32 +188,39 @@ class TestCacheInvalidationManager(EnhancedTestCase):
     # ---- hook handler wrappers ------------------------------------------
 
     def test_hook_handlers_dispatch_with_correct_method(self):
-        frappe.cache().delete_value(STATS_KEY)
-        member_doc = frappe.get_doc("Member", self.member.name)
+        # Isolate the global stats key (see test_tracking_* for rationale): the
+        # production write->read round-trip must survive a sibling shard's FLUSH.
+        with isolate_cache_keys(STATS_KEY):
+            frappe.cache().delete_value(STATS_KEY)
+            member_doc = frappe.get_doc("Member", self.member.name)
 
-        on_document_update(member_doc, "on_update")
-        on_document_submit(member_doc, "on_submit")
-        on_document_cancel(member_doc, "on_cancel")
+            on_document_update(member_doc, "on_update")
+            on_document_submit(member_doc, "on_submit")
+            on_document_cancel(member_doc, "on_cancel")
 
-        stats = CacheInvalidationManager.get_cache_invalidation_stats()
-        self.assertEqual(stats.get("total_invalidations"), 3)
-        self.assertEqual(stats.get("Member_on_update"), 1)
-        self.assertEqual(stats.get("Member_on_submit"), 1)
-        self.assertEqual(stats.get("Member_on_cancel"), 1)
+            stats = CacheInvalidationManager.get_cache_invalidation_stats()
+            self.assertEqual(stats.get("total_invalidations"), 3)
+            self.assertEqual(stats.get("Member_on_update"), 1)
+            self.assertEqual(stats.get("Member_on_submit"), 1)
+            self.assertEqual(stats.get("Member_on_cancel"), 1)
 
     # ---- cache warming ---------------------------------------------------
 
     def test_warm_cache_for_member_populates_member_data(self):
-        # Ensure a clean slate, then warm and confirm the member data is cached.
-        QueryCache.invalidate_member_cache(self.member.name)
-        self.assertIsNone(QueryCache.get_cached_member_data(self.member.name))
+        # Isolate the keys warm_cache_for_member writes (member_data: and, for a
+        # volunteer member, volunteer_assignments:) so the warm->assert-present
+        # round-trip is immune to a sibling shard's redis FLUSH.
+        with isolate_cache_keys("member_data:", "volunteer_assignments:"):
+            # Ensure a clean slate, then warm and confirm the member data is cached.
+            QueryCache.invalidate_member_cache(self.member.name)
+            self.assertIsNone(QueryCache.get_cached_member_data(self.member.name))
 
-        with self.assertNoErrorLog():
-            CacheInvalidationManager.warm_cache_for_member(self.member.name)
+            with self.assertNoErrorLog():
+                CacheInvalidationManager.warm_cache_for_member(self.member.name)
 
-        cached = QueryCache.get_cached_member_data(self.member.name)
-        self.assertIsNotNone(cached, "warming should populate member data cache")
-        self.assertEqual(cached.get("name"), self.member.name)
+            cached = QueryCache.get_cached_member_data(self.member.name)
+            self.assertIsNotNone(cached, "warming should populate member data cache")
+            self.assertEqual(cached.get("name"), self.member.name)
 
     def test_warm_cache_for_nonexistent_member_does_not_raise(self):
         # warm_cache_for_member swallows errors (logs them); confirm no raise.

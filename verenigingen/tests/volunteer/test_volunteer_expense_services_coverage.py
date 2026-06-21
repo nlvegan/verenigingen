@@ -30,10 +30,21 @@ class _ExpenseFixtureMixin:
         return frappe.db.get_single_value("Verenigingen Settings", "company") or "_Test Company"
 
     def _expense_account(self):
-        """Return a real expense (non-group) account for the configured company."""
+        """Return a real expense (non-group) account for the configured company.
+
+        Filter on ``account_type == "Expense Account"`` -- which is exactly what
+        ExpenseCategory.validate_expense_account requires -- rather than the
+        broader ``root_type == "Expense"`` superset. The COA has many
+        root_type=Expense accounts whose account_type is NOT "Expense Account"
+        (Cost of Goods Sold, Depreciation, Stock Adjustment, ...); with no
+        order_by an unfiltered get_value returns an arbitrary row, so under the
+        shared-DB CI shard it could hand back one of those, making the category
+        insert fail its validator. Filtering on account_type makes the result
+        deterministically valid regardless of row ordering.
+        """
         acct = frappe.db.get_value(
             "Account",
-            {"company": self._company(), "root_type": "Expense", "is_group": 0},
+            {"company": self._company(), "account_type": "Expense Account", "is_group": 0},
             "name",
         )
         self.assertIsNotNone(acct, "Test company must have at least one expense account")

@@ -436,7 +436,9 @@ class TestCreateBankAccountRecord(_BankFlowBase):
         bank_name = get_or_create_bank(bank_info)
 
         # Clear any prior Bank Account on this GL account so we hit the create path.
-        for existing in frappe.get_all("Bank Account", filters={"account": self.bank_gl_account}, pluck="name"):
+        for existing in frappe.get_all(
+            "Bank Account", filters={"account": self.bank_gl_account}, pluck="name"
+        ):
             frappe.delete_doc("Bank Account", existing, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -453,7 +455,10 @@ class TestCreateBankAccountRecord(_BankFlowBase):
         # account.name points at a CoA account that does not exist -> guarded None.
         fake = frappe._dict({"name": "NO-SUCH-ACCOUNT - TCBF", "account_name": "Ghost"})
         result = create_bank_account_record(
-            account=fake, bank_name="Unknown Bank", bank_info={"bank_name": "Unknown Bank"}, company=self.company
+            account=fake,
+            bank_name="Unknown Bank",
+            bank_info={"bank_name": "Unknown Bank"},
+            company=self.company,
         )
         self.assertIsNone(result)
 
@@ -468,7 +473,9 @@ class TestFindAndDiscoverBankAccounts(_BankFlowBase):
 
     def test_discover_missing_bank_accounts(self):
         # Ensure the seeded Bank GL account has NO Bank Account record -> reported missing.
-        for existing in frappe.get_all("Bank Account", filters={"account": self.bank_gl_account}, pluck="name"):
+        for existing in frappe.get_all(
+            "Bank Account", filters={"account": self.bank_gl_account}, pluck="name"
+        ):
             frappe.delete_doc("Bank Account", existing, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -478,7 +485,9 @@ class TestFindAndDiscoverBankAccounts(_BankFlowBase):
         self.assertIn(self.bank_gl_account, missing_names)
 
     def test_create_missing_bank_accounts_then_idempotent(self):
-        for existing in frappe.get_all("Bank Account", filters={"account": self.bank_gl_account}, pluck="name"):
+        for existing in frappe.get_all(
+            "Bank Account", filters={"account": self.bank_gl_account}, pluck="name"
+        ):
             frappe.delete_doc("Bank Account", existing, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -533,19 +542,19 @@ class TestCleanupDuplicateBankAccounts(_BankFlowBase):
 
 def _setup_find_in_coa(company):
     """find_bank_accounts_in_coa reads company from E-Boekhouden Settings, so set
-    it temporarily for the duration of the call."""
-    settings = frappe.get_single("E-Boekhouden Settings")
-    prev = settings.default_company
-    settings.default_company = company
-    settings.flags.ignore_permissions = True
-    settings.save(ignore_permissions=True)
-    frappe.db.commit()
+    it temporarily for the duration of the call.
+
+    Uses non-committed ``set_single_value`` rather than ``settings.save()`` to
+    configure the Single: production reads ``default_company`` via
+    ``frappe.get_single`` in the same transaction, the change rolls back at test
+    end, and it bypasses full-document validation (avoiding the shard-race
+    ``MandatoryError`` when a prior test has emptied the mandatory ``api_token``)."""
+    prev = frappe.db.get_single_value("E-Boekhouden Settings", "default_company")
+    frappe.db.set_single_value("E-Boekhouden Settings", "default_company", company)
     try:
         return find_bank_accounts_in_coa()
     finally:
-        settings.default_company = prev
-        settings.save(ignore_permissions=True)
-        frappe.db.commit()
+        frappe.db.set_single_value("E-Boekhouden Settings", "default_company", prev)
 
 
 if __name__ == "__main__":

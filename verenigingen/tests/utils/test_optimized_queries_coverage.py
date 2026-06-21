@@ -13,6 +13,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.fake_cache import isolate_cache_keys
 from verenigingen.utils.optimized_queries import (
     OptimizedChapterQueries,
     OptimizedMemberQueries,
@@ -448,32 +449,41 @@ class TestQueryCacheAndDropIns(EnhancedTestCase):
     """QueryCache round-trip + the drop-in replacement helpers."""
 
     def test_member_data_cache_roundtrip_and_invalidate(self):
-        key = f"cachetest-{frappe.generate_hash(length=6)}"
-        self.assertIsNone(QueryCache.get_cached_member_data(key))
-        QueryCache.set_cached_member_data(key, {"x": 1})
-        self.assertEqual(QueryCache.get_cached_member_data(key), {"x": 1})
-        QueryCache.invalidate_member_cache(key)
-        self.assertIsNone(QueryCache.get_cached_member_data(key))
+        # Route the QueryCache key through an in-process dict so a sibling shard's
+        # frappe.clear_cache() (redis FLUSH on the shared CI redis) cannot evict
+        # the value between set and get. See tests/fixtures/fake_cache.py.
+        with isolate_cache_keys("member_data:"):
+            key = f"cachetest-{frappe.generate_hash(length=6)}"
+            self.assertIsNone(QueryCache.get_cached_member_data(key))
+            QueryCache.set_cached_member_data(key, {"x": 1})
+            self.assertEqual(QueryCache.get_cached_member_data(key), {"x": 1})
+            QueryCache.invalidate_member_cache(key)
+            self.assertIsNone(QueryCache.get_cached_member_data(key))
 
     def test_volunteer_assignments_cache_roundtrip(self):
-        key = f"voltest-{frappe.generate_hash(length=6)}"
-        self.assertIsNone(QueryCache.get_cached_volunteer_assignments(key))
-        QueryCache.set_cached_volunteer_assignments(key, [{"a": 1}])
-        self.assertEqual(QueryCache.get_cached_volunteer_assignments(key), [{"a": 1}])
+        # Flush-proof the set->get round-trip on the shared CI redis.
+        with isolate_cache_keys("volunteer_assignments:"):
+            key = f"voltest-{frappe.generate_hash(length=6)}"
+            self.assertIsNone(QueryCache.get_cached_volunteer_assignments(key))
+            QueryCache.set_cached_volunteer_assignments(key, [{"a": 1}])
+            self.assertEqual(QueryCache.get_cached_volunteer_assignments(key), [{"a": 1}])
 
     def test_optimize_volunteer_assignment_loading_caches_result(self):
         member = self.create_test_member()
         volunteer = self.create_test_volunteer(member.name)
-        # Ensure a clean cache slot.
-        frappe.cache().delete_value(f"volunteer_assignments:{volunteer.name}")
+        # Flush-proof the production cache slot this exercises so a sibling
+        # shard's redis FLUSH cannot evict the cached result between writes/reads.
+        with isolate_cache_keys("volunteer_assignments:"):
+            # Ensure a clean cache slot.
+            frappe.cache().delete_value(f"volunteer_assignments:{volunteer.name}")
 
-        first = optimize_volunteer_assignment_loading(volunteer.name)
-        self.assertIsInstance(first, list)
-        # Second call must hit the cache and return the same data.
-        cached = QueryCache.get_cached_volunteer_assignments(volunteer.name)
-        self.assertEqual(cached, first)
-        second = optimize_volunteer_assignment_loading(volunteer.name)
-        self.assertEqual(second, first)
+            first = optimize_volunteer_assignment_loading(volunteer.name)
+            self.assertIsInstance(first, list)
+            # Second call must hit the cache and return the same data.
+            cached = QueryCache.get_cached_volunteer_assignments(volunteer.name)
+            self.assertEqual(cached, first)
+            second = optimize_volunteer_assignment_loading(volunteer.name)
+            self.assertEqual(second, first)
 
     def test_optimize_member_payment_history_update_no_members_for_customer(self):
         # Exercise the "no members for customer" branch of the drop-in helper

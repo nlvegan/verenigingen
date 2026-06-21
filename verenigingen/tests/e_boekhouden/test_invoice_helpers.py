@@ -22,6 +22,7 @@ import unittest
 import frappe
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import (
+    _determine_account_type_for_transaction,
     add_tax_lines,
     create_customer_from_relation,
     create_single_line_fallback,
@@ -35,7 +36,6 @@ from verenigingen.e_boekhouden.utils.invoice_helpers import (
     map_grootboek_to_erpnext_account,
     map_unit_of_measure,
     process_line_items,
-    _determine_account_type_for_transaction,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -280,9 +280,7 @@ class _AccountFixtureBase(EnhancedTestCase):
         # A Dutch-named expense GROUP typed "Expense Account" mirrors a real NVV CoA
         # so _determine_account_type_for_transaction's purchase parent lookup
         # ("%Kosten%" + is_group + Expense Account) resolves instead of returning None.
-        cls.kosten_group = cls._persist_account(
-            "Kosten Groep", "Expense Account", "Expense", is_group=1
-        )
+        cls.kosten_group = cls._persist_account("Kosten Groep", "Expense Account", "Expense", is_group=1)
         cls.income_account = cls._persist_account("InvLines Income", "Income Account", "Income")
         cls.expense_account = cls._persist_account(
             "InvLines Expense", "Expense Account", "Expense", parent=cls.kosten_group
@@ -342,11 +340,15 @@ class TestGetCostCenter(_AccountFixtureBase):
 
     def _setup_settings_default_company(self, company):
         """Point E-Boekhouden Settings.default_company at ``company`` and return the
-        previous value so the caller can restore it."""
-        settings = frappe.get_single("E-Boekhouden Settings")
-        prev = settings.default_company
-        settings.default_company = company
-        settings.save(ignore_permissions=True)
+        previous value so the caller can restore it.
+
+        Uses non-committed ``set_single_value`` rather than ``settings.save()``:
+        production reads ``default_company`` via ``frappe.get_single`` in the same
+        transaction, the change rolls back at test end, and it bypasses full-document
+        validation (avoiding the shard-race ``MandatoryError`` when a prior test has
+        emptied the mandatory ``api_token``)."""
+        prev = frappe.db.get_single_value("E-Boekhouden Settings", "default_company")
+        frappe.db.set_single_value("E-Boekhouden Settings", "default_company", company)
         return prev
 
     def test_resolves_company_from_settings_when_omitted(self):
