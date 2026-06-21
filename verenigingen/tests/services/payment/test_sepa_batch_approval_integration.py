@@ -136,10 +136,14 @@ class TestSEPABatchApprovalRealApprove(_BatchMixin, EnhancedTestCase):
         """A DIFFERENT Accounts Manager passes four-eyes + role, yet approval
         still fails at the state-machine transition.
 
-        This characterizes the FLAG: the service tries to set the Direct Debit
-        Batch ``status`` to "Approved" (an invalid Select option / wrong field)
-        via a full validating save, which cannot succeed on a real batch. The
-        global commit in approve_batch is therefore never reached.
+        This characterizes the FLAG. The state machine's execute_transition()
+        performs a full validating save of the batch, which on a real
+        invoice-less batch trips Direct Debit Batch.validate_invoices() ("No
+        valid invoices found") before anything else. Even with invoices the save
+        would then hit the Select-option guard, because "Approved" is not a valid
+        ``status`` option (it belongs to the separate ``approval_status`` field).
+        Either way the transition fails and the global commit in approve_batch is
+        never reached.
         """
         name = self._make_batch(status="Pending Approval")
         approver = self.create_test_user_with_roles(

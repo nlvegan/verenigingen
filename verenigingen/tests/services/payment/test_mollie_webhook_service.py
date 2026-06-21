@@ -100,7 +100,10 @@ class TestMollieWebhookServiceActiveSubscriptions(EnhancedTestCase):
             "Mollie Settings", "testing_webhook_url", "https://default.example.com/hook"
         )
 
-    def _make_subscribed_member(self, *, cust_id, sub_id, status="active"):
+    def _make_subscribed_member(self, *, cust_id, sub_id, status="Active"):
+        # NB: production filters subscription_status == "Active" (capitalized).
+        # Match it exactly so the get_all() row match does not lean on the
+        # column's case-insensitive collation.
         member = self.create_test_member(
             first_name="Webhook",
             last_name="Sub",
