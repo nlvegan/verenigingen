@@ -7,22 +7,11 @@ Branch-coverage tests for ``verenigingen.services.customer_handling_service``.
 These complement ``test_customer_handling_service_integration.py`` by exercising
 the previously-uncovered branches: the similar-customer warning paths in
 ``create_customer_for_member``; the Mollie-linking helpers
-(``update_customer_mandate``, ``link_customer_to_mollie``,
-``get_customer_mollie_info``, ``validate_customer_setup``); and the
+(``link_customer_to_mollie``, ``validate_customer_setup``); and the
 ``ensure_donor_customer_exists`` lifecycle.
 
 All tests use a real Frappe database (no business-logic mocking) and run as the
 default Administrator user.
-
-FLAGGED for review (see also the session summary): the Mollie-linking helpers
-reference Customer fields that do NOT exist on this site's schema:
-``mollie_customer_id`` and ``custom_mollie_dues_mandate`` (only
-``custom_mollie_customer_id`` exists). ``update_customer_mandate`` filters
-``frappe.get_all("Customer", {"mollie_customer_id": ...})`` which raises a
-1054 "Unknown column" error, swallowed into an error result -- the method can
-never succeed on this schema. None of these helpers have production callers.
-The tests below CHARACTERIZE this actual current behaviour rather than assert an
-aspirational success the schema cannot deliver.
 """
 
 import frappe
@@ -318,42 +307,3 @@ class TestCustomerHandlingServiceCoverage(EnhancedTestCase):
         result = self.service.validate_customer_setup(customer.name)
         self.assertEqual(result["status"], "warning")
         self.assertIn("Mollie customer ID", result["message"])
-
-    # ============================================ get_customer_mollie_info
-
-    def test_get_customer_mollie_info_missing_customer(self):
-        info = self.service.get_customer_mollie_info("NONEXISTENT-CUSTOMER-XYZ")
-        self.assertEqual(info, {"customer_id": None, "mandate_id": None})
-
-    def test_get_customer_mollie_info_existing_customer_returns_none_for_phantom_fields(self):
-        """get_customer_mollie_info reads ``mollie_customer_id`` and
-        ``custom_mollie_dues_mandate`` via getattr -- both are phantom fields on
-        this schema, so a real, existing customer yields all-None. This
-        CHARACTERIZES the dead-code behaviour (see module docstring)."""
-        h = frappe.generate_hash(length=6)
-        customer = self._new_customer(f"MollieInfo {h}")
-        info = self.service.get_customer_mollie_info(customer.name)
-        self.assertEqual(info, {"customer_id": None, "mandate_id": None})
-
-    # ============================================ update_customer_mandate
-
-    def test_update_customer_mandate_missing_args(self):
-        result = self.service.update_customer_mandate("", "mdt_1")
-        self.assertFalse(result["success"])
-        self.assertIn("missing", result["message"].lower())
-
-        result2 = self.service.update_customer_mandate("cst_1", "")
-        self.assertFalse(result2["success"])
-
-    def test_update_customer_mandate_phantom_field_query_errors(self):
-        """update_customer_mandate filters Customer on the phantom column
-        ``mollie_customer_id``; the resulting 1054 OperationalError is swallowed
-        into an error result. This CHARACTERIZES the broken/dead method (see
-        module docstring) -- it can never locate a customer on this schema."""
-        self.expectErrorLog()
-        result = self.service.update_customer_mandate("cst_anything", "mdt_anything")
-        self.assertFalse(result["success"])
-        # Pin the failure to the phantom *column* specifically, so an unrelated
-        # swallowed exception (e.g. a broken create_result) can't pass this test.
-        errors = " ".join(result.get("errors") or []) + (result.get("error") or "")
-        self.assertIn("mollie_customer_id", errors)
