@@ -36,6 +36,32 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
         member.save()
         return member, address
 
+    def _colocated_pair(self, **member_kwargs):
+        """Create two Active members sharing the same address_line1 + city.
+
+        The address matcher's JOIN fallback keys on (address_line1, city), so two
+        members each with their own Address sharing those values see each other as
+        co-located. Returns (primary_member, other_member).
+        """
+        line1 = f"Shared Straat {frappe.generate_hash(length=6)}"
+        city = "Amsterdam"
+
+        primary = self.create_test_member(first_name="Primary", last_name="Resident")
+        addr_primary = self.factory.create_address(
+            address_line1=line1, city=city, link_doctype="Member", link_name=primary.name
+        )
+        primary.primary_address = addr_primary.name
+        primary.save()
+
+        other = self.create_test_member(first_name="Other", last_name="Resident", **member_kwargs)
+        addr_other = self.factory.create_address(
+            address_line1=line1, city=city, link_doctype="Member", link_name=other.name
+        )
+        other.primary_address = addr_other.name
+        other.save()
+
+        return primary, other
+
     # ----- get_address_members_html -----
 
     def test_get_address_members_html_no_address_returns_empty_state(self):
@@ -51,6 +77,19 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
         with self.assertNoErrorLog():
             html = self.service.get_address_members_html(member)
         self.assertIn("No other members found at this address", html)
+
+    def test_get_address_members_html_lists_other_member(self):
+        """When another member shares the address, a member card is rendered."""
+        primary, other = self._colocated_pair()
+        with self.assertNoErrorLog():
+            html = self.service.get_address_members_html(primary)
+        self.assertIn("Other Members at This Address (1 found):", html)
+        self.assertIn("member-card", html)
+        self.assertIn(other.full_name, html)
+        self.assertIn(other.name, html)
+        # demographic / status fields the card renders for each co-resident
+        self.assertIn("Adult", html)  # age_group
+        self.assertIn("Active", html)  # status
 
     # ----- update_address_display -----
 
@@ -72,6 +111,38 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
         self.assertIn("Netherlands", html)
         self.assertIn("address-display", html)
 
+    def test_update_address_display_renders_line2_and_state(self):
+        """address_line2 and state branches render when those fields are populated."""
+        member, address = self._member_with_address(
+            address_line1="Damrak 1", city="Amsterdam", pincode="1012 LG"
+        )
+        address.address_line2 = "Floor 3"
+        address.state = "Noord-Holland"
+        address.save()
+        member.reload()
+
+        with self.assertNoErrorLog():
+            html = self.service.update_address_display(member)
+
+        self.assertIn("Floor 3", html)
+        self.assertIn("Noord-Holland", html)
+        self.assertIn("Damrak 1", html)
+
+    def test_update_address_display_missing_address_returns_error_html(self):
+        """A dangling primary_address (Address deleted) yields the error fallback."""
+        member, address = self._member_with_address()
+        # Point primary_address at a non-existent Address so get_doc raises inside
+        # the try-block -> the except branch returns the styled error message.
+        frappe.db.set_value("Member", member.name, "primary_address", "NONEXISTENT-ADDRESS-XYZ")
+        member.reload()
+
+        # The except branch logs via self.logger.error (not frappe.log_error), so
+        # no Error Log doc is created -> assertNoErrorLog still holds.
+        with self.assertNoErrorLog():
+            html = self.service.update_address_display(member)
+
+        self.assertIn("Error loading address information", html)
+
     # ----- update_other_members_at_address_display -----
 
     def test_update_other_members_no_address_returns_empty_string(self):
@@ -85,6 +156,35 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
         with self.assertNoErrorLog():
             html = self.service.update_other_members_at_address_display(member)
         self.assertEqual(html, "")
+
+    def test_update_other_members_renders_card_for_coresident(self):
+        """A co-resident produces a member card with link, status badge and age."""
+        primary, other = self._colocated_pair()
+        with self.assertNoErrorLog():
+            html = self.service.update_other_members_at_address_display(primary)
+
+        self.assertIn("Other Members at Same Address (1)", html)
+        self.assertIn("member-card", html)
+        # link to the co-resident's member form (HTML-escaped name == plain here)
+        self.assertIn(f"/app/member/{other.name}", html)
+        self.assertIn(other.full_name, html)
+        # Active members render the success badge
+        self.assertIn("badge-success", html)
+        # age is derived from birth_date (factory members have a birth_date)
+        self.assertIn("years old", html)
+
+    def test_update_other_members_renders_member_since(self):
+        """When the co-resident has member_since, it is shown in the card."""
+        primary, other = self._colocated_pair()
+        # member_since drives the optional "Member since:" fragment
+        frappe.db.set_value("Member", other.name, "member_since", "2020-01-15")
+        frappe.db.commit()
+
+        with self.assertNoErrorLog():
+            html = self.service.update_other_members_at_address_display(primary)
+
+        self.assertIn("Member since:", html)
+        self.assertIn("2020-01-15", html)
 
     # ----- singleton accessor -----
 
