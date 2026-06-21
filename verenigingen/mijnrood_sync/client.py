@@ -220,9 +220,12 @@ class MijnRoodDatabaseClient:
         if "pkey" in auth:
             self._transport.connect(username=s.ssh_username, pkey=auth["pkey"])
         elif "key_filename" in auth:
-            pkey = paramiko.RSAKey.from_private_key_file(
-                auth["key_filename"], password=auth.get("passphrase")
-            )
+            # Parse via the shared multi-type helper (RSA/Ed25519/ECDSA/DSS)
+            # rather than RSAKey.from_private_key_file — that RSA-only call
+            # broke non-RSA key files here while sftp_client.py and the
+            # stored-key path both accepted them.
+            with open(auth["key_filename"], encoding="utf-8") as f:
+                pkey = parse_pkey_from_string(f.read(), auth.get("passphrase"))
             self._transport.connect(username=s.ssh_username, pkey=pkey)
         elif "password" in auth:
             self._transport.connect(username=s.ssh_username, password=auth["password"])
