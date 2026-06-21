@@ -316,6 +316,13 @@ def reset_chapter_board_permissions():
         doctypes_to_reset = ["Membership", "Membership Termination Request", "Volunteer Expense"]
         target_role = "Verenigingen Chapter Board Member"
 
+        # Track which DocTypes actually had their Chapter Board Member rows
+        # removed. The previous implementation returned {"success": True}
+        # unconditionally, so a failed save (e.g. a pre-existing duplicate-perm
+        # validation error on the parent DocType) was swallowed by `continue`
+        # while the API still reported success — masking that nothing was reset.
+        failed = []
+
         for doctype_name in doctypes_to_reset:
             # Volunteer Expense was archived; skip on migrated sites where the
             # DocType is gone (see patches/v2_2/drop_volunteer_expense_archived_doctype.py).
@@ -347,6 +354,7 @@ def reset_chapter_board_permissions():
                     f"Failed to reset Chapter Board Member permissions for {doctype_name}: "
                     f"{'; '.join(result.errors)}"
                 )
+                failed.append(doctype_name)
                 continue
 
             frappe.logger().info(
@@ -355,6 +363,13 @@ def reset_chapter_board_permissions():
             )
 
         frappe.clear_cache()
+
+        if failed:
+            return {
+                "success": False,
+                "failed": failed,
+                "message": f"Failed to reset Chapter Board Member permissions for: {', '.join(failed)}",
+            }
 
         return {
             "success": True,
