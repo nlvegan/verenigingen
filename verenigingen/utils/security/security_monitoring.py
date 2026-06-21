@@ -821,14 +821,25 @@ def run_business_rule_monitoring():
                             notification_key="business_logic_alert",
                         )
                 except Exception as e:
-                    frappe.log_error(f"Failed to send business rule alert notification: {str(e)}")
+                    # Short title: a single long positional becomes the Error Log
+                    # ``method`` (varchar 140) and overflows -> CharacterLengthExceededError.
+                    frappe.log_error(
+                        title="Business Rule Alert Notification Failed",
+                        message=f"Failed to send business rule alert notification: {str(e)}",
+                    )
 
         frappe.logger("verenigingen.security.monitoring").info(
             f"Business rule monitoring completed: {len(alerts)} alerts detected"
         )
 
     except Exception as e:
-        frappe.log_error(f"Business rule monitoring job failed: {str(e)}")
+        # Short title: a single long positional becomes the Error Log ``method``
+        # (varchar 140) and overflows -> CharacterLengthExceededError, which would
+        # turn this swallow-and-log handler into a crash.
+        frappe.log_error(
+            title="Business Rule Monitoring Failed",
+            message=f"Business rule monitoring job failed: {str(e)}",
+        )
 
 
 def analyze_security_trends(days: int = 7) -> Dict[str, Any]:

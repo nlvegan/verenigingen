@@ -111,11 +111,24 @@ class AuthorizationEngine:
             user_role_profile = frappe.db.get_value("User", user, "role_profile_name")
             if user_role_profile:
                 candidate_profiles.append(user_role_profile)
+            # Read the role_profiles child table via raw SQL rather than
+            # frappe.get_all("User Role Profile", ...). get_all loads the child
+            # doctype's controller/meta, which can raise
+            # ``KeyError: ('DocType', 'User Role Profile')`` against a corrupted
+            # in-process doctype cache once a neighbouring test poisons it mid-run
+            # (observed worker-wide in CI). That exception was swallowed below and
+            # the user silently lost ALL role-profile-based access -- a fail-closed
+            # security regression. Raw SQL on the child table needs no meta/controller
+            # load, so it is immune to that cache pollution.
             candidate_profiles.extend(
-                frappe.get_all(
-                    "User Role Profile",
-                    filters={"parent": user, "parenttype": "User"},
-                    pluck="role_profile",
+                row[0]
+                for row in frappe.db.sql(
+                    """
+                    SELECT role_profile
+                    FROM `tabUser Role Profile`
+                    WHERE parent = %s AND parenttype = 'User'
+                    """,
+                    (user,),
                 )
             )
 
