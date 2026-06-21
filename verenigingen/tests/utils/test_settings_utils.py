@@ -142,12 +142,13 @@ class TestSettingsUtils(EnhancedTestCase):
             self.assertIn("username", creds)
             self.assertIn("security_code", creds)
 
-    def test_is_e_boekhouden_enabled_returns_bool(self):
-        # `enable_e_boekhouden` field is absent from the current schema, so the
-        # helper falls back to False via settings.get(...) -> None. It must
-        # always return a bool and never raise.
+    def test_is_e_boekhouden_enabled_false_under_field_drift(self):
+        # Characterization of a degraded schema: `enable_e_boekhouden` is absent
+        # from the current E-Boekhouden Settings, so settings.get(...) -> None and
+        # the helper resolves to exactly False. Pinning the concrete value (not
+        # just the type) catches a regression where a re-added field flips it.
         result = is_e_boekhouden_enabled()
-        self.assertIsInstance(result, bool)
+        self.assertIs(result, False)
 
     # ----------------------------------------------- populate_income_calculator
     def test_populate_income_calculator_context_with_provided_settings(self):
