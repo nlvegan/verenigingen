@@ -36,12 +36,19 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
         member.save()
         return member, address
 
-    def _colocated_pair(self, **member_kwargs):
+    def _colocated_pair(self, other_birth_date="1990-01-01", **member_kwargs):
         """Create two Active members sharing the same address_line1 + city.
 
-        The address matcher's JOIN fallback keys on (address_line1, city), so two
-        members each with their own Address sharing those values see each other as
-        co-located. Returns (primary_member, other_member).
+        member.save() triggers before_save address normalization which populates
+        address_fingerprint (a content-hash of normalized line1+city). Both members
+        therefore get the SAME fingerprint, and the matcher's fingerprint path
+        (SimpleOptimizedAddressMatcher, WHERE address_fingerprint = ...) finds them
+        as co-located. Matching is by deterministic content-hash, not site
+        sparseness, so this is robust on populated sites; a false positive would
+        require a pre-existing member at the exact random "Shared Straat <hash>".
+
+        ``other`` gets an explicit adult birth_date so its age_group is stably
+        'Adult' regardless of factory RNG draw order. Returns (primary, other).
         """
         line1 = f"Shared Straat {frappe.generate_hash(length=6)}"
         city = "Amsterdam"
@@ -53,7 +60,9 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
         primary.primary_address = addr_primary.name
         primary.save()
 
-        other = self.create_test_member(first_name="Other", last_name="Resident", **member_kwargs)
+        other = self.create_test_member(
+            first_name="Other", last_name="Resident", birth_date=other_birth_date, **member_kwargs
+        )
         addr_other = self.factory.create_address(
             address_line1=line1, city=city, link_doctype="Member", link_name=other.name
         )

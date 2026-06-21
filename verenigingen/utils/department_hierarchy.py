@@ -71,33 +71,55 @@ class DepartmentHierarchyManager:
             dept_name = "{team.team_name} ({team.team_type or 'Team'})"
             self._ensure_department(dept_name, parent="National Teams")
 
+    def _resolve_department_name(self, dept_name):
+        """Resolve a human-readable department name to the actual stored record name.
+
+        ERPNext's Department.autoname appends the company abbreviation
+        (``"{department_name} - {abbr}"``) whenever a company is set — which it
+        always is here, since __init__ requires one. The hierarchy is built with
+        bare ``department_name`` values ("National Teams", "Chapter X Board"),
+        so every lookup/exists check must translate through the stored name or
+        it silently fails (no approvers synced, no employee department set, and
+        _ensure_department would re-insert and hit a duplicate-PK error).
+
+        Returns the real record name if a Department with this department_name
+        exists, otherwise None.
+        """
+        # Exact record-name match first (already-abbreviated / no-company sites)
+        if frappe.db.exists("Department", dept_name):
+            return dept_name
+        return frappe.db.get_value("Department", {"department_name": dept_name}, "name")
+
     def _ensure_department(self, dept_name, parent=None):
         """Create department if it doesn't exist"""
-        if not frappe.db.exists("Department", dept_name):
-            dept = frappe.get_doc(
-                {"doctype": "Department", "department_name": dept_name, "company": self.company}
+        existing = self._resolve_department_name(dept_name)
+        if existing:
+            return frappe.get_doc("Department", existing)
+
+        dept = frappe.get_doc(
+            {"doctype": "Department", "department_name": dept_name, "company": self.company}
+        )
+
+        if parent:
+            # Parents are referenced by their human-readable name but stored
+            # abbreviated, so resolve to the actual record name.
+            dept.parent_department = self._resolve_department_name(parent) or parent
+
+        result = secure_document_operation(
+            operation="insert",
+            doc=dept,
+            justification=f"Create department {dept_name} for association hierarchy management",
+            required_permissions=["Department:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create department {dept_name}: {'; '.join(result.errors)}",
+                "Department Creation Security",
             )
+            frappe.throw(_("Unable to create department: Security validation failed"))
 
-            if parent:
-                dept.parent_department = parent
-
-            result = secure_document_operation(
-                operation="insert",
-                doc=dept,
-                justification=f"Create department {dept_name} for association hierarchy management",
-                required_permissions=["Department:create"],
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to create department {dept_name}: {'; '.join(result.errors)}",
-                    "Department Creation Security",
-                )
-                frappe.throw(_("Unable to create department: Security validation failed"))
-
-            return dept
-
-        return frappe.get_doc("Department", dept_name)
+        return dept
 
     def get_volunteer_department(self, volunteer_name):
         """Determine appropriate department for a volunteer based on their assignments"""
@@ -285,11 +307,12 @@ class DepartmentHierarchyManager:
 
     def _update_department_approvers(self, dept_name, approver_emails):
         """Update department's expense approvers"""
-        if not frappe.db.exists("Department", dept_name):
+        resolved = self._resolve_department_name(dept_name)
+        if not resolved:
             frappe.logger().debug(f"Department {dept_name} does not exist, skipping approver sync")
             return
 
-        dept = frappe.get_doc("Department", dept_name)
+        dept = frappe.get_doc("Department", resolved)
 
         # Validate expense_approvers field exists (requires HRMS)
         if not hasattr(dept, "expense_approvers"):
@@ -359,11 +382,14 @@ class DepartmentHierarchyManager:
         updated = 0
         for volunteer in volunteers:
             department = self.get_volunteer_department(volunteer.name)
+            # Departments are stored under their abbreviated record name; resolve
+            # the human-readable name to the actual record before looking it up.
+            resolved_department = self._resolve_department_name(department) if department else None
 
             if frappe.db.exists("Employee", volunteer.employee_id):
                 # Only set department if it exists - skip if not created yet
-                if department and frappe.db.exists("Department", department):
-                    frappe.db.set_value("Employee", volunteer.employee_id, "department", department)
+                if resolved_department:
+                    frappe.db.set_value("Employee", volunteer.employee_id, "department", resolved_department)
                     updated += 1
                 else:
                     frappe.logger().info(
@@ -405,11 +431,13 @@ def update_volunteer_employee_department(doc, method):
     if doc.employee_id and frappe.db.exists("Employee", doc.employee_id):
         manager = DepartmentHierarchyManager()
         department = manager.get_volunteer_department(doc.name)
+        # Resolve the human-readable name to the stored (abbreviated) record name.
+        resolved_department = manager._resolve_department_name(department) if department else None
 
         # Only set department if it exists - don't fail if department hasn't been created yet
         # Departments are created when chapters are saved, but volunteers might be created first
-        if department and frappe.db.exists("Department", department):
-            frappe.db.set_value("Employee", doc.employee_id, "department", department)
+        if resolved_department:
+            frappe.db.set_value("Employee", doc.employee_id, "department", resolved_department)
         else:
             frappe.logger().info(
                 f"Skipping employee department assignment for {doc.name}: "
