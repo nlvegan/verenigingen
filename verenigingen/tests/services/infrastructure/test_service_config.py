@@ -219,9 +219,13 @@ class TestConfigurationManager(EnhancedTestCase):
 
     def test_load_from_settings_is_defensive_against_missing_fields(self):
         """load_from_settings references field names that are STALE on the
-        current Verenigingen Settings doctype (e.g. member_id_start_number,
-        minimum_member_age). The method must not raise and must fall back to
-        the hardcoded member-service defaults via the hasattr-else branch.
+        current Verenigingen Settings doctype. BOTH the _safe_load_field calls
+        (default_member_id_prefix, enable_debug_logging) AND the
+        _load_member_service_settings mappings (member_id_start_number,
+        member_id_length, minimum_member_age, default_member_status) are absent
+        from the doctype (actual fields: member_id_start, minimum_membership_age,
+        ...). The hasattr guards make this a near-total no-op: it must not raise
+        and must fall back to the hardcoded member-service defaults.
         """
         mgr = ConfigurationManager()
         mgr.load_from_settings()  # real Single read; must not raise
@@ -374,5 +378,7 @@ class TestModuleLevelHelpers(EnhancedTestCase):
         self.assertEqual(get_global_config("sweep_probe"), "xyz")
 
     def test_validate_service_configuration_helper(self):
+        # A fresh service config has no required keys and no validators, so a
+        # clean validation must return an empty error list (not just "a list").
         errors = validate_service_configuration("some_fresh_service")
-        self.assertIsInstance(errors, list)
+        self.assertEqual(errors, [])
