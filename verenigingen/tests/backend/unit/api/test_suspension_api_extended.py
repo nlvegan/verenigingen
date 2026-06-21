@@ -99,6 +99,24 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
         self.assertNotIn("is_suspended", result.get("data", {}))
         self.assertNotIn("member_status", result.get("data", {}))
 
+    def test_status_safe_guest_with_explicit_member_name_no_leak(self):
+        # Adversarial: a guest passing an explicit member_name skips the
+        # member_name=None resolution and lands on the ownership check. The
+        # session user "Guest" never equals a member's linked user, and Guest
+        # holds no admin role, so the response must be PERMISSION_DENIED with
+        # NO suspension status of the queried member leaked.
+        with self.set_user("Guest"):
+            result = get_suspension_status_safe(self.member.name)
+        self.assertFalse(result["success"], msg=result)
+        self.assertEqual(result["error"]["code"], "PERMISSION_DENIED")
+        denied_data = result.get("data", {})
+        self.assertNotIn("is_suspended", denied_data)
+        self.assertNotIn("member_status", denied_data)
+        self.assertNotIn("access_type", denied_data)
+        # Belt-and-suspenders: the queried member's status must not appear
+        # anywhere in the serialized response (message or any top-level key).
+        self.assertNotIn("Suspended", str(result))
+
     def test_status_safe_admin_access_other_member(self):
         # Administrator (default test user) gets admin access to any member.
         result = get_suspension_status_safe(self.member.name)
