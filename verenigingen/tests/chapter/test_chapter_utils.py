@@ -458,10 +458,14 @@ class TestChapterUtilsDuesSplit(EnhancedTestCase):
         # hardcoding it.
         override = frappe.db.get_value("Chapter", self.chapter.name, "chapter_split_percentage")
         self.assertIn(override, (None, 0, 0.0), f"Fresh chapter should have no override, got {override}")
-        expected_default = float(
-            frappe.db.get_single_value("Verenigingen Settings", "default_chapter_split_percentage")
-            or 60.0
+        # Mirror SplitPercentage.from_chapter exactly (domain/chapter_dues.py): a
+        # configured default is used as-is INCLUDING 0.0; only an UNSET (None) default
+        # falls back to 60.0. `or 60.0` is wrong because 0.0 is falsy -> would expect
+        # 60.0 on a site that configures 0, while production returns 0.
+        settings_default = frappe.db.get_single_value(
+            "Verenigingen Settings", "default_chapter_split_percentage"
         )
+        expected_default = float(settings_default) if settings_default is not None else 60.0
         pct = get_chapter_split_percentage(self.chapter.name)
         self.assertIsInstance(pct, float)
         self.assertEqual(pct, expected_default)

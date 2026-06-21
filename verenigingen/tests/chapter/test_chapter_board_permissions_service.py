@@ -125,32 +125,38 @@ class TestChapterBoardPermissionsService(EnhancedTestCase):
         reset_result = reset_chapter_board_permissions()
         frappe.db.commit()
 
-        if reset_result["success"]:
-            # A successful reset must actually have removed the live rows.
-            self.assertFalse(
-                _board_perm_exists("Membership"),
-                "Successful reset must remove the Membership board perm",
-            )
-            self.assertFalse(
-                _board_perm_exists("Membership Termination Request"),
-                "Successful reset must remove the Termination Request board perm",
-            )
-            # And setup re-adds them (round-trip).
+        try:
+            if reset_result["success"]:
+                # A successful reset must actually have removed the live rows.
+                self.assertFalse(
+                    _board_perm_exists("Membership"),
+                    "Successful reset must remove the Membership board perm",
+                )
+                self.assertFalse(
+                    _board_perm_exists("Membership Termination Request"),
+                    "Successful reset must remove the Termination Request board perm",
+                )
+            else:
+                # A failed reset must name the DocType(s) it could not reset, and the
+                # rows for those DocTypes must still be present (no silent loss/gain).
+                self.assertIn("failed", reset_result, f"Failed reset must list failures: {reset_result}")
+                self.assertTrue(reset_result["failed"], "Failed reset must name at least one DocType")
+                for dt in reset_result["failed"]:
+                    if dt in ("Membership", "Membership Termination Request"):
+                        self.assertTrue(
+                            _board_perm_exists(dt),
+                            f"Row for failed-to-reset {dt} must remain present",
+                        )
+        finally:
+            # reset_chapter_board_permissions COMMITS its global board-perm removal,
+            # which escapes FrappeTestCase rollback. Restore unconditionally — even if
+            # an assertion above failed mid-way — so we never leave the shared site
+            # without board perms for every subsequent test / board user.
             setup_chapter_board_permissions()
             frappe.db.commit()
-            self.assertTrue(_board_perm_exists("Membership"))
-            self.assertTrue(_board_perm_exists("Membership Termination Request"))
-        else:
-            # A failed reset must name the DocType(s) it could not reset, and the
-            # rows for those DocTypes must still be present (no silent loss/gain).
-            self.assertIn("failed", reset_result, f"Failed reset must list failures: {reset_result}")
-            self.assertTrue(reset_result["failed"], "Failed reset must name at least one DocType")
-            for dt in reset_result["failed"]:
-                if dt in ("Membership", "Membership Termination Request"):
-                    self.assertTrue(
-                        _board_perm_exists(dt),
-                        f"Row for failed-to-reset {dt} must remain present",
-                    )
+        # Round-trip: the restore must have re-added the rows.
+        self.assertTrue(_board_perm_exists("Membership"))
+        self.assertTrue(_board_perm_exists("Membership Termination Request"))
 
     def test_validate_permission_security_passes_after_setup(self):
         """Security validation: no delete/cancel/amend/submit granted to board role."""
