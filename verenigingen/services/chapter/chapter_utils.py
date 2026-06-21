@@ -129,10 +129,12 @@ def get_user_accessible_chapters(
                 )
                 continue
 
-        # Check national chapter access if configured
+        # Check national chapter access if configured.
+        # The national chapter is stored in Verenigingen Settings.national_board_chapter;
+        # board members of that chapter (with the required permission level) get access
+        # to it in addition to their own chapter(s).
         try:
-            settings = frappe.get_cached_single("Verenigingen Settings")
-            national_chapter = getattr(settings, "national_chapter", None)
+            national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
 
             if national_chapter and national_chapter not in accessible_chapters:
                 # Check if user has board position in national chapter

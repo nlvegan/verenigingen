@@ -237,6 +237,84 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         self.assertIn(self.chapter_fin.name, result)
         self.assertNotIn(new_chapter.name, result)
 
+    # ---- national chapter access -------------------------------------------
+
+    def test_national_board_member_gets_national_chapter_access(self):
+        """A board member of the configured national chapter (with a sufficient
+        permission level) gains access to the national chapter.
+
+        This exercises the "Check national chapter access" branch of
+        get_user_accessible_chapters. The branch was previously inert because it
+        called a non-existent frappe.get_cached_single() (AttributeError, swallowed
+        by the broad except) and read a phantom `national_chapter` field instead of
+        the real `national_board_chapter`. Pre-fix this assertion fails because the
+        national chapter is never appended.
+        """
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
+
+        # A dedicated national chapter, distinct from the member's own chapter(s).
+        national_chapter = self.create_chapter(
+            chapter_name=f"CU National {self.token}", region=_ensure_test_region()
+        )
+        # Give the financial volunteer an ACTIVE Financial board seat in it.
+        self._add_board_position(
+            national_chapter.name, self.fin_volunteer.name, self.financial_role.name
+        )
+        frappe.db.commit()
+
+        # Configure the national chapter in settings WITHOUT committing: production
+        # reads it via frappe.db.get_single_value in the same transaction, and this
+        # rolls back at test end (never corrupting the shared Single for parallel shards).
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "national_board_chapter", national_chapter.name
+        )
+
+        result = get_user_accessible_chapters(self.fin_user.name)
+        self.assertIn(national_chapter.name, result)
+        # Own chapter is still resolved alongside the national one.
+        self.assertIn(self.chapter_fin.name, result)
+
+    def test_non_national_board_member_does_not_get_national_access(self):
+        """A user with no seat in the national chapter does NOT receive it, even
+        when a national chapter is configured."""
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
+
+        national_chapter = self.create_chapter(
+            chapter_name=f"CU National Neg {self.token}", region=_ensure_test_region()
+        )
+        # fin_volunteer has NO board position in national_chapter.
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "national_board_chapter", national_chapter.name
+        )
+
+        result = get_user_accessible_chapters(self.fin_user.name)
+        self.assertNotIn(national_chapter.name, result)
+        # Their own chapter is unaffected.
+        self.assertIn(self.chapter_fin.name, result)
+
+    def test_national_board_member_below_required_level_excluded(self):
+        """A national-chapter board seat whose permission level does not meet the
+        requirement does not grant national access (Basic seat vs default
+        [Admin, Financial] requirement)."""
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
+
+        national_chapter = self.create_chapter(
+            chapter_name=f"CU National Basic {self.token}", region=_ensure_test_region()
+        )
+        # Basic-level seat for the financial volunteer in the national chapter.
+        self._add_board_position(
+            national_chapter.name, self.fin_volunteer.name, self.basic_role.name
+        )
+        frappe.db.commit()
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "national_board_chapter", national_chapter.name
+        )
+
+        result = get_user_accessible_chapters(self.fin_user.name)
+        # Basic seat does not satisfy default [Admin, Financial] requirement.
+        self.assertNotIn(national_chapter.name, result)
+        self.assertIn(self.chapter_fin.name, result)
+
     # ---- has_chapter_access_permission -------------------------------------
 
     def test_has_chapter_access_permission_true_false(self):

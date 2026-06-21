@@ -351,7 +351,7 @@ def warm_critical_caches():
         return {}
 
     warm_functions = {
-        "settings:verenigingen_settings": lambda: frappe.get_cached_single("Verenigingen Settings"),
+        "settings:verenigingen_settings": lambda: frappe.get_cached_doc("Verenigingen Settings"),
         "lookup:membership_types": lambda: frappe.get_all(
             "Membership Type", fields=["name", "minimum_amount"]
         ),
