@@ -27,7 +27,7 @@ Run with:
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import getdate, today
+from frappe.utils import today
 from frappe.utils.password import set_encrypted_password
 
 from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
@@ -41,29 +41,6 @@ from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migra
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 SETTINGS = "E-Boekhouden Settings"
-
-
-def _ensure_fiscal_year_for_all_companies():
-    """A Fiscal Year must cover today() for the (non-_Test) default company so
-    Journal Entry.submit() works. erpnext's global setup restricts the current
-    FY to _Test Company via its child table; drop that restriction + bust cache.
-
-    Committed so it outlives the per-test rollback (mirrors the payments suite).
-    """
-    from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
-
-    ensure_test_fiscal_year_for_all_companies()
-    covering = frappe.db.sql(
-        """SELECT name FROM `tabFiscal Year`
-           WHERE %s BETWEEN year_start_date AND year_end_date AND disabled = 0""",
-        (getdate(today()),),
-        pluck=True,
-    )
-    for fy_name in covering:
-        if frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
-            frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
-    frappe.db.commit()
-    frappe.cache().delete_value("fiscal_years")
 
 
 class _MigrationGuardBase(EnhancedTestCase):
@@ -175,16 +152,22 @@ class TestImportSingleMutationCascade(_MigrationGuardBase):
     """import_single_mutation: the overwrite delete-cascade and the
     API-configuration ValueError branch, both reached without a live API."""
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        _ensure_fiscal_year_for_all_companies()
+    def _make_draft_journal_entry(self, mutation_nr):
+        """A real DRAFT Journal Entry stamped with eboekhouden_mutation_nr.
 
-    def _make_submitted_journal_entry(self, mutation_nr):
-        """A real submitted Journal Entry stamped with eboekhouden_mutation_nr.
+        The import_single_mutation cascade looks up existing docs with NO
+        docstatus filter (e_boekhouden_migration.py ~1292) and deletes whatever
+        it finds, so a draft exercises the delete-cascade just as a submitted doc
+        would. We deliberately keep it a DRAFT: submitting would call
+        make_gl_entries -> get_fiscal_years, which requires a Fiscal Year
+        covering today() for THIS company. On the shared CI DB the company is
+        whatever ``get_value("Company", {})`` returns -- often a sibling test's
+        leftover company that lacks a current FY -- so submitting here is
+        order-dependent and flaky. A draft needs no Fiscal Year (validate() does
+        no FY check; only submit/make_gl_entries does).
 
-        Cash (debit) vs an Income account (credit) avoids the party
-        requirement that Receivable/Payable accounts impose.
+        Cash (debit) vs an Income account (credit) avoids the party requirement
+        that Receivable/Payable accounts impose.
         """
         company = self.company
         cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
@@ -204,22 +187,21 @@ class TestImportSingleMutationCascade(_MigrationGuardBase):
         je.append("accounts", {"account": cash, "debit_in_account_currency": 10, "cost_center": cost_center})
         je.append("accounts", {"account": income, "credit_in_account_currency": 10, "cost_center": cost_center})
         je.insert()
-        je.submit()
         frappe.db.set_value("Journal Entry", je.name, "eboekhouden_mutation_nr", str(mutation_nr))
         return je
 
     def test_overwrite_cascade_deletes_existing_then_reports_api_error(self):
-        """overwrite_existing=True deletes the existing submitted doc (the
-        cascade), THEN -- because credentials are absent -- returns the
-        API-configuration error from EBoekhoudenAPI(settings).
+        """overwrite_existing=True deletes the existing doc (the cascade), THEN --
+        because credentials are absent -- returns the API-configuration error
+        from EBoekhoudenAPI(settings).
 
         Both side-effects are observable WITHOUT mocking the HTTP boundary:
         the JE is gone (cascade ran) and the result carries the config error.
         """
         migration = self._make_migration()
         mutation_nr = f"CASC{frappe.generate_hash()[:6]}"
-        je = self._make_submitted_journal_entry(mutation_nr)
-        self.assertEqual(frappe.db.get_value("Journal Entry", je.name, "docstatus"), 1)
+        je = self._make_draft_journal_entry(mutation_nr)
+        self.assertTrue(frappe.db.exists("Journal Entry", je.name))
 
         # Force the API client constructor (EBoekhoudenAPI -> _init_http_client)
         # to raise ValueError("API token is required ...") instead of doing a
@@ -228,7 +210,7 @@ class TestImportSingleMutationCascade(_MigrationGuardBase):
 
         result = import_single_mutation(migration.name, mutation_nr, overwrite_existing=True)
 
-        # Cascade side-effect: the existing submitted JE was cancelled + deleted.
+        # Cascade side-effect: the existing JE was deleted.
         self.assertFalse(
             frappe.db.exists("Journal Entry", je.name),
             "overwrite cascade should have deleted the existing Journal Entry",
