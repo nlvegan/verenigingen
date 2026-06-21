@@ -253,14 +253,19 @@ class OptimizedMemberQueries:
             c.name as customer_name,
             c.customer_name as customer_display_name,
             COUNT(DISTINCT si.name) as invoice_count,
-            COUNT(DISTINCT pe.name) as payment_count,
-            SUM(CASE WHEN si.docstatus = 1 AND si.outstanding_amount > 0 THEN si.outstanding_amount ELSE 0 END) as total_outstanding,
-            MAX(pe.posting_date) as last_payment_date,
+            COALESCE(MAX(pe_agg.payment_count), 0) as payment_count,
+            COALESCE(SUM(CASE WHEN si.docstatus = 1 AND si.outstanding_amount > 0 THEN si.outstanding_amount ELSE 0 END), 0) as total_outstanding,
+            MAX(pe_agg.last_payment_date) as last_payment_date,
             MAX(si.posting_date) as last_invoice_date
         FROM `tabMember` m
         LEFT JOIN `tabCustomer` c ON m.customer = c.name
         LEFT JOIN `tabSales Invoice` si ON c.name = si.customer AND si.docstatus = 1
-        LEFT JOIN `tabPayment Entry` pe ON c.name = pe.party AND pe.party_type = 'Customer' AND pe.docstatus = 1
+        LEFT JOIN (
+            SELECT party, COUNT(name) as payment_count, MAX(posting_date) as last_payment_date
+            FROM `tabPayment Entry`
+            WHERE party_type = 'Customer' AND docstatus = 1
+            GROUP BY party
+        ) pe_agg ON c.name = pe_agg.party
         WHERE m.docstatus < 2
         """
 
@@ -531,23 +536,40 @@ class OptimizedMemberQueries:
         # Validate input to prevent SQL injection
         validate_member_names(member_names)
 
-        # Single query to get financial summary for all members
+        # Single query to get financial summary for all members.
+        #
+        # Payment Entry and SEPA Mandate are pre-aggregated in derived tables
+        # rather than joined directly: joining all three child sets to the same
+        # Customer/Member produced a Cartesian fan-out that multiplied
+        # pe.paid_amount by the invoice count (and inflated the invoice-side
+        # SUMs by the payment/mandate counts). Aggregating each set first and
+        # then joining the one-row-per-customer results keeps every total exact.
         query = """
         SELECT
             m.name as member_name,
             COUNT(DISTINCT si.name) as total_invoices,
             COUNT(DISTINCT CASE WHEN si.outstanding_amount > 0 THEN si.name END) as unpaid_invoices,
-            SUM(CASE WHEN si.docstatus = 1 THEN si.grand_total ELSE 0 END) as total_invoiced,
-            SUM(CASE WHEN si.docstatus = 1 AND si.outstanding_amount > 0 THEN si.outstanding_amount ELSE 0 END) as total_outstanding,
-            SUM(CASE WHEN pe.docstatus = 1 THEN pe.paid_amount ELSE 0 END) as total_paid,
-            MAX(pe.posting_date) as last_payment_date,
+            COALESCE(SUM(CASE WHEN si.docstatus = 1 THEN si.grand_total ELSE 0 END), 0) as total_invoiced,
+            COALESCE(SUM(CASE WHEN si.docstatus = 1 AND si.outstanding_amount > 0 THEN si.outstanding_amount ELSE 0 END), 0) as total_outstanding,
+            COALESCE(MAX(pe_agg.total_paid), 0) as total_paid,
+            MAX(pe_agg.last_payment_date) as last_payment_date,
             MAX(si.posting_date) as last_invoice_date,
-            COUNT(DISTINCT sm.name) as active_mandates
+            COALESCE(MAX(sm_agg.active_mandates), 0) as active_mandates
         FROM `tabMember` m
         LEFT JOIN `tabCustomer` c ON m.customer = c.name
         LEFT JOIN `tabSales Invoice` si ON c.name = si.customer AND si.docstatus = 1
-        LEFT JOIN `tabPayment Entry` pe ON c.name = pe.party AND pe.party_type = 'Customer' AND pe.docstatus = 1
-        LEFT JOIN `tabSEPA Mandate` sm ON m.name = sm.member AND sm.status = 'Active'
+        LEFT JOIN (
+            SELECT party, SUM(paid_amount) as total_paid, MAX(posting_date) as last_payment_date
+            FROM `tabPayment Entry`
+            WHERE party_type = 'Customer' AND docstatus = 1
+            GROUP BY party
+        ) pe_agg ON c.name = pe_agg.party
+        LEFT JOIN (
+            SELECT member, COUNT(name) as active_mandates
+            FROM `tabSEPA Mandate`
+            WHERE status = 'Active'
+            GROUP BY member
+        ) sm_agg ON m.name = sm_agg.member
         WHERE m.name IN ({placeholders})
         GROUP BY m.name
         """.format(
