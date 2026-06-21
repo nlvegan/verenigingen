@@ -30,25 +30,46 @@ class _ExpenseFixtureMixin:
         return frappe.db.get_single_value("Verenigingen Settings", "company") or "_Test Company"
 
     def _expense_account(self):
-        """Return a real expense (non-group) account for the configured company.
+        """Return a leaf account with ``account_type == "Expense Account"`` for the
+        configured company, creating one if the company's CoA has none.
 
-        Filter on ``account_type == "Expense Account"`` -- which is exactly what
-        ExpenseCategory.validate_expense_account requires -- rather than the
-        broader ``root_type == "Expense"`` superset. The COA has many
-        root_type=Expense accounts whose account_type is NOT "Expense Account"
-        (Cost of Goods Sold, Depreciation, Stock Adjustment, ...); with no
-        order_by an unfiltered get_value returns an arbitrary row, so under the
-        shared-DB CI shard it could hand back one of those, making the category
-        insert fail its validator. Filtering on account_type makes the result
-        deterministically valid regardless of row ordering.
+        ExpenseCategory.validate_expense_account requires exactly
+        ``account_type == "Expense Account"`` -- NOT the broader
+        ``root_type == "Expense"`` superset (which also covers Cost of Goods Sold,
+        Depreciation, Stock Adjustment, ... whose account_type is blank/other).
+        Querying root_type with no order_by returned an arbitrary, often invalid,
+        row under the shared-DB CI shard. But filtering on account_type alone is
+        also fragile: the CI company's CoA may contain NO leaf typed
+        "Expense Account" at all, so the lookup returns None. We therefore
+        get-or-create: reuse an existing valid account when present, otherwise
+        create a deterministic leaf under the company's Expense group. This is
+        order-independent and CoA-independent.
         """
+        company = self._company()
         acct = frappe.db.get_value(
             "Account",
-            {"company": self._company(), "account_type": "Expense Account", "is_group": 0},
+            {"company": company, "account_type": "Expense Account", "is_group": 0},
             "name",
         )
-        self.assertIsNotNone(acct, "Test company must have at least one expense account")
-        return acct
+        if acct:
+            return acct
+
+        parent = frappe.db.get_value(
+            "Account",
+            {"company": company, "root_type": "Expense", "is_group": 1},
+            "name",
+        )
+        self.assertIsNotNone(parent, "Test company must have an Expense group account")
+        account = frappe.new_doc("Account")
+        account.account_name = f"Test Expense {frappe.generate_hash(length=6)}"
+        account.company = company
+        account.parent_account = parent
+        account.root_type = "Expense"
+        account.account_type = "Expense Account"
+        account.is_group = 0
+        account.insert()
+        self.factory.track_document("Account", account.name, priority=0)
+        return account.name
 
     def _make_expense_category(self, *, with_account=True, policy_covered=0, is_active=1, name_hint="Cat"):
         """Create a real Expense Category and track it for cleanup.
