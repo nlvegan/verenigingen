@@ -20,7 +20,10 @@
     "section_break_3",
     "created_by_error_handler",
     "error_handler_config",
-    "notes"
+    "notes",
+    "section_break_4",
+    "processing_started",
+    "processing_completed"
   ],
   "fields": [
     {
@@ -41,9 +44,10 @@
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
-      "options": "Pending\nProcessing\nCompleted\nFailed\nCancelled",
+      "options": "Pending\nProcessing\nCompleted\nPartially Completed\nFailed\nCancelled",
       "reqd": 1,
-      "default": "Pending"
+      "default": "Pending",
+      "allow_on_submit": 1
     },
     {
       "fieldname": "column_break_1",
@@ -54,19 +58,22 @@
       "fieldtype": "Int",
       "label": "Total Operations",
       "reqd": 1,
-      "default": 0
+      "default": 0,
+      "allow_on_submit": 1
     },
     {
       "fieldname": "successful_retries",
       "fieldtype": "Int",
       "label": "Successful Retries",
-      "default": 0
+      "default": 0,
+      "allow_on_submit": 1
     },
     {
       "fieldname": "failed_retries",
       "fieldtype": "Int",
       "label": "Failed Retries",
-      "default": 0
+      "default": 0,
+      "allow_on_submit": 1
     },
     {
       "fieldname": "section_break_2",
@@ -99,7 +106,27 @@
     {
       "fieldname": "notes",
       "fieldtype": "Text",
-      "label": "Notes"
+      "label": "Notes",
+      "allow_on_submit": 1
+    },
+    {
+      "fieldname": "section_break_4",
+      "fieldtype": "Section Break",
+      "label": "Processing Timestamps"
+    },
+    {
+      "fieldname": "processing_started",
+      "fieldtype": "Datetime",
+      "label": "Processing Started",
+      "read_only": 1,
+      "allow_on_submit": 1
+    },
+    {
+      "fieldname": "processing_completed",
+      "fieldtype": "Datetime",
+      "label": "Processing Completed",
+      "read_only": 1,
+      "allow_on_submit": 1
     }
   ],
   "index_web_pages_for_search": 1,

@@ -37,7 +37,8 @@
       "label": "Status",
       "options": "Pending\nRetrying\nSuccess\nFailed\nSkipped",
       "reqd": 1,
-      "default": "Pending"
+      "default": "Pending",
+      "allow_on_submit": 1
     },
     {
       "fieldname": "column_break_1",
@@ -47,7 +48,8 @@
       "fieldname": "retry_attempts",
       "fieldtype": "Int",
       "label": "Retry Attempts",
-      "default": 0
+      "default": 0,
+      "allow_on_submit": 1
     },
     {
       "fieldname": "max_retries",
@@ -93,7 +95,8 @@
     {
       "fieldname": "last_retry_time",
       "fieldtype": "Datetime",
-      "label": "Last Retry Time"
+      "label": "Last Retry Time",
+      "allow_on_submit": 1
     },
     {
       "fieldname": "next_retry_time",
@@ -107,7 +110,8 @@
     {
       "fieldname": "final_error",
       "fieldtype": "Text",
-      "label": "Final Error"
+      "label": "Final Error",
+      "allow_on_submit": 1
     },
     {
       "fieldname": "retry_notes",

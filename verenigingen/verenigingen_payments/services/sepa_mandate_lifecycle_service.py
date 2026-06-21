@@ -126,24 +126,37 @@ class SEPAMandateMetricsCollector:
             if len(self.metrics.errors) > 100:
                 self.metrics.errors = self.metrics.errors[-100:]
 
+    def _build_metrics_summary(self) -> Dict[str, Any]:
+        """Build a metrics summary snapshot.
+
+        The caller MUST already hold ``self._metrics_lock``. This helper exists so
+        both ``get_metrics_summary`` (which takes the lock) and ``reset_metrics``
+        (which already holds it) can produce the summary without re-acquiring the
+        non-reentrant lock — re-acquiring it within the same thread would deadlock.
+        """
+        return {
+            "status_transitions": dict(self.metrics.status_transitions),
+            "expired_use_count": self.metrics.expired_use_count,
+            "fnal_issued_count": self.metrics.fnal_issued_count,
+            "activation_count": self.metrics.activation_count,
+            "cancellation_count": self.metrics.cancellation_count,
+            "recent_errors": self.metrics.errors[-10:],
+            "error_count": len(self.metrics.errors),
+            "metrics_since": datetime.fromtimestamp(self.metrics.last_reset).isoformat(),
+        }
+
     def get_metrics_summary(self) -> Dict[str, Any]:
         """Get current metrics summary for monitoring/alerting"""
         with self._metrics_lock:
-            return {
-                "status_transitions": dict(self.metrics.status_transitions),
-                "expired_use_count": self.metrics.expired_use_count,
-                "fnal_issued_count": self.metrics.fnal_issued_count,
-                "activation_count": self.metrics.activation_count,
-                "cancellation_count": self.metrics.cancellation_count,
-                "recent_errors": self.metrics.errors[-10:],
-                "error_count": len(self.metrics.errors),
-                "metrics_since": datetime.fromtimestamp(self.metrics.last_reset).isoformat(),
-            }
+            return self._build_metrics_summary()
 
     def reset_metrics(self) -> Dict[str, Any]:
         """Reset metrics and return final summary"""
         with self._metrics_lock:
-            summary = self.get_metrics_summary()
+            # Build the snapshot while holding the lock; do NOT call
+            # get_metrics_summary() here, it would re-acquire the same
+            # non-reentrant Lock and deadlock.
+            summary = self._build_metrics_summary()
             self.metrics = MandateMetrics()
             return summary
 

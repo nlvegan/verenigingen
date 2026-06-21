@@ -57,45 +57,19 @@ class SEPARetryBatch(Document):
                 operation.max_retries = 3
 
     def calculate_totals(self):
-        """Calculate batch totals - optimized with database aggregation for large batches"""
-        if not self.name:
-            # New document, use Python iteration
-            self._calculate_totals_python()
-            return
+        """Calculate batch totals from the in-memory operations.
 
-        # For existing documents, use SQL aggregation for better performance
-        try:
-            result = frappe.db.sql(
-                """
-                SELECT
-                    COUNT(*) as total_operations,
-                    SUM(CASE WHEN status = 'Success' THEN 1 ELSE 0 END) as successful_retries,
-                    SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) as failed_retries,
-                    SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_operations
-                FROM `tabSEPA Retry Operation`
-                WHERE parent = %s
-                """,
-                self.name,
-                as_dict=True,
-            )
-
-            if result and result[0]:
-                stats = result[0]
-                self.total_operations = stats.total_operations or 0
-                self.successful_retries = stats.successful_retries or 0
-                self.failed_retries = stats.failed_retries or 0
-                pending_operations = stats.pending_operations or 0
-            else:
-                self.total_operations = 0
-                self.successful_retries = 0
-                self.failed_retries = 0
-                pending_operations = 0
-
-        except Exception as e:
-            # Fallback to Python iteration if SQL fails
-            frappe.logger().warning(f"SQL aggregation failed for batch {self.name}, using fallback: {str(e)}")
-            self._calculate_totals_python()
-            return
+        The in-memory ``self.operations`` are the source of truth here: during
+        on_submit the children are mutated in memory and validate() (which calls
+        this method) runs BEFORE those child rows are written to the DB, so a SQL
+        aggregation would read stale 'Pending' rows and miscount. Iterating the
+        loaded child docs reflects the current intent in both the insert and the
+        submit/save flows.
+        """
+        self.total_operations = len(self.operations)
+        self.successful_retries = len([op for op in self.operations if op.status == "Success"])
+        self.failed_retries = len([op for op in self.operations if op.status == "Failed"])
+        pending_operations = len([op for op in self.operations if op.status == "Pending"])
 
         # Update batch status based on operation states (same logic)
         if self.total_operations == 0:
@@ -133,9 +107,15 @@ class SEPARetryBatch(Document):
         self.process_retry_operations()
 
     def on_cancel(self):
-        """Handle batch cancellation - following DirectDebitBatch pattern"""
-        self.status = "Cancelled"
+        """Handle batch cancellation - following DirectDebitBatch pattern.
+
+        Frappe's cancel flow only persists the docstatus change; plain field
+        assignments made here are not written back. Use db_set so the cancelled
+        status and the log note are actually saved.
+        """
         self.add_to_batch_log(_("Retry batch cancelled"))
+        self.db_set("status", "Cancelled")
+        self.db_set("notes", self.notes)
 
     def process_retry_operations(self):
         """Process all retry operations in the batch"""
