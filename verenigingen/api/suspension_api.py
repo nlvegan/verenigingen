@@ -17,6 +17,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
+    public_api,
     standard_api,
     utility_api,
 )
@@ -612,11 +613,23 @@ def get_suspension_list(
 
 
 @frappe.whitelist(allow_guest=True)
-@standard_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_suspension_status_safe(member_name: str = None) -> OperationResult[Dict[str, Any]]:
     """
-    Safe wrapper for getting suspension status that handles permission errors gracefully
-    If member_name is not provided, gets status for current user's member record
+    Safe wrapper for getting suspension status that handles permission errors gracefully.
+    If member_name is not provided, gets status for current user's member record.
+
+    SECURITY: This is a self-service endpoint — the auth gate is intentionally PUBLIC
+    (the lowest tier, the only one that lets unauthenticated/ordinary-member callers
+    reach the body) so that the access control below is the REAL gate:
+      - Guest (no session)        -> NOT_AUTHENTICATED, no member data returned.
+      - Member viewing OWN record -> own_record + their own status only.
+      - Member viewing ANOTHER    -> PERMISSION_DENIED, NO status data returned.
+      - Authenticated, no Member  -> NO_MEMBER_RECORD.
+      - Admin role                -> admin_access to any member.
+    A higher gate (e.g. MEDIUM/@standard_api) raised PermissionError BEFORE the body
+    ran, making every branch above unreachable dead code. Do not raise the tier:
+    ownership is enforced in-band, not by role level.
     """
     try:
         # If no member_name provided, try to get current user's member record

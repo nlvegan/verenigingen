@@ -38,41 +38,6 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
             status="Active",
         )
 
-    def _make_user(self, email, *, role_profile=None):
-        """Create (idempotently) a real non-admin User.
-
-        ``role_profile`` assigns a Role Profile (User.role_profile_name) so the user
-        clears the API security framework's role-profile auth ladder. "Verenigingen
-        Volunteer" grants MEDIUM (the self-service tier) -- ordinary members hold the
-        "Verenigingen Member" profile which only grants LOW, so MEDIUM endpoints like
-        get_suspension_status_safe require the volunteer/self-service profile.
-        """
-        if not frappe.db.exists("User", email):
-            frappe.get_doc(
-                {
-                    "doctype": "User",
-                    "email": email,
-                    "first_name": "Susp",
-                    "last_name": "User",
-                    "send_welcome_email": 0,
-                    "roles": [{"role": "Verenigingen Member"}],
-                }
-            ).insert()
-        if role_profile:
-            frappe.db.set_value("User", email, "role_profile_name", role_profile)
-        frappe.db.commit()
-        # Bust the authorization engine's role-profile cache so the new assignment is seen.
-        frappe.cache().delete_keys("user_role_profiles")
-        return email
-
-    def _grant_medium_profile(self, email):
-        """get_suspension_status_safe is @standard_api(MEMBER_DATA) = MEDIUM, so the
-        caller must hold the "Verenigingen Volunteer" role profile to clear the auth
-        ladder and reach the endpoint's own/other/no-member branches at all."""
-        frappe.db.set_value("User", email, "role_profile_name", "Verenigingen Volunteer")
-        frappe.db.commit()
-        frappe.cache().delete_keys("user_role_profiles")
-
     # ------------------------------------------------------------------
     # get_suspension_list
     # ------------------------------------------------------------------
@@ -122,17 +87,17 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
     # ------------------------------------------------------------------
     # get_suspension_status_safe
     # ------------------------------------------------------------------
-    def test_status_safe_guest_blocked_by_security_ladder(self):
-        # FLAG (prod): get_suspension_status_safe has an internal NOT_AUTHENTICATED
-        # branch for guests, but @standard_api(MEMBER_DATA) requires MEDIUM and
-        # rejects an unauthenticated caller BEFORE the body runs -> that graceful
-        # branch is unreachable (dead). This characterizes the actual behavior: the
-        # security ladder raises rather than returning NOT_AUTHENTICATED.
-        from verenigingen.utils.error_handling import PermissionError as VPermissionError
-
+    def test_status_safe_guest_gets_graceful_not_authenticated(self):
+        # The endpoint is @public_api so a guest reaches the body, where the
+        # access-control logic returns a graceful NOT_AUTHENTICATED response
+        # (no raise) and -- critically -- NO member data.
         with self.set_user("Guest"):
-            with self.assertRaises(VPermissionError):
-                get_suspension_status_safe()
+            result = get_suspension_status_safe()
+        self.assertFalse(result["success"], msg=result)
+        self.assertEqual(result["error"]["code"], "NOT_AUTHENTICATED")
+        # No suspension status leaked to an unauthenticated caller.
+        self.assertNotIn("is_suspended", result.get("data", {}))
+        self.assertNotIn("member_status", result.get("data", {}))
 
     def test_status_safe_admin_access_other_member(self):
         # Administrator (default test user) gets admin access to any member.
@@ -142,7 +107,9 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
         self.assertEqual(result["data"]["member_status"], "Active")
 
     def test_status_safe_own_record(self):
-        # A non-admin user linked to the member reads its own record.
+        # An ORDINARY member ("Verenigingen Member", LOW tier) linked to the member
+        # reads its OWN record through the lowered @public_api gate -- no MEDIUM
+        # role-profile grant needed; ownership is enforced in-band.
         user_email = f"safe.own.{self.member.name}@example.com".lower()
         if not frappe.db.exists("User", user_email):
             frappe.get_doc(
@@ -157,15 +124,17 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
             ).insert()
         frappe.db.set_value("Member", self.member.name, "user", user_email)
         frappe.db.commit()
-        self._grant_medium_profile(user_email)
 
         with self.set_user(user_email):
             result = get_suspension_status_safe(self.member.name)
         self.assertTrue(result["success"], msg=result)
         self.assertEqual(result["data"]["access_type"], "own_record")
+        # Own status is returned (this is the member's OWN record).
+        self.assertEqual(result["data"]["member_status"], "Active")
 
     def test_status_safe_other_member_denied_for_non_admin(self):
-        # A non-admin user querying a DIFFERENT member's status is denied.
+        # An ORDINARY member querying a DIFFERENT member's status is denied with
+        # NO status data leaked -- the core data-leak guarantee of the lowered gate.
         other_member = self.create_test_member(
             first_name="SuspExt", last_name="Other", status="Active"
         )
@@ -183,15 +152,20 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
             ).insert()
         frappe.db.set_value("Member", self.member.name, "user", user_email)
         frappe.db.commit()
-        self._grant_medium_profile(user_email)
 
         with self.set_user(user_email):
             result = get_suspension_status_safe(other_member.name)
         self.assertFalse(result["success"])
         self.assertEqual(result["error"]["code"], "PERMISSION_DENIED")
+        # NO LEAK: the denied response must not carry the queried member's status.
+        denied_data = result.get("data", {})
+        self.assertNotIn("is_suspended", denied_data)
+        self.assertNotIn("member_status", denied_data)
+        self.assertNotIn("access_type", denied_data)
 
     def test_status_safe_no_member_record_for_user(self):
-        # An authenticated user with no linked Member record gets NO_MEMBER_RECORD.
+        # An authenticated ORDINARY member with no linked Member record gets
+        # NO_MEMBER_RECORD (no MEDIUM grant needed under the lowered gate).
         user_email = "safe.nomember@example.com"
         if not frappe.db.exists("User", user_email):
             frappe.get_doc(
@@ -204,7 +178,6 @@ class TestSuspensionAPIExtended(EnhancedTestCase):
                     "roles": [{"role": "Verenigingen Member"}],
                 }
             ).insert()
-        self._grant_medium_profile(user_email)
 
         with self.set_user(user_email):
             result = get_suspension_status_safe()
