@@ -12,8 +12,19 @@ from frappe.utils import getdate, today, validate_email_address
 from verenigingen.utils.constants import Roles
 
 
-def validate_email(email):
-    """Validate email format and check if it already exists"""
+def validate_email(email, allow_existing=False):
+    """Validate email format and check if it already exists.
+
+    Args:
+        email: The email address to validate.
+        allow_existing: When True, an already-existing member email is NOT
+            treated as a hard error. This is used by the reapplication flow,
+            where a Rejected/Pending applicant is permitted to reapply with the
+            same email (the existing-member routing is handled downstream by
+            ``_handle_existing_member``). The format check still applies, and
+            the "exists"/"member_id" metadata is still returned so callers can
+            route appropriately.
+    """
     try:
         if not email:
             return {"valid": False, "message": _("Email is required")}
@@ -24,6 +35,15 @@ def validate_email(email):
         # Check if email already exists
         existing_member = frappe.db.exists("Member", {"email": email})
         if existing_member:
+            if allow_existing:
+                # Reapplication-eligible: surface the existing member but do not
+                # block. Downstream _handle_existing_member owns the decision.
+                return {
+                    "valid": True,
+                    "message": _("Existing member found; reapplication allowed"),
+                    "exists": True,
+                    "member_id": existing_member,
+                }
             return {
                 "valid": False,
                 "message": _("A member with this email already exists. Please login or contact support."),
@@ -273,8 +293,17 @@ def validate_custom_amount(membership_type, amount):
         return {"valid": False, "message": str(e)}
 
 
-def check_application_eligibility(data):
-    """Check if applicant is eligible for membership"""
+def check_application_eligibility(data, allow_existing_email=False):
+    """Check if applicant is eligible for membership.
+
+    Args:
+        data: The application data dict.
+        allow_existing_email: When True, an already-existing member email is not
+            treated as an eligibility blocker. The caller (submit_application)
+            sets this only when the existing member is in a reapplication-
+            eligible status, so the existing-member routing can proceed into
+            ``_handle_existing_member``. The email *format* check still applies.
+    """
     eligibility_issues = []
     warnings = []
 
@@ -290,7 +319,7 @@ def check_application_eligibility(data):
 
     # Email uniqueness
     if data.get("email"):
-        email_validation = validate_email(data["email"])
+        email_validation = validate_email(data["email"], allow_existing=allow_existing_email)
         if not email_validation["valid"]:
             eligibility_issues.append(email_validation["message"])
 

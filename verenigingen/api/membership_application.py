@@ -391,8 +391,41 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                 context={"operation": "submit_application", "type": "validation_error"},
             )
 
+        # Look up any existing member with this email up-front so the eligibility
+        # gate can stay consistent with the reapplication routing. The email gate
+        # must only hard-block when the existing member is in a status that
+        # _handle_existing_member does NOT allow to reapply (Active, involuntary
+        # termination, unknown). For reapplication-eligible statuses
+        # (Rejected/Pending, voluntary-quit) the gate must let the flow continue
+        # into _handle_existing_member. _handle_existing_member remains the single
+        # source of truth for "which statuses allow reapplication".
+        existing_member = frappe.db.get_value(
+            "Member",
+            {"email": data.get("email")},
+            ["name", "status", "application_status"],
+            as_dict=True,
+        )
+
+        if existing_member:
+            # Resolve the existing-member decision FIRST so BLOCKED statuses
+            # (Active, involuntary termination, unknown) return their specific,
+            # actionable message (e.g. "already_active_member") rather than the
+            # generic "email already exists" eligibility error. Reapplication-
+            # eligible statuses (Rejected/Pending, voluntary-quit) produce no
+            # error and fall through to reuse the existing record below.
+            _action, existing_member_error = _handle_existing_member(existing_member, data)
+            if existing_member_error:
+                return existing_member_error
+
+        # When the email belongs to an existing member, the routing above has
+        # already allowed reapplication, so the eligibility gate must NOT re-block
+        # on email existence. The email *format* check (and all other eligibility
+        # checks) still apply to both new and reapplying applicants; brand-new
+        # emails still go through the normal exists check.
+        allow_existing_email = bool(existing_member)
+
         # Check eligibility
-        eligibility = check_application_eligibility_util(data)
+        eligibility = check_application_eligibility_util(data, allow_existing_email=allow_existing_email)
         if not eligibility["eligible"]:
             # Log detailed validation failure for debugging
             frappe.log_error(
@@ -407,19 +440,6 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                     "operation": "submit_application",
                 },
             )
-
-        # Check if member with email already exists and handle reapplication scenarios
-        existing_member = frappe.db.get_value(
-            "Member",
-            {"email": data.get("email")},
-            ["name", "status", "application_status"],
-            as_dict=True,
-        )
-
-        if existing_member:
-            action, error = _handle_existing_member(existing_member, data)
-            if error:
-                return error
 
         # Validate membership amount if custom amount is provided
         amount_error = _validate_membership_amount(data)

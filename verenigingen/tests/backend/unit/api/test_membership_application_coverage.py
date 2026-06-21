@@ -347,15 +347,15 @@ class TestHandleExistingMember(EnhancedTestCase):
 
 
 class TestSubmitApplicationExistingEmailGate(EnhancedTestCase):
-    """Characterizes submit_application's eligibility gate for existing emails.
+    """Verifies submit_application's eligibility gate is status-aware for existing emails.
 
-    FLAG: The eligibility check (check_application_eligibility) runs BEFORE
-    _handle_existing_member and fails for ANY existing email regardless of the
-    member's status. This means the Rejected/Pending "reapplication allowed"
-    branches of _handle_existing_member are effectively unreachable through
-    submit_application -- an existing-email applicant is always blocked at the
-    eligibility gate with the generic "already exists" message. Recorded here as
-    a characterization test so a future fix to the intake flow is detectable.
+    Product decision: a Rejected/Pending applicant (a reapplication-eligible
+    status per _handle_existing_member) SHOULD be able to reapply with the same
+    email. The eligibility gate must therefore only hard-block existing emails
+    when the existing member is in a status that _handle_existing_member does
+    NOT allow to reapply (Active, etc.). _handle_existing_member is the single
+    source of truth for "which statuses allow reapplication"; these tests pin the
+    end-to-end behaviour of submit_application against that contract.
     """
 
     @classmethod
@@ -367,19 +367,26 @@ class TestSubmitApplicationExistingEmailGate(EnhancedTestCase):
         cls.membership_type = _ensure_test_membership_type()
         frappe.db.commit()
 
-    def test_existing_email_blocked_at_eligibility_gate(self):
-        email = f"gate-{frappe.generate_hash(length=8)}@example.com"
+    def _make_existing(self, *, status, application_status):
+        """Create an existing member with a given status and return its (stored) email.
+
+        NOTE: create_test_member may rewrite the email to guarantee uniqueness,
+        so we return member.email (the value actually persisted) rather than the
+        value we passed in -- the reapplication must use the SAME stored email.
+        """
         member = self.create_test_member(
             first_name="Gate",
             last_name=f"Member{frappe.generate_hash(length=6)}",
-            email=email,
+            email=f"gate-{frappe.generate_hash(length=8)}@example.com",
             birth_date=add_days(today(), -365 * 30),
         )
-        member.db_set("application_status", "Rejected", update_modified=False)
-        member.db_set("status", "Rejected", update_modified=False)
+        member.db_set("application_status", application_status, update_modified=False)
+        member.db_set("status", status, update_modified=False)
         frappe.db.commit()
+        return member.email, member
 
-        data = {
+    def _reapply_data(self, email):
+        return {
             "first_name": "Reapply",
             "last_name": f"Case{frappe.generate_hash(length=6)}",
             "email": email,
@@ -390,10 +397,42 @@ class TestSubmitApplicationExistingEmailGate(EnhancedTestCase):
             "country": "Netherlands",
             "selected_membership_type": self.membership_type,
         }
-        self.expectErrorLog("Application Eligibility Failed")
-        result = submit_application(**data)
-        self.assertFalse(result["success"])
-        self.assertIn("already exists", json.dumps(result).lower())
+
+    def test_rejected_email_reapplication_now_succeeds(self):
+        """Rejected applicant reapplies with same email -> reaches reapplication path."""
+        email, member = self._make_existing(status="Rejected", application_status="Rejected")
+        result = submit_application(**self._reapply_data(email))
+        # No longer blocked at the gate: the application succeeds and reuses the
+        # existing member record (no duplicate Member created).
+        self.assertTrue(result["success"], msg=json.dumps(result))
+        self.assertEqual(result["data"]["member_record"], member.name)
+        # Exactly one Member with this email (no duplicate hijack/creation).
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+
+    def test_pending_email_reapplication_now_succeeds(self):
+        """Pending applicant reapplies with same email -> reaches reapplication path."""
+        email, member = self._make_existing(status="Pending", application_status="Pending")
+        result = submit_application(**self._reapply_data(email))
+        self.assertTrue(result["success"], msg=json.dumps(result))
+        self.assertEqual(result["data"]["member_record"], member.name)
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+
+    def test_active_member_email_still_blocked(self):
+        """Active member's email is still blocked (no reapplication/hijack)."""
+        email, member = self._make_existing(status="Active", application_status="Approved")
+        result = submit_application(**self._reapply_data(email))
+        self.assertFalse(result["success"], msg=json.dumps(result))
+        self.assertIn("already_active_member", json.dumps(result))
+        # The existing active member is untouched - still exactly one record.
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+
+    def test_brand_new_email_still_works(self):
+        """A brand-new (unused) email still submits successfully."""
+        email = f"fresh-{frappe.generate_hash(length=8)}@example.com"
+        result = submit_application(**self._reapply_data(email))
+        self.assertTrue(result["success"], msg=json.dumps(result))
+        self.assertEqual(frappe.db.count("Member", {"email": email}), 1)
+        self.track_doc("Member", result["data"]["member_record"])
 
 
 # ---------------------------------------------------------------------------
