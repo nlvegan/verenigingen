@@ -108,6 +108,11 @@ class ReconCoverageBase(EnhancedTestCase):
         # Track committed rows for force-cleanup (shard safety).
         self._committed_bt = []
         self._committed_pe = []
+        # Submitting a dated invoice triggers eBoekhouden's ensure_fiscal_year_exists,
+        # which logs this benign title when the current FY already exists / overlaps on
+        # the shared test DB (a known test-artifact, not a SEPA bug). Acknowledge it so
+        # the error-log guard surfaces only genuinely unexpected Error Logs.
+        self.expectErrorLog("Fiscal Year Auto-Creation Error")
 
     def tearDown(self):
         # Force-delete anything we committed so it cannot pollute sibling shards.

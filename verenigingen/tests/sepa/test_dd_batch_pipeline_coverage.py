@@ -51,7 +51,7 @@ dead. These tests pin the CURRENT behaviour so a future fix is detectable.
 """
 
 import frappe
-from frappe.utils import getdate, today
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
@@ -80,6 +80,11 @@ class _BatchPipelineBase(EnhancedTestCase):
         # Track any doc we insert/commit so it is force-removed in tearDown even
         # though batch processing commits past the FrappeTestCase rollback.
         self._committed_docs = []
+        # Submitting a dated invoice triggers eBoekhouden's ensure_fiscal_year_exists,
+        # which logs this benign title when the current FY already exists / overlaps on
+        # the shared test DB (a known test-artifact, not a SEPA bug). Acknowledge it so
+        # the error-log guard surfaces only genuinely unexpected Error Logs.
+        self.expectErrorLog("Fiscal Year Auto-Creation Error")
 
     def tearDown(self):
         for doctype, name in reversed(self._committed_docs):
@@ -285,6 +290,9 @@ class TestBatchProcessingServiceSequenceTypes(_BatchPipelineBase):
         sequence_type/last_used_date on SEPA Mandate -- none exist -> the broad
         except returns {}. Pin this (a fix that adds the columns would make it
         return data and flip this assertion)."""
+        # The broad except swallows a real DB error (1054 Unknown column 'customer')
+        # and logs it — assert that swallow happens (it is the dead-path behaviour).
+        self.expectErrorLog("mandate sequence types")
         member = self._member_with_membership()
         self._sepa.create_test_sepa_mandate(member=member.name, status="Active")
         customer = frappe.db.get_value("Member", member.name, "customer")
@@ -299,6 +307,8 @@ class TestBatchProcessingServiceSequenceTypes(_BatchPipelineBase):
         is_valid False with a single 'object has no attribute customer' error and
         no corrections. This is the dead-path characterization (the service can
         never validate sequence types because the schema it expects is absent)."""
+        # The broad except swallows the AttributeError and logs it — assert the swallow.
+        self.expectErrorLog("validating sequence types")
         batch, _member, _mandate = self._one_invoice_batch()
         result = self.service.validate_sepa_sequence_types(batch)
         self.assertFalse(result["is_valid"])
@@ -318,6 +328,8 @@ class TestBatchProcessingServiceGuards(_BatchPipelineBase):
             self.service.mark_batch_invoices_as_paid(batch)
 
     def test_process_batch_submission_requires_sepa_file(self):
+        # The guard logs the failure before re-raising; assert both.
+        self.expectErrorLog("SEPA file must be generated")
         batch, _m, _mn = self._one_invoice_batch()
         self.assertFalse(batch.sepa_file_generated)
         with self.assertRaises(frappe.ValidationError):
@@ -430,6 +442,8 @@ class TestDirectDebitBatchController(_BatchPipelineBase):
         self.assertIn("cancelled", (batch.batch_log or "").lower())
 
     def test_process_batch_requires_sepa_file(self):
+        # The guard logs the failure before re-raising; assert both.
+        self.expectErrorLog("SEPA file must be generated")
         batch, _m, _mn = self._one_invoice_batch()
         self.assertFalse(batch.sepa_file_generated)
         with self.assertRaises(frappe.ValidationError):
