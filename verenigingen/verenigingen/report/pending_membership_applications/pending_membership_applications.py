@@ -2,8 +2,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
-from verenigingen.utils.member_utils import get_member_chapters
-
 
 def execute(filters=None):
     """Generate Pending Membership Applications Report"""

@@ -65,7 +65,6 @@ from verenigingen.utils.member_utils import (
     get_member_name_for_user,
     get_volunteer_for_member,
 )
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
