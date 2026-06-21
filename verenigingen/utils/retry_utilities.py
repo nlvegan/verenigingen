@@ -122,9 +122,16 @@ def retry_with_backoff(
         max_retries: Maximum number of retry attempts (default: 3)
         base_delay: Base delay in seconds (default: 0.1)
         max_delay: Maximum delay in seconds (default: 10.0)
-        retry_on: Tuple of exception types to retry (default: all transient errors)
-        skip_on: Tuple of exception types to never retry (default: permanent errors)
+        retry_on: Tuple of exception types to retry. If given, exceptions not in
+            this tuple are still retried unless they classify as PERMANENT (see
+            classify_error). If None, every exception is retried.
+        skip_on: Tuple of exception types to never retry (re-raised immediately).
+            If None, no exception is skipped on type alone.
         on_retry: Optional callback function(exception, attempt, delay) called before each retry
+
+    Default behavior (retry_on=None and skip_on=None): retries ALL exceptions up
+    to max_retries, then re-raises the last one. Permanent errors are only skipped
+    when retry_on is provided (via classify_error); they are NOT skipped by default.
 
     Example:
         @retry_with_backoff(max_retries=5, base_delay=0.5)
