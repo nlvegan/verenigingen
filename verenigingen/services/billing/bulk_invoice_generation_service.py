@@ -35,7 +35,7 @@ from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 if TYPE_CHECKING:
-    from frappe.model.document import Document
+    pass
 
 
 @dataclass

@@ -21,7 +21,6 @@ from functools import wraps
 from typing import Callable, Optional, Tuple, Type
 
 import frappe
-from frappe import _
 
 
 class ErrorCategory(Enum):

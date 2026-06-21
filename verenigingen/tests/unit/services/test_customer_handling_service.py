@@ -4,7 +4,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-import frappe
 
 from verenigingen.services.customer_handling_service import CustomerHandlingService
 
