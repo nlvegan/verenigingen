@@ -611,7 +611,15 @@ class BulkInvoiceGenerationService(StatefulService):
                             "schedule": schedule_name,
                             "member": schedule.member_name,
                             "member_id": schedule.member,
-                            "invoice": invoice,
+                            # Store the invoice NAME (string) as the canonical id used
+                            # by bulk_update_payment_history -> _get_invoice_with_retry.
+                            # Previously this stored the SalesInvoice doc object, which
+                            # made frappe.get_doc("Sales Invoice", <doc>) fail and the
+                            # payment-history/coverage entry was silently dropped.
+                            "invoice": invoice.name,
+                            # Keep the doc object too for coverage-gap detection, which
+                            # needs the in-memory custom_coverage_end_date field.
+                            "invoice_doc": invoice,
                         }
                         result.invoices.append(invoice_data)
                         successful_invoices.append(invoice_data)
@@ -704,7 +712,9 @@ class BulkInvoiceGenerationService(StatefulService):
 
         for invoice_data in successful_invoices:
             try:
-                invoice = invoice_data["invoice"]
+                # Prefer the in-memory doc object (invoice_doc); fall back to the
+                # name-keyed "invoice" for callers that only provide the string.
+                invoice = invoice_data.get("invoice_doc") or invoice_data["invoice"]
                 if hasattr(invoice, "custom_coverage_end_date") and invoice.custom_coverage_end_date:
                     if invoice.custom_coverage_end_date < cutoff_date:
                         gap_days = (cutoff_date - invoice.custom_coverage_end_date).days
@@ -823,19 +833,17 @@ class BulkInvoiceGenerationService(StatefulService):
         """
         from frappe.utils.background_jobs import get_jobs
 
+        # get_jobs() returns a defaultdict keyed by SITE whose values are LISTS
+        # of method strings (the default key="method"), i.e. {site: [method, ...]}.
+        # It is NOT {job_id: {method: ...}}, so we must iterate the per-site lists
+        # (calling .get() on a list element raised AttributeError previously).
         jobs = get_jobs(site=frappe.local.site, queue="long")
 
         invoice_jobs = []
-        for job_id, job_info in jobs.items():
-            if "process_invoice_chunk" in str(job_info.get("method", "")):
-                invoice_jobs.append(
-                    {
-                        "job_id": job_id,
-                        "status": job_info.get("status"),
-                        "method": job_info.get("method"),
-                        "created": job_info.get("creation"),
-                    }
-                )
+        for site, methods in jobs.items():
+            for method in methods:
+                if "process_invoice_chunk" in str(method):
+                    invoice_jobs.append({"site": site, "method": method})
 
         return {
             "total_jobs": len(invoice_jobs),

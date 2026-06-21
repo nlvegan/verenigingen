@@ -919,3 +919,154 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
             _safe_log_error("Gap Fallback Title", "SCHED-2", ValueError("inner"))
         finally:
             mod.frappe.log_error = real_log_error
+
+    # ==================================================================
+    # REGRESSION: _process_sequential must feed the invoice NAME (string)
+    # to bulk_update_payment_history, not the SalesInvoice doc object.
+    # ==================================================================
+    def test_sequential_feeds_invoice_name_not_doc_to_payment_history(self):
+        """REGRESSION (BUG 1): _process_sequential must hand the invoice NAME
+        (string) to bulk_update_payment_history, NOT the SalesInvoice doc object.
+
+        Pre-fix it stored the SalesInvoice DOC object under invoice_data["invoice"].
+        bulk_update_payment_history then called member._get_invoice_with_retry(<doc>)
+        -> frappe.get_doc("Sales Invoice", <doc>), which raises "Unsupported
+        filters type" on a non-string name; the entry builder returned None and
+        the payment-history/coverage entry was SILENTLY DROPPED for every
+        bulk-generated invoice (payment_history_updates still incremented, so a
+        naive count assertion did not catch it).
+
+        We spy on the exact argument _process_sequential passes to
+        bulk_update_payment_history (boundary recorder on the service method) and
+        assert every invoice id is a STRING equal to the generated invoice name.
+        This pinpoints the call-site bug independently of the schedule's own
+        on-submit payment-history hook (which also writes a row, masking a
+        coarser 'row exists' assertion). FAILS pre-fix (doc object), passes after.
+        """
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, amount=15.0, next_invoice_date=add_days(today(), -1))
+
+        captured = {}
+        real_bulk = self.svc.bulk_update_payment_history
+
+        def recording_bulk(member_names, successful_invoices):
+            captured["successful_invoices"] = list(successful_invoices)
+            return real_bulk(member_names, successful_invoices)
+
+        self.svc.bulk_update_payment_history = recording_bulk
+        try:
+            result = BulkGenerationResult()
+            out = self.svc._process_sequential([ds.name], getdate(today()), test_mode=False, result=result)
+        finally:
+            self.svc.bulk_update_payment_history = real_bulk
+        self._track_invoices_from_member(member.name)
+
+        self.assertEqual(out.generated, 1)
+        invoice_name = frappe.db.get_value(
+            "Sales Invoice", {"member": member.name}, "name"
+        ) or frappe.db.get_value("Sales Invoice", {"customer": member.customer}, "name")
+        self.assertTrue(invoice_name, "an invoice should have been generated for the member")
+
+        passed = captured.get("successful_invoices")
+        self.assertTrue(passed, "bulk_update_payment_history should have been invoked with the invoice")
+        for inv in passed:
+            self.assertIsInstance(
+                inv["invoice"],
+                str,
+                "the payment-history id must be the invoice NAME (string), not the doc object",
+            )
+        self.assertIn(invoice_name, [inv["invoice"] for inv in passed])
+
+    def test_bulk_update_payment_history_drops_entry_when_fed_doc_object(self):
+        """REGRESSION (BUG 1, mechanism): proves the silent-drop mechanism the
+        call-site bug triggered. Feeding the SalesInvoice DOC object under
+        'invoice' (as buggy _process_sequential did) makes the inner
+        _get_invoice_with_retry(frappe.get_doc("Sales Invoice", <doc>)) fail with
+        'Unsupported filters type' and the entry is NOT recorded; feeding the
+        NAME (string) records it. Same member, two calls -> contrast.
+        """
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, amount=7.0, next_invoice_date=add_days(today(), -1))
+        invoice = frappe.get_doc("Membership Dues Schedule", ds.name).generate_invoice()
+        frappe.db.commit()
+        invoice_name = getattr(invoice, "name", invoice)
+        self._sales_invoices.append(invoice_name)
+
+        # The schedule's own on-submit hook may already have recorded this
+        # invoice. Strip it so we can observe whether bulk_update_payment_history
+        # (re)adds it, isolating the doc-vs-name behaviour.
+        member_doc = frappe.get_doc("Member", member.name)
+        member_doc.payment_history = [
+            row for row in (member_doc.payment_history or []) if getattr(row, "invoice", None) != invoice_name
+        ]
+        member_doc.save()
+        frappe.db.commit()
+
+        # 1) Feed the DOC object (the buggy shape) -> entry must be DROPPED.
+        self.expectErrorLog()
+        self.svc.bulk_update_payment_history(
+            {member.name},
+            [{"member_id": member.name, "invoice": invoice, "schedule": ds.name}],
+        )
+        member_doc = frappe.get_doc("Member", member.name)
+        recorded = [getattr(row, "invoice", None) for row in (member_doc.payment_history or [])]
+        self.assertNotIn(
+            invoice_name,
+            recorded,
+            "passing the doc object must NOT record the entry (the silent-drop the bug caused)",
+        )
+
+        # 2) Feed the NAME (string) -> entry must now be recorded.
+        self.svc.bulk_update_payment_history(
+            {member.name},
+            [{"member_id": member.name, "invoice": invoice_name, "schedule": ds.name}],
+        )
+        member_doc = frappe.get_doc("Member", member.name)
+        recorded = [getattr(row, "invoice", None) for row in (member_doc.payment_history or [])]
+        self.assertIn(invoice_name, recorded)
+
+    # ==================================================================
+    # REGRESSION: get_parallel_status must handle the real get_jobs() shape
+    # ==================================================================
+    def test_get_parallel_status_handles_populated_long_queue(self):
+        """REGRESSION (BUG 2): get_parallel_status iterated get_jobs() as if it
+        returned {job_id: {method: ...}} and called job_info.get('method'). The
+        real frappe.utils.background_jobs.get_jobs() returns a defaultdict(list)
+        keyed by SITE whose values are LISTS of method strings, so .get() raised
+        AttributeError: 'list' object has no attribute 'get' whenever any job
+        existed on the long queue.
+
+        We patch get_jobs (a boundary) to return the real shape with an
+        invoice-generation method present, and assert get_parallel_status returns
+        it WITHOUT raising. No real job is enqueued onto the shared long queue.
+        """
+        from collections import defaultdict
+
+        site = frappe.local.site
+
+        fake_jobs = defaultdict(list)
+        fake_jobs[site] = [
+            "verenigingen.services.billing.bulk_invoice_generation_service.process_invoice_chunk",
+            "some.other.unrelated.task",
+        ]
+
+        # get_jobs is imported inside the method from frappe.utils.background_jobs,
+        # so patch it there (the boundary the function actually calls).
+        import frappe.utils.background_jobs as bgmod
+
+        real_get_jobs = bgmod.get_jobs
+        bgmod.get_jobs = lambda site=None, queue=None, key="method": fake_jobs
+        try:
+            status = self.svc.get_parallel_status()  # must NOT raise
+        finally:
+            bgmod.get_jobs = real_get_jobs
+
+        self.assertIn("total_jobs", status)
+        self.assertIn("jobs", status)
+        self.assertIsInstance(status["jobs"], list)
+        # Exactly the invoice-generation method is reported (the unrelated one filtered out).
+        self.assertEqual(status["total_jobs"], 1)
+        self.assertEqual(len(status["jobs"]), 1)
+        self.assertIn("process_invoice_chunk", str(status["jobs"][0].get("method")))
