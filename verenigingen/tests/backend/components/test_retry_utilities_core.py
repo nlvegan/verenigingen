@@ -18,7 +18,6 @@ control flow itself is exercised for real.
 import unittest
 from unittest.mock import patch
 
-import frappe
 
 from verenigingen.utils.retry_utilities import (
     ErrorCategory,
