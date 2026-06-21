@@ -104,6 +104,17 @@ class TestTeamServiceAssignmentHistory(TeamDomainTestBase):
         result = self.svc.sync_with_volunteers(team)
         self.assertTrue(result)
 
+        # sync_with_volunteers calls the controller's handle_team_member_changes,
+        # which drives assignment history. Assert the observable side effect: the
+        # team member now has an Active assignment row on the volunteer.
+        vol = frappe.get_doc("Volunteer", volunteer.name)
+        active = [
+            a
+            for a in vol.assignment_history or []
+            if a.reference_name == team.name and a.status == "Active"
+        ]
+        self.assertTrue(active, "sync should have produced an Active assignment row")
+
     def test_add_assignment_history_creates_active_row(self):
         """add_assignment_history finds the member and creates an Active assignment."""
         volunteer = self._make_volunteer()

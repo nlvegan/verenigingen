@@ -98,10 +98,11 @@ class TestFinancialUtilsCoverage(EnhancedTestCase):
         invoices = get_customer_invoices(self.customer_name)
         names = {row["name"] for row in invoices}
         self.assertIn(inv.name, names)
-        # Default fields include outstanding_amount + status
+        # Pin the default field-set VALUES, not just key presence:
+        # a fresh submitted invoice is Unpaid with outstanding == grand_total.
         row = next(r for r in invoices if r["name"] == inv.name)
-        self.assertIn("outstanding_amount", row)
-        self.assertIn("status", row)
+        self.assertEqual(row["status"], "Unpaid")
+        self.assertEqual(flt(row["outstanding_amount"]), 120.0)
 
     def test_get_customer_invoices_outstanding_only_filters_paid(self):
         """outstanding_only excludes invoices with zero outstanding."""
@@ -148,12 +149,17 @@ class TestFinancialUtilsCoverage(EnhancedTestCase):
         self.assertNotIn(recent_inv.name, names)
 
     def test_get_customer_invoices_limit(self):
-        """limit caps the number of returned rows."""
+        """limit caps the number of returned rows to exactly the cap.
+
+        The customer is fresh per-test, so with 3 invoices and limit=2 the
+        result must be exactly 2 — assert equality (not <=) so a regression
+        that ignored the limit would fail.
+        """
         for _ in range(3):
             self._make_invoice(grand_total=10.0)
 
         rows = get_customer_invoices(self.customer_name, limit=2)
-        self.assertLessEqual(len(rows), 2)
+        self.assertEqual(len(rows), 2)
 
     # ------------------------------------------------------------------
     # get_outstanding_invoices due_date_filter branches
@@ -288,15 +294,37 @@ class TestFinancialUtilsCoverage(EnhancedTestCase):
     # cache helpers (must not raise)
     # ------------------------------------------------------------------
 
-    def test_invalidate_customer_cache_runs(self):
-        """invalidate_customer_cache deletes per-customer keys without error."""
+    def test_invalidate_customer_cache_deletes_keys(self):
+        """invalidate_customer_cache removes the per-customer keys.
+
+        Seed the exact keys the function targets, then assert they are gone
+        afterwards. This pins the key-naming contract
+        (f"customer_invoices:{customer}", etc.) that a bare no-raise smoke
+        test would miss.
+        """
+        keys = [
+            f"customer_invoices:{self.customer_name}",
+            f"outstanding_invoices:{self.customer_name}",
+            f"payment_summary:{self.customer_name}",
+        ]
+        for key in keys:
+            frappe.cache().set_value(key, "seeded")
+
         with self.assertNoErrorLog():
             invalidate_customer_cache(self.customer_name)
 
-    def test_refresh_financial_cache_runs(self):
-        """refresh_financial_cache clears pattern keys without error."""
+        for key in keys:
+            self.assertIsNone(frappe.cache().get_value(key))
+
+    def test_refresh_financial_cache_clears_pattern_keys(self):
+        """refresh_financial_cache deletes keys matching the financial patterns."""
+        seeded = f"customer_invoices:{self.customer_name}"
+        frappe.cache().set_value(seeded, "seeded")
+
         with self.assertNoErrorLog():
             refresh_financial_cache()
+
+        self.assertIsNone(frappe.cache().get_value(seeded))
 
 
 if __name__ == "__main__":

@@ -128,6 +128,26 @@ class TestMemberUtilsCurrentUserCoverage(EnhancedTestCase):
         with self.as_user(self.member_email):
             self.assertFalse(has_mollie_subscription())
 
+    def test_has_mollie_subscription_false_when_payment_method_not_mollie(self):
+        """All IDs + active status set, but payment_method != Mollie -> False.
+
+        Isolates the has_payment_method conjunct so a regression dropping it
+        would be caught.
+        """
+        frappe.db.set_value(
+            "Member",
+            self.member.name,
+            {
+                "payment_method": "SEPA Direct Debit",
+                "mollie_customer_id": "cst_test123",
+                "mollie_subscription_id": "sub_test123",
+                "subscription_status": "active",
+            },
+            update_modified=False,
+        )
+        with self.as_user(self.member_email):
+            self.assertFalse(has_mollie_subscription())
+
     def test_has_mollie_subscription_no_member_returns_false(self):
         """A logged-in user with no Member record -> False (not None)."""
         user = self.create_test_user(
