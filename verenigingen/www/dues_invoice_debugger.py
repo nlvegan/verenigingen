@@ -5,7 +5,7 @@ User-friendly interface for checking member dues status and generating SEPA DD b
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.constants import Roles
 
@@ -49,8 +49,10 @@ def get_context(context):
         for role in context.user_roles
     )
 
-    # Get current billing period (current month by default)
-    today_date = today()
+    # Get current billing period (current month by default). getdate() coerces
+    # today()'s string to a date so .replace(day=1) works (it raised TypeError
+    # on the raw string before).
+    today_date = getdate(today())
     context.current_period_start = today_date.replace(day=1)
     context.current_period_end = add_days(add_days(context.current_period_start, 32).replace(day=1), -1)
 

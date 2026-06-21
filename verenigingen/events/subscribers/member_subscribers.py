@@ -404,10 +404,20 @@ def _assign_member_to_chapter(member):
 
 
 def _update_chapter_membership_status(member, status):
-    """Update status of all chapter memberships for this member"""
+    """Update status of all chapter memberships for this member.
+
+    The Member-level status ("Suspended"/"Quit") does not map 1:1 to the
+    Chapter Member status Select, which only allows Pending/Active/Inactive.
+    Both terminal member states deactivate the chapter membership, so map
+    them to "Inactive". Previously this wrote the raw member status, which
+    failed Select validation and was silently swallowed by the caller —
+    chapter memberships were never deactivated on suspend/quit.
+    """
+    chapter_member_status = "Inactive" if status in ("Suspended", "Quit") else status
+
     chapter_members = frappe.get_all("Chapter Member", filters={"member": member.name}, fields=["name"])
 
     for cm in chapter_members:
         chapter_member = frappe.get_doc("Chapter Member", cm.name)
-        chapter_member.status = status
+        chapter_member.status = chapter_member_status
         chapter_member.save()
