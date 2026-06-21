@@ -16,12 +16,13 @@ lock-held path returns before any connection is attempted.
 """
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.mijnrood_sync.services import polling_service
 from verenigingen.mijnrood_sync.services.polling_service import (
-    _SYNC_LOCK_KEY,
     MijnRoodPollingService,
     acquire_sync_lock,
     compute_change_tags,
@@ -36,7 +37,19 @@ class TestSyncLock(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        # Ensure a clean lock slate for deterministic acquire/release tests.
+        # The production lock key is a single shared frappe.cache() key. CI runs
+        # shards in PARALLEL against a shared cache, so two shards exercising
+        # these lock tests at once would stomp each other's key (e.g. another
+        # shard's setUp release_sync_lock() lands between our two acquires and
+        # flips the "blocked" assertion). Isolate every test on a UNIQUE lock key
+        # so acquire/release/run_sync operate on a private slot. acquire_sync_lock,
+        # release_sync_lock and run_sync all read the module global at call time,
+        # so patching it here redirects them.
+        self.lock_key = f"mijnrood_sync:run_lock:test:{frappe.generate_hash(length=12)}"
+        self._key_patch = patch.object(polling_service, "_SYNC_LOCK_KEY", self.lock_key)
+        self._key_patch.start()
+        self.addCleanup(self._key_patch.stop)
+        # Ensure a clean (unique) lock slate for deterministic acquire/release.
         release_sync_lock()
 
     def tearDown(self):
@@ -50,7 +63,7 @@ class TestSyncLock(EnhancedTestCase):
 
     def test_lock_stores_run_id(self):
         acquire_sync_lock("run-XYZ")
-        self.assertEqual(frappe.cache().get_value(_SYNC_LOCK_KEY), "run-XYZ")
+        self.assertEqual(frappe.cache().get_value(self.lock_key), "run-XYZ")
 
     def test_release_allows_reacquire(self):
         self.assertTrue(acquire_sync_lock("run-1"))
@@ -62,7 +75,7 @@ class TestSyncLock(EnhancedTestCase):
         release_sync_lock()
         # Idempotent — calling release twice must not raise.
         release_sync_lock()
-        self.assertIsNone(frappe.cache().get_value(_SYNC_LOCK_KEY))
+        self.assertIsNone(frappe.cache().get_value(self.lock_key))
 
     def test_run_sync_skips_when_lock_already_held(self):
         """The concurrency guard: if a previous run still holds the lease,
@@ -75,7 +88,7 @@ class TestSyncLock(EnhancedTestCase):
         self.assertEqual(result, {"skipped": True, "reason": "lock_held"})
         # The lock is still held by the simulated in-flight run — run_sync()
         # must NOT have released someone else's lease.
-        self.assertEqual(frappe.cache().get_value(_SYNC_LOCK_KEY), "in-flight-run")
+        self.assertEqual(frappe.cache().get_value(self.lock_key), "in-flight-run")
 
 
 class TestComputeChangeTags(EnhancedTestCase):
