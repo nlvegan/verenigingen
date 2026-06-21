@@ -304,29 +304,32 @@ def get_support_email() -> Optional[str]:
 
 def get_e_boekhouden_api_credentials() -> Optional[Dict[str, str]]:
     """
-    Get E-Boekhouden API credentials safely.
+    Get E-Boekhouden REST API credentials safely.
+
+    The current E-Boekhouden Settings DocType uses the REST API and exposes
+    `api_token` (encrypted Password) and `api_url` (Data). The legacy SOAP
+    fields (`username` / `security_code`) no longer exist on the doctype.
 
     Returns:
-        Dict with 'username' and 'security_code' if found, None otherwise
+        Dict with 'api_token' and 'api_url' if found, None on error
 
     Security:
-        Uses get_password() method for secure credential retrieval
+        Uses get_password() for secure retrieval of the encrypted api_token.
     """
     try:
-        settings = frappe.get_single("E-Boekhouden Settings")
-        if not settings:
+        settings_doc = frappe.get_doc("E-Boekhouden Settings")
+        if not settings_doc:
             return None
 
-        # Get the actual document for secure password retrieval
-        settings_doc = frappe.get_doc("E-Boekhouden Settings")
-
         return {
-            "username": settings.get("username"),
-            "security_code": (
-                settings_doc.get_password("security_code")
+            "api_token": (
+                # raise_exception=False: an unconfigured token must yield None,
+                # not raise.
+                settings_doc.get_password("api_token", raise_exception=False)
                 if hasattr(settings_doc.__class__, "get_password")
-                else None
+                else settings_doc.get("api_token")
             ),
+            "api_url": settings_doc.get("api_url"),
         }
     except Exception as e:
         frappe.logger().error(f"Error retrieving E-Boekhouden API credentials: {str(e)}")
@@ -363,29 +366,57 @@ def is_e_boekhouden_enabled() -> bool:
     """
     Check if E-Boekhouden integration is enabled.
 
+    The E-Boekhouden REST integration is considered enabled when an API token
+    is configured (there is no separate enable flag; `api_token` is the gating
+    credential for the REST API).
+
     Returns:
-        True if enabled, False otherwise
+        True if an API token is configured, False otherwise
     """
-    settings = get_e_boekhouden_settings()
-    if settings:
-        return bool(settings.get("enable_e_boekhouden"))
-    return False
+    try:
+        api_token = frappe.db.get_single_value("E-Boekhouden Settings", "api_token")
+        return bool(api_token)
+    except Exception as e:
+        frappe.logger().error(f"Error checking E-Boekhouden enabled state: {str(e)}")
+        return False
 
 
 def is_mollie_enabled(gateway_name: str = "Default") -> bool:
     """
-    Check if Mollie integration is enabled for specified gateway.
+    Check if Mollie integration is configured.
+
+    Mollie Settings is a Single DocType; it has no `enabled`/`api_key` fields.
+    Integration is considered enabled when a secret key is configured. We honor
+    `test_mode` to check the key that would actually be used (test vs live), so
+    a half-configured Single (only the unused key set) reads as not-enabled.
 
     Args:
-        gateway_name: Name of the gateway settings (default: "Default")
+        gateway_name: Legacy gateway parameter. A non-Single name resolves to
+            "does not exist" and returns False; the Single is "Mollie Settings".
 
     Returns:
-        True if enabled and configured, False otherwise
+        True if the relevant secret key is configured, False otherwise
     """
-    settings = get_mollie_settings(gateway_name)
-    if settings:
-        return bool(settings.get("enabled")) and bool(settings.get("api_key"))
-    return False
+    try:
+        if not frappe.db.exists("Mollie Settings", gateway_name):
+            return False
+
+        settings_doc = frappe.get_doc("Mollie Settings", gateway_name)
+
+        # In test mode the test key is used; otherwise the live key.
+        key_field = "test_secret_key" if settings_doc.get("test_mode") else "live_secret_key"
+
+        if hasattr(settings_doc.__class__, "get_password"):
+            # raise_exception=False: an unconfigured Password field has no stored
+            # value, and get_password() would otherwise raise.
+            secret = settings_doc.get_password(key_field, raise_exception=False)
+        else:
+            secret = settings_doc.get(key_field)
+
+        return bool(secret)
+    except Exception as e:
+        frappe.logger().error(f"Error checking Mollie enabled state for '{gateway_name}': {str(e)}")
+        return False
 
 
 # Template context helpers — extract duplicate patterns from template pages

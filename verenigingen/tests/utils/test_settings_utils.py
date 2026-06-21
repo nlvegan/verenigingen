@@ -117,11 +117,67 @@ class TestSettingsUtils(EnhancedTestCase):
         self.assertEqual(result.get("name"), "Mollie Settings")
 
     def test_is_mollie_enabled_missing_gateway_false(self):
-        # Missing gateway -> False (settings is None)
+        # Missing gateway -> False (settings does not exist)
         self.assertFalse(is_mollie_enabled(f"Ghost{frappe.generate_hash(length=6)}"))
-        # The Single has no `enabled`/`api_key` fields, so is_mollie_enabled is
-        # False even for the real Single — exercises the enabled/api_key branch.
-        self.assertFalse(is_mollie_enabled("Mollie Settings"))
+
+    def test_is_mollie_enabled_reflects_real_secret_key(self):
+        # is_mollie_enabled reads the REAL Mollie Settings secret keys (not the
+        # nonexistent `enabled`/`api_key` fields). In test_mode it gates on
+        # test_secret_key; otherwise on live_secret_key.
+        #
+        # Mollie secret keys are Password fields: their real value is stored
+        # encrypted in the __Auth table (set via the "Set API Keys" button),
+        # NOT in the doctype column. is_mollie_enabled reads them via
+        # get_password(), so the test must drive __Auth (set_encrypted_password /
+        # remove_encrypted_password), mirroring production storage. All writes
+        # are non-committed and roll back with the test transaction; the finally
+        # block restores the original __Auth rows / test_mode as defense-in-depth
+        # against intra-worker leakage before the rollback.
+        from frappe.utils.password import (
+            get_decrypted_password,
+            remove_encrypted_password,
+            set_encrypted_password,
+        )
+
+        DT = "Mollie Settings"
+
+        def _set_key(field, value):
+            if value:
+                set_encrypted_password(DT, DT, value, field)
+            else:
+                remove_encrypted_password(DT, DT, field)
+            # Blank the column too, so get_password falls through to __Auth.
+            frappe.db.set_single_value(DT, field, "", update_modified=False)
+            frappe.clear_document_cache(DT, DT)
+
+        orig_test_mode = frappe.db.get_single_value(DT, "test_mode")
+        orig_test_key = get_decrypted_password(DT, DT, "test_secret_key", raise_exception=False)
+        orig_live_key = get_decrypted_password(DT, DT, "live_secret_key", raise_exception=False)
+        try:
+            # Test mode ON, only test key set -> enabled (reads test key)
+            frappe.db.set_single_value(DT, "test_mode", 1, update_modified=False)
+            _set_key("test_secret_key", "test_abc123")
+            _set_key("live_secret_key", "")
+            self.assertTrue(is_mollie_enabled(DT))
+
+            # Test mode ON but only a live key set -> NOT enabled (wrong key)
+            _set_key("test_secret_key", "")
+            _set_key("live_secret_key", "live_xyz789")
+            self.assertFalse(is_mollie_enabled(DT))
+
+            # Test mode OFF, live key set -> enabled (reads live key)
+            frappe.db.set_single_value(DT, "test_mode", 0, update_modified=False)
+            frappe.clear_document_cache(DT, DT)
+            self.assertTrue(is_mollie_enabled(DT))
+
+            # No keys at all -> not enabled
+            _set_key("live_secret_key", "")
+            self.assertFalse(is_mollie_enabled(DT))
+        finally:
+            _set_key("test_secret_key", orig_test_key)
+            _set_key("live_secret_key", orig_live_key)
+            frappe.db.set_single_value(DT, "test_mode", orig_test_mode, update_modified=False)
+            frappe.clear_document_cache(DT, DT)
 
     # --------------------------------------------------------- convenience fns
     def test_get_default_company_matches_settings(self):
@@ -132,23 +188,53 @@ class TestSettingsUtils(EnhancedTestCase):
         expected = frappe.db.get_single_value("System Settings", "email_footer_address")
         self.assertEqual(get_support_email(), expected or None)
 
-    def test_get_e_boekhouden_api_credentials_returns_dict_or_none(self):
-        # The DocType no longer carries `username` / `security_code` fields, so
-        # the credential lookup degrades gracefully: it returns either a dict
-        # (with both keys) or None on internal error — never raises.
-        creds = get_e_boekhouden_api_credentials()
-        if creds is not None:
+    def test_get_e_boekhouden_api_credentials_returns_real_fields(self):
+        # The credential dict now exposes the REAL REST fields (api_token,
+        # api_url) rather than the nonexistent SOAP fields (username,
+        # security_code). Set a known api_token/api_url (non-committed) and
+        # assert the helper returns those exact values.
+        orig_token = frappe.db.get_single_value("E-Boekhouden Settings", "api_token")
+        orig_url = frappe.db.get_single_value("E-Boekhouden Settings", "api_url")
+        try:
+            frappe.db.set_single_value(
+                "E-Boekhouden Settings", "api_token", "tok_real_123", update_modified=False
+            )
+            frappe.db.set_single_value(
+                "E-Boekhouden Settings", "api_url", "https://api.example.test", update_modified=False
+            )
+            creds = get_e_boekhouden_api_credentials()
             self.assertIsInstance(creds, dict)
-            self.assertIn("username", creds)
-            self.assertIn("security_code", creds)
+            self.assertEqual(creds.get("api_token"), "tok_real_123")
+            self.assertEqual(creds.get("api_url"), "https://api.example.test")
+            # The stale SOAP keys are gone.
+            self.assertNotIn("username", creds)
+            self.assertNotIn("security_code", creds)
+        finally:
+            frappe.db.set_single_value(
+                "E-Boekhouden Settings", "api_token", orig_token, update_modified=False
+            )
+            frappe.db.set_single_value(
+                "E-Boekhouden Settings", "api_url", orig_url, update_modified=False
+            )
 
-    def test_is_e_boekhouden_enabled_false_under_field_drift(self):
-        # Characterization of a degraded schema: `enable_e_boekhouden` is absent
-        # from the current E-Boekhouden Settings, so settings.get(...) -> None and
-        # the helper resolves to exactly False. Pinning the concrete value (not
-        # just the type) catches a regression where a re-added field flips it.
-        result = is_e_boekhouden_enabled()
-        self.assertIs(result, False)
+    def test_is_e_boekhouden_enabled_reflects_api_token(self):
+        # E-Boekhouden REST is enabled iff an api_token is configured. The helper
+        # now reads the REAL `api_token` field (previously the nonexistent
+        # `enable_e_boekhouden`, which made it ALWAYS False). Non-committed writes
+        # so the shared Single rolls back.
+        orig_token = frappe.db.get_single_value("E-Boekhouden Settings", "api_token")
+        try:
+            frappe.db.set_single_value(
+                "E-Boekhouden Settings", "api_token", "tok_enabled_xyz", update_modified=False
+            )
+            self.assertTrue(is_e_boekhouden_enabled())
+
+            frappe.db.set_single_value("E-Boekhouden Settings", "api_token", "", update_modified=False)
+            self.assertFalse(is_e_boekhouden_enabled())
+        finally:
+            frappe.db.set_single_value(
+                "E-Boekhouden Settings", "api_token", orig_token, update_modified=False
+            )
 
     # ----------------------------------------------- populate_income_calculator
     def test_populate_income_calculator_context_with_provided_settings(self):
