@@ -38,6 +38,23 @@ def clear_rate_limits():
             print(f"Warning: Failed to clear rate limits: {e}")
 
 
+def set_shared_email(member_name, email):
+    """Force a Member's email directly, bypassing the factory's email uniquifier.
+
+    EnhancedTestDataFactory.create_member appends a per-member unique suffix to
+    the local part of an email UNLESS its last 5 chars already contain a digit
+    (a deterministic-but-content-dependent heuristic). When two members are
+    created with the same uuid-hex email and that hex happens to end in 5 letters,
+    BOTH get mangled with DIFFERENT suffixes, so they no longer share an email
+    and duplicate detection finds nothing -- an intermittent (~0.76%/uuid) flake.
+
+    Duplicate-detection tests deliberately need members to SHARE an email, so we
+    set it explicitly after creation (db.set_value also skips re-validation), making
+    the shared-email setup deterministic regardless of the random hex.
+    """
+    frappe.db.set_value("Member", member_name, "email", email)
+
+
 class TestEmailDuplicateDetection(EnhancedTestCase):
     """Test email-based duplicate detection"""
 
@@ -66,6 +83,11 @@ class TestEmailDuplicateDetection(EnhancedTestCase):
             birth_date="1985-05-15"
         )
 
+        # Force the shared email post-creation so the factory's uniquifier cannot
+        # split member1/member2 onto different emails (see set_shared_email).
+        set_shared_email(member1.name, unique_email)
+        set_shared_email(member2.name, unique_email)
+
         # Check for duplicates (excluding member1)
         matches = check_email_duplicate(unique_email, exclude_member=member1.name)
 
@@ -84,6 +106,11 @@ class TestEmailDuplicateDetection(EnhancedTestCase):
             email=unique_email.upper(),  # Store in uppercase
             birth_date="1990-01-01"
         )
+
+        # Force the uppercase email post-creation (the factory uniquifier would
+        # otherwise mangle the local part for some uuids) so the case-insensitivity
+        # assertion is deterministic.
+        set_shared_email(member.name, unique_email.upper())
 
         # Search with lowercase
         matches = check_email_duplicate(unique_email.lower())
@@ -375,6 +402,11 @@ class TestComprehensiveDuplicateDetection(EnhancedTestCase):
             birth_date="1990-01-01"  # Name+DOB match (0.7-0.9)
         )
 
+        # Force the shared email so the 1.0 email-match criterion is deterministic
+        # regardless of the factory's email uniquifier (see set_shared_email).
+        set_shared_email(member1.name, unique_email)
+        set_shared_email(member2.name, unique_email)
+
         duplicates = find_potential_duplicates(
             member_name=member1.name,
             email=unique_email,
@@ -494,9 +526,14 @@ class TestAPISecurity(EnhancedTestCase):
             first_name="Api", last_name="DupOne", email=shared_email, birth_date="1985-05-05"
         )
         # Second member shares the email (definitive 1.0 match against member1).
-        self.create_test_member(
+        member2 = self.create_test_member(
             first_name="Api", last_name="DupTwo", email=shared_email, birth_date="1985-05-05"
         )
+
+        # Force the shared email post-creation so the factory's uniquifier cannot
+        # split the two members apart (see set_shared_email).
+        set_shared_email(member1.name, shared_email)
+        set_shared_email(member2.name, shared_email)
 
         result = check_duplicate_for_approval(member1.name)
 
