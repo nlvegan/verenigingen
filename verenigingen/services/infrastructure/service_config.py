@@ -368,13 +368,26 @@ class ConfigurationManager:
         """
         member_config = self.get_service_config("member_services")
 
-        # Define field mappings with defaults and validation
+        # Define field mappings with defaults and validation.
+        #
+        # Field names are the REAL Verenigingen Settings fieldnames (the loader
+        # previously referenced stale/renamed names which never matched, so the
+        # configured values silently fell through to the hardcoded defaults):
+        #   member_id_start_number -> member_id_start
+        #   minimum_member_age     -> minimum_membership_age
+        #
+        # `id_length` and `default_status` have NO corresponding field on the
+        # current Verenigingen Settings doctype, so they keep their hardcoded
+        # defaults (no field mapping) instead of referencing a phantom field.
         field_mappings = [
-            ("member_id_start_number", "id_start_number", 1000, int, 1, 999999),
-            ("member_id_length", "id_length", 6, int, 4, 12),
-            ("minimum_member_age", "minimum_age", 16, int, 0, 120),
-            ("default_member_status", "default_status", "Active", str, None, None),
+            ("member_id_start", "id_start_number", 1000, int, 1, 999999),
+            ("minimum_membership_age", "minimum_age", 16, int, 0, 120),
         ]
+
+        # Config keys with no backing settings field: seed their defaults so
+        # downstream consumers still get a value.
+        member_config.set("id_length", 6)
+        member_config.set("default_status", "Active")
 
         # Load each field safely with validation
         for field_name, config_key, default_value, expected_type, min_val, max_val in field_mappings:

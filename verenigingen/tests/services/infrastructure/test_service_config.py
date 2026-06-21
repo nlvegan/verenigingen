@@ -12,14 +12,16 @@ EnvironmentConfig (environment-specific config loading).
 These are pure-logic infra modules; the only DB touch point is
 ConfigurationManager.load_from_settings() which reads the real
 "Verenigingen Settings" Single. We exercise that against the real doctype and
-derive expectations from its actual fields (the module references several
-field names that are STALE relative to the current doctype - see
-test_load_from_settings_is_defensive_against_missing_fields).
+derive expectations from its actual fields. load_from_settings maps the REAL
+fields (member_id_start, minimum_membership_age) onto the member_services
+config - see test_load_from_settings_reads_real_member_fields.
 """
 
 import json
 import os
 import tempfile
+
+import frappe
 
 from verenigingen.services.infrastructure.service_config import (
     ConfigurationManager,
@@ -217,25 +219,48 @@ class TestConfigurationManager(EnhancedTestCase):
         self.assertEqual(mgr.get_global_config("cache_timeout"), 60)
         self.assertEqual(mgr.get_global_config("absent", "dflt"), "dflt")
 
-    def test_load_from_settings_is_defensive_against_missing_fields(self):
-        """load_from_settings references field names that are STALE on the
-        current Verenigingen Settings doctype. BOTH the _safe_load_field calls
-        (default_member_id_prefix, enable_debug_logging) AND the
-        _load_member_service_settings mappings (member_id_start_number,
-        member_id_length, minimum_member_age, default_member_status) are absent
-        from the doctype (actual fields: member_id_start, minimum_membership_age,
-        ...). The hasattr guards make this a near-total no-op: it must not raise
-        and must fall back to the hardcoded member-service defaults.
-        """
-        mgr = ConfigurationManager()
-        mgr.load_from_settings()  # real Single read; must not raise
+    def test_load_from_settings_reads_real_member_fields(self):
+        """load_from_settings maps the REAL Verenigingen Settings fields onto the
+        member_services config:
 
-        member_cfg = mgr.get_service_config("member_services")
-        # Defaults applied because the referenced fields do not exist:
-        self.assertEqual(member_cfg.get("id_start_number"), 1000)
-        self.assertEqual(member_cfg.get("id_length"), 6)
-        self.assertEqual(member_cfg.get("minimum_age"), 16)
-        self.assertEqual(member_cfg.get("default_status"), "Active")
+            member_id_start        -> id_start_number
+            minimum_membership_age -> minimum_age
+
+        Previously these referenced stale names (member_id_start_number,
+        minimum_member_age) that never matched, so configured values silently
+        fell through to the hardcoded defaults. Here we set non-default values
+        (non-committed, rolled back) and assert they flow into the config.
+
+        `id_length` and `default_status` have NO backing field on the doctype, so
+        they keep their hardcoded defaults.
+        """
+        orig_start = frappe.db.get_single_value("Verenigingen Settings", "member_id_start")
+        orig_age = frappe.db.get_single_value("Verenigingen Settings", "minimum_membership_age")
+        try:
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "member_id_start", 5000, update_modified=False
+            )
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "minimum_membership_age", 21, update_modified=False
+            )
+
+            mgr = ConfigurationManager()
+            mgr.load_from_settings()  # real Single read; must not raise
+
+            member_cfg = mgr.get_service_config("member_services")
+            # Real configured values flow through (NOT the 1000/16 defaults):
+            self.assertEqual(member_cfg.get("id_start_number"), 5000)
+            self.assertEqual(member_cfg.get("minimum_age"), 21)
+            # No backing field -> hardcoded defaults retained:
+            self.assertEqual(member_cfg.get("id_length"), 6)
+            self.assertEqual(member_cfg.get("default_status"), "Active")
+        finally:
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "member_id_start", orig_start, update_modified=False
+            )
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "minimum_membership_age", orig_age, update_modified=False
+            )
 
     def test_save_and_load_file_roundtrip(self):
         mgr = ConfigurationManager()
