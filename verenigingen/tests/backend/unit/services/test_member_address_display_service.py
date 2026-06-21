@@ -185,9 +185,10 @@ class TestMemberAddressDisplayService(EnhancedTestCase):
     def test_update_other_members_renders_member_since(self):
         """When the co-resident has member_since, it is shown in the card."""
         primary, other = self._colocated_pair()
-        # member_since drives the optional "Member since:" fragment
+        # member_since drives the optional "Member since:" fragment. No commit: the
+        # display service reads it in the same transaction and the factory-tracked
+        # member rolls back at test end (keep isolation rollback-based).
         frappe.db.set_value("Member", other.name, "member_since", "2020-01-15")
-        frappe.db.commit()
 
         with self.assertNoErrorLog():
             html = self.service.update_other_members_at_address_display(primary)

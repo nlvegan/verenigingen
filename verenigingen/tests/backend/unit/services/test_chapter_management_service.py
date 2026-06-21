@@ -376,18 +376,13 @@ class TestChapterManagementService(EnhancedTestCase):
         member, chapter = self._member_in_chapter()
         self._make_board_member(member, chapter)
 
-        original = frappe.db.get_single_value(
-            "Verenigingen Settings", "enable_chapter_management"
-        )
-        try:
-            frappe.db.set_single_value("Verenigingen Settings", "enable_chapter_management", 0)
-            frappe.db.commit()
-            self.assertEqual(self.service.get_board_memberships(member.name), [])
-        finally:
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "enable_chapter_management", original
-            )
-            frappe.db.commit()
+        # Disable via set_single_value WITHOUT commit: production gates on
+        # frappe.db.get_single_value (chapter_management_service.py:72) which sees the
+        # change in the same transaction, and FrappeTestCase rolls it back at test end.
+        # So enable_chapter_management=0 is never committed to the shared Single,
+        # avoiding a parallel-shard race window.
+        frappe.db.set_single_value("Verenigingen Settings", "enable_chapter_management", 0)
+        self.assertEqual(self.service.get_board_memberships(member.name), [])
 
 
 def run_tests():
