@@ -489,8 +489,6 @@
  "verenigingen.tests.services.event_application.test_volunteer_sync_service": 24,
  "verenigingen.tests.services.payment.test_pain002_ingestion": 13,
  "verenigingen.tests.services.payment.test_reconciliation_alerts": 7,
- "verenigingen.tests.services.payment.test_sepa_batch_approval": 9,
- "verenigingen.tests.services.payment.test_sepa_batch_state_machine": 30,
  "verenigingen.tests.services.payment.test_sepa_upload_guard": 20,
  "verenigingen.tests.services.payment.test_sepa_upload_integration": 8,
  "verenigingen.tests.services.test_application_approval_correlator": 4,
