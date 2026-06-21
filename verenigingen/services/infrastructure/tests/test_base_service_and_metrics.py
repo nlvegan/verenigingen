@@ -282,11 +282,15 @@ class APIServicePermissionTests(EnhancedTestCase):
         self.assertEqual(resp["errors"], [])
 
     def test_get_security_context(self):
+        # Under the test runner the request-bound accessors (request_ip /
+        # get_request_header) are unbound, so get_security_context() exercises
+        # its except-branch fallback. Pin that documented recovery contract:
+        # service preserved, user/roles degraded to safe defaults, timestamp set.
         svc = APIService("api_ctx")
         ctx = svc.get_security_context()
         self.assertEqual(ctx["service"], "api_ctx")
-        self.assertIn("user", ctx)
-        self.assertIn("roles", ctx)
+        self.assertEqual(ctx["user"], "unknown")
+        self.assertEqual(ctx["roles"], [])
         self.assertIn("timestamp", ctx)
 
 
@@ -413,10 +417,11 @@ class ServiceMetricsTests(EnhancedTestCase):
             m.record_operation("op", 0.01 * (i + 1), success=(i != 0))
 
         detailed = m.get_detailed_metrics()
-        self.assertIn("percentiles", detailed)
-        self.assertIn("p50", detailed["percentiles"])
-        self.assertIn("p95", detailed["percentiles"])
-        self.assertIn("p99", detailed["percentiles"])
+        # Durations are 0.01..0.10; sorted n=10 -> p50=index 5=0.06, p95/p99=index 9=0.10.
+        pct = detailed["percentiles"]
+        self.assertAlmostEqual(pct["p50"], 0.06, places=6)
+        self.assertAlmostEqual(pct["p95"], 0.10, places=6)
+        self.assertAlmostEqual(pct["p99"], 0.10, places=6)
         op = detailed["operations"]["op"]
         self.assertEqual(op["count"], 10)
         self.assertEqual(op["errors"], 1)
@@ -467,6 +472,11 @@ class ServiceMetricsTests(EnhancedTestCase):
         self.assertEqual(usage["max_operations"], 5)
         self.assertEqual(usage["max_history"], 10)
         self.assertTrue(usage["memory_efficient"])
+
+        # Cross the 80% efficiency boundary: 5 distinct ops (>= 5*0.8=4) flips it.
+        for i in range(5):
+            m.record_operation(f"op_{i}", 0.001, success=True)
+        self.assertFalse(m.get_memory_usage()["memory_efficient"])
 
 
 class MetricsCollectorTests(EnhancedTestCase):
@@ -620,9 +630,13 @@ class GlobalAccessorTests(EnhancedTestCase):
         record_operation("global_svc", "op", 0.10, success=True)
         health = get_service_health("global_svc")
         self.assertEqual(health["service_name"], "global_svc")
-        self.assertIn("status", health)
+        self.assertIn(health["status"], ("healthy", "unhealthy", "error"))
+        # The recorded operation is reflected in the health metrics.
+        self.assertGreaterEqual(health["data"]["metrics"]["call_count"], 1)
 
     def test_get_system_health(self):
         record_operation("global_svc2", "op", 0.10, success=True)
         summary = get_system_health()
-        self.assertIn("status", summary)
+        self.assertIn(summary["status"], ("healthy", "degraded", "critical"))
+        # The service we just recorded is included in the system-wide report.
+        self.assertIn("global_svc2", get_metrics_collector().service_metrics)
