@@ -132,7 +132,7 @@ class TestVolunteerExpensesHistoryRestore(EnhancedTestCase):
 
     def test_queue_expense_removal_deletes_history_entry(self):
         """Queuing a removal drops the previously-recorded entry."""
-        member, volunteer, emp, company = self._make_volunteer_member_employee()
+        member, _volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
 
         with self.assertNoErrorLog():

@@ -380,10 +380,9 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
             ehs.handle_expense_claim_updated(event_data={"volunteer": "V", "expense_claim": "E"})
 
     # NOTE: tests that characterized the member-expense-history no-op (the chain
-    # that wrote the removed Member.volunteer_expenses child table) were dropped.
-    # That history-tracking feature is to be RESTORED (recreate the child table +
-    # repoint the history manager to native HRMS Expense Claim), so asserting the
-    # current no-op would lock in behavior we intend to fix. Mechanics tests
+    # that wrote the previously-archived Member.volunteer_expenses child table)
+    # were dropped. That history-tracking feature was RESTORED 2026-06-22 and is
+    # now covered by test_volunteer_expenses_history_restore.py. Mechanics tests
     # (emitter dispatch, registry, deferral) below remain valid.
 
     def test_handle_approved_approved_action_defers(self):
@@ -426,8 +425,9 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
 
     # NOTE: test_handle_cancelled_real_member_noop and
     # test_handle_payment_made_real_member_noop were dropped — they asserted the
-    # member-expense-history no-op (removed volunteer_expenses child table) that
-    # is to be restored, not cemented.
+    # member-expense-history no-op (previously-archived volunteer_expenses child
+    # table) now restored 2026-06-22 and covered by
+    # test_volunteer_expenses_history_restore.py.
 
     # ====================================================================
     # delayed_expense_hooks
@@ -499,4 +499,5 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
             )
 
     # NOTE: test_remove_with_retry_real_member_noop dropped — asserted the
-    # to-be-restored member-expense-history no-op rather than real behavior.
+    # member-expense-history no-op for the previously-archived volunteer_expenses
+    # child table, restored 2026-06-22 (see test_volunteer_expenses_history_restore.py).
