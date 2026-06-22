@@ -79,6 +79,8 @@
   "payment_history_tab",
   "payment_history_section",
   "payment_history",
+  "volunteer_expenses_section",
+  "volunteer_expenses",
   "chapter_data_tab",
   "chapter_and_volunteer_activity_section",
   "current_chapter",
@@ -186,6 +188,18 @@
    "fieldtype": "Table",
    "label": "Payment History",
    "options": "Member Payment History",
+   "read_only": 1
+  },
+  {
+   "fieldname": "volunteer_expenses_section",
+   "fieldtype": "Section Break",
+   "label": "Volunteer Expenses"
+  },
+  {
+   "fieldname": "volunteer_expenses",
+   "fieldtype": "Table",
+   "label": "Volunteer Expenses",
+   "options": "Member Volunteer Expenses",
    "read_only": 1
   },
   {
