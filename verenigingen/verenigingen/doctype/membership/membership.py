@@ -629,8 +629,15 @@ class Membership(Document):
         # used by cancel_membership / process_membership_statuses).
         membership_doc.flags.ignore_validate_update_after_submit = True
 
-        # The set_grace_period_expiry method will set the expiry date
+        # Set the expiry date explicitly. set_grace_period_expiry() is normally
+        # invoked from validate(), but Frappe runs validate() only for the "save"
+        # and "submit" actions -- an update on a submitted (docstatus=1) document is
+        # the "update_after_submit" action, which skips validate() entirely. Without
+        # this explicit call the grace period would be applied with NO expiry date,
+        # so it would never actually expire (and a later re-validate would throw
+        # "Grace period expiry date is required").
         frappe.flags.suppress_grace_period_message = True
+        membership_doc.set_grace_period_expiry()
         membership_doc.save()
         frappe.flags.suppress_grace_period_message = False
 

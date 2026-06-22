@@ -359,9 +359,11 @@ class Volunteer(Document):
                 error_msg = (
                     result.message
                     if hasattr(result, "message")
-                    else result.get("message", "No result returned")
-                    if isinstance(result, dict)
-                    else "No result returned"
+                    else (
+                        result.get("message", "No result returned")
+                        if isinstance(result, dict)
+                        else "No result returned"
+                    )
                 )
                 frappe.logger().warning(
                     f"Failed to auto-queue activation for volunteer {self.name}: {error_msg}"
@@ -639,9 +641,11 @@ class Volunteer(Document):
                 error_msg = (
                     result.error_message
                     if hasattr(result, "error_message")
-                    else result.get("message", "Unknown error")
-                    if isinstance(result, dict)
-                    else "Unknown error"
+                    else (
+                        result.get("message", "Unknown error")
+                        if isinstance(result, dict)
+                        else "Unknown error"
+                    )
                 )
                 frappe.logger().warning(
                     f"Account creation queueing returned failure for volunteer {self.name}: {error_msg}"
@@ -978,6 +982,7 @@ def get_all_skills_list():
 def _get_all_skills_list_cached():
     """Get all skills using modern Query Builder for better type safety"""
     from frappe.query_builder.functions import Avg, Cast, Count
+    from pypika.terms import Function
 
     # Define DocTypes for Query Builder (DocType already imported at module level)
     VolunteerSkill = DocType("Volunteer Skill")
@@ -985,6 +990,9 @@ def _get_all_skills_list_cached():
 
     try:
         # Modern Query Builder approach for better maintainability
+        # NOTE: pypika Field has no .left() helper; use a SQL LEFT(field, 1)
+        # function to extract the leading proficiency digit (mirrors the raw-SQL
+        # fallback's LEFT(proficiency_level, 1)).
         query = (
             frappe.qb.from_(VolunteerSkill)
             .inner_join(Volunteer)
@@ -993,7 +1001,7 @@ def _get_all_skills_list_cached():
                 VolunteerSkill.volunteer_skill,
                 VolunteerSkill.skill_category,
                 Count("*").as_("volunteer_count"),
-                Avg(Cast(VolunteerSkill.proficiency_level.left(1), "UNSIGNED")).as_("avg_level"),
+                Avg(Cast(Function("LEFT", VolunteerSkill.proficiency_level, 1), "UNSIGNED")).as_("avg_level"),
             )
             .where(
                 (VolunteerSkill.volunteer_skill.isnotnull())

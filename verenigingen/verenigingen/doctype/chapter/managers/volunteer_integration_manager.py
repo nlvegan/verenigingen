@@ -467,11 +467,17 @@ class VolunteerIntegrationManager(BaseManager):
                 "errors": [],
             }
 
-            # Get all volunteers who have assignments for this chapter
+            # Get all volunteers who have assignments for this chapter.
+            # WHY: the assignment_history child table is "Volunteer Assignment"
+            # (tabVolunteer Assignment), not "Volunteer Assignment History".
+            # The old `tabVolunteer Assignment History` name does not exist, so
+            # this query raised ProgrammingError (1146) which the outer except
+            # swallowed -- cleanup_orphaned_assignments always returned
+            # {"success": False} and never cleaned anything.
             volunteers_with_assignments = frappe.db.sql(
                 """
                 SELECT DISTINCT parent
-                FROM `tabVolunteer Assignment History`
+                FROM `tabVolunteer Assignment`
                 WHERE reference_doctype = 'Chapter'
                 AND reference_name = %s
             """,

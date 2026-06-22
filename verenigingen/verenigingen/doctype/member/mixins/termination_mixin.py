@@ -9,7 +9,12 @@ class TerminationMixin:
 
     def get_termination_readiness_check(self):
         """Check if member is ready for termination and what would be affected"""
-        from verenigingen.utils.termination_utils import get_termination_impact_preview
+        # get_termination_impact_preview lives on the Membership Termination Request
+        # module, not in termination_utils — importing it from termination_utils
+        # raised ImportError and broke this whole method whenever it was called.
+        from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (
+            get_termination_impact_preview,
+        )
 
         readiness = {"can_terminate": True, "warnings": [], "blockers": [], "impact": {}}
 

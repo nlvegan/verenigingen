@@ -189,10 +189,18 @@ class DonationCampaign(Document):
             frappe.throw(_("Campaign must have a start date before creating a project"))
 
         try:
+            # Project.company is mandatory. Resolve it explicitly via the donation
+            # company helper instead of relying solely on ambient user/global
+            # defaults — those are not always populated (e.g. multi-company setups
+            # or background/service contexts), which would otherwise fail the
+            # insert with a misleading generic error.
+            from verenigingen.verenigingen.doctype.donation.donation import get_company_for_donations
+
             project = frappe.get_doc(
                 {
                     "doctype": "Project",
                     "project_name": project_name,
+                    "company": get_company_for_donations(),
                     "expected_start_date": self.start_date,
                     "expected_end_date": self.end_date,
                     "project_type": "External",
@@ -255,8 +263,14 @@ class DonationCampaign(Document):
         """Get all GL entries related to this campaign"""
         filters = {}
 
-        if self.accounting_dimension_value:
-            # If using accounting dimensions, filter by dimension
+        # Only filter by the campaign accounting dimension when the custom field
+        # actually exists on GL Entry. Otherwise frappe.get_all raises on an
+        # unknown column — and since validate() always auto-generates an
+        # accounting_dimension_value, that would make this method crash for every
+        # campaign on sites without the custom field configured.
+        if self.accounting_dimension_value and frappe.get_meta("GL Entry").has_field(
+            "custom_campaign_dimension"
+        ):
             filters["custom_campaign_dimension"] = self.accounting_dimension_value
 
         if self.project:

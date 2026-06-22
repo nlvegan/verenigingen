@@ -436,7 +436,10 @@ class PeriodicDonationAgreement(Document):
                 pass
 
         # Default based on ANBI eligibility
-        if self.is_anbi_eligible:
+        # NOTE: must CALL the method; `self.is_anbi_eligible` is a bound method
+        # object (always truthy), so the old `if self.is_anbi_eligible:` made the
+        # settings-based default branch below dead code and always returned 5.
+        if self.is_anbi_eligible():
             return 5  # ANBI minimum
         else:
             # Get from system settings or default to 1
