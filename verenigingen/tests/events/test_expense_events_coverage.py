@@ -19,11 +19,10 @@ call. The subscribers themselves are then driven directly with real docs.
 Subscribers swallow-and-log, so happy paths are wrapped in ``assertNoErrorLog``
 and assert a real outcome; documented failure branches use ``expectErrorLog``.
 
-NOTE (characterized bug): the Member doctype has NO ``volunteer_expenses`` child
-field on this site, so ``ExpenseMixin.add_expense_to_history`` /
-``remove_expense_from_history`` early-return and write NOTHING. The expense
-subscribers therefore complete "successfully" without persisting any history.
-Tests below assert this observable no-op rather than a phantom history row.
+NOTE: the Member ``volunteer_expenses`` child table was restored
+(2026-06-22). The member-expense-history persistence path is now exercised by
+``test_volunteer_expenses_history_restore.py``; this module covers the event
+emitters, subscribers, and doc-event scheduling around it.
 """
 
 from contextlib import contextmanager
