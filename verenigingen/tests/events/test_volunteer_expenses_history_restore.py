@@ -31,9 +31,13 @@ class TestVolunteerExpensesHistoryRestore(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        # The batch queues are class-level; flush any cross-test residue so a
-        # prior test's queued op cannot leak into this member's batch.
-        FinancialHistoryBatchProcessor.force_process_all()
+        # The batch queues are class-level/process-global. DISCARD (don't
+        # process) any cross-test residue: processing it would re-load Members
+        # that a prior test rolled away -> DoesNotExistError -> swallowed
+        # log_error -> trips the Error-Log guard. Clearing is also the correct
+        # semantics here (we want this member's batch to start empty).
+        FinancialHistoryBatchProcessor._expense_queue.clear()
+        FinancialHistoryBatchProcessor._payment_queue.clear()
 
     # ------------------------------------------------------------------ helpers
     def _company(self):
