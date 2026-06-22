@@ -1905,9 +1905,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # session. Date-driven -> self-heals every new calendar year, no recurrence
         # in 2027+.
         if not getattr(frappe.flags, "_test_fiscal_year_ensured", False):
-            from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
+            from verenigingen.tests.setup import (
+                ensure_default_company,
+                ensure_test_fiscal_year_for_all_companies,
+            )
 
             ensure_test_fiscal_year_for_all_companies()
+            # erpnext v16 leaves no global default company on fresh CI sites;
+            # several paths (Opportunity.company `:Company` default, Mollie cash
+            # account resolution) need one. Set it once per session, after
+            # erpnext's set_defaults_for_tests has run.
+            ensure_default_company()
             frappe.flags._test_fiscal_year_ensured = True
 
         # FIXTURE VALIDATION: Check required fixtures are loaded

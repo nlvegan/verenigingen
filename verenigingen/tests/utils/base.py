@@ -66,6 +66,22 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         cls.setup_payment_modes()  # Ensure payment modes exist for all tests
 
+        # Ensure a current-year Fiscal Year (covering all companies) and a global
+        # default Company exist once per session. erpnext v16 leaves neither
+        # reliably set on fresh CI sites, which breaks dated-document submission
+        # and the Opportunity.company `:Company` default. EnhancedTestCase runs
+        # the same setup; the shared session flag makes it run once regardless of
+        # which base class executes first.
+        if not getattr(frappe.flags, "_test_fiscal_year_ensured", False):
+            from verenigingen.tests.setup import (
+                ensure_default_company,
+                ensure_test_fiscal_year_for_all_companies,
+            )
+
+            ensure_test_fiscal_year_for_all_companies()
+            ensure_default_company()
+            frappe.flags._test_fiscal_year_ensured = True
+
     @classmethod
     def tearDownClass(cls):
         """Clean up class-level test data"""
