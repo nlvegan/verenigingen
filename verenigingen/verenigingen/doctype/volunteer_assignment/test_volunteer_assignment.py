@@ -4,7 +4,7 @@
 import frappe
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.services.volunteer.assignment_query_builder import AssignmentQueryBuilder
+from verenigingen.services.volunteer.assignment_query_builder import invalidate_volunteer_assignment_cache
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -16,7 +16,7 @@ class TestVolunteerAssignment(EnhancedTestCase):
         # volunteer name, which repeats across rolled-back tests (sequential
         # autoname). Clear it so a prior test's cached history can't mask the
         # assignments this test creates (e.g. get_volunteer_history()).
-        AssignmentQueryBuilder.clear_request_cache()
+        invalidate_volunteer_assignment_cache()
 
         # Create test data
         self.test_member = self.create_test_member()

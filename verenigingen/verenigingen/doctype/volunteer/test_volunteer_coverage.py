@@ -31,7 +31,7 @@ import json
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.services.volunteer.assignment_query_builder import AssignmentQueryBuilder
+from verenigingen.services.volunteer.assignment_query_builder import invalidate_volunteer_assignment_cache
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -42,7 +42,7 @@ class TestVolunteerControllerCoverage(EnhancedTestCase):
         # volunteer name, which repeats across rolled-back tests (sequential
         # autoname). Clear it so a prior test's cached result can't mask the
         # assignments this test creates.
-        AssignmentQueryBuilder.clear_request_cache()
+        invalidate_volunteer_assignment_cache()
         self.test_member = self.create_test_member()
 
     # ------------------------------------------------------------------

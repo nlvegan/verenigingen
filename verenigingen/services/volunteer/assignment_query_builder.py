@@ -65,22 +65,6 @@ class AssignmentQueryBuilder:
         """
         self.volunteer_name = volunteer_name
 
-    @classmethod
-    def clear_request_cache(cls):
-        """Drop the request-level assignment cache.
-
-        The cache lives on ``frappe.local`` and is scoped to a single request in
-        production (each HTTP request gets a fresh ``frappe.local``). The test
-        runner, however, shares one ``frappe.local`` across many tests, and
-        volunteer names repeat across rolled-back tests (the ``Volunteer``
-        autoname is a sequential counter that rolls back with the transaction).
-        A cached entry from an earlier test can therefore mask a later test's
-        freshly-created assignments. Tests should call this in ``setUp`` to
-        simulate a fresh request and avoid that cross-test leakage.
-        """
-        if hasattr(frappe.local, cls._CACHE_ATTR):
-            delattr(frappe.local, cls._CACHE_ATTR)
-
     def _get_cache(self) -> dict:
         """Get or create request-level cache."""
         if not hasattr(frappe.local, self._CACHE_ATTR):
