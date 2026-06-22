@@ -228,6 +228,13 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         invoice.update({
             "customer": customer,
             "company": company,
+            # Honour the (possibly back-dated) posting_date. Without
+            # set_posting_time=1 erpnext resets posting_date to today() on
+            # validate, which re-invalidates a back-dated due_date (tests pass a
+            # past due_date to simulate an overdue invoice) -> "Due Date cannot be
+            # before Posting Date". The posting<=due clamp above is moot unless the
+            # posting_date is actually respected.
+            "set_posting_time": 1,
             "posting_date": posting_date,
             "due_date": due_date,
             "status": status,
