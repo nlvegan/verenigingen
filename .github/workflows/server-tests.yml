@@ -56,7 +56,7 @@ jobs:
     # Pass org/repo secrets (CODECOV_TOKEN) through to the reusable workflow.
     secrets: inherit
     with:
-      python-version: '3.12'
+      python-version: '3.14'
       # Node 20+ required by @tailwindcss/oxide (bench build); 18 broke the
       # Setup Environment step and red-lined this workflow.
       node-version: 20

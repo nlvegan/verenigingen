@@ -6,7 +6,7 @@ on:
       python-version:
         description: 'Python version'
         type: string
-        default: '3.12'
+        default: '3.14'
       node-version:
         description: 'Node.js version'
         type: number
