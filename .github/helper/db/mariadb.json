@@ -16,5 +16,6 @@
   "host_name": "http://test_site:8000",
   "use_mysqlclient": 1,
   "monitor": 1,
-  "server_script_enabled": true
+  "server_script_enabled": true,
+  "max_queued_jobs": 1000000
 }

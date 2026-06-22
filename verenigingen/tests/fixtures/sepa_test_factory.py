@@ -214,12 +214,29 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
 
         company = kwargs.pop("company", None) or get_eur_test_company()
 
+        # Pop the dates so the `**kwargs` spread below can't re-override the
+        # clamped values. erpnext v16 rejects a due_date earlier than the
+        # posting_date; tests routinely pass a past due_date to simulate an
+        # overdue invoice without also backdating posting_date, so clamp
+        # posting_date to the due_date — the invoice stays valid and still overdue.
+        posting_date = kwargs.pop("posting_date", today())
+        due_date = kwargs.pop("due_date", add_days(today(), 14))
+        if getdate(due_date) < getdate(posting_date):
+            posting_date = due_date
+
         invoice = frappe.new_doc("Sales Invoice")
         invoice.update({
             "customer": customer,
             "company": company,
-            "posting_date": kwargs.get("posting_date", today()),
-            "due_date": kwargs.get("due_date", add_days(today(), 14)),
+            # Honour the (possibly back-dated) posting_date. Without
+            # set_posting_time=1 erpnext resets posting_date to today() on
+            # validate, which re-invalidates a back-dated due_date (tests pass a
+            # past due_date to simulate an overdue invoice) -> "Due Date cannot be
+            # before Posting Date". The posting<=due clamp above is moot unless the
+            # posting_date is actually respected.
+            "set_posting_time": 1,
+            "posting_date": posting_date,
+            "due_date": due_date,
             "status": status,
             "currency": kwargs.get("currency", "EUR"),
             "grand_total": grand_total,

@@ -352,6 +352,36 @@ def ensure_test_fiscal_year_for_all_companies():
         frappe.logger().warning(f"Test fiscal-year seeding failed: {e}")
 
 
+def ensure_default_company():
+    """Guarantee a global default Company is set for the test session.
+
+    Several code paths rely on the framework default company being set:
+    - the Opportunity ``company`` field's ``:Company`` default (mandatory on
+      erpnext v16 -- an empty default raises MandatoryError, breaking CRM
+      opportunity creation from contact requests);
+    - Mollie payment-gateway cash-account resolution ("No cash account found for
+      company ''").
+
+    On a fresh CI site erpnext's ``set_defaults_for_tests`` does not reliably
+    leave a global default company set, so those paths get an empty company.
+    Production sites always have one; set it here for parity. Idempotent.
+    """
+    try:
+        if frappe.defaults.get_global_default("company"):
+            return
+        company = frappe.db.get_value("Company", "_Test Company", "name") or frappe.db.get_value(
+            "Company", {}, "name"
+        )
+        if not company:
+            return
+        frappe.db.set_single_value("Global Defaults", "default_company", company)
+        frappe.db.set_default("company", company)
+        frappe.db.commit()
+        frappe.logger().info(f"ensure_default_company: set global default company={company}")
+    except Exception as e:
+        frappe.logger().warning(f"Default-company seeding failed: {e}")
+
+
 def _seed_verenigingen_test_system_user():
     """Create a test system user and wire it into Verenigingen Settings.
 

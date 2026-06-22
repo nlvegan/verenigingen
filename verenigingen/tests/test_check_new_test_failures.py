@@ -77,6 +77,24 @@ class TestGateLogic(unittest.TestCase):
         p.write_text(content, encoding="utf-8")
         return p
 
+    def _main(self, args):
+        """Run the checker with its stdout/stderr captured.
+
+        This test exercises the gate parser, so its fixtures and the checker's
+        own report/--emit-baseline output contain synthetic failure ids like
+        ``verenigingen.tests.x.TestX.test_new``. If that output reached this
+        shard's stdout it would land in ``test_output_N.txt``, where the OUTER
+        no-new-failures gate would re-parse it and flag a phantom regression
+        (shard-1 has been red on this artifact). Capturing it keeps the
+        self-referential output out of the parsed log.
+        """
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            return checker.main(args)
+
     def setUp(self):
         import tempfile
 
@@ -98,7 +116,7 @@ class TestGateLogic(unittest.TestCase):
             "FAIL test_old (verenigingen.tests.x.TestX.test_old)\n" + self.SENTINEL,
         )
         self.assertEqual(
-            checker.main(["--results", str(results), "--baseline", str(self.baseline)]), 0
+            self._main(["--results", str(results), "--baseline", str(self.baseline)]), 0
         )
 
     def test_new_failure_returns_one(self):
@@ -109,11 +127,11 @@ class TestGateLogic(unittest.TestCase):
             "FAIL test_new (verenigingen.tests.x.TestX.test_new)\n" + self.SENTINEL,
         )
         self.assertEqual(
-            checker.main(["--results", str(results), "--baseline", str(self.baseline)]), 1
+            self._main(["--results", str(results), "--baseline", str(self.baseline)]), 1
         )
 
     def test_missing_results_returns_two(self):
-        rc = checker.main(
+        rc = self._main(
             ["--results", str(self.tmp / "nope.txt"), "--baseline", str(self.baseline)]
         )
         self.assertEqual(rc, 2)
@@ -122,7 +140,7 @@ class TestGateLogic(unittest.TestCase):
         # An infra-killed shard's log (no results, no sentinel) must NOT pass.
         results = self._write(self.tmp, "empty.txt", "<Error><Code>BlobNotFound</Code></Error>\n")
         self.assertEqual(
-            checker.main(["--results", str(results), "--baseline", str(self.baseline)]), 2
+            self._main(["--results", str(results), "--baseline", str(self.baseline)]), 2
         )
 
     def test_crash_mid_run_with_streamed_failures_but_no_sentinel_fails(self):
@@ -138,7 +156,7 @@ class TestGateLogic(unittest.TestCase):
             "Traceback (most recent call last): ... worker killed (OOM)\n",
         )
         self.assertEqual(
-            checker.main(["--results", str(results), "--baseline", str(self.baseline)]), 2
+            self._main(["--results", str(results), "--baseline", str(self.baseline)]), 2
         )
 
     def test_completed_run_with_only_baseline_failures_is_clean(self):
@@ -149,7 +167,7 @@ class TestGateLogic(unittest.TestCase):
             "FAIL test_old (verenigingen.tests.x.TestX.test_old)\n" + self.SENTINEL,
         )
         self.assertEqual(
-            checker.main(["--results", str(results), "--baseline", str(self.baseline)]), 0
+            self._main(["--results", str(results), "--baseline", str(self.baseline)]), 0
         )
 
     def test_new_fixture_hook_error_is_caught(self):
@@ -159,14 +177,14 @@ class TestGateLogic(unittest.TestCase):
             " ERROR  setUpClass (verenigingen.tests.x.TestBrandNew)\n" + self.SENTINEL,
         )
         self.assertEqual(
-            checker.main(["--results", str(results), "--baseline", str(self.baseline)]), 1
+            self._main(["--results", str(results), "--baseline", str(self.baseline)]), 1
         )
 
     def test_emit_baseline_mode_does_not_gate(self):
         results = self._write(
             self.tmp, "r.txt", "FAIL test_new (verenigingen.tests.x.TestX.test_new)\n"
         )
-        rc = checker.main(
+        rc = self._main(
             ["--results", str(results), "--baseline", str(self.baseline), "--emit-baseline"]
         )
         self.assertEqual(rc, 0)

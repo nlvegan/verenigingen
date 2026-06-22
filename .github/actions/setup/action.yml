@@ -5,11 +5,11 @@ inputs:
   python-version:
     description: 'Python version to use'
     required: false
-    default: '3.12'
+    default: '3.14'
   node-version:
     description: 'Node.js version to use'
     required: false
-    default: '18'
+    default: '24'
   frappe-user:
     description: 'GitHub user/org for Frappe repository'
     required: false
@@ -17,7 +17,7 @@ inputs:
   frappe-branch:
     description: 'Frappe branch to use'
     required: false
-    default: 'version-15'
+    default: 'version-16'
   erpnext-user:
     description: 'GitHub user/org for ERPNext repository'
     required: false
@@ -25,7 +25,7 @@ inputs:
   erpnext-branch:
     description: 'ERPNext branch to use'
     required: false
-    default: 'version-15'
+    default: 'version-16'
   build-assets:
     description: 'Whether to build frontend assets'
     required: false
@@ -166,7 +166,7 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: frappe/payments
-        ref: version-15
+        ref: version-16
         path: apps/payments
 
     - name: Checkout HRMS
@@ -176,7 +176,7 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: frappe/hrms
-        ref: version-15
+        ref: version-16
         path: apps/hrms
 
     - name: Install Python Dependencies

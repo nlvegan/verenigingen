@@ -32,11 +32,11 @@ on:
       frappe_branch:
         description: 'Frappe branch to test against'
         required: false
-        default: 'version-15'
+        default: 'version-16'
       erpnext_branch:
         description: 'ERPNext branch to test against'
         required: false
-        default: 'version-15'
+        default: 'version-16'
       enable_coverage:
         description: 'Enable coverage collection'
         type: boolean
@@ -56,12 +56,13 @@ jobs:
     # Pass org/repo secrets (CODECOV_TOKEN) through to the reusable workflow.
     secrets: inherit
     with:
-      python-version: '3.12'
-      # Node 20+ required by @tailwindcss/oxide (bench build); 18 broke the
-      # Setup Environment step and red-lined this workflow.
-      node-version: 20
-      frappe-branch: ${{ inputs.frappe_branch || 'version-15' }}
-      erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
+      python-version: '3.14'
+      # Node 24+ required by frappe v16 (its package engines field declares
+      # "node": ">=24"; the bench-build yarn step hard-fails on Node 20 with
+      # "engine 'node' is incompatible ... Expected version '>=24'").
+      node-version: 24
+      frappe-branch: ${{ inputs.frappe_branch || 'version-16' }}
+      erpnext-branch: ${{ inputs.erpnext_branch || 'version-16' }}
       # 12 shards, not 8 (and originally 4): the coverage-inflated suite keeps
       # growing (~3.5+ runner-hours), and at 8 the heaviest shard tipped back
       # over the 60min job timeout (run 27787769669, shard 5/8 ran right up to

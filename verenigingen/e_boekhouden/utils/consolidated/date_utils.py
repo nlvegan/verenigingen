@@ -85,6 +85,31 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
             debug_info.append(
                 f"Fiscal year {fy_name} already exists: {existing_fy_name.year_start_date} to {existing_fy_name.year_end_date}"
             )
+            _ensure_company_in_fiscal_year(fy_name, company, debug_info)
+            return fy_name
+
+        # Reuse any Fiscal Year whose range overlaps the target calendar year
+        # rather than creating a colliding one. erpnext v16's overlap guard
+        # rejects an (unrestricted) calendar-year FY when ANY FY already overlaps
+        # that range -- e.g. a company-scoped FY-<abbr>-<year> a sibling test
+        # created, or a fiscal-year-offset FY that the today()-BETWEEN lookup
+        # above does not return. Reusing it (and ensuring our company is covered)
+        # keeps a single FY per year and avoids "overlapping with ..." failures.
+        overlapping = frappe.db.sql(
+            """
+            SELECT name
+            FROM `tabFiscal Year`
+            WHERE year_start_date <= %(end)s AND year_end_date >= %(start)s
+            AND disabled = 0
+            LIMIT 1
+            """,
+            {"start": date(year, 1, 1), "end": date(year, 12, 31)},
+            as_dict=True,
+        )
+        if overlapping:
+            fy_name = overlapping[0].name
+            debug_info.append(f"Reusing overlapping fiscal year {fy_name} for {year}")
+            _ensure_company_in_fiscal_year(fy_name, company, debug_info)
             return fy_name
 
         # Permission check: Only allow auto-creation if user can create fiscal years
