@@ -3427,69 +3427,32 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # Use the actual test company to avoid company mismatch errors
             test_company = self._get_test_company()
 
+            from verenigingen.e_boekhouden.utils.consolidated.date_utils import (
+                ensure_fiscal_year_exists,
+            )
+
+            # Ensure an UNRESTRICTED Fiscal Year covers the current and next year so
+            # dated documents for ANY company submit. Delegate to the single
+            # canonical find-or-create helper (the same one the session setup and
+            # the SEPA EUR-company helper use), then drop any company restriction so
+            # the FY applies to every company.
+            #
+            # The previous code created a company-SCOPED FY and -- worse -- appended
+            # this company to an existing all-company (empty-`companies`) FY, which
+            # RE-RESTRICTED it to just the appended companies and stripped coverage
+            # from every other test company. Under erpnext v16 that produced an
+            # order-dependent "Posting Date ... not in any active Fiscal Year"
+            # cascade across whole shards. Commit so the session-scoped FY persists
+            # past each test method's rollback.
             for year_offset in [0, 1]:
-                year = current_date.year + year_offset
-                fy_start = date(year, 1, 1)
-                fy_end = date(year, 12, 31)
-
-                # Check if fiscal year exists for this date range
-                existing_fy = frappe.db.sql(
-                    """
-                    SELECT name FROM `tabFiscal Year`
-                    WHERE year_start_date = %s AND year_end_date = %s
-                    LIMIT 1
-                """,
-                    (fy_start, fy_end),
-                )
-
-                if existing_fy:
-                    # Fiscal year exists - ensure our test company is linked to it
-                    fy_name = existing_fy[0][0]
-                    fy_doc = frappe.get_doc("Fiscal Year", fy_name)
-
-                    # Check if company already linked
-                    company_linked = any(c.company == test_company for c in fy_doc.companies)
-
-                    if not company_linked:
-                        # Add test company to fiscal year
-                        fy_doc.append("companies", {"company": test_company})
-                        fy_doc.save()
-                        frappe.logger().info(f"Added {test_company} to fiscal year: {fy_name}")
-                else:
-                    # Create new fiscal year
-                    fy_name = str(year)  # Use simple year as name (matches ERPNext convention)
-                    try:
-                        fiscal_year = frappe.get_doc(
-                            {
-                                "doctype": "Fiscal Year",
-                                "year": fy_name,
-                                "year_start_date": fy_start,
-                                "year_end_date": fy_end,
-                                "companies": [{"company": test_company}],
-                            }
-                        )
-                        # Use secure operations for fiscal year creation
-                        from verenigingen.utils.secure_operations import secure_document_operation
-
-                        result = secure_document_operation(
-                            operation="insert",
-                            doc=fiscal_year,
-                            justification=f"Test environment: creating fiscal year {fy_name} for financial operations",
-                            allow_system_user=True,
-                        )
-
-                        if result.success:
-                            frappe.logger().info(f"Created fiscal year: {fy_name}")
-                        else:
-                            frappe.logger().warning(
-                                f"Failed to create fiscal year {fy_name}: {result.errors}"
-                            )
-                            # Fallback only if secure operation fails.
-                            # NOT tracked: Fiscal Year is session-scoped; subsequent tests
-                            # within the class need it to persist past per-method drain.
-                            fiscal_year.insert()
-                    except Exception as fy_error:
-                        frappe.logger().warning(f"Failed to create fiscal year {fy_name}: {fy_error}")
+                target = date(current_date.year + year_offset, 6, 15)
+                try:
+                    fy_name = ensure_fiscal_year_exists(target, test_company)
+                    if frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
+                        frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
+                    frappe.db.commit()
+                except Exception as fy_error:
+                    frappe.logger().warning(f"Failed to ensure fiscal year for {target}: {fy_error}")
 
             # Don't set default fiscal year on company - ERPNext handles this automatically
 
