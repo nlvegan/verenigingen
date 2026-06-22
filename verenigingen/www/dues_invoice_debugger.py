@@ -69,11 +69,12 @@ def get_context(context):
 
         workflow_data = get_workflow_status()
         context.workflow_status = workflow_data
-        # Debug: log the actual data
-        frappe.log_error(f"Workflow data: {workflow_data}", "DuesManager Debug")
     except Exception as e:
-        # Fallback to empty data if API call fails
-        frappe.log_error(f"Workflow API failed: {str(e)}", "DuesManager Error")
+        # Fallback to empty data if API call fails. Pass the long detail as the
+        # message and a short label as the title -- frappe.log_error maps title
+        # to Error Log.method (Data, max 140), so a long title raises
+        # CharacterLengthExceededError and would crash this page render.
+        frappe.log_error(message=f"Workflow API failed: {str(e)}", title="DuesManager Error")
         context.workflow_status = {
             "recent_batches": [],
             "pending_invoices": 0,
