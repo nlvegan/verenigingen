@@ -25,11 +25,11 @@ githubbranch=${GITHUB_BASE_REF:-${GITHUB_REF##*/}}
 
 # Frappe configuration
 frappeuser=${FRAPPE_USER:-"frappe"}
-frappecommitish=${FRAPPE_BRANCH:-"version-15"}
+frappecommitish=${FRAPPE_BRANCH:-"version-16"}
 
 # ERPNext configuration
 erpnextuser=${ERPNEXT_USER:-"frappe"}
-erpnextcommitish=${ERPNEXT_BRANCH:-"version-15"}
+erpnextcommitish=${ERPNEXT_BRANCH:-"version-16"}
 
 echo "::group::Clone Frappe"
 echo "Cloning Frappe from ${frappeuser}/frappe @ ${frappecommitish}"

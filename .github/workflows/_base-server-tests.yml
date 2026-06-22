@@ -18,7 +18,7 @@ on:
       frappe-branch:
         description: 'Frappe branch'
         type: string
-        default: 'version-15'
+        default: 'version-16'
       erpnext-user:
         description: 'ERPNext repo user/org'
         type: string
@@ -26,7 +26,7 @@ on:
       erpnext-branch:
         description: 'ERPNext branch'
         type: string
-        default: 'version-15'
+        default: 'version-16'
       parallel-runs:
         description: 'Number of parallel test containers'
         type: number
