@@ -10,7 +10,7 @@ on:
       node-version:
         description: 'Node.js version'
         type: number
-        default: 18
+        default: 24
       frappe-user:
         description: 'Frappe repo user/org'
         type: string
