@@ -129,3 +129,22 @@ class TestVolunteerExpensesHistoryRestore(EnhancedTestCase):
         self.assertEqual(row.volunteer, volunteer.name)
         self.assertEqual(row.total_claimed_amount, 12.5)
         self.assertEqual(row.total_sanctioned_amount, 12.5)
+
+    def test_queue_expense_removal_deletes_history_entry(self):
+        """Queuing a removal drops the previously-recorded entry."""
+        member, volunteer, emp, company = self._make_volunteer_member_employee()
+        ec = self._make_expense_claim(emp, company)
+
+        with self.assertNoErrorLog():
+            queue_expense_update(member.name, ec.name)
+            FinancialHistoryBatchProcessor.force_process_all()
+        member.reload()
+        self.assertEqual(len(member.get("volunteer_expenses") or []), 1)
+
+        with self.assertNoErrorLog():
+            queue_expense_removal(member.name, ec.name)
+            FinancialHistoryBatchProcessor.force_process_all()
+
+        member.reload()
+        remaining = [r for r in (member.get("volunteer_expenses") or []) if r.expense_claim == ec.name]
+        self.assertEqual(remaining, [], "removal should delete the entry for this claim")
