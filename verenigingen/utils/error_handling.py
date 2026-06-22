@@ -764,6 +764,11 @@ def cache_with_ttl(ttl=300):
 
             return result
 
+        # Expose the backing store so callers/tests can invalidate it, mirroring
+        # functools.lru_cache().cache_clear(). The cache is an in-process dict
+        # (NOT frappe.cache()/Redis), so frappe.cache().delete_value(...) does
+        # NOT clear it — use this instead.
+        wrapper.cache_clear = cache.clear
         return wrapper
 
     return decorator

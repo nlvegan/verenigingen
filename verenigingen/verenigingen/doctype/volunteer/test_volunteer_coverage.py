@@ -31,12 +31,18 @@ import json
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.services.volunteer.assignment_query_builder import AssignmentQueryBuilder
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestVolunteerControllerCoverage(EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        # The assignment aggregation cache lives on frappe.local and is keyed by
+        # volunteer name, which repeats across rolled-back tests (sequential
+        # autoname). Clear it so a prior test's cached result can't mask the
+        # assignments this test creates.
+        AssignmentQueryBuilder.clear_request_cache()
         self.test_member = self.create_test_member()
 
     # ------------------------------------------------------------------
@@ -539,13 +545,13 @@ class TestVolunteerSkillSearchHelpers(EnhancedTestCase):
 
     def test_get_all_skills_list_includes_active_volunteer_skill(self):
         # Clear the TTL cache so the freshly added skill is visible.
-        frappe.cache().delete_value("_get_all_skills_list_cached")
+        self.module._get_all_skills_list_cached.cache_clear()
         with self.assertNoErrorLog():
             skills = self.module.get_all_skills_list()
         self.assertTrue(any(s["volunteer_skill"] == self.unique_skill for s in skills))
 
     def test_get_skill_insights_structure_and_expert_skill(self):
-        frappe.cache().delete_value("_get_all_skills_list_cached")
+        self.module._get_all_skills_list_cached.cache_clear()
         with self.assertNoErrorLog():
             insights = self.module.get_skill_insights()
         self.assertIn("popular_skills", insights)

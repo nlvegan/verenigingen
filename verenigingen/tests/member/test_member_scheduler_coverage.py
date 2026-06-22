@@ -16,8 +16,12 @@ Members are created via the factory (with real Customer records) and run as
 Administrator. No business logic is mocked.
 """
 
+from datetime import datetime
+
 import frappe
-from frappe.utils import add_to_date, get_datetime, now_datetime
+import pytz
+from frappe.utils import add_to_date, get_datetime, get_system_timezone, now_datetime
+from freezegun import freeze_time
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.member import scheduler
@@ -50,22 +54,32 @@ class TestMemberSchedulerCoverage(VereningingenTestCase):
         # A last-run > 24h ago forces the run branch regardless of hour-of-day.
         # This exercises the synchronous processing path (<=100 members) and the
         # last-run timestamp update.
-        frappe.db.set_single_value(
-            "Verenigingen Settings",
-            "last_member_history_refresh",
-            add_to_date(now_datetime(), hours=-30),
-        )
-        before = now_datetime()
-        result = scheduler.refresh_all_member_financial_histories()
-        self.assertTrue(result["success"])
-        self.assertNotIn("skipped", result)  # it ran, did not skip
-        self.assertIn("run_reason", result)
-        self.assertIn("Forced run", result["run_reason"])
-        # The last-run timestamp was advanced to ~now.
-        new_last_run = get_datetime(
-            frappe.db.get_single_value("Verenigingen Settings", "last_member_history_refresh")
-        )
-        self.assertGreaterEqual(new_last_run, before.replace(microsecond=0))
+        #
+        # The production code only *labels* this a "Forced run" when the current
+        # hour falls OUTSIDE the scheduled windows (06-10 / 18-22); inside those
+        # windows the same >24h-old run is labelled "Scheduled run" (see
+        # scheduler.refresh_all_member_financial_histories). Freeze the clock to a
+        # fixed off-window local hour so this test deterministically exercises the
+        # forced-run branch instead of depending on the wall-clock hour at run time.
+        tz = pytz.timezone(get_system_timezone())
+        frozen = tz.localize(datetime(2026, 6, 15, 14, 30, 0))  # 14:30 local: off-window
+        with freeze_time(frozen):
+            frappe.db.set_single_value(
+                "Verenigingen Settings",
+                "last_member_history_refresh",
+                add_to_date(now_datetime(), hours=-30),
+            )
+            before = now_datetime()
+            result = scheduler.refresh_all_member_financial_histories()
+            self.assertTrue(result["success"])
+            self.assertNotIn("skipped", result)  # it ran, did not skip
+            self.assertIn("run_reason", result)
+            self.assertIn("Forced run", result["run_reason"])
+            # The last-run timestamp was advanced to ~now.
+            new_last_run = get_datetime(
+                frappe.db.get_single_value("Verenigingen Settings", "last_member_history_refresh")
+            )
+            self.assertGreaterEqual(new_last_run, before.replace(microsecond=0))
 
     def test_refresh_all_runs_when_last_run_cleared(self):
         # Clearing the last-run value drives the run branch (either the "First run"

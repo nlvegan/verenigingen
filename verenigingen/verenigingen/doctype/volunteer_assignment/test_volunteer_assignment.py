@@ -1,17 +1,22 @@
 # Copyright (c) 2025, Your Organization and contributors
 # For license information, please see license.txt
 
-import random
-
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.services.volunteer.assignment_query_builder import AssignmentQueryBuilder
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestVolunteerAssignment(EnhancedTestCase):
     def setUp(self):
         super().setUp()  # EnhancedTestCase handles permissions and factory setup
+
+        # The assignment aggregation cache lives on frappe.local and is keyed by
+        # volunteer name, which repeats across rolled-back tests (sequential
+        # autoname). Clear it so a prior test's cached history can't mask the
+        # assignments this test creates (e.g. get_volunteer_history()).
+        AssignmentQueryBuilder.clear_request_cache()
 
         # Create test data
         self.test_member = self.create_test_member()
