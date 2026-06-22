@@ -470,3 +470,107 @@ class TestMemberHistoryIntegrity(EnhancedTestCase):
         self.assertEqual(pay["errors"], 0)
         self.assertEqual(fee["removed"], 0)
         self.assertEqual(fee["errors"], 0)
+
+    # ------------------------------------------------------------------ #
+    # cleanup_volunteer_expense_history -- submitted-claim membership criterion
+    # ------------------------------------------------------------------ #
+    def _make_expense_claim(self, docstatus=0):
+        """Create a real Expense Claim at the given docstatus (set directly).
+
+        docstatus is set via set_value rather than submit() because the cleanup
+        only reads the docstatus column; this avoids the expense-approver
+        submission workflow.
+        """
+        company = (
+            "_Test Company"
+            if frappe.db.exists("Company", "_Test Company")
+            else (frappe.get_all("Company", limit=1, pluck="name") or [None])[0]
+        )
+        if not company:
+            self.skipTest("No Company available")
+        expense_acct = frappe.db.get_value(
+            "Account", {"account_type": "Expense Account", "company": company, "is_group": 0}, "name"
+        )
+        payable = frappe.db.get_value(
+            "Account", {"account_type": "Payable", "company": company, "is_group": 0}, "name"
+        )
+        if not expense_acct or not payable:
+            self.skipTest("No expense/payable accounts available")
+        emp = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"HIz{frappe.generate_hash(length=5)}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": company,
+            }
+        ).insert(ignore_permissions=True)
+        self._track_test_document("Employee", emp.name, priority=2)
+        ec = frappe.get_doc(
+            {
+                "doctype": "Expense Claim",
+                "employee": emp.name,
+                "company": company,
+                "custom_organization_type": "National",
+                "posting_date": today(),
+                "currency": "EUR",
+                "exchange_rate": 1,
+                "payable_account": payable,
+                "expenses": [
+                    {
+                        "expense_type": "Food",
+                        "amount": 11.0,
+                        "sanctioned_amount": 11.0,
+                        "expense_date": today(),
+                        "default_account": expense_acct,
+                    }
+                ],
+            }
+        ).insert(ignore_permissions=True)
+        self._track_test_document("Expense Claim", ec.name, priority=1)
+        if docstatus != 0:
+            frappe.db.set_value("Expense Claim", ec.name, "docstatus", docstatus, update_modified=False)
+        return ec
+
+    def _append_expense_row(self, member, expense_claim_name):
+        member.append(
+            "volunteer_expenses",
+            {
+                "expense_claim": expense_claim_name,
+                "posting_date": today(),
+                "total_claimed_amount": 11.0,
+                "total_sanctioned_amount": 11.0,
+                "status": "Draft",
+                "payment_status": "Pending",
+            },
+        )
+        return member.volunteer_expenses[-1]
+
+    def test_cleanup_removes_draft_claim_entry(self):
+        """A volunteer_expenses row for a DRAFT (docstatus 0) claim is removed.
+
+        History tracks submitted claims only; the old code kept draft entries.
+        """
+        member = self._make_member("VExpDraft")
+        draft_ec = self._make_expense_claim(docstatus=0)
+        self._append_expense_row(member, draft_ec.name)
+        self.assertEqual(len(member.volunteer_expenses), 1)
+
+        stats = HistoryIntegrityManager(member).cleanup_volunteer_expense_history()
+
+        self.assertEqual(stats["removed"], 1, "draft-claim entry must be removed")
+        self.assertEqual([r for r in member.volunteer_expenses if r.expense_claim == draft_ec.name], [])
+
+    def test_cleanup_keeps_submitted_claim_entry(self):
+        """A volunteer_expenses row for a SUBMITTED (docstatus 1) claim is kept."""
+        member = self._make_member("VExpSub")
+        sub_ec = self._make_expense_claim(docstatus=1)
+        self._append_expense_row(member, sub_ec.name)
+        self.assertEqual(len(member.volunteer_expenses), 1)
+
+        stats = HistoryIntegrityManager(member).cleanup_volunteer_expense_history()
+
+        self.assertEqual(stats["removed"], 0, "submitted-claim entry must be kept")
+        self.assertEqual(len([r for r in member.volunteer_expenses if r.expense_claim == sub_ec.name]), 1)

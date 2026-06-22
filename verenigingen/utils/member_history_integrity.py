@@ -150,35 +150,29 @@ class HistoryIntegrityManager:
                     ref_value = getattr(entry, reference_field, None)
 
                     # Validate required fields
-                    # For volunteer expenses, be lenient with draft claims (posting_date/amounts may not be set yet)
                     if history_type == "volunteer_expense":
-                        # Always require expense_claim reference
+                        # History tracks SUBMITTED claims only (docstatus 1), matching the
+                        # live on_submit/on_cancel path and the scheduled cleanup. Remove
+                        # entries whose claim is missing or not submitted. (Cancelled =
+                        # docstatus 2 is excluded from existing_refs and removed by the
+                        # missing-reference branch below.)
                         if not ref_value:
                             entries_to_remove.append((entry, f"Missing {reference_field}"))
                             continue
-                        # Check if the expense claim is draft - if so, don't require posting_date/amounts
-                        if ref_value in existing_refs:
-                            # Use the ALREADY FETCHED docstatus from batch query (avoid N+1)
-                            expense_docstatus = existing_refs[ref_value]
-                            if expense_docstatus == 0:
-                                # Draft expense - only require expense_claim field
-                                pass  # Already validated above
-                            else:
-                                # Submitted/approved - require all fields
-                                missing_fields = [f for f in required_fields if not getattr(entry, f, None)]
-                                if missing_fields:
-                                    entries_to_remove.append(
-                                        (entry, f"Missing required fields: {', '.join(missing_fields)}")
-                                    )
-                                    continue
-                    else:
-                        # For other history types, require all fields as before
-                        missing_fields = [f for f in required_fields if not getattr(entry, f, None)]
-                        if missing_fields:
-                            entries_to_remove.append(
-                                (entry, f"Missing required fields: {', '.join(missing_fields)}")
-                            )
+                        if ref_value in existing_refs and existing_refs[ref_value] != 1:
+                            # Draft (docstatus 0): the claim exists but is not submitted,
+                            # so it is not tracked. No grace period -- the claim is
+                            # committed and found, this is not a creation race.
+                            entries_to_remove.append((entry, f"{reference_doctype} not submitted"))
                             continue
+
+                    # Require all fields (submitted claims and all other history types).
+                    missing_fields = [f for f in required_fields if not getattr(entry, f, None)]
+                    if missing_fields:
+                        entries_to_remove.append(
+                            (entry, f"Missing required fields: {', '.join(missing_fields)}")
+                        )
+                        continue
 
                     # Check if reference still exists
                     if ref_value not in existing_refs:
