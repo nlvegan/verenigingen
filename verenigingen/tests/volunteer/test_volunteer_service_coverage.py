@@ -511,6 +511,150 @@ class TestExpenseHistoryBatchProcessor(EnhancedTestCase):
             # Expense Claim table might have data that causes issues, that's fine
             pass
 
+    # -- scheduled-job membership-criterion consistency (aligned to live on_submit path) --
+    # The live path tracks SUBMITTED claims (docstatus 1) regardless of approval;
+    # the daily/weekly/cleanup jobs must use the same criterion (no draft churn,
+    # no deletion of legitimately-tracked submitted-but-pending claims).
+
+    def _company(self):
+        return (
+            "_Test Company"
+            if frappe.db.exists("Company", "_Test Company")
+            else (frappe.get_all("Company", limit=1, pluck="name") or [None])[0]
+        )
+
+    def _make_volunteer_claim(self, docstatus=0):
+        """Member + Volunteer(+Employee) + an Expense Claim at the given docstatus.
+
+        docstatus is set directly (set_value) rather than via submit(): these jobs
+        read the docstatus COLUMN, so the real column value is exactly what the
+        filters/SQL evaluate. Avoids the expense-approver submission workflow.
+        """
+        company = self._company()
+        if not company:
+            self.skipTest("No Company available")
+        expense_acct = frappe.db.get_value(
+            "Account", {"account_type": "Expense Account", "company": company, "is_group": 0}, "name"
+        )
+        payable = frappe.db.get_value(
+            "Account", {"account_type": "Payable", "company": company, "is_group": 0}, "name"
+        )
+        if not expense_acct or not payable:
+            self.skipTest("No expense/payable accounts available")
+        member = self.create_test_member(first_name="Job", last_name="Member", birth_date="1990-01-01")
+        volunteer = self.create_test_volunteer(member_name=member.name)
+        emp = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"Job{frappe.generate_hash(length=5)}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": company,
+            }
+        ).insert(ignore_permissions=True)
+        self._track_test_document("Employee", emp.name, priority=2)
+        volunteer.db_set("employee_id", emp.name, update_modified=False)
+        ec = frappe.get_doc(
+            {
+                "doctype": "Expense Claim",
+                "employee": emp.name,
+                "company": company,
+                "custom_organization_type": "National",
+                "posting_date": frappe.utils.today(),
+                "currency": "EUR",
+                "exchange_rate": 1,
+                "payable_account": payable,
+                "expenses": [
+                    {
+                        "expense_type": "Food",
+                        "amount": 9.0,
+                        "sanctioned_amount": 9.0,
+                        "expense_date": frappe.utils.today(),
+                        "default_account": expense_acct,
+                    }
+                ],
+            }
+        ).insert(ignore_permissions=True)
+        self._track_test_document("Expense Claim", ec.name, priority=1)
+        if docstatus != 0:
+            frappe.db.set_value("Expense Claim", ec.name, "docstatus", docstatus, update_modified=False)
+        return member, ec
+
+    def _add_history_row(self, member, expense_claim_name):
+        from verenigingen.utils.financial_history_batch_processor import (
+            FinancialHistoryBatchProcessor,
+            queue_expense_update,
+        )
+
+        queue_expense_update(member.name, expense_claim_name)
+        FinancialHistoryBatchProcessor.force_process_all()
+        member.reload()
+
+    def test_get_pending_excludes_draft_claims(self):
+        """Daily reconciler must NOT pick up draft (docstatus 0) claims."""
+        _member, draft_ec = self._make_volunteer_claim(docstatus=0)
+        proc = self._get_processor()
+        pending_names = {c.get("name") for c in proc._get_pending_expense_claims()}
+        self.assertNotIn(draft_ec.name, pending_names, "draft claim must not be pending for history")
+
+    def test_get_pending_includes_submitted_claim(self):
+        """Daily reconciler DOES pick up a submitted (docstatus 1) claim not yet in history."""
+        _member, sub_ec = self._make_volunteer_claim(docstatus=1)
+        proc = self._get_processor()
+        pending_names = {c.get("name") for c in proc._get_pending_expense_claims()}
+        self.assertIn(sub_ec.name, pending_names, "submitted claim missing from history must be pending")
+
+    def test_cleanup_keeps_submitted_nonapproved_claim(self):
+        """Cleanup must NOT delete a submitted but non-approved claim's history row.
+
+        Uses a non-NULL non-approved approval_status ('Rejected') so the old
+        approval-gated cleanup (`approval_status != 'Approved'`) would have
+        deleted it -- the new docstatus-only criterion keeps it, matching the
+        live path which tracks the claim by submission and reflects its outcome
+        in the row's status field.
+        """
+        from verenigingen.services.volunteer.expense_history_batch_processor import (
+            cleanup_orphaned_expense_history,
+        )
+
+        member, sub_ec = self._make_volunteer_claim(docstatus=1)
+        # Non-NULL, non-approved: the discriminating case for the cleanup fix.
+        frappe.db.set_value(
+            "Expense Claim", sub_ec.name, "approval_status", "Rejected", update_modified=False
+        )
+        self._add_history_row(member, sub_ec.name)
+        self.assertEqual(
+            len([r for r in member.get("volunteer_expenses") if r.expense_claim == sub_ec.name]), 1
+        )
+
+        cleanup_orphaned_expense_history()
+
+        member.reload()
+        kept = [r for r in (member.get("volunteer_expenses") or []) if r.expense_claim == sub_ec.name]
+        self.assertEqual(len(kept), 1, "submitted (docstatus 1) claim must be kept regardless of approval")
+
+    def test_cleanup_removes_cancelled_claim(self):
+        """Cleanup DOES delete a row whose claim is no longer submitted (cancelled)."""
+        from verenigingen.services.volunteer.expense_history_batch_processor import (
+            cleanup_orphaned_expense_history,
+        )
+
+        member, sub_ec = self._make_volunteer_claim(docstatus=1)
+        self._add_history_row(member, sub_ec.name)
+        self.assertEqual(
+            len([r for r in member.get("volunteer_expenses") if r.expense_claim == sub_ec.name]), 1
+        )
+        # Simulate cancellation: docstatus 2 (no longer submitted).
+        frappe.db.set_value("Expense Claim", sub_ec.name, "docstatus", 2, update_modified=False)
+
+        cleanup_orphaned_expense_history()
+
+        member.reload()
+        remaining = [r for r in (member.get("volunteer_expenses") or []) if r.expense_claim == sub_ec.name]
+        self.assertEqual(remaining, [], "cancelled claim's history row must be removed by cleanup")
+
 
 # ---------------------------------------------------------------------------
 # 4. ExpenseApproverService

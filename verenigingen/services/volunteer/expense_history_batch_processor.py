@@ -73,14 +73,21 @@ class ExpenseHistoryBatchProcessor:
 
     def _get_pending_expense_claims(self) -> List[Dict]:
         """
-        Get expense claims (all statuses) that are not yet in member history.
+        Get submitted expense claims that are not yet in member history.
+
+        Mirrors the live event path (Expense Claim ``on_submit`` ->
+        ``expense_handlers.update_member_expense_history``): history tracks
+        SUBMITTED claims (docstatus 1) regardless of approval status. Drafts are
+        intentionally excluded -- they are not tracked by the live path, and
+        including them here caused churn with ``cleanup_orphaned_expense_history``
+        (added daily, deleted monthly).
 
         Returns list of expense claims that need to be processed.
         """
-        # Get all expense claims (draft, submitted, approved, rejected)
+        # Submitted claims only (docstatus 1) -- matches the live on_submit path.
         all_claims = frappe.get_all(
             "Expense Claim",
-            filters={"docstatus": ["in", [0, 1]]},  # Include both draft (0) and submitted (1)
+            filters={"docstatus": 1},
             fields=[
                 "name",
                 "employee",
@@ -201,8 +208,8 @@ class ExpenseHistoryBatchProcessor:
                 message=message,
                 default_roles=list(Roles.ADMIN_PAIR),
                 notification_type="Alert",
-                # Volunteer Expense was archived; the live system uses Expense Claim.
-                # See patches/v2_2/drop_volunteer_expense_archived_doctype.py.
+                # The legacy Volunteer Expense DocType was archived; the live
+                # system tracks native ERPNext Expense Claim.
                 document_type="Expense Claim",
             )
 
@@ -235,7 +242,9 @@ def validate_expense_history_integrity():
     Should be called weekly from scheduler.
     """
     try:
-        # Check for approved expense claims missing from member history
+        # Check for submitted expense claims missing from member history.
+        # Membership criterion = submitted (docstatus 1), matching the live
+        # on_submit path and _get_pending_expense_claims (NOT approval-gated).
         missing_claims = frappe.db.sql(
             """
             SELECT ec.name, ec.employee, ec.posting_date, v.member
@@ -243,7 +252,6 @@ def validate_expense_history_integrity():
             JOIN `tabVolunteer` v ON v.employee_id = ec.employee
             LEFT JOIN `tabMember Volunteer Expenses` mve ON mve.expense_claim = ec.name
             WHERE ec.docstatus = 1
-            AND ec.approval_status = 'Approved'
             AND mve.name IS NULL
         """,
             as_dict=True,
@@ -251,7 +259,7 @@ def validate_expense_history_integrity():
 
         if missing_claims:
             frappe.logger("expense_integrity").warning(
-                f"Found {len(missing_claims)} approved expense claims missing from member history"
+                f"Found {len(missing_claims)} submitted expense claims missing from member history"
             )
 
             # Auto-fix by processing them
@@ -280,11 +288,14 @@ def cleanup_orphaned_expense_history():
     """
     Cleanup orphaned expense history entries.
 
-    Removes entries where the expense claim no longer exists or is not approved.
+    Removes entries whose expense claim no longer exists or is no longer
+    submitted (cancelled/deleted, docstatus != 1). Approval status is NOT a
+    removal criterion -- a submitted-but-pending claim is legitimately tracked
+    by the live on_submit path, so deleting it here would drop real history.
     Should be called monthly from scheduler.
     """
     try:
-        # Find orphaned entries
+        # Find orphaned entries: claim gone, or no longer submitted (docstatus != 1).
         orphaned = frappe.db.sql(
             """
             SELECT mve.name, mve.expense_claim, mve.parent
@@ -292,7 +303,6 @@ def cleanup_orphaned_expense_history():
             LEFT JOIN `tabExpense Claim` ec ON ec.name = mve.expense_claim
             WHERE ec.name IS NULL
             OR ec.docstatus != 1
-            OR ec.approval_status != 'Approved'
         """,
             as_dict=True,
         )
