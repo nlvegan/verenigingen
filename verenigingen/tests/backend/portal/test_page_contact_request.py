@@ -56,6 +56,13 @@ class TestPageContactRequest(EnhancedTestCase):
                     "doctype": "User",
                     "email": email,
                     "first_name": "Contact",
+                    # last_name is required: the User's update_contact hook derives a
+                    # Contact whose name is "{first_name} {last_name}". Without a last
+                    # name the Contact would be named "Contact", which Frappe rejects
+                    # ("Name of Contact cannot be Contact") whenever no same-named
+                    # Contact already exists to force a numeric suffix — an
+                    # order-dependent failure in full-shard runs.
+                    "last_name": "Tester",
                     "send_welcome_email": 0,
                     "roles": [{"role": "Verenigingen Member"}],
                 }
