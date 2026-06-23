@@ -248,13 +248,12 @@ class TestAddTaxLinesAppend(_TaxFixtureBase):
         self.assertEqual(invoice.taxes[0]["cost_center"], default_cc)
 
     def test_taxable_btw_resolves_via_final_fallback(self):
-        # Primary account_name points nowhere, but get_tax_account's hardcoded
-        # final fallback for "sales" ("1500 - BTW af te dragen 21% - NVV") exists
-        # on veg11 -> the tax line IS appended using that fallback account.
-        # Exercises add_tax_lines' tax-account-found append AFTER get_tax_account
-        # falls all the way through to the final fallback.
+        # Primary account_name points nowhere, so get_tax_account falls through to
+        # its hardcoded final fallback for "sales" ("1500 - BTW af te dragen 21% -
+        # NVV"). The tax amount is always computed; whether a tax LINE is appended
+        # depends on that fallback account existing (it does on the canonical site,
+        # not on bare CI test sites). Both branches are asserted.
         sales_final_fallback = "1500 - BTW af te dragen 21% - NVV"
-        self.assertTrue(frappe.db.exists("Account", sales_final_fallback))
         code = "INVCOVFINAL21"
         self._patch_btw(code, "Primary Nonexistent Account - ZZZ")
         invoice = _InvoiceStub(self.company)
@@ -265,9 +264,14 @@ class TestAddTaxLinesAppend(_TaxFixtureBase):
             result = add_tax_lines(invoice, regels, "sales", debug)
 
         self.assertEqual(result["tax_amount"], 21.0)
-        self.assertEqual(len(invoice.taxes), 1)
-        self.assertEqual(invoice.taxes[0]["account_head"], sales_final_fallback)
-        self.assertTrue(any("final fallback tax account" in m for m in debug))
+        if frappe.db.exists("Account", sales_final_fallback):
+            self.assertEqual(len(invoice.taxes), 1)
+            self.assertEqual(invoice.taxes[0]["account_head"], sales_final_fallback)
+            self.assertTrue(any("final fallback tax account" in m for m in debug))
+        else:
+            # No resolvable tax account -> no tax line appended.
+            self.assertEqual(len(invoice.taxes), 0)
+            self.assertTrue(any("No tax account found" in m for m in debug))
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +308,6 @@ class TestGetTaxAccountFallbacks(_TaxFixtureBase):
         from verenigingen.e_boekhouden.utils import invoice_helpers as mod
 
         purchase_final_fallback = "1530 - BTW te vorderen - NVV"
-        self.assertTrue(frappe.db.exists("Account", purchase_final_fallback))
         code = "INVCOVPURCH"
         original = dict(mod.BTW_CODE_MAP)
         mod.BTW_CODE_MAP[code] = {
@@ -316,8 +319,14 @@ class TestGetTaxAccountFallbacks(_TaxFixtureBase):
         try:
             debug = []
             result = get_tax_account(code, "purchase", self.company, debug)
-            self.assertEqual(result, purchase_final_fallback)
-            self.assertTrue(any("final fallback tax account" in m for m in debug))
+            # The hardcoded final fallback is returned only when it exists (canonical
+            # site); otherwise get_tax_account exhausts all options and returns None.
+            if frappe.db.exists("Account", purchase_final_fallback):
+                self.assertEqual(result, purchase_final_fallback)
+                self.assertTrue(any("final fallback tax account" in m for m in debug))
+            else:
+                self.assertIsNone(result)
+                self.assertTrue(any("No suitable tax account" in m for m in debug))
         finally:
             mod.BTW_CODE_MAP.clear()
             mod.BTW_CODE_MAP.update(original)
@@ -370,6 +379,30 @@ class TestProcessLineItemsBranches(_TaxFixtureBase):
         with self.assertRaises(frappe.ValidationError):
             process_line_items(invoice, regels, "sales", None, [])
 
+    def _ensure_resolution_company_cost_center(self):
+        # process_line_items calls get_cost_center WITHOUT a company arg, so it
+        # resolves against E-Boekhouden Settings.default_company. Make sure that
+        # company has a usable (non-group) cost center, otherwise get_cost_center
+        # throws on bare CI test companies that ship without one. Rolled back by
+        # FrappeTestCase, so this never mutates shared state permanently.
+        settings = frappe.get_single("E-Boekhouden Settings")
+        company = settings.default_company
+        if not company:
+            self.skipTest("No E-Boekhouden Settings default_company configured")
+        if frappe.db.get_value("Company", company, "cost_center"):
+            return
+        if frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name"):
+            return
+        root = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1}, "name")
+        if not root:
+            self.skipTest(f"{company} has no root cost center group to attach to")
+        cc = frappe.new_doc("Cost Center")
+        cc.cost_center_name = "Main"
+        cc.company = company
+        cc.parent_cost_center = root
+        cc.is_group = 0
+        cc.insert(ignore_permissions=True)
+
     def test_kostenplaats_sets_line_cost_center(self):
         # A regel carrying KostenplaatsId triggers the per-line cost-center branch:
         # line_item["cost_center"] = get_cost_center(KostenplaatsId).
@@ -379,6 +412,7 @@ class TestProcessLineItemsBranches(_TaxFixtureBase):
         # Settings.default_company, NOT invoice.company. We assert the branch ran and
         # produced a real, valid Cost Center, without coupling to which company owns
         # it (that depends on the live settings default_company).
+        self._ensure_resolution_company_cost_center()
         invoice = _InvoiceStub(self.company, doctype="Sales Invoice")
         regels = [
             {

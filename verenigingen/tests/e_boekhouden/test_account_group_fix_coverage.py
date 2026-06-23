@@ -48,13 +48,17 @@ class TestDeprecatedDiagnosticWrappers(EnhancedTestCase):
         with self.assertNoErrorLog():
             wrapped = shim.diagnose_account_structure()
             direct = service_fn()
-        # Both return the standard {success, data} API envelope.
+        # Pure pass-through: the shim returns exactly the service's envelope,
+        # whatever it is (a default company may or may not be configured on a
+        # given site).
         self.assertIsInstance(wrapped, dict)
-        self.assertTrue(wrapped["success"])
         self.assertEqual(set(wrapped.keys()), set(direct.keys()))
-        # The diagnosis surface the shim must keep exposing (under data).
-        for key in ("root_accounts", "existing_groups", "sample_creditor_accounts"):
-            self.assertIn(key, wrapped["data"])
+        self.assertEqual(wrapped["success"], direct["success"])
+        # When a default company IS configured (e.g. the canonical site), the
+        # diagnosis surface must be exposed under data.
+        if wrapped["success"]:
+            for key in ("root_accounts", "existing_groups", "sample_creditor_accounts"):
+                self.assertIn(key, wrapped["data"])
 
     def test_check_tax_accounts_delegates(self):
         from verenigingen.e_boekhouden.services.account_diagnostics_service import (
