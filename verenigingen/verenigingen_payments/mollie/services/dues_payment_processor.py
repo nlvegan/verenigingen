@@ -350,9 +350,12 @@ class DuesPaymentProcessor:
                 f"Threshold: €{MAX_PAYMENT_AMOUNT_WARNING}. Proceeding but flagging for review."
             )
 
-        # Validate payment_date is not in future
+        # Validate payment_date is not in future. Compare against frappe's
+        # site-tz today() (getdate()), NOT Python's date.today() (server/UTC tz):
+        # in the late-UTC window the two differ by a day, which wrongly rejected
+        # valid same-day payments (a real TZ-boundary bug, not just a test flake).
         payment_date = getdate(payment_date)
-        if payment_date > date.today():
+        if payment_date > getdate():
             raise ValueError(f"Payment date {payment_date} cannot be in the future")
 
         try:

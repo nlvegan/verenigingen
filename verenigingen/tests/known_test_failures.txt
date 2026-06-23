@@ -2310,3 +2310,10 @@ test_invoice_overpayment_edge_cases (verenigingen.tests.payment.test_invoice_edg
 test_invoice_partial_payment_edge_cases (verenigingen.tests.payment.test_invoice_edge_cases.TestInvoiceEdgeCases.test_invoice_partial_payment_edge_cases)
 test_invoice_with_multiple_items (verenigingen.tests.payment.test_invoice_edge_cases.TestInvoiceEdgeCases.test_invoice_with_multiple_items)
 test_very_large_invoice_amounts (verenigingen.tests.payment.test_invoice_edge_cases.TestInvoiceEdgeCases.test_very_large_invoice_amounts)
+# --- Rebucketing-exposed order-dependence (2026-06-23, after report sweep a021aa85) ---
+# Both PASS in isolation on veg11; they fail only under certain 12-shard bucket
+# compositions because they depend on global state set up by sibling tests in
+# their bucket. Baselined as elusive (fix-clear / baseline-elusive policy);
+# the underlying order-dependence should be fixed separately.
+test_update_auto_creation_settings_roundtrip (verenigingen.tests.member.test_donor_auto_creation_management.TestDonorAutoCreationManagement.test_update_auto_creation_settings_roundtrip)
+test_cleanup_keeps_submitted_nonapproved_claim (verenigingen.tests.volunteer.test_volunteer_service_coverage.TestExpenseHistoryBatchProcessor.test_cleanup_keeps_submitted_nonapproved_claim)
