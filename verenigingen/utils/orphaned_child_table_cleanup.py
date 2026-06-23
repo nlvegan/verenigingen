@@ -274,10 +274,16 @@ def _validate_table_name(table_name):
     Returns:
         bool: True if valid, False otherwise
 
-    Security: Only allows alphanumeric, spaces, and underscores after "tab" prefix.
+    Security: After the "tab" prefix the name must start with an alphanumeric
+    character (rejecting comment-injection like "tab--comment") and may then
+    contain alphanumerics, spaces, underscores and hyphens. Hyphens are valid
+    in Frappe DocType names (e.g. "E-Boekhouden Cost Center Mapping") and are
+    not an injection vector because table names are always backtick-quoted.
     """
-    # Frappe table naming pattern: tab + DocType name (alphanumeric + spaces + underscores)
-    pattern = r"^tab[A-Za-z0-9 _]+$"
+    # Frappe table naming: tab + DocType name. Require a leading alphanumeric
+    # after "tab" so a bare hyphen/comment cannot pass, then allow hyphens
+    # (legitimate in DocType names) alongside alphanumerics, spaces, underscores.
+    pattern = r"^tab[A-Za-z0-9][A-Za-z0-9 _-]*$"
     return bool(re.match(pattern, table_name))
 
 

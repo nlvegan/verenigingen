@@ -143,6 +143,9 @@ class TestOrphanedChildTableCleanup(EnhancedTestCase):
         self.assertTrue(_validate_table_name("tabVolunteer Skill"))
         self.assertTrue(_validate_table_name("tabMember Fee Change History"))
         self.assertTrue(_validate_table_name("tabDocType_123"))
+        # Hyphenated DocType names are valid (e.g. eBoekhouden mapping tables)
+        # and must not be flagged as a security violation.
+        self.assertTrue(_validate_table_name("tabE-Boekhouden Cost Center Mapping"))
 
     def test_validate_table_name_rejects_sql_injection(self):
         malicious = [

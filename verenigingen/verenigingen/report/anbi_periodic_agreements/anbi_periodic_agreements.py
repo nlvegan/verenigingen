@@ -116,9 +116,13 @@ def get_data(filters):
         if row.start_date and row.end_date and row.annual_amount:
             from verenigingen.utils.validation_utilities import DateRangeValidator
 
-            # Calculate duration using standardized date range validator
+            # Calculate duration using standardized date range validator.
+            # Periodic donation agreements legitimately start in the past (they
+            # were signed months/years ago), so allow_past_start MUST be set --
+            # otherwise the validator returns valid=False for every real active
+            # agreement and expected_total / completion_percentage are always 0.
             date_result = DateRangeValidator.validate_date_range(
-                row.start_date, row.end_date, throw_on_error=False
+                row.start_date, row.end_date, allow_past_start=True, throw_on_error=False
             )
             years = date_result.get("duration_days", 0) / 365.25 if date_result.get("valid") else 0
             expected_total = flt(row.annual_amount * years, 2)

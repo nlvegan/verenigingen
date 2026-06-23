@@ -15,6 +15,12 @@ def validate_doctype_fields(doctype, required_fields):
         existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
         # Add implicit fields that always exist on DocTypes
         existing_fields.update(["name", "creation", "modified", "owner", "modified_by", "docstatus"])
+        # Child-table doctypes always carry these implicit parent-link columns;
+        # they are never declared in meta.fields. Without them, validating a
+        # required "parent" field on a child table (e.g. Chapter Member) always
+        # fails and silently disables the feature relying on it.
+        if meta.istable:
+            existing_fields.update(["parent", "parentfield", "parenttype", "idx"])
         missing_fields = set(required_fields) - existing_fields
 
         if missing_fields:
@@ -192,6 +198,12 @@ def get_data(filters):
             FROM `tabMembership`
             WHERE status = 'Active'
             AND docstatus != 2
+            -- A NULL/empty member in this list would make `NOT IN` evaluate to
+            -- NULL (never TRUE) for EVERY member, silently emptying the whole
+            -- report. Real datasets do carry orphaned Active memberships with a
+            -- NULL member, so guard the subquery explicitly.
+            AND member IS NOT NULL
+            AND member != ''
         )
         ORDER BY
             CASE

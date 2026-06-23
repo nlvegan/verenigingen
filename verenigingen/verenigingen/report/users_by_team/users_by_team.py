@@ -88,8 +88,14 @@ def get_data(filters):
                 frappe.log_error(f"Table {table} does not exist", "Users by Team Report Error")
                 return []
 
-        # Use safer parameterized query with proper JOIN syntax
-        query = f"""
+        # Use safer parameterized query with proper JOIN syntax.
+        # NOTE: this is a .format() template (NOT an f-string): the f-prefix
+        # made Python interpolate the raw ``conditions`` list at string-build
+        # time, leaving no ``{conditions}`` placeholder for .format() to fill,
+        # which injected a Python list repr into the SQL and broke every run
+        # with a 1064 syntax error. ``conditions_str`` carries the parameterised
+        # conditions (values bound separately), so this is not an injection risk.
+        query = """
         SELECT
             t.name as team,
             t.team_lead as team_lead,

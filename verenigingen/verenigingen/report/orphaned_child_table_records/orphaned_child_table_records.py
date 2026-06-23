@@ -48,8 +48,16 @@ def get_data(filters=None):
     """
     from verenigingen.utils.orphaned_child_table_cleanup import detect_orphaned_child_tables
 
-    # Get orphaned records detection results
-    results = detect_orphaned_child_tables()
+    # Get orphaned records detection results.
+    # detect_orphaned_child_tables() is whitelisted and returns an
+    # OperationResult that the API layer serialises into the nested schema
+    # ``{"success": ..., "data": {<actual results>}}``. The detection payload
+    # (total_orphaned / tables_affected / details) lives under ``data``; reading
+    # the top level made this report silently report "Database is clean!" even
+    # when orphans existed. Unwrap ``data`` (falling back to the raw dict for
+    # the non-wrapped/direct-call case).
+    response = detect_orphaned_child_tables()
+    results = response.get("data", response) if isinstance(response, dict) else response
 
     if not results.get("success"):
         frappe.msgprint(

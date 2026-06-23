@@ -304,7 +304,11 @@ def calculate_coverage_timeline(member_name, from_date=None, to_date=None):
         member = frappe.get_doc("Member", member_name)
 
         if not member.customer:
-            frappe.log_error(f"Member {member_name} has no customer record", "Coverage Timeline Calculation")
+            # A member without a customer record simply has no invoices/coverage
+            # to analyse yet. This is a normal data condition (e.g. members who
+            # have never been billed), NOT an error — logging it to the Error Log
+            # would spam ~one row per such member on every full report run.
+            frappe.logger("dues_coverage").debug(f"Member {member_name} has no customer record")
             return get_empty_coverage_analysis()
 
         # Get membership periods

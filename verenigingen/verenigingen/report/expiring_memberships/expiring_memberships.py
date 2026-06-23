@@ -32,15 +32,15 @@ def get_data(filters):
         month_name
     ) + 1
 
-    # Extract year from fiscal year if it's in format like "2024-2025"
+    # Extract year from fiscal year if it's in format like "2024-2025".
+    # Guard against non-numeric values (the first segment of a hyphenated
+    # string can still be non-numeric) by falling back to the current year.
     fiscal_year = filters.get("fiscal_year", "")
-    if "-" in fiscal_year:
-        year = int(fiscal_year.split("-")[0])
-    else:
-        try:
-            year = int(fiscal_year)
-        except (ValueError, TypeError):
-            year = getdate().year
+    year_token = fiscal_year.split("-")[0] if "-" in (fiscal_year or "") else fiscal_year
+    try:
+        year = int(year_token)
+    except (ValueError, TypeError):
+        year = getdate().year
 
     return frappe.db.sql(
         """
