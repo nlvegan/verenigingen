@@ -47,6 +47,10 @@ class TestPontoSettingsExtra(EnhancedTestCase):
         with singleton_backup("Ponto Settings"):
             settings = frappe.get_single("Ponto Settings")
             settings.sandbox_mode = 1
+            # validate_credentials_configured requires a sandbox client id when
+            # sandbox_mode is on; set it so save() doesn't depend on a sibling test
+            # having left credentials behind (order-independence).
+            settings.sandbox_client_id = "sandbox-test-client-id"
             settings.sandbox_client_secret = ""
             settings.save()
             settings.reload()
