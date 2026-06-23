@@ -877,13 +877,13 @@ class EBoekhoudenMigration(Document):
         if hasattr(self, "failed_record_details"):
             self.failed_record_details = logger.get_failed_records()
 
-    def create_account(self, account_data, use_enhanced=False):
+    def create_account(self, account_data):
         """Create Account in ERPNext.
 
         Delegates to AccountMigrationService.
         """
         service = self._get_account_migration_service()
-        return service.create_account(account_data, use_enhanced=use_enhanced)
+        return service.create_account(account_data)
 
     def create_bank_account_for_coa_account(self, account_doc, account_name):
         """Enhanced Bank Account creation for Chart of Accounts bank account.

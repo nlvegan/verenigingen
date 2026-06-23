@@ -4,49 +4,24 @@ E-Boekhouden Consolidated Utilities
 This package contains consolidated implementations that replace scattered
 functionality throughout the E-Boekhouden module.
 
-Modules:
-- account_manager: Consolidated account creation and management (790 → 350 lines)
-- migration_coordinator: Consolidated migration coordination (823 → 400 lines)
+Live utility submodules (imported on the REST migration path):
 - date_utils: Shared date utilities (fiscal year management)
 - ledger_utils: Canonical ledger ID resolution with auto-create capability
 - bank_account_utils: Bank account resolution for payment processing
 
-Deprecated modules (use alternatives instead):
-- party_manager: DEPRECATED - Use EBoekhoudenPartyResolver from
-  verenigingen.e_boekhouden.utils.party_resolver instead
-
-Total reduction: 2,577 → 1,150 lines (55% reduction with improved functionality)
+Account typing/classification lives in
+verenigingen.e_boekhouden.services.account_classification_service
+(AccountClassificationService); party resolution lives in
+verenigingen.e_boekhouden.utils.party_resolver (EBoekhoudenPartyResolver).
+The former in-package account_manager / migration_coordinator / party_manager
+classes were superseded duplicates and have been removed.
 """
 
-from .account_manager import (
-    EBoekhoudenAccountManager,
-    create_account_with_smart_typing,
-    get_smart_account_type,
-)
 from .bank_account_utils import resolve_bank_account_for_ledger, resolve_bank_account_or_raise
 from .date_utils import ensure_fiscal_year_exists
 from .ledger_utils import get_ledger_mapping, resolve_ledger_code
-from .migration_coordinator import (
-    EBoekhoudenMigrationCoordinator,
-    coordinate_migration,
-    validate_migration_prerequisites,
-)
-from .party_manager import (
-    EBoekhoudenPartyManager,
-    get_or_create_customer_simple,
-    get_or_create_supplier_simple,
-)
 
 __all__ = [
-    "EBoekhoudenPartyManager",
-    "EBoekhoudenAccountManager",
-    "EBoekhoudenMigrationCoordinator",
-    "get_or_create_customer_simple",
-    "get_or_create_supplier_simple",
-    "get_smart_account_type",
-    "create_account_with_smart_typing",
-    "coordinate_migration",
-    "validate_migration_prerequisites",
     "ensure_fiscal_year_exists",
     "get_ledger_mapping",
     "resolve_ledger_code",

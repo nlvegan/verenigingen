@@ -193,50 +193,9 @@ class AccountMigrationService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def create_account(self, account_data: dict, use_enhanced: bool = False) -> bool:
+    def create_account(self, account_data: dict) -> bool:
         """Create Account in ERPNext."""
         try:
-            # Use enhanced migration if available and enabled
-            if use_enhanced:
-                try:
-                    from verenigingen.e_boekhouden.utils.eboekhouden_migration_enhancements import (
-                        EnhancedAccountMigration,
-                    )
-
-                    # Create a minimal migration-like object for enhanced migrator
-                    class MigrationProxy:
-                        def __init__(proxy_self, service):
-                            proxy_self.company = service.company
-                            proxy_self._account_group_mappings = service._account_group_mappings
-                            proxy_self._group_accounts = service._group_accounts
-
-                        def log_error(proxy_self, msg, rt=None, rd=None):
-                            service.log_error(msg, rt, rd)
-
-                    enhanced_migrator = EnhancedAccountMigration(MigrationProxy(self))
-                    result = enhanced_migrator.analyze_and_create_account(account_data)
-
-                    account_code = account_data.get("code", "")
-                    account_name = account_data.get("description", "")
-
-                    if result["status"] == "created":
-                        frappe.logger().info(
-                            f"Created account: {account_code} - {account_name} (Group: {result.get('group', 'N/A')})"
-                        )
-                        return True
-                    elif result["status"] == "skipped":
-                        frappe.logger().info(
-                            f"Skipped: {account_code} - {account_name} ({result.get('reason', '')})"
-                        )
-                        return False
-                    else:
-                        self.log_error(f"Failed: {account_code} - {account_name}: {result.get('error', '')}")
-                        return False
-                except ImportError:
-                    # Fall back to standard migration
-                    pass
-
-            # Standard migration logic
             # Map e-Boekhouden account to ERPNext account
             account_code = account_data.get("code", "")
             account_name = account_data.get("description", "")
