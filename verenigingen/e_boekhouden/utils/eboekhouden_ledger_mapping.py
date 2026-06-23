@@ -65,7 +65,7 @@ def fetch_and_create_ledger_mapping():
             if response.status_code != 200:
                 return {
                     "success": False,
-                    "error": "API returned status {response.status_code}: {response.text}",
+                    "error": f"API returned status {response.status_code}: {response.text}",
                 }
 
             data = response.json()
@@ -295,7 +295,7 @@ def quick_create_mapping_from_logs():
         return {
             "success": True,
             "created": created,
-            "message": "Created {created} temporary mappings. Run fetch_and_create_ledger_mapping to get actual codes.",
+            "message": f"Created {created} temporary mappings. Run fetch_and_create_ledger_mapping to get actual codes.",
         }
 
     except Exception as e:

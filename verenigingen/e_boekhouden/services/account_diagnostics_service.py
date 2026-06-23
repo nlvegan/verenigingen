@@ -76,18 +76,24 @@ class AccountDiagnosticsService:
             limit=10,
         )
 
-        # Sample creditor accounts (16xx, 17xx ranges)
-        results["sample_creditor_accounts"] = frappe.db.get_all(
-            "Account",
-            filters={
-                "company": self.company,
-                "account_number": ["in", ["like", "16%"], ["like", "17%"]],
-                "is_group": 0,
-                "root_type": "Liability",
-            },
-            fields=["name", "account_number", "account_name", "parent_account", "root_type"],
-            limit=10,
-        )
+        # Sample creditor accounts (16xx, 17xx ranges). A single Frappe filter
+        # can't express "starts with 16 OR 17", so query each prefix and merge.
+        creditor_accounts = []
+        for prefix in ("16", "17"):
+            creditor_accounts.extend(
+                frappe.db.get_all(
+                    "Account",
+                    filters={
+                        "company": self.company,
+                        "account_number": ["like", f"{prefix}%"],
+                        "is_group": 0,
+                        "root_type": "Liability",
+                    },
+                    fields=["name", "account_number", "account_name", "parent_account", "root_type"],
+                    limit=10,
+                )
+            )
+        results["sample_creditor_accounts"] = creditor_accounts[:10]
 
         # Sample tax accounts
         results["sample_tax_accounts"] = frappe.db.sql(

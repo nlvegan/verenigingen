@@ -37,7 +37,11 @@ class EBoekhoudenImportManager:
 
     def __init__(self):
         self.settings = frappe.get_single("E-Boekhouden Settings")
-        self.company = self.settings.company
+        # E-Boekhouden Settings exposes the company as ``default_company``; there
+        # is no ``company`` field, so the previous ``self.settings.company`` raised
+        # AttributeError and made the whole manager (and its clean-reimport API
+        # caller) impossible to instantiate.
+        self.company = self.settings.default_company
         self.cost_center = frappe.db.get_value("Company", self.company, "cost_center")
 
     @frappe.whitelist()

@@ -117,7 +117,7 @@ class EnhancedEBoekhoudenMigration:
 
         Resolution order (explicit configuration preferred over heuristics):
         1. E-Boekhouden Settings.default_cost_center (migration-specific config)
-        2. Company.default_cost_center (ERPNext standard config)
+        2. Company.cost_center (ERPNext standard config)
         3. Cost center named "Main" for the company (heuristic, logged)
         4. Company abbreviation-based cost center (heuristic, logged)
         5. Any non-group cost center for the company (heuristic, logged)
@@ -143,7 +143,10 @@ class EnhancedEBoekhoudenMigration:
                 )
 
         # Priority 2: Company default cost center
-        company_default = frappe.db.get_value("Company", self.company, "default_cost_center")
+        # NB: the ERPNext Company field is ``cost_center`` (there is no
+        # ``default_cost_center`` column), so the previous lookup raised a 1054
+        # "Unknown column" error that crashed the entire migration constructor.
+        company_default = frappe.db.get_value("Company", self.company, "cost_center")
         if company_default and frappe.db.exists("Cost Center", company_default):
             return company_default
 

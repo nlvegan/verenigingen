@@ -106,7 +106,7 @@ def get_smart_account_type(account_data):
         if category == "FIN":
             # Log this mapping issue for review
             frappe.log_error(
-                "Account {code} - {description} has FIN category but code suggests Equity account",
+                f"Account {code} - {description} has FIN category but code suggests Equity account",
                 "eBoekhouden Category Mismatch",
             )
         return "Equity", "Equity"

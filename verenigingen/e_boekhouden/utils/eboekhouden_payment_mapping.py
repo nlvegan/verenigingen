@@ -148,6 +148,16 @@ def setup_default_payment_mappings(company):
             ("Cash", "cash_account"),
         ]
 
+        # Default mode-of-payment per account type (used only to satisfy the
+        # mandatory mode_of_payment field; Account-Type mappings are resolved by
+        # account_type, not by mode_of_payment).
+        default_mode_for_type = {
+            "Bank": "Bank Transfer",
+            "Cash": "Cash",
+            "Receivable": "Bank Transfer",
+            "Payable": "Bank Transfer",
+        }
+
         for account_type, key in mapping_configs:
             if key in defaults:
                 # Check if mapping already exists
@@ -157,25 +167,34 @@ def setup_default_payment_mappings(company):
                 )
 
                 if not existing:
+                    # eboekhouden_account_code / account_name / mode_of_payment are
+                    # mandatory on the doctype. Account-Type defaults have no specific
+                    # eBoekhouden code, so we synthesize a placeholder code that is
+                    # unique per account type; validate_duplicate keys on
+                    # (eboekhouden_account_code, company), so these never collide.
+                    # The account name is derived from the mapped account.
                     doc = frappe.get_doc(
                         {
                             "doctype": "E-Boekhouden Payment Mapping",
                             "company": company,
                             "mapping_type": "Account Type",
                             "account_type": account_type,
+                            "eboekhouden_account_code": f"DEFAULT-{account_type.upper()}",
+                            "account_name": defaults[key],
+                            "mode_of_payment": default_mode_for_type.get(account_type, "Bank Transfer"),
                             "erpnext_account": defaults[key],
-                            "is_default": 1,
+                            "active": 1,
                             "priority": 100,
                         }
                     )
                     doc.insert()
-                    created_mappings.append("{account_type} → {defaults[key]}")
+                    created_mappings.append(f"{account_type} → {defaults[key]}")
 
         frappe.db.commit()
 
         return {
             "success": True,
-            "message": "Created {len(created_mappings)} default mappings",
+            "message": f"Created {len(created_mappings)} default mappings",
             "mappings": created_mappings,
         }
 

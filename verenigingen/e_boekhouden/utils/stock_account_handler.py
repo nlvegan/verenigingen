@@ -150,7 +150,13 @@ class StockAccountHandler:
 
     def get_or_create_generic_asset_account(self) -> str:
         """Get or create a generic asset account for stock value"""
-        account_name = f"Stock Value (Opening Balance) - {self.company}"
+        # ERPNext names accounts "<account_name> - <company abbr>", NOT the full
+        # company name. Building the lookup with self.company made the existence
+        # check never match for any company whose abbreviation differs from its
+        # name, so each import re-attempted creation, hit a DuplicateEntryError, and
+        # silently fell back to an equity account. Use the company abbreviation.
+        abbr = frappe.get_cached_value("Company", self.company, "abbr")
+        account_name = f"Stock Value (Opening Balance) - {abbr}"
 
         # Check if account exists
         if frappe.db.exists("Account", account_name):
@@ -208,13 +214,16 @@ class StockAccountHandler:
             if frappe.db.exists("Account", account_name):
                 return account_name
 
-        # If not found, find any Asset account that is a group
+        # If not found, find any Asset account that is a group.
+        # NOTE: the '%%' is mandatory -- this query is parameterized (%s), and the
+        # database driver runs ``query % args``, so a bare '%Current%' is parsed as a
+        # (broken) format specifier and raises "not enough arguments for format string".
         result = frappe.db.sql(
             """SELECT name FROM `tabAccount`
                WHERE company = %s
                AND root_type = 'Asset'
                AND is_group = 1
-               AND account_name LIKE '%Current%'
+               AND account_name LIKE '%%Current%%'
                LIMIT 1""",
             self.company,
         )

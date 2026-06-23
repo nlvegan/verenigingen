@@ -176,7 +176,7 @@ def setup_payment_modes():
 
     frappe.db.commit()
 
-    return {"success": True, "created": created, "message": "Created {len(created)} modes of payment"}
+    return {"success": True, "created": created, "message": f"Created {len(created)} modes of payment"}
 
 
 @frappe.whitelist()
@@ -235,7 +235,7 @@ def validate_migration_setup():
     required_modes = ["Bank Transfer", "PayPal", "Cash", "SEPA Direct Debit"]
     for mode in required_modes:
         if not frappe.db.exists("Mode of Payment", mode):
-            warnings.append("Mode of Payment f'{mode}' not found")
+            warnings.append(f"Mode of Payment '{mode}' not found")
 
     # Check if there are customers and suppliers
     customer_count = frappe.db.count("Customer")

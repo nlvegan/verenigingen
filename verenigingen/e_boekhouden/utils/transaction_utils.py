@@ -160,11 +160,15 @@ def create_journal_entry_impl(migration_doc, transaction_data):
             if not erpnext_account:
                 erpnext_account = migration_doc.get_suspense_account(migration_doc.company)
 
-            # Add journal entry account line
+            # Add journal entry account line.
+            # NB: do NOT set reference_type/reference_name to point at this JE
+            # itself - the parent name is empty at append time (doc unsaved) and
+            # ERPNext's validate_against_jv rejects a reference document on any
+            # *debited* account ("you can select reference document only if
+            # account gets credited"), which aborted every import with a debit
+            # line. These are plain GL postings, not payments against a voucher.
             je_account = je.append("accounts")
             je_account.account = erpnext_account
-            je_account.reference_type = "Journal Entry"
-            je_account.reference_name = je.name
 
             if amount > 0:
                 je_account.debit_in_account_currency = amount
@@ -183,8 +187,6 @@ def create_journal_entry_impl(migration_doc, transaction_data):
 
             je_account = je.append("accounts")
             je_account.account = suspense_account
-            je_account.reference_type = "Journal Entry"
-            je_account.reference_name = je.name
             je_account.user_remark = "Balancing entry for E-Boekhouden import"
 
             if balance_amount < 0:
