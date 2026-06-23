@@ -230,6 +230,22 @@ class ProgressTracker:
 class MemoryOptimizer:
     """Manages memory usage during migration"""
 
+    def __init__(self):
+        self.monitoring = False
+
+    def start_monitoring(self):
+        """Begin memory monitoring.
+
+        PerformanceOptimizer.start_monitoring() delegates here; without these
+        methods that call raised AttributeError. Kept as a lightweight flag so
+        the optimizer's lifecycle works without an external profiling dependency.
+        """
+        self.monitoring = True
+
+    def stop_monitoring(self):
+        """Stop memory monitoring."""
+        self.monitoring = False
+
     @staticmethod
     def process_large_dataset(query_function, process_function, chunk_size=1000):
         """

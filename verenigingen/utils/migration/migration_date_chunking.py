@@ -123,7 +123,7 @@ class DateRangeChunker:
 
                     frappe.logger().info(
                         f"Adjusted chunk size to {current_chunk_size} days based on "
-                        "{records_per_day:.1f} records/day"
+                        f"{records_per_day:.1f} records/day"
                     )
             else:
                 results["failed_chunks"].append(chunk_result)
@@ -170,7 +170,7 @@ class DateRangeChunker:
             if record_count >= self.api_limit:
                 chunk_info["success"] = False
                 chunk_info["reason"] = "limit_exceeded"
-                chunk_info["error"] = "Chunk returned {record_count} records, likely hit API limit"
+                chunk_info["error"] = f"Chunk returned {record_count} records, likely hit API limit"
                 return chunk_info
 
             # Process the data
@@ -350,7 +350,7 @@ def process_with_date_chunks(
 @development_only_api(operation_type=OperationType.UTILITY)
 def estimate_migration_chunks(migration_name: str):
     """Estimate optimal chunking strategy for a migration"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
     # Create sample fetch function
     def sample_fetch(from_date, to_date):

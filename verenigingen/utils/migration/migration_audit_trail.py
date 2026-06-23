@@ -72,7 +72,7 @@ class MigrationAuditTrail:
             Operation ID for tracking
         """
         operation_id = (
-            "{operation_type}_{len(self.operation_stack)}_{now_datetime().strftime('%Y%m%d_%H%M%S%f')}"
+            f"{operation_type}_{len(self.operation_stack)}_{now_datetime().strftime('%Y%m%d_%H%M%S%f')}"
         )
 
         operation = {
@@ -111,7 +111,7 @@ class MigrationAuditTrail:
 
         if not operation:
             self.log_event(
-                "error", {"message": "Operation {operation_id} not found in stack", "type": "audit_error"}
+                "error", {"message": f"Operation {operation_id} not found in stack", "type": "audit_error"}
             )
             return
 
@@ -403,7 +403,7 @@ class MigrationAuditTrail:
             "private",
             "files",
             "migration_audit_trails",
-            "summary_{self.migration_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.json",
+            f"summary_{self.migration_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.json",
         )
 
         with open(summary_path, "w") as f:
@@ -434,7 +434,7 @@ class MigrationAuditTrail:
                 recommendations.append(
                     {
                         "type": "high_failure_rate",
-                        "message": "High failure rate detected: {failure_rate:.1f}%",
+                        "message": f"High failure rate detected: {failure_rate:.1f}%",
                         "severity": "high",
                         "action": "Review error logs and consider data cleanup before re-running",
                     }
@@ -446,7 +446,7 @@ class MigrationAuditTrail:
             recommendations.append(
                 {
                     "type": "duplicate_records",
-                    "message": "Found {total_duplicates} duplicate records",
+                    "message": f"Found {total_duplicates} duplicate records",
                     "severity": "medium",
                     "action": "Run duplicate cleanup before migration",
                 }
@@ -458,7 +458,7 @@ class MigrationAuditTrail:
             recommendations.append(
                 {
                     "type": "validation_errors",
-                    "message": "Encountered {total_validation_errors} validation errors",
+                    "message": f"Encountered {total_validation_errors} validation errors",
                     "severity": "medium",
                     "action": "Review data quality and field mappings",
                 }
@@ -488,7 +488,7 @@ class MigrationAuditTrail:
             recommendations.append(
                 {
                     "type": "performance",
-                    "message": "Slow operations detected: {', '.join(slow_operations)}",
+                    "message": f"Slow operations detected: {', '.join(slow_operations)}",
                     "severity": "low",
                     "action": "Consider batch size optimization",
                 }
@@ -534,7 +534,7 @@ class AuditedMigrationOperation:
 @development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_audit_summary(migration_name: str):
     """Get audit summary for a migration"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     audit_trail = MigrationAuditTrail(migration_doc)
 
     return audit_trail.generate_summary_report()
@@ -550,7 +550,7 @@ def get_migration_audit_details(migration_name: str, event_type=None, severity=N
     audit_files = []
     if os.path.exists(audit_dir):
         for file in os.listdir(audit_dir):
-            if file.startswith("audit_{migration_name}_") and file.endswith(".json"):
+            if file.startswith(f"audit_{migration_name}_") and file.endswith(".json"):
                 audit_files.append(os.path.join(audit_dir, file))
 
     if not audit_files:

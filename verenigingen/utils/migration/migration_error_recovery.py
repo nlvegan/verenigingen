@@ -91,7 +91,7 @@ def with_retry(retry_strategy=None, error_handler=None):
                     if attempt < retry_strategy.max_retries:
                         delay = retry_strategy.get_delay(attempt)
                         frappe.logger().warning(
-                            "Retry {attempt}/{retry_strategy.max_retries} for {func.__name__} "
+                            f"Retry {attempt}/{retry_strategy.max_retries} for {func.__name__} "
                             f"after {delay}s delay. Error: {str(e)[:200]}"
                         )
                         time.sleep(delay)
@@ -152,13 +152,15 @@ class MigrationErrorRecovery:
             # Truncate error log to prevent field overflow
             error_summary = self._create_error_summary()
 
+            # NOTE: Only persist fields that exist on the E-Boekhouden Migration
+            # doctype. "failed_record_count" is NOT a real field; writing it raised
+            # OperationalError 1054, which the surrounding try/except swallowed -
+            # silently dropping the entire error_log update on every failure.
             frappe.db.set_value(
                 "E-Boekhouden Migration",
                 self.migration_doc.name,
-                {
-                    "error_log": error_summary[:100000],  # Long Text field limit
-                    "failed_record_count": len(self.failed_records),
-                },
+                "error_log",
+                error_summary[:100000],  # Long Text field limit
                 update_modified=False,
             )
 
@@ -172,8 +174,8 @@ class MigrationErrorRecovery:
         """Create a summary of errors for the migration document"""
         summary_lines = [
             f"Total Errors: {len(self.error_log)}",
-            "Failed Records: {len(self.failed_records)}",
-            "Last Updated: {now_datetime()}",
+            f"Failed Records: {len(self.failed_records)}",
+            f"Last Updated: {now_datetime()}",
             "\n" + "=" * 50 + "\n",
         ]
 
@@ -202,7 +204,7 @@ class MigrationErrorRecovery:
                 "private",
                 "files",
                 "eboekhouden_recovery_logs",
-                "recovery_{self.migration_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.json",
+                f"recovery_{self.migration_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.json",
             )
 
             # Ensure directory exists
@@ -389,7 +391,7 @@ class MigrationErrorRecovery:
 @development_only_api(operation_type=OperationType.UTILITY)
 def retry_failed_migration_records(migration_name: str):
     """Retry all failed records from a migration"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
     # Load recovery data
     recovery = MigrationErrorRecovery(migration_doc)
@@ -398,7 +400,7 @@ def retry_failed_migration_records(migration_name: str):
     recovery_files = frappe.get_all(
         "File",
         filters={
-            "file_name": ["like", "%recovery_{migration_name}%"],
+            "file_name": ["like", f"%recovery_{migration_name}%"],
             "attached_to_doctype": "E-Boekhouden Migration",
         },
         order_by="creation desc",
@@ -430,7 +432,7 @@ def retry_failed_migration_records(migration_name: str):
 @development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_recovery_report(migration_name: str):
     """Get recovery report for a migration"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     recovery = MigrationErrorRecovery(migration_doc)
 
     # Load error data

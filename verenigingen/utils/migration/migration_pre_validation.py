@@ -52,13 +52,12 @@ class PreImportValidator:
         if doctype not in self.validation_rules:
             return {"error": f"No validation rules defined for {doctype}", "records": []}
 
-        # validator = self.validation_rules[doctype]
+        validator = self.validation_rules[doctype]
         batch_results = []
 
         for record in records:
-            # result = self.validate_record(doctype, record, validator)
-            # batch_results.append(result)
-            result = {"status": "passed"}  # Placeholder since validate_record is commented
+            result = self.validate_record(doctype, record, validator)
+            batch_results.append(result)
 
             # Update summary
             self.validation_summary["total_validated"] += 1
@@ -96,7 +95,7 @@ class PreImportValidator:
             if not validator:
                 return {
                     "status": "failed",
-                    "errors": [{"type": "no_validator", "message": "No validator for {doctype}"}],
+                    "errors": [{"type": "no_validator", "message": f"No validator for {doctype}"}],
                 }
 
         # Run validation
@@ -116,10 +115,10 @@ class PreImportValidator:
             "Account": lambda r: r.get("account_name") or r.get("account_number"),
             "Customer": lambda r: r.get("customer_name") or r.get("name"),
             "Supplier": lambda r: r.get("supplier_name") or r.get("name"),
-            "Sales Invoice": lambda r: "{r.get('customer')} - {r.get('posting_date')}",
-            "Purchase Invoice": lambda r: "{r.get('supplier')} - {r.get('posting_date')}",
-            "Payment Entry": lambda r: "{r.get('party')} - {r.get('posting_date')} - {r.get('paid_amount')}",
-            "Journal Entry": lambda r: "{r.get('posting_date')} - {r.get('user_remark', '')[:50]}",
+            "Sales Invoice": lambda r: f"{r.get('customer')} - {r.get('posting_date')}",
+            "Purchase Invoice": lambda r: f"{r.get('supplier')} - {r.get('posting_date')}",
+            "Payment Entry": lambda r: f"{r.get('party')} - {r.get('posting_date')} - {r.get('paid_amount')}",
+            "Journal Entry": lambda r: f"{r.get('posting_date')} - {r.get('user_remark', '')[:50]}",
         }
 
         identifier_func = identifiers.get(doctype, lambda r: r.get("name", "Unknown"))
@@ -163,7 +162,7 @@ class PreImportValidator:
                     {
                         "type": "high_failure_rate",
                         "severity": "high",
-                        "message": "High validation failure rate: {failure_rate:.1f}%",
+                        "message": f"High validation failure rate: {failure_rate:.1f}%",
                         "action": "Review and fix data quality issues before import",
                     }
                 )
@@ -175,8 +174,8 @@ class PreImportValidator:
                     {
                         "type": "common_error",
                         "severity": "medium",
-                        "message": "Common error: {error_type} ({count} occurrences)",
-                        "action": "Focus on fixing {error_type} errors",
+                        "message": f"Common error: {error_type} ({count} occurrences)",
+                        "action": f"Focus on fixing {error_type} errors",
                     }
                 )
 
@@ -194,9 +193,8 @@ class BaseValidator:
         # Run all validation methods
         for method_name in dir(self):
             if method_name.startswith("validate_") and method_name != "validate":
-                # method = getattr(self, method_name)
-                # result = method(record)
-                result = None  # Placeholder since method call is commented
+                method = getattr(self, method_name)
+                result = method(record)
 
                 if result:
                     if result.get("severity") == "error":
@@ -220,7 +218,7 @@ class BaseValidator:
             return {
                 "type": "missing_required_field",
                 "field": field,
-                "message": "Missing required field: {field_label or field}",
+                "message": f"Missing required field: {field_label or field}",
                 "severity": "error",
             }
         return None
@@ -232,7 +230,7 @@ class BaseValidator:
             return {
                 "type": "field_too_long",
                 "field": field,
-                "message": "{field_label or field} exceeds {max_length} characters",
+                "message": f"{field_label or field} exceeds {max_length} characters",
                 "current_length": len(str(value)),
                 "max_length": max_length,
                 "severity": "error",
@@ -249,7 +247,7 @@ class BaseValidator:
                 return {
                     "type": "invalid_date",
                     "field": field,
-                    "message": "Invalid date format in {field_label or field}",
+                    "message": f"Invalid date format in {field_label or field}",
                     "value": value,
                     "severity": "error",
                 }
@@ -265,7 +263,7 @@ class BaseValidator:
                     return {
                         "type": "number_out_of_range",
                         "field": field,
-                        "message": "{field_label or field} is below minimum value {min_value}",
+                        "message": f"{field_label or field} is below minimum value {min_value}",
                         "value": num_value,
                         "severity": "error",
                     }
@@ -273,7 +271,7 @@ class BaseValidator:
                     return {
                         "type": "number_out_of_range",
                         "field": field,
-                        "message": "{field_label or field} exceeds maximum value {max_value}",
+                        "message": f"{field_label or field} exceeds maximum value {max_value}",
                         "value": num_value,
                         "severity": "error",
                     }
@@ -281,7 +279,7 @@ class BaseValidator:
                 return {
                     "type": "invalid_number",
                     "field": field,
-                    "message": "Invalid number format in {field_label or field}",
+                    "message": f"Invalid number format in {field_label or field}",
                     "value": value,
                     "severity": "error",
                 }
@@ -327,7 +325,7 @@ class AccountValidator(BaseValidator):
             return {
                 "type": "invalid_account_type",
                 "field": "account_type",
-                "message": "Invalid account type: {account_type}",
+                "message": f"Invalid account type: {account_type}",
                 "valid_types": valid_types,
                 "severity": "error",
             }
@@ -340,7 +338,7 @@ class AccountValidator(BaseValidator):
             return {
                 "type": "missing_parent_account",
                 "field": "parent_account",
-                "message": "Parent account does not exist: {parent}",
+                "message": f"Parent account does not exist: {parent}",
                 "severity": "warning",  # Warning because it might be created later
             }
         return None
@@ -355,7 +353,7 @@ class AccountValidator(BaseValidator):
                 return {
                     "type": "duplicate_account_number",
                     "field": "account_number",
-                    "message": "Account number already exists: {account_number}",
+                    "message": f"Account number already exists: {account_number}",
                     "severity": "error",
                 }
         return None
@@ -376,7 +374,7 @@ class CustomerValidator(BaseValidator):
             return {
                 "type": "invalid_email",
                 "field": "email_id",
-                "message": "Invalid email format: {email}",
+                "message": f"Invalid email format: {email}",
                 "severity": "warning",
             }
         return None
@@ -389,7 +387,7 @@ class CustomerValidator(BaseValidator):
                 return {
                     "type": "invalid_tax_id",
                     "field": "tax_id",
-                    "message": "Invalid tax ID format: {tax_id}",
+                    "message": f"Invalid tax ID format: {tax_id}",
                     "severity": "warning",
                 }
         return None
@@ -410,7 +408,7 @@ class SupplierValidator(BaseValidator):
             return {
                 "type": "invalid_email",
                 "field": "email_id",
-                "message": "Invalid email format: {email}",
+                "message": f"Invalid email format: {email}",
                 "severity": "warning",
             }
         return None
@@ -423,7 +421,7 @@ class SupplierValidator(BaseValidator):
                 return {
                     "type": "invalid_iban",
                     "field": "iban",
-                    "message": "Invalid IBAN format: {iban}",
+                    "message": f"Invalid IBAN format: {iban}",
                     "severity": "warning",
                 }
         return None
@@ -436,7 +434,7 @@ class SalesInvoiceValidator(BaseValidator):
         return self.check_required_field(record, "customer", "Customer")
 
     def validate_posting_date(self, record):
-        # result = self.check_required_field(record, "posting_date", "Posting Date")
+        result = self.check_required_field(record, "posting_date", "Posting Date")
         if result:
             return result
         return self.check_valid_date(record, "posting_date", "Posting Date")
@@ -456,16 +454,16 @@ class SalesInvoiceValidator(BaseValidator):
             if not item.get("qty") or flt(item.get("qty")) <= 0:
                 return {
                     "type": "invalid_item_qty",
-                    "field": "items[{idx}].qty",
-                    "message": "Item {idx + 1} has invalid quantity",
+                    "field": f"items[{idx}].qty",
+                    "message": f"Item {idx + 1} has invalid quantity",
                     "severity": "error",
                 }
 
             if not item.get("rate") or flt(item.get("rate")) < 0:
                 return {
                     "type": "invalid_item_rate",
-                    "field": "items[{idx}].rate",
-                    "message": "Item {idx + 1} has invalid rate",
+                    "field": f"items[{idx}].rate",
+                    "message": f"Item {idx + 1} has invalid rate",
                     "severity": "error",
                 }
 
@@ -489,7 +487,7 @@ class SalesInvoiceValidator(BaseValidator):
             return {
                 "type": "missing_customer",
                 "field": "customer",
-                "message": "Customer does not exist: {customer}",
+                "message": f"Customer does not exist: {customer}",
                 "severity": "error",
             }
         return None
@@ -502,7 +500,7 @@ class PurchaseInvoiceValidator(BaseValidator):
         return self.check_required_field(record, "supplier", "Supplier")
 
     def validate_posting_date(self, record):
-        # result = self.check_required_field(record, "posting_date", "Posting Date")
+        result = self.check_required_field(record, "posting_date", "Posting Date")
         if result:
             return result
         return self.check_valid_date(record, "posting_date", "Posting Date")
@@ -524,7 +522,7 @@ class PurchaseInvoiceValidator(BaseValidator):
             return {
                 "type": "missing_supplier",
                 "field": "supplier",
-                "message": "Supplier does not exist: {supplier}",
+                "message": f"Supplier does not exist: {supplier}",
                 "severity": "error",
             }
         return None
@@ -542,7 +540,7 @@ class PaymentEntryValidator(BaseValidator):
             return {
                 "type": "invalid_party_type",
                 "field": "party_type",
-                "message": "Invalid party type: {party_type}",
+                "message": f"Invalid party type: {party_type}",
                 "severity": "error",
             }
         return None
@@ -553,7 +551,7 @@ class PaymentEntryValidator(BaseValidator):
             return {
                 "type": "invalid_payment_type",
                 "field": "payment_type",
-                "message": "Invalid payment type: {payment_type}",
+                "message": f"Invalid payment type: {payment_type}",
                 "severity": "error",
             }
         return None
@@ -597,7 +595,7 @@ class JournalEntryValidator(BaseValidator):
     """Validator for Journal Entry records"""
 
     def validate_posting_date(self, record):
-        # result = self.check_required_field(record, "posting_date", "Posting Date")
+        result = self.check_required_field(record, "posting_date", "Posting Date")
         if result:
             return result
         return self.check_valid_date(record, "posting_date", "Posting Date")
@@ -619,8 +617,8 @@ class JournalEntryValidator(BaseValidator):
             if not account.get("account"):
                 return {
                     "type": "missing_account",
-                    "field": "accounts[{idx}].account",
-                    "message": "Account entry {idx + 1} missing account",
+                    "field": f"accounts[{idx}].account",
+                    "message": f"Account entry {idx + 1} missing account",
                     "severity": "error",
                 }
 
@@ -630,16 +628,16 @@ class JournalEntryValidator(BaseValidator):
             if debit < 0 or credit < 0:
                 return {
                     "type": "negative_amount",
-                    "field": "accounts[{idx}]",
-                    "message": "Account entry {idx + 1} has negative amount",
+                    "field": f"accounts[{idx}]",
+                    "message": f"Account entry {idx + 1} has negative amount",
                     "severity": "error",
                 }
 
             if debit > 0 and credit > 0:
                 return {
                     "type": "both_debit_credit",
-                    "field": "accounts[{idx}]",
-                    "message": "Account entry {idx + 1} has both debit and credit",
+                    "field": f"accounts[{idx}]",
+                    "message": f"Account entry {idx + 1} has both debit and credit",
                     "severity": "error",
                 }
 
@@ -651,7 +649,7 @@ class JournalEntryValidator(BaseValidator):
             return {
                 "type": "unbalanced_entry",
                 "field": "accounts",
-                "message": "Journal entry is not balanced (Debit: {total_debit}, Credit: {total_credit})",
+                "message": f"Journal entry is not balanced (Debit: {total_debit}, Credit: {total_credit})",
                 "severity": "error",
             }
 

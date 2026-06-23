@@ -41,7 +41,7 @@ class DryRunSimulator:
     def simulate_record_creation(self, doctype, data):
         """Simulate creating a record"""
         # Generate simulated name
-        simulated_name = "SIM-{doctype}-{len(self.simulated_records.get(doctype, []))}"
+        simulated_name = f"SIM-{doctype}-{len(self.simulated_records.get(doctype, []))}"
 
         # Validate without saving
         validation_result = self._validate_record(doctype, data)
@@ -178,7 +178,7 @@ class DryRunSimulator:
         # Check customer exists
         if not self._record_exists_or_simulated("Customer", doc.customer):
             result["valid"] = False
-            result["errors"].append("Customer {doc.customer} does not exist")
+            result["errors"].append(f"Customer {doc.customer} does not exist")
 
         # Check items
         if not doc.items:
@@ -189,7 +189,7 @@ class DryRunSimulator:
         for item in doc.items:
             if hasattr(item, "income_account") and item.income_account:
                 if not self._record_exists_or_simulated("Account", item.income_account):
-                    result["warnings"].append("Income account {item.income_account} may not exist")
+                    result["warnings"].append(f"Income account {item.income_account} may not exist")
 
         # Check total
         if doc.grand_total <= 0:  # ast-skip: doc is Sales Invoice
@@ -206,7 +206,7 @@ class DryRunSimulator:
             "Supplier", doc.supplier
         ):  # ast-skip: doc is Purchase Invoice
             result["valid"] = False
-            result["errors"].append("Supplier {doc.supplier} does not exist")
+            result["errors"].append(f"Supplier {doc.supplier} does not exist")
 
         # Check items
         if not doc.items:
@@ -223,19 +223,19 @@ class DryRunSimulator:
         if doc.party_type == "Customer":
             if not self._record_exists_or_simulated("Customer", doc.party):
                 result["valid"] = False
-                result["errors"].append("Customer {doc.party} does not exist")
+                result["errors"].append(f"Customer {doc.party} does not exist")
         elif doc.party_type == "Supplier":
             if not self._record_exists_or_simulated("Supplier", doc.party):
                 result["valid"] = False
-                result["errors"].append("Supplier {doc.party} does not exist")
+                result["errors"].append(f"Supplier {doc.party} does not exist")
 
         # Check accounts
         if doc.payment_type == "Receive":
             if doc.paid_to and not self._record_exists_or_simulated("Account", doc.paid_to):
-                result["warnings"].append("Account {doc.paid_to} may not exist")
+                result["warnings"].append(f"Account {doc.paid_to} may not exist")
         else:
             if doc.paid_from and not self._record_exists_or_simulated("Account", doc.paid_from):
-                result["warnings"].append("Account {doc.paid_from} may not exist")
+                result["warnings"].append(f"Account {doc.paid_from} may not exist")
 
         return result
 
@@ -246,7 +246,7 @@ class DryRunSimulator:
         # Check parent account
         if doc.parent_account:
             if not self._record_exists_or_simulated("Account", doc.parent_account):
-                result["warnings"].append("Parent account {doc.parent_account} may not exist")
+                result["warnings"].append(f"Parent account {doc.parent_account} may not exist")
 
         # Check account number uniqueness
         if doc.account_number:
@@ -255,7 +255,7 @@ class DryRunSimulator:
             )
             if existing:
                 result["valid"] = False
-                result["errors"].append("Account number {doc.account_number} already exists")
+                result["errors"].append(f"Account number {doc.account_number} already exists")
 
         return result
 
@@ -424,13 +424,16 @@ class DryRunSimulator:
                     {
                         "type": "high_failure_rate",
                         "severity": "high",
-                        "message": "High failure rate detected: {failure_rate:.1f}% of records would fail",
+                        "message": f"High failure rate detected: {failure_rate:.1f}% of records would fail",
                         "action": "Review validation errors before proceeding",
                     }
                 )
 
-        # Check for missing master data
-        if self.statistics["customers"]["would_fail"] > 0:
+        # Check for missing master data.
+        # NOTE: the customers/suppliers stat buckets only carry would_create/
+        # would_update/would_skip keys (see __init__), so use .get() - a direct
+        # ["would_fail"] lookup raised KeyError and broke the whole report.
+        if self.statistics["customers"].get("would_fail", 0) > 0:
             recommendations.append(
                 {
                     "type": "missing_customers",
@@ -440,7 +443,7 @@ class DryRunSimulator:
                 }
             )
 
-        if self.statistics["suppliers"]["would_fail"] > 0:
+        if self.statistics["suppliers"].get("would_fail", 0) > 0:
             recommendations.append(
                 {
                     "type": "missing_suppliers",
@@ -457,7 +460,7 @@ class DryRunSimulator:
                 {
                     "type": "unbalanced_entries",
                     "severity": "high",
-                    "message": "GL entries would be unbalanced by {balance}",
+                    "message": f"GL entries would be unbalanced by {balance}",
                     "action": "Review journal entries for correctness",
                 }
             )
@@ -482,7 +485,7 @@ def run_migration_dry_run(migration_name: str, sample_size=None):
     """Run a dry-run simulation of the migration"""
     from .eboekhouden_soap_migration import fetch_eboekhouden_data
 
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     simulator = DryRunSimulator()
 
     # Fetch data (limited sample for dry-run)
@@ -512,7 +515,7 @@ def run_migration_dry_run(migration_name: str, sample_size=None):
         "private",
         "files",
         "migration_dry_runs",
-        "dry_run_{migration_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        f"dry_run_{migration_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
     )
 
     import os
