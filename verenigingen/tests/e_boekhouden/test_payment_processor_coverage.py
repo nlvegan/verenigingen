@@ -293,6 +293,11 @@ class TestPaymentProcessorGatewayConfigured(EnhancedTestCase):
         pi = frappe.new_doc("Purchase Invoice")
         pi.supplier = supplier_name
         pi.company = self.company
+        # Pin the document currency to the EUR test company's currency. Without
+        # this the PI inherits the ambient system default (INR on CI test sites),
+        # which mismatches the EUR party account and fails validation -- an
+        # order-dependent failure that doesn't surface on a EUR-default site.
+        pi.currency = "EUR"
         pi.posting_date = "2025-01-15"
         pi.disable_rounded_total = 1
         pi.append("items", {"item_code": item_code, "qty": 1, "rate": rate})
