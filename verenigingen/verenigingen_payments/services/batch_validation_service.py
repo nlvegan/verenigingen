@@ -79,8 +79,14 @@ class BatchValidationService:
             return result
 
         # Validate invoices
+        # NOTE: extend()-ing the error lists directly bypasses add_error(), which is
+        # what flips result.is_valid. We must invalidate the aggregate result here too,
+        # otherwise validate_batch_creation reports is_valid=True despite collected
+        # errors and the orchestration gate (business_logic_orchestration_service:115)
+        # lets a batch with bad invoices/dates/limits through to creation.
         invoice_validation = self._validate_invoices(invoices)
         if not invoice_validation.is_valid:
+            result.is_valid = False
             result.errors.extend(invoice_validation.errors)
             result.warnings.extend(invoice_validation.warnings)
 
@@ -88,12 +94,14 @@ class BatchValidationService:
         if collection_date:
             date_validation = self._validate_collection_date(collection_date)
             if not date_validation.is_valid:
+                result.is_valid = False
                 result.errors.extend(date_validation.errors)
                 result.warnings.extend(date_validation.warnings)
 
         # Validate batch limits
         limits_validation = self._validate_batch_limits(invoices)
         if not limits_validation.is_valid:
+            result.is_valid = False
             result.errors.extend(limits_validation.errors)
             result.warnings.extend(limits_validation.warnings)
 
