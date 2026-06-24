@@ -37,8 +37,8 @@ MANAGED_TEMPLATES = {
     "expense_approval_request": "💰 Expense Approval Required - {{ doc.name }}",
     "expense_approved": "✅ Expense Approved - {{ doc.name }}",
     "expense_rejected": "❌ Expense Rejected - {{ doc.name }}",
-    "donation_confirmation": "Thank you for your donation - {{ doc.name }}",
-    "donation_payment_confirmation": "Payment Received - Donation {{ doc.name }}",
+    "donation_confirmation": "Thank you for your donation - {{ donation_id }}",
+    "donation_payment_confirmation": "Payment Received - Donation {{ donation_id }}",
     "anbi_tax_receipt": "Tax Deduction Receipt - {{ receipt_number }}",
     "termination_overdue_notification": "Overdue Termination Requests - {{ count }} items",
     "member_contact_request_received": "Contact Request Received - {{ doc.name }}",
@@ -107,11 +107,59 @@ class TestEmailTemplateManager(VereningingenTestCase):
 
         donation = frappe.get_doc("Email Template", "donation_confirmation")
         self.assertIn("{{ donor_name }}", donation.response)
-        self.assertIn("{{ doc.amount }}", donation.response)
+        # The donation send context (send_donation_confirmation_email) provides a
+        # FLAT key, not a `doc`, so the template must use {{ donation_amount }}.
+        self.assertIn("{{ donation_amount }}", donation.response)
 
         approval = frappe.get_doc("Email Template", "expense_approval_request")
         self.assertIn("{{ approver_name }}", approval.response)
         self.assertIn("{{ approval_url }}", approval.response)
+
+    def test_donation_templates_render_with_real_send_context(self):
+        """REGRESSION: the donation confirmation/payment templates are sent with a
+        FLAT-key context (donation_id/donation_amount/...) and NO `doc`, but the
+        manager previously defined them with {{ doc.name }}/{{ doc.amount }}.
+        Attribute access on an undefined `doc` raises UndefinedError at render, so
+        the email was silently dropped (caught + logged by the sender). Render each
+        managed template with the exact context its sender passes and assert it
+        resolves to the real values with no `doc.*` left."""
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+
+        donation_ctx = {
+            "donation_id": "DON-RENDER-0001",
+            "donation_amount": "25.00",
+            "donation_date": "02-01-2026",
+            "donation_status": "Paid",
+            "earmarking": "General Fund",
+            "donation_notes": "Keep it up",
+            "donor_name": "Jane Donor",
+            "organization_name": "Test Org",
+            "organization_email": "info@example.com",
+        }
+        payment_ctx = {
+            "donation_id": "DON-RENDER-0001",
+            "donation_amount": "25.00",
+            "payment_date": "03-01-2026",
+            "payment_method": "Bank Transfer",
+            "payment_reference": "REF-1",
+            "earmarking": "General Fund",
+            "donor_name": "Jane Donor",
+            "organization_name": "Test Org",
+            "organization_email": "info@example.com",
+        }
+        for name, ctx in (
+            ("donation_confirmation", donation_ctx),
+            ("donation_payment_confirmation", payment_ctx),
+        ):
+            tmpl = frappe.get_doc("Email Template", name)
+            self.assertNotIn("doc.", tmpl.response, f"{name} must not reference an undefined doc.*")
+            self.assertNotIn("doc.", tmpl.subject, f"{name} subject must not reference doc.*")
+            # Render must not raise (a {{ doc.name }} would raise UndefinedError) and
+            # must show the real flat-key values.
+            rendered = frappe.render_template(tmpl.response, ctx)
+            self.assertIn(ctx["donation_id"], rendered)
+            self.assertIn("Jane Donor", rendered)
 
     def test_create_templates_is_idempotent(self):
         """Calling twice must NOT duplicate docs. Second call updates the existing 8
@@ -236,9 +284,10 @@ class TestEmailTemplateManager(VereningingenTestCase):
                 "organization_name": "Custom Org",
                 "earmarking": "General",
                 "donation_date": "2026-06-16",
-                "doc": frappe._dict(
-                    {"name": "DON-999", "amount": 42, "donation_status": "Paid", "donation_notes": ""}
-                ),
+                "donation_id": "DON-999",
+                "donation_amount": "42.00",
+                "donation_status": "Paid",
+                "donation_notes": "",
             },
         )
         self.assertTrue(result["success"], f"render failed: {result.get('error')}")
@@ -296,13 +345,13 @@ class TestEmailTemplateManager(VereningingenTestCase):
 
         # Frappe's native renderer (get_formatted_email -> response_) now yields a
         # NON-empty body containing the substituted content.
-        native = doc.get_formatted_email({"donor_name": "X", "doc": frappe._dict({"name": "D1", "amount": 1})})
+        native = doc.get_formatted_email({"donor_name": "X", "donation_id": "D1", "donation_amount": "1"})
         self.assertTrue(
             native["message"].strip(),
             "Frappe-native render must produce a non-empty body now that response_html is set",
         )
         self.assertIn("X", native["message"], "native render must substitute donor_name")
-        self.assertIn("€1", native["message"], "native render must substitute doc.amount")
+        self.assertIn("€1", native["message"], "native render must substitute donation_amount")
 
         # The module's own helper renders the same real content (both paths agree).
         module_rendered = get_email_template(
@@ -312,7 +361,10 @@ class TestEmailTemplateManager(VereningingenTestCase):
                 "organization_name": "Org",
                 "earmarking": "G",
                 "donation_date": "2026-01-01",
-                "doc": frappe._dict({"name": "D1", "amount": 1, "donation_status": "Paid", "donation_notes": ""}),
+                "donation_id": "D1",
+                "donation_amount": "1",
+                "donation_status": "Paid",
+                "donation_notes": "",
             },
         )
         self.assertIn("X", module_rendered["message"])
@@ -427,9 +479,10 @@ class TestEmailTemplateManager(VereningingenTestCase):
                     "organization_name": "Send Org",
                     "earmarking": "General",
                     "donation_date": "2026-06-16",
-                    "doc": frappe._dict(
-                        {"name": "DON-SEND", "amount": 77, "donation_status": "Paid", "donation_notes": ""}
-                    ),
+                    "donation_id": "DON-SEND",
+                    "donation_amount": "77.00",
+                    "donation_status": "Paid",
+                    "donation_notes": "",
                 },
                 notification_key="member_status_change",
             )
@@ -441,7 +494,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
         kwargs = spy_send.call_args.kwargs
         self.assertEqual(kwargs["recipients"], [recipient])
         self.assertEqual(kwargs["notification_key"], "member_status_change")
-        # Subject was rendered: '{{ doc.name }}' -> 'DON-SEND'.
+        # Subject was rendered: '{{ donation_id }}' -> 'DON-SEND'.
         self.assertEqual(kwargs["subject"], "Thank you for your donation - DON-SEND")
         # Body carries the substituted context, not the raw Jinja markers.
         self.assertIn("Sent Donor", kwargs["message"])
