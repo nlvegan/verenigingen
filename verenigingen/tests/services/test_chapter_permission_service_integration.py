@@ -48,6 +48,18 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         cls._created_members = []
         cls._created_volunteers = []
 
+        # ISOLATION: derive UNIQUE test emails per class run. The permission
+        # branches keyed off these users (admin/board/regular) are extremely
+        # sensitive to leaked state — a sibling test in ANOTHER file that
+        # creates/modifies/deletes a User or Member/Volunteer with the SAME
+        # email, or grafts extra roles/board-memberships onto that user, would
+        # corrupt this class's expectations across CI shard execution order.
+        # Per-run unique emails make any cross-file collision impossible.
+        run_id = frappe.generate_hash(length=8)
+        cls.admin_email = f"admin-{run_id}@verenigingen.test"
+        cls.board_email = f"board-{run_id}@verenigingen.test"
+        cls.regular_email = f"regular-{run_id}@verenigingen.test"
+
         # Create a temporary instance to use factory methods
         cls._test_instance = cls()
         cls._test_instance.setUp()  # Initialize factory
@@ -66,7 +78,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         cls.member_admin = cls._test_instance.create_test_member(
             first_name="Admin",
             last_name="User",
-            email="admin.test@verenigingen.test",
+            email=cls.admin_email,
             birth_date="1980-01-01"
         )
         cls._created_members.append(cls.member_admin.name)
@@ -74,7 +86,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         cls.member_board = cls._test_instance.create_test_member(
             first_name="Board",
             last_name="Member",
-            email="board.test@verenigingen.test",
+            email=cls.board_email,
             birth_date="1985-01-01"
         )
         cls._created_members.append(cls.member_board.name)
@@ -82,7 +94,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         cls.member_regular = cls._test_instance.create_test_member(
             first_name="Regular",
             last_name="Member",
-            email="regular.test@verenigingen.test",
+            email=cls.regular_email,
             birth_date="1990-01-01"
         )
         cls._created_members.append(cls.member_regular.name)
@@ -90,7 +102,7 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         # Create volunteer for board member (required for board positions)
         cls.volunteer_board = cls._test_instance.create_test_volunteer(
             cls.member_board.name,
-            email="board.test@verenigingen.test"
+            email=cls.board_email
         )
         cls._created_volunteers.append(cls.volunteer_board.name)
 
@@ -106,29 +118,29 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         )
 
         # Create users if they don't exist
-        cls._create_test_user_with_role_class("admin.test@verenigingen.test", "System Manager")
-        cls._create_test_user_with_role_class("board.test@verenigingen.test", "Verenigingen Chapter Board Member")
-        cls._create_test_user_with_role_class("regular.test@verenigingen.test", "Verenigingen Member")
+        cls._create_test_user_with_role_class(cls.admin_email, "System Manager")
+        cls._create_test_user_with_role_class(cls.board_email, "Verenigingen Chapter Board Member")
+        cls._create_test_user_with_role_class(cls.regular_email, "Verenigingen Member")
 
         # Link members to users (required for permission service to find member from user)
         # Reload to get latest version after user creation hooks
         cls.member_admin.reload()
-        cls.member_admin.user = "admin.test@verenigingen.test"
+        cls.member_admin.user = cls.admin_email
         cls.member_admin.save()
 
         cls.member_board.reload()
-        cls.member_board.user = "board.test@verenigingen.test"
+        cls.member_board.user = cls.board_email
         cls.member_board.save()
 
         cls.member_regular.reload()
-        cls.member_regular.user = "regular.test@verenigingen.test"
+        cls.member_regular.user = cls.regular_email
         cls.member_regular.save()
 
         # FINAL CLEANUP: Reset roles after all hooks have run
         # Hooks like assign_chapter_board_role may have added extra roles
-        cls._reset_user_roles("admin.test@verenigingen.test", "System Manager")
-        cls._reset_user_roles("board.test@verenigingen.test", "Verenigingen Chapter Board Member")
-        cls._reset_user_roles("regular.test@verenigingen.test", "Verenigingen Member")
+        cls._reset_user_roles(cls.admin_email, "System Manager")
+        cls._reset_user_roles(cls.board_email, "Verenigingen Chapter Board Member")
+        cls._reset_user_roles(cls.regular_email, "Verenigingen Member")
 
         # CRITICAL: Commit the data so it persists across test transactions
         frappe.db.commit()
@@ -193,10 +205,36 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
         super().setUp()
 
         # Reset all test users to their intended single role before each test
-        self._reset_user_roles("admin.test@verenigingen.test", "System Manager")
-        self._reset_user_roles("board.test@verenigingen.test", "Verenigingen Chapter Board Member")
-        self._reset_user_roles("regular.test@verenigingen.test", "Verenigingen Member")
+        self._reset_user_roles(self.admin_email, "System Manager")
+        self._reset_user_roles(self.board_email, "Verenigingen Chapter Board Member")
+        self._reset_user_roles(self.regular_email, "Verenigingen Member")
+
+        # Defensively re-assert the Member.user links. Even with per-run unique
+        # emails (which eliminate cross-file collisions), a sibling test in the
+        # SAME class could in principle mutate these links; this guarantees the
+        # permission service can always resolve member-from-user before each test.
+        self._reassert_member_user_links()
+
         frappe.db.commit()
+
+    @classmethod
+    def _reassert_member_user_links(cls):
+        """Re-assert each test member's user link via direct SQL.
+
+        Uses direct db.set_value (no doc hooks) so it cannot re-trigger
+        role-granting hooks that the role reset above just cleaned up.
+        """
+        # setUpClass invokes _test_instance.setUp() to bootstrap the factory
+        # BEFORE the persistent members are created; skip until they exist.
+        if not getattr(cls, "member_regular", None):
+            return
+        for member_name, email in (
+            (cls.member_admin.name, cls.admin_email),
+            (cls.member_board.name, cls.board_email),
+            (cls.member_regular.name, cls.regular_email),
+        ):
+            if frappe.db.get_value("Member", member_name, "user") != email:
+                frappe.db.set_value("Member", member_name, "user", email, update_modified=False)
 
     @staticmethod
     def _get_db_roles(user):
@@ -325,18 +363,18 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_admin_gets_unrestricted_query_conditions(self):
         """Test that System Manager gets unrestricted access (empty string)"""
-        frappe.set_user("admin.test@verenigingen.test")
+        frappe.set_user(self.admin_email)
 
-        result = get_chapter_permission_service().get_permission_query_conditions("admin.test@verenigingen.test")
+        result = get_chapter_permission_service().get_permission_query_conditions(self.admin_email)
 
         self.assertEqual(result, "", "Admin should have unrestricted access")
 
     def test_admin_has_document_permission(self):
         """Test that admins have permission for all chapters"""
-        frappe.set_user("admin.test@verenigingen.test")
+        frappe.set_user(self.admin_email)
 
         result = get_chapter_permission_service().has_chapter_permission(
-            self.chapter_amsterdam, "read", "admin.test@verenigingen.test"
+            self.chapter_amsterdam, "read", self.admin_email
         )
 
         self.assertTrue(result, "Admin should have read access to all chapters")
@@ -347,18 +385,18 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_board_member_has_access_to_their_chapter(self):
         """Test that board members can access their own chapters"""
-        frappe.set_user("board.test@verenigingen.test")
+        frappe.set_user(self.board_email)
 
         result = get_chapter_permission_service().has_chapter_permission(
-            self.chapter_amsterdam, "read", "board.test@verenigingen.test"
+            self.chapter_amsterdam, "read", self.board_email
         )
 
         self.assertTrue(result, "Board member should have access to their chapter")
 
     def test_board_member_denied_access_to_other_chapter(self):
         """Test that board members are denied access to chapters they don't belong to"""
-        frappe.set_user("board.test@verenigingen.test")
-        user = "board.test@verenigingen.test"
+        frappe.set_user(self.board_email)
+        user = self.board_email
 
         # Clear cached roles to ensure fresh lookup from database
         frappe.cache.hdel("roles", user)
@@ -371,8 +409,8 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_board_member_query_includes_their_chapters(self):
         """Test that board members see their chapters + published chapters"""
-        frappe.set_user("board.test@verenigingen.test")
-        user = "board.test@verenigingen.test"
+        frappe.set_user(self.board_email)
+        user = self.board_email
 
         # Patch at the module level where frappe is imported
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
@@ -388,18 +426,18 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_regular_member_has_read_access(self):
         """Test that regular members have read-only access to published chapters"""
-        frappe.set_user("regular.test@verenigingen.test")
+        frappe.set_user(self.regular_email)
 
         result = get_chapter_permission_service().has_chapter_permission(
-            self.chapter_amsterdam, "read", "regular.test@verenigingen.test"
+            self.chapter_amsterdam, "read", self.regular_email
         )
 
         self.assertTrue(result, "Regular member should have read access to published chapters")
 
     def test_regular_member_denied_write_access(self):
         """Test that regular members are denied write access"""
-        frappe.set_user("regular.test@verenigingen.test")
-        user = "regular.test@verenigingen.test"
+        frappe.set_user(self.regular_email)
+        user = self.regular_email
 
         # Clear cached roles to ensure fresh lookup from database
         frappe.cache.hdel("roles", user)
@@ -412,8 +450,8 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_regular_member_query_shows_only_published(self):
         """Test that regular members only see published chapters in list view"""
-        frappe.set_user("regular.test@verenigingen.test")
-        user = "regular.test@verenigingen.test"
+        frappe.set_user(self.regular_email)
+        user = self.regular_email
 
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
@@ -427,48 +465,48 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_admin_can_view_any_member_board_info(self):
         """Test that admins can view any member's board information"""
-        frappe.set_user("admin.test@verenigingen.test")
+        frappe.set_user(self.admin_email)
 
         result = get_chapter_permission_service().can_user_view_member_board_info(
-            self.member_board.name, "admin.test@verenigingen.test"
+            self.member_board.name, self.admin_email
         )
 
         self.assertTrue(result, "Admin should be able to view any member's board info")
 
     def test_user_can_view_own_board_info(self):
         """Test that users can view their own board information"""
-        frappe.set_user("board.test@verenigingen.test")
+        frappe.set_user(self.board_email)
 
         result = get_chapter_permission_service().can_user_view_member_board_info(
-            self.member_board.name, "board.test@verenigingen.test"
+            self.member_board.name, self.board_email
         )
 
         self.assertTrue(result, "User should be able to view their own board info")
 
     def test_admin_can_view_any_chapter_board_history(self):
         """Test that admins can view any chapter's board history"""
-        frappe.set_user("admin.test@verenigingen.test")
+        frappe.set_user(self.admin_email)
 
         result = get_chapter_permission_service().can_user_view_chapter_board_history(
-            self.chapter_amsterdam.name, "admin.test@verenigingen.test"
+            self.chapter_amsterdam.name, self.admin_email
         )
 
         self.assertTrue(result, "Admin should be able to view any chapter's board history")
 
     def test_board_member_can_view_their_chapter_history(self):
         """Test that board members can view their chapter's board history"""
-        frappe.set_user("board.test@verenigingen.test")
+        frappe.set_user(self.board_email)
 
         result = get_chapter_permission_service().can_user_view_chapter_board_history(
-            self.chapter_amsterdam.name, "board.test@verenigingen.test"
+            self.chapter_amsterdam.name, self.board_email
         )
 
         self.assertTrue(result, "Board member should be able to view their chapter's history")
 
     def test_board_member_denied_other_chapter_history(self):
         """Test that board members cannot view other chapters' board history"""
-        frappe.set_user("board.test@verenigingen.test")
-        user = "board.test@verenigingen.test"
+        frappe.set_user(self.board_email)
+        user = self.board_email
 
         # Clear cached roles to ensure fresh lookup from database
         frappe.cache.hdel("roles", user)
@@ -485,8 +523,10 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_user_without_member_record_denied_board_info_access(self):
         """Test that users without member records are denied board info access"""
-        # Create user without member record
-        test_email = "no.member@verenigingen.test"
+        # Create user without member record. Unique per run so a sibling file
+        # cannot leak a Member linked to this email (which would make the user
+        # resolvable to a member record and break the "no member record" premise).
+        test_email = f"no-member-{frappe.generate_hash(length=8)}@verenigingen.test"
         self._create_test_user_with_role(test_email, "Verenigingen Member")
         frappe.set_user(test_email)
 
@@ -498,8 +538,8 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_unpublished_chapter_not_visible_to_regular_members(self):
         """Test that unpublished chapters are not visible to regular members"""
-        frappe.set_user("regular.test@verenigingen.test")
-        user = "regular.test@verenigingen.test"
+        frappe.set_user(self.regular_email)
+        user = self.regular_email
 
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
@@ -518,29 +558,29 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_get_user_board_chapters_returns_list(self):
         """Test _get_user_board_chapters returns list of chapter names"""
-        frappe.set_user("board.test@verenigingen.test")
+        frappe.set_user(self.board_email)
 
-        chapters = get_chapter_permission_service()._get_user_board_chapters("board.test@verenigingen.test")
+        chapters = get_chapter_permission_service()._get_user_board_chapters(self.board_email)
 
         self.assertIn(self.chapter_amsterdam.name, chapters, "Should include Amsterdam chapter")
         self.assertNotIn(self.chapter_rotterdam.name, chapters, "Should not include Rotterdam chapter")
 
     def test_is_user_board_member_of_chapter_detects_membership(self):
         """Test _is_user_board_member_of_chapter detects board membership"""
-        frappe.set_user("board.test@verenigingen.test")
+        frappe.set_user(self.board_email)
 
         result = get_chapter_permission_service()._is_user_board_member_of_chapter(
-            "board.test@verenigingen.test", self.chapter_amsterdam.name
+            self.board_email, self.chapter_amsterdam.name
         )
 
         self.assertTrue(result, "Should detect board membership")
 
     def test_is_user_board_member_of_chapter_returns_false_for_non_member(self):
         """Test _is_user_board_member_of_chapter returns False for non-members"""
-        frappe.set_user("regular.test@verenigingen.test")
+        frappe.set_user(self.regular_email)
 
         result = get_chapter_permission_service()._is_user_board_member_of_chapter(
-            "regular.test@verenigingen.test", self.chapter_amsterdam.name
+            self.regular_email, self.chapter_amsterdam.name
         )
 
         self.assertFalse(result, "Should not detect board membership for non-member")
@@ -551,8 +591,8 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_full_board_member_permission_flow(self):
         """Integration test: Board member accessing their own chapter"""
-        frappe.set_user("board.test@verenigingen.test")
-        user = "board.test@verenigingen.test"
+        frappe.set_user(self.board_email)
+        user = self.board_email
 
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):
@@ -568,8 +608,8 @@ class TestChapterPermissionServiceIntegration(EnhancedTestCase):
 
     def test_full_regular_member_permission_flow(self):
         """Integration test: Regular member with read-only access"""
-        frappe.set_user("regular.test@verenigingen.test")
-        user = "regular.test@verenigingen.test"
+        frappe.set_user(self.regular_email)
+        user = self.regular_email
 
         # Patch frappe.get_roles to return actual DB roles
         with patch.object(frappe, 'get_roles', side_effect=lambda u: self._get_db_roles(u)):

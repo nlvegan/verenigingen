@@ -107,7 +107,19 @@ class TestVolunteerSkillsPage(EnhancedTestCase):
     def test_board_member_sees_directory(self):
         with self.as_user(self.user_email):
             ctx = {}
-            skills.get_context(ctx)
+            # Own the "no search params" precondition: get_context() reads
+            # skill/category/min_level off frappe.form_dict and runs a filtered
+            # search when any is present. A sibling test in another module can
+            # leave those keys in frappe.local.form_dict (the setUp proxy re-bind
+            # does NOT clear stale keys), which would make search_results non-None
+            # and break the assertIsNone below only inside a CI shard. Pin an
+            # empty form_dict so this test does not depend on leaked request state.
+            original = frappe.form_dict
+            frappe.form_dict = frappe._dict({})
+            try:
+                skills.get_context(ctx)
+            finally:
+                frappe.form_dict = original
         self.assertFalse(ctx["no_access"])
         self.assertTrue(any(c.get("chapter_name") == self.chapter.name for c in ctx["user_chapters"]))
         # Our seeded board member's own member id is in scope

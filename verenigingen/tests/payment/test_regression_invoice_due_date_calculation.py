@@ -56,6 +56,38 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         schedule.save()
         return schedule
 
+    def _ensure_party_account_currency_matches_company(self):
+        """Repair leaked cross-test state: the shared company's default receivable
+        (party) account currency must equal the company's default currency.
+
+        generate_invoice() (invoice_generator.py) pins the Sales Invoice currency to
+        the company's default_currency, but does NOT set debit_to -- so ERPNext
+        resolves the receivable account via Company.default_receivable_account (the
+        test's customer has no Party Account override and no prior GL entries). If a
+        SIBLING test left that shared account in a non-matching currency, Sales
+        Invoice validation throws "Party Account currency ... and document currency
+        ... should be same", failing this test only on certain CI shard orderings
+        (it passes in isolation). This is leaked state, not a regression, so reset
+        the shared state this test reads back to a consistent value before running.
+        """
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+        receivable = frappe.db.get_value("Company", company, "default_receivable_account")
+        if not (company and company_currency and receivable):
+            return
+        account_currency = frappe.db.get_value("Account", receivable, "account_currency")
+        if account_currency and account_currency != company_currency:
+            # Repair with a direct DB write: the Account controller refuses to change
+            # account_currency once GL entries exist ("Currency can not be changed
+            # after making entries..."), but we only need the party-account currency
+            # to match the company currency for invoice validation, so bypass the
+            # controller and invalidate the cached Account value.
+            frappe.db.set_value(
+                "Account", receivable, "account_currency", company_currency, update_modified=False
+            )
+            frappe.clear_cache(doctype="Account")
+            frappe.db.commit()
+
     def _seed_past_submitted_coverage(self, schedule, coverage_end):
         """Make the schedule's member look like a "Lid" last billed long ago.
 
@@ -121,6 +153,13 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         schedule = self._active_daily_schedule(member, next_invoice_date=today())
         schedule.billing_frequency = "Monthly"
         schedule.save()
+
+        # Defensively reset the leaked cross-test state this scenario depends on:
+        # the shared company's receivable-account currency must match the company
+        # currency, or both the seeded submitted invoice below AND the
+        # generate_invoice() under test fail with a party-account currency mismatch
+        # on certain CI shard orderings (passes in isolation).
+        self._ensure_party_account_currency_matches_company()
 
         # Seed a submitted invoice whose coverage ended ~5 months ago, so the next
         # sequential coverage_start is ~5 months in the past.
