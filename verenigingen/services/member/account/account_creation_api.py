@@ -58,6 +58,20 @@ def process_account_creation_request(request_name: str, at_time=None) -> Operati
             {"request_name": request_name}, message="Account creation completed successfully"
         )
 
+    except frappe.DoesNotExistError as e:
+        # The request (or its source record) no longer exists — a benign race:
+        # the request was cancelled/deleted, or (in tests) rolled back before this
+        # enqueued job ran. There is nothing to process, so this is NOT an Error
+        # Log-worthy failure; logging it at ERROR previously leaked across test
+        # boundaries (the async-after-rollback "ACR-... not found" artifact). Log
+        # at debug and return a clean failure result without polluting the Error Log.
+        frappe.logger().debug(f"Account creation job skipped for {request_name}: {str(e)}")
+        return OperationResult.fail(
+            _("Account creation request no longer exists."),
+            errors=[str(e)],
+            context={"operation": "process_account_creation", "params": {"request_name": request_name}},
+        )
+
     except Exception as e:
         frappe.logger().error(f"Account creation job failed for {request_name}: {str(e)}")
         frappe.log_error(
