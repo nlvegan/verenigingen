@@ -31,14 +31,9 @@ class RefundHandler:
     webhook_wrapper_service_unified._process_pending_refunds). It was extracted
     from the disabled payment_webhook.py.
 
-    BEFORE WIRING THIS IN (FIXME): the "Refund Debug - ..." calls below
-    (process_refunds ~L73 "Start Processing" / ~L85 "No Refunds",
-    _fetch_refunds ~L127 "Fetch Success", _log_refund_details one row per refund)
-    are UNCONDITIONAL happy-path writes to the Error Log doctype. Once this runs in
-    production every refund check would emit 2-4 bogus "Error Log" rows. Downgrade
-    those debug breadcrumbs to frappe.logger().debug(...) (the same info is already
-    logged via frappe.logger().info right beside them); keep the genuine error
-    sinks (the except branches) as frappe.log_error.
+    Logging: happy-path breadcrumbs use frappe.logger().info/debug, so wiring this
+    handler in does NOT pollute the Error Log doctype. Only genuine failures (the
+    except branches) write to Error Log via frappe.log_error.
     """
 
     def __init__(self, mollie_client: Optional[Any] = None):
@@ -81,12 +76,7 @@ class RefundHandler:
         """
         try:
             frappe.logger().info(f"Checking for refunds on payment {payment_id}")
-
-            # Debug log
-            frappe.log_error(
-                f"Starting refund processing for payment {payment_id}",
-                "Refund Debug - Start Processing",
-            )
+            frappe.logger().debug(f"Starting refund processing for payment {payment_id}")
 
             # Fetch all refunds for this payment
             refunds = self._fetch_refunds(payment_id)
@@ -95,10 +85,6 @@ class RefundHandler:
 
             if not refunds:
                 frappe.logger().info(f"No refunds found for payment {payment_id}")
-                frappe.log_error(
-                    f"No refunds found for payment {payment_id}",
-                    "Refund Debug - No Refunds",
-                )
                 return {"refunds_processed": []}
 
             frappe.logger().info(f"Found {len(refunds)} refunds for payment {payment_id}")
@@ -137,25 +123,23 @@ class RefundHandler:
         try:
             mollie = self._get_mollie_client()
             refunds = mollie.payment_refunds.with_parent_id(payment_id).list()
-            frappe.log_error(
-                f"Successfully fetched refunds for {payment_id}: found {len(refunds)} refunds",
-                "Refund Debug - Fetch Success",
+            frappe.logger().debug(
+                f"Successfully fetched refunds for {payment_id}: found {len(refunds)} refunds"
             )
             return list(refunds)
         except Exception as e:
             frappe.logger().warning(f"Could not fetch refunds for payment {payment_id}: {e}")
             frappe.log_error(
                 f"Could not fetch refunds for payment {payment_id}: {e}",
-                "Refund Debug - Fetch Error",
+                "Mollie Refund Fetch Failed",
             )
             return None
 
     def _log_refund_details(self, refunds: List[Any]) -> None:
         """Log details of each refund for debugging."""
         for i, refund in enumerate(refunds):
-            frappe.log_error(
-                f"Refund {i + 1}: ID={refund.id}, status={refund.status}, amount={extract_amount_value(refund.amount)}",
-                "Refund Debug - Refund Details",
+            frappe.logger().debug(
+                f"Refund {i + 1}: ID={refund.id}, status={refund.status}, amount={extract_amount_value(refund.amount)}"
             )
 
     def _process_refund_list(self, payment_id: str, refunds: List[Any]) -> List[Dict[str, Any]]:

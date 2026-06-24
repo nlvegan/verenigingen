@@ -192,6 +192,46 @@ class TestCreateRefundEntryNoDonation(EnhancedTestCase):
         self.assertIn(payment_id, result["error"])
 
 
+class TestRefundLoggingDoesNotPolluteErrorLog(EnhancedTestCase):
+    """The happy-path "Refund Debug" breadcrumbs were downgraded from
+    frappe.log_error (which writes Error Log rows) to frappe.logger().debug, so
+    running this handler in production no longer emits bogus Error Log rows. Only
+    genuine failures (the except branches) still write to Error Log."""
+
+    def test_happy_path_writes_no_error_log(self):
+        # A successful fetch with a non-'refunded' refund exercises the Start
+        # Processing, Fetch Success, and Refund Details breadcrumbs (all former
+        # Error Log writers) without hitting any except branch.
+        handler = RefundHandler(mollie_client=_FakeSDK(refunds=[_refund("re_p", status="pending")]))
+        with self.assertNoErrorLog():
+            result = handler.process_refunds(f"tr_{frappe.generate_hash(length=8)}")
+        self.assertEqual(result["total_refunds"], 1)
+
+    def test_no_refunds_writes_no_error_log(self):
+        handler = RefundHandler(mollie_client=_FakeSDK(refunds=[]))
+        with self.assertNoErrorLog():
+            handler.process_refunds(f"tr_{frappe.generate_hash(length=8)}")
+
+    def test_fetch_failure_still_logs_error(self):
+        # The genuine error sink in the _fetch_refunds except branch must remain:
+        # a Mollie API failure should still produce an Error Log row. (frappe.log_error
+        # here stores the title in `error` and the message in `method`.)
+        self.expectErrorLog("Mollie Refund Fetch Failed")  # intentional sink; tolerate in tearDown
+        handler = RefundHandler(mollie_client=_FakeSDK(raise_on_list=True))
+        payment_id = f"tr_{frappe.generate_hash(length=8)}"
+        marker = frappe.utils.now_datetime()
+        self.assertIsNone(handler._fetch_refunds(payment_id))
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", marker], "error": "Mollie Refund Fetch Failed"},
+            fields=["method"],
+        )
+        self.assertTrue(
+            any(payment_id in (r.method or "") for r in rows),
+            "Genuine fetch failure should still write a 'Mollie Refund Fetch Failed' Error Log",
+        )
+
+
 class TestModuleWrapper(EnhancedTestCase):
     def test_process_payment_refunds_wrapper_runs(self):
         # The standalone wrapper builds its own RefundHandler (no injected
