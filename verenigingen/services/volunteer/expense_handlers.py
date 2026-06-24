@@ -142,7 +142,7 @@ def notify_expense_approvers(doc, method=None):
             # Final fallback: notify Verenigingen Administrator role
             admin_emails = frappe.get_all(
                 "Has Role",
-                filters={"role": "Vereinigingen Administrator", "parenttype": "User"},
+                filters={"role": "Verenigingen Administrator", "parenttype": "User"},
                 pluck="parent",
             )
             if admin_emails:
