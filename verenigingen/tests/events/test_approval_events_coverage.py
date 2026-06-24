@@ -351,12 +351,6 @@ class TestApprovalEventsCoverage(EnhancedTestCase):
         volunteer.db_set("status", "New", update_modified=False)
         member.reload()
 
-        # If the member owns a User, activate_volunteer_record enqueues an
-        # account-creation upgrade whose RQ job runs after the test transaction
-        # rolls back -> "request not found" Error Log. That's a test-harness
-        # artifact (no worker / rolled-back request), not a product failure; the
-        # SYNCHRONOUS effect we care about is the Volunteer status flip.
-        self.expectErrorLog("Account Creation Request Processing Error", "not found")
         result = asub.handle_volunteer_activation("e", {"member": member.name})
 
         self.assertTrue(result["success"])

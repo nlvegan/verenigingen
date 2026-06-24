@@ -112,16 +112,10 @@ class TestAccountCreationStatusReport(VereningingenTestCase):
         self.assertEqual(row["customer_linked"], 1)
 
     def test_member_with_volunteer_has_volunteer_flag(self):
-        # Also fold the benign artifact into the automatic tearDown check (audit mode).
-        self.expectErrorLog("Account Creation Request Processing Error")
         member = self._member()
         volunteer = self.create_test_volunteer(member=member.name)
         self.assertEqual(volunteer.member, member.name)
-        # Creating a Volunteer enqueues an Account Creation Request whose deferred
-        # job logs "request not found" once the test transaction rolls the request
-        # back (async-after-rollback test artifact, not a report defect). Ignore that
-        # one title; the report itself must still log nothing.
-        with self.assertNoErrorLog(ignore=["Account Creation Request Processing Error"]):
+        with self.assertNoErrorLog():
             _, data, _, _, _ = report.execute({})
         row = self._row_for(data, member.name)
         self.assertIsNotNone(row)
@@ -130,14 +124,11 @@ class TestAccountCreationStatusReport(VereningingenTestCase):
     # ------------------------------------------------------------- status filters
 
     def test_status_filter_missing_volunteer(self):
-        self.expectErrorLog("Account Creation Request Processing Error")
         no_vol = self._member()
         has_vol = self._member()
         self.create_test_volunteer(member=has_vol.name)
 
-        # See note above: the Volunteer's Account Creation Request job logs a
-        # benign "request not found" after rollback; ignore only that title.
-        with self.assertNoErrorLog(ignore=["Account Creation Request Processing Error"]):
+        with self.assertNoErrorLog():
             _, data, _, _, _ = report.execute({"status_filter": "Missing Volunteer"})
         ids = {r["member_name"] for r in data}
         self.assertIn(no_vol.name, ids)

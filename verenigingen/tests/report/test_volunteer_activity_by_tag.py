@@ -23,12 +23,6 @@ class TestVolunteerActivityByTagReport(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.suffix = frappe.generate_hash(length=6)
-        # Creating a Volunteer enqueues an Account Creation Request whose async
-        # processor runs after the test rolls back, logging a benign
-        # "Account creation request ... not found". That noise is unrelated to
-        # the report under test; mark it expected so the tearDown error-log guard
-        # (and VERENIGINGEN_FAIL_ON_ERROR_LOG=1 on CI) does not flag it.
-        self.expectErrorLog("Account Creation Request Processing Error")
 
     # ------------------------------------------------------------- helpers
 

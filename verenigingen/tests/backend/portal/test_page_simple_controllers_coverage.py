@@ -268,12 +268,7 @@ class TestWorkflowDemoPage(EnhancedTestCase):
 
         old_status = self.member.application_status
         new_status = "Under Review" if old_status != "Under Review" else "Approved"
-        # Saving the member can cascade status hooks that enqueue account creation;
-        # the queued job then races this test's rollback and logs a benign
-        # "Account creation request ... not found" (async-after-rollback artifact).
-        # That is a test-env timing artifact, not an error from this endpoint, so
-        # ignore it here while still failing on any real error this call logs.
-        with self.assertNoErrorLog(ignore=["Account Creation Request Processing Error"]):
+        with self.assertNoErrorLog():
             result = workflow_demo.execute_workflow_action(
                 self.member.name, action="Review", next_state=new_status
             )
