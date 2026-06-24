@@ -119,6 +119,13 @@ class TestPagePersonalDetailsBehavior(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # update_personal_details is a @self_service_api (HIGH security) endpoint
+        # gated to the DEVELOPMENT environment via frappe.conf.developer_mode; a
+        # sibling shard test can leave the (shared, non-transactional) flag off,
+        # making the endpoint raise a production-environment PermissionError.
+        # Force it on, restore in tearDown.
+        self._original_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
         self.email = f"pdcov-{frappe.generate_hash()[:8]}@example.com"
         self.member = self.create_test_member(
             first_name="Pers",
@@ -139,6 +146,13 @@ class TestPagePersonalDetailsBehavior(EnhancedTestCase):
         # A portal member editing themselves is already onboarded; align the
         # workflow state so the self-save is a no-op transition (see cluster test).
         self.member.db_set("application_status", "Active")
+
+    def tearDown(self):
+        if self._original_dev_mode is None:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = self._original_dev_mode
+        super().tearDown()
 
     def _ensure_user(self, email):
         if not frappe.db.exists("User", email):
