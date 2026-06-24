@@ -335,8 +335,13 @@ class DonationJournalEntryCreator:
             je.voucher_type = "Journal Entry"
             je.company = company
             je.posting_date = posting_date
-            je.cheque_no = reference_number  # Journal Entry uses cheque_no for reference
-            je.cheque_date = posting_date
+            # Only set the reference pair when there is a reference number. ERPNext's
+            # validate_cheque_info rejects submit ("Reference No is mandatory if you
+            # entered Reference Date") when cheque_date is set but cheque_no is empty,
+            # which secure_document_operation would silently swallow -> no JE created.
+            if reference_number:
+                je.cheque_no = reference_number  # Journal Entry uses cheque_no for reference
+                je.cheque_date = posting_date
             je.user_remark = user_remark
 
             # Debit entry - Mollie Clearing (we received money)

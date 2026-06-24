@@ -38,16 +38,9 @@ boundary or mocking business logic, which the test-quality-enforcer forbids):
 - ``parse_sepa_return_file`` / pain.002: documented stub, covered in
   test_sepa_batch_processor_logic.py.
 
-PROD BUG CHARACTERIZED (see test_get_mandate_sequence_types_bulk_returns_empty
-and test_validate_sequence_types_no_customer_field): ``validate_sepa_sequence_types``
-+ ``_get_mandate_sequence_types_bulk`` read ``invoice_item.customer`` and query
-``customer``/``valid_from``/``valid_until``/``sequence_type``/``last_used_date``
-on ``SEPA Mandate`` -- none of which exist on those DocTypes. The bulk lookup's
-broad ``except`` swallows the field error and returns ``{}``, so the service's
-sequence-type validation can never match a mandate. The Direct Debit Batch
+Sequence-type validation for batches is handled by the Direct Debit Batch
 *controller*'s own ``validate_sequence_types`` (which resolves the mandate by
-``mandate_reference``) is the working path; the service method is effectively
-dead. These tests pin the CURRENT behaviour so a future fix is detectable.
+``mandate_reference``), which is the working path.
 """
 
 import frappe
@@ -270,55 +263,6 @@ class TestBatchProcessingServiceValidation(_BatchPipelineBase):
         self.assertEqual(batch.status, "Failed")
 
 
-class TestBatchProcessingServiceSequenceTypes(_BatchPipelineBase):
-    """validate_sepa_sequence_types + _get_mandate_sequence_types_bulk.
-
-    These characterize the phantom-field behaviour documented in the module
-    docstring: the service reads fields that do not exist on the DocTypes, so the
-    bulk lookup returns {} and no mandate is ever matched.
-    """
-
-    def test_validate_sequence_types_empty_batch_is_trivially_valid(self):
-        batch = frappe.new_doc("Direct Debit Batch")
-        result = self.service.validate_sepa_sequence_types(batch)
-        self.assertTrue(result["is_valid"])
-        self.assertEqual(result["corrections"], 0)
-        self.assertEqual(result["errors"], [])
-
-    def test_get_mandate_sequence_types_bulk_returns_empty_on_phantom_fields(self):
-        """_get_mandate_sequence_types_bulk queries customer/valid_from/valid_until/
-        sequence_type/last_used_date on SEPA Mandate -- none exist -> the broad
-        except returns {}. Pin this (a fix that adds the columns would make it
-        return data and flip this assertion)."""
-        # The broad except swallows a real DB error (1054 Unknown column 'customer')
-        # and logs it — assert that swallow happens (it is the dead-path behaviour).
-        self.expectErrorLog("mandate sequence types")
-        member = self._member_with_membership()
-        self._sepa.create_test_sepa_mandate(member=member.name, status="Active")
-        customer = frappe.db.get_value("Member", member.name, "customer")
-        result = self.service._get_mandate_sequence_types_bulk([customer], today())
-        self.assertEqual(result, {})
-
-    def test_validate_sequence_types_no_customer_match_reports_errors(self):
-        """With a real batch row, ``invoice_item.customer`` does not even exist as
-        an attribute on the ``Direct Debit Batch Invoice`` child DocType, so the
-        very first ``invoice.customer`` access inside the try raises
-        AttributeError; the method's broad ``except`` catches it and returns
-        is_valid False with a single 'object has no attribute customer' error and
-        no corrections. This is the dead-path characterization (the service can
-        never validate sequence types because the schema it expects is absent)."""
-        # The broad except swallows the AttributeError and logs it — assert the swallow.
-        self.expectErrorLog("validating sequence types")
-        batch, _member, _mandate = self._one_invoice_batch()
-        result = self.service.validate_sepa_sequence_types(batch)
-        self.assertFalse(result["is_valid"])
-        self.assertEqual(result["corrections"], 0)
-        self.assertTrue(
-            any("has no attribute 'customer'" in e for e in result["errors"]),
-            result["errors"],
-        )
-
-
 class TestBatchProcessingServiceGuards(_BatchPipelineBase):
     """The submit-state guards that throw before any external work."""
 
@@ -472,9 +416,9 @@ class TestDirectDebitBatchHelpers(_BatchPipelineBase):
         field. Frappe lets you set arbitrary in-memory attributes and silently
         drops unknown ones on save, so the call succeeds yet persists nothing --
         the intended 'mark paid' effect never reaches the DB. (No live code path
-        calls this helper; the working equivalent lives in
-        ``BatchProcessingService._update_membership_payment_status``.) Pin that the
-        column is absent so a fix that adds it is detectable."""
+        calls this helper; the real payment record is the Payment Entry created by
+        the batch processing service.) Pin that the column is absent so a fix that
+        adds it is detectable."""
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             update_membership_payment_status,
         )

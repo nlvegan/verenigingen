@@ -6,12 +6,9 @@ Extracted from Direct Debit Batch system for better separation of concerns.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
-
-import frappe
+from typing import Any, Dict, List
 
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
-from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities, SEPAUtilities
 
 
 class ValidationResult:
@@ -81,9 +78,9 @@ class BatchValidationService:
         # Validate invoices
         # NOTE: extend()-ing the error lists directly bypasses add_error(), which is
         # what flips result.is_valid. We must invalidate the aggregate result here too,
-        # otherwise validate_batch_creation reports is_valid=True despite collected
-        # errors and the orchestration gate (business_logic_orchestration_service:115)
-        # lets a batch with bad invoices/dates/limits through to creation.
+        # otherwise validate_batch_creation would report is_valid=True despite collected
+        # errors and callers gating on is_valid would let a batch with bad
+        # invoices/dates/limits through to creation.
         invoice_validation = self._validate_invoices(invoices)
         if not invoice_validation.is_valid:
             result.is_valid = False
@@ -261,113 +258,6 @@ class BatchValidationService:
         result.add_detail("total_amount", total_amount)
 
         return result
-
-    def validate_mandate_coverage(self, invoices: List[Dict]) -> ValidationResult:
-        """
-        Validate that all invoices have valid SEPA mandates.
-
-        Args:
-            invoices: List of invoices to validate
-
-        Returns:
-            ValidationResult for mandate validation
-        """
-        result = ValidationResult()
-
-        missing_mandates = []
-        invalid_mandates = []
-
-        for invoice in invoices:
-            customer = invoice.get("customer")
-            if not customer:
-                continue
-
-            # Check for active SEPA mandate
-            mandate_check = self._check_customer_mandate(customer)
-
-            if not mandate_check["has_mandate"]:
-                missing_mandates.append(
-                    {
-                        "invoice": invoice.get("name"),
-                        "customer": customer,
-                        "reason": mandate_check.get("reason", "No active mandate found"),
-                    }
-                )
-            elif not mandate_check["is_valid"]:
-                invalid_mandates.append(
-                    {
-                        "invoice": invoice.get("name"),
-                        "customer": customer,
-                        "mandate": mandate_check.get("mandate_name"),
-                        "reason": mandate_check.get("reason", "Mandate validation failed"),
-                    }
-                )
-
-        if missing_mandates:
-            result.add_error(
-                f"Found {len(missing_mandates)} invoices without SEPA mandates", "MISSING_MANDATES"
-            )
-            result.add_detail("missing_mandates", missing_mandates)
-
-        if invalid_mandates:
-            result.add_error(
-                f"Found {len(invalid_mandates)} invoices with invalid mandates", "INVALID_MANDATES"
-            )
-            result.add_detail("invalid_mandates", invalid_mandates)
-
-        result.add_detail("total_checked", len(invoices))
-        result.add_detail("valid_mandates", len(invoices) - len(missing_mandates) - len(invalid_mandates))
-
-        return result
-
-    def _check_customer_mandate(self, customer: str) -> Dict[str, Any]:
-        """
-        Check if customer has valid SEPA mandate.
-
-        Args:
-            customer: Customer name
-
-        Returns:
-            Dictionary with mandate check results
-        """
-        try:
-            # Get active mandate for customer
-            mandates = frappe.get_all(
-                "SEPA Mandate",
-                filters={
-                    "customer": customer,
-                    "status": "Active",
-                    "valid_from": ["<=", frappe.utils.today()],
-                    "valid_until": [">=", frappe.utils.today()],
-                },
-                fields=["name", "iban", "mandate_reference", "sequence_type"],
-            )
-
-            if not mandates:
-                return {"has_mandate": False, "is_valid": False, "reason": "No active mandate found"}
-
-            # Use most recent mandate
-            mandate = mandates[0]
-
-            # Validate IBAN
-            if not SEPAUtilities.validate_dutch_iban(mandate["iban"]):
-                return {
-                    "has_mandate": True,
-                    "is_valid": False,
-                    "mandate_name": mandate["name"],
-                    "reason": "Invalid IBAN format",
-                }
-
-            return {
-                "has_mandate": True,
-                "is_valid": True,
-                "mandate_name": mandate["name"],
-                "mandate_reference": mandate["mandate_reference"],
-                "sequence_type": mandate["sequence_type"],
-            }
-
-        except Exception as e:
-            return {"has_mandate": False, "is_valid": False, "reason": f"Error checking mandate: {str(e)}"}
 
 
 # Singleton instance for global use

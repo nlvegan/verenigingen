@@ -5,7 +5,7 @@ This service handles medium complexity batch processing operations for SEPA dire
 Extracted from Direct Debit Batch system for better separation of concerns.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
 from frappe import _
@@ -47,7 +47,7 @@ class BatchProcessingService:
 
         success_count = 0
 
-        for i, invoice_item in enumerate(batch_doc.invoices):
+        for invoice_item in batch_doc.invoices:
             try:
                 # Get the invoice
                 invoice = frappe.get_doc("Sales Invoice", invoice_item.invoice)
@@ -61,35 +61,33 @@ class BatchProcessingService:
                     reference_date=batch_doc.batch_date,
                 )
 
-                # Update batch invoice status
-                InvoiceManagementUtilities.update_batch_invoice_status(
-                    batch_doc.invoices, i, "Successful", "PDNG", f"Payment entry {payment_entry.name} created"
+                # Update batch invoice status. The batch is submitted and these
+                # child fields are NOT allow_on_submit, so we persist them via
+                # db_set (the sanctioned pattern for tracking-field writes on a
+                # submitted document) instead of doc.save(), which would raise
+                # UpdateAfterSubmitError after the Payment Entry is already created.
+                self._set_invoice_status_after_submit(
+                    invoice_item, "Successful", "PDNG", f"Payment entry {payment_entry.name} created"
                 )
-
-                # Update membership payment status
-                if hasattr(invoice_item, "membership") and invoice_item.membership:
-                    self._update_membership_payment_status(invoice_item.membership)
 
                 success_count += 1
 
             except Exception as e:
-                InvoiceManagementUtilities.update_batch_invoice_status(
-                    batch_doc.invoices, i, "Failed", "RJCT", f"Error: {str(e)}"
-                )
+                self._set_invoice_status_after_submit(invoice_item, "Failed", "RJCT", f"Error: {str(e)}")
                 frappe.log_error(
                     f"Error processing payment for invoice {invoice_item.invoice}: {str(e)}",
                     "SEPA Direct Debit Payment Error",
                 )
 
-        # Update batch status
+        # Update batch status (persisted via db_set, see above).
         self._update_batch_status_after_processing(batch_doc, success_count)
 
-        # Log results
+        # Log results. batch_log is not allow_on_submit either, so persist via db_set.
         BatchLoggingUtilities.add_to_document_batch_log(
             batch_doc, f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
         )
+        batch_doc.db_set("batch_log", batch_doc.batch_log, update_modified=False)
 
-        batch_doc.save()
         return success_count
 
     def process_batch_submission(self, batch_doc) -> bool:
@@ -263,78 +261,6 @@ class BatchProcessingService:
             )
             raise
 
-    def validate_sepa_sequence_types(self, batch_doc) -> Dict[str, Any]:
-        """
-        Validate SEPA sequence types for automated batch processing.
-
-        Args:
-            batch_doc: Direct Debit Batch document
-
-        Returns:
-            Dictionary with validation results and any corrections made
-        """
-        if not batch_doc.invoices:
-            return {"is_valid": True, "corrections": 0, "errors": []}
-
-        corrections_made = 0
-        validation_errors = []
-        sequence_type_stats = {"FRST": 0, "RCUR": 0, "OOFF": 0, "FNAL": 0}
-
-        try:
-            # Get all mandate information in bulk for performance
-            customer_list = [invoice.customer for invoice in batch_doc.invoices if invoice.customer]
-            mandate_data = self._get_mandate_sequence_types_bulk(customer_list, batch_doc.batch_date)
-
-            for invoice_item in batch_doc.invoices:
-                customer = invoice_item.customer
-                current_sequence = getattr(invoice_item, "sequence_type", None)
-
-                if customer in mandate_data:
-                    correct_sequence = mandate_data[customer]["sequence_type"]
-
-                    # Update sequence type if incorrect or missing
-                    if current_sequence != correct_sequence:
-                        invoice_item.sequence_type = correct_sequence
-                        invoice_item.mandate_reference = mandate_data[customer]["mandate_reference"]
-                        corrections_made += 1
-
-                    # Update statistics
-                    if correct_sequence in sequence_type_stats:
-                        sequence_type_stats[correct_sequence] += 1
-                else:
-                    validation_errors.append(f"No valid mandate found for customer {customer}")
-
-            # Log validation results
-            if corrections_made > 0:
-                BatchLoggingUtilities.add_to_document_batch_log(
-                    batch_doc, f"Corrected {corrections_made} sequence types automatically"
-                )
-
-            # Log sequence type distribution
-            sequence_summary = ", ".join(
-                [f"{seq}: {count}" for seq, count in sequence_type_stats.items() if count > 0]
-            )
-            BatchLoggingUtilities.add_to_document_batch_log(
-                batch_doc, f"Sequence type distribution: {sequence_summary}"
-            )
-
-            return {
-                "is_valid": len(validation_errors) == 0,
-                "corrections": corrections_made,
-                "errors": validation_errors,
-                "sequence_stats": sequence_type_stats,
-            }
-
-        except Exception as e:
-            frappe.log_error(f"Error validating sequence types for batch {batch_doc.name}: {str(e)}")
-            validation_errors.append(f"Sequence type validation failed: {str(e)}")
-            return {
-                "is_valid": False,
-                "corrections": corrections_made,
-                "errors": validation_errors,
-                "sequence_stats": sequence_type_stats,
-            }
-
     def _create_payment_entry_for_invoice(
         self, invoice, payment_type: str, mode_of_payment: str, reference_no: str, reference_date
     ) -> "PaymentEntry":
@@ -371,40 +297,39 @@ class BatchProcessingService:
             payment_type=payment_type,
         )
 
-    def _update_membership_payment_status(self, membership_name: str) -> None:
+    def _set_invoice_status_after_submit(
+        self, invoice_item, status: str, result_code: str, result_message: str
+    ) -> None:
         """
-        Update payment status on membership after successful payment.
+        Persist a batch invoice child row's status fields on a SUBMITTED batch.
 
-        Args:
-            membership_name: Name of the membership to update
+        These child fields are not allow_on_submit, so they are written via
+        db_set(update_modified=False) rather than parent.save() (which would
+        raise UpdateAfterSubmitError). No commit is issued — the writes stay
+        inside the request transaction so they remain atomic with the Payment
+        Entries created in the same call.
         """
-        try:
-            if not membership_name:
-                return
-
-            membership = frappe.get_doc("Membership", membership_name)
-            membership.payment_status = "Paid"
-            membership.save()
-
-            frappe.logger().info(f"Updated payment status for membership {membership_name}")
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating membership payment status for {membership_name}: {str(e)}",
-                "Membership Payment Status Update Error",
-            )
-            # Don't raise - this is not critical for payment processing
+        invoice_item.db_set("status", status, update_modified=False)
+        invoice_item.db_set("result_code", result_code, update_modified=False)
+        invoice_item.db_set("result_message", result_message, update_modified=False)
 
     def _update_batch_status_after_processing(self, batch_doc, success_count: int) -> None:
-        """Update batch status based on processing results"""
+        """Update batch status based on processing results.
+
+        Persisted via db_set: the batch is submitted and the parent status write
+        must not go through save() (UpdateAfterSubmitError on the non-allow_on_submit
+        child rows / batch_log). No commit — stays within the request transaction.
+        """
         total_invoices = len(batch_doc.invoices)
 
         if success_count == total_invoices:
-            batch_doc.status = "Processed"
+            new_status = "Processed"
         elif success_count > 0:
-            batch_doc.status = "Partially Processed"
+            new_status = "Partially Processed"
         else:
-            batch_doc.status = "Failed"
+            new_status = "Failed"
+
+        batch_doc.db_set("status", new_status, update_modified=False)
 
     def _calculate_totals_python_fallback(self, batch_doc) -> None:
         """Fallback Python calculation when SQL fails"""
@@ -422,53 +347,6 @@ class BatchProcessingService:
                 "method": "Python fallback",
             },
         )
-
-    def _get_mandate_sequence_types_bulk(
-        self, customer_list: List[str], collection_date
-    ) -> Dict[str, Dict[str, str]]:
-        """
-        Get mandate sequence types for multiple customers in bulk.
-
-        Args:
-            customer_list: List of customer names
-            collection_date: Collection date for sequence type determination
-
-        Returns:
-            Dictionary mapping customer names to mandate info
-        """
-        try:
-            # Get active mandates for all customers
-            mandates = frappe.get_all(
-                "SEPA Mandate",
-                filters={
-                    "customer": ["in", customer_list],
-                    "status": "Active",
-                    "valid_from": ["<=", collection_date],
-                    "valid_until": [">=", collection_date],
-                },
-                fields=["customer", "mandate_reference", "sequence_type", "last_used_date"],
-            )
-
-            mandate_data = {}
-            for mandate in mandates:
-                customer = mandate["customer"]
-
-                # Determine sequence type based on usage
-                if not mandate.get("last_used_date"):
-                    sequence_type = "FRST"  # First usage
-                else:
-                    sequence_type = "RCUR"  # Recurring usage
-
-                mandate_data[customer] = {
-                    "mandate_reference": mandate["mandate_reference"],
-                    "sequence_type": sequence_type,
-                }
-
-            return mandate_data
-
-        except Exception as e:
-            frappe.log_error(f"Error getting mandate sequence types: {str(e)}")
-            return {}
 
 
 # Singleton instance for global use

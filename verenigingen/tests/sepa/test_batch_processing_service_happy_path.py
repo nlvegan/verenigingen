@@ -4,20 +4,17 @@ Coverage for BatchProcessingService paths the existing pipeline test
 the submit-state GUARD branches. This module drives the methods that require a
 *submitted* batch and real payment entries.
 
-FLAGGED PRODUCTION BUG (mark_batch_invoices_as_paid is broken for its only valid
-input):
-  ``mark_batch_invoices_as_paid`` first requires ``docstatus == 1`` (it throws on
-  a draft batch). It then mutates the child ``Direct Debit Batch Invoice`` rows
+FIXED (mark_batch_invoices_as_paid succeeds on a submitted batch):
+  ``mark_batch_invoices_as_paid`` requires ``docstatus == 1`` (it throws on a draft
+  batch). It mutates the child ``Direct Debit Batch Invoice`` rows
   (status/result_code/result_message -- NONE of which are ``allow_on_submit``) and
-  the parent ``batch_log`` field (also not ``allow_on_submit``), and finally calls
-  ``batch_doc.save()``. On a submitted document that ``save()`` raises
-  ``UpdateAfterSubmitError``. So the method *always* fails on the only batch state
-  it accepts: it creates the Payment Entries (side effects already committed) and
-  THEN blows up before recording success on the batch -- leaving the batch and its
-  invoice rows un-updated while money-side payment entries exist. This is a real
-  money-path defect; it needs a design decision (db_set / allow_on_submit / restructure)
-  so it is FLAGGED, not fixed here. The test below pins the current failure so the
-  regression -- or a fix -- is detectable.
+  the parent ``status``/``batch_log`` fields. Previously a final ``batch_doc.save()``
+  raised ``UpdateAfterSubmitError`` AFTER the Payment Entries were already created,
+  leaving the batch and its rows un-updated. The service now persists those tracking
+  fields via ``db_set(..., update_modified=False)`` (the sanctioned post-submit
+  pattern) with no ``save()`` and no extra commit, so the Payment Entries and the
+  status writes stay atomic within the request transaction. The test below pins the
+  success path (parent + child rows updated, Payment Entries created, no exception).
 
 - ``process_batch_submission`` success: with the SEPA file flagged generated the
   status flips to Submitted and True is returned. This path works and is covered.
@@ -78,20 +75,41 @@ class _SubmittedBatchBase(EnhancedTestCase):
         return batch
 
 
-class TestMarkBatchInvoicesAsPaidIsBrokenOnSubmit(_SubmittedBatchBase):
-    """FLAGGED BUG: mark_batch_invoices_as_paid raises UpdateAfterSubmitError on the
-    only batch state it accepts (a submitted batch), because its final
-    batch_doc.save() mutates non-allow_on_submit fields (batch_log + child
-    status/result_code). It creates the Payment Entries first, so this is a
-    money-path defect, not a benign no-op."""
+class TestMarkBatchInvoicesAsPaidSucceedsOnSubmit(_SubmittedBatchBase):
+    """mark_batch_invoices_as_paid marks a SUBMITTED batch paid without raising:
+    it creates the Payment Entries, then persists the parent status + child row
+    status fields via db_set (no save() -> no UpdateAfterSubmitError)."""
 
-    def test_marking_a_submitted_batch_paid_raises_update_after_submit(self):
-        from frappe.exceptions import UpdateAfterSubmitError
-
+    def test_marking_a_submitted_batch_paid_succeeds(self):
         batch = self._submitted_batch(invoice_count=1)
         self.assertEqual(batch.docstatus, 1)
-        with self.assertRaises(UpdateAfterSubmitError):
-            self.service.mark_batch_invoices_as_paid(batch)
+
+        pe_before = frappe.db.count("Payment Entry")
+        success_count = self.service.mark_batch_invoices_as_paid(batch)
+
+        # All invoices marked paid; one Payment Entry created.
+        self.assertEqual(success_count, 1)
+        self.assertEqual(frappe.db.count("Payment Entry"), pe_before + 1)
+
+        # Parent status persisted to the DB (all rows successful -> Processed).
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed"
+        )
+
+        # Child row status persisted to the DB.
+        row = batch.invoices[0]
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch Invoice", row.name, "status"), "Successful"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch Invoice", row.name, "result_code"), "PDNG"
+        )
+
+        # A Payment Entry exists referencing this batch.
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"reference_no": batch.name}),
+            "A Payment Entry referencing the batch must have been created",
+        )
 
 
 class TestProcessBatchSubmissionSuccess(_SubmittedBatchBase):

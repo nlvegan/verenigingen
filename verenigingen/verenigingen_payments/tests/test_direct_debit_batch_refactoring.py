@@ -11,9 +11,7 @@ Test Areas:
 - Service layer functionality
 - API endpoint compatibility
 - SEPA XML generation compliance
-- Business logic orchestration
 - Error handling and fallback mechanisms
-- End-to-end batch processing workflows
 
 Author: Verenigingen Development Team
 """
@@ -33,9 +31,6 @@ from frappe.utils import nowdate, nowtime, random_string, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
 from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
-from verenigingen.verenigingen_payments.services.business_logic_orchestration_service import (
-    business_logic_service,
-)
 
 # Import the refactored services
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
@@ -168,12 +163,6 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.assertIsNotNone(validation_result)
         self.assertTrue(hasattr(validation_result, "is_valid"))
 
-        # Test mandate coverage validation
-        mandate_result = batch_validation_service.validate_mandate_coverage(test_invoices)
-
-        self.assertIsNotNone(mandate_result)
-        self.assertTrue(hasattr(mandate_result, "is_valid"))
-
     def test_sepa_xml_generation_service(self):
         """Test SEPA XML Generation Service functionality"""
         # Create a test batch with realistic data
@@ -214,136 +203,6 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.assertIn("is_valid", validation_result)
         self.assertIn("total_invoices", validation_result)
         self.assertIn("valid_invoices", validation_result)
-
-        # Test sequence type validation
-        sequence_result = batch_processing_service.validate_sepa_sequence_types(batch_doc)
-
-        self.assertIsInstance(sequence_result, dict)
-        self.assertIn("is_valid", sequence_result)
-        self.assertIn("corrections", sequence_result)
-
-    def test_business_logic_orchestration_service(self):
-        """Test Business Logic Orchestration Service functionality"""
-        # Create test batch
-        batch_doc = self._create_test_batch_with_invoices()
-
-        # Test complete batch processing orchestration
-        orchestration_result = business_logic_service.orchestrate_complete_batch_processing(batch_doc)
-
-        self.assertIsInstance(orchestration_result, dict)
-        self.assertIn("validation_passed", orchestration_result)
-        self.assertIn("xml_generated", orchestration_result)
-        self.assertIn("batch_ready", orchestration_result)
-        self.assertIn("errors", orchestration_result)
-        self.assertIn("warnings", orchestration_result)
-
-        # Test batch creation workflow
-        test_invoices = self._create_test_invoices_data(3)
-        creation_result = business_logic_service.orchestrate_batch_creation_workflow(
-            test_invoices, (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-        )
-
-        self.assertIsInstance(creation_result, dict)
-        self.assertIn("batch_created", creation_result)
-        self.assertIn("total_amount", creation_result)
-        self.assertIn("invoice_count", creation_result)
-
-    def test_create_batch_document_marks_batch_frst_when_any_row_is_first(self):
-        """Regression: a batch mixing a first collection (FRST) with a recurring
-        one (RCUR) must have its SEPA sequence typed FRST as a whole (SEPA
-        pre-notification rule).
-
-        The previous derivation used ``seq_types.pop() if len == 1 else 'RCUR'``,
-        which silently mis-typed any mixed batch as RCUR. The child rows below use
-        sequence types that match what the Direct Debit Batch controller computes
-        from each mandate's usage history, so the batch inserts cleanly and we can
-        assert the batch-level ``sequence_type`` (the SEPA sequence; ``batch_type``
-        is now the scheme CORE/B2B/COR1).
-        """
-        from frappe.utils import add_days, today
-
-        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-
-        company = getattr(self, "eur_company", None) or get_eur_test_company()
-
-        # Member A: brand-new mandate -> get_mandate_sequence_type() == FRST
-        member_a = self.create_test_member(
-            first_name="FrstA",
-            last_name="Member",
-            email=f"frsta.{self.factory.test_run_id}@example.com",
-        )
-        mandate_a = self.create_test_sepa_mandate(member_name=member_a.name, status="Active")
-        membership_a = self.create_test_membership(member=member_a.name)
-        invoice_a = self.create_test_sales_invoice(
-            customer=member_a.name, company=company, membership=membership_a.name, grand_total=25.0
-        )
-
-        # Member B: mandate with a prior *Collected* usage -> sequence type RCUR
-        member_b = self.create_test_member(
-            first_name="RcurB",
-            last_name="Member",
-            email=f"rcurb.{self.factory.test_run_id}@example.com",
-        )
-        mandate_b = self.create_test_sepa_mandate(
-            member_name=member_b.name, status="Active", sign_date=add_days(today(), -60)
-        )
-        membership_b = self.create_test_membership(member=member_b.name)
-        invoice_b = self.create_test_sales_invoice(
-            customer=member_b.name, company=company, membership=membership_b.name, grand_total=30.0
-        )
-        # An *earlier* collection on this mandate (a different invoice). The
-        # controller calls get_mandate_sequence_type(mandate, <current invoice>),
-        # which ignores usage rows referencing the current invoice, so this prior
-        # usage must reference a different one for the mandate to read as RCUR.
-        invoice_b_prior = self.create_test_sales_invoice(
-            customer=member_b.name, company=company, membership=membership_b.name, grand_total=30.0
-        )
-        mandate_b.append(
-            "usage_history",
-            {
-                "usage_date": add_days(today(), -30),
-                "reference_doctype": "Sales Invoice",
-                "reference_name": invoice_b_prior.name,
-                "sequence_type": "FRST",
-                "amount": 30.0,
-                "status": "Collected",
-            },
-        )
-        mandate_b.save()
-
-        invoices = [
-            {
-                "name": invoice_a.name,
-                "membership": membership_a.name,
-                "member": member_a.name,
-                "member_name": member_a.full_name,
-                "outstanding_amount": 25.0,
-                "currency": "EUR",
-                "iban": mandate_a.iban,
-                "mandate_reference": mandate_a.mandate_id,
-                "sequence_type": "FRST",
-            },
-            {
-                "name": invoice_b.name,
-                "membership": membership_b.name,
-                "member": member_b.name,
-                "member_name": member_b.full_name,
-                "outstanding_amount": 30.0,
-                "currency": "EUR",
-                "iban": mandate_b.iban,
-                "mandate_reference": mandate_b.mandate_id,
-                "sequence_type": "RCUR",
-            },
-        ]
-
-        batch = business_logic_service._create_batch_document(invoices)
-
-        self.assertIsNotNone(batch, "Mixed FRST/RCUR batch should insert cleanly")
-        self.assertEqual(
-            batch.sequence_type,
-            "FRST",
-            "A batch containing any first collection must have sequence_type FRST, not RCUR",
-        )
 
     def test_sepa_utilities(self):
         """Test SEPA utility functions"""
@@ -451,38 +310,6 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.assertLess(validation_time, 10.0)  # 10 seconds max
         self.assertIsInstance(validation_result, dict)
 
-    def test_end_to_end_batch_processing(self):
-        """Test complete end-to-end batch processing workflow"""
-        # Step 1: Create test data
-        members_with_mandates = self._create_test_members_with_mandates(3)
-
-        # Step 2: Create unpaid invoices
-        test_invoices = []
-        for member_data in members_with_mandates:
-            invoice = self._create_test_invoice_for_member(member_data)
-            test_invoices.append(invoice)
-
-        # Step 3: Test batch creation workflow
-        collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-
-        creation_result = business_logic_service.orchestrate_batch_creation_workflow(
-            test_invoices, collection_date
-        )
-
-        self.assertTrue(creation_result.get("batch_created", False))
-        batch_name = creation_result.get("batch_name")
-        self.assertIsNotNone(batch_name)
-
-        # Step 4: Test complete processing orchestration
-        if batch_name:
-            batch_doc = frappe.get_doc("Direct Debit Batch", batch_name)
-
-            orchestration_result = business_logic_service.orchestrate_complete_batch_processing(batch_doc)
-
-            self.assertIsInstance(orchestration_result, dict)
-            # Should have some validation results even if not all pass
-            self.assertIn("validation_passed", orchestration_result)
-
     def _create_test_invoices_data(self, count: int = 5) -> List[Dict[str, Any]]:
         """Create test invoice data for validation testing"""
         from verenigingen.utils.validation.iban_validator import generate_test_iban
@@ -576,69 +403,6 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.test_batch = batch_doc
 
         return batch_doc
-
-    def _create_test_members_with_mandates(self, count: int = 3) -> List[Dict[str, Any]]:
-        """Create REAL test members, memberships and SEPA mandates.
-
-        orchestrate_batch_creation_workflow inserts a real Direct Debit Batch
-        whose invoice rows link to Sales Invoice / Membership and require
-        iban + mandate_reference, so fake placeholder data cannot form a batch.
-        """
-        bank_codes = ["ABNA", "RABO", "INGB"]
-        members_data = []
-
-        for i in range(count):
-            member = self.create_test_member(
-                first_name=f"E2E{i+1}",
-                last_name=f"Member{i+1}",
-                birth_date="1990-01-01",
-            )
-            membership = self.create_test_membership(member_name=member.name)
-            mandate = self.create_test_sepa_mandate(
-                member_name=member.name,
-                iban=self.factory.create_test_iban(bank_codes[i % len(bank_codes)]),
-                # Unique per run: a fixed mandate_id collides across re-runs
-                # because mandate rows are committed.
-                mandate_id=f"MAND-E2E-{frappe.generate_hash(length=8)}",
-            )
-            members_data.append(
-                {
-                    "member": member.name,
-                    "member_name": member.full_name,
-                    "membership": membership.name,
-                    "iban": mandate.iban,
-                    "mandate_reference": mandate.mandate_id,
-                }
-            )
-
-        return members_data
-
-    def _create_test_invoice_for_member(self, member_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a REAL submitted Sales Invoice for a member and return the
-        invoice-data dict the orchestration workflow expects."""
-        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-
-        invoice = self.create_test_sales_invoice(
-            customer=member_data["member"],
-            status="Unpaid",
-            company=getattr(self, "eur_company", None) or get_eur_test_company(),
-            currency="EUR",
-        )
-        return {
-            "name": invoice.name,
-            "customer": invoice.customer,
-            "member": member_data["member"],
-            "member_name": member_data["member_name"],
-            "membership": member_data["membership"],
-            "outstanding_amount": 25.00,
-            "currency": invoice.currency,
-            "status": "Unpaid",
-            "due_date": invoice.due_date,
-            "posting_date": invoice.posting_date,
-            "iban": member_data["iban"],
-            "mandate_reference": member_data["mandate_reference"],
-            "sequence_type": "FRST",
-        }
 
     def _validate_sepa_xml_structure(self, batch_doc):
         """Validate that generated SEPA XML has correct structure"""

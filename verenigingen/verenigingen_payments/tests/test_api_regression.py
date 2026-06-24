@@ -342,7 +342,6 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
             self.assertTrue(hasattr(batch_module, "batch_validation_service"))
             self.assertTrue(hasattr(batch_module, "sepa_xml_service"))
             self.assertTrue(hasattr(batch_module, "batch_processing_service"))
-            self.assertTrue(hasattr(batch_module, "business_logic_service"))
 
         except Exception as e:
             frappe.logger().warning(f"Service integration test warning: {str(e)}")

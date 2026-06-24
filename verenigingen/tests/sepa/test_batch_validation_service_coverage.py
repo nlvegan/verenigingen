@@ -6,7 +6,7 @@ batch is built: invoice-level field/amount/currency/status checks, collection-da
 SEPA notice-window rules, batch size/total limits, and mandate coverage.
 
 Most of the logic is pure (operates on plain invoice dicts), so it is exercised
-with real dicts rather than mocks. The two DB-backed paths are:
+with real dicts rather than mocks. The DB-backed path is:
 
 - validate_batch_creation() first calls config_service.validate_sepa_configuration().
   On the bare test site the SEPA company config is incomplete, so that returns
@@ -14,15 +14,6 @@ with real dicts rather than mocks. The two DB-backed paths are:
   before touching invoices. We assert that documented early-return contract, and
   exercise the per-section validators (_validate_invoices, _validate_collection_date,
   _validate_batch_limits) directly to cover the invoice/date/limit branches.
-
-- _check_customer_mandate()/validate_mandate_coverage() query the SEPA Mandate
-  doctype by columns (customer/valid_from/valid_until) THAT DO NOT EXIST on it
-  (it links to `member`, not `customer`, and has no valid_from/valid_until). The
-  query therefore raises OperationalError 1054, which the method swallows and
-  reports as "missing mandate". This is a real money-path bug (every invoice is
-  reported as having no mandate) and is FLAGGED in the agent report; the tests
-  below pin the current swallow behaviour so a regression in the error contract
-  is caught, and document the bug inline.
 """
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -267,9 +258,8 @@ class TestValidateBatchCreationOrchestration(EnhancedTestCase):
         stopping at the first), AND the aggregate result.is_valid is flipped False.
 
         Regression guard for the fix: previously validate_batch_creation extend()-ed
-        the section errors but never set result.is_valid=False, so the orchestration
-        gate (business_logic_orchestration_service) admitted batches with bad
-        invoices/dates/limits."""
+        the section errors but never set result.is_valid=False, so any caller gating
+        on result.is_valid would admit batches with bad invoices/dates/limits."""
         config = self.svc.config_service.validate_sepa_configuration()
         if not config["is_valid"]:
             self.skipTest("SEPA config invalid on this site; orchestrator short-circuits at config")
@@ -349,55 +339,3 @@ class TestValidateBatchCreationOrchestration(EnhancedTestCase):
 
     def test_singleton_is_the_service_instance(self):
         self.assertIsInstance(batch_validation_service, BatchValidationService)
-
-
-class TestMandateCoverageBugCharacterization(EnhancedTestCase):
-    """validate_mandate_coverage / _check_customer_mandate.
-
-    FLAGGED BUG: SEPA Mandate has NO customer/valid_from/valid_until columns (it
-    links to `member`). The mandate lookup query therefore raises OperationalError
-    1054, which _check_customer_mandate swallows and reports as has_mandate=False.
-    Consequence: validate_mandate_coverage reports EVERY invoice as "missing
-    mandate", even when the member has a perfectly valid active mandate. These
-    tests pin that behaviour so a fix (or a regression in the swallow contract) is
-    detectable, and they assert the bookkeeping details remain consistent.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        get_eur_test_company()
-
-    def setUp(self):
-        super().setUp()
-        self.svc = BatchValidationService()
-
-    def test_check_customer_mandate_swallows_phantom_column_error(self):
-        # The phantom-column query raises OperationalError 1054; the except returns a
-        # no-mandate dict with the error captured in 'reason'. Assert the reason names
-        # the SWALLOWED ERROR specifically (not the benign "No active mandate found"
-        # path), so this test would fail if the columns were added / the query stopped
-        # raising -- pinning the actual bug, not just a no-rows result.
-        res = self.svc._check_customer_mandate("ANY-CUSTOMER")
-        self.assertFalse(res["has_mandate"])
-        self.assertFalse(res["is_valid"])
-        self.assertIn("Error checking mandate", res["reason"])
-
-    def test_invoices_without_customer_are_skipped(self):
-        # validate_mandate_coverage `continue`s past invoices lacking a customer, so
-        # they are not counted as missing mandates.
-        result = self.svc.validate_mandate_coverage([_invoice(customer=None)])
-        self.assertTrue(result.is_valid)
-        self.assertEqual(result.details["total_checked"], 1)
-        self.assertEqual(result.details["valid_mandates"], 1)
-
-    def test_all_invoices_reported_missing_mandate_due_to_phantom_columns(self):
-        # Every invoice with a customer is reported missing because the lookup
-        # always fails (the FLAGGED bug). Detail bookkeeping must stay consistent.
-        invoices = [_invoice(name="I1"), _invoice(name="I2", customer="CUST-0002")]
-        result = self.svc.validate_mandate_coverage(invoices)
-        self.assertFalse(result.is_valid)
-        self.assertTrue(any(e["code"] == "MISSING_MANDATES" for e in result.errors))
-        self.assertEqual(len(result.details["missing_mandates"]), 2)
-        self.assertEqual(result.details["total_checked"], 2)
-        self.assertEqual(result.details["valid_mandates"], 0)

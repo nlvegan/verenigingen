@@ -225,15 +225,29 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
         )
 
     def test_create_from_dict_date_fallback_to_donation_date(self):
-        """No date in dict -> falls back to donation.donation_date."""
+        """No date AND no reference_number in dict -> JE still created and submitted.
+
+        With no reference_number, the creator must NOT set cheque_date (otherwise
+        ERPNext's validate_cheque_info rejects submit and secure_document_operation
+        silently swallows the failure -> no JE). assertNoErrorLog proves no swallowed
+        error; docstatus==1 proves the JE was actually created and submitted.
+        """
         amount = 9.00
         ddate = "2026-02-02"
         donation = self._make_donation(self._make_donor(), amount, donation_date=ddate)
 
-        je_name = self.creator.create_from_dict({"amount": amount}, donation)
-        self.assertTrue(je_name)
+        with self.assertNoErrorLog():
+            je_name = self.creator.create_from_dict({"amount": amount}, donation)
+        self.assertTrue(je_name, "JE must be created even without a reference_number")
         je = frappe.get_doc("Journal Entry", je_name)
+        self.assertEqual(je.docstatus, 1, "JE should be submitted (no swallowed cheque-info error)")
+        self.assertFalse(je.cheque_no, "No reference_number -> cheque_no must stay empty")
+        self.assertFalse(je.cheque_date, "No reference_number -> cheque_date must not be set")
         self.assertEqual(getdate(je.posting_date), getdate(ddate))
+        # Donation linked back to the JE proves the full success path ran.
+        self.assertEqual(
+            frappe.db.get_value("Donation", donation.name, "journal_entry"), je_name
+        )
 
     # ------------------------------------------------------- reconciliation
     def test_create_from_mollie_payment_reconciles_bank_transaction(self):
