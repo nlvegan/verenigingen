@@ -26,6 +26,19 @@ class RefundHandler:
     - Checking for already-processed refunds (idempotency)
     - Creating Payment Entries for completed refunds
     - Tracking processing results
+
+    DORMANT: this handler currently has NO live caller (the live refund path is
+    webhook_wrapper_service_unified._process_pending_refunds). It was extracted
+    from the disabled payment_webhook.py.
+
+    BEFORE WIRING THIS IN (FIXME): the "Refund Debug - ..." calls below
+    (process_refunds ~L73 "Start Processing" / ~L85 "No Refunds",
+    _fetch_refunds ~L127 "Fetch Success", _log_refund_details one row per refund)
+    are UNCONDITIONAL happy-path writes to the Error Log doctype. Once this runs in
+    production every refund check would emit 2-4 bogus "Error Log" rows. Downgrade
+    those debug breadcrumbs to frappe.logger().debug(...) (the same info is already
+    logged via frappe.logger().info right beside them); keep the genuine error
+    sinks (the except branches) as frappe.log_error.
     """
 
     def __init__(self, mollie_client: Optional[Any] = None):
