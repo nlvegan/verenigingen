@@ -147,26 +147,59 @@ class TestSEPABatchProcessorPureLogic(EnhancedTestCase):
             self.processor.find_invoice_in_batch(batch, {"end_to_end_id": "MISSING"})
         )
 
-    # --- parse_sepa_return_file (defusedxml stub) ---------------------------
+    def test_find_invoice_in_batch_matches_inv_prefixed_end_to_end_id(self):
+        # The pain.008 EndToEndId is INV-<invoice>; a pain.002 return carries that
+        # prefixed id, which must still resolve back to the bare invoice row.
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.append("invoices", {"invoice": "ACC-SINV-0009", "status": "Pending"})
+        found = self.processor.find_invoice_in_batch(batch, {"end_to_end_id": "INV-ACC-SINV-0009"})
+        self.assertIsNotNone(found)
+        self.assertEqual(found.invoice, "ACC-SINV-0009")
+
+    # --- parse_sepa_return_file (delegates to the canonical pain.002 parser) ---
+
+    def _write_pain002(self, body):
+        import os
+
+        path = frappe.get_site_path("private", "files", f"test_pain002_{frappe.generate_hash(length=8)}.xml")
+        with open(path, "w") as f:
+            f.write(body)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        return path
 
     def test_parse_return_file_missing_file_returns_empty(self):
-        # The stub parser logs and returns [] on any parse error (e.g. no file).
+        # A read/parse error (e.g. no file) is logged and yields [].
+        self.expectErrorLog("SEPA Return File Parser Error")
         result = self.processor.parse_sepa_return_file("/nonexistent/return.xml")
         self.assertEqual(result, [])
 
-    def test_parse_return_file_valid_xml_returns_empty_list(self):
-        # The pain.002 body parsing is a documented stub: a well-formed file still
-        # yields [] until the bank-specific format is implemented. Pin that.
-        path = frappe.get_site_path("private", "files", "test_pain002_stub.xml")
-        with open(path, "w") as f:
-            f.write('<?xml version="1.0"?><Document><CstmrPmtStsRpt/></Document>')
-        try:
-            result = self.processor.parse_sepa_return_file(path)
-            self.assertEqual(result, [])
-        finally:
-            import os
+    def test_parse_return_file_reads_file_and_returns_rejected_only(self):
+        # The service reads the file and delegates to the canonical parser
+        # (verenigingen_payments/utils/sepa_return_parser), which returns only the
+        # RJCT transactions; an accepted (ACSP) transaction must be excluded. The
+        # resulting return then resolves back to its batch invoice via the INV- prefix.
+        ns = "urn:iso:std:iso:20022:tech:xsd:pain.002.001.03"
+        path = self._write_pain002(
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Document xmlns="{ns}"><CstmrPmtStsRpt>'
+            "<OrgnlGrpInfAndSts><OrgnlMsgId>MSG-1</OrgnlMsgId></OrgnlGrpInfAndSts>"
+            "<OrgnlPmtInfAndSts><OrgnlPmtInfId>PMT-1</OrgnlPmtInfId>"
+            "<TxInfAndSts><OrgnlEndToEndId>INV-ACC-SINV-0001</OrgnlEndToEndId>"
+            "<TxSts>RJCT</TxSts><StsRsnInf><Rsn><Cd>AC04</Cd></Rsn></StsRsnInf></TxInfAndSts>"
+            "<TxInfAndSts><OrgnlEndToEndId>INV-ACC-SINV-0002</OrgnlEndToEndId>"
+            "<TxSts>ACSP</TxSts></TxInfAndSts>"
+            "</OrgnlPmtInfAndSts></CstmrPmtStsRpt></Document>"
+        )
+        result = self.processor.parse_sepa_return_file(path)
+        self.assertEqual(len(result), 1, "only the RJCT transaction is a return; ACSP is excluded")
+        self.assertEqual(result[0]["end_to_end_id"], "INV-ACC-SINV-0001")
+        self.assertEqual(result[0]["reason_code"], "AC04")
 
-            os.remove(path)
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.append("invoices", {"invoice": "ACC-SINV-0001", "status": "Pending"})
+        matched = self.processor.find_invoice_in_batch(batch, result[0])
+        self.assertIsNotNone(matched, "INV-prefixed return id must resolve to the bare invoice row")
+        self.assertEqual(matched.invoice, "ACC-SINV-0001")
 
 
 class TestSEPABatchProcessorBuilders(EnhancedTestCase):

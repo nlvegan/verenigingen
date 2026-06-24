@@ -11,7 +11,6 @@ separation of concerns and testability.
 from datetime import datetime
 
 import frappe
-from defusedxml import ElementTree as SafeET  # XXE-safe XML parsing
 from frappe import _
 from frappe.utils import add_days, cstr, flt, getdate, today
 
@@ -527,19 +526,26 @@ class SEPABatchProcessor:
             raise
 
     def parse_sepa_return_file(self, file_path):
-        """Parse SEPA return file (pain.002 format)"""
-        # This is a simplified parser - implement according to your bank's format
-        returns = []
+        """Parse a SEPA pain.002 return file and return the REJECTED collections.
 
+        Delegates to the canonical pain.002 parser
+        (``verenigingen_payments.utils.sepa_return_parser.get_rejected_transactions``)
+        — the same parser the reconciliation API uses — so both paths share one
+        source of truth for the ISO 20022 semantics (namespace versions, status
+        codes, reason-code descriptions). Returns a list of
+        ``{end_to_end_id, reason_code, reason_description, ...}`` dicts (one per
+        RJCT transaction) consumed by ``process_batch_returns``. A malformed or
+        unreadable file logs and returns ``[]``.
+        """
         try:
-            # Use defusedxml to prevent XXE attacks
-            tree = SafeET.parse(file_path)
-            _root = tree.getroot()  # noqa: F841 - Stub implementation, root needed for pain.002 parsing
-            # Navigate through the XML structure to find returns
-            # This will vary based on your bank's implementation
-            # TODO: Implement pain.002 parsing based on bank's format
+            from verenigingen.verenigingen_payments.utils.sepa_return_parser import (
+                get_rejected_transactions,
+            )
 
-            return returns
+            with open(file_path, encoding="utf-8") as f:
+                xml_content = f.read()
+
+            return get_rejected_transactions(xml_content)
 
         except Exception:
             frappe.log_error(
@@ -554,10 +560,18 @@ class SEPABatchProcessor:
             return []
 
     def find_invoice_in_batch(self, batch, return_item):
-        """Find invoice in batch based on return information"""
-        # Match by end-to-end ID or other reference
+        """Find the batch invoice row a return refers to.
+
+        The pain.008 EndToEndId is ``INV-<invoice>`` (or the invoice name itself
+        when it already starts with ``INV``), so match the pain.002 OrgnlEndToEndId
+        against both the bare invoice name and the INV-prefixed form.
+        """
+        end_to_end_id = return_item.get("end_to_end_id")
+        if not end_to_end_id:
+            return None
         for invoice_item in batch.invoices:
-            if invoice_item.invoice == return_item.get("end_to_end_id"):
+            invoice = invoice_item.invoice
+            if end_to_end_id in (invoice, f"INV-{invoice}"):
                 return invoice_item
         return None
 
