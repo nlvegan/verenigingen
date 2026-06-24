@@ -195,9 +195,12 @@ class TestMemberPortalPage(EnhancedTestCase):
         self.assertFalse(member_portal.has_website_permission(None, "read", "Guest"))
 
     def test_website_permission_requires_member_email(self):
-        # the helper looks up Member by `email` field (not `user`); the factory
-        # sets email == user_email, so this user resolves to a member.
-        self.assertTrue(member_portal.has_website_permission(None, "read", self.user_email))
+        # The helper looks up Member by its `email` field. Assert against the
+        # member's *persisted* email — the factory may append a uniqueness suffix
+        # to the requested email (when the local part lacks a trailing digit), so
+        # self.user_email is not guaranteed to equal Member.email. Using
+        # self.member.email keeps this deterministic instead of flaky ~0.7%/run.
+        self.assertTrue(member_portal.has_website_permission(None, "read", self.member.email))
         self.assertFalse(member_portal.has_website_permission(None, "read", "nobody-portal@test.invalid"))
 
     # ---- get_member_activity --------------------------------------------

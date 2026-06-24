@@ -10,6 +10,7 @@ synchronously by doc_event hooks in team_role_profile_hooks.py — NOT here.
 
 import frappe
 
+from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -37,7 +38,13 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
             frappe.logger("events").warning("Missing team or volunteer in assignment history event")
             return
 
-        team = frappe.get_doc("Team", team_name)
+        # A deleted/not-yet-committed Team is a benign race for a background job
+        # (e.g. the team was removed, or its insert hasn't committed yet). Guard
+        # like the member/chapter subscribers do, so the moot update is a clean
+        # no-op instead of an Error Log row. See subscriber_utils.get_doc_if_exists.
+        team = get_doc_if_exists("Team", team_name, "assignment history update")
+        if not team:
+            return
 
         # Handle different membership actions
         if action == "added":
@@ -72,8 +79,10 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         if not team_name or not volunteer:
             return
 
-        team = frappe.get_doc("Team", team_name)
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer)
+        team = get_doc_if_exists("Team", team_name, "team membership notification")
+        volunteer_doc = get_doc_if_exists("Volunteer", volunteer, "team membership notification")
+        if not team or not volunteer_doc:
+            return
 
         # Send notifications based on action
         if action == "added":
@@ -108,7 +117,9 @@ def handle_settings_notifications(event_name, event_data, **kwargs):
         if not team_name or not changed_fields:
             return
 
-        team = frappe.get_doc("Team", team_name)
+        team = get_doc_if_exists("Team", team_name, "team settings notification")
+        if not team:
+            return
 
         # Notify team members about significant setting changes
         important_fields = ["enable_role_profiles", "default_role_profile", "is_active"]
@@ -204,7 +215,9 @@ def handle_leadership_notifications(event_name, event_data, **kwargs):
         if not team_name:
             return
 
-        team = frappe.get_doc("Team", team_name)
+        team = get_doc_if_exists("Team", team_name, "team leadership notification")
+        if not team:
+            return
 
         # Send leadership transition notifications
         _send_leadership_change_notification(team, old_lead, new_lead)

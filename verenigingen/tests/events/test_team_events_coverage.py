@@ -352,24 +352,27 @@ class TestTeamEventsCoverage(EnhancedTestCase):
             ts.handle_assignment_history_updates("e", {"team": "X"})
             ts.handle_assignment_history_updates("e", {"volunteer": "V"})
 
-    def test_assignment_history_nonexistent_team_logs_error(self):
-        """A non-existent team makes frappe.get_doc raise -> swallowed + logged.
+    def test_assignment_history_nonexistent_team_noops_without_error(self):
+        """A deleted/uncommitted Team is a benign race -> clean no-op, no Error Log.
 
-        This characterizes the defensive branch: the handler does NOT guard
-        against a deleted Team (unlike chapter_subscribers, which uses
-        get_doc_if_exists). It logs and swallows.
+        Background-job handlers can fire after the Team they reference was rolled
+        back or deleted (or before its insert committed). The handler now guards
+        with subscriber_utils.get_doc_if_exists (matching member/chapter
+        subscribers), so the moot update returns quietly instead of polluting the
+        Error Log — which previously leaked across test boundaries as a flaky
+        assertNoErrorLog failure in unrelated tests.
         """
-        self.expectErrorLog("Team Assignment History Error")
         before = frappe.db.count("Error Log")
-        # Must NOT raise — the handler swallows and logs.
-        ts.handle_assignment_history_updates(
-            "e",
-            {"team": "Team-does-not-exist-xyz", "volunteer": "Vol-x", "action": "added"},
-        )
-        self.assertGreater(
+        # Must NOT raise and must NOT log — graceful no-op for a missing Team.
+        with self.assertNoErrorLog():
+            ts.handle_assignment_history_updates(
+                "e",
+                {"team": "Team-does-not-exist-xyz", "volunteer": "Vol-x", "action": "added"},
+            )
+        self.assertEqual(
             frappe.db.count("Error Log"),
             before,
-            "non-existent team should be swallowed-and-logged (no get_doc_if_exists guard)",
+            "non-existent team should be a clean no-op (get_doc_if_exists guard)",
         )
 
     # ===================================== handle_membership_notifications
