@@ -361,30 +361,6 @@ def create_payment_entry_for_invoice(invoice, payment_type, mode_of_payment, ref
     )
 
 
-def update_membership_payment_status(membership_name):
-    """Update payment status on membership"""
-    try:
-        membership = frappe.get_doc("Membership", membership_name)
-        membership.payment_status = "Paid"
-        membership.payment_date = today()
-
-        # If membership is in Pending status, change to Active
-        if membership.status == "Pending":
-            membership.status = "Active"
-
-        membership.flags.ignore_validate_update_after_submit = True
-        membership.save()
-
-        frappe.logger().info(f"Updated payment status for membership {membership_name}")
-        return membership
-    except Exception as e:
-        frappe.log_error(
-            f"Error updating membership payment status for {membership_name}: {str(e)}",
-            "Membership Update Error",
-        )
-        raise
-
-
 def get_bic_from_iban(iban):
     """
     Try to determine BIC from IBAN.

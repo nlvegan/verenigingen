@@ -409,35 +409,6 @@ class TestDirectDebitBatchHelpers(_BatchPipelineBase):
 
         self.assertEqual(get_bic_from_iban("NL91ABNA0417164300"), "ABNANL2A")
 
-    def test_update_membership_payment_status_does_not_persist_phantom_field(self):
-        """PROD BUG (characterized): the module-level
-        ``update_membership_payment_status`` helper sets ``payment_status`` /
-        ``payment_date`` on the Membership document, but Membership has NEITHER
-        field. Frappe lets you set arbitrary in-memory attributes and silently
-        drops unknown ones on save, so the call succeeds yet persists nothing --
-        the intended 'mark paid' effect never reaches the DB. (No live code path
-        calls this helper; the real payment record is the Payment Entry created by
-        the batch processing service.) Pin that the column is absent so a fix that
-        adds it is detectable."""
-        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
-            update_membership_payment_status,
-        )
-
-        member = self.create_test_member(birth_date="1990-05-05")
-        membership = self.create_test_membership(member_name=member.name)
-        result = update_membership_payment_status(membership.name)
-        self.assertEqual(result.name, membership.name)
-        # The phantom field is not a real column, so nothing is persisted.
-        self.assertNotIn("payment_status", frappe.get_meta("Membership").get_valid_columns())
-
-    def test_update_membership_payment_status_raises_on_unknown(self):
-        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
-            update_membership_payment_status,
-        )
-
-        self.expectErrorLog("Membership Update Error")
-        with self.assertRaises(Exception):
-            update_membership_payment_status("Membership-DOES-NOT-EXIST")
 
 
 class TestSEPABatchProcessorAddHelpers(_BatchPipelineBase):
