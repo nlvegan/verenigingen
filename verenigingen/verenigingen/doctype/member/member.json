@@ -13,6 +13,8 @@
   "tussenvoegsel",
   "last_name",
   "pronouns",
+  "allow_directory_listing",
+  "allow_photo_usage",
   "gender",
   "aanhef",
   "column_break_8",
@@ -508,6 +510,20 @@
    "fieldname": "pronouns",
    "fieldtype": "Data",
    "label": "Pronouns"
+  },
+  {
+   "default": "0",
+   "description": "Member consents to being listed in the member/skills directory",
+   "fieldname": "allow_directory_listing",
+   "fieldtype": "Check",
+   "label": "Directory Listing"
+  },
+  {
+   "default": "0",
+   "description": "Member consents to use of their photo by the association",
+   "fieldname": "allow_photo_usage",
+   "fieldtype": "Check",
+   "label": "Photo Usage Permission"
   },
   {
    "fieldname": "birth_date",

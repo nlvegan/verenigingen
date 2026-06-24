@@ -312,12 +312,10 @@ class TestPagePersonalDetailsBehavior(EnhancedTestCase):
                     "first_name": self.member.first_name,
                     "last_name": self.member.last_name,
                     "pronouns": "they/them",
-                    # NOTE: the controller also tracks allow_directory_listing /
-                    # allow_photo_usage, but the Member doctype has no such fields
-                    # here -- they are set in-memory then silently dropped by save()
-                    # (flagged: dead/no-op preference handling). We assert only the
-                    # real persisted field (pronouns).
+                    # allow_directory_listing / allow_photo_usage are real Check
+                    # fields on Member; the controller tracks and persists them.
                     "allow_directory_listing": "1",
+                    "allow_photo_usage": "1",
                 }
             )
             try:
@@ -328,6 +326,9 @@ class TestPagePersonalDetailsBehavior(EnhancedTestCase):
 
         self.member.reload()
         self.assertEqual(self.member.pronouns, "they/them")
+        # The two consent preferences now persist (previously dead/no-op fields).
+        self.assertEqual(self.member.allow_directory_listing, 1)
+        self.assertEqual(self.member.allow_photo_usage, 1)
         # apply_personal_details_changes stores a success message in the session.
         self.assertTrue(frappe.session.get("personal_details_success"))
         self.assertEqual(frappe.local.response.get("type"), "redirect")
