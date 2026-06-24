@@ -25,9 +25,16 @@ cannot fail). This file deliberately does NOT duplicate those weak methods; it
 asserts the real status/link side effects instead.
 
 The user-account upgrade branch (``if member.user:`` ->
-``upgrade_member_to_volunteer_user``) is account-creation/role-provisioning
-bound and is exercised only at the ``_log_upgrade_result`` logging seam, not
-end to end (see module-level note in the summary).
+``upgrade_member_to_volunteer_user``) IS exercised end to end here. Despite an
+earlier sweep's conclusion, that path is a *pure local-DB* operation (it flips
+the linked User's ``user_type`` from "Website User" to "System User" and resets
+``block_modules``) with NO external API call. The ``@critical_api`` decorator on
+``upgrade_member_to_volunteer_user`` runs unconditionally and converts its
+``OperationResult`` into the nested dict the service consumes; under
+``frappe.flags.in_test`` the framework treats the call as CLI, so rate-limit /
+IP / request-size / CSRF gates are skipped and an Administrator-context test
+reaches the real upgrade. We assert the real ``user_type`` flip, the
+already-upgraded no-op, and the create-fallback variant.
 """
 
 import frappe
@@ -56,6 +63,26 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
 
     def _make_volunteer(self, member, status="New"):
         return self.create_test_volunteer(member_name=member.name, status=status)
+
+    def _make_website_user_for_member(self, member, prefix="vu"):
+        """Create a real ``Website User`` and link it to ``member.user``.
+
+        ``create_test_user`` switches to Administrator internally (a factory
+        helper, not a test-body privileged write), so this stays enforcer
+        compliant. The user is created as a *Website User* so the activation
+        upgrade branch has something real to flip to *System User*.
+        """
+        email = f"{prefix}.{frappe.generate_hash(length=8)}@example.invalid"
+        # No roles -> avoids the System-Manager default; we want a plain
+        # Website User as the genuine pre-upgrade state.
+        user = self.create_test_user(email, roles=[])
+        # Force the pre-upgrade state directly (db_set bypasses the User save
+        # hooks and avoids ignore_permissions in the test body).
+        user.db_set("user_type", "Website User", update_modified=False)
+        user.reload()
+        member.db_set("user", user.name, update_modified=False)
+        member.reload()
+        return user
 
     # ============================================================ _log_upgrade_result
     # The convenience logger has four distinct branches; the existing file covers
@@ -113,6 +140,58 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         self.assertEqual(
             frappe.db.get_value("Member", member.name, "volunteer_record"),
             volunteer.name,
+        )
+
+    # ===================================================== user-account upgrade branch
+    def test_activate_upgrades_linked_website_user_to_system_user(self):
+        """Existing volunteer + member.user is a Website User -> the user is
+        really upgraded to System User (lines 80-87, the previously-"ceiling"
+        branch).
+
+        This is a pure-DB upgrade: no external API, no banned mock. We assert
+        the real side effect (user_type flips) plus the usual activation effects.
+        """
+        member, _ = self._make_member("upg")
+        volunteer = self._make_volunteer(member, status="New")
+        user = self._make_website_user_for_member(member)
+        self.assertEqual(
+            frappe.db.get_value("User", user.name, "user_type"),
+            "Website User",
+            "precondition: linked user starts as a Website User",
+        )
+
+        with self.assertNoErrorLog():
+            activate_volunteer_record(member)
+
+        volunteer.reload()
+        self.assertEqual(volunteer.status, "Active")
+        # The real upgrade side effect: Website User -> System User.
+        self.assertEqual(
+            frappe.db.get_value("User", user.name, "user_type"),
+            "System User",
+            "the linked Website User must be upgraded to System User on activation",
+        )
+
+    def test_activate_upgrade_is_noop_when_user_already_system_user(self):
+        """member.user is already a System User -> upgrade returns the
+        already-upgraded success branch; activation stays clean (still exercises
+        lines 80-87 + the success arm of _log_upgrade_result)."""
+        member, _ = self._make_member("alreadysys")
+        volunteer = self._make_volunteer(member, status="New")
+        user = self._make_website_user_for_member(member)
+        # Promote up front so the upgrade is a no-op.
+        user.db_set("user_type", "System User", update_modified=False)
+        user.reload()
+
+        with self.assertNoErrorLog():
+            activate_volunteer_record(member)
+
+        volunteer.reload()
+        self.assertEqual(volunteer.status, "Active")
+        self.assertEqual(
+            frappe.db.get_value("User", user.name, "user_type"),
+            "System User",
+            "an already-System User stays a System User (no-op upgrade)",
         )
 
     # ============================================================ orphaned-by-email path
@@ -173,6 +252,34 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         if vol_name:
             self._track_test_document("Volunteer", vol_name, priority=1)
 
+    def test_activate_creates_volunteer_and_upgrades_linked_user(self):
+        """No volunteer exists, member is interested AND has a linked Website
+        User -> a volunteer is created/activated and the user is upgraded
+        (the create-fallback upgrade branch, lines 111-118)."""
+        member, _ = self._make_member("createupg")
+        member.db_set("interested_in_volunteering", 1, update_modified=False)
+        member.reload()
+        user = self._make_website_user_for_member(member)
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}))
+
+        with self.assertNoErrorLog():
+            activate_volunteer_record(member)
+
+        vol_name = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+        self.assertTrue(vol_name, "a volunteer should have been created for the interested member")
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", vol_name, "status"),
+            "Active",
+            "the newly-created volunteer must be activated",
+        )
+        self.assertEqual(
+            frappe.db.get_value("User", user.name, "user_type"),
+            "System User",
+            "the linked Website User must be upgraded during create-fallback activation",
+        )
+        if vol_name:
+            self._track_test_document("Volunteer", vol_name, priority=1)
+
     def test_activate_no_volunteer_and_not_interested_is_clean_noop(self):
         """No existing volunteer + member not interested -> create_volunteer_record
         returns None; activation is a clean no-op (no error, no volunteer)."""
@@ -186,6 +293,53 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         self.assertFalse(
             frappe.db.exists("Volunteer", {"member": member.name}),
             "uninterested member without a volunteer must not get one created",
+        )
+
+    # ===================================================== outer swallow-and-log contract
+    def test_activate_swallows_and_logs_on_save_failure(self):
+        """The whole body is wrapped in a try/except that routes failures to
+        ``safe_log_error`` and SWALLOWS them, so a volunteer-activation hiccup
+        never blocks membership approval (lines 122-123).
+
+        Trigger a *real* save failure with no mock: point the volunteer's
+        ``member`` link at a deleted Member, then activate. The activation's
+        ``volunteer.save()`` re-validates the dangling link and raises
+        ``LinkValidationError``, which the outer handler must catch + log
+        rather than propagate.
+        """
+        member, email = self._make_member("swallow")
+
+        # An orphaned-by-email volunteer (member link severed) so the by-email
+        # relink path runs. That path sets
+        #   volunteer.volunteer_name = member.full_name or "{first} {last}".strip()
+        # then saves. Blank the member's name fields (a real possibility for a
+        # partially-imported/corrupt member) so volunteer_name resolves to ""
+        # and the save trips Volunteer's mandatory volunteer_name -> the outer
+        # handler must catch + log it, not propagate.
+        other, _ = self._make_member("swallow-other")
+        volunteer = self._make_volunteer(other, status="New")
+        volunteer.db_set("email", email, update_modified=False)
+        volunteer.db_set("member", None, update_modified=False)
+        volunteer.reload()
+
+        member.db_set("full_name", "", update_modified=False)
+        member.db_set("first_name", "", update_modified=False)
+        member.db_set("last_name", "", update_modified=False)
+        member.reload()
+
+        # The outer handler logs via safe_log_error (title "Volunteer activation
+        # error"); register it so the automatic tearDown check tolerates it.
+        self.expectErrorLog("Volunteer activation error")
+
+        # Must NOT raise regardless of the internal mandatory-field failure.
+        activate_volunteer_record(member)
+
+        # The volunteer was NOT activated (the relink save failed before the
+        # status flip), proving the failure path really fired.
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", volunteer.name, "status"),
+            "New",
+            "a failed relink must leave the volunteer un-activated",
         )
 
     # ============================================================ permission gate
