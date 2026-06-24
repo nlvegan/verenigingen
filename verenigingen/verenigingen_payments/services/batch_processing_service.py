@@ -70,6 +70,13 @@ class BatchProcessingService:
                     invoice_item, "Successful", "PDNG", f"Payment entry {payment_entry.name} created"
                 )
 
+                # Advance the mandate's sequence type FRST -> RCUR by marking this
+                # invoice's Pending SEPA Mandate Usage row as Collected. Only the
+                # SUCCESS branch does this: a returned/failed FRST collection must
+                # stay FRST. A missing usage row is a normal no-op (not every
+                # invoice is a SEPA collection).
+                self._mark_mandate_usage_collected(invoice_item.invoice)
+
                 success_count += 1
 
             except Exception as e:
@@ -312,6 +319,51 @@ class BatchProcessingService:
         invoice_item.db_set("status", status, update_modified=False)
         invoice_item.db_set("result_code", result_code, update_modified=False)
         invoice_item.db_set("result_message", result_message, update_modified=False)
+
+    def _mark_mandate_usage_collected(self, invoice_name: str) -> None:
+        """Mark the SEPA Mandate Usage row for a successfully-collected invoice
+        as Collected, advancing the mandate's next sequence type to RCUR.
+
+        The usage row (a child of SEPA Mandate) links to the invoice via
+        reference_name. We only touch a row still in "Pending" state. The write
+        uses db_set (no save(), no commit) so it stays inside the request
+        transaction, atomic with the Payment Entry and status writes above —
+        consistent with the surrounding post-submit tracking writes.
+
+        A missing usage row is a normal no-op: not every collected invoice is a
+        SEPA direct debit, and historical invoices may predate usage tracking.
+
+        This is best-effort and MUST NOT raise: it runs after the Payment Entry is
+        created and the invoice is marked Successful, so a propagated error would
+        hit the caller's failure branch and wrongly reclassify an already-paid
+        collection as Failed (a double-debit hazard). Any failure here is logged
+        and swallowed; the worst case is the next collection staying FRST.
+        """
+        from frappe.utils import today
+
+        try:
+            # order_by creation so the oldest Pending row is advanced first when an
+            # invoice has been retried (deterministic, not arbitrary).
+            usage_name = frappe.db.get_value(
+                "SEPA Mandate Usage",
+                {"reference_name": invoice_name, "status": "Pending"},
+                "name",
+                order_by="creation asc",
+            )
+            if not usage_name:
+                return
+
+            frappe.db.set_value(
+                "SEPA Mandate Usage",
+                usage_name,
+                {"status": "Collected", "processing_date": today()},
+                update_modified=False,
+            )
+        except Exception:
+            frappe.log_error(
+                f"Failed to mark SEPA Mandate Usage collected for invoice {invoice_name}",
+                "SEPA Mandate Usage Update Error",
+            )
 
     def _update_batch_status_after_processing(self, batch_doc, success_count: int) -> None:
         """Update batch status based on processing results.

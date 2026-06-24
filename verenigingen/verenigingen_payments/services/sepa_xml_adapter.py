@@ -23,6 +23,7 @@ from frappe.utils import get_datetime, getdate
 
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
+from verenigingen.verenigingen_payments.utils.sepa_constants import MAX_PAYMENT_INFO_ID_LENGTH
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     EnhancedSEPAXMLGenerator,
     SEPACreditor,
@@ -144,15 +145,18 @@ class SEPAXMLAdapter:
         if isinstance(collection_date, str):
             collection_date = datetime.strptime(collection_date, "%Y-%m-%d").date()
 
-        payment_info = SEPAPaymentInfo(
+        # Build one SEPAPaymentInfo per sequence type. The EPC scheme requires a
+        # PmtInf to be homogeneous in SeqTp (the generator enforces this via
+        # _validate_sequence_type_consistency), and _build_transaction already
+        # stamps each transaction with its OWN sequence_type from the per-row
+        # value. A batch mixing FRST and RCUR rows therefore needs one PmtInf per
+        # group, each carrying that group's SeqTp.
+        payment_infos = self._build_payment_infos_by_sequence_type(
+            transactions=transactions,
             payment_info_id=payment_info_id,
-            payment_method="DD",
-            batch_booking=True,
-            requested_collection_date=collection_date,
+            collection_date=collection_date,
             creditor=creditor,
             local_instrument=self._get_local_instrument(batch_doc.batch_type),
-            sequence_type=sequence_type,
-            transactions=transactions,
         )
 
         # Use the batch's stored generation timestamp (set by the generation
@@ -174,7 +178,7 @@ class SEPAXMLAdapter:
         xml_string = self.generator.generate_sepa_xml(
             message_id=message_id,
             creation_datetime=creation_datetime,
-            payment_infos=[payment_info],
+            payment_infos=payment_infos,
             initiating_party_name=settings["organization_name"],
         )
 
@@ -188,6 +192,87 @@ class SEPAXMLAdapter:
         )
 
         return xml_string
+
+    # Deterministic SeqTp ordering so regenerating the same batch yields
+    # byte-identical XML (duplicate-upload detection depends on this).
+    _SEQUENCE_TYPE_ORDER = (
+        SEPASequenceType.FRST,
+        SEPASequenceType.RCUR,
+        SEPASequenceType.FNAL,
+        SEPASequenceType.OOFF,
+    )
+
+    # Unique 1-char SeqTp suffix for multi-group PmtInfIds (FRST/FNAL both start
+    # 'F', so the mapping is explicit, not value[0]). A short suffix keeps the id
+    # within the SEPA 35-char limit with maximal headroom.
+    _SEQUENCE_TYPE_ID_SUFFIX = {
+        SEPASequenceType.FRST: "F",
+        SEPASequenceType.RCUR: "R",
+        SEPASequenceType.FNAL: "L",
+        SEPASequenceType.OOFF: "O",
+    }
+
+    def _suffix_payment_info_id(self, base_id: str, seq_type: "SEPASequenceType") -> str:
+        """Append a unique 1-char SeqTp suffix to a multi-group PmtInfId, keeping
+        it within the SEPA 35-char limit by truncating the (shared) base if needed.
+        Each group's suffix differs, so ids stay unique even after truncation."""
+        suffix = "-" + self._SEQUENCE_TYPE_ID_SUFFIX.get(seq_type, seq_type.value[:1])
+        return base_id[: MAX_PAYMENT_INFO_ID_LENGTH - len(suffix)] + suffix
+
+    def _build_payment_infos_by_sequence_type(
+        self,
+        transactions: List[SEPATransaction],
+        payment_info_id: str,
+        collection_date: date,
+        creditor: SEPACreditor,
+        local_instrument: SEPALocalInstrument,
+    ) -> List[SEPAPaymentInfo]:
+        """Group transactions by their per-row SeqTp and build one homogeneous
+        SEPAPaymentInfo per group.
+
+        A pain.008 PmtInf must be homogeneous in SeqTp, so a batch mixing FRST and
+        RCUR rows produces one PmtInf per sequence type. The generator computes
+        each PmtInf's NbOfTxs / CtrlSum from its own transactions, so grouping
+        makes the control sums correct automatically.
+
+        Byte-stability: when there is only ONE sequence-type group the original
+        ``payment_info_id`` is preserved unchanged (no suffix), so existing
+        single-sequence batches produce byte-identical XML. Only when there are
+        MULTIPLE groups does each get a unique ``{payment_info_id}-{SeqTp}`` id.
+        """
+        # Preserve insertion order within each group while grouping by SeqTp.
+        groups: Dict[SEPASequenceType, List[SEPATransaction]] = {}
+        for txn in transactions:
+            groups.setdefault(txn.sequence_type, []).append(txn)
+
+        # Emit groups in a stable, scheme-ordered sequence (FRST before RCUR ...).
+        ordered_seq_types = [s for s in self._SEQUENCE_TYPE_ORDER if s in groups]
+        # Defensive: include any sequence type not in the canonical order list.
+        ordered_seq_types += [s for s in groups if s not in ordered_seq_types]
+
+        multiple_groups = len(ordered_seq_types) > 1
+
+        payment_infos: List[SEPAPaymentInfo] = []
+        for seq_type in ordered_seq_types:
+            pi_id = (
+                self._suffix_payment_info_id(payment_info_id, seq_type)
+                if multiple_groups
+                else payment_info_id
+            )
+            payment_infos.append(
+                SEPAPaymentInfo(
+                    payment_info_id=pi_id,
+                    payment_method="DD",
+                    batch_booking=True,
+                    requested_collection_date=collection_date,
+                    creditor=creditor,
+                    local_instrument=local_instrument,
+                    sequence_type=seq_type,
+                    transactions=groups[seq_type],
+                )
+            )
+
+        return payment_infos
 
     def _handle_validation_issues(self, batch_name: str) -> None:
         """Handle validation issues based on strict mode setting."""
