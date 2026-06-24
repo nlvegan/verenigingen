@@ -268,8 +268,48 @@ class ContributionAmendmentRequest(Document):
         if not self.requested_date:
             self.requested_date = today()
 
+    def _is_privileged_amendment_user(self) -> bool:
+        """True for staff/admin/system contexts that may create amendments for any
+        member and use the auto-approval flow. False for an ordinary member acting
+        in self-service."""
+        if frappe.session.user in ("Administrator", "Guest"):
+            return frappe.session.user == "Administrator"
+        return bool(set(frappe.get_roles()) & Roles.ADMIN_ROLES)
+
+    def _enforce_member_self_service_guard(self):
+        """Security boundary for member self-service (the "Verenigingen Member"
+        role now holds create on this doctype).
+
+        A non-privileged creator may ONLY request changes for their OWN membership,
+        and such requests must always go to manual staff review -- members must not
+        be able to (a) submit on behalf of another member, nor (b) auto-approve
+        their own dues changes (e.g. a decrease to the minimum). This binds the
+        record to the caller's member and flags it as a member request regardless
+        of the values posted directly to the REST API; the Pending-Approval routing
+        is enforced in before_insert after the auto-approval decision. Privileged
+        staff/admin are unaffected and retain the auto-approval flow."""
+        if self._is_privileged_amendment_user():
+            return
+        from verenigingen.utils.member_utils import get_current_user_member_name
+
+        own_member = get_current_user_member_name()
+        if not own_member or (self.member and self.member != own_member):
+            frappe.throw(_("You can only request membership changes for your own membership."))
+        # The posted membership must also belong to the caller. Apply-time logic
+        # re-derives the membership from the member, so a mismatch is not an
+        # escalation, but reject it rather than stamp the request with another
+        # member's membership link.
+        if self.membership and frappe.db.get_value("Membership", self.membership, "member") != own_member:
+            frappe.throw(_("You can only request membership changes for your own membership."))
+        self.member = own_member
+        self.requested_by_member = 1
+
     def before_insert(self):
         """Set approval status for certain cases with enhanced rules"""
+        # SECURITY: bind member self-service submissions to the caller before any
+        # validation reads self.member / self.membership.
+        self._enforce_member_self_service_guard()
+
         # requested_date is a reqd field with a "Today" default, but that default
         # is only applied by frappe.new_doc(); documents built via
         # frappe.get_doc({...}) (the common API/test path) skip it and would fail
@@ -305,6 +345,12 @@ class ContributionAmendmentRequest(Document):
             self.status = "Pending Approval"
             self.internal_notes = "Requires manual approval due to validation issues"
 
+        # SECURITY: member self-service requests never auto-approve -- a member must
+        # not be able to approve their own dues change (e.g. a decrease to the
+        # minimum). Staff/admin-initiated requests keep the auto-approval decision.
+        if self.requested_by_member and not self._is_privileged_amendment_user():
+            self.status = "Pending Approval"
+
     def after_insert(self):
         """Handle post-insertion tasks"""
         # If this amendment was auto-approved in before_insert, cancel conflicting amendments
@@ -313,7 +359,12 @@ class ContributionAmendmentRequest(Document):
 
             approval_service = ContributionAmendmentApprovalService(self)
             approval_service.cancel_conflicting_amendments()
-            self.save()
+            # Security: system bookkeeping after an auto-approval persists the
+            # approved status. It runs regardless of who submitted the request;
+            # member self-service submissions are create-only (and are forced to
+            # Pending Approval above, so they never reach here), so this must not
+            # be gated on the submitting user's write permission.
+            self.save(ignore_permissions=True)
 
     def on_update(self):
         """Handle status changes and trigger Mollie sync when applicable.

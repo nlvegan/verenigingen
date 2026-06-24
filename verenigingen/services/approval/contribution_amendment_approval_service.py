@@ -639,7 +639,12 @@ class ContributionAmendmentApprovalService(StatefulService):
                     ) + f"\nCancelled due to approval of newer amendment {self.request.name}"
                     amendment.status = "Cancelled"
                     amendment.flags.ignore_validate_update_after_submit = True
-                    amendment.save()
+                    # Cancelling a conflicting amendment is system bookkeeping in
+                    # the approval workflow; the cancellation set is already scoped
+                    # to the request's own member.
+                    # Security: may be triggered by a member self-service submission
+                    # (create-only permission); must not depend on submitter write.
+                    amendment.save(ignore_permissions=True)
                     cancelled_count += 1
 
             except Exception as e:

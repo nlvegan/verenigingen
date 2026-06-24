@@ -169,6 +169,10 @@
     {
       "read": 1,
       "role": "Verenigingen Webhook User"
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Member"
     }
   ],
   "quick_entry": 1,

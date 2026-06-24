@@ -264,34 +264,50 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
 
     # ---- submit_fee_adjustment_request: happy + branch throws -----------
 
-    def test_submit_fee_adjustment_member_lacks_create_permission(self):
-        """CHARACTERIZATION + BUG FLAG (same root cause as the type-change endpoint):
-        a plain "Verenigingen Member" portal user cannot create a Contribution
-        Amendment Request (no create perm, cannot escalate), so the secure-op denial
-        is caught and surfaced as a structured failure -- NO amendment is created.
-        The self-service fee-adjustment endpoint is therefore unusable for ordinary
-        members -- flagged for the orchestrator.
+    def test_submit_fee_adjustment_member_creates_amendment(self):
+        """HAPPY PATH: a "Verenigingen Member" can self-service a fee adjustment.
+        Members hold create + if_owner on Contribution Amendment Request, so the
+        secure-op runs as the member and creates the request owned by them.
+        new_amount=75.0 clears both the min-fee gate (effective minimum ~EUR 30)
+        and the "same as current amount" guard.
 
-        new_amount=75.0 clears both the min-fee gate (effective minimum ~EUR 30) and
-        the "same as current amount" guard, so execution genuinely reaches the
-        secure-op denial branch -- which returns the failure dict, it does not raise.
+        SECURITY: a member request must always land in Pending Approval -- the
+        controller guard forbids members from auto-approving their own changes.
         """
         member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
         original_user = frappe.session.user
         try:
             frappe.set_user(email)
-            # The secure-op denial path logs an Error Log row; expect it.
-            self.expectErrorLog("Fee Adjustment Security", "Secure Operation Failed")
             result = membership_adjustment.submit_fee_adjustment_request(
                 new_amount=75.0, reason="I want to contribute more"
             )
         finally:
             frappe.set_user(original_user)
-        # The secure-op denial is caught and surfaced as a structured failure
-        # (no amendment is created). No happy path is reachable for plain members.
-        self.assertFalse(result.get("success"))
-        self.assertTrue(result.get("permission_error"))
-        self.assertNotIn("amendment_id", result)
+        self.assertTrue(result.get("success"), msg=result)
+        self.assertNotIn("permission_error", result)
+        self.assertIn("amendment_id", result)
+        car = frappe.get_doc("Contribution Amendment Request", result["amendment_id"])
+        self.assertEqual(car.member, member.name)
+        self.assertEqual(car.requested_by_member, 1)
+        self.assertEqual(car.owner, email)
+        self.assertEqual(car.status, "Pending Approval")
+
+    def test_submit_fee_adjustment_member_decrease_requires_approval(self):
+        """SECURITY (C1 guard): a member cannot auto-approve a fee DECREASE to the
+        minimum -- it must route to manual staff review, not self-approve."""
+        member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            result = membership_adjustment.submit_fee_adjustment_request(
+                new_amount=30.0, reason="reducing my contribution"
+            )
+        finally:
+            frappe.set_user(original_user)
+        self.assertTrue(result.get("success"), msg=result)
+        car = frappe.get_doc("Contribution Amendment Request", result["amendment_id"])
+        self.assertEqual(car.status, "Pending Approval")
+        self.assertNotEqual(car.status, "Approved")
 
     def test_submit_fee_adjustment_same_amount_no_change(self):
         """Requesting the current fee returns no_change without creating a request."""
@@ -352,28 +368,29 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
 
     # ---- submit_membership_type_change_request --------------------------
 
-    def test_submit_type_change_member_lacks_create_permission(self):
-        """CHARACTERIZATION + BUG FLAG (same root cause as the fee-adjustment
-        endpoint): a plain "Verenigingen Member" cannot create the Contribution
-        Amendment Request, so the secure-op denial bubbles up and the endpoint
-        re-raises a generic ValidationError. Type-change self-service is therefore
-        also unusable for ordinary members. Flagged for the orchestrator."""
+    def test_submit_type_change_member_creates_amendment(self):
+        """HAPPY PATH: a "Verenigingen Member" can self-service a membership type
+        change. Members hold create + if_owner on Contribution Amendment Request,
+        so the secure-op runs as the member and creates a Pending Approval request
+        owned by them (all type changes require staff approval)."""
         member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
         target = self.create_test_membership_type(membership_type_name="UpgradePlan", minimum_amount=25.0)
         original_user = frappe.session.user
         try:
             frappe.set_user(email)
-            self.expectErrorLog("Membership Type Change Security", "Secure Operation Failed")
             result = membership_adjustment.submit_membership_type_change_request(
                 new_membership_type=target.name, reason="upgrading my support"
             )
         finally:
             frappe.set_user(original_user)
-        # The secure-op denial is caught and surfaced as a structured failure
-        # (no amendment is created). No happy path is reachable for plain members.
-        self.assertFalse(result.get("success"))
-        self.assertTrue(result.get("permission_error"))
-        self.assertNotIn("amendment_id", result)
+        self.assertTrue(result.get("success"), msg=result)
+        self.assertNotIn("permission_error", result)
+        self.assertIn("amendment_id", result)
+        car = frappe.get_doc("Contribution Amendment Request", result["amendment_id"])
+        self.assertEqual(car.member, member.name)
+        self.assertEqual(car.requested_by_member, 1)
+        self.assertEqual(car.owner, email)
+        self.assertEqual(car.status, "Pending Approval")
 
     def test_submit_type_change_missing_reason_throws(self):
         """A blank reason is rejected for type changes."""
