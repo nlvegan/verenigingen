@@ -186,6 +186,33 @@ class TestCategorizeErrorParity(EnhancedTestCase):
         # categorized by the keyword (type is irrelevant either way).
         self.assertEqual(self.handler.categorize_error(ValueError("missing thing")), "validation")
 
+    def test_mixed_shared_and_legacy_keywords_return_legacy_category(self):
+        """Messages that mix a shared-classifier keyword with a legacy keyword must
+        return the LEGACY category, not "unknown".
+
+        The prior refactor delegated to classify_error then applied an override
+        layer.  For messages like "invalid deadlock" the shared classifier mapped
+        "deadlock" -> TRANSIENT -> "temporary", but the override layer found no
+        TEMPORARY legacy keyword in the message and fell back to "unknown".  The
+        correct keyword-iteration behavior is: "invalid" matches first under
+        "validation" -> return "validation".
+
+        Pinning these four cases as a regression guard.
+        """
+        cases = [
+            # legacy keyword + shared-only keyword -> legacy category wins
+            ("invalid deadlock", "validation"),
+            ("duplicate resource", "validation"),
+            ("permission lock wait", "authorization"),
+            ("not found limit exceeded", "data"),
+        ]
+        for msg, expected in cases:
+            self.assertEqual(
+                self.handler.categorize_error(Exception(msg)),
+                expected,
+                f"categorize_error({msg!r}) should be {expected!r}",
+            )
+
 
 class TestCalculateDelayParity(EnhancedTestCase):
     """Pin exact calculate_delay outputs under a fixed RNG (attempts 0..4).

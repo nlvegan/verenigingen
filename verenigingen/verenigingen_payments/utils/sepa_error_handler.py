@@ -13,24 +13,6 @@ from frappe.utils import cstr, now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
-from verenigingen.verenigingen_payments.utils.shared.error_classification import (
-    FailureCategory,
-    classify_error,
-)
-
-# Map the shared FailureCategory enum back to this module's legacy string
-# taxonomy ("temporary"/"validation"/"authorization"/"data"/"unknown"). The
-# shared classifier has no concept of this module's "temporary" bucket, so both
-# TRANSIENT and RESOURCE collapse to "temporary"; BUSINESS/SYSTEM -> "unknown".
-_CATEGORY_TO_LEGACY = {
-    FailureCategory.TRANSIENT: "temporary",
-    FailureCategory.RESOURCE: "temporary",
-    FailureCategory.VALIDATION: "validation",
-    FailureCategory.AUTHORIZATION: "authorization",
-    FailureCategory.DATA: "data",
-    FailureCategory.BUSINESS: "unknown",
-    FailureCategory.SYSTEM: "unknown",
-}
 
 
 class SEPAErrorHandler:
@@ -84,27 +66,19 @@ class SEPAErrorHandler:
     def categorize_error(self, error: Exception) -> str:
         """Categorize error for appropriate handling strategy.
 
-        Delegates classification to the shared ``classify_error`` helper and maps
-        the result back to this module's legacy string taxonomy.
+        Iterates ``self.error_categories`` in insertion order and returns the
+        first category whose keyword list contains a match against the lower-cased
+        error message.  Falls back to ``"unknown"`` when no keyword matches.
 
-        PARITY NOTE: this module's historical taxonomy is keyword-ONLY and uses a
-        NARROWER keyword set than the shared classifier (e.g. it has no
-        "deadlock"/"limit exceeded" keywords and no isinstance handling). The
-        shared classifier is a superset, so it can map an input to a non-"unknown"
-        category that the legacy keyword set would have left as "unknown" (e.g.
-        ``ValueError("x")`` -> VALIDATION in the shared classifier, but "unknown"
-        here). To preserve exact behavior we re-check the legacy keyword set for
-        the mapped category and fall back to "unknown" when no legacy keyword
-        actually matched the message.
+        This is a keyword-only lookup — exception types are not inspected.
         """
         error_message = str(error).lower()
 
-        mapped = _CATEGORY_TO_LEGACY[classify_error(error)]
-        if mapped != "unknown":
-            legacy_keywords = self.error_categories.get(mapped, ())
-            if not any(keyword in error_message for keyword in legacy_keywords):
-                return "unknown"
-        return mapped
+        for category, keywords in self.error_categories.items():
+            if any(keyword in error_message for keyword in keywords):
+                return category
+
+        return "unknown"
 
     def should_retry(self, error: Exception, attempt: int) -> bool:
         """Determine if operation should be retried based on error type and attempt count"""
