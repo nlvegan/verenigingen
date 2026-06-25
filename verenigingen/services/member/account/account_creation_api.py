@@ -594,7 +594,7 @@ def queue_bulk_account_creation_for_members(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def process_bulk_account_creation_batch(
-    request_names: str, batch_id: str, batch_number: int, tracker_name: str, remaining_batches=None
+    request_names: list, batch_id: str, batch_number: int, tracker_name: str, remaining_batches=None
 ):
     """
     Process a batch of account creation requests with parallel processing and enhanced error handling.
