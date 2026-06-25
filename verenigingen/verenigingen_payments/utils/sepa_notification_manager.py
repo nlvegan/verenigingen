@@ -25,6 +25,9 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
+from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
+from verenigingen.verenigingen_payments.utils.shared.severity import PriorityLevel
 
 
 class NotificationType(Enum):
@@ -42,13 +45,11 @@ class NotificationType(Enum):
     SYSTEM_ERROR = "system_error"
 
 
-class NotificationPriority(Enum):
-    """Notification priority levels"""
-
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+# Notification priority levels are now defined canonically in shared/severity.py
+# (preserving the exact "low"/"medium"/"high"/"critical" string values used by
+# whitelisted endpoints and tests). Alias keeps the historical name and type
+# identity for isinstance checks and ``NotificationPriority(value)`` round-trips.
+NotificationPriority = PriorityLevel
 
 
 class NotificationChannel(Enum):
@@ -107,11 +108,18 @@ class SEPANotificationManager:
         self._ensure_notification_tables()
 
     def _ensure_notification_tables(self):
-        """Ensure notification tracking tables exist"""
+        """Ensure notification tracking tables exist.
+
+        NOTE (R5 consolidation): intentionally NOT routed through the shared
+        ``ensure_table_exists`` helper. ``CREATE TABLE`` is DDL; instantiating the
+        manager mid-transaction raises ``ImplicitCommitError`` here, and
+        ``ensure_table_exists`` rolls back on error (discarding the caller's
+        pending writes). The original swallow-without-rollback is required for
+        parity, so the inline blocks stay.
+        """
         try:
             # Notification log table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Log` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -133,12 +141,10 @@ class SEPANotificationManager:
                     INDEX `idx_delivery_status` (`delivery_status`),
                     INDEX `idx_creation` (`creation`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             # Notification preferences table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Preferences` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -151,8 +157,7 @@ class SEPANotificationManager:
                     UNIQUE KEY `unique_user_type` (`user_email`, `notification_type`),
                     INDEX `idx_user_email` (`user_email`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             frappe.db.commit()
 
@@ -467,36 +472,29 @@ Generated at: {timestamp}
             return False
 
     def _get_rule_recipients(self, rule: NotificationRule) -> List[str]:
-        """Get recipients for a notification rule"""
-        recipients = []
+        """Get recipients for a notification rule.
 
+        Recipient *groups* ("sepa_administrators" / "system_managers") resolve to
+        the enabled, non-empty emails of users holding the corresponding role via
+        the shared resolver. Any entry that is a literal email address is merged in
+        directly (the rule's direct-email behavior is preserved).
+        """
+        group_roles = {
+            "sepa_administrators": Roles.VERENIGINGEN_ADMIN,
+            "system_managers": Roles.SYSTEM_MANAGER,
+        }
+
+        roles_to_resolve = []
+        direct_emails = []
         for recipient_group in rule.recipients:
-            if recipient_group == "sepa_administrators":
-                # Get users with SEPA admin roles
-                sepa_admins = frappe.get_all(
-                    "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, fields=["parent"]
-                )
-                for admin in sepa_admins:
-                    user = frappe.get_doc("User", admin.parent)
-                    if user.email and user.enabled:
-                        recipients.append(user.email)
+            if recipient_group in group_roles:
+                roles_to_resolve.append(group_roles[recipient_group])
+            elif "@" in recipient_group:
+                direct_emails.append(recipient_group)
 
-            elif recipient_group == "system_managers":
-                # Get system managers
-                sys_managers = frappe.get_all(
-                    "Has Role", filters={"role": Roles.SYSTEM_MANAGER}, fields=["parent"]
-                )
-                for manager in sys_managers:
-                    user = frappe.get_doc("User", manager.parent)
-                    if user.email and user.enabled:
-                        recipients.append(user.email)
-
-            else:
-                # Direct email address
-                if "@" in recipient_group:
-                    recipients.append(recipient_group)
-
-        return list(set(recipients))  # Remove duplicates
+        recipients = set(get_recipients_by_roles(roles_to_resolve))
+        recipients.update(direct_emails)
+        return list(recipients)  # Remove duplicates
 
     def _render_notification(self, template: NotificationTemplate, context: Dict[str, Any]) -> Dict[str, Any]:
         """Render notification content using template"""
@@ -665,18 +663,13 @@ Generated at: {timestamp}
     ):
         """Log notification to database"""
         try:
-            frappe.db.sql(
-                """
-                INSERT INTO `tabSEPA_Notification_Log`
-                (name, creation, modified, notification_id, notification_type, priority,
-                 channels, recipients, subject, message, context, delivery_status)
-                VALUES (%(name)s, %(now)s, %(now)s, %(notification_id)s, %(notification_type)s,
-                        %(priority)s, %(channels)s, %(recipients)s, %(subject)s, %(message)s,
-                        %(context)s, 'pending')
-            """,
+            timestamp = now()
+            insert_audit_row(
+                "tabSEPA_Notification_Log",
                 {
                     "name": f"NOTIF_LOG_{notification_id}",
-                    "now": now(),
+                    "creation": timestamp,
+                    "modified": timestamp,
                     "notification_id": notification_id,
                     "notification_type": template.notification_type.value,
                     "priority": priority.value,
@@ -685,10 +678,9 @@ Generated at: {timestamp}
                     "subject": content["subject"],
                     "message": content["message"],
                     "context": frappe.as_json(context),
+                    "delivery_status": "pending",
                 },
             )
-
-            frappe.db.commit()
 
         except Exception as e:
             frappe.logger().error(f"Error logging notification: {str(e)}")

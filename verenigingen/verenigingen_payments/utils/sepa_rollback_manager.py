@@ -23,6 +23,8 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
+from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
 
 class RollbackReason(Enum):
@@ -123,11 +125,22 @@ class SEPARollbackManager:
         self._ensure_rollback_tables()
 
     def _ensure_rollback_tables(self):
-        """Ensure rollback tracking tables exist"""
+        """Ensure rollback tracking tables exist.
+
+        NOTE (R5 consolidation): intentionally NOT routed through the shared
+        ``ensure_table_exists`` helper. ``CREATE TABLE`` is DDL; when the manager
+        is instantiated while the caller (e.g. a test or a request) already holds
+        pending writes, Frappe raises ``ImplicitCommitError`` here. The original
+        code swallows that and leaves the pending transaction intact, whereas
+        ``ensure_table_exists`` calls ``frappe.db.rollback()`` on error -- which
+        discards those pending writes (observed: the batch created just before
+        ``initiate_batch_rollback`` becomes invisible to ``_get_batch_info``).
+        The swallow-without-rollback behavior is required for parity, so the
+        inline blocks stay.
+        """
         try:
             # Create rollback operations table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Rollback_Operation` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -153,12 +166,10 @@ class SEPARollbackManager:
                     INDEX `idx_initiated_at` (`initiated_at`),
                     INDEX `idx_status` (`status`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             # Create compensation transactions table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Compensation_Transaction` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -181,12 +192,10 @@ class SEPARollbackManager:
                     INDEX `idx_original_invoice` (`original_invoice`),
                     INDEX `idx_created_at` (`created_at`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             # Create audit trail table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Rollback_Audit` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -202,8 +211,7 @@ class SEPARollbackManager:
                     INDEX `idx_timestamp` (`timestamp`),
                     INDEX `idx_action` (`action`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             frappe.db.commit()
 
@@ -358,21 +366,16 @@ class SEPARollbackManager:
     def _save_rollback_operation(self, operation: RollbackOperation, metadata: Dict[str, Any]):
         """Save rollback operation to database"""
         try:
-            frappe.db.sql(
-                """
-                INSERT INTO `tabSEPA_Rollback_Operation`
-                (name, creation, modified, modified_by, owner, operation_id, batch_name,
-                 reason, scope, initiated_by, initiated_at, affected_invoices,
-                 affected_members, total_amount, status, metadata)
-                VALUES (%(name)s, %(now)s, %(now)s, %(user)s, %(user)s, %(operation_id)s,
-                        %(batch_name)s, %(reason)s, %(scope)s, %(initiated_by)s, %(initiated_at)s,
-                        %(affected_invoices)s, %(affected_members)s, %(total_amount)s,
-                        %(status)s, %(metadata)s)
-            """,
+            timestamp = now()
+            user = frappe.session.user if frappe.session else "system"
+            insert_audit_row(
+                "tabSEPA_Rollback_Operation",
                 {
                     "name": f"ROLLBACK_OP_{operation.operation_id}",
-                    "now": now(),
-                    "user": frappe.session.user if frappe.session else "system",
+                    "creation": timestamp,
+                    "modified": timestamp,
+                    "modified_by": user,
+                    "owner": user,
                     "operation_id": operation.operation_id,
                     "batch_name": operation.batch_name,
                     "reason": operation.reason.value,
@@ -386,8 +389,6 @@ class SEPARollbackManager:
                     "metadata": frappe.as_json(metadata),
                 },
             )
-
-            frappe.db.commit()
 
         except Exception as e:
             frappe.logger().error(f"Error saving rollback operation: {str(e)}")
@@ -720,20 +721,16 @@ class SEPARollbackManager:
             )
 
             # Save to database
-            frappe.db.sql(
-                """
-                INSERT INTO `tabSEPA_Compensation_Transaction`
-                (name, creation, modified, modified_by, owner, transaction_id, operation_id,
-                 action_type, original_invoice, original_amount, compensation_amount,
-                 reason, status, created_at)
-                VALUES (%(name)s, %(now)s, %(now)s, %(user)s, %(user)s, %(transaction_id)s,
-                        %(operation_id)s, %(action_type)s, %(original_invoice)s, %(original_amount)s,
-                        %(compensation_amount)s, %(reason)s, %(status)s, %(created_at)s)
-            """,
+            timestamp = now()
+            user = frappe.session.user if frappe.session else "system"
+            insert_audit_row(
+                "tabSEPA_Compensation_Transaction",
                 {
                     "name": f"COMP_TXN_{transaction_id}",
-                    "now": now(),
-                    "user": frappe.session.user if frappe.session else "system",
+                    "creation": timestamp,
+                    "modified": timestamp,
+                    "modified_by": user,
+                    "owner": user,
                     "transaction_id": transaction_id,
                     "operation_id": operation_id,
                     "action_type": action.value,
@@ -842,19 +839,16 @@ class SEPARollbackManager:
             request = getattr(frappe.local, "request", None)
             ip_address = request.environ.get("REMOTE_ADDR") if request else None
 
-            frappe.db.sql(
-                """
-                INSERT INTO `tabSEPA_Rollback_Audit`
-                (name, creation, modified, entry_id, operation_id, timestamp, action, details, user, system_info)
-                VALUES (%(name)s, %(now)s, %(now)s, %(entry_id)s, %(operation_id)s, %(timestamp)s,
-                        %(action)s, %(details)s, %(user)s, %(system_info)s)
-            """,
+            timestamp = now()
+            insert_audit_row(
+                "tabSEPA_Rollback_Audit",
                 {
                     "name": f"AUDIT_{entry_id}",
-                    "now": now(),
+                    "creation": timestamp,
+                    "modified": timestamp,
                     "entry_id": entry_id,
                     "operation_id": operation_id,
-                    "timestamp": now(),
+                    "timestamp": timestamp,
                     "action": action,
                     "details": frappe.as_json(details),
                     "user": frappe.session.user if frappe.session else "system",
@@ -944,34 +938,14 @@ class SEPARollbackManager:
             frappe.logger().error(f"Error sending rollback notifications: {str(e)}")
 
     def _get_notification_recipients(self, reason: RollbackReason) -> List[str]:
-        """Get notification recipients based on rollback reason"""
+        """Get notification recipients based on rollback reason.
+
+        Resolves the enabled, non-empty emails of users holding the SEPA
+        management roles (System Manager / Verenigingen Administrator) via the
+        shared resolver.
+        """
         try:
-            # Get users with SEPA management roles
-            recipients = []
-
-            # System Managers
-            system_managers = frappe.get_all(
-                "Has Role", filters={"role": Roles.SYSTEM_MANAGER}, fields=["parent"]
-            )
-            recipients.extend([sm.parent for sm in system_managers])
-
-            # Verenigingen Administrators
-            admin_users = frappe.get_all(
-                "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, fields=["parent"]
-            )
-            recipients.extend([au.parent for au in admin_users])
-
-            # Remove duplicates and filter for valid email addresses
-            unique_recipients = list(set(recipients))
-            valid_recipients = []
-
-            for recipient in unique_recipients:
-                user = frappe.get_doc("User", recipient)
-                if user.email and user.enabled:
-                    valid_recipients.append(user.email)
-
-            return valid_recipients
-
+            return get_recipients_by_roles([Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
         except Exception as e:
             frappe.logger().warning(f"Error getting notification recipients: {str(e)}")
             return []
