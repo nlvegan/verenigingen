@@ -119,8 +119,7 @@ class SEPANotificationManager:
         """
         try:
             # Notification log table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Log` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -142,12 +141,10 @@ class SEPANotificationManager:
                     INDEX `idx_delivery_status` (`delivery_status`),
                     INDEX `idx_creation` (`creation`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             # Notification preferences table
-            frappe.db.sql(
-                """
+            frappe.db.sql("""
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Preferences` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -160,8 +157,7 @@ class SEPANotificationManager:
                     UNIQUE KEY `unique_user_type` (`user_email`, `notification_type`),
                     INDEX `idx_user_email` (`user_email`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-            )
+            """)
 
             frappe.db.commit()
 
