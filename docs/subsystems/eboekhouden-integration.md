@@ -130,13 +130,11 @@ Quality is maintained at multiple stages:
 
 ### Other Utilities
 
-- `configurable_account_mapper.py`, `account_type_validator.py`
-- `eboekhouden_smart_account_typing.py` -- Intelligent account type inference
-- `bank_transaction_parser.py`, `bank_transaction_analysis.py`, `bank_transaction_summary.py`
-- `payment_processing/overpayment_detector.py`
+- `configurable_account_mapper.py`
+- `bank_transaction_parser.py`
 - `eboekhouden_payment_mapping.py`, `eboekhouden_payment_naming.py`, `eboekhouden_payment_import.py`
-- `create_eboekhouden_custom_fields.py`, `data_quality_utils.py`, `data_integrity.py`
-- `error_handling_framework.py`, `invoice_classifier.py`, `party_extractor.py`
+- `create_eboekhouden_custom_fields.py`, `data_integrity.py`
+- `invoice_classifier.py`, `party_extractor.py`
 
 ## Account Mapping Configuration
 
