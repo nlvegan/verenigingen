@@ -191,7 +191,7 @@ class PaymentReconciliationManager:
 
         # Look for batch reference in transaction description
         batch_pattern = r"BATCH-([A-Z0-9-]+)"
-        match = re.search(batch_pattern, transaction.get("description", ""))
+        match = re.search(batch_pattern, transaction.get("description") or "")
 
         if match:
             batch_ref = match.group(1)
@@ -217,7 +217,9 @@ class PaymentReconciliationManager:
         """Match transaction by amount and reference number"""
 
         amount = self._safe_decimal(transaction.get("deposit", 0))
-        reference = transaction.get("reference_number", "").strip()
+        # frappe.get_all returns the key present with value None for NULL columns,
+        # so the "" default never applies -- guard with `or ""` before .strip().
+        reference = (transaction.get("reference_number") or "").strip()
 
         if not amount or not reference:
             return None
@@ -279,7 +281,7 @@ class PaymentReconciliationManager:
     def match_by_description(self, transaction):
         """Match transaction by description patterns"""
 
-        description = transaction.get("description", "").upper()
+        description = (transaction.get("description") or "").upper()
 
         # Common patterns in SEPA descriptions
         patterns = [
@@ -370,7 +372,7 @@ class PaymentReconciliationManager:
         if not amount:
             return None
 
-        description = transaction.get("description", "").lower()
+        description = (transaction.get("description") or "").lower()
 
         # Look for Mollie indicators in description
         mollie_keywords = ["mollie", "settlement", "payout"]
@@ -983,8 +985,8 @@ class PaymentReconciliationManager:
         if metadata.get("invoice_id"):
             return metadata["invoice_id"]
 
-        # Check description for invoice patterns
-        description = payment.get("description", "")
+        # Check description for invoice patterns (guard against a NULL description)
+        description = payment.get("description") or ""
         import re
 
         # Look for invoice patterns like "SI-2024-001" or "Invoice: SI-2024-001"

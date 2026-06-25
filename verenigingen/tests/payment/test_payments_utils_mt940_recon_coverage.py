@@ -219,3 +219,19 @@ class TestReconciliationManagerConstructionAndSummary(EnhancedTestCase):
         )
         # Only the in-window transaction is considered; the Jan one is dropped.
         self.assertEqual(result["total_transactions"], 1)
+
+    def test_match_transaction_tolerates_null_reference_and_description(self):
+        # Regression guard: a Bank Transaction with NULL reference_number /
+        # description (the common case -- _make_bank_txn sets neither) used to crash
+        # the matching strategies. frappe.get_all returns those keys present with
+        # value None, so `transaction.get("reference_number", "").strip()` (and the
+        # description .upper()/.lower() siblings) raised AttributeError on None.
+        # reconcile_bank_transactions -> match_transaction must run end-to-end and
+        # simply leave the transaction unmatched.
+        self._make_bank_txn("1991-03-15")
+        result = self._manager().reconcile_bank_transactions(
+            from_date="1991-01-01", to_date="1991-12-31"
+        )
+        self.assertEqual(result["total_transactions"], 1)
+        self.assertEqual(result["matched"], 0)
+        self.assertEqual(result["unmatched"], 1)
