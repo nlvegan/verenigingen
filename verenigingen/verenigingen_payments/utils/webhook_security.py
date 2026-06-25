@@ -5,13 +5,13 @@ Provides secure webhook signature verification to ensure webhook requests
 actually originate from Mollie and prevent malicious attacks.
 """
 
-import hashlib
 import hmac
 from typing import Optional
 
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+from verenigingen.verenigingen_payments.utils.shared.responses import compute_hmac_signature
 
 
 class WebhookAuthenticationError(frappe.ValidationError):
@@ -126,9 +126,7 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
 
     try:
         # Create expected signature using webhook secret
-        expected_signature = hmac.new(
-            webhook_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
+        expected_signature = compute_hmac_signature(webhook_secret, payload)
 
         # Mollie sends signature in format "sha256=<hash>"
         expected_signature_header = f"sha256={expected_signature}"
@@ -233,9 +231,7 @@ def test_webhook_signature_verification():
             return {"error": "Webhook secret not configured"}
 
         # Create test signature
-        test_signature = hmac.new(
-            webhook_secret.encode("utf-8"), test_payload.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
+        test_signature = compute_hmac_signature(webhook_secret, test_payload)
 
         test_signature_header = f"sha256={test_signature}"
 

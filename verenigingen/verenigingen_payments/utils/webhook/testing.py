@@ -22,15 +22,16 @@ Usage:
     assert helper.verify_idempotency(payload)
 """
 
-import hashlib
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 import frappe
+
+from verenigingen.verenigingen_payments.utils.shared.responses import compute_hmac_signature
 
 from .logging import compute_webhook_hash, is_duplicate_webhook
 
@@ -164,6 +165,42 @@ class WebhookTestHelper(ABC):
         payload_str = json.dumps(payload, sort_keys=True)
         return is_duplicate_webhook(event_id, payload_str)
 
+    def _handle_duplicate(
+        self,
+        event_id: str,
+        payload: Dict[str, Any],
+        start_time: float,
+        response: Optional[Dict[str, Any]] = None,
+    ) -> Optional["WebhookTestResult"]:
+        """
+        Return a duplicate WebhookTestResult if the event was already processed.
+
+        Callers pass their event_id and payload; if a duplicate is detected,
+        this method builds and returns the standardised idempotent result.
+        If no duplicate is detected, returns None so the caller can continue.
+
+        Args:
+            event_id: The event/webhook identifier
+            payload: The full payload
+            start_time: Wall-clock time captured at the start of simulate_webhook_call
+            response: Optional custom response dict; defaults to {"status": "duplicate"}
+
+        Returns:
+            WebhookTestResult (idempotent=True) if duplicate, else None
+        """
+        import time
+
+        if not self.is_duplicate(event_id, payload):
+            return None
+
+        return WebhookTestResult(
+            success=True,
+            status_code=200,
+            response=response if response is not None else {"status": "duplicate"},
+            idempotent=True,
+            duration_ms=(time.time() - start_time) * 1000,
+        )
+
     def cleanup_test_data(self):
         """Clean up any test data created during testing."""
         # Override in subclasses if needed
@@ -238,6 +275,7 @@ class MollieWebhookTestHelper(WebhookTestHelper):
             Base64-encoded HMAC-SHA256 signature
         """
         import base64
+        import hashlib
         import hmac
 
         payload_str = json.dumps(payload, separators=(",", ":"), sort_keys=True)
@@ -271,14 +309,14 @@ class MollieWebhookTestHelper(WebhookTestHelper):
             payment_id = payload.get("id")
 
             # Check for duplicate
-            if self.is_duplicate(payment_id, payload):
-                return WebhookTestResult(
-                    success=True,
-                    status_code=200,
-                    response={"status": "duplicate", "message": "Already processed"},
-                    idempotent=True,
-                    duration_ms=(time.time() - start_time) * 1000,
-                )
+            dup = self._handle_duplicate(
+                payment_id,
+                payload,
+                start_time,
+                response={"status": "duplicate", "message": "Already processed"},
+            )
+            if dup is not None:
+                return dup
 
             # Mock the Mollie API response
             test_data = next(
@@ -425,14 +463,9 @@ class PontoWebhookTestHelper(WebhookTestHelper):
             event_id = payload.get("data", {}).get("id", "unknown")
 
             # Check for duplicate
-            if self.is_duplicate(event_id, payload):
-                return WebhookTestResult(
-                    success=True,
-                    status_code=200,
-                    response={"status": "duplicate"},
-                    idempotent=True,
-                    duration_ms=(time.time() - start_time) * 1000,
-                )
+            dup = self._handle_duplicate(event_id, payload, start_time)
+            if dup is not None:
+                return dup
 
             # Simulate processing
             result = {
@@ -507,17 +540,10 @@ class INGCheckoutWebhookTestHelper(WebhookTestHelper):
             secret: The webhook secret
 
         Returns:
-            HMAC-SHA256 signature
+            HMAC-SHA256 signature (hex digest)
         """
-        import hmac
-
         payload_str = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-        signature = hmac.new(
-            secret.encode("utf-8"),
-            payload_str.encode("utf-8"),
-            hashlib.sha256,
-        )
-        return signature.hexdigest()
+        return compute_hmac_signature(secret, payload_str)
 
     def simulate_webhook_call(
         self,
@@ -542,14 +568,9 @@ class INGCheckoutWebhookTestHelper(WebhookTestHelper):
             order_id = payload.get("order_id", "unknown")
 
             # Check for duplicate
-            if self.is_duplicate(order_id, payload):
-                return WebhookTestResult(
-                    success=True,
-                    status_code=200,
-                    response={"status": "duplicate"},
-                    idempotent=True,
-                    duration_ms=(time.time() - start_time) * 1000,
-                )
+            dup = self._handle_duplicate(order_id, payload, start_time)
+            if dup is not None:
+                return dup
 
             # Simulate processing
             result = {

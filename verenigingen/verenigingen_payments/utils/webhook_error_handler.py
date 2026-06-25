@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe.utils import now
 
+from verenigingen.verenigingen_payments.utils.shared.responses import ResponseBuilder
+
 
 class WebhookErrorHandler:
     """Centralized error handling for webhook operations"""
@@ -53,55 +55,57 @@ class WebhookErrorHandler:
             )
 
     def handle_validation_error(self, error_message: str, details: Optional[Dict] = None) -> Dict[str, Any]:
-        """Handle validation errors with structured response"""
+        """Handle validation errors with structured response."""
         self.log_warning(f"Validation failed: {error_message}", details)
-        return {
-            "status": "validation_error",
-            "message": error_message,
-            "correlation_id": self.correlation_id,
-            "timestamp": now(),
-            "details": details or {},
-        }
+        response = ResponseBuilder.error(error_message, status="validation_error", details=details or {})
+        # The original dict never included error_code; keep the shape identical.
+        response.pop("error_code", None)
+        response["correlation_id"] = self.correlation_id
+        response["timestamp"] = now()
+        return response
 
     def handle_business_logic_error(
         self, error_message: str, exception: Optional[Exception] = None, details: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """Handle business logic errors with structured response"""
+        """Handle business logic errors with structured response."""
         self.log_error(f"Business logic error: {error_message}", exception, details)
-        return {
-            "status": "business_error",
-            "message": error_message,
-            "correlation_id": self.correlation_id,
-            "timestamp": now(),
-            "details": details or {},
-        }
+        response = ResponseBuilder.error(error_message, status="business_error", details=details or {})
+        # The original dict never included error_code; keep the shape identical.
+        response.pop("error_code", None)
+        response["correlation_id"] = self.correlation_id
+        response["timestamp"] = now()
+        return response
 
     def handle_system_error(
         self, error_message: str, exception: Optional[Exception] = None, details: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """Handle system/technical errors with structured response"""
+        """Handle system/technical errors with structured response."""
         self.log_error(f"System error: {error_message}", exception, details)
-        return {
-            "status": "system_error",
-            "message": "Internal processing error occurred",
-            "correlation_id": self.correlation_id,
-            "timestamp": now(),
-            # Don't expose internal details in the response for security
-            "internal_message": error_message if frappe.conf.get("developer_mode") else None,
-        }
+        response = ResponseBuilder.error("Internal processing error occurred", status="system_error")
+        response["correlation_id"] = self.correlation_id
+        response["timestamp"] = now()
+        # Don't expose internal details in the response for security
+        response["internal_message"] = error_message if frappe.conf.get("developer_mode") else None
+        # Remove the error_code/details keys that ResponseBuilder adds but the original dict never had
+        response.pop("error_code", None)
+        response.pop("details", None)
+        return response
 
     def handle_external_api_error(
         self, api_name: str, error_message: str, exception: Optional[Exception] = None
     ) -> Dict[str, Any]:
-        """Handle external API errors (like Mollie API failures)"""
+        """Handle external API errors (like Mollie API failures)."""
         self.log_error(f"{api_name} API error: {error_message}", exception, {"api": api_name})
-        return {
-            "status": "external_api_error",
-            "message": f"External service ({api_name}) error occurred",
-            "correlation_id": self.correlation_id,
-            "timestamp": now(),
-            "api_name": api_name,
-        }
+        response = ResponseBuilder.error(
+            f"External service ({api_name}) error occurred", status="external_api_error"
+        )
+        response["correlation_id"] = self.correlation_id
+        response["timestamp"] = now()
+        response["api_name"] = api_name
+        # Remove the error_code/details keys that ResponseBuilder adds but the original dict never had
+        response.pop("error_code", None)
+        response.pop("details", None)
+        return response
 
     def wrap_with_error_handling(self, operation_name: str, operation_func, *args, **kwargs):
         """
@@ -161,13 +165,18 @@ class WebhookErrorHandler:
             return self.handle_system_error(f"Unexpected error during {operation_name}", e)
 
     def create_success_response(self, message: str, data: Optional[Dict] = None) -> Dict[str, Any]:
-        """Create structured success response"""
-        response = {
-            "status": "success",
-            "message": message,
-            "correlation_id": self.correlation_id,
-            "timestamp": now(),
-        }
+        """Create structured success response.
+
+        NOTE: data is merged FLAT into the response (not nested under a "data" key).
+        This is intentional — callers expect top-level keys such as "payment_entry".
+        ResponseBuilder.success would nest under data=, so we use it only for the
+        base dict and apply the flat merge ourselves.
+        """
+        # Build base via ResponseBuilder then strip the "data" key (we merge flat below)
+        response = ResponseBuilder.success(message)
+        response.pop("data", None)
+        response["correlation_id"] = self.correlation_id
+        response["timestamp"] = now()
 
         if data:
             response.update(data)

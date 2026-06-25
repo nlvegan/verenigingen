@@ -38,8 +38,9 @@ class TestWebhookRateLimiter(VereningingenTestCase):
     def test_request_recorded_in_global_window(self):
         limiter = self._make_limiter()
         limiter.check_rate_limit("203.0.113.2")
-        self.assertEqual(len(limiter.global_requests), 1)
-        self.assertEqual(len(limiter.ip_requests["203.0.113.2"]), 1)
+        now = time.time()
+        self.assertEqual(limiter.global_requests.count(now), 1)
+        self.assertEqual(limiter.ip_requests["203.0.113.2"].count(now), 1)
 
     def test_ip_limit_exceeded_rejects(self):
         limiter = self._make_limiter(ip_limit=3)
@@ -108,32 +109,42 @@ class TestWebhookRateLimiter(VereningingenTestCase):
     def test_old_requests_expire_from_window(self):
         limiter = self._make_limiter(ip_limit=2)
         ip = "203.0.113.7"
-        # Inject a stale timestamp older than the window directly
+        # Inject a stale timestamp older than the window directly via the SlidingWindowCounter
         old_ts = time.time() - (limiter.time_window + 5)
-        limiter.global_requests.append(old_ts)
-        limiter.ip_requests[ip].append(old_ts)
+        limiter.global_requests.add(old_ts)
+        # Ensure the IP counter exists before adding to it
+        if ip not in limiter.ip_requests:
+            from verenigingen.verenigingen_payments.utils.shared.sliding_window import SlidingWindowCounter
+
+            limiter.ip_requests[ip] = SlidingWindowCounter(limiter.time_window)
+        limiter.ip_requests[ip].add(old_ts)
         # A fresh request should not be blocked by the stale entries
         allowed, _r = limiter.check_rate_limit(ip)
         self.assertTrue(allowed)
-        # Stale global entry got purged by _check_global_limit
-        self.assertTrue(all(time.time() - ts <= limiter.time_window for ts in limiter.global_requests))
+        # Stale global entry got purged by _check_global_limit (via count -> prune)
+        now = time.time()
+        self.assertEqual(limiter.global_requests.count(now), 1)  # only the fresh request
 
     def test_cleanup_removes_idle_ip_and_penalty(self):
+        from verenigingen.verenigingen_payments.utils.shared.sliding_window import SlidingWindowCounter
+
         limiter = self._make_limiter(ip_limit=2)
         ip = "203.0.113.8"
-        # seed an idle ip with very old requests + a penalty
+        # Seed an idle IP with very old requests + a penalty via SlidingWindowCounter.add()
         old_ts = time.time() - (3 * limiter.time_window)
-        limiter.ip_requests[ip].append(old_ts)
+        limiter.ip_requests[ip] = SlidingWindowCounter(limiter.time_window)
+        limiter.ip_requests[ip].add(old_ts)
         limiter.ip_penalties[ip] = 5
-        limiter.webhook_requests["wh_old"].append(old_ts)
-        limiter.global_requests.append(old_ts)
-        # force cleanup to run
+        limiter.webhook_requests["wh_old"] = SlidingWindowCounter(limiter.time_window)
+        limiter.webhook_requests["wh_old"].add(old_ts)
+        limiter.global_requests.add(old_ts)
+        # Force cleanup to run
         limiter.last_cleanup = time.time() - (limiter.cleanup_interval + 1)
         limiter._cleanup_old_entries(time.time())
         self.assertNotIn(ip, limiter.ip_requests)
         self.assertNotIn(ip, limiter.ip_penalties)
         self.assertNotIn("wh_old", limiter.webhook_requests)
-        self.assertEqual(len(limiter.global_requests), 0)
+        self.assertEqual(limiter.global_requests.count(time.time()), 0)
 
     def test_cleanup_skipped_when_interval_not_elapsed(self):
         limiter = self._make_limiter()
