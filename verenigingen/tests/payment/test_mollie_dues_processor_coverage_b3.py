@@ -238,6 +238,16 @@ class TestProcessDuesDeprecatedMode(EnhancedTestCase):
             "Member", self.member.name, "mollie_customer_id", cust_id, update_modified=False
         )
         self.cust_id = cust_id
+        # find_member_for_payment uses a module-global matcher singleton that
+        # pre-loads the customer_id->member map at construction. A sibling test
+        # may have built it before this member existed, leaving a stale map that
+        # can't resolve our payment ("No member found"). Reset it so it rebuilds.
+        from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
+            reset_member_payment_matcher,
+        )
+
+        reset_member_payment_matcher()
+        self.addCleanup(reset_member_payment_matcher)
 
     def test_deprecated_pe_mode_records_error_log(self):
         proc = _bare_processor()

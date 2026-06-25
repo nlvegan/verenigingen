@@ -112,6 +112,23 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
             {"company": inv.company, "account_type": "Income Account", "is_group": 0},
             "name",
         )
+        if not income:
+            # Self-sufficiency: some shards reach this test without an income leaf
+            # for the settings company (it depended on a sibling test creating one
+            # in the same shard). Create one under the company's Income root so the
+            # test no longer relies on shard composition / run order.
+            income_root = frappe.db.get_value(
+                "Account", {"company": inv.company, "root_type": "Income", "is_group": 1}, "name"
+            )
+            if income_root:
+                acc = frappe.new_doc("Account")
+                acc.account_name = "Test Membership Income"
+                acc.company = inv.company
+                acc.parent_account = income_root
+                acc.account_type = "Income Account"
+                acc.root_type = "Income"
+                acc.insert()  # EnhancedTestCase runs as Administrator
+                income = acc.name
         # Exclude template items (has_variants=1): on CI the first sales item is
         # erpnext's "_Test Variant Item" template, which Sales Invoice rejects with
         # "is a template, please select one of its variants". veg11 happens to return
