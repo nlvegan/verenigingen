@@ -1351,10 +1351,14 @@ def mark_payment_successful(end_to_end_id):
 def get_reconciliation_summary(from_date=None, to_date=None):
     """Get summary of reconciliation status"""
 
+    # A single "date" key can't hold both bounds — assigning both would silently
+    # drop the from_date lower bound. Use "between" when both are supplied.
     filters = {}
-    if from_date:
+    if from_date and to_date:
+        filters["date"] = ["between", [from_date, to_date]]
+    elif from_date:
         filters["date"] = [">=", from_date]
-    if to_date:
+    elif to_date:
         filters["date"] = ["<=", to_date]
 
     summary = {

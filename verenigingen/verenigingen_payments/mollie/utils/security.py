@@ -28,9 +28,9 @@ class WebhookSecurityManager:
         try:
             mollie_settings = frappe.get_single("Mollie Settings")
             return {
-                "webhook_secret": mollie_settings.get_password(
-                    fieldname="webhook_secret", raise_exception=False
-                ),
+                # No plain "webhook_secret" field exists — resolve the
+                # test-mode-aware testing_/live_webhook_secret_key.
+                "webhook_secret": mollie_settings.get_webhook_secret(),
                 "verify_ssl": mollie_settings.get("verify_ssl", True),
                 "allowed_ips": (
                     mollie_settings.get("allowed_webhook_ips", "").split(",")

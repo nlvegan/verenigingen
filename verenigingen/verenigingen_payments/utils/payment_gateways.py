@@ -2164,17 +2164,20 @@ def manual_payment_confirmation(donation_id, payment_reference: str, notes=None)
 
     try:
         donation = frappe.get_doc("Donation", donation_id)
-        donation.paid = 1
-        donation.payment_id = payment_reference
+        # Donations may be submitted (docstatus=1); paid/payment_id are NOT
+        # allow_on_submit, so attribute-assign + save() throws
+        # "Not allowed to change ... after submission". Use db_set — the
+        # canonical pattern in this controller (cf. Donation.on_payment_authorized
+        # -> self.db_set("paid", 1)) — which persists regardless of docstatus.
+        donation.db_set("paid", 1)
+        donation.db_set("payment_id", payment_reference)
 
         if notes:
-            donation.add_comment("Comment", "Manual payment confirmation: {notes}")
+            donation.add_comment("Comment", f"Manual payment confirmation: {notes}")
 
         # Create payment entry if automation is enabled
         if hasattr(donation, "create_payment_entry"):
             donation.create_payment_entry()
-
-        donation.save()
 
         return {"success": True, "message": "Payment confirmed successfully"}
 

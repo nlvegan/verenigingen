@@ -360,6 +360,9 @@ class TestValidateMollieWebhookRequest(unittest.TestCase):
         """A fake Mollie Settings used by _load_security_settings."""
         obj = MagicMock()
         obj.get_password.return_value = self.SECRET
+        # _load_security_settings now resolves the secret via get_webhook_secret()
+        # (the test-mode-aware accessor) rather than a phantom webhook_secret field.
+        obj.get_webhook_secret.return_value = self.SECRET
         # .get(field, default) mimic: verify_ssl, allowed_webhook_ips, enable_signature_validation
         defaults = {
             "verify_ssl": True,

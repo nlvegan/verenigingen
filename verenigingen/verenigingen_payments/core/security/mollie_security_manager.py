@@ -64,8 +64,10 @@ class MollieSecurityManager:
         Raises:
             SecurityException: If signature validation fails
         """
-        # Get webhook secret from settings
-        webhook_secret = self.settings.get_password("webhook_secret")
+        # Get webhook secret from settings. Mollie Settings has no plain
+        # "webhook_secret" field — the secret is the test-mode-aware
+        # testing_/live_webhook_secret_key, resolved by get_webhook_secret().
+        webhook_secret = self.settings.get_webhook_secret()
         if not webhook_secret:
             self._create_security_alert("WEBHOOK_SECRET_MISSING", "critical")
             frappe.log_error("Webhook secret not configured", "Mollie Security")
