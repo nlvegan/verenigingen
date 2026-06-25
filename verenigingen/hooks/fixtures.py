@@ -207,6 +207,19 @@ fixtures = [
     },
     # Verenigingen Settings singleton
     {"doctype": "Verenigingen Settings"},
+    # =========================================================================
+    # PAYMENT MODES
+    # =========================================================================
+    # Mollie payment modes. The Mollie payment flow requires these records to
+    # exist (payment_entry_factory validates "Mollie"; the refund flow uses
+    # "Mollie Refund"), and donation/refund Journal Entry creation references
+    # them. They are not standard ERPNext data, so ship them as fixtures so a
+    # fresh install / CI site has them. Filtered so `bench export-fixtures`
+    # does not pull in standard ERPNext modes of payment.
+    {
+        "doctype": "Mode of Payment",
+        "filters": [["name", "in", ["Mollie", "Mollie Refund"]]],
+    },
     # NOTE: Critical Operation Rules are NOT included here.
     # They are created once during app install via setup.critical_operation_rules_setup
     # to prevent migrations from overwriting user customizations to rate limits, roles, etc.

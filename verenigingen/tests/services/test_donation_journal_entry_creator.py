@@ -19,14 +19,11 @@ Test Coverage:
 """
 
 import unittest
-from datetime import date
-from decimal import Decimal
-from typing import Any, Optional
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
-from frappe.utils import today, nowdate
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.donation_journal_entry_creator import (
@@ -47,7 +44,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         creator = get_donation_journal_entry_creator()
         self.assertIsInstance(creator, DonationJournalEntryCreator)
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_resolve_company_from_donation(self, mock_frappe):
         """Test company resolution uses donation.company first"""
         # Arrange
@@ -62,7 +59,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Should not call get_single since donation has company
         mock_frappe.get_single.assert_not_called()
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_resolve_company_fallback_to_settings(self, mock_frappe):
         """Test company resolution falls back to Verenigingen Settings"""
         # Arrange
@@ -80,7 +77,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         self.assertEqual(result, "Settings Company")
         mock_frappe.get_single.assert_called_once_with("Verenigingen Settings")
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_resolve_company_returns_none_when_not_configured(self, mock_frappe):
         """Test company resolution returns None when no company configured"""
         # Arrange
@@ -98,7 +95,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert
         self.assertIsNone(result)
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_check_existing_by_reference_returns_existing_je(self, mock_frappe):
         """Test idempotency check finds existing Journal Entry"""
         # Arrange
@@ -110,12 +107,10 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert
         self.assertEqual(result, "ACC-JV-2025-00001")
         mock_frappe.db.get_value.assert_called_once_with(
-            "Journal Entry",
-            {"cheque_no": "mollie-payment-123", "docstatus": ["!=", 2]},
-            "name"
+            "Journal Entry", {"cheque_no": "mollie-payment-123", "docstatus": ["!=", 2]}, "name"
         )
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_check_existing_by_reference_returns_none_for_empty_ref(self, mock_frappe):
         """Test idempotency check returns None for empty reference"""
         # Act
@@ -125,7 +120,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         self.assertIsNone(result)
         mock_frappe.db.get_value.assert_not_called()
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_mollie_payment_idempotency(self, mock_frappe):
         """Test that duplicate Mollie payments are rejected"""
         # Arrange
@@ -141,7 +136,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert - should return existing JE name
         self.assertEqual(result, "ACC-JV-2025-00001")
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_mollie_payment_no_company_fails(self, mock_frappe):
         """Test that missing company configuration fails gracefully"""
         # Arrange
@@ -162,18 +157,14 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert
         self.assertIsNone(result)
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_dict_idempotency(self, mock_frappe):
         """Test that duplicate dict transactions are rejected"""
         # Arrange
         mock_frappe.db.get_value.return_value = "ACC-JV-2025-00002"  # Existing JE
         mock_frappe.logger.return_value = MagicMock()
 
-        transaction_data = {
-            "reference_number": "existing-ref-123",
-            "amount": 50.00,
-            "date": today()
-        }
+        transaction_data = {"reference_number": "existing-ref-123", "amount": 50.00, "date": today()}
         mock_donation = MagicMock()
 
         # Act
@@ -182,7 +173,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         # Assert - should return existing JE name
         self.assertEqual(result, "ACC-JV-2025-00002")
 
-    @patch('verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe')
+    @patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.frappe")
     def test_create_from_dict_zero_amount_fails(self, mock_frappe):
         """Test that zero amount transactions fail gracefully"""
         # Arrange
@@ -193,11 +184,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
         mock_frappe.get_single.return_value = mock_settings
         mock_frappe.logger.return_value = MagicMock()
 
-        transaction_data = {
-            "reference_number": "zero-amount-ref",
-            "amount": 0,
-            "date": today()
-        }
+        transaction_data = {"reference_number": "zero-amount-ref", "amount": 0, "date": today()}
         mock_donation = MagicMock()
         mock_donation.company = "Test Company"
 
@@ -206,7 +193,7 @@ class TestDonationJournalEntryCreatorUnit(unittest.TestCase):
             "company": "Test Company",
             "clearing_account": "Mollie - TC",
             "income_account": "Donation Income - TC",
-            "cost_center": "Main - TC"
+            "cost_center": "Main - TC",
         }
 
         # Act
@@ -221,6 +208,9 @@ class TestDonationJournalEntryCreatorIntegration(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # "Mollie" Mode of Payment is not an app fixture; seed it via the factory
+        # so the hard-coded donation.mode_of_payment = "Mollie" works in isolation.
+        self.ensure_mode_of_payment("Mollie", "Bank")
         self.creator = DonationJournalEntryCreator()
 
     def tearDown(self):
@@ -376,9 +366,7 @@ def run_donation_je_creator_tests():
 
     # Run unit tests
     print("\n1. Running Unit Tests...")
-    unit_suite = unittest.TestLoader().loadTestsFromTestCase(
-        TestDonationJournalEntryCreatorUnit
-    )
+    unit_suite = unittest.TestLoader().loadTestsFromTestCase(TestDonationJournalEntryCreatorUnit)
     unit_result = unittest.TextTestRunner(verbosity=2).run(unit_suite)
 
     # Run integration tests
@@ -392,18 +380,22 @@ def run_donation_je_creator_tests():
     print("\n" + "=" * 80)
     print("TEST SUMMARY")
     print("=" * 80)
-    print(f"Unit Tests: {unit_result.testsRun} run, "
-          f"{len(unit_result.failures)} failures, "
-          f"{len(unit_result.errors)} errors")
-    print(f"Integration Tests: {integration_result.testsRun} run, "
-          f"{len(integration_result.failures)} failures, "
-          f"{len(integration_result.errors)} errors")
+    print(
+        f"Unit Tests: {unit_result.testsRun} run, "
+        f"{len(unit_result.failures)} failures, "
+        f"{len(unit_result.errors)} errors"
+    )
+    print(
+        f"Integration Tests: {integration_result.testsRun} run, "
+        f"{len(integration_result.failures)} failures, "
+        f"{len(integration_result.errors)} errors"
+    )
 
     all_passed = (
-        len(unit_result.failures) == 0 and
-        len(unit_result.errors) == 0 and
-        len(integration_result.failures) == 0 and
-        len(integration_result.errors) == 0
+        len(unit_result.failures) == 0
+        and len(unit_result.errors) == 0
+        and len(integration_result.failures) == 0
+        and len(integration_result.errors) == 0
     )
 
     if all_passed:

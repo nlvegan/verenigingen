@@ -1,0 +1,16 @@
+[
+ {
+  "doctype": "Mode of Payment",
+  "enabled": 1,
+  "mode_of_payment": "Mollie",
+  "name": "Mollie",
+  "type": "Bank"
+ },
+ {
+  "doctype": "Mode of Payment",
+  "enabled": 1,
+  "mode_of_payment": "Mollie Refund",
+  "name": "Mollie Refund",
+  "type": "Bank"
+ }
+]

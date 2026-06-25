@@ -4184,6 +4184,24 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             f"Chart of Accounts initialization may have failed."
         )
 
+    def ensure_mode_of_payment(self, name="Mollie", mop_type="Bank"):
+        """Get-or-create a Mode of Payment, tracking it for cleanup.
+
+        "Mollie" is NOT an app fixture and is not seeded by the data factory, so
+        tests that hard-code ``donation.mode_of_payment = "Mollie"`` must seed it
+        themselves to pass in isolation (and not rely on shard ordering). This is
+        a setup helper, so the permission bypass on insert is appropriate here and
+        never appears in a test body.
+
+        Returns the Mode of Payment name.
+        """
+        if frappe.db.exists("Mode of Payment", name):
+            return name
+        mop = frappe.get_doc({"doctype": "Mode of Payment", "mode_of_payment": name, "type": mop_type})
+        mop.insert(ignore_permissions=True)
+        self.track_test_record("Mode of Payment", mop.name)
+        return mop.name
+
     def create_test_donor(self, **kwargs):
         """Create a test donor record for ANBI testing"""
         import os

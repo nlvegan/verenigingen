@@ -147,6 +147,9 @@ class _RefundFixtureMixin:
 class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        # "Mollie" Mode of Payment is not an app fixture; seed it via the factory
+        # so the hard-coded donation.mode_of_payment = "Mollie" works in isolation.
+        self.ensure_mode_of_payment("Mollie", "Bank")
         self.clearing_account = self._ensure_clearing_account()
         self.income_account = self._ensure_income_account()
         self.bank_account = self._ensure_bank_account(self.clearing_account)
@@ -268,12 +271,18 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
         reference = f"{payment_id}_refund_{refund_id}"
 
         first = self.creator.create_refund_journal_entry(
-            refund_id=refund_id, refund_amount=amount, refund_date=None,
-            donation_doc=donation, original_payment_id=payment_id,
+            refund_id=refund_id,
+            refund_amount=amount,
+            refund_date=None,
+            donation_doc=donation,
+            original_payment_id=payment_id,
         )
         second = self.creator.create_refund_journal_entry(
-            refund_id=refund_id, refund_amount=amount, refund_date=None,
-            donation_doc=donation, original_payment_id=payment_id,
+            refund_id=refund_id,
+            refund_amount=amount,
+            refund_date=None,
+            donation_doc=donation,
+            original_payment_id=payment_id,
         )
         self.assertEqual(first, second, "Duplicate refund must return the existing JE")
         self.assertEqual(
@@ -292,16 +301,22 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
 
         # First create the JE (no BT yet).
         je_name = self.creator.create_refund_journal_entry(
-            refund_id=refund_id, refund_amount=amount, refund_date=None,
-            donation_doc=donation, original_payment_id=payment_id,
+            refund_id=refund_id,
+            refund_amount=amount,
+            refund_date=None,
+            donation_doc=donation,
+            original_payment_id=payment_id,
         )
         self.assertTrue(je_name)
 
         # Now a withdrawal BT shows up; the idempotent re-call must reconcile it.
         bt_name = self._make_withdrawal_bank_transaction(amount, reference, self.bank_account)
         again = self.creator.create_refund_journal_entry(
-            refund_id=refund_id, refund_amount=amount, refund_date=None,
-            donation_doc=donation, original_payment_id=payment_id,
+            refund_id=refund_id,
+            refund_amount=amount,
+            refund_date=None,
+            donation_doc=donation,
+            original_payment_id=payment_id,
             bank_transaction_name=bt_name,
         )
         self.assertEqual(again, je_name)
@@ -351,8 +366,11 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
         reference = f"{payment_id}_refund_{refund_id}"
         bt_name = self._make_withdrawal_bank_transaction(amount, reference, self.bank_account)
         je_name = self.creator.create_refund_journal_entry(
-            refund_id=refund_id, refund_amount=amount, refund_date=None,
-            donation_doc=donation, original_payment_id=payment_id,
+            refund_id=refund_id,
+            refund_amount=amount,
+            refund_date=None,
+            donation_doc=donation,
+            original_payment_id=payment_id,
         )
         self.assertTrue(je_name)
 

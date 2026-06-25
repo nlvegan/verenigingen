@@ -157,6 +157,9 @@ class _DonationJEFixtureMixin:
 class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, EnhancedTestCase):
     def setUp(self):
         super().setUp()
+        # "Mollie" Mode of Payment is not an app fixture; seed it via the factory
+        # so the hard-coded donation.mode_of_payment = "Mollie" works in isolation.
+        self.ensure_mode_of_payment("Mollie", "Bank")
         self.clearing_account = self._ensure_clearing_account()
         self.income_account = self._ensure_income_account()
         self.bank_account = self._ensure_bank_account(self.clearing_account)
@@ -174,8 +177,11 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
 
         with self.assertNoErrorLog():
             je_name = self.creator.create_from_mollie_payment(
-                {"id": payment_id, "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
-                 "paid_at": "2025-01-15T10:00:00+00:00"},
+                {
+                    "id": payment_id,
+                    "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
+                    "paid_at": "2025-01-15T10:00:00+00:00",
+                },
                 donation,
             )
 
@@ -220,9 +226,7 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
         self.assertEqual(getdate(je.posting_date), getdate("2025-03-20"))
         income = [a for a in je.accounts if a.account == self.income_account]
         self.assertEqual(flt(income[0].credit_in_account_currency), amount)
-        self.assertEqual(
-            frappe.db.get_value("Donation", donation.name, "journal_entry"), je_name
-        )
+        self.assertEqual(frappe.db.get_value("Donation", donation.name, "journal_entry"), je_name)
 
     def test_create_from_dict_date_fallback_to_donation_date(self):
         """No date AND no reference_number in dict -> JE still created and submitted.
@@ -245,9 +249,7 @@ class TestDonationJournalEntryCreatorMoneyPath(_DonationJEFixtureMixin, Enhanced
         self.assertFalse(je.cheque_date, "No reference_number -> cheque_date must not be set")
         self.assertEqual(getdate(je.posting_date), getdate(ddate))
         # Donation linked back to the JE proves the full success path ran.
-        self.assertEqual(
-            frappe.db.get_value("Donation", donation.name, "journal_entry"), je_name
-        )
+        self.assertEqual(frappe.db.get_value("Donation", donation.name, "journal_entry"), je_name)
 
     # ------------------------------------------------------- reconciliation
     def test_create_from_mollie_payment_reconciles_bank_transaction(self):
