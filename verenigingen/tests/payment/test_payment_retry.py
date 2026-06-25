@@ -29,7 +29,7 @@ Tests run as Administrator, satisfying the @critical_api(FINANCIAL) gates.
 
 import unittest
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -614,6 +614,69 @@ class TestModuleTarget(unittest.TestCase):
         self.assertIn(
             "verenigingen_payments/utils/payment_retry.py",
             retry.__file__,
+        )
+
+
+# =============================================================================
+# R7 parity: send_escalation_notification recipients via shared resolver
+# =============================================================================
+class TestEscalationRecipientResolution(RetryBase):
+    """Parity test for R7: recipient resolution uses the shared resolver.
+
+    Seeds a User with the Verenigingen Staff role, calls
+    send_escalation_notification (with the outbound email stubbed), and asserts
+    that the seeded user's email appears in the ``recipients`` argument passed
+    to the email service.  Verifies that the resolver — not the old inline
+    ``Has Role`` query — drives the recipient set.
+    """
+
+    _ROLE = "Verenigingen Staff"
+
+    def _make_staff_user(self) -> frappe.Document:
+        """Insert an enabled User with Verenigingen Staff role (helper write)."""
+        email = f"r7-staff.{frappe.generate_hash(length=8)}@test.invalid"
+        user = frappe.new_doc("User")
+        user.email = email
+        user.first_name = "R7Staff"
+        user.last_name = "Parity"
+        user.enabled = 1
+        user.send_welcome_email = 0
+        user.append("roles", {"role": self._ROLE})
+        user.insert(ignore_permissions=True)
+        self.track_doc("User", user.name)
+        return user
+
+    def test_staff_role_email_included_in_escalation_recipients(self):
+        """User holding Verenigingen Staff role appears in escalation recipients."""
+        staff_user = self._make_staff_user()
+
+        member = self._make_member_with_customer("R7Parity")
+        membership = self.sepa.create_test_membership(member=member.name, status="Active")
+        invoice = self._make_unpaid_invoice(member)
+        rec = self._make_retry_record(
+            member, invoice, retry_count=3, membership=membership.name
+        )
+
+        captured_recipients = []
+        fake_email_service = MagicMock()
+
+        def capture_send(**kwargs):
+            captured_recipients.extend(kwargs.get("recipients", []))
+
+        fake_email_service.send_templated_email.side_effect = capture_send
+
+        # Patch at the module where the symbol lives; payment_retry imports it
+        # locally inside the if-recipients branch.
+        with patch(
+            "verenigingen.services.communication.email_service.get_email_service",
+            return_value=fake_email_service,
+        ):
+            self.manager.send_escalation_notification(rec)
+
+        self.assertIn(
+            staff_user.email,
+            captured_recipients,
+            f"Expected {staff_user.email!r} in recipients {captured_recipients!r}",
         )
 
 
