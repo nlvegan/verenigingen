@@ -107,6 +107,12 @@ class IBANValidator:
         Returns:
             True if IBAN is valid, False otherwise
         """
+        # The canonical validate_iban is type-guarded (iban: str) and raises
+        # FrappeTypeError on None/non-str, whereas this validator's contract is to
+        # return False for any invalid input (callers depend on a plain bool). Guard
+        # before delegating to preserve the pre-refactor behaviour.
+        if not isinstance(iban, str):
+            return False
         return _canonical_validate_iban(iban)["valid"]
 
     @classmethod
@@ -123,6 +129,8 @@ class IBANValidator:
         canonical helper which normalises first.  The existing test corpus
         only passes already-normalised IBANs here, so behaviour is unchanged.
         """
+        if not isinstance(iban, str):
+            return False
         return _canonical_validate_iban(iban)["valid"]
 
     @classmethod
