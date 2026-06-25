@@ -74,6 +74,24 @@ class TestSalesInvoiceAccountHandler(EnhancedTestCase):
         doc.insert(ignore_permissions=True)
         return doc
 
+    def _ensure_item_group(self, name):
+        """Get-or-create an Item Group the test depends on.
+
+        CI seeds a fresh site that lacks the membership Item Groups the handler
+        keys on (``set_membership_receivable_account`` matches item_group against
+        ["Membership", "Contributie", "Lidmaatschap"]), so the test must create
+        them rather than assume dev-site data exists. Created (not committed) so
+        FrappeTestCase's transaction rollback reclaims it.
+        """
+        if not frappe.db.exists("Item Group", name):
+            ig = frappe.new_doc("Item Group")
+            ig.item_group_name = name
+            ig.parent_item_group = "All Item Groups"
+            ig.is_group = 0
+            ig.insert(ignore_permissions=True)
+            self._tracked.append(("Item Group", name))
+        return name
+
     def _set_dues_account(self, account):
         frappe.db.set_value(
             "Verenigingen Payments Settings",
@@ -118,6 +136,8 @@ class TestSalesInvoiceAccountHandler(EnhancedTestCase):
         """
         currency = frappe.db.get_value("Company", self.COMPANY, "default_currency")
         cost_center = frappe.db.get_value("Company", self.COMPANY, "cost_center")
+        # Ensure the linked Item Group exists (CI seeds a bare site).
+        self._ensure_item_group(item_group)
         doc = frappe.get_doc(
             {
                 "doctype": "Sales Invoice",
