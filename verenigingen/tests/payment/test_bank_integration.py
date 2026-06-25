@@ -513,5 +513,47 @@ class TestBankAPIClient(VereningingenTestCase):
         self.assertIn("maintenance", result["error"])
 
 
+class TestInvoiceReferenceMatching(VereningingenTestCase):
+    """R3: shared SINV-/ACC-SINV-/INV- reference matching is consolidated in
+    bank_transaction_reconciliation.resolve_invoice_from_reference and reused by
+    BankStatementImporter._find_matching_invoice. These tests confirm both paths
+    resolve a real Sales Invoice identically (behavior parity)."""
+
+    def setUp(self):
+        super().setUp()
+        self.importer = BankStatementImporter()
+        self.invoice = self.create_test_sales_invoice()
+
+    def test_shared_resolver_direct_name_match(self):
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            resolve_invoice_from_reference,
+        )
+
+        self.assertEqual(resolve_invoice_from_reference(self.invoice.name), self.invoice.name)
+
+    def test_shared_resolver_embedded_reference(self):
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            resolve_invoice_from_reference,
+        )
+
+        # The default series is ACC-SINV-...; embed it in a noisy reference string.
+        embedded = f"PAYMENT FOR {self.invoice.name} THANK YOU"
+        self.assertEqual(resolve_invoice_from_reference(embedded), self.invoice.name)
+
+    def test_shared_resolver_no_match_returns_none(self):
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            resolve_invoice_from_reference,
+        )
+
+        self.assertIsNone(resolve_invoice_from_reference("SINV-DOES-NOT-EXIST-ZZZ"))
+        self.assertIsNone(resolve_invoice_from_reference(""))
+
+    def test_find_matching_invoice_uses_shared_resolver(self):
+        # Parity: _find_matching_invoice returns the same invoice the shared
+        # resolver does for a reference that names the invoice.
+        matched = self.importer._find_matching_invoice({"reference": self.invoice.name})
+        self.assertEqual(matched, self.invoice.name)
+
+
 if __name__ == "__main__":
     unittest.main()

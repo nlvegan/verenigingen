@@ -28,6 +28,14 @@ ING_INTERNAL_ACCOUNT_PATTERN = r"^L\d{6,10}$"
 # Transaction ID hash length (128 bits for collision resistance)
 TRANSACTION_HASH_LENGTH = 32
 
+# Format-only "looks like an IBAN" shape check (2 letters + 2 digits + alnum).
+# Used to decide whether a counterparty account string is stored as an IBAN or as
+# a plain account reference (e.g. ING internal 'L96981341'). This is intentionally
+# a SHAPE check, NOT a mod-97 validation: a typo'd-but-realistic IBAN must still be
+# kept in the IBAN field so downstream party-matching can use it. See task R3 report
+# for why this is not delegated to validate_iban() (mod-97 would flip such inputs).
+IBAN_SHAPE_RE = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]+$")
+
 # =============================================================================
 # Dutch Banking Transaction Type Mapping (ING, Triodos, ABN AMRO, Rabobank)
 # TRCD codes from ING MT940 format
@@ -668,8 +676,10 @@ def extract_sepa_data_enhanced(mt940_transaction):
     # Non-IBANs like 'L96981341' (internal account refs) should be stored separately
     counterparty_account_ref = ""
     if counterparty_iban:
-        # Check if it looks like a valid IBAN (2 letters + 2 digits + rest)
-        if not re.match(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]+$", counterparty_iban.upper()):
+        # Check if it looks like an IBAN (2 letters + 2 digits + rest). Shape-only
+        # by design (see IBAN_SHAPE_RE): non-IBANs like 'L96981341' are moved to the
+        # account-reference field; anything IBAN-shaped is kept for party matching.
+        if not IBAN_SHAPE_RE.match(counterparty_iban.upper()):
             # Not an IBAN, treat as account reference
             counterparty_account_ref = counterparty_iban
             counterparty_iban = ""
@@ -1273,35 +1283,6 @@ def create_bank_transaction_from_mt940(mt940_transaction, bank_account, company)
     Legacy function - redirects to enhanced version for backwards compatibility.
     """
     return create_enhanced_bank_transaction_from_mt940(mt940_transaction, bank_account, company)
-
-
-def generate_mt940_transaction_hash(transaction):
-    """Generate a hash for MT940 transaction identification"""
-    import hashlib
-
-    # The mt940 library exposes parsed fields via transaction.data, not as
-    # attributes — `transaction.date` / `transaction.amount` raise AttributeError
-    # on a real Transaction object. Read date/amount from .data, mirroring
-    # get_enhanced_duplicate_hash.
-    data = transaction.data
-    amount_obj = data.get("amount")
-    amount_val = getattr(amount_obj, "amount", amount_obj) if amount_obj is not None else ""
-    currency_val = getattr(amount_obj, "currency", "EUR") if amount_obj is not None else "EUR"
-
-    sha = hashlib.sha256()
-    hash_components = [
-        str(data.get("date", "")),
-        str(amount_val),
-        str(currency_val),
-        str(data.get("transaction_reference", "")),
-        str(data.get("bank_reference", "")),
-        str(data.get("purpose", "")),
-        str(data.get("counterparty_name", "")),
-        str(data.get("counterparty_account", "")),
-    ]
-
-    sha.update("".join(hash_components).encode())
-    return sha.hexdigest()[:32]  # Use 32 chars (128 bits) for collision resistance
 
 
 @frappe.whitelist()

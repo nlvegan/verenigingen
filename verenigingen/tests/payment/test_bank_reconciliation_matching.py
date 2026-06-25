@@ -55,6 +55,23 @@ class TestReconciliationDecimalHelpers(EnhancedTestCase):
         self.assertEqual(self.mgr._safe_decimal("abc"), Decimal("0"))
         self.assertEqual(self.mgr._safe_decimal(""), Decimal("0"))
 
+    def test_safe_decimal_delegates_to_shared_with_parity(self):
+        """R3 parity: the _safe_decimal delegator returns exactly what the shared
+        safe_decimal returns for representative inputs (None, currency string,
+        plain numbers, Decimal passthrough, garbage -> 0). The only intentional
+        difference is that the delegator no longer writes a frappe.log_error; the
+        return value is unchanged.
+        """
+        from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
+
+        cases = [None, "€ 1.234,56", "€1234.56", "-75.50", "EUR 100.00", 12.5, 100, "abc", "", Decimal("9.99")]
+        for value in cases:
+            self.assertEqual(
+                self.mgr._safe_decimal(value),
+                safe_decimal(value),
+                msg=f"parity mismatch for {value!r}",
+            )
+
     def test_validate_exact_match(self):
         ok, kind, diff = self.mgr._validate_transaction_amount(Decimal("10"), Decimal("10"))
         self.assertTrue(ok)

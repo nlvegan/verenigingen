@@ -1,5 +1,5 @@
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal
 from difflib import SequenceMatcher
 
 import frappe
@@ -14,6 +14,7 @@ from verenigingen.utils.security.authorization import (
 )
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
 
 class PaymentReconciliationManager:
@@ -1137,25 +1138,21 @@ class PaymentReconciliationManager:
         )
 
     def _safe_decimal(self, value, description="amount"):
-        """Safely convert value to Decimal with proper error handling"""
-        if value is None:
-            return Decimal("0")
+        """Safely convert *value* to ``Decimal``.
 
-        try:
-            if isinstance(value, (int, float)):
-                return Decimal(str(value))
-            elif isinstance(value, str):
-                # Handle string amounts that might have currency symbols
-                cleaned = re.sub(r"[^\d\.-]", "", value)
-                return Decimal(cleaned) if cleaned else Decimal("0")
-            elif isinstance(value, Decimal):
-                return value
-            else:
-                frappe.log_error(f"Unexpected {description} type: {type(value)}, value: {value}")
-                return Decimal("0")
-        except (InvalidOperation, ValueError) as e:
-            frappe.log_error(f"Error converting {description} '{value}' to Decimal: {str(e)}")
-            return Decimal("0")
+        Thin delegator to the shared :func:`safe_decimal` helper. The coercion
+        rules (currency-symbol stripping, None/int/float/Decimal handling,
+        garbage -> ``Decimal("0")``) are identical to the previous inline
+        implementation, so the returned value is unchanged for every input.
+
+        Intentional behavior change: the previous implementation wrote a
+        ``frappe.log_error`` on the unexpected-type / unparseable branches. That
+        log is deliberately dropped here — an Error Log on every unparseable
+        decimal is operational noise, and the return value is identical, so no
+        downstream behavior depends on it. ``description`` is retained for call
+        signature compatibility but no longer used.
+        """
+        return safe_decimal(value)
 
     def _is_mollie_payment_processed(self, mollie_payment_id):
         """Check if Mollie payment has already been processed"""
@@ -1309,6 +1306,51 @@ def parse_pain002_file(file_content):
         )
 
     return return_data
+
+
+# Invoice-reference patterns used to resolve a Sales Invoice name from a free-text
+# bank reference string. Ordered most-specific-first so e.g. "ACC-SINV-2024-0001"
+# is matched as a whole before the shorter "SINV-"/"INV-" fragments.
+INVOICE_REFERENCE_PATTERNS = (
+    r"(ACC-SINV-\d{4}-\d+)",
+    r"(SINV-\d+)",
+    r"(INV-\d+)",
+)
+
+
+def resolve_invoice_from_reference(reference):
+    """Resolve a Sales Invoice name from a free-text bank reference string.
+
+    Shared invoice-matching helper used by both this module and
+    ``bank_integration.BankStatementImporter._find_matching_invoice`` so the
+    ``SINV-``/``ACC-SINV-``/``INV-`` reference-to-invoice logic lives in one
+    place.
+
+    Resolution order (behavior identical to the original inline implementation):
+    1. A direct match where the whole reference is itself a Sales Invoice name.
+    2. The first ``INVOICE_REFERENCE_PATTERNS`` substring that names an existing
+       Sales Invoice.
+
+    Args:
+        reference: Raw reference text from the bank transaction.
+
+    Returns:
+        The matched Sales Invoice name, or ``None`` when nothing matches.
+    """
+    if not reference:
+        return None
+
+    # Direct reference match (the reference is itself an invoice name).
+    if frappe.db.exists("Sales Invoice", reference):
+        return reference
+
+    # Extract an invoice number embedded in the reference text.
+    for pattern in INVOICE_REFERENCE_PATTERNS:
+        match = re.search(pattern, reference)
+        if match and frappe.db.exists("Sales Invoice", match.group(1)):
+            return match.group(1)
+
+    return None
 
 
 def handle_payment_rejection(end_to_end_id, reason_code, reason_text):
