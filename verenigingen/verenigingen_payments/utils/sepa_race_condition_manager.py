@@ -23,6 +23,8 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
+from verenigingen.verenigingen_payments.utils.shared.db_helpers import ensure_table_exists
 
 
 @dataclass
@@ -72,49 +74,37 @@ class SEPADistributedLock:
         return hashlib.md5(session_data.encode(), usedforsecurity=False).hexdigest()[:16]
 
     def _ensure_lock_table(self):
-        """Ensure distributed lock table exists"""
-        try:
-            # Check if table exists
-            exists = frappe.db.sql(
-                """
-                SELECT COUNT(*) as count
-                FROM information_schema.tables
-                WHERE table_schema = DATABASE()
-                AND table_name = 'tabSEPA_Distributed_Lock'
+        """Ensure distributed lock table exists.
+
+        The CREATE statement is idempotent (``IF NOT EXISTS``); the shared
+        ``ensure_table_exists`` helper runs it, commits, and swallows/logs any
+        benign race error -- the same behavior as the previous inline
+        existence-check + create + try/except.
+        """
+        ensure_table_exists(
+            """
+            CREATE TABLE IF NOT EXISTS `tabSEPA_Distributed_Lock` (
+                `name` varchar(255) NOT NULL PRIMARY KEY,
+                `creation` datetime(6) DEFAULT NULL,
+                `modified` datetime(6) DEFAULT NULL,
+                `modified_by` varchar(255) DEFAULT NULL,
+                `owner` varchar(255) DEFAULT NULL,
+                `docstatus` int(1) NOT NULL DEFAULT 0,
+                `lock_id` varchar(255) NOT NULL,
+                `resource` varchar(255) NOT NULL,
+                `lock_owner` varchar(255) NOT NULL,
+                `acquired_at` datetime(6) NOT NULL,
+                `expires_at` datetime(6) NOT NULL,
+                `lock_type` varchar(100) NOT NULL,
+                `metadata` longtext DEFAULT NULL,
+                `is_active` tinyint(1) DEFAULT 1,
+                INDEX `idx_resource_active` (`resource`, `is_active`),
+                INDEX `idx_expires_at` (`expires_at`),
+                INDEX `idx_lock_owner` (`lock_owner`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
-                as_dict=True,
-            )
-
-            if not exists or exists[0].count == 0:
-                # Create lock table
-                frappe.db.sql(
-                    """
-                    CREATE TABLE IF NOT EXISTS `tabSEPA_Distributed_Lock` (
-                        `name` varchar(255) NOT NULL PRIMARY KEY,
-                        `creation` datetime(6) DEFAULT NULL,
-                        `modified` datetime(6) DEFAULT NULL,
-                        `modified_by` varchar(255) DEFAULT NULL,
-                        `owner` varchar(255) DEFAULT NULL,
-                        `docstatus` int(1) NOT NULL DEFAULT 0,
-                        `lock_id` varchar(255) NOT NULL,
-                        `resource` varchar(255) NOT NULL,
-                        `lock_owner` varchar(255) NOT NULL,
-                        `acquired_at` datetime(6) NOT NULL,
-                        `expires_at` datetime(6) NOT NULL,
-                        `lock_type` varchar(100) NOT NULL,
-                        `metadata` longtext DEFAULT NULL,
-                        `is_active` tinyint(1) DEFAULT 1,
-                        INDEX `idx_resource_active` (`resource`, `is_active`),
-                        INDEX `idx_expires_at` (`expires_at`),
-                        INDEX `idx_lock_owner` (`lock_owner`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-                """
-                )
-                frappe.db.commit()
-
-        except Exception as e:
-            # Table might already exist or creation failed - continue
-            frappe.logger().warning(f"Lock table creation issue: {str(e)}")
+            table_name="tabSEPA_Distributed_Lock",
+        )
 
     @contextmanager
     def acquire_lock(
@@ -781,10 +771,17 @@ class SEPABatchRaceConditionManager:
                 last_exception = e
 
                 if attempt < self.retry_config["max_attempts"] - 1:
-                    # Calculate delay with exponential backoff
-                    delay = min(
-                        self.retry_config["base_delay"] * (self.retry_config["exponential_base"] ** attempt),
-                        self.retry_config["max_delay"],
+                    # Calculate delay with exponential backoff. ``attempt`` is
+                    # 0-based here (attempt 0 -> base_delay); the shared helper is
+                    # 1-based, so pass ``attempt + 1``. No jitter (matching the
+                    # legacy inline math).
+                    delay = calculate_backoff_delay(
+                        attempt + 1,
+                        base_delay=self.retry_config["base_delay"],
+                        max_delay=self.retry_config["max_delay"],
+                        strategy="exponential",
+                        exponential_base=self.retry_config["exponential_base"],
+                        jitter_factor=0.0,
                     )
 
                     frappe.logger().warning(

@@ -3,6 +3,7 @@ SEPA Error Handler with Retry Mechanisms and Circuit Breaker Pattern
 Provides granular error handling for SEPA batch processing operations
 """
 
+import random
 import time
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -11,6 +12,25 @@ import frappe
 from frappe.utils import cstr, now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
+from verenigingen.verenigingen_payments.utils.shared.error_classification import (
+    FailureCategory,
+    classify_error,
+)
+
+# Map the shared FailureCategory enum back to this module's legacy string
+# taxonomy ("temporary"/"validation"/"authorization"/"data"/"unknown"). The
+# shared classifier has no concept of this module's "temporary" bucket, so both
+# TRANSIENT and RESOURCE collapse to "temporary"; BUSINESS/SYSTEM -> "unknown".
+_CATEGORY_TO_LEGACY = {
+    FailureCategory.TRANSIENT: "temporary",
+    FailureCategory.RESOURCE: "temporary",
+    FailureCategory.VALIDATION: "validation",
+    FailureCategory.AUTHORIZATION: "authorization",
+    FailureCategory.DATA: "data",
+    FailureCategory.BUSINESS: "unknown",
+    FailureCategory.SYSTEM: "unknown",
+}
 
 
 class SEPAErrorHandler:
@@ -62,14 +82,29 @@ class SEPAErrorHandler:
         }
 
     def categorize_error(self, error: Exception) -> str:
-        """Categorize error for appropriate handling strategy"""
+        """Categorize error for appropriate handling strategy.
+
+        Delegates classification to the shared ``classify_error`` helper and maps
+        the result back to this module's legacy string taxonomy.
+
+        PARITY NOTE: this module's historical taxonomy is keyword-ONLY and uses a
+        NARROWER keyword set than the shared classifier (e.g. it has no
+        "deadlock"/"limit exceeded" keywords and no isinstance handling). The
+        shared classifier is a superset, so it can map an input to a non-"unknown"
+        category that the legacy keyword set would have left as "unknown" (e.g.
+        ``ValueError("x")`` -> VALIDATION in the shared classifier, but "unknown"
+        here). To preserve exact behavior we re-check the legacy keyword set for
+        the mapped category and fall back to "unknown" when no legacy keyword
+        actually matched the message.
+        """
         error_message = str(error).lower()
 
-        for category, keywords in self.error_categories.items():
-            if any(keyword in error_message for keyword in keywords):
-                return category
-
-        return "unknown"
+        mapped = _CATEGORY_TO_LEGACY[classify_error(error)]
+        if mapped != "unknown":
+            legacy_keywords = self.error_categories.get(mapped, ())
+            if not any(keyword in error_message for keyword in legacy_keywords):
+                return "unknown"
+        return mapped
 
     def should_retry(self, error: Exception, attempt: int) -> bool:
         """Determine if operation should be retried based on error type and attempt count"""
@@ -90,17 +125,22 @@ class SEPAErrorHandler:
         return error_category in ["temporary", "unknown"]
 
     def calculate_delay(self, attempt: int) -> float:
-        """Calculate delay before retry using exponential backoff with jitter"""
-        import random
+        """Calculate delay before retry using exponential backoff with jitter.
 
-        delay = min(
-            self.retry_config["base_delay"] * (self.retry_config["backoff_multiplier"] ** attempt),
-            self.retry_config["max_delay"],
+        Delegates to the shared ``calculate_backoff_delay`` helper. This module's
+        ``attempt`` is 0-based (attempt 0 -> base_delay) while the helper is
+        1-based, so we pass ``attempt + 1``. Jitter is 10% (matching the legacy
+        ``delay * 0.1 * random.random()``), applied after the max_delay cap.
+        """
+        return calculate_backoff_delay(
+            attempt + 1,
+            base_delay=self.retry_config["base_delay"],
+            max_delay=self.retry_config["max_delay"],
+            strategy="exponential",
+            exponential_base=self.retry_config["backoff_multiplier"],
+            jitter_factor=0.1,
+            rng=random.random,
         )
-
-        # Add jitter to prevent thundering herd
-        jitter = delay * 0.1 * random.random()
-        return delay + jitter
 
     def check_circuit_breaker(self) -> bool:
         """Check if circuit breaker allows operation"""

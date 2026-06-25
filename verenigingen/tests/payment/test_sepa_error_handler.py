@@ -116,6 +116,105 @@ class TestCalculateDelay(EnhancedTestCase):
         self.assertLessEqual(delay, 60.0 * 1.1)
 
 
+class TestCategorizeErrorParity(EnhancedTestCase):
+    """Characterization / parity table pinning categorize_error's exact output.
+
+    These tests pin the CURRENT (pre-refactor) string returned for a
+    representative set of inputs, including tricky overlaps that diverge from the
+    shared classifier (e.g. "deadlock" / "limit exceeded" are TRANSIENT/RESOURCE
+    in the shared classifier but "unknown" here because this method uses a
+    NARROWER, keyword-only taxonomy with no isinstance handling). The refactor
+    that routes this method through the shared classify_error MUST keep these
+    outputs identical.
+    """
+
+    # (message, expected_legacy_string)
+    PARITY_TABLE = [
+        ("connection refused", "temporary"),
+        ("request timeout", "temporary"),
+        ("server busy", "temporary"),
+        ("network unavailable", "temporary"),
+        ("lock wait timeout exceeded", "temporary"),
+        ("temporary glitch", "temporary"),
+        ("resource busy", "temporary"),
+        ("resource unavailable", "temporary"),
+        ("overload", "temporary"),
+        ("connection invalid", "temporary"),  # first-match-wins -> temporary
+        # The shared classifier would call these TRANSIENT/RESOURCE, but the
+        # legacy keyword set has no "deadlock"/"limit exceeded" -> "unknown".
+        ("deadlock detected", "unknown"),
+        ("limit exceeded", "unknown"),
+        ("something weird happened", "unknown"),
+        ("invalid mandate", "validation"),
+        ("missing field", "validation"),
+        ("format error", "validation"),
+        ("duplicate entry", "validation"),
+        ("validation failed", "validation"),
+        ("required field", "validation"),
+        ("constraint violation", "validation"),
+        ("permission denied", "authorization"),
+        ("unauthorized access", "authorization"),
+        ("forbidden", "authorization"),
+        ("authentication failed", "authorization"),
+        ("record not found", "data"),
+        ("does not exist", "data"),
+        ("result is empty", "data"),
+        ("value is null", "data"),
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.handler = SEPAErrorHandler()
+
+    def test_keyword_parity_table(self):
+        for msg, expected in self.PARITY_TABLE:
+            self.assertEqual(
+                self.handler.categorize_error(Exception(msg)), expected, msg
+            )
+
+    def test_isinstance_errors_have_no_special_handling(self):
+        # Legacy categorize_error does NOT inspect exception types; a ValueError
+        # / TypeError / PermissionError with a non-keyword message is "unknown".
+        self.assertEqual(self.handler.categorize_error(ValueError("x")), "unknown")
+        self.assertEqual(self.handler.categorize_error(TypeError("x")), "unknown")
+        self.assertEqual(
+            self.handler.categorize_error(frappe.PermissionError("x")), "unknown"
+        )
+
+    def test_isinstance_does_not_override_keyword(self):
+        # A typed exception whose message DOES contain a keyword is still
+        # categorized by the keyword (type is irrelevant either way).
+        self.assertEqual(self.handler.categorize_error(ValueError("missing thing")), "validation")
+
+
+class TestCalculateDelayParity(EnhancedTestCase):
+    """Pin exact calculate_delay outputs under a fixed RNG (attempts 0..4).
+
+    base=1, multiplier=2 (0-based) with +10% jitter at rng()=0.5 -> jitter is
+    exactly +5%. The refactor routes through calculate_backoff_delay (1-based, so
+    attempt+1) and MUST reproduce these exact values.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.handler = SEPAErrorHandler()
+
+    def test_exact_values_fixed_rng(self):
+        expected = {0: 1.05, 1: 2.1, 2: 4.2, 3: 8.4, 4: 16.8}
+        # Patch stdlib random.random so this works against both the pre-refactor
+        # implementation (which does `import random; random.random()`) and the
+        # post-refactor one (which delegates to calculate_backoff_delay with the
+        # default rng=random.random).
+        with patch("random.random", return_value=0.5):
+            for attempt, value in expected.items():
+                self.assertAlmostEqual(self.handler.calculate_delay(attempt), value, places=9)
+
+    def test_cap_then_jitter_fixed_rng(self):
+        # attempt 20 -> nominal explodes, capped to 60 BEFORE jitter -> 60*1.05.
+        with patch("random.random", return_value=0.5):
+            self.assertAlmostEqual(self.handler.calculate_delay(20), 63.0, places=9)
+
+
 class TestCircuitBreakerStateMachine(EnhancedTestCase):
     def setUp(self):
         super().setUp()

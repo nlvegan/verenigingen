@@ -11,7 +11,6 @@ backoff provides sufficient resilience for non-profit transaction volumes.
 Implements Week 3 Day 1-2 requirements from the SEPA billing improvements project.
 """
 
-import math
 import random
 import time
 from dataclasses import dataclass, field
@@ -33,6 +32,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
 class RetryStrategy(Enum):
@@ -336,7 +336,21 @@ class SEPARetryManager:
         return self.circuit_breakers[operation_id]
 
     def _classify_failure(self, error: Exception) -> FailureType:
-        """Classify failure type for appropriate retry strategy"""
+        """Classify failure type for appropriate retry strategy.
+
+        PARITY NOTE (DRY refactor): this method intentionally keeps its own
+        keyword buckets rather than delegating to the shared
+        ``classify_error`` helper. The two taxonomies genuinely diverge and
+        CANNOT be reconciled by a category mapping: this method buckets
+        "busy"/"unavailable" as RESOURCE (the shared classifier calls them
+        TRANSIENT) and treats "overload"/"missing"/"duplicate"/"constraint" /
+        authorization / data keywords as SYSTEM (it has no AUTHORIZATION or DATA
+        bucket). Because the same shared category would map to different
+        ``FailureType`` values depending on the original keyword, routing through
+        the shared helper would require fully re-stating these buckets as
+        overrides -- defeating the DRY goal while risking parity. The behavior is
+        pinned by ``test_sepa_retry_manager_parity.TestClassifyFailureParity``.
+        """
         error_str = str(error).lower()
 
         # Database-related errors (often transient)
@@ -384,24 +398,37 @@ class SEPARetryManager:
         # Default: retry transient, resource, and system errors
         return failure_type in [FailureType.TRANSIENT, FailureType.RESOURCE, FailureType.SYSTEM]
 
+    # Map RetryStrategy enum -> the shared helper's string strategy names.
+    # CUSTOM (and any unmapped value) falls back to "exponential", matching the
+    # legacy ``else`` branch below.
+    _STRATEGY_NAMES = {
+        RetryStrategy.FIXED: "fixed",
+        RetryStrategy.LINEAR: "linear",
+        RetryStrategy.EXPONENTIAL: "exponential",
+        RetryStrategy.FIBONACCI: "fibonacci",
+    }
+
     def _calculate_delay(self, attempt: int, config: RetryConfig, failure_type: FailureType) -> float:
-        """Calculate delay before next retry attempt"""
-        if config.strategy == RetryStrategy.FIXED:
-            base_delay = config.base_delay
+        """Calculate delay before next retry attempt.
 
-        elif config.strategy == RetryStrategy.LINEAR:
-            base_delay = config.base_delay * attempt
+        The raw per-strategy base delay is computed by the shared
+        ``calculate_backoff_delay`` helper. We intentionally pass an *uncapped*
+        ``max_delay`` and ``jitter_factor=0`` to the helper because this method's
+        legacy semantics apply the failure-type modifier (TRANSIENT*0.5,
+        RESOURCE*1.5) BEFORE the cap, then the cap, then the jitter -- an order
+        the helper's internal cap-before-jitter would not reproduce.
+        """
+        strategy = self._STRATEGY_NAMES.get(config.strategy, "exponential")
+        base_delay = calculate_backoff_delay(
+            attempt,
+            base_delay=config.base_delay,
+            max_delay=float("inf"),
+            strategy=strategy,
+            exponential_base=config.exponential_base,
+            jitter_factor=0.0,
+        )
 
-        elif config.strategy == RetryStrategy.EXPONENTIAL:
-            base_delay = config.base_delay * (config.exponential_base ** (attempt - 1))
-
-        elif config.strategy == RetryStrategy.FIBONACCI:
-            base_delay = config.base_delay * self._fibonacci(attempt)
-
-        else:  # CUSTOM or fallback
-            base_delay = config.base_delay * (config.exponential_base ** (attempt - 1))
-
-        # Apply failure type modifiers
+        # Apply failure type modifiers (before the cap, matching legacy order)
         if failure_type == FailureType.TRANSIENT:
             base_delay *= 0.5  # Faster retry for transient issues
         elif failure_type == FailureType.RESOURCE:
@@ -416,15 +443,6 @@ class SEPARetryManager:
             base_delay += jitter
 
         return max(0, base_delay)
-
-    def _fibonacci(self, n: int) -> int:
-        """Calculate nth Fibonacci number"""
-        if n <= 1:
-            return n
-        a, b = 0, 1
-        for i in range(2, n + 1):
-            a, b = b, a + b
-        return b
 
     def _update_failure_stats(self, operation_id: str, attempts: List[RetryAttempt]):
         """Update failure statistics for monitoring"""
