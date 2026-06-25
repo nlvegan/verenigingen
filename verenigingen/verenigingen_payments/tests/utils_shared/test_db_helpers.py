@@ -90,13 +90,18 @@ class TestDbHelpers(EnhancedTestCase):
         self.assertIsNotNone(result)
 
     def test_ensure_table_exists_idempotent(self):
-        """Calling ensure_table_exists twice must not raise."""
+        """Calling ensure_table_exists twice must not raise, and the table must exist."""
         tname = _TABLE
-        # First call (already done in setUp); second call must also succeed.
-        try:
-            ensure_table_exists(_CREATE_SQL, table_name=tname)
-        except Exception as exc:
-            self.fail(f"Second call to ensure_table_exists raised: {exc}")
+        # First call already done in setUp; second call must also succeed.
+        ensure_table_exists(_CREATE_SQL, table_name=tname)
+        # Assert the table actually exists — meaningful even when errors are swallowed.
+        count = frappe.db.sql(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",
+            (frappe.conf.db_name, tname),
+        )[0][0]
+        self.assertEqual(
+            count, 1, f"Table {tname!r} not found in information_schema after ensure_table_exists"
+        )
 
     def test_ensure_table_exists_invalid_name_raises(self):
         """An identifier with forbidden characters must raise ValueError."""

@@ -55,7 +55,8 @@ def ensure_table_exists(create_sql: str, *, table_name: str) -> None:
         # Log and swallow: the table either already exists (race) or there is a
         # benign duplicate-creation attempt — the IF NOT EXISTS clause handles
         # the latter; a race causes a harmless error that we absorb here.
-        frappe.logger().warning(f"ensure_table_exists({table_name}): {exc}")
+        frappe.db.rollback()
+        frappe.logger().warning("ensure_table_exists(%s): %s", table_name, exc)
 
 
 def update_row_status(
