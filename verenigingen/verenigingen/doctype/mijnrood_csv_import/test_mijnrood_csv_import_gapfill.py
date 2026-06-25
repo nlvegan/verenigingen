@@ -31,8 +31,9 @@
 #   - retry_failed_volunteer_creations: the real success path that actually
 #     creates a Volunteer for an active import member (lines ~1037-1066).
 #   - _update_account_creation_tracking: the no-tracker-found warning branch.
-#   - _aggregate_validation_warnings: the real Error-Log aggregation +
-#     >5-members truncation formatting (lines ~1118-1123).
+#   - _record_dues_rate_warning + _aggregate_validation_warnings: capture of a
+#     below-minimum dues-rate failure (amounts parsed from the error, member
+#     identity from the row) and its aggregation/bucketing/truncation.
 #
 # Test philosophy: nothing here patches frappe.db, the import controller, or the
 # extracted services. We feed REAL bad data and assert the REAL observable
@@ -301,3 +302,92 @@ class TestMijnroodUpdateTrackingNoTracker(_BaseMijnroodPipelineTest):
         # Counters untouched (None or 0).
         self.assertIn(doc.acrs_created or 0, (0,))
         self.assertIn(doc.acrs_successful or 0, (0,))
+
+
+class TestMijnroodDuesRateWarnings(_BaseMijnroodPipelineTest):
+    """_record_dues_rate_warning + _aggregate_validation_warnings.
+
+    The aggregation reports which imported rows had a dues rate below the
+    configured minimum, bucketed by shortfall with a "... and N more" truncation.
+    """
+
+    def test_capture_and_aggregate_buckets_by_shortfall(self):
+        doc = frappe.new_doc("Mijnrood CSV Import")
+        doc._record_dues_rate_warning(
+            {"member_id": "123", "first_name": "Alice", "last_name": "Jansen"}, 7.50, 9.00
+        )
+        doc._record_dues_rate_warning(
+            {"member_id": "124", "first_name": "Bob", "last_name": "de Vries"}, 7.50, 9.00
+        )
+        # Different shortfall -> separate bucket.
+        doc._record_dues_rate_warning({"member_id": "125", "first_name": "Carol"}, 5.00, 9.00)
+        warnings = doc._aggregate_validation_warnings()
+        joined = "\n".join(warnings)
+        self.assertIn("Dues rate below minimum (€7.50 < €9.00): 2 members", joined)
+        self.assertIn("Lidnr 123 (Alice Jansen)", joined)
+        self.assertIn("Lidnr 124 (Bob de Vries)", joined)
+        self.assertIn("Dues rate below minimum (€5.00 < €9.00): 1 members", joined)
+        self.assertIn("Lidnr 125 (Carol)", joined)
+
+    def test_no_warnings_when_none_recorded(self):
+        doc = frappe.new_doc("Mijnrood CSV Import")
+        self.assertEqual(doc._aggregate_validation_warnings(), [])
+
+    def test_member_label_without_name_uses_lidnr_only(self):
+        doc = frappe.new_doc("Mijnrood CSV Import")
+        doc._record_dues_rate_warning({"member_id": "77"}, 5.00, 9.00)
+        joined = "\n".join(doc._aggregate_validation_warnings())
+        self.assertIn("Lidnr 77", joined)
+        self.assertNotIn("(", joined.split("members - ")[1])  # no name parens
+
+    def test_truncation_past_five_members(self):
+        doc = frappe.new_doc("Mijnrood CSV Import")
+        for i in range(7):
+            doc._record_dues_rate_warning({"member_id": str(i)}, 7.50, 9.00)
+        warnings = doc._aggregate_validation_warnings()
+        self.assertTrue(any("... and 2 more" in w for w in warnings))
+
+
+class TestMijnroodDuesRateWarningsIntegration(_BaseMijnroodPipelineTest):
+    """End-to-end: a real below-minimum dues rate is detected during the import's
+    membership processing and recorded for the validation-warning summary, using
+    the SAME Membership Type minimum the (deeply-swallowed) validation uses."""
+
+    def setUp(self):
+        super().setUp()
+        self._save_settings()
+        self.mtype = self.create_test_membership_type(minimum_amount=15.0)
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.default_membership_type = self.mtype.name
+        settings.flags.ignore_validate = True
+        settings.flags.ignore_mandatory = True
+        settings.save(ignore_permissions=True)
+
+    def tearDown(self):
+        self._restore_settings()
+        super().tearDown()
+
+    def test_below_minimum_dues_rate_is_captured(self):
+        member = self.create_test_member(first_name="Below", last_name="Min")
+        if member.status != "Active":
+            frappe.db.set_value("Member", member.name, "status", "Active")
+            member.reload()
+        row = {
+            "member_id": "DUESMIN1",
+            "first_name": "Below",
+            "last_name": "Min",
+            "membership_type": self.mtype.name,  # resolves directly to our type
+            "dues_rate": 0.01,  # below the €15.00 Membership Type minimum
+            "member_since": frappe.utils.add_days(frappe.utils.today(), -30),
+        }
+        import_doc = frappe.new_doc("Mijnrood CSV Import")
+        # The deeply-suppressed dues-schedule failure logs as it is swallowed; the
+        # proactive check still records the warning regardless.
+        self.expectErrorLog()
+        import_doc._create_related_records_via_services(member.name, row)
+
+        warnings = import_doc._aggregate_validation_warnings()
+        self.assertTrue(
+            any("Dues rate below minimum (€0.01 < €15.00)" in w and "DUESMIN1" in w for w in warnings),
+            f"expected a captured below-minimum warning, got: {warnings}",
+        )

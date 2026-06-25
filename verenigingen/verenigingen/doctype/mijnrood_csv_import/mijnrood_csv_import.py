@@ -473,18 +473,19 @@ class MijnroodCSVImport(Document):
                 mollie_validation_summary = ". Mollie data: preserved correctly"
                 frappe.logger().info("Mollie data preservation validation passed")
 
-        # Aggregate and report validation warnings
+        # Aggregate and report validation warnings. Note: affected members FAILED
+        # their dues-schedule validation, so they are NOT in processed_members —
+        # the warnings come from data captured during per-member processing.
         validation_warnings_summary = ""
-        if processed_members:
-            validation_warnings = self._aggregate_validation_warnings(processed_members)
-            if validation_warnings:
-                validation_warnings_summary = f". {len(validation_warnings)} validation warnings (see notes)"
-                # Append to error log
-                if self.error_log:
-                    self.error_log += "\n\n=== Validation Warnings ===\n"
-                else:
-                    self.error_log = "=== Validation Warnings ===\n"
-                self.error_log += "\n".join(validation_warnings[:50])  # Limit to 50
+        validation_warnings = self._aggregate_validation_warnings()
+        if validation_warnings:
+            validation_warnings_summary = f". {len(validation_warnings)} validation warnings (see notes)"
+            # Append to error log
+            if self.error_log:
+                self.error_log += "\n\n=== Validation Warnings ===\n"
+            else:
+                self.error_log = "=== Validation Warnings ===\n"
+            self.error_log += "\n".join(validation_warnings[:50])  # Limit to 50
 
         self.import_status = "Completed"
         base_summary = f"Import completed successfully. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}"
@@ -1073,57 +1074,64 @@ class MijnroodCSVImport(Document):
             )
             frappe.throw(_("Error retrying volunteer creations: {0}").format(str(e)))
 
-    def _aggregate_validation_warnings(self, processed_members: List[str]) -> List[str]:
-        """Aggregate validation warnings from Error Log into member-specific summaries"""
-        warnings = []
+    def _check_dues_rate_below_minimum(self, row: Dict) -> None:
+        """Detect a below-minimum dues rate for an imported row and record it.
+
+        The dues-schedule validation that enforces the minimum runs deep inside
+        membership creation and its error is swallowed (MembershipCreationService
+        logs "Failed to create dues schedule" and continues), so we compare the
+        row's dues_rate against the resolved Membership Type minimum directly --
+        the same value (Membership Type.minimum_amount) that validation uses.
+        """
+        raw_rate = row.get("dues_rate")
+        if raw_rate is None or (isinstance(raw_rate, str) and not raw_rate.strip()):
+            return
+        try:
+            dues_rate = float(raw_rate)
+        except (TypeError, ValueError):
+            return
 
         try:
-            # Query recent error logs related to financial validation
-            recent_errors = frappe.get_all(
-                "Error Log",
-                filters={
-                    "error": ["like", "%Dues rate%cannot be less than minimum amount%"],
-                    "creation": [">", frappe.utils.add_to_date(frappe.utils.now(), hours=-1)],
-                },
-                fields=["error"],
-                limit=500,
+            membership_type = determine_membership_type_for_csv_import(row)
+        except Exception:
+            return  # type unresolvable -> membership (and its validation) won't run
+
+        minimum = frappe.db.get_value("Membership Type", membership_type, "minimum_amount")
+        if minimum and dues_rate < float(minimum):
+            self._record_dues_rate_warning(row, dues_rate, float(minimum))
+
+    def _record_dues_rate_warning(self, row: Dict, dues_rate: float, minimum: float) -> None:
+        """Record a below-minimum dues-rate warning (member identity + amounts)
+        for later aggregation into the import summary."""
+        member_id = row.get("member_id") or "?"
+        name = " ".join(p for p in (row.get("first_name"), row.get("last_name")) if p).strip()
+        label = f"Lidnr {member_id}" + (f" ({name})" if name else "")
+        if not hasattr(self, "_dues_rate_warnings"):
+            self._dues_rate_warnings = []
+        self._dues_rate_warnings.append(
+            {"dues_rate": f"{dues_rate:.2f}", "minimum": f"{minimum:.2f}", "member": label}
+        )
+
+    def _aggregate_validation_warnings(self) -> List[str]:
+        """Aggregate captured below-minimum dues-rate failures into summary lines.
+
+        Buckets the warnings recorded by _record_dues_rate_warning during member
+        processing by their shortfall (e.g. "€7.50 < €9.00"), listing affected
+        members with a "... and N more" truncation past the first five.
+        """
+        warnings = []
+        buckets: Dict[str, List[str]] = {}
+        for entry in getattr(self, "_dues_rate_warnings", []):
+            key = f"€{entry['dues_rate']} < €{entry['minimum']}"
+            buckets.setdefault(key, []).append(entry["member"])
+
+        for rate_issue, member_list in buckets.items():
+            warnings.append(
+                f"Dues rate below minimum ({rate_issue}): {len(member_list)} members - "
+                f"{', '.join(member_list[:5])}"
             )
-
-            # Parse errors and match to members
-            dues_rate_warnings = {}
-            for error_log in recent_errors:
-                error_text = error_log.get("error", "")
-                # Extract member and amounts from error message
-                # Format: "Dues rate (€7.50) cannot be less than minimum amount (€9.00)"
-                match = re.search(
-                    r"Dues rate \(€([\d.]+)\) cannot be less than minimum amount \(€([\d.]+)\)", error_text
-                )
-                if match:
-                    dues_rate = match.group(1)
-                    minimum = match.group(2)
-
-                    # Try to find member name in error context
-                    member_match = re.search(
-                        r"member[:\s]+([A-Z]+-\d{4}-\d{2}-\d{2}-[a-f0-9]+)", error_text, re.IGNORECASE
-                    )
-                    if member_match:
-                        member_name = member_match.group(1)
-                        if member_name in processed_members:
-                            key = f"€{dues_rate} < €{minimum}"
-                            if key not in dues_rate_warnings:
-                                dues_rate_warnings[key] = []
-                            dues_rate_warnings[key].append(member_name)
-
-            # Format aggregated warnings
-            for rate_issue, member_list in dues_rate_warnings.items():
-                warnings.append(
-                    f"Dues rate below minimum ({rate_issue}): {len(member_list)} members - {', '.join(member_list[:5])}"
-                )
-                if len(member_list) > 5:
-                    warnings.append(f"  ... and {len(member_list) - 5} more")
-
-        except Exception as e:
-            frappe.logger().error(f"Error aggregating validation warnings: {str(e)}")
+            if len(member_list) > 5:
+                warnings.append(f"  ... and {len(member_list) - 5} more")
 
         return warnings
 
@@ -1268,6 +1276,12 @@ class MijnroodCSVImport(Document):
 
         # Membership creation via service
         if self._should_create_membership(member_doc, row_data):
+            # Proactively flag a below-minimum dues rate for the validation-warning
+            # summary. The dues-schedule validation error is swallowed several
+            # layers deep (MembershipCreationService logs "Failed to create dues
+            # schedule" and continues), so we detect the condition directly here
+            # rather than trying to catch a deeply-suppressed exception.
+            self._check_dues_rate_below_minimum(row_data)
             try:
                 membership_service = get_membership_import_service()
                 membership_service.create_membership_from_csv(member_doc, row_data)

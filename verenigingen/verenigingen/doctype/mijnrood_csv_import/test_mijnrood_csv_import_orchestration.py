@@ -10,7 +10,6 @@
 #     chapter without auto-create (skip), missing chapter WITH auto-create
 #   - _create_related_records_via_services: chapter branch + address branch
 #   - _create_volunteer_for_member: collects names into _pending_volunteer_members
-#   - _aggregate_validation_warnings: parses real Error Logs into per-member buckets
 #   - _generate_performance_report*: rolling-stats + legacy + empty paths
 #
 # We reuse the rich fixture base from the pipeline test module (real File
@@ -158,44 +157,9 @@ class TestMijnroodVolunteerQueueing(_BaseMijnroodPipelineTest):
         self.assertEqual(doc._pending_volunteer_members, [member.name, member2.name])
 
 
-class TestMijnroodAggregateWarnings(_BaseMijnroodPipelineTest):
-    """_aggregate_validation_warnings parses real Error Logs into per-member buckets."""
-
-    def _log_dues_error(self, member_name, rate, minimum):
-        log = frappe.get_doc(
-            {
-                "doctype": "Error Log",
-                "error": (
-                    f"member: {member_name} Dues rate (€{rate}) cannot be less than "
-                    f"minimum amount (€{minimum})"
-                ),
-            }
-        ).insert()
-        self.addCleanup(lambda: self._force_delete("Error Log", log.name))
-        return log
-
-    def test_aggregate_dues_rate_warnings_for_processed_members(self):
-        """A dues-rate Error Log mentioning a processed member is aggregated into a
-        warning that counts the affected member."""
-        # A member name in the format the regex expects: e.g. MEM-2024-01-01-abcdef
-        member_name = "MEM-2024-01-01-abc123"
-        self._log_dues_error(member_name, "7.50", "9.00")
-
-        doc = self._new_unsaved_doc()
-        warnings = doc._aggregate_validation_warnings([member_name])
-        self.assertTrue(warnings, "expected at least one aggregated dues-rate warning")
-        joined = "\n".join(warnings)
-        self.assertIn("€7.50 < €9.00", joined)
-        self.assertIn(member_name, joined)
-
-    def test_aggregate_ignores_unprocessed_members(self):
-        """A dues-rate Error Log for a member NOT in processed_members is ignored."""
-        member_name = "MEM-2024-02-02-def456"
-        self._log_dues_error(member_name, "5.00", "9.00")
-        doc = self._new_unsaved_doc()
-        # processed_members does not include the logged member.
-        warnings = doc._aggregate_validation_warnings(["MEM-2099-01-01-other0"])
-        self.assertEqual(warnings, [])
+# NOTE: _aggregate_validation_warnings was reworked to aggregate structured data
+# captured during member processing (it no longer scrapes Error Logs). Its tests
+# now live in test_mijnrood_csv_import_gapfill.py::TestMijnroodDuesRateWarnings(+Integration).
 
 
 class TestMijnroodPerformanceReport(_BaseMijnroodPipelineTest):
