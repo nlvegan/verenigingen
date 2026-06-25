@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation.iban_validator import validate_iban as _canonical_validate_iban
+
 
 class IBANValidator:
     """Validator for International Bank Account Numbers (IBAN)."""
@@ -95,52 +97,33 @@ class IBANValidator:
         """
         Validate IBAN format and checksum.
 
+        Delegates to the canonical ``validate_iban`` helper.  The bool return
+        and calling conventions are unchanged; callers at lines 177, 321, 446
+        and ``payment_processors.py:519`` all depend on this returning bool.
+
         Args:
             iban: IBAN string to validate
 
         Returns:
             True if IBAN is valid, False otherwise
         """
-        if not iban:
-            return False
-
-        # Remove spaces and convert to uppercase
-        iban = iban.replace(" ", "").upper()
-
-        # Check length
-        if len(iban) < 4:
-            return False
-
-        country_code = iban[:2]
-        if country_code not in cls.IBAN_LENGTHS:
-            return False
-
-        if len(iban) != cls.IBAN_LENGTHS[country_code]:
-            return False
-
-        # Check format (2 letters + 2 digits + alphanumeric)
-        if not re.match(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]+$", iban):
-            return False
-
-        # Validate checksum using mod-97 algorithm
-        return cls._validate_checksum(iban)
+        return _canonical_validate_iban(iban)["valid"]
 
     @classmethod
     def _validate_checksum(cls, iban: str) -> bool:
-        """Validate IBAN checksum using mod-97 algorithm."""
-        # Move first 4 characters to the end
-        rearranged = iban[4:] + iban[:4]
+        """
+        Validate IBAN checksum using mod-97 algorithm.
 
-        # Replace letters with numbers (A=10, B=11, ..., Z=35)
-        numeric_string = ""
-        for char in rearranged:
-            if char.isalpha():
-                numeric_string += str(ord(char) - ord("A") + 10)
-            else:
-                numeric_string += char
+        Kept for external callers (e.g. ``test_mollie_validators.py``) that
+        call this method directly.  Delegates to the canonical validator which
+        runs the same streaming mod-97 algorithm.
 
-        # Perform mod-97 check
-        return int(numeric_string) % 97 == 1
+        Note: unlike the pre-refactor implementation this method now accepts
+        an un-normalized IBAN (spaces, lowercase) because it delegates to the
+        canonical helper which normalises first.  The existing test corpus
+        only passes already-normalised IBANs here, so behaviour is unchanged.
+        """
+        return _canonical_validate_iban(iban)["valid"]
 
     @classmethod
     def format_iban(cls, iban: str) -> str:

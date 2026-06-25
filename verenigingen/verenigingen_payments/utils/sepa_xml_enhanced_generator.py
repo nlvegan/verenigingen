@@ -8,7 +8,6 @@ SEPA mandate types (OOFF, FRST, RCUR, FNAL).
 Implements Week 3 Day 3-4 requirements from the SEPA billing improvements project.
 """
 
-import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -24,7 +23,11 @@ from verenigingen.utils.error_handling import SEPAError, ValidationError, handle
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
+from verenigingen.utils.validation.iban_validator import (
+    derive_bic_from_iban,
+    validate_bic as _canonical_validate_bic,
+    validate_iban,
+)
 from verenigingen.verenigingen_payments.utils.sepa_constants import (
     MAX_CREDITOR_NAME_LENGTH,
     MAX_DEBTOR_NAME_LENGTH,
@@ -38,6 +41,7 @@ from verenigingen.verenigingen_payments.utils.sepa_constants import (
     MAX_TOWN_NAME_LENGTH,
     SEPA_CHAR_PATTERN,
 )
+from verenigingen.verenigingen_payments.utils.shared.xml_helpers import build_postal_address
 
 
 class SEPASequenceType(Enum):
@@ -434,17 +438,10 @@ class EnhancedSEPAXMLGenerator:
                     )
 
     def _validate_bic(self, bic: str) -> bool:
-        """Validate BIC format"""
+        """Validate BIC format — delegates to the canonical validator."""
         if not bic:
             return False
-
-        # BIC format: 8 or 11 characters
-        if len(bic) not in [8, 11]:
-            return False
-
-        # Basic format check: 4 letters + 2 letters + 2 alphanumeric + optional 3 alphanumeric
-        pattern = r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
-        return bool(re.match(pattern, bic.upper()))
+        return _canonical_validate_bic(bic)["valid"]
 
     def _create_document_root(self) -> ET.Element:
         """Create document root element with proper namespaces"""
@@ -551,19 +548,17 @@ class EnhancedSEPAXMLGenerator:
         cdtr = ET.SubElement(parent, "Cdtr")
         ET.SubElement(cdtr, "Nm").text = creditor.name
 
-        # Address (if provided)
-        if any([creditor.address_line_1, creditor.address_line_2, creditor.postal_code, creditor.town]):
-            pstl_adr = ET.SubElement(cdtr, "PstlAdr")
-            ET.SubElement(pstl_adr, "Ctry").text = creditor.country
-
-            if creditor.address_line_1:
-                ET.SubElement(pstl_adr, "AdrLine").text = creditor.address_line_1
-            if creditor.address_line_2:
-                ET.SubElement(pstl_adr, "AdrLine").text = creditor.address_line_2
-            if creditor.postal_code:
-                ET.SubElement(pstl_adr, "PstCd").text = creditor.postal_code
-            if creditor.town:
-                ET.SubElement(pstl_adr, "TwnNm").text = creditor.town
+        # Address (if provided) — delegated to shared helper
+        build_postal_address(
+            cdtr,
+            {
+                "country": creditor.country,
+                "address_line_1": creditor.address_line_1,
+                "address_line_2": creditor.address_line_2,
+                "postal_code": creditor.postal_code,
+                "town": creditor.town,
+            },
+        )
 
     def _generate_creditor_account(self, parent: ET.Element, creditor: SEPACreditor):
         """Generate creditor account information"""
@@ -680,19 +675,17 @@ class EnhancedSEPAXMLGenerator:
         dbtr = ET.SubElement(parent, "Dbtr")
         ET.SubElement(dbtr, "Nm").text = debtor.name
 
-        # Address (if provided)
-        if any([debtor.address_line_1, debtor.address_line_2, debtor.postal_code, debtor.town]):
-            pstl_adr = ET.SubElement(dbtr, "PstlAdr")
-            ET.SubElement(pstl_adr, "Ctry").text = debtor.country
-
-            if debtor.address_line_1:
-                ET.SubElement(pstl_adr, "AdrLine").text = debtor.address_line_1
-            if debtor.address_line_2:
-                ET.SubElement(pstl_adr, "AdrLine").text = debtor.address_line_2
-            if debtor.postal_code:
-                ET.SubElement(pstl_adr, "PstCd").text = debtor.postal_code
-            if debtor.town:
-                ET.SubElement(pstl_adr, "TwnNm").text = debtor.town
+        # Address (if provided) — delegated to shared helper
+        build_postal_address(
+            dbtr,
+            {
+                "country": debtor.country,
+                "address_line_1": debtor.address_line_1,
+                "address_line_2": debtor.address_line_2,
+                "postal_code": debtor.postal_code,
+                "town": debtor.town,
+            },
+        )
 
     def _validate_xml_structure(self, root: ET.Element):
         """Validate final XML structure against SEPA requirements"""

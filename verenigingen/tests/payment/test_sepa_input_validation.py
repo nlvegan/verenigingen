@@ -319,6 +319,62 @@ class TestValidateBIC(unittest.TestCase):
         self.assertFalse(res["valid"])
 
 
+class TestValidateBICParityWithCanonical(unittest.TestCase):
+    """Parity: SEPAInputValidator.validate_bic must agree with canonical validate_bic on all inputs.
+
+    These are characterization-and-delegation tests — they prove that the refactored
+    SEPAInputValidator.validate_bic (which now delegates to the canonical helper) returns
+    the same ``valid`` bool and ``cleaned_bic`` for every representative input it always did.
+    """
+
+    def _sepa(self, bic):
+        return SEPAInputValidator.validate_bic(bic)
+
+    def test_parity_valid_8_char(self):
+        r = self._sepa("ABNANL2A")
+        self.assertTrue(r["valid"])
+        self.assertEqual(r["cleaned_bic"], "ABNANL2A")
+        self.assertEqual(r["errors"], [])
+
+    def test_parity_valid_11_char(self):
+        r = self._sepa("ABNANL2AXXX")
+        self.assertTrue(r["valid"])
+        self.assertEqual(r["cleaned_bic"], "ABNANL2AXXX")
+
+    def test_parity_lowercase_normalized(self):
+        r = self._sepa("ingbnl2a")
+        self.assertTrue(r["valid"])
+        self.assertEqual(r["cleaned_bic"], "INGBNL2A")
+
+    def test_parity_invalid_9_char(self):
+        r = self._sepa("ABNANL2AX")
+        self.assertFalse(r["valid"])
+        self.assertIsNone(r["cleaned_bic"])
+        self.assertTrue(len(r["errors"]) > 0)
+
+    def test_parity_invalid_empty(self):
+        r = self._sepa("")
+        self.assertFalse(r["valid"])
+
+    def test_parity_invalid_none(self):
+        r = self._sepa(None)
+        self.assertFalse(r["valid"])
+
+    def test_parity_return_shape_always_has_three_keys(self):
+        for bic in ("ABNANL2A", "BADX", "", None, 12345):
+            r = SEPAInputValidator.validate_bic(bic)
+            self.assertIn("valid", r)
+            self.assertIn("errors", r)
+            self.assertIn("cleaned_bic", r)
+
+    def test_parity_invalid_cleans_bic_to_none(self):
+        """cleaned_bic must be None when validation fails (no partial result)."""
+        for bad_bic in ("TOOLONG123456", "123XXXXX", "AB"):
+            r = self._sepa(bad_bic)
+            self.assertFalse(r["valid"], f"Expected invalid for {bad_bic!r}")
+            self.assertIsNone(r["cleaned_bic"], f"cleaned_bic should be None for invalid {bad_bic!r}")
+
+
 class TestValidateSepaText(unittest.TestCase):
     """SEPAInputValidator.validate_sepa_text"""
 
