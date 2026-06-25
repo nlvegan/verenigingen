@@ -379,40 +379,17 @@ class TestProcessLineItemsBranches(_TaxFixtureBase):
         with self.assertRaises(frappe.ValidationError):
             process_line_items(invoice, regels, "sales", None, [])
 
-    def _ensure_resolution_company_cost_center(self):
-        # process_line_items calls get_cost_center WITHOUT a company arg, so it
-        # resolves against E-Boekhouden Settings.default_company. Make sure that
-        # company has a usable (non-group) cost center, otherwise get_cost_center
-        # throws on bare CI test companies that ship without one. Rolled back by
-        # FrappeTestCase, so this never mutates shared state permanently.
-        settings = frappe.get_single("E-Boekhouden Settings")
-        company = settings.default_company
-        if not company:
-            self.skipTest("No E-Boekhouden Settings default_company configured")
-        if frappe.db.get_value("Company", company, "cost_center"):
-            return
-        if frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name"):
-            return
-        root = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1}, "name")
-        if not root:
-            self.skipTest(f"{company} has no root cost center group to attach to")
-        cc = frappe.new_doc("Cost Center")
-        cc.cost_center_name = "Main"
-        cc.company = company
-        cc.parent_cost_center = root
-        cc.is_group = 0
-        cc.insert(ignore_permissions=True)
-
     def test_kostenplaats_sets_line_cost_center(self):
         # A regel carrying KostenplaatsId triggers the per-line cost-center branch:
-        # line_item["cost_center"] = get_cost_center(KostenplaatsId).
+        # line_item["cost_center"] = get_cost_center(KostenplaatsId, invoice.company).
         #
-        # NOTE on existing behavior: process_line_items calls get_cost_center WITHOUT
-        # a company arg (invoice_helpers.py:208), so it resolves against E-Boekhouden
-        # Settings.default_company, NOT invoice.company. We assert the branch ran and
-        # produced a real, valid Cost Center, without coupling to which company owns
-        # it (that depends on the live settings default_company).
-        self._ensure_resolution_company_cost_center()
+        # REGRESSION GUARD (cross-company import bug): process_line_items must resolve
+        # the per-line cost center against invoice.company, NOT the global
+        # E-Boekhouden Settings.default_company. On a multi-company import those differ,
+        # and resolving against the settings default attaches a cost center owned by
+        # the wrong company -> ERPNext company-mismatch error. Here the invoice's
+        # company (TEIC) is deliberately NOT the settings default_company, so a correct
+        # resolution must return a Cost Center owned by TEIC.
         invoice = _InvoiceStub(self.company, doctype="Sales Invoice")
         regels = [
             {
@@ -428,8 +405,15 @@ class TestProcessLineItemsBranches(_TaxFixtureBase):
             process_line_items(invoice, regels, "sales", None, [])
         resolved_cc = invoice.items[0]["cost_center"]
         self.assertTrue(resolved_cc)
-        # The branch resolved a genuine Cost Center record (not the passed-in None).
+        # The branch resolved a genuine Cost Center record (not the passed-in None)...
         self.assertTrue(frappe.db.exists("Cost Center", resolved_cc))
+        # ...and crucially it belongs to the INVOICE's company, not the settings default.
+        self.assertEqual(
+            frappe.db.get_value("Cost Center", resolved_cc, "company"),
+            self.company,
+            "per-line cost center must resolve against invoice.company, not "
+            "E-Boekhouden Settings.default_company (cross-company import bug)",
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -204,8 +204,12 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
             line_item["expense_account"] = gl_account
 
         # Cost center if available
+        # CRITICAL: resolve against THIS invoice's company, not the global
+        # E-Boekhouden Settings.default_company. On multi-company imports the two
+        # differ, and resolving against the settings default attaches a cost center
+        # owned by the wrong company -> ERPNext company-mismatch on save.
         if regel.get("KostenplaatsId"):
-            line_item["cost_center"] = get_cost_center(regel.get("KostenplaatsId"))
+            line_item["cost_center"] = get_cost_center(regel.get("KostenplaatsId"), company)
 
         invoice.append("items", line_item)
         debug_info.append(
