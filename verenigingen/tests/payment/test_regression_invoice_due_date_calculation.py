@@ -119,6 +119,15 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         inv = frappe.new_doc("Sales Invoice")
         inv.company = frappe.db.get_single_value("Verenigingen Settings", "company")
         inv.customer = member.customer
+        # Pin the currency to the company default, exactly as generate_invoice does
+        # (invoice_generator.py). Without this the Sales Invoice currency defaults
+        # from the customer / price list / system default, which on CI sites is INR
+        # while the company's receivable account is EUR -> "Party Account currency
+        # ... should be same". (veg11's customer defaults to EUR, hiding this.)
+        company_currency = frappe.db.get_value("Company", inv.company, "default_currency")
+        if company_currency:
+            inv.currency = company_currency
+            inv.conversion_rate = 1.0
         inv.posting_date = coverage_end
         inv.set_posting_time = 1
         inv.due_date = coverage_end
