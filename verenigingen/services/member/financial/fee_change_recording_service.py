@@ -149,6 +149,28 @@ class FeeChangeRecordingService(StatelessService):
                 dues_schedule=dues_schedule,
             )
             if merged:
+                # _merge_context_if_needed mutated the existing child row in
+                # memory only; persist the change so the merged amendment/
+                # schedule reference survives a fresh DB read (the _create_entry
+                # path persists via the history manager; the merge path must too).
+                from verenigingen.utils import safe_child_table_update
+
+                persist_result = safe_child_table_update(
+                    member_doc,
+                    "fee_change_history",
+                    justification="Merge amendment/schedule context into existing fee change entry",
+                    doctype_permission="Member:write",
+                )
+                if not persist_result.success:
+                    self.logger.error(
+                        f"Failed to persist merged fee change context for {member_name}: "
+                        f"{persist_result.errors}"
+                    )
+                    return RecordingResult(
+                        status="skipped",
+                        message="Failed to persist merged context",
+                        entry_name=recent_duplicate.name,
+                    )
                 self.logger.info(f"Merged context into existing fee change entry for {member_name}")
                 return RecordingResult(
                     status="merged",

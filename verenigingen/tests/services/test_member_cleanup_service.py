@@ -16,7 +16,6 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.services.member.lifecycle.member_cleanup_service import (
-    MemberCleanupService,
     get_member_cleanup_service,
 )
 
@@ -299,6 +298,125 @@ class TestMemberCleanupService(EnhancedTestCase):
         except Exception as e:
             # The service should catch errors, so this shouldn't happen
             self.fail(f"Cleanup service should handle errors gracefully, but raised: {e}")
+
+    # ------------------------------------------------------------------
+    # Extended coverage: unlink helpers + audit + sales-invoice clearing
+    # ------------------------------------------------------------------
+
+    def _make_linked_address(self, member):
+        """Create an Address linked to the member and set it as primary."""
+        address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": f"Unlink {frappe.generate_hash(length=6)}",
+                "address_line1": "456 Unlink Lane",
+                "city": "Rotterdam",
+                "pincode": "3000AA",
+                "country": "Netherlands",
+                "address_type": "Personal",
+                "links": [{"link_doctype": "Member", "link_name": member.name}],
+            }
+        )
+        address.insert(ignore_permissions=True)
+        member.reload()
+        member.primary_address = address.name
+        member.save(ignore_version=True)
+        return address
+
+    def test_unlink_member_from_address_removes_only_member_link(self):
+        """_unlink_member_from_address strips the Member link, preserves the Address."""
+        member = self.create_test_member(
+            first_name="Unlink", last_name="Addr001", email="unlink.addr001@example.com"
+        )
+        address = self._make_linked_address(member)
+
+        # Sanity: link exists before
+        address.reload()
+        member_links = [
+            link
+            for link in (address.get("links") or [])
+            if link.link_doctype == "Member" and link.link_name == member.name
+        ]
+        self.assertEqual(len(member_links), 1)
+
+        member.reload()
+        get_member_cleanup_service()._unlink_member_from_address(member, address.name)
+
+        # Address still exists, but the Member link is gone
+        self.assertTrue(frappe.db.exists("Address", address.name))
+        address.reload()
+        remaining = [
+            link
+            for link in (address.get("links") or [])
+            if link.link_doctype == "Member" and link.link_name == member.name
+        ]
+        self.assertEqual(len(remaining), 0)
+
+    def test_unlink_member_from_customer_no_customer_noop(self):
+        """_unlink_member_from_customer is a no-op when member has no customer."""
+        member = self.create_test_member(
+            first_name="Unlink", last_name="NoCust", email="unlink.nocust@example.com"
+        )
+        member.customer = None
+        # Should not raise
+        get_member_cleanup_service()._unlink_member_from_customer(member)
+
+    def test_unlink_member_from_customer_clears_custom_member(self):
+        """When Customer.custom_member points at the member, it is cleared."""
+        member = self.create_test_member(
+            first_name="Unlink", last_name="CustomMem", email="unlink.custommem@example.com"
+        )
+        customer_name = member.customer
+        self.assertTrue(customer_name)
+
+        customer = frappe.get_doc("Customer", customer_name)
+        if not hasattr(customer, "custom_member"):
+            self.skipTest("Customer has no custom_member field in this install")
+
+        frappe.db.set_value("Customer", customer_name, "custom_member", member.name)
+        member.reload()
+
+        get_member_cleanup_service()._unlink_member_from_customer(member)
+
+        # custom_member link cleared; Customer preserved
+        self.assertTrue(frappe.db.exists("Customer", customer_name))
+        self.assertFalse(bool(frappe.db.get_value("Customer", customer_name, "custom_member")))
+
+    def test_audit_log_does_not_raise(self):
+        """_log_permission_bypass_audit writes an Error Log entry without raising."""
+        member = self.create_test_member(
+            first_name="Audit", last_name="Trail", email="audit.trail@example.com"
+        )
+        # Should complete silently (logs to app log + Error Log)
+        get_member_cleanup_service()._log_permission_bypass_audit(
+            operation="unit_test_op",
+            doctype="Customer",
+            docname=member.customer or "X",
+            member_name=member.name,
+            justification="unit test audit entry",
+        )
+
+    def test_sales_invoice_reference_cleared_on_deletion(self):
+        """Member references on Sales Invoices are NULLed (invoice preserved)."""
+        member = self.create_test_member(first_name="SI", last_name="Ref", email="si.ref@example.com")
+        # Insert a minimal Sales Invoice row carrying the member ref directly via SQL
+        # to avoid full accounting setup; we only test the reference-clearing UPDATE.
+        if not frappe.db.has_column("Sales Invoice", "member"):
+            self.skipTest("Sales Invoice has no member column in this install")
+
+        si_name = f"TEST-SI-{frappe.generate_hash(length=8)}"
+        frappe.db.sql(
+            "INSERT INTO `tabSales Invoice` (name, member, docstatus, creation, modified, owner, modified_by) "
+            "VALUES (%s, %s, 0, NOW(), NOW(), 'Administrator', 'Administrator')",
+            (si_name, member.name),
+        )
+        try:
+            member.reload()
+            get_member_cleanup_service().handle_member_deletion(member)
+            cleared = frappe.db.get_value("Sales Invoice", si_name, "member")
+            self.assertIsNone(cleared)
+        finally:
+            frappe.db.sql("DELETE FROM `tabSales Invoice` WHERE name = %s", (si_name,))
 
 
 def run_tests():

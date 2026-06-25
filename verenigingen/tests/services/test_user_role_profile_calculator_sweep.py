@@ -48,6 +48,8 @@ import frappe
 from verenigingen.services.member.account import user_role_profile_calculator as calc
 from verenigingen.services.member.account.user_role_profile_calculator import (
     PRIORITY_BOARD_DEFAULT,
+    PRIORITY_BOARD_ROLE_SPECIFIC,
+    PRIORITY_SPECIAL_ACCOUNTING,
     PRIORITY_STAFF,
     PRIORITY_TEAM_ROLE_SPECIFIC,
     PROFILE_MEMBER,
@@ -58,8 +60,10 @@ from verenigingen.services.member.account.user_role_profile_calculator import (
     calculate_all_user_role_profiles,
     calculate_user_role_profile,
     get_board_member_profiles,
+    get_profile_priority_for_role,
     get_team_profiles,
     sync_user_role_profile,
+    validate_role_profile_data_integrity,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -504,3 +508,110 @@ class TestUserRoleProfileCalculatorSweep(VereningingenTestCase):
         self.assertIn("unchanged", result)
         self.assertIn("errors", result)
         self.assertIsInstance(result["changes"], list)
+
+    # =================================================================
+    # get_profile_priority_for_role - accounting-keyword detection
+    # =================================================================
+
+    def test_priority_treasurer_role_name_is_special_accounting(self):
+        """An English accounting keyword in the ROLE name lifts priority to 100."""
+        self.assertEqual(
+            get_profile_priority_for_role("Treasurer", "Some Board Profile"),
+            PRIORITY_SPECIAL_ACCOUNTING,
+        )
+
+    def test_priority_dutch_penningmeester_role_is_special_accounting(self):
+        """The Dutch 'penningmeester' (treasurer) keyword is recognised too."""
+        self.assertEqual(
+            get_profile_priority_for_role("Penningmeester", "Bestuur"),
+            PRIORITY_SPECIAL_ACCOUNTING,
+        )
+
+    def test_priority_accounting_keyword_in_profile_name(self):
+        """A non-accounting role but an accounting keyword in the PROFILE name still wins."""
+        self.assertEqual(
+            get_profile_priority_for_role("Secretaris", "Financieel Beheerder Profile"),
+            PRIORITY_SPECIAL_ACCOUNTING,
+        )
+
+    def test_priority_plain_board_role_defaults_to_role_specific(self):
+        """A role with no accounting keyword defaults to board-role-specific priority."""
+        self.assertEqual(
+            get_profile_priority_for_role("Secretaris", "Generic Board Profile"),
+            PRIORITY_BOARD_ROLE_SPECIFIC,
+        )
+
+    # =================================================================
+    # get_board_member_profiles - role-specific VALID branch (treasurer)
+    # =================================================================
+
+    def test_board_role_specific_valid_treasurer_gets_special_priority(self):
+        """A valid role-specific mapping for a treasurer role yields priority 100.
+
+        Distinct from test_board_role_specific_missing_falls_through_to_default:
+        here the configured Role Profile EXISTS, so the role-specific branch is
+        taken (not the fall-through), and because the role name is a treasurer
+        keyword the priority is PRIORITY_SPECIAL_ACCOUNTING.
+        """
+        user, member = self._make_member_user()
+        vol = self._make_volunteer(member)
+        specific_profile = self._make_role_profile("BoardTreasurer")
+        chapter = self.create_test_chapter(enable_board_role_specific_profiles=1)
+        self._ensure_chapter_role("Penningmeester")
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_role_specific_profiles",
+            {"chapter_role": "Penningmeester", "role_profile": specific_profile},
+        )
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": vol,
+                "chapter_role": "Penningmeester",
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+
+        profiles = get_board_member_profiles(user, member)
+        self.assertIn((PRIORITY_SPECIAL_ACCOUNTING, specific_profile), profiles)
+        # And it wins overall, beating the default member fallback (priority 10).
+        self.assertEqual(calculate_user_role_profile(user), specific_profile)
+
+    def test_board_member_with_no_volunteer_returns_empty(self):
+        """A member without a Volunteer record yields no board profiles (early return)."""
+        user, member = self._make_member_user()
+        self.assertEqual(get_board_member_profiles(user, member), [])
+
+    # =================================================================
+    # validate_role_profile_data_integrity
+    # =================================================================
+
+    def test_data_integrity_clean_system_reports_success(self):
+        """The integrity validator returns a structured report with a summary."""
+        result = validate_role_profile_data_integrity()
+        self.assertTrue(result["success"])
+        issues = result["issues"]
+        self.assertIn("summary", issues)
+        self.assertIn("total_issues", issues["summary"])
+        # All issue buckets are present as lists.
+        for key in (
+            "orphaned_board_members",
+            "orphaned_team_members",
+            "invalid_chapter_profiles",
+            "invalid_team_profiles",
+            "profile_mismatches",
+        ):
+            self.assertIsInstance(issues[key], list)
+
+    def test_data_integrity_flags_invalid_chapter_default_profile(self):
+        """A chapter whose default board profile points at a ghost is reported."""
+        chapter = self.create_test_chapter()
+        # Write a non-existent profile straight to the DB (bypasses Link validation).
+        frappe.db.set_value("Chapter", chapter.name, "default_board_role_profile", "Ghost Profile ZZZ")
+
+        result = validate_role_profile_data_integrity()
+        self.assertTrue(result["success"])
+        flagged = {i["chapter"] for i in result["issues"]["invalid_chapter_profiles"]}
+        self.assertIn(chapter.name, flagged)

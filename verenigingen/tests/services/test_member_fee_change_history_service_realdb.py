@@ -136,3 +136,89 @@ class TestMemberFeeChangeHistoryServiceRealDB(EnhancedTestCase):
         schedules = {r.dues_schedule for r in self._rows()}
         self.assertIn("DUES-SCHED-F1", schedules)
         self.assertIn("DUES-SCHED-F2", schedules)
+
+    def _member_with_real_schedule(self):
+        """Create a member that owns a REAL Membership Dues Schedule.
+
+        The fee_change_history.dues_schedule field is a Link to Membership Dues
+        Schedule, so persisting the member (outside the link-validation bypass)
+        requires a real target row to exist. create_test_member_with_schedule
+        builds the membership + schedule end-to-end.
+        """
+        membership_type = self.create_test_membership_type(amount=10.0)
+        member, schedule = self.create_test_member_with_schedule(
+            first_name="FeeUpd",
+            last_name="Real",
+            membership_type_name=membership_type.name,
+            start_date=frappe.utils.today(),
+        )
+        return member, schedule.name
+
+    def test_update_found_persists_via_secure_operation(self):
+        """The 'found' branch mutates the matched row and saves via secure_document_operation.
+
+        Seed a persisted row referencing a REAL dues schedule (add + member.save),
+        then update the SAME schedule. The found branch updates fields in place and
+        persists them through secure_document_operation, so a reload shows the new rate.
+        """
+        member, schedule_name = self._member_with_real_schedule()
+        self.service.add_fee_change_to_history(
+            member,
+            {"name": schedule_name, "dues_rate": 10.0, "billing_frequency": "Monthly"},
+        )
+        member.save()
+        member.reload()
+
+        self.service.update_fee_change_in_history(
+            member,
+            {
+                "name": schedule_name,
+                "dues_rate": 33.0,
+                "billing_frequency": "Annual",
+                "reason": "Rate bump",
+            },
+        )
+
+        fresh = frappe.get_doc("Member", member.name)
+        rows = [r for r in (fresh.fee_change_history or []) if r.dues_schedule == schedule_name]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(float(rows[0].new_dues_rate), 33.0)
+        self.assertEqual(rows[0].billing_frequency, "Annual")
+        self.assertEqual(rows[0].reason, "Rate bump")
+
+    def test_update_found_default_reason_when_missing(self):
+        """When no reason is supplied, the found branch backfills 'Updated: <schedule>'."""
+        member, schedule_name = self._member_with_real_schedule()
+        self.service.add_fee_change_to_history(
+            member,
+            {"name": schedule_name, "dues_rate": 10.0, "billing_frequency": "Monthly"},
+        )
+        member.save()
+        member.reload()
+
+        self.service.update_fee_change_in_history(
+            member,
+            {"name": schedule_name, "dues_rate": 14.0, "billing_frequency": "Monthly"},
+        )
+        fresh = frappe.get_doc("Member", member.name)
+        rows = [r for r in (fresh.fee_change_history or []) if r.dues_schedule == schedule_name]
+        self.assertEqual(rows[0].reason, f"Updated: {schedule_name}")
+
+    def test_add_truncates_history_to_50_entries(self):
+        """Adding past 50 unique schedules truncates the child table to 50 rows."""
+        for i in range(55):
+            self.service.add_fee_change_to_history(
+                self.member,
+                {"name": f"DUES-SCHED-LIMIT-{i:03d}", "dues_rate": float(i), "billing_frequency": "Monthly"},
+            )
+        self.assertLessEqual(len(self._rows()), 50)
+
+    def test_add_default_reason_from_schedule_name(self):
+        """With no explicit reason, add composes 'Dues schedule: <name>'."""
+        self.service.add_fee_change_to_history(
+            self.member,
+            {"schedule_name": "Gold Plan", "dues_rate": 9.0, "billing_frequency": "Monthly"},
+        )
+        rows = [r for r in self._rows() if r.dues_schedule == "Gold Plan"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].reason, "Dues schedule: Gold Plan")
