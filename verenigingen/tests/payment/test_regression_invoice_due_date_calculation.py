@@ -32,6 +32,55 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
 
         ensure_membership_type_exists("Daglid", amount=2.0)
 
+    def setUp(self):
+        super().setUp()
+        # Every method here generates a Sales Invoice whose debit_to ERPNext
+        # resolves from the shared settings company (the test customer has no Party
+        # Account override). If a SIBLING test left any of that company's receivable
+        # accounts in a non-company currency, invoice validation throws "Party
+        # Account currency ... should be same" -- the order-dependence that
+        # baselined this whole class (it passes in isolation, fails only on certain
+        # CI shard orderings). Normalize the shared receivable state up front so
+        # every test is self-sufficient regardless of shard composition / run order.
+        self._normalize_company_receivable_currency()
+
+    def _normalize_company_receivable_currency(self):
+        """Force every non-group receivable account of the settings company to the
+        company's own currency.
+
+        generate_invoice() (invoice_generator.py) pins the invoice currency to the
+        company default but never sets debit_to, so ERPNext resolves the receivable
+        via the company default / first-by-type account. Repairing ONLY
+        Company.default_receivable_account (the previous approach) missed the
+        account actually resolved on CI sites where that default is unset, so
+        normalize ALL receivable leaves. Direct DB write + cache clear: the Account
+        controller refuses account_currency changes once GL entries exist
+        ("Currency can not be changed after making entries..."), but invoice
+        validation only reads the field. No-op on a clean site (e.g. veg11, all
+        EUR) -- nothing is written when currencies already match.
+        """
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        if not company:
+            return
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+        if not company_currency:
+            return
+        receivables = frappe.get_all(
+            "Account",
+            filters={"company": company, "account_type": "Receivable", "is_group": 0},
+            fields=["name", "account_currency"],
+        )
+        repaired = False
+        for acct in receivables:
+            if acct.account_currency and acct.account_currency != company_currency:
+                frappe.db.set_value(
+                    "Account", acct.name, "account_currency", company_currency, update_modified=False
+                )
+                repaired = True
+        if repaired:
+            frappe.clear_cache(doctype="Account")
+            frappe.db.commit()
+
     def _active_daily_schedule(self, member, next_invoice_date, payment_terms_template=None):
         """Give the member an active Daglid membership and return its (reused)
         active daily dues schedule configured for the regression scenario.
@@ -56,38 +105,6 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         schedule.save()
         return schedule
 
-    def _ensure_party_account_currency_matches_company(self):
-        """Repair leaked cross-test state: the shared company's default receivable
-        (party) account currency must equal the company's default currency.
-
-        generate_invoice() (invoice_generator.py) pins the Sales Invoice currency to
-        the company's default_currency, but does NOT set debit_to -- so ERPNext
-        resolves the receivable account via Company.default_receivable_account (the
-        test's customer has no Party Account override and no prior GL entries). If a
-        SIBLING test left that shared account in a non-matching currency, Sales
-        Invoice validation throws "Party Account currency ... and document currency
-        ... should be same", failing this test only on certain CI shard orderings
-        (it passes in isolation). This is leaked state, not a regression, so reset
-        the shared state this test reads back to a consistent value before running.
-        """
-        company = frappe.db.get_single_value("Verenigingen Settings", "company")
-        company_currency = frappe.db.get_value("Company", company, "default_currency")
-        receivable = frappe.db.get_value("Company", company, "default_receivable_account")
-        if not (company and company_currency and receivable):
-            return
-        account_currency = frappe.db.get_value("Account", receivable, "account_currency")
-        if account_currency and account_currency != company_currency:
-            # Repair with a direct DB write: the Account controller refuses to change
-            # account_currency once GL entries exist ("Currency can not be changed
-            # after making entries..."), but we only need the party-account currency
-            # to match the company currency for invoice validation, so bypass the
-            # controller and invalidate the cached Account value.
-            frappe.db.set_value(
-                "Account", receivable, "account_currency", company_currency, update_modified=False
-            )
-            frappe.clear_cache(doctype="Account")
-            frappe.db.commit()
-
     def _seed_past_submitted_coverage(self, schedule, coverage_end):
         """Make the schedule's member look like a "Lid" last billed long ago.
 
@@ -102,6 +119,15 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         inv = frappe.new_doc("Sales Invoice")
         inv.company = frappe.db.get_single_value("Verenigingen Settings", "company")
         inv.customer = member.customer
+        # Pin the currency to the company default, exactly as generate_invoice does
+        # (invoice_generator.py). Without this the Sales Invoice currency defaults
+        # from the customer / price list / system default, which on CI sites is INR
+        # while the company's receivable account is EUR -> "Party Account currency
+        # ... should be same". (veg11's customer defaults to EUR, hiding this.)
+        company_currency = frappe.db.get_value("Company", inv.company, "default_currency")
+        if company_currency:
+            inv.currency = company_currency
+            inv.conversion_rate = 1.0
         inv.posting_date = coverage_end
         inv.set_posting_time = 1
         inv.due_date = coverage_end
@@ -171,12 +197,9 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         schedule.billing_frequency = "Monthly"
         schedule.save()
 
-        # Defensively reset the leaked cross-test state this scenario depends on:
-        # the shared company's receivable-account currency must match the company
-        # currency, or both the seeded submitted invoice below AND the
-        # generate_invoice() under test fail with a party-account currency mismatch
-        # on certain CI shard orderings (passes in isolation).
-        self._ensure_party_account_currency_matches_company()
+        # (Receivable-currency leaked-state repair now runs in setUp for every
+        # method in this class -- both the seeded submitted invoice below AND the
+        # generate_invoice() under test depend on it.)
 
         # Seed a submitted invoice whose coverage ended ~5 months ago, so the next
         # sequential coverage_start is ~5 months in the past.

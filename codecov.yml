@@ -33,6 +33,16 @@ coverage:
       default:
         informational: true
 
+# Keep the production-coverage denominator honest. CI uploads frappe's
+# run-parallel-tests coverage.xml, which (unlike the local .coveragerc) does NOT
+# omit test_*-named helper modules that live co-located in the production tree
+# (e.g. verenigingen_payments/mollie/utils/test_helpers.py). Mirror .coveragerc's
+# test exclusions here so codecov drops them regardless of how the report was
+# collected.
+ignore:
+  - "**/test_*.py"
+  - "**/tests/**"
+
 flags:
   python:
     paths:

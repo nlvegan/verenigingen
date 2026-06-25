@@ -203,3 +203,35 @@ class TestReconciliationManagerConstructionAndSummary(EnhancedTestCase):
         result = get_reconciliation_summary(from_date="1990-06-01", to_date="1991-01-01")
         # Only the in-window transaction; the from_date bound drops the Jan one.
         self.assertEqual(result["total_transactions"], 1)
+
+    def test_reconcile_from_date_lower_bound_is_applied(self):
+        # Regression guard for the sibling of the get_reconciliation_summary bug:
+        # PaymentReconciliationManager.reconcile_bank_transactions assigned both
+        # date bounds to the same "date" filter key, so when both from_date and
+        # to_date were supplied the from_date lower bound was silently overwritten
+        # and older transactions leaked into the window. Use an isolated 1990
+        # window (no real data, no matchable SEPA batch -> all stay unmatched) and
+        # assert from_date excludes the earlier transaction.
+        self._make_bank_txn("1990-01-01")  # before window -> must be excluded
+        self._make_bank_txn("1990-12-31")  # inside window -> must be counted
+        result = self._manager().reconcile_bank_transactions(
+            from_date="1990-06-01", to_date="1991-01-01"
+        )
+        # Only the in-window transaction is considered; the Jan one is dropped.
+        self.assertEqual(result["total_transactions"], 1)
+
+    def test_match_transaction_tolerates_null_reference_and_description(self):
+        # Regression guard: a Bank Transaction with NULL reference_number /
+        # description (the common case -- _make_bank_txn sets neither) used to crash
+        # the matching strategies. frappe.get_all returns those keys present with
+        # value None, so `transaction.get("reference_number", "").strip()` (and the
+        # description .upper()/.lower() siblings) raised AttributeError on None.
+        # reconcile_bank_transactions -> match_transaction must run end-to-end and
+        # simply leave the transaction unmatched.
+        self._make_bank_txn("1991-03-15")
+        result = self._manager().reconcile_bank_transactions(
+            from_date="1991-01-01", to_date="1991-12-31"
+        )
+        self.assertEqual(result["total_transactions"], 1)
+        self.assertEqual(result["matched"], 0)
+        self.assertEqual(result["unmatched"], 1)
