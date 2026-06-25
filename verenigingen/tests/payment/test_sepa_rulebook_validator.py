@@ -705,3 +705,102 @@ class TestApiEndpoints(FrappeTestCase):
             r["rule_id"] for r in result_de["rules"]
         }
         self.assertIn("NL001", nl_specific_ids)
+
+
+class TestParityAfterRefactor(FrappeTestCase):
+    """Parity tests: verify that delegating ``_extract_namespace`` to
+    ``extract_xml_namespace`` and the ``SEPA_CHAR_PATTERN`` / ``get_element_text``
+    substitutions produce identical observable behavior.
+
+    These tests parse synthetic pain.008 XML and assert on full validation
+    output, so any namespace mis-detection or pattern difference would surface
+    as a changed issue list.
+    """
+
+    def setUp(self):
+        self.validator = SEPARulebookValidator()
+
+    def _compliant_xml(self, namespace=NS_08):
+        # Collection date guaranteed to be a weekday to avoid the NL002 weekend flake.
+        from datetime import timedelta
+
+        collection_date = date.today() + timedelta(days=10)
+        while collection_date.weekday() >= 5:
+            collection_date += timedelta(days=1)
+        return _build_xml(namespace=namespace, collection_date=collection_date.isoformat())
+
+    # --- _extract_namespace parity ---
+
+    def test_parity_extract_namespace_pain008_08(self):
+        """extract_xml_namespace delegation: pain.008.001.08 namespace resolves correctly."""
+        self.assertEqual(SEPARulebookValidator._extract_namespace(_parse(_build_xml(namespace=NS_08))), NS_08)
+
+    def test_parity_extract_namespace_pain008_02(self):
+        """extract_xml_namespace delegation: pain.008.001.02 namespace resolves correctly."""
+        self.assertEqual(SEPARulebookValidator._extract_namespace(_parse(_build_xml(namespace=NS_02))), NS_02)
+
+    def test_parity_extract_namespace_no_ns_falls_back(self):
+        """extract_xml_namespace delegation: no-namespace tag returns DEFAULT_NAMESPACE."""
+        import xml.etree.ElementTree as ET
+
+        root = ET.fromstring("<Document><GrpHdr/></Document>")
+        self.assertEqual(
+            SEPARulebookValidator._extract_namespace(root),
+            SEPARulebookValidator.DEFAULT_NAMESPACE,
+        )
+
+    def test_parity_full_validation_pain008_08_compliant(self):
+        """Full validation with pain.008.001.08 is compliant (namespace resolved correctly)."""
+        result = self.validator.validate_sepa_xml(self._compliant_xml(namespace=NS_08))
+        self.assertTrue(result["is_compliant"], msg=f"issues: {result['issues']}")
+        self.assertEqual(result["compliance_score"], 100)
+
+    def test_parity_full_validation_pain008_02_compliant(self):
+        """Full validation with pain.008.001.02 is compliant (namespace resolved correctly)."""
+        result = self.validator.validate_sepa_xml(self._compliant_xml(namespace=NS_02))
+        self.assertTrue(result["is_compliant"], msg=f"issues: {result['issues']}")
+
+    # --- SEPA_CHAR_PATTERN parity ---
+
+    def test_parity_sepa_char_pattern_valid_chars_pass(self):
+        """SEPA_CHAR_PATTERN import: valid characters still pass CHR001."""
+        result = self.validator.validate_sepa_xml(_build_xml(creditor_name="Test Vereniging BV"))
+        chr_issues = [i for i in result["issues"] if i["rule_id"] == "CHR001"]
+        self.assertEqual(chr_issues, [])
+
+    def test_parity_sepa_char_pattern_invalid_chars_flagged(self):
+        """SEPA_CHAR_PATTERN import: non-SEPA characters still flagged by CHR001."""
+        result = self.validator.validate_sepa_xml(_build_xml(creditor_name="Bad#Name%"))
+        chr_issues = [i for i in result["issues"] if i["rule_id"] == "CHR001"]
+        self.assertTrue(len(chr_issues) > 0)
+        self.assertTrue(any("non-SEPA" in i["message"] for i in chr_issues))
+
+    # --- get_element_text parity (via PMT001 local instrument branch) ---
+
+    def test_parity_get_element_text_core_local_instr_still_enforced(self):
+        """get_element_text: CORE local instrument still triggers the 5-day lead-time rule."""
+        from datetime import timedelta
+
+        cre = (date.today()).strftime("%Y-%m-%dT%H:%M:%S")
+        col = (date.today() + timedelta(days=2)).isoformat()  # < 5 days
+        result = self.validator.validate_sepa_xml(
+            _build_xml(cre_dt_tm=cre, collection_date=col, local_instr="CORE")
+        )
+        pmt_issues = [i for i in result["issues"] if i["rule_id"] == "PMT001"]
+        self.assertTrue(any("too early" in i["message"] for i in pmt_issues))
+
+    def test_parity_get_element_text_b2b_default_applied_when_no_local_instr(self):
+        """get_element_text default='CORE': missing LclInstrm still defaults to CORE rules."""
+        # Build XML without a LclInstrm element.
+        from datetime import timedelta
+
+        cre = date.today().strftime("%Y-%m-%dT%H:%M:%S")
+        col = (date.today() + timedelta(days=2)).isoformat()
+        # Build raw XML with LclInstrm stripped out.
+        xml = _build_xml(cre_dt_tm=cre, collection_date=col, local_instr="CORE").replace(
+            "<LclInstrm><Cd>CORE</Cd></LclInstrm>", ""
+        )
+        result = self.validator.validate_sepa_xml(xml)
+        pmt_issues = [i for i in result["issues"] if i["rule_id"] == "PMT001"]
+        # Default is CORE (5-day min), so 2-day lead time must still be flagged.
+        self.assertTrue(any("too early" in i["message"] for i in pmt_issues))

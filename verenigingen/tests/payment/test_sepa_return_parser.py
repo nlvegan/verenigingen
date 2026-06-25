@@ -368,5 +368,111 @@ class TestReasonCodeMapping(unittest.TestCase):
         self.assertTrue(all(isinstance(v, str) and v for v in SEPA_RETURN_REASON_CODES.values()))
 
 
+class TestParityAfterRefactor(FrappeTestCase):
+    """Parity tests: verify that the refactored helpers produce identical output
+    to the previous inline implementation for representative pain.002 samples.
+
+    These tests exist to prove that delegating Clark-notation ``{uri}`` stripping
+    to ``extract_xml_namespace`` in ``_detect_namespace`` does not change any
+    observable parsing behavior.
+    """
+
+    # -----------------------------------------------------------------
+    # Representative full pain.002.001.03 sample with all fields populated
+    # -----------------------------------------------------------------
+    FULL_PAIN002_XML = _make_pain002(
+        [
+            _tx_block(
+                "RJCT",
+                end_to_end_id="INV-2026-001",
+                reason_code="AM04",
+                additional_info="Insufficient funds in account",
+                instr_id="INSTR-001",
+                amount="123.45",
+                currency="EUR",
+                debtor_name="Jan de Vries",
+                debtor_iban="NL91ABNA0417164300",
+                mandate_id="MNDT-2024-001",
+            ),
+            _tx_block("ACCP", end_to_end_id="INV-2026-002"),
+            _tx_block("PDNG", end_to_end_id="INV-2026-003"),
+        ],
+        namespace=PAIN002_03,
+        payment_id="PMT-PARITY-001",
+    )
+
+    def test_parity_namespace_detected_correctly(self):
+        """extract_xml_namespace delegation: namespace detection is unchanged."""
+        parser = SEPAReturnParser()
+        parser.parse(self.FULL_PAIN002_XML)
+        self.assertEqual(parser.namespace, PAIN002_03)
+
+    def test_parity_transaction_count(self):
+        """Correct number of transactions parsed after refactor."""
+        returns = SEPAReturnParser().parse(self.FULL_PAIN002_XML)
+        self.assertEqual(len(returns), 3)
+
+    def test_parity_rejected_transaction_fields(self):
+        """All fields of the rejected transaction are extracted correctly."""
+        returns = SEPAReturnParser().parse(self.FULL_PAIN002_XML)
+        rjct = next(r for r in returns if r.is_rejected())
+        self.assertEqual(rjct.original_end_to_end_id, "INV-2026-001")
+        self.assertEqual(rjct.original_payment_id, "PMT-PARITY-001")
+        self.assertEqual(rjct.original_message_id, "ORIG-MSG-001")
+        self.assertEqual(rjct.original_instruction_id, "INSTR-001")
+        self.assertEqual(rjct.reason_code, "AM04")
+        self.assertEqual(rjct.reason_description, "Insufficient Funds")
+        self.assertEqual(rjct.additional_info, "Insufficient funds in account")
+        self.assertAlmostEqual(rjct.original_amount, 123.45)
+        self.assertEqual(rjct.original_currency, "EUR")
+        self.assertEqual(rjct.debtor_name, "Jan de Vries")
+        self.assertEqual(rjct.debtor_iban, "NL91ABNA0417164300")
+        self.assertEqual(rjct.mandate_id, "MNDT-2024-001")
+
+    def test_parity_accepted_and_pending_statuses(self):
+        """Non-rejected statuses are preserved after refactor."""
+        returns = SEPAReturnParser().parse(self.FULL_PAIN002_XML)
+        by_e2e = {r.original_end_to_end_id: r for r in returns}
+        self.assertTrue(by_e2e["INV-2026-002"].is_accepted())
+        self.assertTrue(by_e2e["INV-2026-003"].is_pending())
+
+    def test_parity_pain002_10_namespace(self):
+        """pain.002.001.10 namespace is still detected correctly after refactor."""
+        xml_10 = _make_pain002(
+            [_tx_block("ACCP", end_to_end_id="INV-10-001", amount="99.99", currency="EUR")],
+            namespace=PAIN002_10,
+            payment_id="PMT-V10",
+        )
+        parser = SEPAReturnParser()
+        returns = parser.parse(xml_10)
+        self.assertEqual(parser.namespace, PAIN002_10)
+        self.assertEqual(len(returns), 1)
+        self.assertTrue(returns[0].is_accepted())
+
+    def test_parity_forward_compat_namespace(self):
+        """Unknown pain.002.x.y namespace still accepted (forward-compat)."""
+        future_ns = "urn:iso:std:iso:20022:tech:xsd:pain.002.001.99"
+        xml_future = _make_pain002([_tx_block("RJCT", reason_code="MD01")], namespace=future_ns)
+        parser = SEPAReturnParser()
+        returns = parser.parse(xml_future)
+        self.assertEqual(parser.namespace, future_ns)
+        self.assertEqual(len(returns), 1)
+        self.assertEqual(returns[0].reason_code, "MD01")
+
+    def test_parity_unknown_namespace_still_raises(self):
+        """Non-pain.002 namespace still raises ValueError after refactor."""
+        xml = _make_pain002([_tx_block("ACCP")], namespace="urn:other:schema")
+        with self.assertRaises(ValueError) as ctx:
+            SEPAReturnParser().parse(xml)
+        self.assertIn("Invalid pain.002 file", str(ctx.exception))
+
+    def test_parity_get_rejected_transactions_output(self):
+        """get_rejected_transactions still returns only rejected items."""
+        rejected = get_rejected_transactions(self.FULL_PAIN002_XML)
+        self.assertEqual(len(rejected), 1)
+        self.assertTrue(rejected[0]["is_rejected"])
+        self.assertEqual(rejected[0]["reason_code"], "AM04")
+
+
 if __name__ == "__main__":
     unittest.main()

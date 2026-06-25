@@ -26,9 +26,14 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.verenigingen_payments.utils.sepa_constants import SEPA_CHAR_PATTERN
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     SEPALocalInstrument,
     SEPASequenceType,
+)
+from verenigingen.verenigingen_payments.utils.shared.xml_helpers import (
+    extract_xml_namespace,
+    get_element_text,
 )
 
 
@@ -103,11 +108,10 @@ class SEPARulebookValidator:
         document declares a default namespace. Rule XPaths bind the 'sepa'
         prefix to this URI, so it must match the document's actual namespace
         (otherwise every findall returns nothing and invalid XML passes).
+
+        Delegates Clark-notation ``{uri}`` stripping to ``extract_xml_namespace``.
         """
-        tag = getattr(root, "tag", "")
-        if tag.startswith("{"):
-            return tag[1 : tag.index("}")]
-        return SEPARulebookValidator.DEFAULT_NAMESPACE
+        return extract_xml_namespace(root, default=SEPARulebookValidator.DEFAULT_NAMESPACE)
 
     def _initialize_sepa_rules(self) -> List[SEPARule]:
         """Initialize SEPA rulebook rules"""
@@ -561,7 +565,6 @@ class SEPARulebookValidator:
         # Check each payment info
         for pmt_inf in root.findall(".//sepa:PmtInf", self.namespace):
             collection_elem = pmt_inf.find("sepa:ReqdColltnDt", self.namespace)
-            local_instr_elem = pmt_inf.find(".//sepa:LclInstrm/sepa:Cd", self.namespace)
 
             if collection_elem is not None and creation_elem is not None:
                 try:
@@ -569,7 +572,9 @@ class SEPARulebookValidator:
                     collection_date = datetime.fromisoformat(collection_elem.text).date()
 
                     # Determine minimum lead time based on local instrument
-                    local_instrument = local_instr_elem.text if local_instr_elem is not None else "CORE"
+                    local_instrument = get_element_text(
+                        pmt_inf, ".//sepa:LclInstrm/sepa:Cd", self.namespace, default="CORE"
+                    )
 
                     if local_instrument == "CORE":
                         min_lead_days = 5  # 5 business days for CORE
@@ -703,8 +708,8 @@ class SEPARulebookValidator:
         """Validate SEPA character set usage"""
         issues = []
 
-        # SEPA character set pattern
-        sepa_pattern = re.compile(r"^[a-zA-Z0-9\+\?\-\:\(\)\.\,\'\s/]*$")
+        # SEPA character set pattern (canonical constant from sepa_constants)
+        sepa_pattern = SEPA_CHAR_PATTERN
 
         # Check common text fields
         text_fields = [
