@@ -38,9 +38,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
-        self.member = self.create_test_member(
-            first_name="Branch", last_name="Test", birth_date="1985-05-15"
-        )
+        self.member = self.create_test_member(first_name="Branch", last_name="Test", birth_date="1985-05-15")
         self.customer_doc = self.link_member_to_customer(self.member)
         self.membership = self.create_test_membership(
             member_name=self.member.name, membership_type_name="Regular Member"
@@ -134,9 +132,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
         """A member_doc whose name differs from the schedule's member is rejected
         (guards against billing the wrong member). Distinct from the AttributeError
         path: this hits the explicit 'Member document mismatch' branch with valid dates."""
-        other = self.create_test_member(
-            first_name="Wrong", last_name="Member", birth_date="1990-01-01"
-        )
+        other = self.create_test_member(first_name="Wrong", last_name="Member", birth_date="1990-01-01")
         result = self.generator.generate_invoice(
             coverage_start=date(2025, 1, 1), coverage_end=date(2025, 12, 31), member_doc=other
         )
@@ -202,9 +198,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
             frappe.db.set_value(
                 "Verenigingen Payments Settings", None, "dues_income_account", orig_settings_acct
             )
-            frappe.db.set_value(
-                "Company", company, "default_income_account", orig_company_acct
-            )
+            frappe.db.set_value("Company", company, "default_income_account", orig_company_acct)
             frappe.db.commit()
             frappe.clear_cache(doctype="Company")
 
@@ -237,17 +231,13 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
         # Force the payments-settings primary to be invalid so we reach the company fallback,
         # and pass a bogus company so the company branch raises DoesNotExistError.
         original = frappe.db.get_value("Verenigingen Payments Settings", None, "dues_income_account")
-        frappe.db.set_value(
-            "Verenigingen Payments Settings", None, "dues_income_account", "Bad-Income-999"
-        )
+        frappe.db.set_value("Verenigingen Payments Settings", None, "dues_income_account", "Bad-Income-999")
         frappe.db.commit()
         try:
             result = self.generator._get_income_account(settings, "Nonexistent Company XYZ-123")
             self.assertIsNone(result)
         finally:
-            frappe.db.set_value(
-                "Verenigingen Payments Settings", None, "dues_income_account", original
-            )
+            frappe.db.set_value("Verenigingen Payments Settings", None, "dues_income_account", original)
             frappe.db.commit()
 
     def test_cost_center_falls_back_to_main_when_no_company_default(self):
@@ -264,9 +254,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
             cost_center = self.generator._get_cost_center(company, self.member)
             self.assertIsNotNone(cost_center, "Expected a Main cost center fallback")
             # The returned cost center must actually belong to this company.
-            self.assertEqual(
-                frappe.db.get_value("Cost Center", cost_center, "company"), company
-            )
+            self.assertEqual(frappe.db.get_value("Cost Center", cost_center, "company"), company)
         finally:
             frappe.db.set_value("Company", company, "cost_center", original_cc)
             frappe.db.commit()
@@ -297,9 +285,7 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
 
     def test_validate_sepa_mandate_member_mismatch(self):
         """A mandate whose member differs from the invoice member is rejected."""
-        other = self.create_test_member(
-            first_name="Mismatch", last_name="Holder", birth_date="1990-02-02"
-        )
+        other = self.create_test_member(first_name="Mismatch", last_name="Holder", birth_date="1990-02-02")
         mandate = self._make_valid_mandate(member=other.name)
         error = self.generator._validate_sepa_mandate(mandate.name, self.member)
         self.assertIsNotNone(error)
@@ -362,6 +348,15 @@ class TestInvoiceGeneratorBranches(EnhancedTestCase):
         error = self.generator._validate_sepa_mandate("SEPA-DOES-NOT-EXIST-999", self.member)
         self.assertIsNotNone(error)
         self.assertIn("Failed to validate mandate", error)
+
+    def test_valid_mandate_selects_sepa_direct_debit_in_payment_config(self):
+        """A fully valid Active mandate matching the selection filter makes
+        _get_payment_configuration choose SEPA Direct Debit and carry the mandate id
+        (the success branch at invoice_generator.py:566-569)."""
+        mandate = self._make_valid_mandate()
+        config = self.generator._get_payment_configuration(self.member)
+        self.assertEqual(config["payment_method"], "SEPA Direct Debit")
+        self.assertEqual(config["sepa_mandate_id"], mandate.name)
 
     def test_invalid_mandate_falls_back_to_bank_transfer_in_payment_config(self):
         """End-to-end: an Active mandate that fails deep validation makes

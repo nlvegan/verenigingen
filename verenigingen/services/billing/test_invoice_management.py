@@ -27,7 +27,7 @@ IMPORTANT — isolation:
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.services.billing import invoice_management as im
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -473,3 +473,171 @@ class TestInvoiceManagement(EnhancedTestCase):
             "global destructive cleanup (commits deletions) — unsafe against shared test DB; "
             "needs scoped API or isolated dataset"
         )
+
+    # ------------------------------------------------------------------
+    # validate_invoice_generation_readiness - warning branches
+    # ------------------------------------------------------------------
+    def _set_auto_submit(self, value):
+        """Set + restore the auto_submit_membership_invoices single value."""
+        original = frappe.db.get_single_value("Verenigingen Settings", "auto_submit_membership_invoices")
+        frappe.db.set_single_value("Verenigingen Settings", "auto_submit_membership_invoices", value)
+        self.addCleanup(
+            frappe.db.set_single_value,
+            "Verenigingen Settings",
+            "auto_submit_membership_invoices",
+            original,
+        )
+
+    def test_validate_readiness_auto_submit_enabled_info(self):
+        """When auto-submit is enabled, the readiness info list says so (covers the
+        auto_submit truthy branch at invoice_management.py:586-587)."""
+        self._set_auto_submit(1)
+        data = im.validate_invoice_generation_readiness()["data"]
+        self.assertIn("Auto-submit is enabled for membership invoices", data["info"])
+
+    def test_validate_readiness_auto_submit_disabled_warning(self):
+        """When auto-submit is disabled, readiness emits the draft warning
+        (covers invoice_management.py:589)."""
+        self._set_auto_submit(0)
+        data = im.validate_invoice_generation_readiness()["data"]
+        self.assertTrue(
+            any("draft" in w.lower() for w in data["warnings"]),
+            f"expected draft warning, warnings={data['warnings']}",
+        )
+
+    def test_validate_readiness_flags_overdue_schedule(self):
+        """An Active auto_generate schedule with a past next_invoice_date is counted
+        as overdue (covers the overdue_count > 0 warning at invoice_management.py:610-611)."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        past = add_days(today(), -10)
+        self._make_dues_schedule(member, mt, status="Active", auto_generate=1, next_invoice_date=past)
+        data = im.validate_invoice_generation_readiness()["data"]
+        self.assertTrue(
+            any("overdue" in w.lower() for w in data["warnings"]),
+            f"expected overdue warning, warnings={data['warnings']}",
+        )
+
+    def test_validate_readiness_upcoming_sample_populated(self):
+        """A future-dated auto_generate schedule appears in upcoming_schedules_sample
+        (covers the upcoming list-comprehension at invoice_management.py:568-576)."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        future = add_days(today(), 5)
+        ds = self._make_dues_schedule(member, mt, status="Active", auto_generate=1, next_invoice_date=future)
+        data = im.validate_invoice_generation_readiness()["data"]
+        sample_names = {s["name"] for s in data["upcoming_schedules_sample"]}
+        # Sample is capped at 10 and ordered by next_invoice_date; our +5d schedule
+        # may not appear if the shared DB has >10 sooner ones. Assert structural
+        # correctness of any rows that ARE present, and our schedule if in range.
+        for s in data["upcoming_schedules_sample"]:
+            self.assertIn("member_name", s)
+            self.assertIn("next_invoice_date", s)
+            self.assertIn("dues_rate", s)
+        if len(data["upcoming_schedules_sample"]) < 10:
+            self.assertIn(ds.name, sample_names)
+
+    # ------------------------------------------------------------------
+    # cleanup_orphaned_member_references - clear-failed branch is hard to hit;
+    # cover the empty-result early return and processed-row shape instead.
+    # ------------------------------------------------------------------
+    def test_cleanup_references_processed_row_shape_dry_run(self):
+        """Each processed row in a reference-cleanup dry run carries the expected
+        keys and the 'would_clear_reference' action (invoice_management.py:742)."""
+        sched_name = self._make_orphaned_schedule()
+        data = im.cleanup_orphaned_member_references(dry_run=True)["data"]
+        mine = next((p for p in data["processed_schedules"] if p["schedule"] == sched_name), None)
+        self.assertIsNotNone(mine, "our orphan schedule should be in the processed list")
+        self.assertEqual(mine["action"], "would_clear_reference")
+        self.assertIn("member", mine)
+        self.assertIn("status", mine)
+
+    # ------------------------------------------------------------------
+    # cleanup_orphaned_membership_data - orphaned amendment branch (dry run)
+    # ------------------------------------------------------------------
+    def _make_orphaned_amendment(self):
+        """Create a real Approved Contribution Amendment Request, then repoint its
+        `member` at a non-existent Member via direct DB write so the LEFT JOIN in
+        the orphaned-amendment query (m.name IS NULL) matches it. Returns its name.
+        """
+        mt = self._make_membership_type()
+        member = self._make_member()
+        membership = frappe.new_doc("Membership")
+        membership.member = member.name
+        membership.membership_type = mt.name
+        membership.start_date = today()
+        membership.status = "Active"
+        membership.save()
+        membership.submit()
+        self._committed_docs.append(("Membership", membership.name))
+
+        amendment = frappe.new_doc("Contribution Amendment Request")
+        amendment.membership = membership.name
+        amendment.member = member.name
+        amendment.amendment_type = "Fee Change"
+        amendment.requested_date = today()
+        amendment.effective_date = today()
+        amendment.reason = "Invoice management test orphan amendment"
+        amendment.flags.ignore_validate = True
+        amendment.save(ignore_permissions=True)
+        self._committed_docs.append(("Contribution Amendment Request", amendment.name))
+        frappe.db.set_value(
+            "Contribution Amendment Request",
+            amendment.name,
+            "status",
+            "Approved",
+            update_modified=False,
+        )
+        bogus_member = "NONEXISTENT-MEMBER-" + frappe.generate_hash(length=12)
+        frappe.db.set_value(
+            "Contribution Amendment Request",
+            amendment.name,
+            "member",
+            bogus_member,
+            update_modified=False,
+        )
+        frappe.db.commit()
+        return amendment.name
+
+    def test_cleanup_membership_data_detects_orphaned_amendment(self):
+        """An Approved amendment whose member no longer exists is detected in the
+        orphaned_amendments category (dry run -> would_delete, no mutation).
+        Covers the amendment branch invoice_management.py:954-999."""
+        amendment_name = self._make_orphaned_amendment()
+        data = im.cleanup_orphaned_membership_data(dry_run=True, max_cleanup=100000)["data"]
+        self.assertGreaterEqual(data["orphaned_amendments"]["found"], 1)
+        mine = next(
+            (
+                it
+                for it in data["processed_items"]
+                if it.get("type") == "orphaned_amendment" and it.get("name") == amendment_name
+            ),
+            None,
+        )
+        self.assertIsNotNone(mine, "our orphaned amendment should be processed")
+        self.assertEqual(mine["action"], "would_delete")
+        self.assertEqual(mine["amendment_type"], "Fee Change")
+        # Dry run must not delete it.
+        self.assertTrue(frappe.db.exists("Contribution Amendment Request", amendment_name))
+
+    # ------------------------------------------------------------------
+    # bulk_generate_dues_invoices - custom DocType filter merge branch
+    # ------------------------------------------------------------------
+    def test_bulk_generate_custom_field_filter_narrows_results(self):
+        """A non-control filter key (billing_frequency) is merged into the SQL
+        WHERE clause (invoice_management.py:88-89). An Annual-only filter must
+        exclude our Monthly schedule from schedules_found's matched set."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(
+            member, mt, status="Active", auto_generate=1, next_invoice_date=today()
+        )  # billing_frequency = Monthly
+        result = im.bulk_generate_dues_invoices(
+            filter_criteria={"billing_frequency": "Annual"}, dry_run=True, max_invoices=100000
+        )
+        self.assertTrue(result["success"])
+        data = result["data"]
+        # Our Monthly schedule must NOT be among processed schedules under an Annual filter.
+        names = {p.get("schedule") for p in data["processed_schedules"]}
+        self.assertNotIn(ds.name, names)
+        self.assertEqual(data["filter_criteria"], {"billing_frequency": "Annual"})

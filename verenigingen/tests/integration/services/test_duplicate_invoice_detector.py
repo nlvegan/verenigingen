@@ -8,11 +8,9 @@ Tests the critical financial logic for preventing duplicate invoice generation.
 Uses Enhanced Test Factory for real database operations - no mocks.
 """
 
-import unittest
-from datetime import date, timedelta
+from datetime import date
 
 import frappe
-from frappe.utils import add_days, add_months
 
 from verenigingen.services.billing.duplicate_invoice_detector import (
     DuplicateInvoiceDetectionResult,
@@ -26,9 +24,7 @@ class TestDuplicateInvoiceDetectionResult(EnhancedTestCase):
 
     def test_result_to_dict(self):
         """Result object converts to dict correctly"""
-        result = DuplicateInvoiceDetectionResult(
-            can_generate=False, reason="Test reason", extra_data="test"
-        )
+        result = DuplicateInvoiceDetectionResult(can_generate=False, reason="Test reason", extra_data="test")
 
         result_dict = result.to_dict()
 
@@ -55,9 +51,7 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
 
         # Create real test member with customer
         self.member = self.create_test_member(
-            first_name="Test",
-            last_name="Detector",
-            birth_date="1990-01-01"
+            first_name="Test", last_name="Detector", birth_date="1990-01-01"
         )
 
         # Reuse the Customer auto-created by create_test_member. Creating a second
@@ -68,15 +62,12 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
 
         # Create membership (which also creates dues schedule automatically)
         self.membership = self.create_test_membership(
-            member_name=self.member.name,
-            membership_type_name="Regular Member"
+            member_name=self.member.name, membership_type_name="Regular Member"
         )
 
         # Get the automatically created dues schedule
         schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": self.member.name, "status": "Active"},
-            limit=1
+            "Membership Dues Schedule", filters={"member": self.member.name, "status": "Active"}, limit=1
         )
         if schedules:
             self.schedule = frappe.get_doc("Membership Dues Schedule", schedules[0].name)
@@ -122,15 +113,13 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_exact_duplicate_prevented(self):
         """Exact duplicate coverage period is prevented"""
         # Create real invoice with exact coverage period
-        invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2025-01-05"
-        )
+        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
         # Set coverage dates directly on database
-        frappe.db.set_value("Sales Invoice", invoice.name, {
-            "custom_coverage_start_date": "2025-01-01",
-            "custom_coverage_end_date": "2025-01-31"
-        })
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"custom_coverage_start_date": "2025-01-01", "custom_coverage_end_date": "2025-01-31"},
+        )
         # Submit the invoice
         invoice.reload()
         invoice.submit()
@@ -145,14 +134,12 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_partial_overlap_prevented(self):
         """Partial overlap coverage period is prevented"""
         # Create invoice with partial overlap (Jan 15 - Feb 14)
-        invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2025-01-10"
+        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-10")
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"custom_coverage_start_date": "2025-01-15", "custom_coverage_end_date": "2025-02-14"},
         )
-        frappe.db.set_value("Sales Invoice", invoice.name, {
-            "custom_coverage_start_date": "2025-01-15",
-            "custom_coverage_end_date": "2025-02-14"
-        })
         invoice.reload()
         invoice.submit()
 
@@ -167,14 +154,12 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_no_overlaps_allows_generation(self):
         """No overlapping invoices allows generation"""
         # Create invoice for previous month (Dec 1-31)
-        invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2024-12-05"
+        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-12-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"custom_coverage_start_date": "2024-12-01", "custom_coverage_end_date": "2024-12-31"},
         )
-        frappe.db.set_value("Sales Invoice", invoice.name, {
-            "custom_coverage_start_date": "2024-12-01",
-            "custom_coverage_end_date": "2024-12-31"
-        })
         invoice.reload()
         invoice.submit()
 
@@ -188,14 +173,12 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_gap_reset_logic(self):
         """Large gap (>30 days) triggers gap reset"""
         # Create invoice from 2 months ago (Nov 1-30)
-        old_invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2024-11-05"
+        old_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-11-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            old_invoice.name,
+            {"custom_coverage_start_date": "2024-11-01", "custom_coverage_end_date": "2024-11-30"},
         )
-        frappe.db.set_value("Sales Invoice", old_invoice.name, {
-            "custom_coverage_start_date": "2024-11-01",
-            "custom_coverage_end_date": "2024-11-30"
-        })
         old_invoice.reload()
         old_invoice.submit()
 
@@ -211,38 +194,39 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         """Fallback detection works for invoices with missing coverage dates"""
         # First, get the schedule's current coverage period to create realistic overlap
         # For rolling year Annual membership, we need to set last_invoice_date so derivation works correctly
-        frappe.db.set_value("Membership Dues Schedule", self.schedule.name, {
-            "last_invoice_date": "2024-12-31"  # Previous invoice ended Dec 31
-        })
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            self.schedule.name,
+            {"last_invoice_date": "2024-12-31"},  # Previous invoice ended Dec 31
+        )
         self.schedule.reload()
 
         # Create invoice WITHOUT coverage dates (fallback scenario)
         # This simulates an old invoice before coverage dates were implemented
         # Posting date is Jan 5, and with last_invoice_date=Dec 31, derived coverage should be Jan 1 - Dec 31
-        invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2025-01-05"
-        )
+        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
         # Set schedule link, clear coverage dates, and ensure posting_date persists
-        frappe.db.set_value("Sales Invoice", invoice.name, {
-            "membership_dues_schedule_display": self.schedule.name,
-            "custom_coverage_start_date": None,
-            "custom_coverage_end_date": None,
-            "posting_date": "2025-01-05"  # Explicitly set posting_date again
-        })
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {
+                "membership_dues_schedule_display": self.schedule.name,
+                "custom_coverage_start_date": None,
+                "custom_coverage_end_date": None,
+                "posting_date": "2025-01-05",  # Explicitly set posting_date again
+            },
+        )
         frappe.db.commit()  # Commit to ensure persistence
         invoice.reload()
         invoice.submit()
 
         # Also create a recent coverage invoice so fallback check runs
-        recent_invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2024-12-05"
+        recent_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-12-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            recent_invoice.name,
+            {"custom_coverage_start_date": "2024-12-01", "custom_coverage_end_date": "2024-12-31"},
         )
-        frappe.db.set_value("Sales Invoice", recent_invoice.name, {
-            "custom_coverage_start_date": "2024-12-01",
-            "custom_coverage_end_date": "2024-12-31"
-        })
         recent_invoice.reload()
         recent_invoice.submit()
 
@@ -258,39 +242,41 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_fallback_handles_derivation_errors(self):
         """Fallback detection gracefully handles derivation errors"""
         # Create invoice with missing coverage dates
-        invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2025-01-05"
-        )
+        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
         # Set schedule link and clear coverage dates
-        frappe.db.set_value("Sales Invoice", invoice.name, {
-            "membership_dues_schedule_display": self.schedule.name,
-            "custom_coverage_start_date": None,
-            "custom_coverage_end_date": None,
-            "posting_date": "2025-01-05"
-        })
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {
+                "membership_dues_schedule_display": self.schedule.name,
+                "custom_coverage_start_date": None,
+                "custom_coverage_end_date": None,
+                "posting_date": "2025-01-05",
+            },
+        )
         frappe.db.commit()
         invoice.reload()
         invoice.submit()
 
         # NOW corrupt the posting_date to trigger derivation error
         # This bypasses validation since the invoice is already submitted
-        frappe.db.sql("""
+        frappe.db.sql(
+            """
             UPDATE `tabSales Invoice`
             SET posting_date = NULL
             WHERE name = %s
-        """, (invoice.name,))
+        """,
+            (invoice.name,),
+        )
         frappe.db.commit()
 
         # Create recent coverage so fallback runs
-        recent_invoice = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2024-12-05"
+        recent_invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-12-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            recent_invoice.name,
+            {"custom_coverage_start_date": "2024-12-01", "custom_coverage_end_date": "2024-12-31"},
         )
-        frappe.db.set_value("Sales Invoice", recent_invoice.name, {
-            "custom_coverage_start_date": "2024-12-01",
-            "custom_coverage_end_date": "2024-12-31"
-        })
         recent_invoice.reload()
         recent_invoice.submit()
 
@@ -304,25 +290,21 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
     def test_multiple_exact_duplicates_listed(self):
         """Multiple exact duplicates are all listed in reason"""
         # Create two invoices with exact same coverage period
-        invoice1 = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2025-01-05"
+        invoice1 = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice1.name,
+            {"custom_coverage_start_date": "2025-01-01", "custom_coverage_end_date": "2025-01-31"},
         )
-        frappe.db.set_value("Sales Invoice", invoice1.name, {
-            "custom_coverage_start_date": "2025-01-01",
-            "custom_coverage_end_date": "2025-01-31"
-        })
         invoice1.reload()
         invoice1.submit()
 
-        invoice2 = self.create_test_sales_invoice(
-            customer=self.customer,
-            posting_date="2025-01-06"
+        invoice2 = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-06")
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice2.name,
+            {"custom_coverage_start_date": "2025-01-01", "custom_coverage_end_date": "2025-01-31"},
         )
-        frappe.db.set_value("Sales Invoice", invoice2.name, {
-            "custom_coverage_start_date": "2025-01-01",
-            "custom_coverage_end_date": "2025-01-31"
-        })
         invoice2.reload()
         invoice2.submit()
 
@@ -342,3 +324,64 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
         self.assertEqual(detector.member, self.member.name)
         # Billing frequency comes from schedule (could be Annual/Monthly/etc)
         self.assertIsNotNone(detector.billing_frequency)
+
+    def test_fallback_cutoff_first_time_uses_sentinel(self):
+        """_get_fallback_cutoff_date returns the 1900-01-01 sentinel when the
+        customer has NO submitted invoice carrying a coverage end date (first-time
+        generation), so all missing-coverage invoices become eligible for the
+        fallback overlap scan. Here we create a missing-coverage invoice that
+        overlaps the proposed period and assert it is caught via that path."""
+        from verenigingen.services.billing.duplicate_invoice_detector import FALLBACK_CUTOFF_DATE
+
+        # No coverage-dated invoice exists -> cutoff must be the sentinel.
+        detector = DuplicateInvoiceDetector(self.schedule)
+        self.assertEqual(detector._get_fallback_cutoff_date(self.customer), FALLBACK_CUTOFF_DATE)
+
+        # And an undated invoice posted after the sentinel is scanned by fallback.
+        frappe.db.set_value(
+            "Membership Dues Schedule", self.schedule.name, {"last_invoice_date": "2024-12-31"}
+        )
+        self.schedule.reload()
+        invoice = self.create_test_sales_invoice(customer=self.customer, posting_date="2025-01-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {
+                "membership_dues_schedule_display": self.schedule.name,
+                "custom_coverage_start_date": None,
+                "custom_coverage_end_date": None,
+                "posting_date": "2025-01-05",
+            },
+        )
+        frappe.db.commit()
+        invoice.reload()
+        invoice.submit()
+
+        result = DuplicateInvoiceDetector(self.schedule).check_for_duplicates(
+            date(2025, 1, 1), date(2025, 1, 31)
+        )
+        self.assertFalse(result.can_generate)
+        self.assertIn(invoice.name, result.reason)
+
+    def test_gap_reset_skips_fallback_for_large_gap(self):
+        """When the most recent coverage ended far in the past (> 30 day gap from
+        the proposed start), gap-reset logic returns can_generate=True with the
+        'gap reset applied' reason and the gap_reset metadata flag, short-circuiting
+        fallback processing."""
+        # A coverage-dated invoice ending long ago.
+        old = self.create_test_sales_invoice(customer=self.customer, posting_date="2024-01-05")
+        frappe.db.set_value(
+            "Sales Invoice",
+            old.name,
+            {"custom_coverage_start_date": "2024-01-01", "custom_coverage_end_date": "2024-01-31"},
+        )
+        old.reload()
+        old.submit()
+
+        detector = DuplicateInvoiceDetector(self.schedule)
+        # Propose a period starting > 30 days after the last coverage end (Jan 31 2024).
+        result = detector.check_for_duplicates(date(2025, 1, 1), date(2025, 1, 31))
+
+        self.assertTrue(result.can_generate)
+        self.assertIn("gap reset", result.reason)
+        self.assertTrue(result.metadata.get("gap_reset"))

@@ -502,6 +502,67 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         self.assertIn("deprecated", result["message"].lower())
 
     # ==================================================================
+    # Scheduled wrapper (advisory lock)
+    # ==================================================================
+    def test_scheduled_wrapper_acquires_lock_and_runs(self):
+        mt = self._make_membership_type(minimum_amount=12.0)
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt)
+
+        self._as_admin()
+        result = dsac.auto_create_missing_dues_schedules_scheduled()
+        self._track_created_schedules_for(member.name)
+        # Returns the impl aggregate shape (not the skipped shape).
+        for key in ("total_found", "created", "errors"):
+            self.assertIn(key, result)
+        self.assertNotIn("skipped", result)
+        # Our member got an active schedule.
+        self.assertIsNotNone(self._schedule_for(member.name))
+
+    # NOTE: The skip-branch (lock-already-held) of the scheduled wrapper is not
+    # unit-tested here because MariaDB GET_LOCK is re-entrant within a single DB
+    # connection — holding the lock in the test session does not block the
+    # in-process wrapper, so the skip path cannot be exercised deterministically
+    # without a second connection. The positive path is covered above.
+
+    # ==================================================================
+    # create_dues_schedules_for_members — currency inherited from template
+    # ==================================================================
+    def test_create_for_members_inherits_template_currency(self):
+        mt = self._make_membership_type(minimum_amount=17.0)
+        # Give the template a non-default currency and verify it propagates.
+        frappe.db.set_value("Membership Dues Schedule", mt.dues_schedule_template, "currency", "USD")
+        frappe.db.commit()
+        member = self._make_member()
+        self._make_membership_without_schedule(member, mt)
+
+        self._as_admin()
+        result = dsac.create_dues_schedules_for_members(frappe.as_json([member.name]), send_emails=False)
+        self._track_created_schedules_for(member.name)
+        self.assertEqual(result["created_count"], 1)
+        sched = self._schedule_for(member.name)
+        self.assertEqual(frappe.db.get_value("Membership Dues Schedule", sched["name"], "currency"), "USD")
+
+    # ==================================================================
+    # create_dues_schedules_for_members — mixed success/error aggregation
+    # ==================================================================
+    def test_create_for_members_mixed_results(self):
+        mt = self._make_membership_type(minimum_amount=15.0)
+        ok_member = self._make_member()
+        self._make_membership_without_schedule(ok_member, mt)
+        bad_member = self._make_member()  # no membership -> error
+
+        self._as_admin()
+        result = dsac.create_dues_schedules_for_members(
+            frappe.as_json([ok_member.name, bad_member.name]), send_emails=False
+        )
+        self._track_created_schedules_for(ok_member.name)
+        self.assertEqual(result["total_members"], 2)
+        self.assertEqual(result["created_count"], 1)
+        self.assertEqual(result["error_count"], 1)
+        self.assertTrue(any(bad_member.name in e for e in result["errors"]))
+
+    # ==================================================================
     # Summary email aggregation (email delivery is a boundary; assert no raise)
     # ==================================================================
     def test_send_summary_email_does_not_raise(self):

@@ -94,6 +94,11 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
     # ------------------------------------------------------------------
     # Fixture helpers (allowed to use ignore_permissions / set_value)
     # ------------------------------------------------------------------
+    def _insert_doc(self, doc):
+        """Insert a test fixture doc through the real save pipeline."""
+        doc.insert(ignore_permissions=True)
+        return doc
+
     def _set_cutoff_settings(self, **fields):
         for k, v in fields.items():
             frappe.db.set_value("Verenigingen Settings", "Verenigingen Settings", k, v)
@@ -535,6 +540,11 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
     # ------------------------------------------------------------------
     # Fixture helpers
     # ------------------------------------------------------------------
+    def _insert_doc(self, doc):
+        """Insert a test fixture doc through the real save pipeline."""
+        doc.insert(ignore_permissions=True)
+        return doc
+
     def _make_membership_type(self):
         role_profile = frappe.db.get_value(
             "Role Profile", {"name": ["like", "%Member%"]}, "name"
@@ -771,6 +781,98 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
 
         self.assertEqual(out.generated, 0)
         self.assertTrue(any("ERROR:" in e for e in out.errors))
+
+    def test_sequential_validation_error_branch(self):
+        """A schedule whose generate_invoice() raises frappe.ValidationError is
+        routed through the schedule's _handle_invoice_generation_failure recovery
+        handler and the formatted message (with the recovery action) is appended
+        to result.errors — distinct from the generic-Exception branch."""
+        mt = self._make_membership_type()
+        member = self._make_member()
+        ds = self._make_dues_schedule(member, mt, next_invoice_date=add_days(today(), -1))
+
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        original = MembershipDuesSchedule.generate_invoice
+
+        def raises_validation(self_doc, *a, **k):
+            if self_doc.name == ds.name:
+                raise frappe.ValidationError("invalid coverage window")
+            return original(self_doc, *a, **k)
+
+        result = BulkGenerationResult()
+        MembershipDuesSchedule.generate_invoice = raises_validation
+        try:
+            out = self.svc._process_sequential([ds.name], getdate(today()), test_mode=False, result=result)
+        finally:
+            MembershipDuesSchedule.generate_invoice = original
+
+        self.assertEqual(out.generated, 0)
+        self.assertEqual(out.processed, 1)
+        self.assertTrue(out.errors, "ValidationError must produce a formatted error entry")
+        # The formatted message carries the schedule name and one of the recovery
+        # markers produced by _format_validation_error.
+        joined = " ".join(out.errors)
+        self.assertIn(ds.name, joined)
+        self.assertTrue(
+            any(marker in joined for marker in ("ADVANCED", "RETRY", "MANUAL REVIEW", "ERROR")),
+            f"errors={out.errors}",
+        )
+
+    def test_validate_accounting_configuration_throws_on_missing_config(self):
+        """_validate_accounting_configuration must raise when the default company
+        is missing a required account. We point get_default_company at a freshly
+        created company that has no round_off/receivable/income accounts and assert
+        the throw enumerates the missing configs."""
+        import verenigingen.utils.settings_utils as settings_mod
+
+        bad_company = frappe.new_doc("Company")
+        bad_company.company_name = f"BIG-NoAcct-{frappe.generate_hash(length=6)}"
+        bad_company.abbr = f"BNA{frappe.generate_hash(length=4)}"
+        bad_company.default_currency = "EUR"
+        bad_company.country = "Netherlands"
+        self._insert_doc(bad_company)
+        self._committed_docs.append(("Company", bad_company.name))
+        # Strip the auto-created defaults so the validator sees them missing.
+        frappe.db.set_value(
+            "Company",
+            bad_company.name,
+            {
+                "round_off_account": None,
+                "default_receivable_account": None,
+                "default_income_account": None,
+            },
+        )
+        frappe.clear_document_cache("Company", bad_company.name)
+
+        real_get_default = settings_mod.get_default_company
+
+        def fake_default_company(*a, **k):
+            return bad_company.name
+
+        settings_mod.get_default_company = fake_default_company
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                self.svc._validate_accounting_configuration()
+        finally:
+            settings_mod.get_default_company = real_get_default
+        self.assertIn("Accounting configuration incomplete", str(ctx.exception))
+
+    def test_validate_accounting_configuration_throws_when_no_company(self):
+        """When get_default_company returns nothing, the validator raises a clear
+        'No default company configured' error."""
+        import verenigingen.utils.settings_utils as settings_mod
+
+        real_get_default = settings_mod.get_default_company
+        settings_mod.get_default_company = lambda *a, **k: None
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                self.svc._validate_accounting_configuration()
+        finally:
+            settings_mod.get_default_company = real_get_default
+        self.assertIn("No default company configured", str(ctx.exception))
 
     def test_sequential_success_updates_payment_history(self):
         """A real end-to-end sequential run: generates a real invoice, then
