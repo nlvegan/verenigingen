@@ -116,10 +116,14 @@ class PaymentReconciliationManager:
         if bank_account:
             filters["bank_account"] = bank_account
 
-        if from_date:
+        # A single "date" filter key can't hold both bounds — assigning both would
+        # silently drop the from_date lower bound (same defect previously fixed in
+        # get_reconciliation_summary). Use "between" when both are supplied.
+        if from_date and to_date:
+            filters["date"] = ["between", [from_date, to_date]]
+        elif from_date:
             filters["date"] = [">=", from_date]
-
-        if to_date:
+        elif to_date:
             filters["date"] = ["<=", to_date]
 
         transactions = frappe.get_all(
