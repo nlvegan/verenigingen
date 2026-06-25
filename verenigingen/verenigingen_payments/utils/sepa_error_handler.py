@@ -3,14 +3,15 @@ SEPA Error Handler with Retry Mechanisms and Circuit Breaker Pattern
 Provides granular error handling for SEPA batch processing operations
 """
 
+import random
 import time
-from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 import frappe
-from frappe.utils import cstr, now_datetime, today
+from frappe.utils import now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
 class SEPAErrorHandler:
@@ -62,7 +63,14 @@ class SEPAErrorHandler:
         }
 
     def categorize_error(self, error: Exception) -> str:
-        """Categorize error for appropriate handling strategy"""
+        """Categorize error for appropriate handling strategy.
+
+        Iterates ``self.error_categories`` in insertion order and returns the
+        first category whose keyword list contains a match against the lower-cased
+        error message.  Falls back to ``"unknown"`` when no keyword matches.
+
+        This is a keyword-only lookup — exception types are not inspected.
+        """
         error_message = str(error).lower()
 
         for category, keywords in self.error_categories.items():
@@ -90,17 +98,22 @@ class SEPAErrorHandler:
         return error_category in ["temporary", "unknown"]
 
     def calculate_delay(self, attempt: int) -> float:
-        """Calculate delay before retry using exponential backoff with jitter"""
-        import random
+        """Calculate delay before retry using exponential backoff with jitter.
 
-        delay = min(
-            self.retry_config["base_delay"] * (self.retry_config["backoff_multiplier"] ** attempt),
-            self.retry_config["max_delay"],
+        Delegates to the shared ``calculate_backoff_delay`` helper. This module's
+        ``attempt`` is 0-based (attempt 0 -> base_delay) while the helper is
+        1-based, so we pass ``attempt + 1``. Jitter is 10% (matching the legacy
+        ``delay * 0.1 * random.random()``), applied after the max_delay cap.
+        """
+        return calculate_backoff_delay(
+            attempt + 1,
+            base_delay=self.retry_config["base_delay"],
+            max_delay=self.retry_config["max_delay"],
+            strategy="exponential",
+            exponential_base=self.retry_config["backoff_multiplier"],
+            jitter_factor=0.1,
+            rng=random.random,
         )
-
-        # Add jitter to prevent thundering herd
-        jitter = delay * 0.1 * random.random()
-        return delay + jitter
 
     def check_circuit_breaker(self) -> bool:
         """Check if circuit breaker allows operation"""

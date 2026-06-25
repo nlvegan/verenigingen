@@ -19,9 +19,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.core.doctype.communication.email import make
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
+from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.security.api_security_framework import (
@@ -31,15 +31,13 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.verenigingen_payments.utils.sepa_notification_manager import SEPANotificationManager
+from verenigingen.verenigingen_payments.utils.shared.severity import Severity
 
-
-class AlertSeverity(Enum):
-    """Alert severity levels"""
-
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
-    EMERGENCY = "emergency"
+# Alert severity levels are now defined canonically in shared/severity.py
+# (preserving the exact "info"/"warning"/"critical"/"emergency" string values
+# used by whitelisted endpoints and tests). Alias keeps the historical name and
+# type identity for isinstance checks and ``AlertSeverity(value)`` round-trips.
+AlertSeverity = Severity
 
 
 class AlertStatus(Enum):
@@ -683,17 +681,20 @@ Please investigate and acknowledge this alert when resolved.
             return None
 
     def _send_email_notification(self, recipient: str, notification_data: Dict[str, Any]) -> None:
-        """Send email notification"""
+        """Send email notification via the unified EmailService.
+
+        Routed through ``get_email_service().send_simple_email`` to match the rest
+        of the cluster (notification_manager / rollback_manager). Same recipient,
+        subject, body, and SEPA-Alert reference tracking as the previous
+        ``frappe...email.make`` call -- the email is queued, not sent inline.
+        """
         try:
-            # Create email communication
-            make(
+            get_email_service().send_simple_email(
                 recipients=[recipient],
                 subject=notification_data["subject"],
-                content=notification_data["message"],
-                send_email=True,
-                communication_type="Email",
-                doctype="SEPA Alert",
-                name=notification_data["alert_data"]["alert_id"],
+                message=notification_data["message"],
+                reference_doctype="SEPA Alert",
+                reference_name=notification_data["alert_data"]["alert_id"],
             )
 
         except Exception as e:
@@ -762,18 +763,17 @@ Original Alert:
 Please take immediate action to resolve this issue.
 """
 
-        # Send escalation notification
+        # Send escalation notification via the unified EmailService (same path as
+        # _send_email_notification, for cluster consistency).
         escalation_recipients = self.notification_config.get("escalation_recipients", [])
         for recipient in escalation_recipients:
             try:
-                make(
+                get_email_service().send_simple_email(
                     recipients=[recipient],
                     subject=f"🚨 ESCALATED: {alert.title}",
-                    content=escalation_message,
-                    send_email=True,
-                    communication_type="Email",
-                    doctype="SEPA Alert",
-                    name=alert.alert_id,
+                    message=escalation_message,
+                    reference_doctype="SEPA Alert",
+                    reference_name=alert.alert_id,
                 )
             except Exception as e:
                 frappe.logger().error(f"Failed to send escalation email: {str(e)}")

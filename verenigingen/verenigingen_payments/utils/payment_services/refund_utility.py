@@ -18,9 +18,6 @@ from verenigingen.utils.payment_services.constants import (
     LOG_CATEGORY_VALIDATION,
     MAX_REFUND_DESCRIPTION_LENGTH,
     MIN_REFUND_AMOUNT,
-    REFUND_QUERY_BATCH_SIZE,
-    STANDARD_ERROR_RESPONSE,
-    STANDARD_SUCCESS_RESPONSE,
     is_valid_mollie_payment_id,
 )
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
@@ -29,6 +26,7 @@ from verenigingen.verenigingen_payments.utils.payment_services.logging_utils imp
     log_concurrent_refund_detected,
     log_refund_initiated,
 )
+from verenigingen.verenigingen_payments.utils.shared.responses import ResponseBuilder
 
 # Known reversal types for null safety
 KNOWN_REVERSAL_TYPES = ("Refund", "Chargeback")
@@ -81,33 +79,16 @@ def _create_error_response(
     message: str, error_code: Optional[str] = None, details: Optional[Any] = None
 ) -> Dict[str, Any]:
     """Create standardized error response."""
-    response = STANDARD_ERROR_RESPONSE.copy()
-    response.update(
-        {
-            "message": message,
-            "error_code": error_code,
-            "details": details,
-            "timestamp": now_datetime().isoformat(),
-        }
-    )
+    response = ResponseBuilder.error(message, error_code=error_code, details=details)
+    response["timestamp"] = now_datetime().isoformat()
     return response
 
 
 def _create_success_response(message: str, data: Optional[Any] = None) -> Dict[str, Any]:
     """Create standardized success response."""
-    response = STANDARD_SUCCESS_RESPONSE.copy()
-    response.update({"message": message, "data": data, "timestamp": now_datetime().isoformat()})
+    response = ResponseBuilder.success(message, data=data)
+    response["timestamp"] = now_datetime().isoformat()
     return response
-
-
-def _validate_mollie_payment_id(payment_id: str) -> bool:
-    """
-    Validate Mollie payment ID format.
-
-    Note: This is a local wrapper for backward compatibility.
-    Use is_valid_mollie_payment_id from constants module for new code.
-    """
-    return is_valid_mollie_payment_id(payment_id)
 
 
 def _validate_refund_amount(amount: float, max_amount: float) -> Optional[Dict[str, Any]]:
@@ -184,7 +165,7 @@ def initiate_refund(
 
         # Check if payment was made via Mollie using standardized validation
         mollie_payment_id = payment_entry.reference_no
-        if not _validate_mollie_payment_id(mollie_payment_id):
+        if not is_valid_mollie_payment_id(mollie_payment_id):
             return _create_error_response("Payment was not processed via Mollie", "NOT_MOLLIE_PAYMENT")
 
         # Validate and set refund amount

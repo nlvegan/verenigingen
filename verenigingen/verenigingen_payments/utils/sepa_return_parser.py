@@ -32,6 +32,7 @@ from verenigingen.utils.secure_xml import (
     XMLSecurityError,
     parse_xml_safely,
 )
+from verenigingen.verenigingen_payments.utils.shared.xml_helpers import extract_xml_namespace
 
 # SEPA pain.002 namespaces (multiple versions supported)
 PAIN002_NAMESPACES = {
@@ -205,26 +206,28 @@ class SEPAReturnParser:
         return returns
 
     def _detect_namespace(self, root: Element) -> None:
-        """Detect the pain.002 namespace from root element."""
-        # Check root tag for namespace
-        tag = root.tag
+        """Detect the pain.002 namespace from root element.
 
-        # Tag format: {namespace}localname
-        if tag.startswith("{"):
-            ns_end = tag.find("}")
-            if ns_end > 0:
-                detected_ns = tag[1:ns_end]
+        The raw Clark-notation ``{uri}`` stripping is delegated to
+        ``extract_xml_namespace``.  The pain.002-specific filtering logic
+        (known-namespace lookup and forward-compat ``pain.002`` substring
+        check) is kept here because it is unique to this parser.
+        """
+        # Delegate Clark-notation "{uri}localname" → "uri" extraction to the
+        # shared helper; use an empty string as sentinel for "no namespace".
+        detected_ns = extract_xml_namespace(root, default="")
 
-                # Check if it's a known pain.002 namespace
-                for key, known_ns in PAIN002_NAMESPACES.items():
-                    if detected_ns == known_ns:
-                        self.namespace = known_ns
-                        return
-
-                # Accept any pain.002 namespace pattern
-                if "pain.002" in detected_ns:
-                    self.namespace = detected_ns
+        if detected_ns:
+            # Check if it's a known pain.002 namespace
+            for _key, known_ns in PAIN002_NAMESPACES.items():
+                if detected_ns == known_ns:
+                    self.namespace = known_ns
                     return
+
+            # Accept any pain.002 namespace pattern (forward-compat)
+            if "pain.002" in detected_ns:
+                self.namespace = detected_ns
+                return
 
     def _parse_transaction_status(
         self,

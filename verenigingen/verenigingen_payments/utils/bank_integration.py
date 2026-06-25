@@ -15,12 +15,16 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_datetime, today
+from frappe.utils import flt, today
+
+# Pattern to EXTRACT an IBAN-like substring from free text (MT940 :25:/:86: blobs).
+# This is extraction, not validation — it locates a candidate IBAN inside a larger
+# string. Defined once and reused so both extraction sites share the same pattern.
+IBAN_EXTRACT_RE = re.compile(r"([A-Z]{2}\d{2}[A-Z0-9]+)")
 
 
 class BankStatementImporter:
@@ -178,7 +182,7 @@ class BankStatementImporter:
                 if line.startswith(":25:"):
                     # Account identification
                     account_info = line[4:]
-                    iban_match = re.search(r"([A-Z]{2}\d{2}[A-Z0-9]+)", account_info)
+                    iban_match = IBAN_EXTRACT_RE.search(account_info)
                     account_iban = iban_match.group(1) if iban_match else ""
 
                 elif line.startswith(":61:"):
@@ -211,7 +215,7 @@ class BankStatementImporter:
 
                     # Extract structured information
                     name_match = re.search(r"/NAME/([^/]+)", details)
-                    iban_match = re.search(r"([A-Z]{2}\d{2}[A-Z0-9]+)", details)
+                    iban_match = IBAN_EXTRACT_RE.search(details)
 
                     current_transaction.update(
                         {
@@ -298,23 +302,20 @@ class BankStatementImporter:
 
     def _find_matching_invoice(self, transaction: Dict) -> Optional[str]:
         """Find matching sales invoice for transaction"""
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            resolve_invoice_from_reference,
+        )
+
         reference = transaction.get("reference", "")
         amount = transaction.get("amount", 0)
         debtor_name = transaction.get("debtor_name", "")
 
-        # Try to find invoice by reference number
-        if reference:
-            # Direct reference match
-            if frappe.db.exists("Sales Invoice", reference):
-                return reference
-
-            # Extract invoice number from reference
-            invoice_patterns = [r"(ACC-SINV-\d{4}-\d+)", r"(SINV-\d+)", r"(INV-\d+)"]
-
-            for pattern in invoice_patterns:
-                match = re.search(pattern, reference)
-                if match and frappe.db.exists("Sales Invoice", match.group(1)):
-                    return match.group(1)
+        # Try to find invoice by reference number (shared SINV-/ACC-SINV-/INV-
+        # resolver lives in bank_transaction_reconciliation so the pattern set is
+        # defined once).
+        invoice_from_reference = resolve_invoice_from_reference(reference)
+        if invoice_from_reference:
+            return invoice_from_reference
 
         # Try to match by amount and customer
         if debtor_name and amount:

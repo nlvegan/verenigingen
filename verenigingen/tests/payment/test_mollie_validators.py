@@ -415,5 +415,103 @@ class TestModuleLevelWrappers(unittest.TestCase):
         self.assertEqual(module_format_iban(""), "")
 
 
+class TestIBANValidatorParityWithCanonical(unittest.TestCase):
+    """Parity characterization: IBANValidator.validate_iban must return the same bool
+    after delegating to the canonical validator that it returned with the original
+    length-table + mod-97 implementation.
+
+    Inputs:
+      valid NL, DE, GB IBANs          -> True
+      spaced / lowercase NL           -> True
+      empty string, None, too-short   -> False
+      unknown country ZZ              -> False (canonical fallback also fails checksum)
+      wrong length for NL             -> False
+      tampered checksum               -> False
+      unknown-in-IBAN_LENGTHS but valid GR IBAN -> True (canonical fallback accepts it)
+      valid BE IBAN                   -> True
+    """
+
+    CASES = [
+        (VALID_NL, True, "valid NL IBAN"),
+        (VALID_DE, True, "valid DE IBAN"),
+        (VALID_GB, True, "valid GB IBAN"),
+        ("NL91 ABNA 0417 1643 00", True, "spaced NL IBAN"),
+        ("nl91abna0417164300", True, "lowercase NL IBAN"),
+        ("", False, "empty string"),
+        (None, False, "None"),
+        ("NL9", False, "too short"),
+        ("ZZ91ABNA0417164300", False, "unknown country ZZ (also fails mod-97)"),
+        ("NL91ABNA041716430", False, "NL wrong length (too short)"),
+        ("NL91ABNA04171643001", False, "NL wrong length (too long)"),
+        ("NL91ABNA0417164301", False, "tampered checksum"),
+        ("NL00BADIBAN", False, "obviously bad IBAN"),
+        ("GR9608100010000001234567890", True, "valid GR IBAN (canonical fallback)"),
+        ("BE68539007547034", True, "valid BE IBAN"),
+    ]
+
+    def _run_case(self, iban, expected_valid, description):
+        result = IBANValidator.validate_iban(iban)
+        self.assertEqual(
+            result,
+            expected_valid,
+            f"{description}: IBANValidator.validate_iban({iban!r}) returned {result}, expected {expected_valid}",
+        )
+
+    def test_parity_valid_nl(self):
+        self._run_case(VALID_NL, True, "valid NL IBAN")
+
+    def test_parity_valid_de(self):
+        self._run_case(VALID_DE, True, "valid DE IBAN")
+
+    def test_parity_valid_gb(self):
+        self._run_case(VALID_GB, True, "valid GB IBAN")
+
+    def test_parity_spaced_nl(self):
+        self._run_case("NL91 ABNA 0417 1643 00", True, "spaced NL IBAN")
+
+    def test_parity_lowercase_nl(self):
+        self._run_case("nl91abna0417164300", True, "lowercase NL IBAN")
+
+    def test_parity_empty(self):
+        self._run_case("", False, "empty string")
+
+    def test_parity_none(self):
+        self._run_case(None, False, "None")
+
+    def test_parity_too_short(self):
+        self._run_case("NL9", False, "too short")
+
+    def test_parity_unknown_country_zz(self):
+        # ZZ not in IBAN_LENGTHS (mollie) -> False; also fails mod-97 (canonical) -> False
+        self._run_case("ZZ91ABNA0417164300", False, "unknown country ZZ")
+
+    def test_parity_nl_wrong_length_short(self):
+        self._run_case("NL91ABNA041716430", False, "NL wrong length (too short)")
+
+    def test_parity_nl_wrong_length_long(self):
+        self._run_case("NL91ABNA04171643001", False, "NL wrong length (too long)")
+
+    def test_parity_tampered_checksum(self):
+        self._run_case("NL91ABNA0417164301", False, "tampered checksum")
+
+    def test_parity_obviously_bad(self):
+        self._run_case("NL00BADIBAN", False, "obviously bad IBAN")
+
+    def test_parity_valid_gr_canonical_fallback(self):
+        # IBANValidator.validate_iban now delegates to the canonical validator
+        # (19 country specs + generic 15-34-char + mod-97 fallback), so GR is
+        # accepted via that broader path rather than the old 71-country length table.
+        self._run_case("GR9608100010000001234567890", True, "valid GR IBAN")
+
+    def test_parity_valid_be(self):
+        self._run_case("BE68539007547034", True, "valid BE IBAN")
+
+    def test_checksum_method_still_works(self):
+        """_validate_checksum is kept for existing callers; verify it still works."""
+        self.assertTrue(IBANValidator._validate_checksum(VALID_NL))
+        self.assertTrue(IBANValidator._validate_checksum(VALID_DE))
+        self.assertFalse(IBANValidator._validate_checksum("NL92ABNA0417164300"))
+
+
 if __name__ == "__main__":
     unittest.main()

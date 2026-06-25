@@ -20,7 +20,10 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.validation.iban_validator import validate_iban
+from verenigingen.utils.validation.iban_validator import (
+    validate_bic as _canonical_validate_bic,
+    validate_iban,
+)
 from verenigingen.verenigingen_payments.utils.sepa_constants import (
     DEFAULT_MAX_BATCH_TOTAL,
     MAX_BATCH_SIZE,
@@ -511,7 +514,13 @@ class SEPAInputValidator:
     @staticmethod
     def validate_bic(bic: str) -> Dict[str, Any]:
         """
-        Validate BIC (Bank Identifier Code)
+        Validate BIC (Bank Identifier Code).
+
+        Delegates to the canonical ``validate_bic`` helper and adapts the result
+        to the ``{"valid", "errors", "cleaned_bic"}`` shape expected by callers.
+        The original error messages ("BIC must be 8 or 11 characters long" and
+        "Invalid BIC format") are preserved so existing callers that inspect
+        error text are not broken.
 
         Args:
             bic: BIC string
@@ -519,33 +528,27 @@ class SEPAInputValidator:
         Returns:
             Validation result with cleaned BIC
         """
-        result = {"valid": True, "errors": [], "cleaned_bic": None}
+        result: Dict[str, Any] = {"valid": True, "errors": [], "cleaned_bic": None}
 
         if not bic or not isinstance(bic, str):
             result["errors"].append("BIC must be a string")
             result["valid"] = False
             return result
 
+        # Preserve the original length-specific error message for callers that
+        # inspect error text (e.g. test_reject_wrong_length_9).
         cleaned_bic = bic.strip().upper()
-
-        # BIC format: 8 or 11 characters
-        # Format: BBBBCCLL[bbb] where:
-        # BBBB = Bank code (4 letters)
-        # CC = Country code (2 letters)
-        # LL = Location code (2 alphanumeric)
-        # bbb = Branch code (3 alphanumeric, optional)
-
-        if len(cleaned_bic) not in [8, 11]:
+        if len(cleaned_bic) not in (8, 11):
             result["errors"].append("BIC must be 8 or 11 characters long")
             result["valid"] = False
             return result
 
-        # Basic format check
-        if not re.match(r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$", cleaned_bic):
+        canonical = _canonical_validate_bic(bic)
+        if canonical["valid"]:
+            result["cleaned_bic"] = canonical["cleaned_bic"]
+        else:
             result["errors"].append("Invalid BIC format")
             result["valid"] = False
-        else:
-            result["cleaned_bic"] = cleaned_bic
 
         return result
 

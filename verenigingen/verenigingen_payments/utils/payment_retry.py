@@ -9,6 +9,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import get_recipients_by_roles
 
 
 class PaymentRetryManager:
@@ -209,12 +210,10 @@ class PaymentRetryManager:
         """Send notification about escalated payment failure"""
         member = frappe.get_doc("Member", retry_record.member)
 
-        # Get admin users
-        admins = frappe.get_all(
-            "Has Role", filters={"role": Roles.VERENIGINGEN_STAFF}, fields=["parent as user"]
-        )
-
-        recipients = [admin.user for admin in admins]
+        # Resolve escalation recipients via shared resolver (enabled users with email holding
+        # the Verenigingen Staff role).  The original queried Has Role directly returning user
+        # names; the resolver returns email addresses for enabled users only.
+        recipients = get_recipients_by_roles([Roles.VERENIGINGEN_STAFF])
 
         if recipients:
             # MIGRATED: Use unified EmailService with payment notification template

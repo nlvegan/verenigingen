@@ -5,6 +5,7 @@ from verenigingen.utils.validation.iban_validator import (
     derive_bic_from_iban,
     format_iban,
     get_bank_from_iban,
+    validate_bic,
     validate_iban,
     validate_iban_checksum,
 )
@@ -239,6 +240,70 @@ class TestIBANValidator(EnhancedTestCase):
             self.assertEqual(bank_info["bank_code"], bank_code)
             self.assertEqual(bank_info["bank_name"], bank_name)
             self.assertIsNotNone(bank_info["bic"], f"BIC missing for {bank_code}")
+
+
+class TestValidateBIC(EnhancedTestCase):
+    """Test canonical BIC validation function"""
+
+    def test_valid_bic_8_chars(self):
+        """Valid 8-character BIC is accepted"""
+        result = validate_bic("ABNANL2A")
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["cleaned_bic"], "ABNANL2A")
+
+    def test_valid_bic_11_chars(self):
+        """Valid 11-character BIC (with branch code) is accepted"""
+        result = validate_bic("ABNANL2AXXX")
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["cleaned_bic"], "ABNANL2AXXX")
+
+    def test_valid_bic_lowercase_normalised(self):
+        """Lowercase BIC is normalised to uppercase and accepted"""
+        result = validate_bic("abnanl2a")
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["cleaned_bic"], "ABNANL2A")
+
+    def test_invalid_bic_too_short(self):
+        """BIC shorter than 8 chars is rejected"""
+        result = validate_bic("SHORT")
+        self.assertFalse(result["valid"])
+        self.assertIsInstance(result["message"], str)
+        self.assertGreater(len(result["message"]), 0)
+
+    def test_invalid_bic_empty(self):
+        """Empty BIC is rejected"""
+        result = validate_bic("")
+        self.assertFalse(result["valid"])
+
+    def test_valid_bic_ingb(self):
+        """ING BIC is accepted"""
+        result = validate_bic("INGBNL2A")
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["cleaned_bic"], "INGBNL2A")
+
+    def test_invalid_bic_9_chars(self):
+        """9-character BIC (not 8 or 11) is rejected"""
+        result = validate_bic("ABNANL2AX")
+        self.assertFalse(result["valid"])
+
+    def test_invalid_bic_wrong_format(self):
+        """BIC with digits in institution code is rejected"""
+        result = validate_bic("12AANL2A")
+        self.assertFalse(result["valid"])
+
+    def test_return_shape(self):
+        """validate_bic always returns dict with valid, message, cleaned_bic keys"""
+        for bic in ("ABNANL2A", "bad", ""):
+            result = validate_bic(bic)
+            self.assertIn("valid", result)
+            self.assertIn("message", result)
+            self.assertIn("cleaned_bic", result)
+
+    def test_valid_bic_with_leading_trailing_spaces(self):
+        """Leading/trailing whitespace is stripped before validation"""
+        result = validate_bic("  ABNANL2A  ")
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["cleaned_bic"], "ABNANL2A")
 
 
 def run_tests():

@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 import frappe
 from frappe import _
 
+from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
+
 
 class RetryStrategy(Enum):
     """Retry strategies for different scenarios"""
@@ -179,10 +181,18 @@ class ExponentialBackoffRetry:
         Returns:
             float: Delay in seconds
         """
-        # Base exponential calculation
-        delay = min(self.base_delay * (self.exponential_base ** (attempt - 1)), self.max_delay)
+        # Base exponential calculation (1-based; helper caps at max_delay).
+        delay = calculate_backoff_delay(
+            attempt,
+            base_delay=self.base_delay,
+            max_delay=self.max_delay,
+            strategy="exponential",
+            exponential_base=self.exponential_base,
+            jitter_factor=0.0,
+        )
 
-        # Add jitter if enabled
+        # Add jitter if enabled (multiplicative, range-based -- distinct from the
+        # helper's additive jitter, so applied here).
         if self.jitter:
             jitter_multiplier = random.uniform(*self.jitter_range)
             delay *= jitter_multiplier
@@ -413,7 +423,13 @@ class LinearBackoffRetry(ExponentialBackoffRetry):
 
     def _calculate_delay(self, attempt: int) -> float:
         """Linear delay calculation"""
-        delay = min(self.base_delay * attempt, self.max_delay)
+        delay = calculate_backoff_delay(
+            attempt,
+            base_delay=self.base_delay,
+            max_delay=self.max_delay,
+            strategy="linear",
+            jitter_factor=0.0,
+        )
 
         if self.jitter:
             jitter_multiplier = random.uniform(*self.jitter_range)
@@ -427,7 +443,15 @@ class FixedDelayRetry(ExponentialBackoffRetry):
 
     def _calculate_delay(self, attempt: int) -> float:
         """Fixed delay calculation"""
-        delay = self.base_delay
+        # Legacy fixed delay is uncapped (always base_delay), so pass an infinite
+        # cap to the helper to preserve that behavior.
+        delay = calculate_backoff_delay(
+            attempt,
+            base_delay=self.base_delay,
+            max_delay=float("inf"),
+            strategy="fixed",
+            jitter_factor=0.0,
+        )
 
         if self.jitter:
             jitter_multiplier = random.uniform(*self.jitter_range)
@@ -439,17 +463,20 @@ class FixedDelayRetry(ExponentialBackoffRetry):
 class FibonacciBackoffRetry(ExponentialBackoffRetry):
     """Fibonacci sequence backoff retry policy"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fib_sequence = [1, 1]
-
     def _calculate_delay(self, attempt: int) -> float:
-        """Fibonacci delay calculation"""
-        # Extend sequence if needed
-        while len(self.fib_sequence) <= attempt:
-            self.fib_sequence.append(self.fib_sequence[-1] + self.fib_sequence[-2])
+        """Fibonacci delay calculation.
 
-        delay = min(self.base_delay * self.fib_sequence[attempt - 1], self.max_delay)
+        The shared helper's 1-based fibonacci (fib(1)=1, fib(2)=1, fib(3)=2, ...)
+        matches the legacy ``fib_sequence`` seeded ``[1, 1]`` indexed at
+        ``attempt - 1``, so it is used directly here.
+        """
+        delay = calculate_backoff_delay(
+            attempt,
+            base_delay=self.base_delay,
+            max_delay=self.max_delay,
+            strategy="fibonacci",
+            jitter_factor=0.0,
+        )
 
         if self.jitter:
             jitter_multiplier = random.uniform(*self.jitter_range)

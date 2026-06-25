@@ -457,6 +457,32 @@ def generate_invalid_iban(error_type="checksum"):
     return invalid_patterns.get(error_type, invalid_patterns["checksum"])
 
 
+BIC_REGEX = r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+
+
+@frappe.whitelist()
+def validate_bic(bic: str) -> dict:
+    """Return {"valid": bool, "message": str, "cleaned_bic": str}.
+
+    Strips and uppercases input before validation.
+    Accepts 8-character BICs (BBBBCCLL) and 11-character BICs with branch code (BBBBCCLLBBB).
+    Uses the same regex as existing SEPA utilities so callers can delegate without behaviour change.
+    """
+    cleaned = bic.strip().upper() if bic else ""
+
+    if not cleaned:
+        return {"valid": False, "message": _("BIC is required"), "cleaned_bic": ""}
+
+    if not re.match(BIC_REGEX, cleaned):
+        return {
+            "valid": False,
+            "message": _("Invalid BIC format. Expected 8 or 11 alphanumeric characters (e.g. ABNANL2A)"),
+            "cleaned_bic": cleaned,
+        }
+
+    return {"valid": True, "message": _("Valid BIC"), "cleaned_bic": cleaned}
+
+
 def create_mock_bank_scenario(scenario="normal"):
     """
     Create different banking scenarios for testing

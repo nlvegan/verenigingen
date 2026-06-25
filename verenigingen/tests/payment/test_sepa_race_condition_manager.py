@@ -28,6 +28,7 @@ exercise the denial branch.
 """
 
 import unittest
+import unittest.mock
 from datetime import timedelta
 
 import frappe
@@ -280,6 +281,68 @@ class TestRetryFailedOperation(EnhancedTestCase):
 
         result = self.manager.retry_failed_operation(add, 2, 3, c=5)
         self.assertEqual(result, 10)
+
+
+class TestRetryFailedOperationBackoffParity(EnhancedTestCase):
+    """Pin the exact exponential-backoff delays used by retry_failed_operation.
+
+    The inline backoff (base=1, exp_base=2, max=10, 0-based attempt) is replaced
+    by a delegation to the shared calculate_backoff_delay helper. This parity
+    test captures the exact ``time.sleep`` delays for attempts 0..3 so the
+    refactor cannot silently change the schedule. jitter_factor is 0 here (the
+    original inline code added no jitter), so the values are deterministic.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.manager = SEPABatchRaceConditionManager()
+        self.manager.retry_config = {
+            "max_attempts": 5,
+            "base_delay": 1.0,
+            "max_delay": 10.0,
+            "exponential_base": 2.0,
+        }
+
+    def test_sleep_delays_exact_schedule(self):
+        import verenigingen.verenigingen_payments.utils.sepa_race_condition_manager as rcm
+
+        recorded = []
+
+        def always_fail():
+            raise RuntimeError("boom")
+
+        # retry_failed_operation is wrapped by @handle_api_error: an exhausted
+        # retry raises SEPAError internally which the decorator converts into a
+        # failure result (it does not propagate) AND logs an Error Log row. We
+        # only care about the sleep schedule here, so mark that log as expected.
+        self.expectErrorLog("Operation failed after")
+        with unittest.mock.patch.object(rcm.time, "sleep", side_effect=recorded.append):
+            self.manager.retry_failed_operation(always_fail)
+
+        # 5 attempts -> sleeps before attempts 2..5 (i.e. after failures 0..3):
+        # nominal 1, 2, 4, 8 (none capped at max_delay=10).
+        self.assertEqual(recorded, [1.0, 2.0, 4.0, 8.0])
+
+    def test_sleep_delays_capped(self):
+        import verenigingen.verenigingen_payments.utils.sepa_race_condition_manager as rcm
+
+        self.manager.retry_config = {
+            "max_attempts": 5,
+            "base_delay": 1.0,
+            "max_delay": 3.0,
+            "exponential_base": 2.0,
+        }
+        recorded = []
+
+        def always_fail():
+            raise RuntimeError("boom")
+
+        self.expectErrorLog("Operation failed after")
+        with unittest.mock.patch.object(rcm.time, "sleep", side_effect=recorded.append):
+            self.manager.retry_failed_operation(always_fail)
+
+        # nominal 1, 2, 4, 8 -> capped at 3 -> 1, 2, 3, 3.
+        self.assertEqual(recorded, [1.0, 2.0, 3.0, 3.0])
 
 
 class TestBatchCreationValidation(EnhancedTestCase):

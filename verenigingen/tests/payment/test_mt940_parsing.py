@@ -15,7 +15,6 @@ Covers verenigingen/verenigingen_payments/utils/mt940_import.py:
     - extract_sepa_purpose_code
     - clean_description_redundancy
     - is_internal_account_reference
-    - generate_mt940_transaction_hash
     - validate_mt940_file / convert_mt940_to_csv (whitelisted, base64 in)
 """
 
@@ -50,6 +49,20 @@ class TestMT940SepaExtraction(FrappeTestCase):
         sd = M.extract_sepa_data_enhanced(S.parse_first(S.ING_INTERNAL_TRANSFER))
         self.assertEqual(sd["counterparty_iban"], "")
         self.assertEqual(sd["counterparty_account_ref"], "L96981341")
+
+    def test_iban_shape_check_is_format_only_not_mod97(self):
+        """R3 characterization: the IBAN/account-ref split is a SHAPE check, not a
+        mod-97 validation. A valid IBAN is kept in counterparty_iban; a non-IBAN
+        (ING internal ref) is moved to counterparty_account_ref. This is asserted
+        via IBAN_SHAPE_RE directly so the behavior is pinned: a typo'd-but-IBAN-
+        shaped string (bad mod-97 checksum) would still be treated as an IBAN,
+        which is intentional so party matching is not silently broken.
+        """
+        self.assertTrue(M.IBAN_SHAPE_RE.match("NL44RABO0123456789"))
+        # IBAN-shaped but fails mod-97 -> still treated as IBAN (kept, not flipped).
+        self.assertTrue(M.IBAN_SHAPE_RE.match("NL12RABO0123456789"))
+        # Non-IBAN internal reference -> not IBAN-shaped.
+        self.assertFalse(M.IBAN_SHAPE_RE.match("L96981341"))
 
     def test_salutation_stripped_from_counterparty(self):
         """'Hr M E J Eggermont' should have the Dutch salutation removed."""
@@ -91,25 +104,28 @@ class TestMT940DuplicateHash(FrappeTestCase):
         h2 = M.get_enhanced_duplicate_hash(t2, M.extract_sepa_data_enhanced(t2))
         self.assertNotEqual(h1, h2)
 
-    def test_legacy_generate_hash_works_on_real_transaction(self):
-        """generate_mt940_transaction_hash now reads date/amount from .data (the
-        WoLpH/mt940 Transaction object stores them there, not as attributes), so it
-        produces a stable 32-char hash on a real parsed transaction instead of
-        raising AttributeError. Different transactions hash differently; the same
-        transaction hashes identically.
+    def test_changed_field_changes_hash(self):
+        """The canonical get_enhanced_duplicate_hash is field-sensitive: mutating a
+        single hashed field (here the amount) yields a different hash, while an
+        unchanged transaction hashes identically. This replaces the deleted
+        generate_mt940_transaction_hash, whose only call site already used the
+        enhanced hash.
         """
         t = S.parse_first(S.SEPA_INCOMING_CREDIT)
-        self.assertFalse(hasattr(t, "date"))
-        self.assertFalse(hasattr(t, "amount"))
+        sd = M.extract_sepa_data_enhanced(t)
+        h1 = M.get_enhanced_duplicate_hash(t, sd)
+        # Same transaction -> stable hash.
+        self.assertEqual(h1, M.get_enhanced_duplicate_hash(t, sd))
 
-        h1 = M.generate_mt940_transaction_hash(t)
-        self.assertIsInstance(h1, str)
-        self.assertEqual(len(h1), 32)
-        # Deterministic for the same transaction.
-        self.assertEqual(h1, M.generate_mt940_transaction_hash(t))
-        # Field-sensitive: a different transaction yields a different hash.
-        other = S.parse_first(S.SEPA_OUTGOING_DEBIT)
-        self.assertNotEqual(h1, M.generate_mt940_transaction_hash(other))
+        # Change one hashed field (amount) -> different hash.
+        amount_obj = t.data.get("amount")
+        original = amount_obj.amount
+        try:
+            amount_obj.amount = original + 1
+            h2 = M.get_enhanced_duplicate_hash(t, M.extract_sepa_data_enhanced(t))
+        finally:
+            amount_obj.amount = original
+        self.assertNotEqual(h1, h2)
 
 
 class TestMT940PurposeCode(FrappeTestCase):

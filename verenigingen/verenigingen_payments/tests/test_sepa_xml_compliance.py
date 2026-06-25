@@ -702,5 +702,97 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         self.assertTrue(re.match(pattern, postal_code), f"Invalid Dutch postal code: {postal_code}")
 
 
+class TestBuildPostalAddressParity(unittest.TestCase):
+    """XML-output parity: build_postal_address must produce byte-identical results
+    to the inlined creditor/debtor address blocks it replaced.
+
+    We compare element tag names, order, and text for the same sample address data
+    to prove the refactored generator emits the same XML structure.
+    """
+
+    def _inline_address(self, parent, address_line_1, address_line_2, postal_code, town, country="NL"):
+        """Reproduce the original inlined creditor/debtor address block verbatim."""
+        if any([address_line_1, address_line_2, postal_code, town]):
+            pstl_adr = ET.SubElement(parent, "PstlAdr")
+            ET.SubElement(pstl_adr, "Ctry").text = country
+            if address_line_1:
+                ET.SubElement(pstl_adr, "AdrLine").text = address_line_1
+            if address_line_2:
+                ET.SubElement(pstl_adr, "AdrLine").text = address_line_2
+            if postal_code:
+                ET.SubElement(pstl_adr, "PstCd").text = postal_code
+            if town:
+                ET.SubElement(pstl_adr, "TwnNm").text = town
+
+    def _helper_address(self, parent, address_line_1, address_line_2, postal_code, town, country="NL"):
+        """Call the shared helper with the same data."""
+        from verenigingen.verenigingen_payments.utils.shared.xml_helpers import build_postal_address
+
+        build_postal_address(
+            parent,
+            {
+                "country": country,
+                "address_line_1": address_line_1,
+                "address_line_2": address_line_2,
+                "postal_code": postal_code,
+                "town": town,
+            },
+        )
+
+    def _tostring(self, parent):
+        return ET.tostring(parent, encoding="unicode")
+
+    def _make_roots(self):
+        return ET.Element("Cdtr"), ET.Element("Cdtr")
+
+    def _assert_parity(self, address_line_1, address_line_2, postal_code, town, country="NL"):
+        inline_root, helper_root = self._make_roots()
+        self._inline_address(inline_root, address_line_1, address_line_2, postal_code, town, country)
+        self._helper_address(helper_root, address_line_1, address_line_2, postal_code, town, country)
+        self.assertEqual(
+            self._tostring(inline_root),
+            self._tostring(helper_root),
+            f"XML mismatch for address: {address_line_1!r}, {address_line_2!r}, {postal_code!r}, {town!r}",
+        )
+
+    def test_full_address_parity(self):
+        self._assert_parity("Teststraat 1", "Appartement 2", "1234 AB", "Amsterdam")
+
+    def test_address_line_1_only(self):
+        self._assert_parity("Teststraat 1", None, None, None)
+
+    def test_postal_code_and_town_only(self):
+        self._assert_parity(None, None, "1234 AB", "Amsterdam")
+
+    def test_town_only(self):
+        self._assert_parity(None, None, None, "Rotterdam")
+
+    def test_no_address_fields_emits_nothing(self):
+        """When no optional address fields are set, no PstlAdr element is emitted."""
+        inline_root, helper_root = self._make_roots()
+        self._inline_address(inline_root, None, None, None, None)
+        self._helper_address(helper_root, None, None, None, None)
+        self.assertEqual(self._tostring(inline_root), self._tostring(helper_root))
+        # Confirm both produce an element with NO PstlAdr child
+        self.assertIsNone(inline_root.find("PstlAdr"))
+        self.assertIsNone(helper_root.find("PstlAdr"))
+
+    def test_country_code_is_first_child_of_pstladr(self):
+        """Ctry must be the first sub-element of PstlAdr, matching the original order."""
+        helper_root = ET.Element("Cdtr")
+        self._helper_address(helper_root, "Straat 1", None, "1234 AB", "Utrecht")
+        pstl_adr = helper_root.find("PstlAdr")
+        self.assertIsNotNone(pstl_adr)
+        children = list(pstl_adr)
+        self.assertEqual(children[0].tag, "Ctry")
+        self.assertEqual(children[0].text, "NL")
+
+    def test_address_line_2_only(self):
+        self._assert_parity(None, "Suite 3", None, None)
+
+    def test_be_country_code(self):
+        self._assert_parity("Rue de la Loi 1", None, "1000", "Brussels", country="BE")
+
+
 if __name__ == "__main__":
     unittest.main()
