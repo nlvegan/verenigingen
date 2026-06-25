@@ -498,7 +498,9 @@ class TestIBANValidatorParityWithCanonical(unittest.TestCase):
         self._run_case("NL00BADIBAN", False, "obviously bad IBAN")
 
     def test_parity_valid_gr_canonical_fallback(self):
-        # GR is in mollie's IBAN_LENGTHS (27 chars); valid GR IBAN -> True in both
+        # IBANValidator.validate_iban now delegates to the canonical validator
+        # (19 country specs + generic 15-34-char + mod-97 fallback), so GR is
+        # accepted via that broader path rather than the old 71-country length table.
         self._run_case("GR9608100010000001234567890", True, "valid GR IBAN")
 
     def test_parity_valid_be(self):

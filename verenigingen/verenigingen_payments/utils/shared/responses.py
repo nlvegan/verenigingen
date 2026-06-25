@@ -29,7 +29,7 @@ class ResponseBuilder:
         error_code: Optional[str] = None,
         details: Optional[dict] = None,
     ) -> dict:
-        """Return a standardised error response dict."""
+        """Return a standardized error response dict."""
         return {
             "status": status,
             "message": message,
@@ -44,7 +44,7 @@ class ResponseBuilder:
         status: str = "success",
         data: Optional[dict] = None,
     ) -> dict:
-        """Return a standardised success response dict."""
+        """Return a standardized success response dict."""
         return {
             "status": status,
             "message": message,

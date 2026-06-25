@@ -19,7 +19,7 @@ Coercion rules (match the original exactly):
 """
 
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 
 def safe_decimal(value, *, default="0") -> Decimal:
@@ -54,23 +54,3 @@ def safe_decimal(value, *, default="0") -> Decimal:
             return Decimal(default)
     except (InvalidOperation, ValueError):
         return Decimal(default)
-
-
-def quantize_amount(value, *, places: int = 2, rounding: str = ROUND_HALF_UP) -> Decimal:
-    """Round *value* to *places* decimal places using *rounding* mode.
-
-    *value* is first coerced via :func:`safe_decimal` so ``str``, ``int``,
-    ``float``, and ``None`` are all accepted.
-
-    Args:
-        value:    The amount to quantize.
-        places:   Number of decimal places to keep.  Defaults to ``2``.
-        rounding: Decimal rounding mode.  Defaults to
-                  :data:`~decimal.ROUND_HALF_UP`.
-
-    Returns:
-        A :class:`~decimal.Decimal` rounded to *places* decimal places.
-    """
-    d = safe_decimal(value) if not isinstance(value, Decimal) else value
-    quantizer = Decimal(10) ** -places
-    return d.quantize(quantizer, rounding=rounding)

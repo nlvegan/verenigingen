@@ -14,7 +14,7 @@ Implements Week 3 Day 5 requirements from the SEPA billing improvements project.
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import frappe
 from frappe import _
@@ -22,7 +22,7 @@ from frappe.utils import add_days, get_datetime, now, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
+from verenigingen.utils.error_handling import handle_api_error, log_error
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import insert_audit_row
@@ -119,7 +119,8 @@ class SEPANotificationManager:
         """
         try:
             # Notification log table
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Log` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -141,10 +142,12 @@ class SEPANotificationManager:
                     INDEX `idx_delivery_status` (`delivery_status`),
                     INDEX `idx_creation` (`creation`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
+            """
+            )
 
             # Notification preferences table
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Notification_Preferences` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -157,7 +160,8 @@ class SEPANotificationManager:
                     UNIQUE KEY `unique_user_type` (`user_email`, `notification_type`),
                     INDEX `idx_user_email` (`user_email`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
+            """
+            )
 
             frappe.db.commit()
 

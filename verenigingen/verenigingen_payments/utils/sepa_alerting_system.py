@@ -32,7 +32,6 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.verenigingen_payments.utils.sepa_notification_manager import SEPANotificationManager
 from verenigingen.verenigingen_payments.utils.shared.severity import Severity
-from verenigingen.verenigingen_payments.utils.shared.sliding_window import SlidingWindowCounter
 
 # Alert severity levels are now defined canonically in shared/severity.py
 # (preserving the exact "info"/"warning"/"critical"/"emergency" string values

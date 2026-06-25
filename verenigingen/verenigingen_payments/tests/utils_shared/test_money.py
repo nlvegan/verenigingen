@@ -1,7 +1,7 @@
 import unittest
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
-from verenigingen.verenigingen_payments.utils.shared.money import quantize_amount, safe_decimal
+from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
 
 class TestSafeDecimal(unittest.TestCase):
@@ -105,47 +105,6 @@ class TestSafeDecimal(unittest.TestCase):
 
     def test_dict_returns_default(self):
         self.assertEqual(safe_decimal({}, default="0"), Decimal("0"))
-
-
-class TestQuantizeAmount(unittest.TestCase):
-    """Tests for quantize_amount."""
-
-    def test_basic_two_decimal_places(self):
-        self.assertEqual(quantize_amount(Decimal("1.234")), Decimal("1.23"))
-
-    def test_half_up_boundary(self):
-        """'1.005' should round up to '1.01' under HALF_UP."""
-        self.assertEqual(quantize_amount(Decimal("1.005")), Decimal("1.01"))
-
-    def test_half_up_round_down(self):
-        """'1.004' → '1.00' under HALF_UP."""
-        self.assertEqual(quantize_amount(Decimal("1.004")), Decimal("1.00"))
-
-    def test_string_input(self):
-        """Accepts a string value via safe_decimal coercion."""
-        self.assertEqual(quantize_amount("2.555"), Decimal("2.56"))
-
-    def test_integer_input(self):
-        self.assertEqual(quantize_amount(10), Decimal("10.00"))
-
-    def test_none_input(self):
-        self.assertEqual(quantize_amount(None), Decimal("0.00"))
-
-    def test_negative_half_up(self):
-        """Negative HALF_UP: '-1.005' → '-1.01' (rounds away from zero)."""
-        self.assertEqual(quantize_amount(Decimal("-1.005")), Decimal("-1.01"))
-
-    def test_custom_places_zero(self):
-        """places=0 rounds to integer."""
-        self.assertEqual(quantize_amount(Decimal("1.5"), places=0), Decimal("2"))
-
-    def test_custom_places_four(self):
-        """places=4 keeps 4 decimal digits."""
-        self.assertEqual(quantize_amount(Decimal("1.23456"), places=4), Decimal("1.2346"))
-
-    def test_result_type_is_decimal(self):
-        result = quantize_amount("3.14")
-        self.assertIsInstance(result, Decimal)
 
 
 if __name__ == "__main__":

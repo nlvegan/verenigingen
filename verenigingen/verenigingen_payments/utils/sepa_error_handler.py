@@ -5,11 +5,10 @@ Provides granular error handling for SEPA batch processing operations
 
 import random
 import time
-from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 import frappe
-from frappe.utils import cstr, now_datetime, today
+from frappe.utils import now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay

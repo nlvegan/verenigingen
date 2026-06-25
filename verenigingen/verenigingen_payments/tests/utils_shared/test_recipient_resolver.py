@@ -1,7 +1,6 @@
 """DB integration tests for get_recipients_by_roles."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils.shared.recipient_resolver import (

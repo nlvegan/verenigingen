@@ -339,9 +339,9 @@ class SEPARetryManager:
         """Classify failure type for appropriate retry strategy.
 
         PARITY NOTE (DRY refactor): this method intentionally keeps its own
-        keyword buckets rather than delegating to the shared
-        ``classify_error`` helper. The two taxonomies genuinely diverge and
-        CANNOT be reconciled by a category mapping: this method buckets
+        keyword buckets rather than delegating to a shared error classifier.
+        The two taxonomies genuinely diverge and CANNOT be reconciled by a
+        category mapping: this method buckets
         "busy"/"unavailable" as RESOURCE (the shared classifier calls them
         TRANSIENT) and treats "overload"/"missing"/"duplicate"/"constraint" /
         authorization / data keywords as SYSTEM (it has no AUTHORIZATION or DATA

@@ -1,8 +1,8 @@
 """
 DB-backed integration tests for shared db_helpers utilities.
 
-Tests ``ensure_table_exists``, ``insert_audit_row``, and ``update_row_status``
-against a real MariaDB table that is created in setUp and dropped in tearDown.
+Tests ``ensure_table_exists`` and ``insert_audit_row`` against a real MariaDB
+table that is created in setUp and dropped in tearDown.
 No business-logic mocks; every assertion reads back from the DB.
 """
 
@@ -16,7 +16,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils.shared.db_helpers import (
     ensure_table_exists,
     insert_audit_row,
-    update_row_status,
 )
 
 # Use a deterministic suffix so the table name is the same within a test run
@@ -139,57 +138,6 @@ class TestDbHelpers(EnhancedTestCase):
         tname = _TABLE
         with self.assertRaises(ValueError):
             insert_audit_row(tname, {"name": "x", "bad-col!": "v"})
-
-    # ------------------------------------------------------------------
-    # update_row_status
-    # ------------------------------------------------------------------
-
-    def test_update_row_status_basic(self):
-        """Status field must be updated correctly."""
-        row = self._make_row("-upd-basic")
-        tname = _TABLE
-        insert_audit_row(tname, row)
-
-        update_row_status(tname, row["name"], "completed")
-
-        result = self._read_row(row["name"])
-        self.assertEqual(result["status"], "completed")
-
-    def test_update_row_status_with_error_message(self):
-        """error_message field must be updated when supplied."""
-        row = self._make_row("-upd-err")
-        tname = _TABLE
-        insert_audit_row(tname, row)
-
-        update_row_status(tname, row["name"], "failed", error_message="something broke")
-
-        result = self._read_row(row["name"])
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["error_message"], "something broke")
-
-    def test_update_row_status_with_completed_at(self):
-        """completed_at field must be updated when supplied."""
-        row = self._make_row("-upd-ts")
-        tname = _TABLE
-        insert_audit_row(tname, row)
-
-        ts = frappe.utils.now()
-        update_row_status(tname, row["name"], "completed", completed_at=ts)
-
-        result = self._read_row(row["name"])
-        self.assertEqual(result["status"], "completed")
-        self.assertIsNotNone(result["completed_at"])
-
-    def test_update_row_status_invalid_table_raises(self):
-        """A table name with forbidden chars must raise ValueError."""
-        with self.assertRaises(ValueError):
-            update_row_status("bad-table!", "pk", "done")
-
-    def test_update_row_status_invalid_pk_column_raises(self):
-        """A pk_column with forbidden chars must raise ValueError."""
-        tname = _TABLE
-        with self.assertRaises(ValueError):
-            update_row_status(tname, "pk", "done", pk_column="bad-col!")
 
 
 if __name__ == "__main__":

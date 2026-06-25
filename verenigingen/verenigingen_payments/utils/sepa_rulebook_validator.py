@@ -10,21 +10,18 @@ Comprehensive validation against SEPA rulebook requirements including:
 Implements Week 3 Day 3-4 requirements from the SEPA billing improvements project.
 """
 
-import io
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import frappe
-import requests
 from frappe import _
-from frappe.utils import add_days, getdate, today
 
-from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
+from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.sepa_constants import SEPA_CHAR_PATTERN
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (

@@ -18,7 +18,6 @@ from verenigingen.utils.payment_services.constants import (
     LOG_CATEGORY_VALIDATION,
     MAX_REFUND_DESCRIPTION_LENGTH,
     MIN_REFUND_AMOUNT,
-    REFUND_QUERY_BATCH_SIZE,
     is_valid_mollie_payment_id,
 )
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService

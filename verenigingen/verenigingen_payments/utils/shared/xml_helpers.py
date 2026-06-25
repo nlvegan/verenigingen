@@ -50,9 +50,11 @@ def get_element_text(
     raw ``None`` is returned — callers that require a non-None fallback should
     pass an explicit *default*.
 
-    Reproduces:
-    - ``SEPAReturnParser._get_text`` in sepa_return_parser.py
-    - The inline ``element.find(…).text`` pattern in sepa_rulebook_validator.py
+    Used by:
+    - ``sepa_rulebook_validator.py`` (replaces the inline ``element.find(…).text`` pattern)
+
+    Note: ``SEPAReturnParser`` in sepa_return_parser.py retains its own ``_get_text``
+    method and does not delegate here.
 
     Args:
         element: The parent XML element to search within.

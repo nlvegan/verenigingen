@@ -15,12 +15,11 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_datetime, today
+from frappe.utils import flt, today
 
 # Pattern to EXTRACT an IBAN-like substring from free text (MT940 :25:/:86: blobs).
 # This is extraction, not validation — it locates a candidate IBAN inside a larger
