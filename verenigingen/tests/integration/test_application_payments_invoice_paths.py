@@ -101,10 +101,11 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
         self.assertTrue(frappe.db.exists("Sales Invoice", invoice.name))
         self.assertEqual(invoice.docstatus, 1)
         self.assertEqual(invoice.member, member.name)
-        # NOTE: invoice_data also sets "membership", but Sales Invoice has no
-        # `membership` field (only `member` + `is_membership_invoice` are custom
-        # fields) so the value is silently dropped on insert. See FLAGS in the
-        # session summary. Assert only the fields that actually persist.
+        # Guard: Sales Invoice has no `membership` field (only `member` +
+        # `is_membership_invoice` are the membership-link custom fields). A dead
+        # "membership" invoice_data key used to be set here and silently dropped;
+        # it was removed. This assertion pins the schema assumption so the dead
+        # key cannot quietly reappear.
         self.assertFalse(frappe.get_meta("Sales Invoice").has_field("membership"))
         self.assertEqual(invoice.customer, member.customer)
         self.assertEqual(invoice.is_membership_invoice, 1)
@@ -197,9 +198,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
         member.reload()
         self.assertTrue(member.customer)
         self.assertEqual(invoice.customer, member.customer)
-        self.assertEqual(
-            frappe.db.get_value("Customer", member.customer, "member"), member.name
-        )
+        self.assertEqual(frappe.db.get_value("Customer", member.customer, "member"), member.name)
 
 
 class TestCreateMembershipInvoiceDefaultAmount(_InvoicePathBase):
@@ -227,9 +226,7 @@ class TestCreateContactForCustomerErrorBranch(EnhancedTestCase):
     """create_contact_for_customer() returns None on failure (does not raise)."""
 
     def test_returns_none_when_contact_insert_fails(self):
-        member = self.create_test_member(
-            first_name="Cont", last_name=f"E{self.factory.test_run_id}"
-        )
+        member = self.create_test_member(first_name="Cont", last_name=f"E{self.factory.test_run_id}")
         member.reload()
         # A frappe._dict customer with no real name makes the link insertion fail,
         # exercising the except branch that logs + returns None.

@@ -83,7 +83,6 @@ def create_membership_invoice_with_amount(member, membership, amount):
         "company": settings.company,  # Use company from Verenigingen Settings
         "customer": member.customer,
         "member": member.name,
-        "membership": membership.name,
         # Flag as a membership invoice, consistent with the other membership
         # invoice creation paths (services/billing/invoice_generator.py and the
         # Mollie dues processor). Without this, invoices created during
