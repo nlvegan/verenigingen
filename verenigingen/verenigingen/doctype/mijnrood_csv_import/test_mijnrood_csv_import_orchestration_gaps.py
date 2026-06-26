@@ -69,11 +69,7 @@ class TestMijnroodUserAccountCreationOrchestration(_BaseMijnroodPipelineTest):
         """A Suspended member IS processed by the bulk queue (the status filter is
         not Active-only): a real account request is queued and the count is reported
         in the summary. Previously the nested-data bug masked the count, so this
-        case looked like an empty 'no accounts created or linked' summary.
-
-        (Reaches _link_tracker_atomically; see the note on the tracker-link test for
-        the separately-tracked begin() issue handled via the fallback.)"""
-        self.expectErrorLog("Tracker Link Error")
+        case looked like an empty 'no accounts created or linked' summary."""
         member = self._make_member(first_name="UserSusp", status="Suspended")
         doc = self._make_import_doc(
             [{"Voornaam": "US", "Achternaam": "Real", "E-mailadres": _unique_email()}],
@@ -184,14 +180,11 @@ class TestMijnroodUserAccountCreationResultShape(_BaseMijnroodPipelineTest):
         under 'data') must be read so the tracker is linked to the import. The bug
         left bulk_operation_tracker empty even on success.
 
-        NOTE: this also reaches _link_tracker_atomically, whose frappe.db.begin()
-        trips the implicit-commit guard inside the test transaction and falls back
-        to a plain save (logged as 'Tracker Link Error'). That fallback still links
-        the tracker, so the user-visible contract holds. The begin()/FOR UPDATE
-        transaction handling is a SEPARATE latent issue that this fix exposes (the
-        path was dead while tracker_name was always None) — tracked as a follow-up.
+        This also exercises _link_tracker_atomically on its clean path: it now runs
+        inside the ambient transaction (no frappe.db.begin()), so the FOR UPDATE
+        lock + set_value link the tracker without tripping the implicit-commit guard
+        and without logging a 'Tracker Link Error'.
         """
-        self.expectErrorLog("Tracker Link Error")
         member = self._make_member(first_name="ShapeActive", status="Active")
         doc = self._make_import_doc(
             [{"Voornaam": "SA", "Achternaam": "Real", "E-mailadres": _unique_email()}],
@@ -200,10 +193,17 @@ class TestMijnroodUserAccountCreationResultShape(_BaseMijnroodPipelineTest):
         summary = doc._process_user_account_creation([member.name])
 
         # A real request was queued (data.requests_created read correctly) and its
-        # tracker linked to the import doc (data.tracker_name read correctly).
+        # tracker linked to the import doc (data.tracker_name read correctly),
+        # cleanly — no Tracker Link Error fallback.
         self.assertIn("new account requests queued", summary)
         self.assertTrue(doc.bulk_operation_tracker)
         self.assertTrue(frappe.db.exists("Bulk Operation Tracker", doc.bulk_operation_tracker))
+        # The link was persisted to the DB via set_value (the clean path), not just
+        # held in memory by the error fallback.
+        self.assertEqual(
+            frappe.db.get_value("Mijnrood CSV Import", doc.name, "bulk_operation_tracker"),
+            doc.bulk_operation_tracker,
+        )
 
 
 class TestMijnroodRetryAccountCreationsFullPath(_BaseMijnroodPipelineTest):

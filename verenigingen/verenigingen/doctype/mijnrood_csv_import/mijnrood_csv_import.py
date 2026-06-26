@@ -1374,16 +1374,22 @@ class MijnroodCSVImport(Document):
                 self.error_log = message
 
     def _link_tracker_atomically(self, tracker_name: str):
-        """Atomically link bulk operation tracker to this import.
+        """Link the bulk operation tracker to this import under a row lock.
 
-        Uses FOR UPDATE locking to prevent race conditions where another
-        process might modify the import document between reading and writing.
-        This ensures the tracker link is not lost when reload() is called later.
+        Serializes concurrent linkers with SELECT ... FOR UPDATE so a tracker
+        link is not lost to a racing writer, and persists via a direct db write
+        so the value survives a later reload().
+
+        Runs INSIDE the caller's (request / background-job) transaction and
+        deliberately does NOT call frappe.db.begin()/commit(): begin() issues
+        START TRANSACTION, which trips Frappe's implicit-commit guard whenever
+        writes are already pending (e.g. the ACRs just created upstream) and would
+        otherwise prematurely commit the surrounding transaction. The FOR UPDATE
+        lock is held until — and the link persisted at — the normal request-level
+        commit.
         """
         try:
-            frappe.db.begin()
-
-            # Lock the import row to prevent concurrent modifications
+            # Lock the import row to serialize concurrent tracker linking.
             locked_row = frappe.db.sql(
                 """
                 SELECT name, bulk_operation_tracker
@@ -1396,20 +1402,19 @@ class MijnroodCSVImport(Document):
             )
 
             if not locked_row:
-                frappe.db.rollback()
                 frappe.log_error(f"Import {self.name} not found during tracker linking", "Tracker Link Error")
                 return
 
-            # If already has a tracker, don't overwrite (idempotent)
+            # Idempotent: if already linked, keep the existing tracker.
             if locked_row[0].bulk_operation_tracker:
-                frappe.db.commit()  # Release lock
                 frappe.logger().info(
                     f"[CSV IMPORT] Import {self.name} already has tracker "
                     f"{locked_row[0].bulk_operation_tracker}, not overwriting with {tracker_name}"
                 )
                 return
 
-            # Atomic update directly to DB (no document methods that could fail)
+            # Direct DB write (no document methods that could fail); persists at the
+            # request-level commit and survives a later reload().
             frappe.db.set_value(
                 "Mijnrood CSV Import",
                 self.name,
@@ -1417,29 +1422,23 @@ class MijnroodCSVImport(Document):
                 tracker_name,
                 update_modified=False,
             )
-            frappe.db.commit()
 
-            # Update in-memory value for consistency
+            # Keep the in-memory value consistent with the DB.
             self.bulk_operation_tracker = tracker_name
 
             frappe.logger().info(
-                f"[CSV IMPORT] Atomically linked Bulk Operation Tracker {tracker_name} to import {self.name}"
+                f"[CSV IMPORT] Linked Bulk Operation Tracker {tracker_name} to import {self.name}"
             )
 
         except Exception as e:
-            frappe.db.rollback()
+            # Do NOT roll back here: without our own transaction that would discard
+            # the surrounding import work. Log and fall back to an in-memory
+            # assignment so the value is at least available to this request.
             frappe.log_error(
-                f"Failed to atomically link tracker {tracker_name} to import {self.name}: {str(e)}",
+                f"Failed to link tracker {tracker_name} to import {self.name}: {str(e)}",
                 "Tracker Link Error",
             )
-            # Fall back to simple assignment (may be lost on reload, but better than nothing)
             self.bulk_operation_tracker = tracker_name
-            try:
-                # Security: Import doc updating its own tracker link - fallback in error path
-                self.save(ignore_permissions=True)
-                frappe.db.commit()
-            except Exception:
-                pass
 
     def _create_termination_record(self, member_doc: Document, termination_data: dict):
         """Create a membership termination record for historical accuracy."""
