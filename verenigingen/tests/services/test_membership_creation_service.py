@@ -356,6 +356,47 @@ class TestUpdateScheduleFromTemplate(EnhancedTestCase):
         self.assertEqual(updated.template_reference, template.name)
 
 
+class TestSaveMemberWithRollbackRetry(EnhancedTestCase):
+    """_save_member_with_rollback() recovers from a concurrent-write timestamp
+    mismatch by reloading and re-applying member fields via the restore callback."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MembershipCreationService()
+        self.mt = self.create_test_membership_type(membership_type_name="RetryType", amount=24.0)
+        self.member = self.create_test_member(
+            first_name="Retry",
+            last_name="Rollback",
+            email="retry.rollback@example.com",
+            selected_membership_type=self.mt.name,
+        )
+        self.membership = self.create_test_membership(member=self.member.name)
+
+    def test_timestamp_mismatch_triggers_field_restore_and_retry(self):
+        # Load the member, then mutate the same row out from under it so the
+        # in-memory doc's timestamp is stale and the first save() raises
+        # TimestampMismatchError (simulating a concurrent writer).
+        member_doc = frappe.get_doc("Member", self.member.name)
+        frappe.db.set_value("Member", self.member.name, "notes", "concurrent writer touched this")
+
+        # restore_member_fields must re-apply current_membership_plan (always) and
+        # the approval fields (here a validation-free notes write) after the reload.
+        self.service._save_member_with_rollback(
+            member_doc,
+            self.membership,
+            None,  # dues_schedule
+            None,  # invoice
+            {"notes": "approved via retry"},
+        )
+
+        self.member.reload()
+        # The retry succeeded: the membership is still active (not rolled back) and
+        # the restored fields persisted from the second save attempt.
+        self.assertEqual(self.member.current_membership_plan, self.membership.name)
+        self.assertEqual(self.member.notes, "approved via retry")
+        self.assertEqual(frappe.db.get_value("Membership", self.membership.name, "docstatus"), 1)
+
+
 class TestServiceAccessor(EnhancedTestCase):
     def test_get_service_returns_instance(self):
         self.assertIsInstance(get_membership_creation_service(), MembershipCreationService)
