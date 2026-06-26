@@ -574,33 +574,46 @@ class MijnroodCSVImport(Document):
                 create_employee=bool(getattr(self, "create_employee_records", False)),
             )
 
+            # queue_bulk_account_creation_for_members is wrapped by @critical_api,
+            # which serializes its OperationResult via to_dict(nested=True): the
+            # payload (counts, request_names, tracker_name) lives under "data" and a
+            # failure puts the human message under error["message"]. Reading these at
+            # the top level silently yields defaults, so the summary would always say
+            # "no accounts created/linked" and the tracker would never link. Read the
+            # nested shape, with a flat fallback for resilience if the shape changes.
             if not result.get("success"):
-                error_msg = result.get("error", "Unknown error during bulk queue operation")
+                error_obj = result.get("error")
+                if isinstance(error_obj, dict):
+                    error_msg = error_obj.get("message") or "Unknown error during bulk queue operation"
+                else:
+                    error_msg = error_obj or "Unknown error during bulk queue operation"
                 frappe.log_error(
                     f"Bulk account creation queue failed: {error_msg}", "Mijnrood Bulk Account Creation Error"
                 )
                 return f". User account creation failed: {error_msg}"
 
+            data = result.get("data") if isinstance(result.get("data"), dict) else result
+
             # Create summary based on queue results
             summary_parts = []
 
             # Users linked to existing accounts
-            users_linked = result.get("users_linked", 0)
+            users_linked = data.get("users_linked", 0)
             if users_linked > 0:
                 summary_parts.append(f"{users_linked} users linked to existing accounts")
 
             # Requests successfully created and queued
-            requests_created = result.get("requests_created", 0)
+            requests_created = data.get("requests_created", 0)
             if requests_created > 0:
                 summary_parts.append(f"{requests_created} new account requests queued")
 
             # Validation errors (members that couldn't be processed)
-            validation_errors = result.get("validation_errors_count", 0)
+            validation_errors = data.get("validation_errors_count", 0)
             if validation_errors > 0:
                 summary_parts.append(f"{validation_errors} members skipped (validation errors)")
 
             # Batch information
-            batch_count = result.get("batch_count", 0)
+            batch_count = data.get("batch_count", 0)
             if batch_count > 0:
                 summary_parts.append(f"{batch_count} processing batches")
 
@@ -610,21 +623,21 @@ class MijnroodCSVImport(Document):
                 summary = ". No user accounts created or linked"
 
             # Log detailed queue results for monitoring
-            tracker_info = f"Tracker: {result.get('tracker_name', 'Unknown')}"
+            tracker_info = f"Tracker: {data.get('tracker_name', 'Unknown')}"
             frappe.logger().info(
                 f"Bulk account creation queued: {requests_created} requests, {users_linked} linked, "
                 f"{batch_count} batches, {validation_errors} validation errors, {tracker_info}"
             )
 
             # Store request tracking information for follow-up monitoring
-            if result.get("request_names"):
+            if data.get("request_names"):
                 # Store first 10 request names for tracking (avoid overwhelming the log)
-                sample_requests = result["request_names"][:10]
+                sample_requests = data["request_names"][:10]
                 frappe.logger().info("Sample account creation requests: %s", sample_requests)
 
                 # Log any batches that failed to queue
                 failed_batches = [
-                    batch for batch in result.get("batches", []) if batch.get("status") == "failed"
+                    batch for batch in data.get("batches", []) if batch.get("status") == "failed"
                 ]
                 if failed_batches:
                     frappe.log_error(
@@ -633,8 +646,8 @@ class MijnroodCSVImport(Document):
                     )
 
             # Add tracker information to summary if available AND link to import
-            if result.get("tracker_name"):
-                tracker_name = result["tracker_name"]
+            if data.get("tracker_name"):
+                tracker_name = data["tracker_name"]
                 summary_parts.append(f"progress tracker: {tracker_name}")
 
                 # Use atomic linking to prevent race condition with concurrent modifications

@@ -65,22 +65,25 @@ class TestMijnroodUserAccountCreationOrchestration(_BaseMijnroodPipelineTest):
         # No tracker is linked when nothing is queued.
         self.assertFalse(doc.bulk_operation_tracker)
 
-    def test_user_account_creation_no_creatable_members_returns_empty_summary(self):
-        """A Suspended member is status-valid for the queue but cannot have an
-        account created (a validation error inside the service), so zero requests
-        are produced: the success guard passes and the summary-assembly branch
-        yields the 'no accounts created or linked' summary with NO tracker linked
-        (lines 584-610, 636-643). No batch runs (no requests created)."""
+    def test_user_account_creation_suspended_member_queues_request(self):
+        """A Suspended member IS processed by the bulk queue (the status filter is
+        not Active-only): a real account request is queued and the count is reported
+        in the summary. Previously the nested-data bug masked the count, so this
+        case looked like an empty 'no accounts created or linked' summary.
+
+        (Reaches _link_tracker_atomically; see the note on the tracker-link test for
+        the separately-tracked begin() issue handled via the fallback.)"""
+        self.expectErrorLog("Tracker Link Error")
         member = self._make_member(first_name="UserSusp", status="Suspended")
         doc = self._make_import_doc(
             [{"Voornaam": "US", "Achternaam": "Real", "E-mailadres": _unique_email()}],
             create_volunteer_records=0,
         )
         summary = doc._process_user_account_creation([member.name])
-        self.assertEqual(summary, ". No user accounts created or linked")
+        self.assertIn("new account requests queued", summary)
         self.assertNotIn("failed", summary)
-        # No progress tracker was produced/linked for an empty queue result.
-        self.assertFalse(doc.bulk_operation_tracker)
+        # The tracker was linked (data.tracker_name read correctly post-fix).
+        self.assertTrue(doc.bulk_operation_tracker)
 
     def test_user_account_creation_filtered_members_returns_failure_summary(self):
         """A Banned member is filtered out by status before any request is created,
@@ -151,6 +154,56 @@ class TestMijnroodBulkVolunteerCreationOrchestration(_BaseMijnroodPipelineTest):
         # Real Volunteer docs now exist for both active members.
         self.assertTrue(frappe.db.exists("Volunteer", {"member": member_a.name}))
         self.assertTrue(frappe.db.exists("Volunteer", {"member": member_b.name}))
+
+
+class TestMijnroodUserAccountCreationResultShape(_BaseMijnroodPipelineTest):
+    """REGRESSION: queue_bulk_account_creation_for_members is wrapped by
+    @critical_api, which serializes its OperationResult via to_dict(nested=True).
+    The payload lives under 'data' and a failure message under error['message'].
+    _process_user_account_creation must read that nested shape, or it silently
+    reports defaults (no counts, no tracker link) and leaks a dict repr on failure."""
+
+    def test_failure_summary_reads_error_message_not_dict_repr(self):
+        """The failure path must surface error['message'] as text, not the raw
+        nested {'message': ...} dict repr (which the top-level read produced)."""
+        member = self._make_member(first_name="ShapeBan", status="Banned")
+        doc = self._make_import_doc(
+            [{"Voornaam": "SB", "Achternaam": "Real", "E-mailadres": _unique_email()}],
+            create_volunteer_records=0,
+        )
+        self.expectErrorLog("Mijnrood Bulk Account Creation Error")
+        summary = doc._process_user_account_creation([member.name])
+        self.assertIn("User account creation failed", summary)
+        self.assertIn("No valid members found", summary)
+        # Bug signature: the nested error object leaking as a Python dict repr.
+        self.assertNotIn("{'message'", summary)
+        self.assertNotIn('{"message"', summary)
+
+    def test_real_requests_link_tracker_to_import(self):
+        """When real account requests are queued, the returned tracker_name (nested
+        under 'data') must be read so the tracker is linked to the import. The bug
+        left bulk_operation_tracker empty even on success.
+
+        NOTE: this also reaches _link_tracker_atomically, whose frappe.db.begin()
+        trips the implicit-commit guard inside the test transaction and falls back
+        to a plain save (logged as 'Tracker Link Error'). That fallback still links
+        the tracker, so the user-visible contract holds. The begin()/FOR UPDATE
+        transaction handling is a SEPARATE latent issue that this fix exposes (the
+        path was dead while tracker_name was always None) — tracked as a follow-up.
+        """
+        self.expectErrorLog("Tracker Link Error")
+        member = self._make_member(first_name="ShapeActive", status="Active")
+        doc = self._make_import_doc(
+            [{"Voornaam": "SA", "Achternaam": "Real", "E-mailadres": _unique_email()}],
+            create_volunteer_records=0,
+        )
+        summary = doc._process_user_account_creation([member.name])
+
+        # A real request was queued (data.requests_created read correctly) and its
+        # tracker linked to the import doc (data.tracker_name read correctly).
+        self.assertIn("new account requests queued", summary)
+        self.assertTrue(doc.bulk_operation_tracker)
+        self.assertTrue(frappe.db.exists("Bulk Operation Tracker", doc.bulk_operation_tracker))
 
 
 class TestMijnroodRetryAccountCreationsFullPath(_BaseMijnroodPipelineTest):
