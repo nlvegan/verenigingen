@@ -445,6 +445,18 @@ class TestMijnroodValidateImportFile(_BaseMijnroodPipelineTest):
         doc.reload()
         self.assertEqual(doc.import_status, "Failed")
 
+    def test_validate_import_file_missing_doc_returns_access_error(self):
+        """A nonexistent import name hits the outer DoesNotExistError guard.
+
+        frappe.get_doc() raises DoesNotExistError before any doc exists to mark
+        Failed, so the function logs to 'CSV Import Access' and returns an
+        access-denied error instead of letting the exception propagate.
+        """
+        self.expectErrorLog("CSV Import Access")
+        result = validate_import_file("Mijnrood CSV Import-DOES-NOT-EXIST-9999")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Access denied", result["message"])
+
 
 class TestMijnroodRetryAccountCreations(_BaseMijnroodPipelineTest):
     """retry_failed_account_creations() guard branches against a real tracker."""
