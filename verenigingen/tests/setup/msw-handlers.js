@@ -357,14 +357,13 @@ const networkHandlers = [
 		});
 	}),
 
-	// Intermittent failure simulation
+	// Intermittent failure simulation.
+	// Default to a 503 so the endpoint models an unhealthy upstream; tests that
+	// exercise retry-then-succeed install their own deterministic override via
+	// server.use(). (Previously used Math.random(), which made the retry test
+	// fail ~12.5% of CI runs.)
 	rest.get('https://api.mollie.com/v2/payments/tr_flaky_network', (req, res, ctx) => {
-		// Randomly succeed or fail
-		if (Math.random() > 0.5) {
-			return res(ctx.json(generateMolliePayment('tr_flaky_network', 'paid', '25.00')));
-		} else {
-			return res(ctx.status(503));
-		}
+		return res(ctx.status(503));
 	})
 ];
 

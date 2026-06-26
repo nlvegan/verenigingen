@@ -337,6 +337,22 @@ describe('Mollie API Integration with MSW', () => {
 		}, 5000); // 5 second timeout for slow network test
 
 		it('should handle flaky network connections with retry logic', async () => {
+			// Deterministic flaky simulation: the endpoint fails once (503) and then
+			// succeeds. This genuinely exercises the retry path while staying
+			// reproducible. (The shared handler previously used Math.random() > 0.5,
+			// which failed ~12.5% of CI runs — 0.5^3 — when all three retries
+			// happened to land on the failure branch.)
+			let serverCalls = 0;
+			server.use(
+				rest.get('https://api.mollie.com/v2/payments/tr_flaky_network', (req, res, ctx) => {
+					serverCalls++;
+					if (serverCalls === 1) {
+						return res(ctx.status(503));
+					}
+					return res(ctx.json(generateMolliePayment('tr_flaky_network', 'paid', '25.00')));
+				})
+			);
+
 			let attempts = 0;
 			const maxAttempts = 3;
 
@@ -355,7 +371,7 @@ describe('Mollie API Integration with MSW', () => {
 				}
 			};
 
-			// This should eventually succeed due to randomized success/failure
+			// Succeeds on the second attempt (first 503, then paid)
 			const result = await makeRequestWithRetry();
 			expect(result).toBeDefined();
 			expect(attempts).toBeGreaterThan(0);
