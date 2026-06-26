@@ -1761,6 +1761,21 @@ class MijnroodCSVImport(Document):
         return {k: v for k, v in categories.items() if v}
 
 
+def _persist_validation_failure(doc, error_log: str, message: str, log_title: str = None) -> dict:
+    """Mark an import doc Failed and return the standard error envelope.
+
+    Centralises the persist-and-return that every validate_import_file failure
+    arm repeats. Pass log_title to also record an Error Log row (reserved for
+    genuinely unexpected failures, not expected validation errors).
+    """
+    doc.import_status = "Failed"
+    doc.error_log = error_log
+    doc.save()
+    if log_title:
+        frappe.log_error(error_log, log_title)
+    return {"status": "error", "message": message}
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def validate_import_file(import_doc_name: str) -> dict:
@@ -1781,51 +1796,39 @@ def validate_import_file(import_doc_name: str) -> dict:
         try:
             csv_data = doc._read_csv_file()
             if not csv_data:
-                doc.import_status = "Failed"
-                doc.error_log = "CSV file is empty or unreadable"
-                doc.save()
-                return {"status": "error", "message": "CSV file is empty or unreadable"}
+                return _persist_validation_failure(
+                    doc, "CSV file is empty or unreadable", "CSV file is empty or unreadable"
+                )
 
             # Validate and map data
             mapped_data, validation_errors = doc._validate_and_map_data(csv_data)
 
             if validation_errors:
-                doc.import_status = "Failed"
-                doc.error_log = "\\n".join(validation_errors[:10])  # Show first 10 errors
-                doc.save()
-                return {
-                    "status": "error",
-                    "message": f"Validation failed: {len(validation_errors)} errors found. Check Error Log.",
-                }
-            else:
-                doc.import_status = "Ready for Import"
-                doc.preview_data = json.dumps(mapped_data[:5], indent=2, default=str)
-                doc.descriptive_name = f"Member Import {doc.import_date} ({len(mapped_data)} records)"
-                doc.save()
-                return {
-                    "status": "success",
-                    "message": f"File validated successfully. Ready to import {len(mapped_data)} records.",
-                }
+                return _persist_validation_failure(
+                    doc,
+                    "\\n".join(validation_errors[:10]),  # Show first 10 errors
+                    f"Validation failed: {len(validation_errors)} errors found. Check Error Log.",
+                )
 
-        except (FileNotFoundError, PermissionError) as fe:
-            error_msg = f"File access error: {str(fe)[:200]}"
-            doc.import_status = "Failed"
-            doc.error_log = error_msg
+            doc.import_status = "Ready for Import"
+            doc.preview_data = json.dumps(mapped_data[:5], indent=2, default=str)
+            doc.descriptive_name = f"Member Import {doc.import_date} ({len(mapped_data)} records)"
             doc.save()
-            return {"status": "error", "message": error_msg}
+            return {
+                "status": "success",
+                "message": f"File validated successfully. Ready to import {len(mapped_data)} records.",
+            }
+
+        # The CSV parser (SecureCSVParser) funnels every file/format problem --
+        # including missing or unreadable files -- through frappe.throw, so they
+        # reach us as ValidationError. There is intentionally no separate
+        # FileNotFoundError/PermissionError arm: those types cannot propagate here.
         except frappe.ValidationError as ve:
-            error_msg = f"Data validation error: {str(ve)[:200]}"
-            doc.import_status = "Failed"
-            doc.error_log = error_msg
-            doc.save()
-            return {"status": "error", "message": error_msg}
+            msg = f"Data validation error: {str(ve)[:200]}"
+            return _persist_validation_failure(doc, msg, msg)
         except Exception as ve:
-            error_msg = f"Unexpected error: {str(ve)[:200]}"
-            doc.import_status = "Failed"
-            doc.error_log = error_msg
-            doc.save()
-            frappe.log_error(f"Unexpected validation error: {str(ve)}", "CSV Import Validation")
-            return {"status": "error", "message": error_msg}
+            msg = f"Unexpected error: {str(ve)[:200]}"
+            return _persist_validation_failure(doc, msg, msg, log_title="CSV Import Validation")
 
     except (frappe.DoesNotExistError, frappe.PermissionError) as pe:
         frappe.log_error(f"Permission/access error in CSV import: {str(pe)}", "CSV Import Access")
