@@ -183,7 +183,9 @@ class MembershipCreationService(StatelessService):
                 invoice = self._create_membership_invoice(member_doc, membership, membership_type)
 
             # Step 6: Consolidate all member field updates
-            dues_schedule = self._consolidate_member_updates(member_doc, membership, invoice, approval_fields)
+            dues_schedule = self._consolidate_member_updates(
+                member_doc, membership, invoice, approval_fields, custom_dues_rate
+            )
 
             # Step 7: Save member with rollback on failure
             self._save_member_with_rollback(member_doc, membership, dues_schedule, invoice, approval_fields)
@@ -242,17 +244,22 @@ class MembershipCreationService(StatelessService):
 
     def _set_csv_import_custom_fee(self, member_doc, custom_dues_rate, custom_rate_reason):
         """
-        Set custom dues rate for CSV imports.
+        Set the transient CSV-import custom dues rate on the in-memory document.
 
-        Sets fields on document object for consolidated save later.
+        These csv_import_custom_fee* fields are a short-lived pass-through: they are
+        consumed in-memory by _ensure_dues_schedule_exists() to seed the dues
+        schedule's custom_amount, then cleared from the DB by
+        Membership._clear_csv_import_fee_fields() after use. They are NOT persisted
+        on the Member by this flow (the reload() in _consolidate_member_updates()
+        discards them). The originating amount is preserved durably on
+        application_custom_fee instead - see _consolidate_member_updates().
 
         Args:
             member_doc: Member document instance
             custom_dues_rate: Custom fee amount
             custom_rate_reason: Reason for custom fee
         """
-        # Set fields on document object (not database)
-        # These will be saved in the consolidated save at the end
+        # Transient, in-memory only - see docstring for the lifecycle.
         member_doc.csv_import_custom_fee = custom_dues_rate
         member_doc.csv_import_custom_fee_reason = custom_rate_reason or "Imported from CSV"
 
@@ -589,7 +596,9 @@ class MembershipCreationService(StatelessService):
             )
             return None
 
-    def _consolidate_member_updates(self, member_doc, membership, invoice, approval_fields):
+    def _consolidate_member_updates(
+        self, member_doc, membership, invoice, approval_fields, custom_dues_rate=None
+    ):
         """
         Consolidate all member field updates after membership creation.
 
@@ -600,6 +609,8 @@ class MembershipCreationService(StatelessService):
             membership: Membership document
             invoice: Sales Invoice document or None
             approval_fields: Dict of approval fields to set
+            custom_dues_rate: Imported custom dues rate (CSV import), preserved on
+                application_custom_fee for historical reference
 
         Returns:
             str: Dues schedule name or None
@@ -608,6 +619,16 @@ class MembershipCreationService(StatelessService):
             f"MembershipCreationService: Reloading member {member_doc.name} for consolidated updates"
         )
         member_doc.reload()
+
+        # Preserve the imported custom dues fee for historical reference. The
+        # csv_import_custom_fee transient is consumed in-memory and then cleared
+        # (see _set_csv_import_custom_fee), so without this the originating amount
+        # would be lost. application_custom_fee is the durable home and also serves
+        # as a Priority-4 fee source for dues-schedule repair. Guard against
+        # clobbering an existing application fee (e.g. a web-application custom
+        # contribution already recorded before this service ran).
+        if custom_dues_rate and not member_doc.application_custom_fee:
+            member_doc.application_custom_fee = custom_dues_rate
 
         # Set current membership plan
         member_doc.current_membership_plan = membership.name

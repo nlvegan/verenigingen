@@ -197,11 +197,10 @@ class TestCreateMembershipOnApproval(EnhancedTestCase):
     def test_custom_dues_rate_applied_to_schedule(self):
         """A custom dues rate flows into the created dues schedule's rate.
 
-        Note: _set_csv_import_custom_fee sets csv_import_custom_fee on the
-        in-memory member, but _consolidate_member_updates reloads the member
-        (discarding that transient value) before the final save, so the custom
-        fee is NOT persisted on the Member record — it is only consumed when
-        building the dues schedule. The schedule is the durable record.
+        The csv_import_custom_fee transient is consumed in-memory to seed the
+        schedule and is NOT persisted on the Member; the originating amount is
+        instead preserved durably on application_custom_fee for historical
+        reference (see _consolidate_member_updates).
         """
         membership = self.service.create_membership_on_approval(
             self.member,
@@ -219,6 +218,32 @@ class TestCreateMembershipOnApproval(EnhancedTestCase):
         )
         self.assertTrue(schedule)
         self.assertAlmostEqual(float(schedule.dues_rate), 33.0, places=2)
+
+        # The imported fee is preserved on the durable application_custom_fee
+        # field (the transient csv_import_custom_fee gets cleared after use).
+        self.member.reload()
+        self.assertAlmostEqual(float(self.member.application_custom_fee), 33.0, places=2)
+
+    def test_custom_dues_rate_does_not_clobber_existing_application_fee(self):
+        """An existing application_custom_fee is not overwritten by the import fee.
+
+        Web-application custom contributions are recorded on application_custom_fee
+        before this service runs; the historical-preservation write must not stomp
+        that value.
+        """
+        self.member.application_custom_fee = 99.0
+        self.member.save()
+
+        membership = self.service.create_membership_on_approval(
+            self.member,
+            create_invoice=False,
+            custom_dues_rate=33.0,
+            custom_rate_reason="Negotiated rate",
+        )
+        self.track_doc("Membership", membership.name)
+
+        self.member.reload()
+        self.assertAlmostEqual(float(self.member.application_custom_fee), 99.0, places=2)
 
     def test_reuse_existing_membership_on_retry(self):
         """Re-running approval reuses the same-day, same-type membership."""
