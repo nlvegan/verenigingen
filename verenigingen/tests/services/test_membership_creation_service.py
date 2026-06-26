@@ -256,6 +256,106 @@ class TestCreateMembershipOnApproval(EnhancedTestCase):
         self.assertEqual(second.name, first.name)
 
 
+class TestResolveDuesTemplate(EnhancedTestCase):
+    """_resolve_dues_template() validates an applicant-selected template and
+    falls back to the membership type default on every mismatch."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MembershipCreationService()
+        self.mt = self.create_test_membership_type(membership_type_name="ResolveType", amount=20.0)
+        self.member = self.create_test_member(
+            first_name="Resolve",
+            last_name="Tmpl",
+            email="resolve.tmpl@example.com",
+            selected_membership_type=self.mt.name,
+        )
+        # A dues-schedule instance requires the member to have an active membership.
+        self.create_test_membership(member=self.member.name)
+
+    def test_none_when_no_selection(self):
+        """No applicant selection -> use the default (None)."""
+        self.member.application_dues_schedule = None
+        self.assertIsNone(self.service._resolve_dues_template(self.member, self.mt))
+
+    def test_none_when_selected_template_missing(self):
+        """A dangling application_dues_schedule reference falls back to default."""
+        self.member.application_dues_schedule = "MDS-DOES-NOT-EXIST-9999"
+        self.assertIsNone(self.service._resolve_dues_template(self.member, self.mt))
+
+    def test_none_when_selection_is_not_a_template(self):
+        """An instance (is_template=0) schedule is rejected as a template source."""
+        instance = self.create_test_dues_schedule(
+            member=self.member.name, membership_type=self.mt.name, amount=20.0
+        )
+        # Guard the branch we intend to exercise: this must be a non-template row.
+        self.assertEqual(frappe.db.get_value("Membership Dues Schedule", instance.name, "is_template"), 0)
+        self.member.application_dues_schedule = instance.name
+        self.assertIsNone(self.service._resolve_dues_template(self.member, self.mt))
+
+    def test_none_when_template_belongs_to_other_membership_type(self):
+        """A valid template for a *different* membership type is rejected."""
+        other = self.create_test_membership_type(membership_type_name="ResolveOther", amount=15.0)
+        foreign = self.factory.ensure_dues_schedule_template(
+            f"Resolve-Foreign-{self.factory.test_run_id}",
+            {"membership_type": other.name, "dues_rate": 15.0},
+        )
+        self.member.application_dues_schedule = foreign.name
+        self.assertIsNone(self.service._resolve_dues_template(self.member, self.mt))
+
+    def test_returns_selection_when_valid_for_type(self):
+        """A template that is a template and matches the type is used."""
+        valid = self.factory.ensure_dues_schedule_template(
+            f"Resolve-Valid-{self.factory.test_run_id}",
+            {"membership_type": self.mt.name, "dues_rate": 20.0},
+        )
+        self.member.application_dues_schedule = valid.name
+        self.assertEqual(self.service._resolve_dues_template(self.member, self.mt), valid.name)
+
+
+class TestUpdateScheduleFromTemplate(EnhancedTestCase):
+    """_update_schedule_from_template() copies template fields onto an existing
+    instance schedule and stamps the template reference."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MembershipCreationService()
+        self.mt = self.create_test_membership_type(membership_type_name="UpdSchedType", amount=18.0)
+        self.member = self.create_test_member(
+            first_name="UpdSched",
+            last_name="Tmpl",
+            email="updsched.tmpl@example.com",
+            selected_membership_type=self.mt.name,
+        )
+        # A dues-schedule instance requires the member to have an active membership.
+        self.create_test_membership(member=self.member.name)
+
+    def test_copies_distinctive_fields_and_stamps_reference(self):
+        # Template carries the values we expect to be copied across. Rates stay
+        # above the schedule's minimum (synced from the membership type) so the
+        # financial-constraint validation passes on save.
+        template = self.factory.ensure_dues_schedule_template(
+            f"Upd-Src-{self.factory.test_run_id}",
+            {"membership_type": self.mt.name, "dues_rate": 300.0, "billing_frequency": "Annual"},
+        )
+        # Instance starts on a different rate/frequency so the copy is observable.
+        instance = self.create_test_dues_schedule(
+            member=self.member.name, membership_type=self.mt.name, amount=150.0, frequency="monthly"
+        )
+
+        self.service._update_schedule_from_template(instance.name, template.name)
+
+        updated = frappe.db.get_value(
+            "Membership Dues Schedule",
+            instance.name,
+            ["dues_rate", "billing_frequency", "template_reference"],
+            as_dict=True,
+        )
+        self.assertAlmostEqual(float(updated.dues_rate), 300.0, places=2)
+        self.assertEqual(updated.billing_frequency, "Annual")
+        self.assertEqual(updated.template_reference, template.name)
+
+
 class TestServiceAccessor(EnhancedTestCase):
     def test_get_service_returns_instance(self):
         self.assertIsInstance(get_membership_creation_service(), MembershipCreationService)
