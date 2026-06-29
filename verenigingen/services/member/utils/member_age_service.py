@@ -175,9 +175,17 @@ def get_age_group(birth_date):
         return None
 
     try:
-        from verenigingen.utils.validation_utilities import AgeValidator
+        from frappe.utils import getdate, today
 
-        age = AgeValidator.calculate_age(birth_date)
+        # Bucket on the true integer calendar age, not a days/365.25 float: the
+        # latter dips ~0.002 below the integer at an exact birthday (e.g. someone
+        # born exactly 18 years ago today computes as 17.998), which would
+        # mis-bucket them one group down on certain calendar dates.
+        bd = getdate(birth_date)
+        ref = getdate(today())
+        if bd > ref:
+            return None
+        age = ref.year - bd.year - ((ref.month, ref.day) < (bd.month, bd.day))
 
         if age < 18:
             return "Minor"
