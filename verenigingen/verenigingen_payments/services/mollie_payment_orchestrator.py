@@ -1093,6 +1093,11 @@ class MolliePaymentOrchestrator:
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = customer
             invoice.company = company
+            # Pin the invoice to the company currency rather than inheriting the
+            # global default (which need not match the company's receivable account
+            # currency, e.g. an INR system default against a EUR company) -- the
+            # mismatch otherwise fails Sales Invoice validation.
+            invoice.currency = frappe.get_cached_value("Company", company, "default_currency")
             invoice.posting_date = payment_date
             invoice.due_date = payment_date
             invoice.is_membership_invoice = 1

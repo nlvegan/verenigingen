@@ -387,8 +387,19 @@ class TestCleanupSmallBatch(_SweepBase):
                 return list(targets)
             return orig_get_all(doctype, *args, **kwargs)
 
-        with patch.object(frappe, "get_all", side_effect=scoped_get_all):
-            result = test_cleanup_small_batch()
+        # test_cleanup_small_batch is guarded by @development_only(), which raises on
+        # a production-like CI site (no developer_mode). Enable it for this test only;
+        # frappe.conf is process-global and not transaction-scoped, so restore it.
+        prev_dev_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+        try:
+            with patch.object(frappe, "get_all", side_effect=scoped_get_all):
+                result = test_cleanup_small_batch()
+        finally:
+            if prev_dev_mode is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = prev_dev_mode
 
         self.assertTrue(result["success"], msg=result)
         self.assertEqual(result["results"]["sales_invoices"], 1)
