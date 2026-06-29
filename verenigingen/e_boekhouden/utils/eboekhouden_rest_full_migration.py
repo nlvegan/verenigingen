@@ -486,7 +486,7 @@ def debug_single_mutation(mutation_id):
     try:
         # Get company and cost center
         settings = frappe.get_single("E-Boekhouden Settings")
-        company = settings.company
+        company = settings.default_company
         cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
 
         if not cost_center:
