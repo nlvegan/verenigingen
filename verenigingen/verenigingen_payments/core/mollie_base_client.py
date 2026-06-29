@@ -59,7 +59,9 @@ class ResponseParsingError(frappe.ValidationError):
 class ResponseValidationError(frappe.ValidationError):
     """Raised when response structure is invalid"""
 
-    pass
+    def __init__(self, message: str, original_response: Any = None):
+        super().__init__(message)
+        self.original_response = original_response
 
 
 class MollieBaseClient:
