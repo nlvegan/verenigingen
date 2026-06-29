@@ -68,12 +68,27 @@ def _mollie_auth_config(*, test_mode, webhook_secret=WEBHOOK_SECRET):
     prev_test_mode = frappe.db.get_single_value("Mollie Settings", "test_mode")
     frappe.db.set_single_value("Mollie Settings", "test_mode", 1 if test_mode else 0)
     frappe.clear_document_cache("Mollie Settings", "Mollie Settings")
+    # On a production-like CI site (no developer_mode), _validate_test_mode_safety()
+    # rejects test_mode as a security risk BEFORE any signature logic and logs a
+    # CRITICAL error -- that error path commits while test_mode=1, which survives the
+    # per-test rollback and poisons every later Mollie test in the shard. The
+    # production code offers an explicit staging override (allow_mollie_test_mode);
+    # set it (like test_webhook_security_live.py) so the genuine auth path is reached
+    # on every site and no error is committed. frappe.conf is process-global and not
+    # transaction-scoped, so it is restored in the finally below.
+    prev_allow_test_mode = frappe.conf.get("allow_mollie_test_mode")
+    if test_mode:
+        frappe.conf["allow_mollie_test_mode"] = True
     with patch.object(MollieSettings, "get_webhook_secret", return_value=webhook_secret):
         try:
             yield
         finally:
             frappe.db.set_single_value("Mollie Settings", "test_mode", prev_test_mode)
             frappe.clear_document_cache("Mollie Settings", "Mollie Settings")
+            if prev_allow_test_mode is None:
+                frappe.conf.pop("allow_mollie_test_mode", None)
+            else:
+                frappe.conf["allow_mollie_test_mode"] = prev_allow_test_mode
 
 
 # ---------------------------------------------------------------------------
