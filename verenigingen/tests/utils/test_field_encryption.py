@@ -8,6 +8,7 @@ Tests the FieldEncryption class used for encrypting sensitive data like IBANs.
 """
 
 import frappe
+from cryptography.fernet import Fernet
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.utils.field_encryption import FieldEncryption, get_encryption
@@ -18,8 +19,25 @@ class TestFieldEncryption(FrappeTestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        # Provision a deterministic key so the tests never depend on ambient
+        # site config or developer_mode. On a production-like site (no
+        # developer_mode, no configured key) FieldEncryption._get_key() fails
+        # fast, so self-provisioning is required for isolation. frappe.conf is
+        # process-global and NOT rolled back with the transaction, so it is
+        # restored in tearDown.
+        self._key_sentinel = object()
+        self._prev_key = frappe.conf.get("field_encryption_key", self._key_sentinel)
+        frappe.conf["field_encryption_key"] = Fernet.generate_key().decode()
+
         self.encryption = FieldEncryption()
         self.test_iban = "NL91ABNA0417164300"
+
+    def tearDown(self):
+        """Restore the ambient encryption configuration."""
+        if self._prev_key is self._key_sentinel:
+            frappe.conf.pop("field_encryption_key", None)
+        else:
+            frappe.conf["field_encryption_key"] = self._prev_key
 
     def test_encrypt_decrypt_roundtrip(self):
         """Encrypting and decrypting should return original value."""

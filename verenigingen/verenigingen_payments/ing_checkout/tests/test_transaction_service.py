@@ -133,19 +133,6 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
         from verenigingen.tests.setup import ensure_test_fiscal_year_for_all_companies
 
         ensure_test_fiscal_year_for_all_companies()
-        # Neutralise any leaked default Sales Taxes template on _Test Company. A
-        # sibling test in the same shard can leave one flagged is_default=1; ERPNext
-        # then auto-applies it to our no-taxes fixture invoice (see
-        # accounts_controller.set_taxes), inflating grand_total above `rate` and
-        # breaking the exact allocation/overpayment math below. Clearing the flag
-        # for the duration of this test keeps the fixture's total == rate.
-        # (FrappeTestCase rolls the change back at tearDown.)
-        frappe.db.set_value(
-            "Sales Taxes and Charges Template",
-            {"company": TEST_COMPANY, "is_default": 1},
-            "is_default",
-            0,
-        )
         self._ensure_mode_of_payment()
         self.invoice = self._make_submitted_invoice(rate=25.00)
 
@@ -173,6 +160,19 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
             }
         )
         si.insert(ignore_permissions=True)
+        # Strip any auto-applied taxes so the fixture's total == rate. A sibling
+        # test in the same shard can leave a committed default Sales Taxes template
+        # (or tax rule) flagged for _Test Company; ERPNext then auto-applies it to
+        # this no-taxes fixture invoice (see accounts_controller.set_taxes),
+        # inflating grand_total above `rate` and breaking the exact allocation /
+        # overpayment math the assertions below depend on. set_taxes() only fires
+        # while the doc is_new(), so emptying the taxes table (and the master link)
+        # after insert is stable across the submit revalidation, regardless of how
+        # the tax leaked in. (FrappeTestCase rolls everything back at tearDown.)
+        if si.get("taxes") or si.get("taxes_and_charges"):
+            si.set("taxes", [])
+            si.taxes_and_charges = ""
+            si.save(ignore_permissions=True)
         si.submit()
         return si
 

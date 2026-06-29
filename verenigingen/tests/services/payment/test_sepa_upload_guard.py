@@ -16,6 +16,7 @@ Author: Verenigingen Development Team
 
 import hashlib
 import unittest
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +29,29 @@ from verenigingen.services.payment.sepa_upload_guard import (
     UploadCheckResult,
     get_sepa_upload_guard,
 )
+
+
+@contextmanager
+def developer_mode_enabled():
+    """Temporarily enable developer_mode in frappe.conf.
+
+    Some _compute_file_hash tests deliberately feed non-XML / empty content and
+    rely on the dev-mode fallback to raw hashing. In production
+    (developer_mode=False) canonicalization failures are a hard error by design,
+    so these tests must opt into developer_mode explicitly. frappe.conf is
+    process-global and NOT rolled back with the transaction, so the previous
+    value must always be restored.
+    """
+    sentinel = object()
+    prev = frappe.conf.get("developer_mode", sentinel)
+    frappe.conf["developer_mode"] = 1
+    try:
+        yield
+    finally:
+        if prev is sentinel:
+            frappe.conf.pop("developer_mode", None)
+        else:
+            frappe.conf["developer_mode"] = prev
 
 
 class SEPAUploadGuardTestMixin:
@@ -50,21 +74,14 @@ class SEPAUploadGuardTestMixin:
         if self._test_log_names:
             for log_name in self._test_log_names:
                 try:
-                    frappe.db.sql(
-                        "DELETE FROM `tabSEPA Batch Upload Log` WHERE name = %s",
-                        (log_name,)
-                    )
+                    frappe.db.sql("DELETE FROM `tabSEPA Batch Upload Log` WHERE name = %s", (log_name,))
                 except Exception:
                     pass
             frappe.db.commit()
             self._test_log_names = []
 
     def _register_upload_via_sql(
-        self,
-        file_hash: str,
-        batch_name: str,
-        uploaded_by: str = "Administrator",
-        file_size: int = 1024
+        self, file_hash: str, batch_name: str, uploaded_by: str = "Administrator", file_size: int = 1024
     ) -> str:
         """
         Register an upload directly via SQL, bypassing Link validation.
@@ -80,7 +97,8 @@ class SEPAUploadGuardTestMixin:
         """
         log_name = f"SEPA-UPL-TEST-{frappe.utils.random_string(8)}"
 
-        frappe.db.sql("""
+        frappe.db.sql(
+            """
             INSERT INTO `tabSEPA Batch Upload Log` (
                 name, creation, modified, modified_by, owner,
                 batch_name, file_hash, upload_time, uploaded_by,
@@ -90,7 +108,9 @@ class SEPAUploadGuardTestMixin:
                 %s, %s, NOW(), %s,
                 %s, 'Uploaded', 0, 0, 0
             )
-        """, (log_name, batch_name, file_hash, uploaded_by, file_size))
+        """,
+            (log_name, batch_name, file_hash, uploaded_by, file_size),
+        )
         frappe.db.commit()
 
         if self._test_log_names is not None:
@@ -173,8 +193,10 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
 
     def test_compute_file_hash_empty_content(self):
         """Test hash computation for empty content"""
-        # Empty content uses fallback to raw hash in dev mode
-        empty_hash = self.guard._compute_file_hash(b"")
+        # Empty content cannot be canonicalized, so it relies on the dev-mode
+        # fallback to raw hashing (in production this is a hard error by design).
+        with developer_mode_enabled():
+            empty_hash = self.guard._compute_file_hash(b"")
         expected = hashlib.sha256(b"").hexdigest()
 
         self.assertEqual(empty_hash, expected)
@@ -191,8 +213,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         - Not set duplicate_batch
         """
         result = self.guard.check_upload_allowed(
-            file_content=self.sample_xml_content,
-            batch_name=self.test_batch_name
+            file_content=self.sample_xml_content, batch_name=self.test_batch_name
         )
 
         self.assertIsInstance(result, UploadCheckResult)
@@ -222,7 +243,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         # Now try to check if we can upload the same content again
         check_result = self.guard.check_upload_allowed(
             file_content=self.sample_xml_content,
-            batch_name="SEPA-BATCH-TEST-002"  # Different batch name, same content
+            batch_name="SEPA-BATCH-TEST-002",  # Different batch name, same content
         )
 
         self.assertIsInstance(check_result, UploadCheckResult)
@@ -247,8 +268,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
 
         # Check that second file would be detected (verify it's in the log)
         check_result = self.guard.check_upload_allowed(
-            file_content=self.different_xml_content,
-            batch_name="SEPA-BATCH-003"
+            file_content=self.different_xml_content, batch_name="SEPA-BATCH-003"
         )
 
         # Should fail because it's already registered
@@ -264,10 +284,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         # Generate unique content to avoid conflicts
         unique_xml = f'<?xml version="1.0"?><test id="{frappe.utils.random_string(8)}"/>'.encode()
 
-        result = self.guard.check_upload_allowed(
-            file_content=unique_xml,
-            batch_name="TEST-BATCH"
-        )
+        result = self.guard.check_upload_allowed(file_content=unique_xml, batch_name="TEST-BATCH")
 
         self.assertTrue(result.success)
         self.assertIsNotNone(result.file_hash)
@@ -288,10 +305,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         self._register_upload_via_sql(file_hash, "ORIGINAL-BATCH")
 
         # Check should detect duplicate
-        result = self.guard.check_upload_allowed(
-            file_content=unique_xml,
-            batch_name="NEW-BATCH"
-        )
+        result = self.guard.check_upload_allowed(file_content=unique_xml, batch_name="NEW-BATCH")
 
         self.assertFalse(result.success)
         self.assertEqual(result.duplicate_batch, "ORIGINAL-BATCH")
@@ -301,10 +315,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
 
     def test_upload_check_result_default_values(self):
         """Test UploadCheckResult dataclass default values"""
-        result = UploadCheckResult(
-            success=True,
-            file_hash="abc123"
-        )
+        result = UploadCheckResult(success=True, file_hash="abc123")
 
         self.assertTrue(result.success)
         self.assertEqual(result.file_hash, "abc123")
@@ -319,7 +330,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
             file_hash="abc123",
             duplicate_batch="BATCH-001",
             duplicate_upload_time="2025-02-01 10:00:00",
-            message="Duplicate file detected"
+            message="Duplicate file detected",
         )
 
         self.assertFalse(result.success)
@@ -333,9 +344,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         original = frappe.conf.get("sepa_sandbox_mode")
         try:
             frappe.conf.sepa_sandbox_mode = True
-            result = self.guard.check_upload_allowed(
-                self.sample_xml_content, self.test_batch_name
-            )
+            result = self.guard.check_upload_allowed(self.sample_xml_content, self.test_batch_name)
             self.assertFalse(result.success)
             self.assertIn("sandbox", result.message.lower())
         finally:
@@ -352,7 +361,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
             result = self.guard.check_and_register(
                 file_content=self.sample_xml_content,
                 batch_name=self.test_batch_name,
-                uploaded_by="Administrator"
+                uploaded_by="Administrator",
             )
             self.assertFalse(result.success)
             self.assertIn("sandbox", result.message.lower())
@@ -367,9 +376,7 @@ class TestSEPAUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         original = frappe.conf.get("sepa_sandbox_mode")
         try:
             frappe.conf.sepa_sandbox_mode = False
-            result = self.guard.check_upload_allowed(
-                self.sample_xml_content, self.test_batch_name
-            )
+            result = self.guard.check_upload_allowed(self.sample_xml_content, self.test_batch_name)
             # Should succeed (no duplicate exists, sandbox disabled)
             self.assertTrue(result.success)
         finally:
@@ -406,7 +413,7 @@ class TestUploadBlockReasonCode(SEPAUploadGuardTestMixin, FrappeTestCase):
         self._init_test_fixtures()
         self.guard = get_sepa_upload_guard()
         # Use unique XML per test run to avoid conflicts
-        self.sample_xml = f'<xml>test content for reason code {frappe.utils.random_string(8)}</xml>'.encode()
+        self.sample_xml = f"<xml>test content for reason code {frappe.utils.random_string(8)}</xml>".encode()
 
     def tearDown(self):
         """Clean up test fixtures"""
@@ -475,7 +482,7 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         self._init_test_fixtures()
         self.guard = get_sepa_upload_guard()
         # Use unique XML per test run
-        self.sample_xml = f'<xml>concurrent test content {frappe.utils.random_string(8)}</xml>'.encode()
+        self.sample_xml = f"<xml>concurrent test content {frappe.utils.random_string(8)}</xml>".encode()
 
     def tearDown(self):
         """Clean up test fixtures"""
@@ -494,9 +501,7 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         self._register_upload_via_sql(file_hash, "RACE-BATCH-001")
 
         # The check should detect the duplicate
-        result2 = self.guard.check_upload_allowed(
-            self.sample_xml, "RACE-BATCH-002"
-        )
+        result2 = self.guard.check_upload_allowed(self.sample_xml, "RACE-BATCH-002")
         self.assertFalse(result2.success)
         self.assertEqual(result2.reason_code, UploadBlockReason.DUPLICATE_HASH)
         self.assertEqual(result2.duplicate_batch, "RACE-BATCH-001")
@@ -512,9 +517,7 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         self._register_upload_via_sql(file_hash, "INTEGRITY-BATCH-001")
 
         # Second check should fail with full duplicate info
-        result2 = self.guard.check_upload_allowed(
-            self.sample_xml, "INTEGRITY-BATCH-002"
-        )
+        result2 = self.guard.check_upload_allowed(self.sample_xml, "INTEGRITY-BATCH-002")
 
         self.assertFalse(result2.success)
         self.assertEqual(result2.file_hash, file_hash)
@@ -526,8 +529,8 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
 
     def test_different_files_both_allowed(self):
         """Two different files should both be allowed for upload."""
-        xml1 = f'<xml>first concurrent file {frappe.utils.random_string(8)}</xml>'.encode()
-        xml2 = f'<xml>second concurrent file {frappe.utils.random_string(8)}</xml>'.encode()
+        xml1 = f"<xml>first concurrent file {frappe.utils.random_string(8)}</xml>".encode()
+        xml2 = f"<xml>second concurrent file {frappe.utils.random_string(8)}</xml>".encode()
 
         result1 = self.guard.check_upload_allowed(xml1, "CONCURRENT-001")
         result2 = self.guard.check_upload_allowed(xml2, "CONCURRENT-002")
@@ -552,7 +555,8 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
         with self.assertRaises(Exception) as ctx:
             # Don't use the tracked method since we expect this to fail
             log_name = f"SEPA-UPL-TEST-{frappe.utils.random_string(8)}"
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 INSERT INTO `tabSEPA Batch Upload Log` (
                     name, creation, modified, modified_by, owner,
                     batch_name, file_hash, upload_time, uploaded_by,
@@ -562,14 +566,16 @@ class TestConcurrentUploadGuard(SEPAUploadGuardTestMixin, FrappeTestCase):
                     %s, %s, NOW(), 'Administrator',
                     1024, 'Uploaded', 0, 0, 0
                 )
-            """, (log_name, "UNIQUE-BATCH-002", file_hash))
+            """,
+                (log_name, "UNIQUE-BATCH-002", file_hash),
+            )
             frappe.db.commit()
 
         # The error should be a duplicate key / integrity error
         error_str = str(ctx.exception).lower()
         self.assertTrue(
             "duplicate" in error_str or "unique" in error_str or "integrity" in error_str,
-            f"Expected duplicate/unique constraint error, got: {ctx.exception}"
+            f"Expected duplicate/unique constraint error, got: {ctx.exception}",
         )
 
 
@@ -613,19 +619,20 @@ class TestXMLCanonicalization(FrappeTestCase):
         xml_compact = b'<?xml version="1.0"?><root><child>value</child></root>'
 
         # Same XML with whitespace/formatting - these are DIFFERENT documents in XML terms
-        xml_formatted = b'''<?xml version="1.0"?>
+        xml_formatted = b"""<?xml version="1.0"?>
 <root>
     <child>value</child>
-</root>'''
+</root>"""
 
         hash1 = self.guard._compute_file_hash(xml_compact)
         hash2 = self.guard._compute_file_hash(xml_formatted)
 
         # Document the actual behavior: whitespace between elements IS significant
         self.assertNotEqual(
-            hash1, hash2,
+            hash1,
+            hash2,
             "XML with different inter-element whitespace should produce different hashes "
-            "(whitespace between elements is semantically significant per XML spec)"
+            "(whitespace between elements is semantically significant per XML spec)",
         )
 
     def test_different_xml_different_hash(self):
@@ -651,8 +658,7 @@ class TestXMLCanonicalization(FrappeTestCase):
         hash2 = self.guard._compute_file_hash(xml2)
 
         self.assertEqual(
-            hash1, hash2,
-            "XML with different attribute order should produce same hash (C14N normalizes)"
+            hash1, hash2, "XML with different attribute order should produce same hash (C14N normalizes)"
         )
 
     def test_pain008_consistent_generation_same_hash(self):
@@ -662,10 +668,10 @@ class TestXMLCanonicalization(FrappeTestCase):
         This tests the practical use case: same generator produces same output.
         """
         # Minimal pain.008 structure - generated consistently
-        pain008_v1 = b'''<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"><CstmrDrctDbtInitn><GrpHdr><MsgId>TEST-001</MsgId></GrpHdr></CstmrDrctDbtInitn></Document>'''
+        pain008_v1 = b"""<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"><CstmrDrctDbtInitn><GrpHdr><MsgId>TEST-001</MsgId></GrpHdr></CstmrDrctDbtInitn></Document>"""
 
         # Exact same content (simulating regeneration from same source)
-        pain008_v2 = b'''<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"><CstmrDrctDbtInitn><GrpHdr><MsgId>TEST-001</MsgId></GrpHdr></CstmrDrctDbtInitn></Document>'''
+        pain008_v2 = b"""<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"><CstmrDrctDbtInitn><GrpHdr><MsgId>TEST-001</MsgId></GrpHdr></CstmrDrctDbtInitn></Document>"""
 
         hash1 = self.guard._compute_file_hash(pain008_v1)
         hash2 = self.guard._compute_file_hash(pain008_v2)
@@ -684,8 +690,10 @@ class TestXMLCanonicalization(FrappeTestCase):
         """Invalid XML should still produce a hash (fallback to raw hash)."""
         invalid_xml = b"not valid xml at all <unclosed"
 
-        # Should not raise, should return a valid hash
-        result = self.guard._compute_file_hash(invalid_xml)
+        # Should not raise, should return a valid hash. The raw-hash fallback is
+        # only available in developer_mode (production fails fast by design).
+        with developer_mode_enabled():
+            result = self.guard._compute_file_hash(invalid_xml)
 
         self.assertIsInstance(result, str)
         self.assertEqual(len(result), 64, "Should return valid SHA256 hash")
@@ -753,10 +761,13 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
         # Clean up created log entries
         for log_name in self._created_log_names:
             try:
-                frappe.db.sql("""
+                frappe.db.sql(
+                    """
                     DELETE FROM `tabSEPA Batch Upload Log`
                     WHERE name = %s
-                """, (log_name,))
+                """,
+                    (log_name,),
+                )
             except Exception:
                 pass
         if self._created_log_names:
@@ -784,7 +795,8 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
         log_name = f"SEPA-UPL-TEST-{frappe.utils.random_string(8)}"
 
         # Insert directly via SQL to bypass DocType validation
-        frappe.db.sql("""
+        frappe.db.sql(
+            """
             INSERT INTO `tabSEPA Batch Upload Log` (
                 name, creation, modified, modified_by, owner,
                 batch_name, file_hash, upload_time, uploaded_by,
@@ -796,7 +808,9 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
                 1024, 'Pending Upload', 'Rejected', 'Attachment failed: Test phantom entry',
                 1, 0, 0
             )
-        """, (log_name, batch_name, file_hash))
+        """,
+            (log_name, batch_name, file_hash),
+        )
         frappe.db.commit()
 
         self._created_log_names.append(log_name)
@@ -815,8 +829,7 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
 
         # First abandonment
         result1 = mark_phantom_hash_abandoned(
-            log_name=log_name,
-            reason="Test abandonment - first call for idempotency test"
+            log_name=log_name, reason="Test abandonment - first call for idempotency test"
         )
 
         self.assertTrue(result1.get("success"))
@@ -824,8 +837,7 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
 
         # Second abandonment should return idempotent success
         result2 = mark_phantom_hash_abandoned(
-            log_name=log_name,
-            reason="Test abandonment - second call for idempotency test"
+            log_name=log_name, reason="Test abandonment - second call for idempotency test"
         )
 
         self.assertTrue(result2.get("success"))
@@ -843,19 +855,22 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
 
         # Abandon the entry
         result = mark_phantom_hash_abandoned(
-            log_name=log_name,
-            reason="Audit trail test - verifying record preservation"
+            log_name=log_name, reason="Audit trail test - verifying record preservation"
         )
 
         self.assertTrue(result.get("success"))
 
         # Verify record still exists with audit fields - use SQL to bypass cache
-        log_data = frappe.db.sql("""
+        log_data = frappe.db.sql(
+            """
             SELECT bank_status, is_phantom, hash_freed, abandoned_by,
                    abandoned_time, abandoned_reason, file_hash
             FROM `tabSEPA Batch Upload Log`
             WHERE name = %s
-        """, (log_name,), as_dict=True)[0]
+        """,
+            (log_name,),
+            as_dict=True,
+        )[0]
 
         self.assertEqual(log_data.bank_status, "Abandoned")
         self.assertEqual(log_data.is_phantom, 0)
@@ -875,22 +890,22 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
 
         # Create phantom entry with specific content
         test_content = f"reupload-test-{frappe.utils.random_string(8)}".encode()
-        file_hash = self.guard._compute_file_hash(test_content)
+        # Non-XML content relies on the dev-mode raw-hash fallback; production
+        # would reject it during canonicalization.
+        with developer_mode_enabled():
+            file_hash = self.guard._compute_file_hash(test_content)
         log_name = self._create_phantom_entry_via_sql(file_hash=file_hash)
 
         # Abandon the entry to free the hash
-        result = mark_phantom_hash_abandoned(
-            log_name=log_name,
-            reason="Freeing hash for reupload test"
-        )
+        result = mark_phantom_hash_abandoned(log_name=log_name, reason="Freeing hash for reupload test")
         self.assertTrue(result.get("success"))
 
         # Now the same content should be allowed for upload
-        check_result = self.guard.check_upload_allowed(test_content, "NEW-BATCH-001")
+        with developer_mode_enabled():
+            check_result = self.guard.check_upload_allowed(test_content, "NEW-BATCH-001")
 
         self.assertTrue(
-            check_result.success,
-            f"Freed hash should allow reupload. Got: {check_result.message}"
+            check_result.success, f"Freed hash should allow reupload. Got: {check_result.message}"
         )
 
     def test_concurrent_abandon_operations_safe(self):
@@ -909,10 +924,7 @@ class TestPhantomHashAdminConcurrency(FrappeTestCase):
         # Simulate rapid sequential calls (approximates concurrent behavior)
         results = []
         for i in range(3):
-            result = mark_phantom_hash_abandoned(
-                log_name=log_name,
-                reason=f"Concurrent test call {i+1}"
-            )
+            result = mark_phantom_hash_abandoned(log_name=log_name, reason=f"Concurrent test call {i+1}")
             results.append(result)
 
         # All should succeed (first actual, rest idempotent)
