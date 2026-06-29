@@ -1385,9 +1385,12 @@ class MolliePaymentOrchestrator:
             )
             customer.custom_mollie_customer_id = mollie_customer_id
 
-            # Add email if available
-            if customer_email:
-                customer.append("email_ids", {"email_id": customer_email, "is_primary": 1})
+            # NB: the Customer DocType has no `email_ids` child table (email lives on a
+            # linked Contact in ERPNext, not on the Customer doc). Appending to it raised
+            # AttributeError, which the outer except swallowed -> every Mollie customer
+            # that HAS an email (the common case) failed to be created and the orphaned
+            # Bank Transaction was left unlinked. The email remains recoverable from
+            # Mollie via custom_mollie_customer_id, so we do not attach it here.
 
             # Security: Orphan customer creation - authorization via webhook HMAC or @high_security_api
             # - Webhook path: authenticated via Mollie HMAC-SHA256 signature verification
