@@ -249,9 +249,15 @@ class PaymentEntryHandler:
         allocation, then inserts. If ERPNext rejects allocation because invoices
         are already fully paid, clears allocations and inserts as unallocated.
         """
-        # Combine invoice numbers from header and any found in rows
+        # Combine invoice numbers from header and any found in rows.
+        # Dedupe while PRESERVING order: the 1:1 allocation strategy in
+        # _allocate_one_to_one zips payment rows (in e-Boekhouden order) against
+        # this invoice list, so the invoice order must stay aligned with the
+        # header invoiceNumber order. list(set(...)) would randomize it (hash
+        # order), mis-allocating multi-invoice payments whose per-invoice amounts
+        # differ. dict.fromkeys preserves first-seen order and removes duplicates.
         row_invoice_refs = self._extract_invoice_references_from_rows(mutation)
-        all_invoice_refs = list(set(invoice_numbers + row_invoice_refs))  # Remove duplicates
+        all_invoice_refs = list(dict.fromkeys(invoice_numbers + row_invoice_refs))
 
         if all_invoice_refs:
             self._log(f"All invoice references to link: {all_invoice_refs}")
