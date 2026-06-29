@@ -311,14 +311,18 @@ def nuclear_cleanup_all_imported_data():
         }
 
         # Delete E-Boekhouden imported documents
+        # Explicit results key per doctype: naive pluralization (lower + "s")
+        # produces "payment_entrys"/"journal_entrys", which are not keys in
+        # `results`, so the counter increment would raise KeyError *after* the
+        # document was already deleted (counting a success as an error).
         doctypes_to_clean = [
-            ("Sales Invoice", "eboekhouden_invoice_number"),
-            ("Purchase Invoice", "eboekhouden_invoice_number"),
-            ("Payment Entry", "eboekhouden_mutation_nr"),
-            ("Journal Entry", "eboekhouden_mutation_nr"),
+            ("Sales Invoice", "eboekhouden_invoice_number", "sales_invoices"),
+            ("Purchase Invoice", "eboekhouden_invoice_number", "purchase_invoices"),
+            ("Payment Entry", "eboekhouden_mutation_nr", "payment_entries"),
+            ("Journal Entry", "eboekhouden_mutation_nr", "journal_entries"),
         ]
 
-        for doctype, field in doctypes_to_clean:
+        for doctype, field, result_key in doctypes_to_clean:
             try:
                 # Get records with docstatus information
                 records = frappe.get_all(doctype, filters={field: ["!=", ""]}, fields=["name", "docstatus"])
@@ -351,7 +355,7 @@ def nuclear_cleanup_all_imported_data():
                             # Now delete the document (whether it was draft, cancelled, or just cancelled above)
                             # Security: Nuclear cleanup protected by @critical_api + System Manager role check
                             frappe.delete_doc(doctype, record.name, force=True, ignore_permissions=True)
-                            results[doctype.lower().replace(" ", "_") + "s"] += 1
+                            results[result_key] += 1
 
                         except Exception as e:
                             error_msg = f"Failed to delete {doctype} {record.name}: {str(e)}"
