@@ -1227,12 +1227,14 @@ def _notify_member_of_payment_failure(member, payment, failure_count):
             notification_key=notification_key,
         )
 
-        if result.get("status") == "success":
+        # send_templated_email returns an OperationResult dataclass (which has no
+        # dict-style .get); read its .success flag rather than result.get("status"),
+        # otherwise this raised AttributeError on every send and logged a spurious
+        # "Payment Notification Error" even when the email went out fine.
+        if result.success:
             frappe.logger().info(f"✅ Payment failure notification sent to {member.email}")
         else:
-            frappe.logger().warning(
-                f"⚠️ Failed to send payment failure notification: {result.get('message')}"
-            )
+            frappe.logger().warning(f"⚠️ Failed to send payment failure notification: {result.error_message}")
 
     except Exception as e:
         frappe.logger().error(f"❌ Error sending payment failure notification: {e}")
