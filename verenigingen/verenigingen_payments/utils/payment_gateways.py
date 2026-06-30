@@ -1516,7 +1516,12 @@ def mollie_webhook():
     """
     frappe.logger().info("🔄 Main Mollie webhook redirecting to service handler")
 
-    from verenigingen.verenigingen_payments.mollie.api.payment_webhook import handle_mollie_payment_webhook
+    # The robust service-based handler lives in mollie.api.webhooks; the old
+    # mollie.api.payment_webhook copy was archived/removed, so importing it from
+    # there raised ImportError on every guest webhook call (this endpoint is
+    # @frappe.whitelist(allow_guest=True)). Import from the module that actually
+    # defines the function.
+    from verenigingen.verenigingen_payments.mollie.api.webhooks import handle_mollie_payment_webhook
 
     return handle_mollie_payment_webhook()
 
