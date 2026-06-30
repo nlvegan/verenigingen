@@ -376,11 +376,18 @@ class TestRedisProcessingLockMutualExclusion(_RedisEnabledTestCase):
         second = acquire_processing_lock(self.resource_type, self.resource_id, timeout=30)
         self.assertFalse(second, "A held Redis lock MUST block a concurrent acquire (double-debit guard)")
 
-    def test_release_path_runs_without_error(self):
+    def test_release_actually_frees_the_lock(self):
         acquire_processing_lock(self.resource_type, self.resource_id, timeout=30)
-        # Exercises _release_redis_lock end-to-end (ownership-token lookup + compare-and-delete
-        # fallback). Must not raise even when the client lacks single-connection eval().
+        # Exercises _release_redis_lock end-to-end (ownership-token lookup +
+        # atomic compare-and-delete on the client). Must not raise.
         release_processing_lock(self.resource_type, self.resource_id)
+
+        # Regression (cache.connection fix): the atomic Lua release runs on the
+        # client itself. Before the fix, cache.connection was None so the atomic
+        # path was skipped and the bytes-buggy fallback never matched the token —
+        # the lock leaked until its TTL. Proof it is truly freed: re-acquire works.
+        reacquired = acquire_processing_lock(self.resource_type, self.resource_id, timeout=30)
+        self.assertTrue(reacquired, "After release the resource must be immediately re-acquirable (no TTL leak)")
 
 
 class TestRedisIdempotencyCacheRoundTrip(_RedisEnabledTestCase):
@@ -401,7 +408,12 @@ class TestRedisIdempotencyCacheRoundTrip(_RedisEnabledTestCase):
         # After: the Redis cache reports the operation as already done (dedup fires).
         found_after, result_after = _get_cached_result(self.key, ttl=60)
         self.assertTrue(found_after, "Redis idempotency cache must detect the stored result")
-        self.assertIsNotNone(result_after)
+        # Regression (bytes-vs-str fix): the Redis path must return a parsed dict
+        # with the same shape as the in-memory path, not raw JSON bytes. Before the
+        # fix this came back as b'{"success": true, ...}'.
+        self.assertIsInstance(result_after, dict, "Redis cache hit must deserialize to a dict")
+        self.assertTrue(result_after["success"])
+        self.assertEqual(result_after["payment_entry"], "PE-REDIS")
 
 
 class TestRedisIdempotencyLock(_RedisEnabledTestCase):
@@ -449,6 +461,15 @@ class TestRedisDiagnosticsShape(_RedisEnabledTestCase):
         self.assertIsInstance(result["verified"], bool)
         # SETNX semantics genuinely work on the real Redis (correct fact, bytes-independent).
         self.assertTrue(result["set_nx_ex_supported"], "Real Redis must support SETNX (nx/ex) semantics")
+        # Regression (bytes-vs-str + cache.connection fixes): against a real,
+        # working Redis the probe must now report every capability as supported and
+        # the overall verdict as verified. Before the fix, get() returned bytes
+        # (basic_ops False) and cache.connection was None (eval False), so a healthy
+        # Redis was reported broken.
+        self.assertTrue(result["basic_ops_supported"], "Working Redis get()/set() must verify (bytes decode)")
+        self.assertTrue(result["redis_available"])
+        self.assertTrue(result["eval_supported"], "Lua eval() runs on the client itself (cache.connection is None)")
+        self.assertTrue(result["verified"], f"Healthy Redis must verify; issues={result['issues']}")
 
     def test_health_report_shape_when_configured(self):
         result = check_redis_health()
@@ -457,3 +478,8 @@ class TestRedisDiagnosticsShape(_RedisEnabledTestCase):
         self.assertTrue(result["redis_configured"], "Flag is on -> health check must report it configured")
         self.assertIsInstance(result["message"], str)
         self.assertTrue(result["message"], "A configured health check must explain its verdict")
+        # Regression (bytes-vs-str fix): the ping round-trip (set "ping", read it
+        # back) compares the decoded value, so a reachable Redis now reports
+        # reachable + healthy instead of failing on b"ping" != "ping".
+        self.assertTrue(result["redis_reachable"], "A reachable Redis must report redis_reachable=True")
+        self.assertTrue(result["healthy"], f"A reachable, capable Redis must be healthy; msg={result['message']}")

@@ -36,6 +36,19 @@ _redis_requirement_checked = False
 _redis_capabilities_verified = False
 
 
+def _redis_str(value: Any) -> Optional[str]:
+    """Normalize a raw Redis read to ``str`` for comparison.
+
+    ``frappe.cache()`` is a redis-py client without ``decode_responses``, so
+    ``cache.get()`` returns ``bytes`` (e.g. ``b"ping"``). Comparing that directly
+    against a ``str`` token is always False, which silently broke ownership checks
+    and health probes. Decode bytes here; pass through ``None``/``str`` unchanged.
+    """
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
+
+
 # =============================================================================
 # PRODUCTION SAFETY CHECKS
 # =============================================================================
@@ -79,7 +92,7 @@ def verify_redis_capabilities() -> Dict[str, Any]:
         # Test 1: Basic set/get/delete
         try:
             cache.set(test_key, test_value)
-            retrieved = cache.get(test_key)
+            retrieved = _redis_str(cache.get(test_key))
             cache.delete(test_key)
             if retrieved == test_value:
                 result["basic_ops_supported"] = True
@@ -111,7 +124,10 @@ def verify_redis_capabilities() -> Dict[str, Any]:
 
         # Test 3: eval() for Lua scripts
         try:
-            redis_client = cache.connection
+            # frappe.cache() is itself the redis-py client and supports eval().
+            # cache.connection is None under the connection-pool model, so the
+            # Lua/atomic path must go through the client object directly.
+            redis_client = cache
             if hasattr(redis_client, "eval"):
                 test_key_lua = test_key + "_lua"
                 cache.set(test_key_lua, test_value)
@@ -177,7 +193,7 @@ def check_redis_health() -> Dict[str, Any]:
         cache = frappe.cache()
         ping_key = "sepa_health_ping"
         cache.set(ping_key, "ping", ex=5)
-        if cache.get(ping_key) == "ping":
+        if _redis_str(cache.get(ping_key)) == "ping":
             result["redis_reachable"] = True
         else:
             result["healthy"] = False
@@ -546,7 +562,9 @@ def _release_redis_lock(lock_key: str) -> bool:
         # Use Lua script for atomic compare-and-delete (same as idempotency locks)
         # This is the ONLY safe way to release locks in distributed systems
         try:
-            redis_client = cache.connection
+            # The redis-py client is `cache` itself; cache.connection is None
+            # under the pool model, so eval() must be called on the client.
+            redis_client = cache
             if hasattr(redis_client, "eval"):
                 result = redis_client.eval(_REDIS_RELEASE_LOCK_SCRIPT, 1, lock_key, our_token)
                 released = result == 1
@@ -556,7 +574,7 @@ def _release_redis_lock(lock_key: str) -> bool:
                 frappe.logger().warning(
                     f"Redis client does not support eval(). Using non-atomic release for {lock_key}."
                 )
-                current_value = cache.get(lock_key)
+                current_value = _redis_str(cache.get(lock_key))
                 if current_value == our_token:
                     cache.delete(lock_key)
                     released = True
@@ -791,12 +809,14 @@ def _release_idempotency_lock(lock_key: str, lock_token: str) -> bool:
 
             # Use Lua script for atomic compare-and-delete
             # This is safer than get-then-delete as it's atomic
-            redis_client = cache.connection
+            # cache is the redis-py client; cache.connection is None under the
+            # pool model, so eval() must be called on the client object.
+            redis_client = cache
             if hasattr(redis_client, "eval"):
                 result = redis_client.eval(_REDIS_RELEASE_LOCK_SCRIPT, 1, redis_key, lock_token)
             else:
                 # Fallback: check and delete (slightly less safe but functional)
-                current_value = cache.get(redis_key)
+                current_value = _redis_str(cache.get(redis_key))
                 if current_value == lock_token:
                     cache.delete(redis_key)
                     result = 1
@@ -892,7 +912,10 @@ def _get_cached_result(idempotency_key: str, ttl: int = None) -> Tuple[bool, Opt
             redis_key = f"sepa_idempotency:{idempotency_key}"
             cached = cache.get(redis_key)
             if cached is not None:
-                return (True, cached)
+                # _set_cached_result stores frappe.as_json(...); decode the raw
+                # bytes and parse back to a dict so callers get the same shape as
+                # the in-memory path (which returns a dict, not a JSON string).
+                return (True, frappe.parse_json(_redis_str(cached)))
             return (False, None)
     except Exception as e:
         frappe.logger().debug(f"Redis cache get failed for {idempotency_key}: {e}. Using in-memory cache.")
