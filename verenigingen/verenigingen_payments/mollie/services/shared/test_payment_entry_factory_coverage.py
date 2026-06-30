@@ -36,9 +36,9 @@ from verenigingen.verenigingen_payments.mollie.services.shared.payment_entry_fac
 )
 
 
-def _ensure_mollie_named_account(company: str) -> str:
-    """Ensure an Account named 'Mollie' exists so the bank-account fallback resolves."""
-    existing = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
+def _make_named_bank_account(company: str, account_name: str) -> str:
+    """Module-scope fixture: a Bank-type Account with the given name (idempotent)."""
+    existing = frappe.get_value("Account", {"company": company, "account_name": account_name}, "name")
     if existing:
         return existing
 
@@ -47,13 +47,18 @@ def _ensure_mollie_named_account(company: str) -> str:
         parent = frappe.get_value("Account", {"company": company, "is_group": 1}, "name")
 
     acct = frappe.new_doc("Account")
-    acct.account_name = "Mollie"
+    acct.account_name = account_name
     acct.company = company
     acct.parent_account = parent
     acct.account_type = "Bank"
     acct.account_currency = frappe.get_value("Company", company, "default_currency")
     acct.insert(ignore_permissions=True)
     return acct.name
+
+
+def _ensure_mollie_named_account(company: str) -> str:
+    """Ensure an Account named 'Mollie' exists so the bank-account fallback resolves."""
+    return _make_named_bank_account(company, "Mollie")
 
 
 class _FactoryBase(EnhancedTestCase):
@@ -67,6 +72,28 @@ class _FactoryBase(EnhancedTestCase):
         self.ensure_mode_of_payment("Mollie")
         self.ensure_mode_of_payment("Bank Transfer")
         self._ensure_valid_company_receivable()
+        self._ensure_valid_mollie_bank_account()
+
+    def _ensure_valid_mollie_bank_account(self):
+        """Point Mollie Settings.mollie_bank_account at a company-valid Account.
+
+        The factory now reads the configured Mollie bank account (via
+        MollieConfigurationService -> Mollie Settings) verbatim instead of
+        silently falling back. On long-lived sites that field references an
+        Account belonging to a DIFFERENT company, so the real Payment Entry
+        submit would fail with "does not belong to Company". Seed the company's
+        own 'Mollie' Account here (rolled back at tearDown) and clear the
+        in-memory config cache before and after each test so neither the seeded
+        value nor a stale read leaks across tests.
+        """
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            get_mollie_config,
+        )
+
+        mollie_account = _ensure_mollie_named_account(self.company)
+        frappe.db.set_value("Mollie Settings", None, "mollie_bank_account", mollie_account)
+        get_mollie_config().clear_cache()
+        self.addCleanup(get_mollie_config().clear_cache)
 
     def _ensure_valid_company_receivable(self):
         """Point the company's default receivable account at a real Account.
@@ -395,6 +422,36 @@ class TestGetAccountsDonationConfigured(_FactoryBase):
         frappe.db.set_value("Verenigingen Settings", None, "donation_receivable_account", receivable)
         accounts = self.factory_obj._get_accounts(self.company, "donation")
         self.assertEqual(accounts["receivable_account"], receivable)
+
+
+class TestGetAccountsConfiguredMollieBankAccount(_FactoryBase):
+    def test_configured_mollie_bank_account_is_honored_over_fallback(self):
+        # Regression: _get_accounts read mollie_bank_account off Verenigingen
+        # Settings, but the field was migrated (patch v2_1) to Mollie Settings,
+        # so a configured account was silently ignored and the "Mollie" named
+        # fallback (seeded by _FactoryBase.setUp) was used instead. The read now
+        # goes through the canonical MollieConfigurationService (Mollie Settings).
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            get_mollie_config,
+        )
+
+        configured = _make_named_bank_account(self.company, "Mollie Configured Test Bank")
+        fallback = frappe.get_value("Account", {"company": self.company, "account_name": "Mollie"}, "name")
+        self.assertNotEqual(configured, fallback, "configured account must differ from the fallback")
+
+        # Single write is rolled back at tearDown; the config cache is in-memory
+        # and is NOT, so clear it before reading and again on cleanup so the
+        # rolled-back value cannot leak into sibling tests.
+        frappe.db.set_value("Mollie Settings", None, "mollie_bank_account", configured)
+        get_mollie_config().clear_cache()
+        self.addCleanup(get_mollie_config().clear_cache)
+
+        accounts = self.factory_obj._get_accounts(self.company, "membership")
+        self.assertEqual(
+            accounts["bank_account"],
+            configured,
+            "the configured Mollie Settings bank account must be used, not the 'Mollie' fallback",
+        )
 
 
 class TestGeneratePaymentTitleFallback(_FactoryBase):

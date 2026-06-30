@@ -75,10 +75,16 @@ def create_unified_payment_entry(
         if not donation_account:
             donation_account = frappe.get_value("Company", company, "default_receivable_account")
 
-        # Get bank account (Mollie) - prefer settings, fallback to named account, then default
-        # Use .get() because mollie_bank_account is an optional field that may not exist on
-        # the Verenigingen Settings DocType; direct attribute access would raise AttributeError.
-        bank_account = settings.get("mollie_bank_account")
+        # Get bank account (Mollie) from the canonical config source, then fall
+        # back to a "Mollie" named account, then the company default.
+        # mollie_bank_account was migrated off Verenigingen Settings (patch v2_1)
+        # to Mollie Settings, so reading it from `settings` here always returned
+        # None and silently ignored a configured account.
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            get_mollie_config,
+        )
+
+        bank_account = get_mollie_config().get_settings().get("mollie_bank_account")
         if not bank_account:
             bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
         if not bank_account:

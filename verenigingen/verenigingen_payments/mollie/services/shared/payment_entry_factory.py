@@ -539,10 +539,16 @@ class PaymentEntryFactory:
                     "Company", company, "default_receivable_account"
                 )
 
-            # Get Mollie bank account - prefer settings, fallback to named account, then default
-            # Use .get() because mollie_bank_account is not a field on Verenigingen Settings;
-            # direct attribute access would raise AttributeError on every payment entry creation.
-            settings_bank_account = settings.get("mollie_bank_account")
+            # Get Mollie bank account from the canonical config source, then
+            # fall back to a "Mollie" named account, then the company default.
+            # mollie_bank_account was migrated off Verenigingen Settings (patch
+            # v2_1) to Mollie Settings, so reading it from `settings` here always
+            # returned None and silently ignored a configured account.
+            from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+                get_mollie_config,
+            )
+
+            settings_bank_account = get_mollie_config().get_settings().get("mollie_bank_account")
             if settings_bank_account:
                 accounts["bank_account"] = settings_bank_account
             else:
