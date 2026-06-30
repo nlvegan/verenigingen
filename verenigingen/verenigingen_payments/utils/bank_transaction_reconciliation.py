@@ -1033,9 +1033,16 @@ class PaymentReconciliationManager:
         payment_entry.reference_date = bank_trans.date
         payment_entry.mode_of_payment = "Mollie"
 
-        # Use clearing account instead of direct bank account
+        # Route the received funds through the Mollie clearing account instead of
+        # the physical bank account (the settlement already landed in clearing).
+        # For a "Receive" Payment Entry the party/receivable account is `paid_from`
+        # (it must stay equal to the invoice's debtor account) and the asset the
+        # money is received INTO is `paid_to`. Overriding `paid_from` corrupted the
+        # party account and made ERPNext reject every settlement payment entry with
+        # "... is associated with Debtors, but Party Account is <clearing>"; set
+        # `paid_to` so the clearing account is the destination, as intended.
         try:
-            payment_entry.paid_from = self.config.get_clearing_account()
+            payment_entry.paid_to = self.config.get_clearing_account()
         except frappe.ValidationError:
             pass  # Use default if clearing account not configured
 
@@ -1058,6 +1065,7 @@ class PaymentReconciliationManager:
         if abs(fee_amount_decimal) < Decimal("0.01"):
             return None
 
+        import erpnext
         from frappe import get_doc
 
         # Check if Mollie accounts are configured
@@ -1069,15 +1077,30 @@ class PaymentReconciliationManager:
             )
             return None
 
+        # Journal Entry.company is mandatory; derive it from the clearing account's
+        # company so the fee entry validates (the GL accounts in `accounts` all
+        # belong to this company). Without this the entry fails "Company is
+        # mandatory" whenever settlement fees are booked.
+        company = frappe.db.get_value("Account", mollie_clearing_account, "company")
+
+        # The fees account is a P&L account, for which ERPNext requires a cost
+        # center on the row (it is NOT auto-filled from the company default during
+        # Journal Entry validation). Stamp every row with the company default cost
+        # center so the fee entry validates instead of throwing "Cost Center is
+        # required for 'Profit and Loss' account ...".
+        default_cost_center = erpnext.get_default_cost_center(company)
+
         # Create journal entry for fees
         accounts = [
             {
                 "account": mollie_clearing_account,
+                "cost_center": default_cost_center,
                 "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
                 "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
             },
             {
                 "account": self._get_payment_processing_fees_account(),
+                "cost_center": default_cost_center,
                 "debit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal < 0 else 0,
                 "credit_in_account_currency": float(abs(fee_amount_decimal)) if fee_amount_decimal > 0 else 0,
             },
@@ -1086,6 +1109,7 @@ class PaymentReconciliationManager:
         journal_entry = get_doc(
             {
                 "doctype": "Journal Entry",
+                "company": company,
                 "posting_date": bank_trans.date,
                 "voucher_type": "Journal Entry",
                 "user_remark": f"Mollie settlement fees - Settlement {settlement_data.get('id')}",
