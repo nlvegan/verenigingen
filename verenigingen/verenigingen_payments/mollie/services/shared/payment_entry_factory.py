@@ -477,8 +477,17 @@ class PaymentEntryFactory:
                     if hasattr(donor, "customer") and donor.customer:
                         return donor.customer
                     else:
-                        # Create customer for donor if missing
-                        return self._create_customer_for_donor(donor)
+                        # Create customer for donor if missing, then link it
+                        # back onto the donor. Without persisting donor.customer
+                        # the next donation for this donor would re-enter this
+                        # branch and create a DUPLICATE Customer. (The webhook
+                        # path in payment_webhook.create_payment_entry_for_donation
+                        # does the same write-back.)
+                        customer = self._create_customer_for_donor(donor)
+                        if customer:
+                            donor.customer = customer
+                            donor.save()
+                        return customer
 
             elif context.payment_type == "membership":
                 # Get customer from member
