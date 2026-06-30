@@ -1351,13 +1351,20 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                 already_included = any(emp.name == direct_employee_link for emp in employee_records)
                 if not already_included:
                     direct_employee = frappe.get_doc("Employee", direct_employee_link)
+                    # Must be a frappe._dict (not a plain dict): the rows from
+                    # frappe.get_all above are _dicts and the loop below uses
+                    # attribute access (employee_data.name). A plain dict would
+                    # raise "'dict' object has no attribute 'name'", silently
+                    # leaving a directly-linked employee un-terminated.
                     employee_records.append(
-                        {
-                            "name": direct_employee.name,
-                            "employee_name": direct_employee.employee_name,
-                            "status": direct_employee.status,
-                            "relieving_date": getattr(direct_employee, "relieving_date", None),
-                        }
+                        frappe._dict(
+                            {
+                                "name": direct_employee.name,
+                                "employee_name": direct_employee.employee_name,
+                                "status": direct_employee.status,
+                                "relieving_date": getattr(direct_employee, "relieving_date", None),
+                            }
+                        )
                     )
 
         frappe.logger().info(
