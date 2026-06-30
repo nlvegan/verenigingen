@@ -880,10 +880,16 @@ class DuesPaymentProcessor:
                 try:
                     sales_invoices = []
 
-                    # If Payment Entry was created, check its references
-                    # This includes both direct Payment Entry creation and partial_processing mode
-                    if (creation_mode == "Payment Entry" or partial_processing) and record_name:
-                        pe_doc = frappe.get_doc("Payment Entry", record_name)
+                    # If a Payment Entry was created, surface its allocated
+                    # invoices. This covers BOTH partial processing (PE name in
+                    # record_name) AND the Bank-Transaction-plus-invoice path,
+                    # where the PE is created alongside the BT and its name lives
+                    # in result["payment_entry"] (not record_name). Without the
+                    # latter, a reconciled invoice that becomes fully paid drops
+                    # out of the unpaid list below and is reported nowhere.
+                    pe_for_references = record_name or result.get("payment_entry")
+                    if pe_for_references:
+                        pe_doc = frappe.get_doc("Payment Entry", pe_for_references)
                         for ref in pe_doc.get("references", []):
                             if ref.reference_doctype == "Sales Invoice":
                                 sales_invoices.append(
