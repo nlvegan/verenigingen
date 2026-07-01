@@ -18,7 +18,10 @@ def create_eboekhouden_tracking_fields():
                 "label": "E-Boekhouden Invoice Number",
                 "fieldtype": "Data",
                 "insert_after": "naming_series",
-                "unique": 1,
+                # NOT unique: eBoekhouden invoice numbers legitimately repeat
+                # across suppliers/years (e.g. "20231231", "010219"), so a unique
+                # constraint here breaks migration. Matches fixtures/custom_field.json.
+                "unique": 0,
                 "allow_on_submit": 1,
                 "module": "E-Boekhouden",
             },
@@ -38,7 +41,10 @@ def create_eboekhouden_tracking_fields():
                 "label": "E-Boekhouden Invoice Number",
                 "fieldtype": "Data",
                 "insert_after": "naming_series",
-                "unique": 1,
+                # NOT unique: eBoekhouden invoice numbers legitimately repeat
+                # across suppliers/years (e.g. "20231231", "010219"), so a unique
+                # constraint here breaks migration. Matches fixtures/custom_field.json.
+                "unique": 0,
                 "allow_on_submit": 1,
                 "module": "E-Boekhouden",
             },
