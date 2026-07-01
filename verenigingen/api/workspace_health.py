@@ -200,6 +200,11 @@ class WorkspaceHealthManager:
         duplicates = []
 
         for link in self.workspace.links:
+            # Skip structural links without a target (Card Break, Spacer): they have
+            # no link_to, so every one shares the signature "<type>:None" and would be
+            # falsely flagged (and destructively removed) as duplicates of each other.
+            if not link.link_to:
+                continue
             signature = f"{link.type}:{link.link_to}"
             if signature in link_signatures:
                 duplicates.append({"label": link.label, "signature": signature})
