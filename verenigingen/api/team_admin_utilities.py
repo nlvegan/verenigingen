@@ -32,11 +32,15 @@ def fix_all_missing_assignment_history():
 
         for member in team.team_members:
             if member.is_active and member.volunteer:
-                # Check if assignment history exists
+                # Check if assignment history exists. Assignment history lives in
+                # the Volunteer's `assignment_history` child table ("Volunteer
+                # Assignment"), keyed by the parent Volunteer -- there is no
+                # standalone "Assignment History" doctype nor a `volunteer` column.
                 history_exists = frappe.db.exists(
-                    "Assignment History",
+                    "Volunteer Assignment",
                     {
-                        "volunteer": member.volunteer,
+                        "parent": member.volunteer,
+                        "parenttype": "Volunteer",
                         "reference_doctype": "Team",
                         "reference_name": team.name,
                         "status": "Active",
@@ -97,11 +101,15 @@ def fix_missing_assignment_history(team_name: str = None, volunteer_name: str = 
         if member.volunteer == volunteer_name and member.is_active:
             frappe.logger().info(f"Found active assignment: {member.volunteer} -> {member.role}")
 
-            # Check if assignment history already exists
+            # Check if assignment history already exists. Assignment history lives
+            # in the Volunteer's `assignment_history` child table ("Volunteer
+            # Assignment"), keyed by the parent Volunteer -- there is no standalone
+            # "Assignment History" doctype nor a `volunteer` column.
             history_exists = frappe.db.exists(
-                "Assignment History",
+                "Volunteer Assignment",
                 {
-                    "volunteer": volunteer_name,
+                    "parent": volunteer_name,
+                    "parenttype": "Volunteer",
                     "reference_doctype": "Team",
                     "reference_name": team_name,
                     "status": "Active",
