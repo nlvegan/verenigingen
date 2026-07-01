@@ -84,7 +84,14 @@ def _is_team_leader(volunteer: str) -> bool:
     leader_roles = frappe.get_all("Team Role", filters={"is_team_leader": 1}, pluck="name")
     if not leader_roles:
         return False
-    return bool(frappe.db.exists("Team Member", {"volunteer": volunteer, "team_role": ["in", leader_roles]}))
+    # Require is_active for parity with Team._update_team_lead: an inactive/expired
+    # leadership row must not drive the recommendation.
+    return bool(
+        frappe.db.exists(
+            "Team Member",
+            {"volunteer": volunteer, "team_role": ["in", leader_roles], "is_active": 1},
+        )
+    )
 
 
 def get_recommended_role_profile(user: str) -> str | None:

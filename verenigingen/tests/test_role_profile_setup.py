@@ -82,7 +82,7 @@ class TestRoleProfileSetup(VereningingenTestCase):
         user.append("role_profiles", {"role_profile": role_profile})
         user.save(ignore_permissions=True)
 
-    def _make_team_membership(self, volunteer_name, team_role="Team Leader"):
+    def _make_team_membership(self, volunteer_name, team_role="Team Leader", is_active=1):
         """Attach a volunteer to a team with the given team_role.
 
         Leadership is defined by the linked Team Role's is_team_leader flag, so a
@@ -99,8 +99,8 @@ class TestRoleProfileSetup(VereningingenTestCase):
                 "volunteer": volunteer_name,
                 "team_role": team_role,
                 "from_date": today(),
-                "is_active": 1,
-                "status": "Active",
+                "is_active": is_active,
+                "status": "Active" if is_active else "Inactive",
             },
         )
         team_doc.save(ignore_permissions=True)
@@ -161,6 +161,15 @@ class TestRoleProfileSetup(VereningingenTestCase):
         member = self._make_member_for_user(email)
         volunteer = self.create_test_volunteer(member=member.name)
         self._make_team_membership(volunteer.name, team_role="Team Member")
+        self.assertEqual(get_recommended_role_profile(email), "Verenigingen Volunteer")
+
+    def test_recommend_volunteer_when_leadership_is_inactive(self):
+        """An inactive Team Leader membership must NOT yield 'Team Leader' — parity
+        with Team._update_team_lead, which only honours active leadership."""
+        email = self._make_user(roles=[])
+        member = self._make_member_for_user(email)
+        volunteer = self.create_test_volunteer(member=member.name)
+        self._make_team_membership(volunteer.name, team_role="Team Leader", is_active=0)
         self.assertEqual(get_recommended_role_profile(email), "Verenigingen Volunteer")
 
     def test_recommend_basic_member(self):
