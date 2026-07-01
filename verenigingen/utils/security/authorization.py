@@ -445,8 +445,13 @@ class SEPAAuthorizationManager:
             return True
 
         try:
-            current_ip = getattr(frappe.local, "request_ip", None)
-            if not current_ip:
+            # Use the centralized, spoofing-hardened resolver (trusted-proxy aware)
+            # rather than raw frappe.local.request_ip, so the SEPA allowlist gets the
+            # same X-Forwarded-For protection as the main framework's IP allowlist.
+            from verenigingen.utils.security.client_ip import get_client_ip
+
+            current_ip = get_client_ip()
+            if not current_ip or current_ip in ("unknown", "test_environment"):
                 # An HTTP request under an active allowlist whose source IP cannot
                 # be determined must be denied (fail closed) - otherwise the
                 # allowlist is trivially bypassed by suppressing the IP.

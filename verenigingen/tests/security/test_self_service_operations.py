@@ -223,6 +223,25 @@ class TestSelfServiceOperations(PortalSelfServiceTestMixin, EnhancedTestCase):
         with self.assertRaises(VPermissionError):
             self.framework._validate_self_service_request_content(intruder.name, data=payload)
 
+    def test_content_check_flags_member_inside_json_string_with_leading_whitespace(self):
+        """Audit review #1: a JSON payload with leading whitespace/newline must
+        still be inspected. json.loads tolerates leading whitespace, so a first-
+        char fast-reject would let ' {"member":"VICTIM"}' bypass the inspector
+        while the endpoint still parses it."""
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+
+        for payload in (
+            ' {"member": "%s"}' % owner.name,
+            '\t{"member": "%s"}' % owner.name,
+            '\n {"member": "%s"}' % owner.name,
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(VPermissionError):
+                    self.framework._validate_self_service_request_content(
+                        intruder.name, data=payload
+                    )
+
     def test_content_check_passes_for_own_member_in_json_string(self):
         """JSON payload referencing the caller's own member is allowed."""
         import json as _json

@@ -442,3 +442,68 @@ class TestGlobalAuthManager(AuthorizationTestBase):
     def test_get_auth_manager_is_singleton(self):
         self.assertIs(get_auth_manager(), get_auth_manager())
         self.assertIsInstance(get_auth_manager(), SEPAAuthorizationManager)
+
+
+class TestContextualRestrictionsFailClosed(AuthorizationTestBase):
+    """Audit review #2: _check_ip_restrictions / _check_business_hours must fail
+    CLOSED (deny) when a configured restriction cannot be evaluated, rather than
+    silently allowing the operation.
+    """
+
+    def test_ip_restriction_off_when_no_allowlist(self):
+        self.manager.allowed_ips = []
+        self.assertTrue(self.manager._check_ip_restrictions())
+
+    def test_ip_restriction_not_applied_to_non_http_context(self):
+        """Background/CLI/scheduler contexts have no source IP; an IP allowlist
+        governs HTTP origin only, so it does not apply here (test env has no
+        frappe.local.request)."""
+        self.manager.allowed_ips = ["203.0.113.5"]
+        original_request = getattr(frappe.local, "request", None)
+        frappe.local.request = None
+        try:
+            self.assertTrue(self.manager._check_ip_restrictions())
+        finally:
+            frappe.local.request = original_request
+
+    def _bind_request_ip(self, remote_addr):
+        """Bind a real (non-mock) request whose environ drives the actual
+        client_ip.get_client_ip() resolver. A public REMOTE_ADDR is not a trusted
+        proxy, so get_client_ip returns it verbatim -- exercising the real
+        integration rather than stubbing the resolver."""
+        from types import SimpleNamespace
+
+        frappe.local.request = SimpleNamespace(method="POST", environ={"REMOTE_ADDR": remote_addr})
+
+    def test_ip_restriction_denies_http_request_with_undeterminable_ip(self):
+        """An HTTP request under an active allowlist whose source IP cannot be
+        resolved must be denied (fail closed). An empty REMOTE_ADDR makes the real
+        get_client_ip() return 'unknown'."""
+        self.manager.allowed_ips = ["203.0.113.5"]
+        original_request = getattr(frappe.local, "request", None)
+        try:
+            self._bind_request_ip("")
+            self.assertFalse(self.manager._check_ip_restrictions())
+        finally:
+            frappe.local.request = original_request
+
+    def test_ip_restriction_allows_matching_and_denies_foreign_ip(self):
+        self.manager.allowed_ips = ["203.0.113.5"]
+        original_request = getattr(frappe.local, "request", None)
+        try:
+            self._bind_request_ip("203.0.113.5")
+            self.assertTrue(self.manager._check_ip_restrictions())
+            self._bind_request_ip("198.51.100.9")
+            self.assertFalse(self.manager._check_ip_restrictions())
+        finally:
+            frappe.local.request = original_request
+
+    def test_business_hours_off_when_disabled(self):
+        self.manager.business_hours = {"enabled": False}
+        self.assertTrue(self.manager._check_business_hours())
+
+    def test_business_hours_fails_closed_on_bad_config(self):
+        """An enabled business-hours restriction that can't be evaluated (invalid
+        timezone -> pytz raises) must deny, not allow."""
+        self.manager.business_hours = {"enabled": True, "timezone": "Not/A_Real_Zone"}
+        self.assertFalse(self.manager._check_business_hours())

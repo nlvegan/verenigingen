@@ -28,14 +28,20 @@ def _try_parse_json(value: str):
     Used by the self-service content inspector to see member/volunteer
     references hidden inside JSON string payloads.
     """
-    if not value or value[0] not in "[{":
-        # Fast reject: only object/array JSON payloads can contain nested
-        # member/volunteer references. Skips the exception cost for plain
-        # scalars, member names, IBANs, etc.
+    if not value:
+        return None
+    # Fast reject on the first NON-WHITESPACE char: json.loads (and the endpoints
+    # that consume the payload) tolerate leading whitespace, so peeking at value[0]
+    # alone let ' {"member":"VICTIM"}' slip past the inspector while json.loads
+    # still parsed it. Only object/array payloads can carry nested refs.
+    stripped = value.lstrip()
+    if not stripped or stripped[0] not in "[{":
         return None
     try:
         return json.loads(value)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
+        # RecursionError: deeply-nested JSON (a cheap ~40KB payload) would
+        # otherwise raise uncaught and 500. Treat unparseable input as "not JSON".
         return None
 
 
@@ -318,8 +324,18 @@ class SelfServiceAccessController:
         """
         violations = []
 
-        def inspect_data(data, path=""):
+        # Bound the traversal depth so a deeply-nested payload cannot exhaust the
+        # stack. Legitimate member/volunteer references live near the surface;
+        # 64 levels is far beyond any real request shape. Fails closed (a payload
+        # nested past the cap simply isn't inspected further, and the ownership
+        # gate + endpoint self-checks still apply).
+        MAX_DEPTH = 64
+
+        def inspect_data(data, path="", depth=0):
             """Recursively inspect data for member/volunteer references"""
+            if depth > MAX_DEPTH:
+                return
+
             if isinstance(data, str):
                 # Frappe delivers nested / child-table payloads as JSON strings.
                 # Parse them so member/volunteer references hidden inside a JSON
@@ -327,7 +343,7 @@ class SelfServiceAccessController:
                 # the ownership inspection.
                 parsed = _try_parse_json(data)
                 if isinstance(parsed, (dict, list)):
-                    inspect_data(parsed, path)
+                    inspect_data(parsed, path, depth + 1)
                 return
 
             if isinstance(data, dict):
@@ -366,11 +382,11 @@ class SelfServiceAccessController:
                     # Recursively check nested structures (dict/list) and
                     # JSON-encoded strings.
                     else:
-                        inspect_data(value, current_path)
+                        inspect_data(value, current_path, depth + 1)
 
             elif isinstance(data, list):
                 for i, item in enumerate(data):
-                    inspect_data(item, f"{path}[{i}]")
+                    inspect_data(item, f"{path}[{i}]", depth + 1)
 
         # Inspect all parameters, including top-level scalar member/volunteer
         # identifiers (member_id, member_name, volunteer_id, ...) which were
