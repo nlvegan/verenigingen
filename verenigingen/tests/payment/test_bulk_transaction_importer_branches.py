@@ -159,15 +159,27 @@ class TestImportSettlementDataBranches(_BulkImporterSweepBase):
 class TestCreateBankTransactionResolutionBranches(_BulkImporterSweepBase):
     """Default company/bank-account resolution + missing-bank-account guard."""
 
+    def _seed_bank_on_resolved_default(self):
+        """Ensure the company the importer resolves (when none is passed) owns a
+        Bank Account. Mirrors the importer's own resolution: user-default Company,
+        else Global Defaults default_company. Reuses the base get-or-create helper,
+        so it is idempotent and rolled back with the test transaction."""
+        resolved = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+            "Global Defaults", "default_company"
+        )
+        self.assertTrue(resolved, "no default Company resolvable on this site")
+        self._persist_company_bank_account(resolved)
+
     def test_payment_resolves_default_company_and_bank(self):
         """With company/bank_account omitted, the importer resolves a default
         Company and a Bank Account belonging to that company (the resolution
         branch). The resolved bank account must be consistent with the company."""
-        # Pin the resolved default Company to our seeded EUR test company so the
-        # resolution branch lands on a company that actually has a Bank Account.
-        # (Otherwise it resolves the site's Global Defaults company, which has no
-        # bank account under CI — the source of the env-fragile failure.)
-        frappe.defaults.set_user_default("Company", self.company)
+        # Seed a Bank Account on whatever company the importer will actually
+        # resolve (user-default Company, else Global Defaults) so the
+        # company/bank-omitted branch succeeds on any site. Pinning our own
+        # default is unreliable — the site default company has no Bank Account
+        # under CI, which is the source of the env-fragile failure.
+        self._seed_bank_on_resolved_default()
         self.imp.import_id = f"res_{self.uid}"
         bt = self.imp._create_bank_transaction_from_payment(
             _payment(f"tr_resolve_{self.uid}", value="12.00"),
@@ -186,9 +198,8 @@ class TestCreateBankTransactionResolutionBranches(_BulkImporterSweepBase):
     def test_settlement_resolves_default_company_and_bank(self):
         """Settlement creation also resolves a default Company + Bank Account when
         both are omitted (the settlement-side resolution branch)."""
-        # Pin the resolved default Company to our seeded EUR test company (see
-        # test_payment_resolves_default_company_and_bank for the rationale).
-        frappe.defaults.set_user_default("Company", self.company)
+        # See test_payment_resolves_default_company_and_bank for the rationale.
+        self._seed_bank_on_resolved_default()
         self.imp.import_id = f"sres_{self.uid}"
         bt = self.imp._create_bank_transaction_from_settlement(
             {

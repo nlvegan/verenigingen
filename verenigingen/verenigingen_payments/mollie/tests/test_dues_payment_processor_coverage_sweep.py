@@ -236,7 +236,49 @@ class DuesSweepTestBase(EnhancedTestCase):
         cls.receivable_account = frappe.db.get_value("Company", cls.company, "default_receivable_account")
         # Bank Account linked to the clearing GL so the BT path resolves config.
         _ensure_bank_account_linked(cls.company, cls.clearing_account)
+        # Snapshot the pristine Singles this suite pins in setUp so tearDownClass
+        # can restore them — the BT path commits mid-test (see _matched_member),
+        # flushing those pins past EnhancedTestCase's per-test rollback and leaking
+        # them to sibling classes in the same shard.
+        cls._orig_singles = {
+            ("Verenigingen Settings", "company"): frappe.db.get_single_value(
+                "Verenigingen Settings", "company"
+            ),
+            ("Verenigingen Payments Settings", "dues_income_account"): frappe.db.get_single_value(
+                "Verenigingen Payments Settings", "dues_income_account"
+            ),
+            (
+                "Verenigingen Payments Settings",
+                "dues_payments_receivable_account",
+            ): frappe.db.get_single_value(
+                "Verenigingen Payments Settings", "dues_payments_receivable_account"
+            ),
+            ("Mollie Settings", "mollie_clearing_account"): frappe.db.get_single_value(
+                "Mollie Settings", "mollie_clearing_account"
+            ),
+            ("Mollie Settings", "mollie_bank_account"): frappe.db.get_single_value(
+                "Mollie Settings", "mollie_bank_account"
+            ),
+            ("Mollie Settings", "payment_processing_fees_account"): frappe.db.get_single_value(
+                "Mollie Settings", "payment_processing_fees_account"
+            ),
+        }
         frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Restore the pristine Singles + clear the cached Mollie config so a
+        # sibling suite (e.g. the payment-entry-factory tests) does not read a
+        # polluted mollie_bank_account committed by this suite's BT tests.
+        for (dt, field), val in cls._orig_singles.items():
+            frappe.db.set_single_value(dt, field, val)
+        frappe.db.commit()
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            get_mollie_config,
+        )
+
+        get_mollie_config().clear_cache()
+        super().tearDownClass()
 
     def setUp(self):
         super().setUp()
