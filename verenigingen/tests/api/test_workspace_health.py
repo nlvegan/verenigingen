@@ -254,6 +254,44 @@ class TestWorkspaceHealth(VereningingenTestCase):
 
     # ------------------------------------------------------------ auto-fix path
 
+    def test_autofix_of_genuine_duplicate_preserves_card_breaks(self):
+        """auto_fix removing a genuine duplicate DocType link must NOT also destroy
+        Card Break sections.
+
+        This is the real destructive scenario: a workspace with >=2 Card Breaks AND
+        a genuine duplicate link. The detector flags the duplicate, so _apply_fixes
+        calls _fix_duplicate_links -- which must skip link-less Card Breaks or it
+        would collide them all on "Card Break:None" and remove every one but the
+        first. Without the guard in _fix_duplicate_links this test fails (both Card
+        Breaks would not survive).
+        """
+        cards = ["Alpha", "Beta"]
+        ws = self._make_workspace(
+            "autofixdupe",
+            links=[
+                {"type": "Card Break", "label": cards[0]},
+                {"type": "Link", "link_type": "DocType", "link_to": "Member", "label": "Member One"},
+                {"type": "Card Break", "label": cards[1]},
+                {"type": "Link", "link_type": "DocType", "link_to": "Member", "label": "Member Two"},
+            ],
+            content=self._synced_content(cards),
+        )
+
+        result = diagnose_and_fix(ws.name, auto_fix=True, create_backup=False)
+        self.assertTrue(result["success"])
+
+        # Both Card Breaks must still exist after the fix; the genuine duplicate
+        # Member link should be the only thing that could be removed.
+        ws.reload()
+        surviving_card_labels = [link.label for link in ws.links if not link.link_to]
+        self.assertIn(cards[0], surviving_card_labels)
+        self.assertIn(cards[1], surviving_card_labels)
+        self.assertEqual(
+            len([link for link in ws.links if link.type == "Card Break"]),
+            2,
+            "Card Break sections were destroyed by the duplicate-link fixer",
+        )
+
     def test_diagnose_and_fix_repairs_content_sync(self):
         """diagnose_and_fix rebuilds the content field from Card Breaks."""
         card = "Administration"

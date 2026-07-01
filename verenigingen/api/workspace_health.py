@@ -338,6 +338,12 @@ class WorkspaceHealthManager:
         links_to_remove = []
 
         for link in self.workspace.links:
+            # Skip structural links without a target (Card Break, Spacer): they all
+            # share the signature "<type>:None", so without this guard the fixer
+            # would remove every Card Break but the first — destroying real sections.
+            # Mirrors the guard in _check_structure.
+            if not link.link_to:
+                continue
             signature = f"{link.type}:{link.link_to}"
             if signature in seen_signatures:
                 links_to_remove.append(link)
