@@ -219,7 +219,7 @@ class EnhancedWorkspaceValidator:
 
                 # Convert to directory name
                 dir_name = doctype_name.lower().replace(" ", "_").replace("-", "_")
-                doctype_path = f"/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/{dir_name}"
+                doctype_path = os.path.join(self.app_path, "verenigingen", "doctype", dir_name)
 
                 if not os.path.exists(doctype_path):
                     self.errors.append(f"{name} (fixtures): DocType '{doctype_name}' directory not found")
