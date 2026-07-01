@@ -54,6 +54,16 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
         # fail on those. Neutralise the broken links (capturing originals) so the
         # module's real save() can run; restored in tearDown.
         self._neutralized_links = self._neutralize_broken_single_links()
+        # Snapshot the existing Custom DocPerm rows on the doctypes the module
+        # touches. ensure_public_creator_role_exists routes through add_permission,
+        # which (via copy_perms) materialises the standard perms into Custom DocPerm
+        # for any doctype that had none. tearDown removes everything NOT in this
+        # snapshot to revert the site's permission model exactly.
+        self._managed_doctypes = ["Donor", "Donation", "Member", "Address", "Contact"]
+        self._custom_docperm_snapshot = {
+            dt: set(frappe.get_all("Custom DocPerm", filters={"parent": dt}, pluck="name"))
+            for dt in self._managed_doctypes
+        }
 
     def _neutralize_broken_single_links(self):
         meta = frappe.get_meta("Verenigingen Settings")
@@ -101,12 +111,21 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
             pass
 
         try:
+            # Remove every Custom DocPerm the test caused on the managed doctypes
+            # (both the PUBLIC_CREATOR_ROLE rows and any copy_perms clones), so a
+            # doctype that had zero Custom DocPerm before reverts to standard perms.
+            for dt, before in getattr(self, "_custom_docperm_snapshot", {}).items():
+                for name in frappe.get_all("Custom DocPerm", filters={"parent": dt}, pluck="name"):
+                    if name not in before:
+                        frappe.delete_doc("Custom DocPerm", name, force=True, ignore_permissions=True)
+            # Any stragglers for the role on other doctypes.
             for perm in frappe.get_all(
                 "Custom DocPerm", filters={"role": PUBLIC_CREATOR_ROLE}, pluck="name"
             ):
                 frappe.delete_doc("Custom DocPerm", perm, force=True, ignore_permissions=True)
             if frappe.db.exists("Role", PUBLIC_CREATOR_ROLE):
                 frappe.delete_doc("Role", PUBLIC_CREATOR_ROLE, force=True, ignore_permissions=True)
+            frappe.clear_cache()
         except Exception:
             pass
 
@@ -193,6 +212,35 @@ class TestPublicDocumentCreatorSetup(VereningingenTestCase):
             self.assertEqual(perm.write, 1)
             self.assertEqual(perm.create, 1)
             self.assertEqual(perm.delete, 0)
+
+    def test_ensure_role_preserves_other_roles_permissions_on_member(self):
+        """Granting the public-creator role must NOT strip other roles' perms.
+
+        Frappe treats a doctype's Custom DocPerm set as authoritative once ANY
+        Custom DocPerm row exists, so a raw insert (without copy_perms) would drop
+        every standard role's permission on Member/Donor/Donation. The fix routes
+        through frappe.permissions.add_permission (which copies standard perms
+        first). This asserts every standard create-role on Member survives.
+        """
+        standard_create_roles = {
+            r.role
+            for r in frappe.get_all(
+                "DocPerm", filters={"parent": "Member", "create": 1}, fields=["role"]
+            )
+        }
+        self.assertTrue(standard_create_roles, "expected Member to ship standard create perms")
+
+        ensure_public_creator_role_exists()
+
+        custom_create_roles = {
+            r.role
+            for r in frappe.get_all(
+                "Custom DocPerm", filters={"parent": "Member", "create": 1}, fields=["role"]
+            )
+        }
+        missing = standard_create_roles - custom_create_roles
+        self.assertFalse(missing, msg=f"standard create-roles were dropped: {missing}")
+        self.assertIn(PUBLIC_CREATOR_ROLE, custom_create_roles)
 
     def test_ensure_role_idempotent(self):
         first = ensure_public_creator_role_exists()

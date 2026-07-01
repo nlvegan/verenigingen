@@ -93,41 +93,28 @@ def ensure_public_creator_role_exists():
         )
         role_doc.insert(ignore_permissions=True)
 
-        # Set up minimal permissions for the role.
+        # Grant minimal permissions to the role via the framework API.
         #
-        # NOTE: the target doctype for each permission is keyed as "parent" (the
-        # Custom DocPerm field that links to the DocType), NOT "doctype". Using
-        # "doctype" here would collide with the "doctype": "Custom DocPerm" key in
-        # frappe.get_doc({...}) below (dict spread lets the later key win), which
-        # would attempt to insert a Donor/Donation/etc. document with permission
-        # fields instead of a Custom DocPerm row.
-        managed_doctypes = ["Donor", "Donation", "Member", "Address", "Contact"]
-        permissions_to_create = [
-            {
-                "parent": doctype,
-                "parenttype": "DocType",
-                "parentfield": "permissions",
-                "role": PUBLIC_CREATOR_ROLE,
-                "permlevel": 0,
-                "read": 1,
-                "write": 1,
-                "create": 1,
-                "delete": 0,
-                "submit": 0,
-                "cancel": 0,
-            }
-            for doctype in managed_doctypes
-        ]
+        # IMPORTANT: use frappe.permissions.add_permission, NOT a raw Custom DocPerm
+        # insert. add_permission() first runs setup_custom_perms() -> copy_perms(),
+        # which clones every existing standard DocPerm into Custom DocPerm BEFORE
+        # adding this role — preserving all other roles' permissions. Frappe treats a
+        # doctype's Custom DocPerm set as authoritative once ANY Custom DocPerm row
+        # exists, so inserting a lone raw row (without copy_perms first) would
+        # silently drop every standard permission on core doctypes like
+        # Member/Donor/Donation.
+        from frappe.permissions import add_permission, update_permission_property
 
-        for perm in permissions_to_create:
-            # Check if permission already exists
-            existing = frappe.db.exists(
+        managed_doctypes = ["Donor", "Donation", "Member", "Address", "Contact"]
+        for doctype in managed_doctypes:
+            if frappe.db.exists(
                 "Custom DocPerm",
-                {"parent": perm["parent"], "role": perm["role"], "permlevel": perm["permlevel"]},
-            )
-            if not existing:
-                perm_doc = frappe.get_doc({"doctype": "Custom DocPerm", **perm})
-                perm_doc.insert(ignore_permissions=True)
+                {"parent": doctype, "role": PUBLIC_CREATOR_ROLE, "permlevel": 0},
+            ):
+                continue
+            add_permission(doctype, PUBLIC_CREATOR_ROLE, 0)  # creates the row with read=1 (+ copy_perms)
+            update_permission_property(doctype, PUBLIC_CREATOR_ROLE, 0, "write", 1, validate=False)
+            update_permission_property(doctype, PUBLIC_CREATOR_ROLE, 0, "create", 1, validate=False)
 
         frappe.db.commit()
         print(f"   ✅ Created role {PUBLIC_CREATOR_ROLE} with minimal permissions")
