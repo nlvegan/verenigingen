@@ -17,26 +17,15 @@
 #   - _finalize_import_results(): the full summary-assembly path with REAL Active
 #     members but user-account/volunteer creation OFF (the "skipping" else
 #     branches), the Mollie "preserved correctly" branch, the validation-warning
-#     aggregation + error-log append, the (inert) performance-report call site,
-#     the persist-full-error-log branch and the reload/re-apply + itemized-notes
+#     aggregation + error-log append, the persist-full-error-log branch and the reload/re-apply + itemized-notes
 #     tail (lines ~388-539).
 #   - _finalize_import_results() with NO processed members: the no-account / no-
 #     volunteer / no-mollie short-circuits.
-#   - _generate_performance_report(): the no-stats/no-metrics empty fallback,
-#     which is its ONLY reachable behaviour in production (see note below).
 #   - _append_to_error_log(): the no-header truncation branch (line ~1369).
 #   - _generate_itemized_member_list(): the updated>100 truncation (line ~1701)
 #     and the per-category skipped>20 truncation (line ~1713).
 #   - update_import_tracking_after_retry(): the missing-document exception branch
 #     (lines ~1928-1933).
-#
-# NOTE on the performance report: _generate_performance_report() and its
-# _from_stats/_legacy helpers read self._performance_stats / _performance_metrics,
-# but NO production code path on this DocType ever populates those attributes
-# (there is no _track_member_performance writer anywhere in the app). So in
-# production the report is always the empty string. We therefore only assert that
-# REAL reachable behaviour here (use_safe_optimization on, but the report stays
-# empty) rather than seeding fake stats to exercise the unreachable formatting.
 #
 # Test philosophy: nothing patches frappe.db, the controller, or the extracted
 # services. The dues-warning attribute that real imports populate during
@@ -68,15 +57,12 @@ class TestMijnroodFinalizeResults(_BaseMijnroodPipelineTest):
         """A real Active member with account/volunteer creation OFF drives the
         Mollie 'preserved correctly' branch, validation-warning aggregation +
         error-log append, error-log persistence, and the reload/re-apply +
-        itemized-notes tail. use_safe_optimization is ON, which exercises the
-        _generate_performance_report() call site (it returns "" in production
-        because nothing populates the stats)."""
+        itemized-notes tail."""
         member = self._make_member(status="Active")
         doc = self._make_import_doc(
             [{"Voornaam": "Final", "Achternaam": "Member", "E-mailadres": _unique_email()}],
             create_user_accounts=0,
             create_volunteer_records=0,
-            use_safe_optimization=1,
         )
         # Seed the in-memory dues warning a real import leaves on the doc via
         # _record_dues_rate_warning (exact shape it writes).
@@ -106,9 +92,6 @@ class TestMijnroodFinalizeResults(_BaseMijnroodPipelineTest):
         self.assertIn("Mollie data: preserved correctly", doc.import_summary)
         # The seeded dues warning is aggregated into the summary + notes/error log.
         self.assertIn("validation warning", doc.import_summary)
-        # The performance report is inert in production (no stats producer), so
-        # the call site contributes nothing to the summary.
-        self.assertNotIn("PERFORMANCE REPORT", doc.import_summary)
         # Itemized notes list the created + skipped members.
         self.assertIn(member.name, doc.notes)
         self.assertIn("Skipped Members", doc.notes)
@@ -120,7 +103,6 @@ class TestMijnroodFinalizeResults(_BaseMijnroodPipelineTest):
             [{"Voornaam": "Empty", "Achternaam": "Final", "E-mailadres": _unique_email()}],
             create_user_accounts=1,  # ON, but no members -> still skipped
             create_volunteer_records=1,
-            use_safe_optimization=0,
         )
         self._finalize(
             doc,
@@ -156,17 +138,6 @@ class TestMijnroodFinalizeResults(_BaseMijnroodPipelineTest):
             kwargs["updated_members"],
             kwargs["skipped_members"],
         )
-
-
-class TestMijnroodPerformanceReportGuards(_BaseMijnroodPipelineTest):
-    """_generate_performance_report() production behaviour (pure, no DB)."""
-
-    def test_dispatcher_without_any_metrics_returns_empty(self):
-        """No rolling stats and no legacy metrics -> empty report. This is the
-        ONLY reachable state in production: nothing populates _performance_stats
-        or _performance_metrics on this DocType, so the report is always empty."""
-        doc = self._new_unsaved_doc()
-        self.assertEqual(doc._generate_performance_report(), "")
 
 
 class TestMijnroodAppendErrorLogTruncation(_BaseMijnroodPipelineTest):

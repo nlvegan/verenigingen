@@ -10,7 +10,6 @@
 #     chapter without auto-create (skip), missing chapter WITH auto-create
 #   - _create_related_records_via_services: chapter branch + address branch
 #   - _create_volunteer_for_member: collects names into _pending_volunteer_members
-#   - _generate_performance_report*: rolling-stats + legacy + empty paths
 #
 # We reuse the rich fixture base from the pipeline test module (real File
 # attachments, real import docs, real members) so the test bodies stay assertion-only.
@@ -160,61 +159,3 @@ class TestMijnroodVolunteerQueueing(_BaseMijnroodPipelineTest):
 # NOTE: _aggregate_validation_warnings was reworked to aggregate structured data
 # captured during member processing (it no longer scrapes Error Logs). Its tests
 # now live in test_mijnrood_csv_import_gapfill.py::TestMijnroodDuesRateWarnings(+Integration).
-
-
-class TestMijnroodPerformanceReport(_BaseMijnroodPipelineTest):
-    """_generate_performance_report: rolling-stats, legacy, and empty paths."""
-
-    def test_performance_report_empty_when_no_stats(self):
-        doc = self._new_unsaved_doc()
-        self.assertEqual(doc._generate_performance_report(), "")
-
-    def test_performance_report_from_rolling_stats(self):
-        doc = self._new_unsaved_doc()
-        doc._performance_stats = {
-            "count": 4,
-            "total_time_ms": 400.0,
-            "min_time_ms": 80.0,
-            "max_time_ms": 120.0,
-            "optimized_count": 3,
-            "meta_optimized_count": 2,
-            "link_optimized_count": 1,
-            "fetch_optimized_count": 4,
-            "child_optimized_count": 0,
-            "last_5": [{"member": "MEM-X", "time_ms": 100}],
-        }
-        report = doc._generate_performance_report()
-        self.assertIn("Total members processed: 4", report)
-        # avg = 400/4 = 100.0ms
-        self.assertIn("100.0ms", report)
-        self.assertIn("MEM-X", report)
-
-    def test_performance_report_legacy_metrics(self):
-        """When only the legacy list-based metrics exist, the legacy report renders
-        with fastest/slowest insight."""
-        doc = self._new_unsaved_doc()
-        doc._performance_metrics = [
-            {
-                "member_name": "MEM-A",
-                "creation_time_ms": 50,
-                "optimization_applied": True,
-                "meta_optimized": True,
-                "link_optimized": True,
-                "fetch_optimized": False,
-                "child_optimized": False,
-            },
-            {
-                "member_name": "MEM-B",
-                "creation_time_ms": 150,
-                "optimization_applied": False,
-                "meta_optimized": False,
-                "link_optimized": False,
-                "fetch_optimized": False,
-                "child_optimized": False,
-            },
-        ]
-        report = doc._generate_performance_report()
-        self.assertIn("Total members processed: 2", report)
-        # Fastest is MEM-A (50ms), slowest MEM-B (150ms).
-        self.assertIn("MEM-A", report)
-        self.assertIn("MEM-B", report)

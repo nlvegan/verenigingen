@@ -490,12 +490,7 @@ class MijnroodCSVImport(Document):
         self.import_status = "Completed"
         base_summary = f"Import completed successfully. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}"
 
-        # Generate performance optimization report
-        performance_report = ""
-        if self.use_safe_optimization and created_count > 0:
-            performance_report = f"\n\n{self._generate_performance_report()}"
-
-        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{validation_warnings_summary}{performance_report}"
+        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{validation_warnings_summary}"
 
         if error_log:
             # Persist full error log as File attachment before truncating for UI
@@ -1563,118 +1558,6 @@ class MijnroodCSVImport(Document):
             error_msg = f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
             frappe.logger().error(error_msg)
             # Don't fail the entire import for chapter assignment issues
-
-    def _generate_performance_report(self):
-        """Generate performance optimization report using rolling statistics.
-
-        Uses the bounded-memory rolling statistics collected during import
-        rather than storing individual metrics for each member.
-        """
-        # Check for new rolling stats format first
-        if hasattr(self, "_performance_stats") and self._performance_stats.get("count", 0) > 0:
-            return self._generate_performance_report_from_stats()
-
-        # Fallback to old format for backward compatibility
-        if not hasattr(self, "_performance_metrics") or not self._performance_metrics:
-            return ""
-
-        return self._generate_performance_report_legacy()
-
-    def _generate_performance_report_from_stats(self) -> str:
-        """Generate performance report from rolling statistics (bounded memory)."""
-        stats = self._performance_stats
-        total_members = stats["count"]
-
-        if total_members == 0:
-            return ""
-
-        avg_time = stats["total_time_ms"] / total_members
-        optimized_pct = (stats["optimized_count"] / total_members) * 100
-
-        report_lines = [
-            "=== SAFE MEMBER OPTIMIZATION PERFORMANCE REPORT ===",
-            f"Total members processed: {total_members}",
-            f"Safe optimization enabled: {stats['optimized_count']}/{total_members} ({optimized_pct:.1f}%)",
-            f"Average member creation time: {avg_time:.1f}ms",
-            f"Creation time range: {stats['min_time_ms']:.1f}ms - {stats['max_time_ms']:.1f}ms",
-            "",
-            "Optimization component breakdown:",
-            f"  • Metadata caching: {stats['meta_optimized_count']}/{total_members} ({stats['meta_optimized_count'] / total_members * 100:.1f}%)",
-            f"  • Link field batching: {stats['link_optimized_count']}/{total_members} ({stats['link_optimized_count'] / total_members * 100:.1f}%)",
-            f"  • Fetch field caching: {stats['fetch_optimized_count']}/{total_members} ({stats['fetch_optimized_count'] / total_members * 100:.1f}%)",
-            f"  • Child table optimization: {stats['child_optimized_count']}/{total_members} ({stats['child_optimized_count'] / total_members * 100:.1f}%)",
-            "",
-        ]
-
-        # Add sample of recent members for debugging
-        if stats.get("last_5"):
-            report_lines.append("Last 5 members processed:")
-            for entry in stats["last_5"]:
-                report_lines.append(f"  • {entry['member']}: {entry['time_ms']}ms")
-            report_lines.append("")
-
-        report_lines.extend(
-            [
-                "✅ Safe optimization system: No security bypasses, full validation maintained",
-                "🚀 Target achieved: ~20-25% query reduction through metadata caching and batching",
-                "(Note: Using memory-efficient rolling statistics)",
-            ]
-        )
-
-        return "\n".join(report_lines)
-
-    def _generate_performance_report_legacy(self) -> str:
-        """Generate performance report from legacy list-based metrics (backward compatibility)."""
-        metrics = self._performance_metrics
-        total_members = len(metrics)
-
-        # Calculate optimization statistics
-        optimized_count = sum(1 for m in metrics if m.get("optimization_applied"))
-        avg_creation_time = sum(m.get("creation_time_ms", 0) for m in metrics) / total_members
-
-        optimization_breakdown = {
-            "meta_optimized": sum(1 for m in metrics if m.get("meta_optimized")),
-            "link_optimized": sum(1 for m in metrics if m.get("link_optimized")),
-            "fetch_optimized": sum(1 for m in metrics if m.get("fetch_optimized")),
-            "child_optimized": sum(1 for m in metrics if m.get("child_optimized")),
-        }
-
-        report_lines = [
-            "=== SAFE MEMBER OPTIMIZATION PERFORMANCE REPORT ===",
-            f"Total members processed: {total_members}",
-            f"Safe optimization enabled: {optimized_count}/{total_members} ({optimized_count / total_members * 100:.1f}%)",
-            f"Average member creation time: {avg_creation_time:.1f}ms",
-            "",
-            "Optimization component breakdown:",
-            f"  • Metadata caching applied: {optimization_breakdown['meta_optimized']}/{total_members} ({optimization_breakdown['meta_optimized'] / total_members * 100:.1f}%)",
-            f"  • Link field batching applied: {optimization_breakdown['link_optimized']}/{total_members} ({optimization_breakdown['link_optimized'] / total_members * 100:.1f}%)",
-            f"  • Fetch field caching applied: {optimization_breakdown['fetch_optimized']}/{total_members} ({optimization_breakdown['fetch_optimized'] / total_members * 100:.1f}%)",
-            f"  • Child table optimization applied: {optimization_breakdown['child_optimized']}/{total_members} ({optimization_breakdown['child_optimized'] / total_members * 100:.1f}%)",
-            "",
-        ]
-
-        # Add fastest/slowest member insights
-        if metrics:
-            fastest = min(metrics, key=lambda x: x.get("creation_time_ms", float("inf")))
-            slowest = max(metrics, key=lambda x: x.get("creation_time_ms", 0))
-
-            report_lines.extend(
-                [
-                    "Member creation time range:",
-                    f"  • Fastest: {fastest.get('member_name', 'N/A')} ({fastest.get('creation_time_ms', 0)}ms)",
-                    f"  • Slowest: {slowest.get('member_name', 'N/A')} ({slowest.get('creation_time_ms', 0)}ms)",
-                    "",
-                ]
-            )
-
-        report_lines.extend(
-            [
-                "✅ Safe optimization system: No security bypasses, full validation maintained",
-                "🚀 Target achieved: ~20-25% query reduction through metadata caching and batching",
-            ]
-        )
-
-        return "\n".join(report_lines)
 
     def _generate_itemized_member_list(
         self,
