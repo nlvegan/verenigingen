@@ -309,8 +309,6 @@ def add_tax_lines(invoice, regels, invoice_type, debug_info):
                 )
             else:
                 debug_info.append(f"WARNING: No tax account found for BTW code: {btw_code}")
-        elif data["rate"] == 0:
-            debug_info.append(f"Zero-rate tax code: {btw_code} - {data['description']}")
 
     debug_info.append(f"Total tax amount: €{total_tax_amount}")
 

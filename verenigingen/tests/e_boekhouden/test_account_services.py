@@ -4,7 +4,7 @@ services used by the eBoekhouden Chart-of-Accounts importer.
 
 Targets:
 - verenigingen/e_boekhouden/services/account_hierarchy_service.py
-    derive_group_code, _get_keywords_for_group, match_account_to_group,
+    _get_keywords_for_group, match_account_to_group,
     get_group_type_mappings_dict
 - verenigingen/e_boekhouden/services/account_organization_service.py
     range-parsing helpers + _is_in_ranges (pure, settings-driven)
@@ -23,7 +23,6 @@ import frappe
 
 from verenigingen.e_boekhouden.services.account_hierarchy_service import (
     _get_keywords_for_group,
-    derive_group_code,
     get_group_type_mappings_dict,
     match_account_to_group,
 )
@@ -34,32 +33,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 # ---------------------------------------------------------------------------
 # account_hierarchy_service - pure functions
 # ---------------------------------------------------------------------------
-class TestDeriveGroupCode(unittest.TestCase):
-    def test_none(self):
-        self.assertIsNone(derive_group_code(None))
-
-    def test_empty(self):
-        self.assertIsNone(derive_group_code(""))
-
-    def test_non_numeric(self):
-        self.assertIsNone(derive_group_code("ABC"))
-
-    def test_short_padded(self):
-        self.assertEqual(derive_group_code("42"), "042")
-
-    def test_single_digit(self):
-        self.assertEqual(derive_group_code("7"), "007")
-
-    def test_long_takes_first_three(self):
-        self.assertEqual(derive_group_code("80001"), "800")
-
-    def test_strips_non_digits(self):
-        self.assertEqual(derive_group_code("13.05"), "130")
-
-    def test_whitespace(self):
-        self.assertEqual(derive_group_code("  4220  "), "422")
-
-
 class TestGetKeywordsForGroup(unittest.TestCase):
     def test_explicit_keywords(self):
         # A group present in GROUP_KEYWORDS returns its explicit keyword list;

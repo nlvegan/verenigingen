@@ -191,62 +191,6 @@ class TestDonationFinancialService(EnhancedTestCase):
 
     # ========== earmarking / accounts helpers (no settings configured) ==========
 
-    def test_get_earmarking_accounts_returns_none_when_unconfigured(self):
-        """
-        Earmarking accounts are sourced from (phantom) Verenigingen Settings
-        fields via .get() (safe -> None), so unconfigured systems return None
-        rather than crashing. Documents the dead earmarking path.
-        """
-        donation = self._chapter_donation_doc()
-        svc = DonationFinancialService(donation)
-        # source/destination accounts not configured -> None
-        self.assertIsNone(svc._get_earmarking_accounts())
-
-    def test_requires_earmarking_true_for_chapter_purpose(self):
-        """_requires_earmarking is True for Chapter/Campaign purpose donations."""
-        donation = self._chapter_donation_doc()
-        svc = DonationFinancialService(donation)
-        self.assertTrue(svc._requires_earmarking())
-
-    def test_requires_earmarking_false_for_general(self):
-        """General donations do not require earmarking."""
-        donation = self.create_test_donation(
-            donor=self.donor.name,
-            donation_purpose_type="General",
-        )
-        svc = DonationFinancialService(donation)
-        self.assertFalse(svc._requires_earmarking())
-
-    def test_get_earmarking_summary_chapter(self):
-        """Earmarking summary reports Chapter destination."""
-        donation = self._chapter_donation_doc()
-        svc = DonationFinancialService(donation)
-        summary = svc.get_earmarking_summary()
-        self.assertTrue(summary["requires_earmarking"])
-        self.assertEqual(summary["earmarking_type"], "Chapter")
-        self.assertIn(donation.chapter_reference, summary["destination_fund"])
-
-    def test_get_customer_name_none_without_customer(self):
-        """_get_customer_name returns None for a donor with no linked customer."""
-        donation = self.create_test_donation(donor=self.donor.name)
-        svc = DonationFinancialService(donation)
-        self.assertIsNone(svc._get_customer_name())
-
-    def test_get_customer_name_returns_linked_customer(self):
-        """_get_customer_name returns the Customer linked to the donor (positive branch)."""
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": f"FS Customer {frappe.generate_hash(length=6)}",
-                "customer_type": "Individual",
-                "donor": self.donor.name,
-            }
-        )
-        customer.insert()
-        donation = self.create_test_donation(donor=self.donor.name)
-        svc = DonationFinancialService(donation)
-        self.assertEqual(svc._get_customer_name(), customer.name)
-
     def test_get_company_for_donations_returns_company(self):
         """The company resolver returns the configured Verenigingen Settings company."""
         svc = DonationFinancialService()

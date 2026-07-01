@@ -687,28 +687,6 @@ class EBoekhoudenMigration(Document):
                 return {"success": True, "message": result["message"]}
             else:
                 return {"success": False, "message": f"Error: {result.get('error', 'Unknown error')}"}
-
-            # Old implementation below for reference
-            # from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
-            #
-            # # Get Cost Centers data using new API
-            # api = EBoekhoudenAPI(settings)
-            # result = api.get_cost_centers()
-            #
-            # if not result["success"]:
-            #     return f"Failed to fetch Cost Centers: {result['error']}"
-            #
-            # # Parse JSON response
-            # import json
-            # data = json.loads(result["data"])
-            # cost_centers_data = data.get("items", [])
-            #
-            # if self.dry_run:
-            #     return f"Dry Run: Found {len(cost_centers_data)} cost centers to migrate"
-            #
-            # # Create cost centers in ERPNext
-            # created_count = 0
-            # skipped_count = 0
         except Exception as e:
             return {"success": False, "message": f"Error migrating Cost Centers: {str(e)}"}
 
@@ -916,86 +894,6 @@ class EBoekhoudenMigration(Document):
         """
         service = self._get_account_migration_service()
         return service.find_or_create_parent_group(root_type, company)
-
-    def create_cost_center(self, cost_center_data):
-        """Create Cost Center in ERPNext"""
-        try:
-            # Map e-Boekhouden cost center to ERPNext cost center
-            description = cost_center_data.get("description", "")
-            parent_id = cost_center_data.get("parentId", 0)
-            active = cost_center_data.get("active", True)
-
-            if not description:
-                self.log_error("Invalid cost center data: no description")
-                return False
-
-            # Use company from migration record, fallback to settings if not set
-            company = self.company
-            if not company:
-                settings = frappe.get_single("E-Boekhouden Settings")
-                company = settings.default_company
-                if company:
-                    frappe.logger().warning(
-                        f"Migration record has no company set, using default company: {company}"
-                    )
-
-            if not company:
-                self.log_error("No company set on migration record or in E-Boekhouden Settings")
-                return False
-
-            # Check if cost center already exists
-            existing_cc = frappe.db.get_value(
-                "Cost Center", {"cost_center_name": description, "company": company}, "name"
-            )
-            if existing_cc:
-                # Return False but don't log as error - this is expected for existing data
-                return False
-
-            # Determine parent cost center
-            parent_cost_center = None
-            if parent_id and parent_id != 0:
-                # Try to find parent by description (this is simplified - ideally we'd map IDs)
-                parent_cost_center = frappe.db.get_value(
-                    "Cost Center", {"company": company, "is_group": 1}, "name"
-                )
-
-            if not parent_cost_center:
-                # Get the root cost center for the company
-                parent_cost_center = frappe.db.get_value(
-                    "Cost Center", {"company": company, "is_group": 1, "parent_cost_center": ""}, "name"
-                )
-
-            if not parent_cost_center:
-                # Try to create root cost center if it doesn't exist
-                from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix import (
-                    ensure_root_cost_center,
-                )
-
-                parent_cost_center = ensure_root_cost_center(company)
-
-                if not parent_cost_center:
-                    self.log_error(f"Could not create or find root cost center for company {company}")
-                    return False
-
-            # Create new cost center
-            cost_center = frappe.get_doc(
-                {
-                    "doctype": "Cost Center",
-                    "cost_center_name": description,
-                    "parent_cost_center": parent_cost_center,
-                    "company": company,
-                    "is_group": 0,
-                    "disabled": not active,
-                }
-            )
-
-            validate_and_insert(cost_center)
-            frappe.logger().info(f"Created cost center: {description}")
-            return True
-
-        except Exception as e:
-            self.log_error(f"Failed to create cost center {description}: {str(e)}")
-            return False
 
     def create_customer(self, customer_data):
         """Create Customer using RelationMigrationService."""

@@ -13,35 +13,6 @@ import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
-
-def derive_group_code(account_number):
-    """Derive the group code from an account number.
-
-    NOTE: This function is DEPRECATED for e-Boekhouden group matching.
-    E-Boekhouden uses semantic group codes (001-055) that don't correspond
-    to account number prefixes. Use match_account_to_group() instead.
-
-    Args:
-        account_number: The account number string
-
-    Returns:
-        str: The 3-digit group code, or None if cannot be derived
-    """
-    if not account_number:
-        return None
-
-    account_number = str(account_number).strip()
-    numeric_only = "".join(c for c in account_number if c.isdigit())
-
-    if not numeric_only:
-        return None
-
-    if len(numeric_only) < 3:
-        return numeric_only.zfill(3)
-
-    return numeric_only[:3]
-
-
 # Keyword mappings for e-Boekhouden groups
 # Maps group names to keywords that identify accounts belonging to that group
 # Keywords are matched against account names (case-insensitive)
