@@ -16,9 +16,14 @@ def setup_role_profiles():
     """
     Setup role profiles and module profiles for the Verenigingen app.
     This function should be called after installing the fixtures.
+
+    KNOWN DEAD CODE: the "Role Profile" DocType has no ``module_profile`` field
+    (Module Profile links from User, not from Role Profile), so the assignment
+    below is a silent no-op — nothing is persisted despite the success message.
+    Left as-is pending a redesign of module-profile wiring.
     """
 
-    # Assign module profiles to role profiles
+    # Assign module profiles to role profiles (see note above: no-op)
     for role_profile_name, module_profile_name in ROLE_MODULE_MAPPING.items():
         try:
             if frappe.db.exists("Role Profile", role_profile_name):
@@ -55,14 +60,31 @@ def assign_role_profile_to_user(user: str, role_profile: str) -> None:
 
     user_doc = frappe.get_doc("User", user)
 
-    # Check if role profile is already assigned (Frappe v15 uses single field)
-    existing_role_profile = user_doc.get("role_profile_name")
-    if existing_role_profile != role_profile:
-        user_doc.role_profile_name = role_profile
+    # Frappe v16 stores role profiles in the `role_profiles` child table. Setting
+    # the deprecated scalar `role_profile_name` directly is nulled out on save
+    # when that table is empty (User.move_role_profile_name_to_role_profiles), so
+    # the assignment would be silently discarded. Append to the child table
+    # instead; User.sync_role_profile_name then repopulates role_profile_name.
+    already_assigned = any(rp.role_profile == role_profile for rp in user_doc.role_profiles)
+    if not already_assigned:
+        user_doc.append("role_profiles", {"role_profile": role_profile})
         user_doc.save(ignore_permissions=True)
         frappe.msgprint(_("Role Profile {0} assigned to user {1}").format(role_profile, user))
     else:
         frappe.msgprint(_("User {0} already has role profile {1}").format(user, role_profile))
+
+
+def _is_team_leader(volunteer: str) -> bool:
+    """Return True if the volunteer holds a team role flagged as team leader.
+
+    Team-leader status is defined by the linked Team Role's ``is_team_leader``
+    flag (see Team._update_team_lead), NOT the legacy free-text ``role_type``
+    field on Team Member (which is never populated with "Leader").
+    """
+    leader_roles = frappe.get_all("Team Role", filters={"is_team_leader": 1}, pluck="name")
+    if not leader_roles:
+        return False
+    return bool(frappe.db.exists("Team Member", {"volunteer": volunteer, "team_role": ["in", leader_roles]}))
 
 
 def get_recommended_role_profile(user: str) -> str | None:
@@ -87,39 +109,31 @@ def get_recommended_role_profile(user: str) -> str | None:
     if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
         return "Verenigingen System Administrator"
 
-    # 2. Manager roles
+    # 2. Staff roles — a staff member who is also an Accounts User is a
+    #    Treasurer. The treasurer check MUST come first: a plain "staff" branch
+    #    ahead of it would shadow this and make "Verenigingen Treasurer"
+    #    unreachable.
     if Roles.VERENIGINGEN_STAFF in user_roles:
-        return "Verenigingen Staff"
-
-    # 3. Staff roles
-    if Roles.VERENIGINGEN_STAFF in user_roles:
-        # Further check for specific staff roles
         if "Accounts User" in user_roles:
             return "Verenigingen Treasurer"
-        else:
-            return "Verenigingen Staff"
+        return "Verenigingen Staff"
 
-    # 4. Governance roles
+    # 3. Governance roles
     if "Verenigingen Governance Auditor" in user_roles:
         return "Verenigingen Auditor"
 
-    # 5. Chapter Board roles
+    # 4. Chapter Board roles
     if "Verenigingen Chapter Board Member" in user_roles:
         return "Verenigingen Chapter Board Member"
 
-    # 6. Volunteer roles
+    # 5. Volunteer roles
     volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
     if volunteer:
-        # Check if team leader
-        team_member = frappe.db.get_value(
-            "Team Member", {"volunteer": volunteer, "role_type": "Leader"}, "name"
-        )
-        if team_member:
+        if _is_team_leader(volunteer):
             return "Verenigingen Team Leader"
-        else:
-            return "Verenigingen Volunteer"
+        return "Verenigingen Volunteer"
 
-    # 7. Basic member
+    # 6. Basic member
     if "Verenigingen Member" in user_roles:
         return "Verenigingen Member"
 
@@ -178,6 +192,11 @@ def install_fixtures():
     """
     Install the role profile fixtures.
     This should be called during app installation or update.
+
+    KNOWN DEAD CODE: the import below raises ImportError on current Frappe —
+    frappe.desk.page.setup_wizard.install_fixtures no longer exposes an
+    ``install_fixtures`` symbol (only ``install``). This function has no live
+    callers; left as-is (flagged) rather than repaired.
     """
     from frappe.desk.page.setup_wizard.install_fixtures import install_fixtures as install_fixtures_frappe
 
@@ -253,12 +272,13 @@ def setup_role_profiles_cli():
                 # System Administrator
                 if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
                     recommended_profile = "Verenigingen System Administrator"
-                # Manager roles
-                elif Roles.VERENIGINGEN_STAFF in user_roles:
-                    recommended_profile = "Verenigingen Staff"
-                # Staff roles with accounting
+                # Staff roles with accounting — must precede the plain staff
+                # branch, otherwise Treasurer is never reachable.
                 elif Roles.VERENIGINGEN_STAFF in user_roles and "Accounts User" in user_roles:
                     recommended_profile = "Verenigingen Treasurer"
+                # Manager / staff roles
+                elif Roles.VERENIGINGEN_STAFF in user_roles:
+                    recommended_profile = "Verenigingen Staff"
                 # Governance roles
                 elif "Verenigingen Governance Auditor" in user_roles:
                     recommended_profile = "Verenigingen Auditor"
@@ -267,12 +287,8 @@ def setup_role_profiles_cli():
                     recommended_profile = "Verenigingen Chapter Board Member"
                 # Volunteer roles
                 elif frappe.db.get_value("Volunteer", {"member": member.name}, "name"):
-                    # Check if team leader
                     volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
-                    team_member = frappe.db.get_value(
-                        "Team Member", {"volunteer": volunteer, "role_type": "Leader"}, "name"
-                    )
-                    if team_member:
+                    if _is_team_leader(volunteer):
                         recommended_profile = "Verenigingen Team Leader"
                     else:
                         recommended_profile = "Verenigingen Volunteer"
@@ -281,13 +297,14 @@ def setup_role_profiles_cli():
                     recommended_profile = "Verenigingen Member"
 
                 if recommended_profile:
-                    # Check if user already has any verenigingen role profile (Frappe v15 single field)
+                    # Check if user already has any verenigingen role profile.
                     user_doc = frappe.get_doc("User", user)
                     existing_profile = user_doc.get("role_profile_name") or ""
 
                     if not existing_profile.startswith("Verenigingen"):
-                        # Assign the recommended profile
-                        user_doc.role_profile_name = recommended_profile
+                        # Assign via the role_profiles child table (Frappe v16);
+                        # the scalar role_profile_name is nulled out on save.
+                        user_doc.append("role_profiles", {"role_profile": recommended_profile})
                         user_doc.save(ignore_permissions=True)
                         users_updated += 1
                         print(f"✅ Assigned {recommended_profile} to {user} ({member.full_name})")
