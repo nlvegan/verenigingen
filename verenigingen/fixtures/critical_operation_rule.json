@@ -21018,22 +21018,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "setup_production_dd_workflow",
-  "operation_name": "setup_production_dd_workflow",
-  "operation_type": "reporting",
-  "description": "Execute setup production dd workflow operation",
-  "enabled": 1,
-  "security_level": "low",
-  "business_context": "System administration and configuration management",
-  "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-  "rate_limit_calls": 180,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "assign_role_profile_to_user",
   "operation_name": "assign_role_profile_to_user",
   "operation_type": "reporting",
