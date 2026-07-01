@@ -262,13 +262,22 @@ class RateLimitEngine:
         Returns:
             Cache key string
         """
+        # Namespace the counter by site. These keys are read/written via
+        # frappe.cache.incrby / .expire / .get, which are raw redis ops that do
+        # NOT pass through RedisWrapper.make_key (unlike set_value/get_value), so
+        # they carry no site prefix. On a multi-tenant bench sharing one Redis,
+        # an unprefixed key would collapse the same operation/user/IP counter
+        # across every site, letting one tenant exhaust another's rate-limit
+        # budget. Prefix with the site to restore per-site isolation.
+        site = getattr(frappe.local, "site", None) or "unknown-site"
+        prefix = f"cor_rate_limit:{site}:{limit_type}:{operation_name}"
         if scope == "global":
-            return f"cor_rate_limit:{limit_type}:{operation_name}"
+            return prefix
         elif scope == "per_ip":
             client_ip = self._get_client_ip()
-            return f"cor_rate_limit:{limit_type}:{operation_name}:{client_ip}"
+            return f"{prefix}:{client_ip}"
         else:  # per_user (default)
-            return f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
+            return f"{prefix}:{frappe.session.user}"
 
     def _get_client_ip(self) -> str:
         """
