@@ -15,6 +15,7 @@ Architecture:
 """
 
 import time
+from dataclasses import replace as dataclass_replace
 from functools import wraps
 from typing import Any, Callable, Dict, List
 
@@ -885,7 +886,15 @@ def api_security_framework(
 
             # Determine security level
             level = security_level or framework.classify_endpoint(func, operation_type)
-            profile = framework.get_security_profile(level)
+            # SECURITY: copy the profile before applying per-endpoint overrides.
+            # get_security_profile() returns the shared class-level SECURITY_PROFILES
+            # instance; mutating it in place would leak an endpoint's overrides
+            # (allowed_environments, max_request_size) onto every other endpoint that
+            # shares the same SecurityLevel. A dev-only endpoint would poison the LOW
+            # profile's allowed_environments and 403 all self-service/utility endpoints
+            # in production; a custom max_request_size would raise the size limit for
+            # every other MEDIUM endpoint. Copy makes the override request-local.
+            profile = dataclass_replace(framework.get_security_profile(level))
 
             # Override profile settings if specified
             if allowed_environments:
