@@ -188,14 +188,19 @@ class TestClientIPCoverage(VereningingenTestCase):
         self._bind_request("10.0.0.5")
         self.assertEqual(get_client_ip(), "10.0.0.5")
 
-    def test_trusted_proxy_all_hops_trusted_returns_leftmost(self):
-        """If every hop in the chain is a trusted proxy, return the leftmost (per spec)."""
+    def test_trusted_proxy_all_hops_trusted_returns_remote_addr(self):
+        """If every hop in the chain is trusted, return the non-spoofable
+        connecting address, NOT the attacker-controllable leftmost XFF entry.
+
+        Security regression guard (audit #6): the leftmost XFF value can be
+        forged by any client, so returning it would let an attacker match a
+        private-IP allowlist or rotate per-IP rate-limit buckets.
+        """
         self._bind_request(
             "10.0.0.1",
             headers={"X-Forwarded-For": "192.168.1.1, 10.1.1.1, 10.0.0.1"},
         )
-        # All are private/trusted -> leftmost is returned.
-        self.assertEqual(get_client_ip(), "192.168.1.1")
+        self.assertEqual(get_client_ip(), "10.0.0.1")
 
     # ------------------------------------------------------------------
     # get_client_ip_with_info
