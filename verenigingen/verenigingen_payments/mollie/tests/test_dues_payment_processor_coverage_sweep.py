@@ -104,6 +104,38 @@ def _ensure_bank_account_linked(company, gl_account):
     return ba.name
 
 
+def _ensure_clearing_gl_account(company):
+    """Module-scope fixture: a leaf (non-group) Bank GL account for the company.
+
+    A freshly-provisioned EUR test company on a CI runner has no non-group Bank
+    account, so the clearing-account lookup returns None and the processor rejects
+    the config ("Clearing Account not configured"). Create one idempotently so the
+    Mollie clearing/bank-account config resolves on any site.
+    """
+    existing = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+    )
+    if existing:
+        return existing
+    parent = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+    ) or frappe.db.get_value("Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name")
+    return (
+        frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": "Mollie Sweep Clearing GL",
+                "company": company,
+                "parent_account": parent,
+                "account_type": "Bank",
+                "is_group": 0,
+            }
+        )
+        .insert(ignore_permissions=True)
+        .name
+    )
+
+
 def _make_eur_invoice(company, customer, income_account, amount=25.0, *, paid=False):
     """Module-scope fixture: a submitted EUR Sales Invoice (optionally fully paid).
 
@@ -197,9 +229,7 @@ class DuesSweepTestBase(EnhancedTestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.company = get_eur_test_company()
-        cls.clearing_account = frappe.db.get_value(
-            "Account", {"company": cls.company, "account_type": "Bank", "is_group": 0}, "name"
-        )
+        cls.clearing_account = _ensure_clearing_gl_account(cls.company)
         cls.income_account = frappe.db.get_value(
             "Account", {"company": cls.company, "account_type": "Income Account", "is_group": 0}, "name"
         )

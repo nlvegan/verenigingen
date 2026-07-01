@@ -1490,19 +1490,31 @@ class TestPerformanceAndScalability(EnhancedTestCase):
         self.test_company = self._ensure_test_company()
         
     def _ensure_test_company(self):
-        """Ensure test company exists"""
-        company_name = "TEST-Performance-Company"
-        
-        if not frappe.db.exists("Company", company_name):
-            company = frappe.new_doc("Company")
-            company.company_name = company_name
-            company.abbr = "TPC"
-            company.default_currency = "EUR"
-            company.country = "Netherlands"
-            company.insert()
-            return company.name
+        """Ensure test company exists (collision-safe).
 
-        return company_name
+        Reuse an existing company by name OR by abbreviation: ERPNext Company
+        creation commits internally, so a sibling test that created a company
+        with abbr "TPC" leaves it persisted past its own rollback. Inserting a new
+        company with the same abbr then fails ("Abbreviation already used for
+        another company"). Reusing whatever company holds the abbr keeps this
+        heavyweight fixture order-independent (the perf tests only need *a*
+        company to hang accounts/data off of).
+        """
+        company_name = "TEST-Performance-Company"
+
+        existing = frappe.db.get_value("Company", company_name) or frappe.db.get_value(
+            "Company", {"abbr": "TPC"}, "name"
+        )
+        if existing:
+            return existing
+
+        company = frappe.new_doc("Company")
+        company.company_name = company_name
+        company.abbr = "TPC"
+        company.default_currency = "EUR"
+        company.country = "Netherlands"
+        company.insert()
+        return company.name
 
     def _get_or_create_parent_account(self, company: str, root_type: str = "Asset") -> str:
         """Get or create a parent account for test account creation."""

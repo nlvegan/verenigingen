@@ -232,13 +232,19 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
 
     def test_invoice_already_paid(self):
         # Pay it off first by creating the Payment Entry, then call again.
+        # Pay the invoice's ACTUAL outstanding (not a hardcoded 25): a sibling
+        # test in the same shard can leak a default/item tax onto _Test Company,
+        # inflating grand_total above `rate`, so the amount that fully settles the
+        # invoice is only knowable at runtime.
         self.service._settings = {"ing_checkout_bank_account": TEST_BANK_ACCOUNT}
+        self.invoice.reload()
+        outstanding = flt(self.invoice.outstanding_amount)
         first = self.service.create_payment_entry_for_transaction(
             transaction_name="TXN-1",
             transaction_id="EX-1",
             reference_doctype="Sales Invoice",
             reference_name=self.invoice.name,
-            amount=25.00,
+            amount=outstanding,
         )
         self.assertTrue(first["success"], msg=first["error"])
 
@@ -254,12 +260,16 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
 
     def test_happy_path_creates_and_submits_payment_entry(self):
         self.service._settings = {"ing_checkout_bank_account": TEST_BANK_ACCOUNT}
+        # Pay the actual outstanding so the invoice fully settles regardless of
+        # any tax leaked onto the fixture by a sibling test (see the
+        # already-paid test for the rationale).
+        self.invoice.reload()
         result = self.service.create_payment_entry_for_transaction(
             transaction_name="TXN-OK",
             transaction_id="EX-OK-123",
             reference_doctype="Sales Invoice",
             reference_name=self.invoice.name,
-            amount=25.00,
+            amount=flt(self.invoice.outstanding_amount),
         )
         self.assertTrue(result["success"], msg=result["error"])
         self.assertTrue(result["payment_entry"])
@@ -275,21 +285,26 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
 
     def test_overpayment_detected_and_allocation_capped(self):
         self.service._settings = {"ing_checkout_bank_account": TEST_BANK_ACCOUNT}
-        # Pay 40 against a 25 invoice -> 15 overpayment, allocation capped at 25.
+        # Pay (outstanding + 15) -> 15 overpayment, allocation capped at the
+        # outstanding. Derive from the actual outstanding rather than a hardcoded
+        # 25 so a sibling test's leaked tax can't break the exact math.
+        self.invoice.reload()
+        outstanding = flt(self.invoice.outstanding_amount)
         result = self.service.create_payment_entry_for_transaction(
             transaction_name="TXN-OVER",
             transaction_id="EX-OVER",
             reference_doctype="Sales Invoice",
             reference_name=self.invoice.name,
-            amount=40.00,
+            amount=outstanding + 15.00,
         )
         self.assertTrue(result["success"], msg=result["error"])
         self.assertEqual(flt(result["overpayment"]), 15.00)
 
         pe = frappe.get_doc("Payment Entry", result["payment_entry"])
-        # Allocation against the invoice is capped at the outstanding (25), not 40.
+        # Allocation against the invoice is capped at the outstanding, not the
+        # full paid amount.
         allocated = sum(flt(r.allocated_amount) for r in pe.references)
-        self.assertEqual(allocated, 25.00)
+        self.assertEqual(allocated, outstanding)
 
 
 class TestAlertDelegation(FrappeTestCase):
