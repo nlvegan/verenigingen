@@ -1199,29 +1199,24 @@ def can_view_financial_info(doctype, name=None, user=None):
     if target_member.user == user:
         return True
 
-    # Check if viewer is a board member with financial permissions
-    # Query chapter membership for permission checking (security-critical query)
-    from verenigingen.utils.secure_operations import secure_document_operation
-
-    # Use a controlled query approach for permission checking
+    # Check if viewer is a board member with financial permissions.
+    # This is an INTERNAL permission-evaluation lookup: we read the target member's
+    # chapter memberships to decide whether the viewer may see their financial info,
+    # independent of the viewer's own read rights on Chapter Member.
+    #
+    # (The previous secure_document_operation wrapper passed a plain dict as its
+    # "doc" argument; secure_document_operation builds an operation id from
+    # doc.doctype, so a dict raised AttributeError before any query ran — the
+    # except below then returned False for EVERY caller, wrongly denying legitimate
+    # board members. This is the same defect already fixed in can_terminate_member.)
     try:
-        # Secure permission evaluation query - use controlled database access for permission checking
-        result = secure_document_operation(
-            operation="query",
-            doc={"doctype": "Chapter Member", "filters": {"member": target_member.name, "enabled": 1}},
-            justification=f"Permission evaluation query to check financial info access for member {target_member.name} by user {user} - security-critical permission determination",
-            required_permissions=["Chapter Member:read"],
+        target_member_chapters = frappe.get_all(
+            "Chapter Member",
+            filters={"member": target_member.name, "enabled": 1},
+            fields=["parent"],
+            order_by="chapter_join_date desc",
+            limit=1,
         )
-        if result.success:
-            target_member_chapters = frappe.get_all(
-                "Chapter Member",
-                filters={"member": target_member.name, "enabled": 1},
-                fields=["parent"],
-                order_by="chapter_join_date desc",
-                limit=1,
-            )
-        else:
-            target_member_chapters = []
     except Exception as e:
         frappe.logger().error(f"Permission check query failed for member {target_member.name}: {str(e)}")
         return False
