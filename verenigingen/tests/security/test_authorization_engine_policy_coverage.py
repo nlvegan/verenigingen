@@ -90,15 +90,44 @@ class TestAuthorizationPolicy(VereningingenTestCase):
         self.assertIn("Verenigingen Treasurer", result.auth_path)
 
     def test_rule_5_individual_role_matches_profile_name(self):
-        """No matching profile, but an individual role name matches a mapping key."""
+        """No matching profile, but an individual role name matches a mapping key.
+
+        Rule 5 is capped at MEDIUM (see below), so it grants MEDIUM but not HIGH.
+        """
         result = self.policy.decide(
-            required_level=SecurityLevel.HIGH,
+            required_level=SecurityLevel.MEDIUM,
             user_profiles=[],
             user_roles=["Verenigingen Staff"],
             is_authenticated=True,
         )
         self.assertTrue(result.granted)
         self.assertEqual(result.rule_matched, "rule_5_individual_role")
+
+    def test_rule_5_individual_role_cannot_reach_high(self):
+        """SECURITY: a bare role must NOT grant HIGH (member-data) access.
+
+        Staff maps to HIGH in the mapping, but without an assigned role profile
+        the HIGH tier requires Rule 4 — Rule 5 is capped at MEDIUM, so this denies.
+        """
+        result = self.policy.decide(
+            required_level=SecurityLevel.HIGH,
+            user_profiles=[],
+            user_roles=["Verenigingen Staff"],
+            is_authenticated=True,
+        )
+        self.assertFalse(result.granted)
+        self.assertEqual(result.rule_matched, "rule_7_deny")
+
+    def test_rule_5_individual_role_cannot_reach_critical(self):
+        """SECURITY: a bare admin role must NOT grant CRITICAL (financial/admin) access."""
+        result = self.policy.decide(
+            required_level=SecurityLevel.CRITICAL,
+            user_profiles=[],
+            user_roles=["Verenigingen Administrator"],
+            is_authenticated=True,
+        )
+        self.assertFalse(result.granted)
+        self.assertEqual(result.rule_matched, "rule_7_deny")
 
     def test_rule_6_system_manager_gets_medium(self):
         """System Manager has no profile mapping but is granted MEDIUM by rule 6."""
