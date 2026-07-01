@@ -65,8 +65,13 @@ def generate_webhook_user_email():
     """Generate a unique webhook user email based on site name"""
     try:
         site_name = frappe.conf.site_name or frappe.local.site
-        # Clean the site name for email usage
-        clean_site = site_name.replace(".", "-").replace("_", "-")
+        # Clean the site name for use as an email domain. Dots MUST be preserved
+        # (a dot-less domain like "veg11-veganisme-org" fails Frappe's email
+        # validation); only underscores (invalid in domains) are replaced, and a
+        # ".local" suffix is appended when the site name has no dot at all.
+        clean_site = site_name.replace("_", "-")
+        if "." not in clean_site:
+            clean_site = f"{clean_site}.local"
         webhook_email = f"webhook-user@{clean_site}"
 
         # Ensure uniqueness by adding suffix if needed
@@ -143,8 +148,17 @@ def assign_webhook_roles(webhook_email):
             # Add the webhook role
             user_doc.append("roles", {"role": "Verenigingen Webhook User"})
 
-        # Set the role profile
-        user_doc.role_profile_name = "Verenigingen Webhook User"
+        # Set the role profile. Frappe v16 moved role profiles to the
+        # `role_profiles` child table; setting the deprecated scalar
+        # `role_profile_name` directly is nulled out on save when the child
+        # table is empty (User.move_role_profile_name_to_role_profiles). We must
+        # append to `role_profiles` instead — User.sync_role_profile_name then
+        # repopulates role_profile_name from it for display/verification.
+        has_role_profile = any(
+            rp.role_profile == "Verenigingen Webhook User" for rp in user_doc.role_profiles
+        )
+        if not has_role_profile:
+            user_doc.append("role_profiles", {"role_profile": "Verenigingen Webhook User"})
         user_doc.module_profile = "Verenigingen Webhook User"
 
         user_doc.save(ignore_permissions=True)
