@@ -28,7 +28,6 @@ def create_default_email_templates():
                 "doctype": "Email Template",
                 "name": "membership_application_rejected",
                 "subject": "Membership Application Update - {{ member_name }}",
-                "enabled": 1,
                 "response": """
 <h3>Membership Application Update</h3>
 
@@ -59,7 +58,6 @@ def create_default_email_templates():
                 "doctype": "Email Template",
                 "name": "membership_rejection_incomplete",
                 "subject": "Membership Application - Additional Information Required - {{ member_name }}",
-                "enabled": 1,
                 "response": """
 <h3>Membership Application - Additional Information Required</h3>
 
