@@ -98,7 +98,10 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         btw_code = regel.get("vatCode") or regel.get("BTWCode")
         # CRITICAL: ledgerId is E-Boekhouden's internal ID, must resolve to ledger_code
         raw_account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
-        account_code = resolve_ledger_code(raw_account_code, debug_info)
+        # Pass debug_info by keyword: it is the 3rd param, not the 2nd (`company`).
+        # Passing it positionally fed the debug list in as the company filter and
+        # silently dropped debug messages.
+        account_code = resolve_ledger_code(raw_account_code, debug_info=debug_info)
         # Handle quantity and amount properly
         # E-Boekhouden stores: amount field (can be positive or negative)
         # ERPNext expects: rate (always positive) × quantity (sign determines debit/credit)
