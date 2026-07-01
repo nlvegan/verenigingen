@@ -928,10 +928,15 @@ def api_security_framework(
                         implicit_allowed=self_service_implicit_allowed, **self_service_kwargs
                     )
 
-                    # Enhanced content validation for TOCTOU protection
+                    # Enhanced content validation for TOCTOU protection.
+                    # Resolve the caller's member with the canonical user-first
+                    # resolver (Member.user, then Member.email) — matching the
+                    # ownership gate. An email-only lookup silently skipped this
+                    # deep check for members whose Member.user differs from their
+                    # login email, disabling TOCTOU protection for that class of user.
                     current_user = frappe.session.user
                     if current_user not in ("Administrator", "Guest"):
-                        user_member = frappe.db.get_value("Member", {"email": current_user}, "name")
+                        user_member = framework.self_service_controller.get_user_member(current_user)
                         if user_member:
                             framework._validate_self_service_request_content(user_member, **kwargs)
 
@@ -1250,6 +1255,16 @@ def self_service_api(
         - Authentication required (rejects Guest)
         - LOW security level — any authenticated user passes auth
         - self_service_only=True — caller's member must match the target
+
+    OWNERSHIP CONTRACT (important):
+        The framework only understands member/volunteer identifiers (member,
+        member_name, member_id, volunteer[/_name/_id]). If your endpoint decides
+        what to act on from a DIFFERENT identifier — customer, donor, membership,
+        mandate, payment_plan, a bare `name`, etc. — the framework CANNOT verify
+        ownership of it, and (with implicit_allowed=True) the call is admitted as
+        implicit self-service. Such endpoints MUST perform their own ownership
+        check (resolve the entity to a member and compare to the session user).
+        All current implicit_allowed endpoints do this; keep it that way.
 
     Args:
         operation_type: Classification for rate limiting / audit context
