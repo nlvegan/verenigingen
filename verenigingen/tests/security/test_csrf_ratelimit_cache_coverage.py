@@ -148,6 +148,24 @@ class TestCSRFProtectionCoverage(VereningingenTestCase):
         self._bind_request(method="POST", headers={"X-Frappe-CSRF-Token": "good-token"})
         self.assertTrue(CSRFProtection.validate_request())
 
+    def test_validate_request_rejects_when_only_session_token_present(self):
+        """Security regression (audit #9): a request that omits the CSRF
+        header/field must be rejected even when the session holds a token.
+
+        Previously get_token_from_request fell back to the session's own token,
+        so validate_request compared it against itself and always passed -
+        defeating CSRF protection for any request that simply sent no token.
+        """
+        self._disable_harness_csrf_mock()
+        if frappe.conf.get("ignore_csrf"):
+            self.skipTest("ignore_csrf is enabled in this site config")
+        frappe.session.data["csrf_token"] = "session-secret"
+        self.addCleanup(lambda: frappe.session.data.pop("csrf_token", None))
+        self._bind_request(method="POST", headers={})
+        frappe.form_dict.pop("csrf_token", None)
+        with self.assertRaises(CSRFError):
+            CSRFProtection.validate_request()
+
     # ---- whitelisted API endpoints ----
     def test_get_csrf_token_api_returns_token_payload(self):
         result = get_csrf_token()
@@ -257,7 +275,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             self.assertEqual(result.max_calls, fallback)
             self.addCleanup(
                 lambda: frappe.cache().delete(
-                    f"cor_rate_limit:{result.limit_type}:no_such_operation_zzz:{frappe.session.user}"
+                    f"cor_rate_limit:{frappe.local.site}:{result.limit_type}:no_such_operation_zzz:{frappe.session.user}"
                 )
             )
 
@@ -328,15 +346,18 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
     # ---- _build_cache_key scopes ----
     def test_build_cache_key_global(self):
         key = self.engine._build_cache_key("op", "global", "interactive")
-        self.assertEqual(key, "cor_rate_limit:interactive:op")
+        # Keys are site-namespaced (audit #7) to isolate counters on shared Redis.
+        self.assertEqual(key, f"cor_rate_limit:{frappe.local.site}:interactive:op")
 
     def test_build_cache_key_per_user(self):
         key = self.engine._build_cache_key("op", "per_user", "interactive")
-        self.assertEqual(key, f"cor_rate_limit:interactive:op:{frappe.session.user}")
+        self.assertEqual(
+            key, f"cor_rate_limit:{frappe.local.site}:interactive:op:{frappe.session.user}"
+        )
 
     def test_build_cache_key_per_ip(self):
         key = self.engine._build_cache_key("op", "per_ip", "interactive")
-        self.assertTrue(key.startswith("cor_rate_limit:interactive:op:"))
+        self.assertTrue(key.startswith(f"cor_rate_limit:{frappe.local.site}:interactive:op:"))
         # The IP segment comes from get_client_ip(); off-request that's "test_environment".
         self.assertIn(self.engine._get_client_ip(), key)
 
@@ -356,7 +377,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             rate_limit_scope="per_user",
             security_level="medium",
         )
-        key = "cor_rate_limit:batch:test_cov_batch_e2e_op:" + frappe.session.user
+        key = f"cor_rate_limit:{frappe.local.site}:batch:test_cov_batch_e2e_op:" + frappe.session.user
         frappe.cache().delete(key)
         self.addCleanup(lambda: frappe.cache().delete(key))
 
@@ -390,7 +411,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             rate_limit_scope="per_user",
             security_level="medium",
         )
-        key = "cor_rate_limit:interactive:test_cov_enforce_op:" + frappe.session.user
+        key = f"cor_rate_limit:{frappe.local.site}:interactive:test_cov_enforce_op:" + frappe.session.user
         frappe.cache().delete(key)
         self.addCleanup(lambda: frappe.cache().delete(key))
 
@@ -424,7 +445,7 @@ class TestRateLimitEngineCoverage(VereningingenTestCase):
             rate_limit_scope="per_user",
             security_level="medium",
         )
-        key = "cor_rate_limit:interactive:test_cov_headers_op:" + frappe.session.user
+        key = f"cor_rate_limit:{frappe.local.site}:interactive:test_cov_headers_op:" + frappe.session.user
         frappe.cache().delete(key)
         self.addCleanup(lambda: frappe.cache().delete(key))
 

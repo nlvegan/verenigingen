@@ -97,13 +97,20 @@ class TestAPISecurityFramework(VereningingenTestCase):
             with self.assertRaises(Exception):
                 self.framework.validate_authentication(profile)
 
-        # Test authenticated user acceptance
+        # Test authenticated user acceptance. HIGH access requires an assigned
+        # role PROFILE (Rule 4) — a bare role no longer grants HIGH (audit #2),
+        # so mock the role-profile resolution, not just frappe.get_roles.
         # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
             # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
-                result = self.framework.validate_authentication(profile)
-                self.assertTrue(result)
+                with patch.object(
+                    self.framework.auth_engine,
+                    "get_user_role_profiles",
+                    return_value=["Verenigingen Administrator"],
+                ):
+                    result = self.framework.validate_authentication(profile)
+                    self.assertTrue(result)
 
     def test_request_method_validation(self):
         """Test HTTP method validation"""
@@ -188,14 +195,20 @@ class TestSecurityDecorators(VereningingenTestCase):
         self.assertTrue(hasattr(test_function, "_security_protected"))
         self.assertEqual(test_function._security_level, SecurityLevel.HIGH)
 
-        # Test function execution with valid parameters
+        # Test function execution with valid parameters. HIGH requires a role
+        # profile (Rule 4) post audit #2, so mock the profile resolution too.
         # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
             # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
-                result = test_function("value1", param2="value2")
-                self.assertEqual(result["param1"], "value1")
-                self.assertEqual(result["param2"], "value2")
+                with patch.object(
+                    get_security_framework().auth_engine,
+                    "get_user_role_profiles",
+                    return_value=["Verenigingen Administrator"],
+                ):
+                    result = test_function("value1", param2="value2")
+                    self.assertEqual(result["param1"], "value1")
+                    self.assertEqual(result["param2"], "value2")
 
     def test_frappe_dict_result_serialised_as_is(self):
         """Regression: a frappe._dict return value must NOT crash the wrapper.
@@ -582,16 +595,23 @@ class TestIntegrationSecurity(VereningingenTestCase):
         def test_secured_endpoint(member_id, **data):
             return {"success": True, "member_id": member_id, "data": data}
 
-        # Mock user session
+        # Mock user session. HIGH requires a role profile (Rule 4) post audit #2.
         # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
             # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
-                # Test successful execution
-                result = test_secured_endpoint("TEST-001", name="Test Member", email="test@example.com")
+                with patch.object(
+                    get_security_framework().auth_engine,
+                    "get_user_role_profiles",
+                    return_value=["Verenigingen Administrator"],
+                ):
+                    # Test successful execution
+                    result = test_secured_endpoint(
+                        "TEST-001", name="Test Member", email="test@example.com"
+                    )
 
-                self.assertTrue(result["success"])
-                self.assertEqual(result["member_id"], "TEST-001")
+                    self.assertTrue(result["success"])
+                    self.assertEqual(result["member_id"], "TEST-001")
 
     def test_security_failure_handling(self):
         """Test security failure handling and error responses"""
@@ -804,11 +824,14 @@ class TestScopedRateLimiting(VereningingenTestCase):
             self.assertEqual(saved_cor.rate_limit_scope, "global")
             self.assertEqual(saved_cor.batch_rate_limit_calls, 100)
 
-            # Verify the expected cache key structure
-            expected_cache_key = f"cor_rate_limit:interactive:{unique_op}"
+            # Verify the expected cache key structure (site-namespaced, audit #7).
+            expected_cache_key = self.framework.rate_limiter._build_cache_key(
+                unique_op, "global", "interactive"
+            )
             self.assertIn("cor_rate_limit", expected_cache_key)
             self.assertIn("interactive", expected_cache_key)
             self.assertIn(unique_op, expected_cache_key)
+            self.assertIn(frappe.local.site, expected_cache_key)
 
             # Verify context detection works
             with patch.object(self.framework, '_detect_execution_context', return_value=ExecutionContext.INTERACTIVE):

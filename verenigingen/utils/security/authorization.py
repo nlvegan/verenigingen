@@ -426,25 +426,42 @@ class SEPAAuthorizationManager:
 
             return True
 
-        except Exception:
-            # If timezone check fails, allow operation
-            return True
+        except Exception as e:
+            # Fail CLOSED: business-hours is an opt-in restriction, so if it
+            # cannot be evaluated we deny rather than silently allowing access
+            # outside the intended window.
+            frappe.logger("verenigingen.sepa_auth").warning(f"BUSINESS_HOURS_CHECK_FAILED (denying): {e}")
+            return False
 
     def _check_ip_restrictions(self) -> bool:
         """Check if current IP is allowed for restricted operations"""
         if not self.allowed_ips:
             return True  # No restrictions configured
 
+        # Non-HTTP contexts (background jobs, scheduler, CLI/console) have no
+        # source IP; an IP allowlist governs the network origin of HTTP requests,
+        # so it does not apply to these contexts.
+        if not getattr(frappe.local, "request", None):
+            return True
+
         try:
             current_ip = getattr(frappe.local, "request_ip", None)
             if not current_ip:
-                return True  # Can't determine IP, allow operation
+                # An HTTP request under an active allowlist whose source IP cannot
+                # be determined must be denied (fail closed) - otherwise the
+                # allowlist is trivially bypassed by suppressing the IP.
+                frappe.logger("verenigingen.sepa_auth").warning(
+                    "IP_RESTRICTION_DENIED: HTTP request with no determinable source IP"
+                )
+                return False
 
             # Check if IP is in allowed list
             return current_ip in self.allowed_ips
 
-        except Exception:
-            return True  # If IP check fails, allow operation
+        except Exception as e:
+            # Fail CLOSED on any error while an allowlist is active.
+            frappe.logger("verenigingen.sepa_auth").warning(f"IP_RESTRICTION_CHECK_FAILED (denying): {e}")
+            return False
 
     def _check_batch_permissions(self, context: Dict[str, Any], user: str) -> bool:
         """Check batch-specific permissions"""
