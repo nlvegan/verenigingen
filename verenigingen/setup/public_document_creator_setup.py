@@ -93,11 +93,20 @@ def ensure_public_creator_role_exists():
         )
         role_doc.insert(ignore_permissions=True)
 
-        # Set up minimal permissions for the role
+        # Set up minimal permissions for the role.
+        #
+        # NOTE: the target doctype for each permission is keyed as "parent" (the
+        # Custom DocPerm field that links to the DocType), NOT "doctype". Using
+        # "doctype" here would collide with the "doctype": "Custom DocPerm" key in
+        # frappe.get_doc({...}) below (dict spread lets the later key win), which
+        # would attempt to insert a Donor/Donation/etc. document with permission
+        # fields instead of a Custom DocPerm row.
+        managed_doctypes = ["Donor", "Donation", "Member", "Address", "Contact"]
         permissions_to_create = [
-            # Donor management for donations
             {
-                "doctype": "Donor",
+                "parent": doctype,
+                "parenttype": "DocType",
+                "parentfield": "permissions",
                 "role": PUBLIC_CREATOR_ROLE,
                 "permlevel": 0,
                 "read": 1,
@@ -106,62 +115,15 @@ def ensure_public_creator_role_exists():
                 "delete": 0,
                 "submit": 0,
                 "cancel": 0,
-            },
-            # Donation records
-            {
-                "doctype": "Donation",
-                "role": PUBLIC_CREATOR_ROLE,
-                "permlevel": 0,
-                "read": 1,
-                "write": 1,
-                "create": 1,
-                "delete": 0,
-                "submit": 0,
-                "cancel": 0,
-            },
-            # Member records for applications
-            {
-                "doctype": "Member",
-                "role": PUBLIC_CREATOR_ROLE,
-                "permlevel": 0,
-                "read": 1,
-                "write": 1,
-                "create": 1,
-                "delete": 0,
-                "submit": 0,
-                "cancel": 0,
-            },
-            # Address records
-            {
-                "doctype": "Address",
-                "role": PUBLIC_CREATOR_ROLE,
-                "permlevel": 0,
-                "read": 1,
-                "write": 1,
-                "create": 1,
-                "delete": 0,
-                "submit": 0,
-                "cancel": 0,
-            },
-            # Contact records (may be needed for member creation)
-            {
-                "doctype": "Contact",
-                "role": PUBLIC_CREATOR_ROLE,
-                "permlevel": 0,
-                "read": 1,
-                "write": 1,
-                "create": 1,
-                "delete": 0,
-                "submit": 0,
-                "cancel": 0,
-            },
+            }
+            for doctype in managed_doctypes
         ]
 
         for perm in permissions_to_create:
             # Check if permission already exists
             existing = frappe.db.exists(
                 "Custom DocPerm",
-                {"parent": perm["doctype"], "role": perm["role"], "permlevel": perm["permlevel"]},
+                {"parent": perm["parent"], "role": perm["role"], "permlevel": perm["permlevel"]},
             )
             if not existing:
                 perm_doc = frappe.get_doc({"doctype": "Custom DocPerm", **perm})
@@ -181,7 +143,12 @@ def generate_public_creator_email():
     """Generate a unique email for the public document creator user"""
     try:
         site_name = frappe.conf.site_name or frappe.local.site
-        clean_site = site_name.replace(".", "-").replace("_", "-")
+        # Keep the dots: a Frappe site name is an FQDN, which is already a valid
+        # email domain. Replacing "." with "-" produced a dotless domain (e.g.
+        # "veg11-veganisme-org") that Frappe rejects as an invalid email address,
+        # making user creation — and thus the whole setup — fail. Only underscores
+        # (illegal in a hostname) need sanitising.
+        clean_site = site_name.replace("_", "-")
         user_email = f"public-creator@{clean_site}"
 
         counter = 1
