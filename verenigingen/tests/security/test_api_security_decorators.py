@@ -63,6 +63,38 @@ class TestAPISecurityDecorators(EnhancedTestCase):
             )
         }
 
+        self._grant_tier_role_profiles()
+
+    def _grant_tier_role_profiles(self):
+        """Map test users to role PROFILES so HIGH/CRITICAL gates can pass.
+
+        After the audit #2 Rule-5 cap, HIGH and CRITICAL are PROFILE_ONLY_LEVELS:
+        a bare role (even System Manager) caps at MEDIUM, and access to those tiers
+        is granted only through an assigned role profile (see
+        authorization_policy.ROLE_PROFILE_SECURITY_MAPPING). The decorator resolves
+        profiles via the auth engine's get_user_role_profiles, so mock that here to
+        give each test user the profile matching the tier its bare roles used to
+        imply. MEDIUM/LOW are NOT profile-only, so auditor/member keep working off
+        their bare roles (empty profile list) — preserving the denial assertions.
+        """
+        profiles_by_user = {
+            self.test_users['admin'].email: ["Verenigingen System Administrator"],  # CRITICAL
+            self.test_users['manager'].email: ["Verenigingen Staff"],  # HIGH
+        }
+
+        def _resolve_profiles(user=None):
+            resolved = user or frappe.session.user
+            return profiles_by_user.get(resolved, [])
+
+        # Mock justified: Infrastructure - role-profile resolution, not the boundary under test
+        patcher = patch.object(
+            self.security_framework.auth_engine,
+            "get_user_role_profiles",
+            side_effect=_resolve_profiles,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_standard_api_decorator_patterns(self):
         """Test all usage patterns of @standard_api decorator"""
         
