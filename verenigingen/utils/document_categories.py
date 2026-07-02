@@ -44,6 +44,18 @@ def _get_categories_from_settings() -> dict[str, str]:
     return dict(_FALLBACK_CATEGORIES)
 
 
+def _format_category_options() -> str:
+    """Build the newline-separated Select options string.
+
+    Undecorated core so internal callers (install/migrate lifecycle hooks,
+    Settings save) can invoke it without triggering the whitelisted endpoint's
+    auth/rate-limit stack. The rate limiter fails closed when its COR fixture
+    is not yet loaded (e.g. during install), which would abort the install.
+    """
+    categories = _get_categories_from_settings()
+    return "\n".join(categories.keys())
+
+
 @frappe.whitelist()
 @utility_api(operation_type=OperationType.UTILITY)
 def get_document_category_options():
@@ -51,8 +63,7 @@ def get_document_category_options():
     Get all available document categories for select fields.
     Returns newline-separated options for Frappe Select fields.
     """
-    categories = _get_categories_from_settings()
-    return "\n".join(categories.keys())
+    return _format_category_options()
 
 
 def get_category_icons() -> dict[str, str]:
@@ -91,7 +102,7 @@ def sync_category_options_to_doctypes():
     forms, list views, bulk edit, standard filters, and Report Builder.
     Call this whenever Verenigingen Settings is saved.
     """
-    options_str = get_document_category_options()
+    options_str = _format_category_options()
 
     for doctype, fieldname, leading_blank in _SYNCED_FIELDS:
         value = ("\n" + options_str) if leading_blank else options_str

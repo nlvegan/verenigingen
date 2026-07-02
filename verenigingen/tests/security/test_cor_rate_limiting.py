@@ -284,6 +284,62 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                     )
                     frappe.db.commit()
 
+    def test_maintenance_flags_bypass_rate_limit(self):
+        """Install/migrate/patch phases must skip the fail-closed COR lookup.
+
+        The COR fixture (_generic_api_fallback) is loaded by sync_fixtures, which
+        runs AFTER after_install hooks and after patches. A security-decorated
+        function reached from a lifecycle hook or patch would otherwise raise
+        "No rate limiting configuration found" and abort the install/migrate.
+        With no COR configured, each maintenance flag must yield an allowed
+        result rather than raising.
+        """
+        operation_name = "nonexistent_operation_during_setup"
+
+        with self.set_user("Administrator"):
+            original_in_test = getattr(frappe.flags, "in_test", False)
+            fallback_cor = None
+            fallback_was_enabled = False
+
+            try:
+                frappe.flags.in_test = False
+
+                # Disable the generic fallback so the fail-closed branch is the
+                # only thing that could stop us.
+                fallback_cor = frappe.db.get_value(
+                    "Critical Operation Rule",
+                    {"operation_name": "_generic_api_fallback"},
+                    "name",
+                )
+                if fallback_cor:
+                    fallback_was_enabled = frappe.db.get_value(
+                        "Critical Operation Rule", fallback_cor, "enabled"
+                    )
+                    frappe.db.set_value("Critical Operation Rule", fallback_cor, "enabled", 0)
+                    frappe.db.commit()
+
+                for flag in ("in_install", "in_migrate", "in_patch"):
+                    with mock_http_request():
+                        original_flag = getattr(frappe.flags, flag, False)
+                        try:
+                            setattr(frappe.flags, flag, True)
+                            result = self.framework.rate_limiter.check_rate_limit(
+                                operation_name,
+                                context=ExecutionContext.INTERACTIVE,
+                            )
+                            self.assertTrue(
+                                result.allowed,
+                                f"rate limit should be bypassed while frappe.flags.{flag} is set",
+                            )
+                        finally:
+                            setattr(frappe.flags, flag, original_flag)
+
+            finally:
+                frappe.flags.in_test = original_in_test
+                if fallback_cor and fallback_was_enabled:
+                    frappe.db.set_value("Critical Operation Rule", fallback_cor, "enabled", 1)
+                    frappe.db.commit()
+
     def test_cor_rate_limit_headers_generation(self):
         """Verify that rate limit headers are generated correctly"""
         operation_name = "test_rate_limit_headers"
