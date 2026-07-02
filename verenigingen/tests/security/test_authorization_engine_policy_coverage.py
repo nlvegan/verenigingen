@@ -238,6 +238,14 @@ class TestAuthorizationEngine(VereningingenTestCase):
             result = self.engine.authorize(None, SecurityLevel.HIGH)
         self.assertTrue(result.granted)
 
+    def test_authorize_administrator_break_glass(self):
+        """The literal Administrator bootstrap account is granted every level
+        (Rule 0) without any role profile -- break-glass / bootstrap identity."""
+        for level in (SecurityLevel.CRITICAL, SecurityLevel.HIGH, SecurityLevel.MEDIUM):
+            result = self.engine.authorize("Administrator", level)
+            self.assertTrue(result.granted, f"Administrator should be granted {level.value}")
+            self.assertEqual(result.rule_matched, "rule_0_administrator_break_glass")
+
     def test_authorize_guest_denied_for_low(self):
         """Guest is unauthenticated -> rule 2 denial even for LOW."""
         with self.as_user("Guest"):

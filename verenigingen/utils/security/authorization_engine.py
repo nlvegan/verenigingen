@@ -64,6 +64,26 @@ class AuthorizationEngine:
         if not user:
             user = frappe.session.user
 
+        # ===== RULE 0: Administrator break-glass =====
+        # The singular `Administrator` bootstrap account is omnipotent, consistent
+        # with Frappe's own platform semantics (has_permission / only_for /
+        # ignore_permissions all treat it as superuser). It is the break-glass and
+        # bootstrap identity: install, migrate, and disaster recovery all run as
+        # Administrator and must be able to reach business logic. Denying it would
+        # create an UNRECOVERABLE lockout if role-profile provisioning ever fails
+        # closed (see get_user_role_profiles' own history of silent fail-closed
+        # regressions) -- the recovery account must not depend on the same data path
+        # it may need to repair. NOTE: this exception is ONLY the literal
+        # Administrator user; every real role, System Manager included, still needs a
+        # vetted role profile for HIGH/CRITICAL access (Rules 4-6 in the policy).
+        if user == "Administrator":
+            return AuthResult(
+                granted=True,
+                rule_matched="rule_0_administrator_break_glass",
+                auth_path="administrator",
+                reason="Administrator bootstrap account has break-glass access",
+            )
+
         # Fetch user data (I/O layer)
         user_profiles = self.get_user_role_profiles(user)
         user_roles = frappe.get_roles(user)
