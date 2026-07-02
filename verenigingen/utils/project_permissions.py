@@ -590,6 +590,12 @@ def get_user_project_teams(user: str | None = None):
     """
     if not user:
         user = frappe.session.user
+    elif user != frappe.session.user:
+        # Querying another user's team/chapter/project access is an enumeration
+        # vector; restrict cross-user lookups to privileged roles.
+        privileged = {"System Manager", "Verenigingen Administrator", "Verenigingen System Administrator"}
+        if not privileged.intersection(frappe.get_roles()):
+            frappe.throw(_("Not permitted to view another user's project access"), frappe.PermissionError)
 
     try:
         # Use cached helper function (replaces 2 queries with 1)
