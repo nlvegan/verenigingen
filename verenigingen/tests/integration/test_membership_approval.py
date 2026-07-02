@@ -140,6 +140,12 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             email=f"approval.admin.{admin_unique_id}@example.com",
             roles=["System Manager", "Verenigingen Administrator"]
         )
+        # Post the Rule-5 cap, HIGH/CRITICAL access needs an assigned role PROFILE.
+        # Grant the admin the matching profile so approval endpoints admit it; the
+        # limited Member user created per-test keeps no profile and stays denied.
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(self.admin_user.email, "Verenigingen Administrator")
 
     def test_complete_membership_approval_workflow(self):
         """Test end-to-end membership approval workflow with real database operations"""

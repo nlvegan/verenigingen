@@ -56,6 +56,13 @@ class TestMollieWwwPagesCoverage(VereningingenTestCase):
             )
             user.insert(ignore_permissions=True)
             self.track_doc("User", user.name)
+
+        # Post the Rule-5 cap, HIGH/CRITICAL access needs an assigned role PROFILE.
+        # Assign the profile matching each role so the admin user clears the page
+        # endpoints' gate; Member maps to LOW and stays correctly denied.
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(email, roles)
         return email
 
     # ===== mollie_subscription_audit.get_context =====
