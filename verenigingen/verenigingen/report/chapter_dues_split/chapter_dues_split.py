@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_first_day, get_last_day, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.verenigingen.domain.chapter_dues import DuesAllocationService
 
 
@@ -61,6 +62,7 @@ def get_columns(filters: Optional[Dict]) -> List[Dict]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_data(filters: Optional[Dict]) -> List[Dict]:
     """
     Get report data grouped by chapter.

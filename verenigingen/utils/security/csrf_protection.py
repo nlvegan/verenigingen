@@ -13,6 +13,8 @@ import hmac
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import utility_api
+
 
 class CSRFError(frappe.ValidationError):
     """Raised when CSRF validation fails"""
@@ -146,6 +148,7 @@ class CSRFProtection:
 
 # API endpoints for backwards compatibility
 @frappe.whitelist(allow_guest=False)
+@utility_api
 def get_csrf_token():
     """
     API endpoint to get CSRF token for current user
@@ -170,6 +173,7 @@ def get_csrf_token():
 
 
 @frappe.whitelist(allow_guest=False)
+@utility_api
 def validate_csrf_token(token: str):
     """
     API endpoint to validate CSRF token

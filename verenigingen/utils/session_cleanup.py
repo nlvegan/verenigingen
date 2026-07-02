@@ -11,6 +11,8 @@ from datetime import timedelta
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import development_only_api
+
 
 def cleanup_corrupted_sessions():
     """
@@ -100,7 +102,8 @@ def validate_current_session():
         return {"valid": False, "error": str(e), "warnings": ["Exception during validation"]}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@development_only_api()
 def get_session_debug_info():
     """
     API endpoint to get session debugging information

@@ -7,10 +7,11 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_all_versions():
     """
     Clear all version history from the Version table.
@@ -71,6 +72,7 @@ def clear_all_versions():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_version_statistics():
     """
     Get statistics about version history storage.
@@ -124,6 +126,7 @@ def get_version_statistics():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_versions_older_than_days(days=90):
     """
     Clear version history older than specified days.
@@ -352,6 +355,7 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_versions_by_doctype(doctype: str, older_than_days=None):
     """
     Clear version history for a specific DocType.

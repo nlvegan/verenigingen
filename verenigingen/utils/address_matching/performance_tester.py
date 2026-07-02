@@ -12,9 +12,11 @@ from typing import Dict, List, Tuple
 import frappe
 
 from verenigingen.utils.address_matching.optimized_matcher import OptimizedAddressMatcher
+from verenigingen.utils.security.api_security_framework import development_only_api
 
 
 @frappe.whitelist()
+@development_only_api()
 def run_comprehensive_performance_test():
     """Run comprehensive performance tests comparing old vs new implementation"""
 
@@ -348,6 +350,7 @@ def generate_performance_recommendations(results: Dict) -> List[str]:
 
 
 @frappe.whitelist()
+@development_only_api()
 def quick_performance_comparison():
     """Quick performance comparison for immediate feedback"""
 

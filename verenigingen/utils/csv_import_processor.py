@@ -25,6 +25,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def coerce_test_mode(value) -> bool:
     """Coerce a `test_mode` argument to a real bool.
@@ -352,6 +354,7 @@ class CSVImportBackgroundProcessor:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def queue_csv_import_processing(
     import_doc_name: str, doctype: str, processor_method: str, timeout: int = 3600, queue: str = "long"
 ):

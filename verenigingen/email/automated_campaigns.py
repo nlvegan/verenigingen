@@ -16,6 +16,12 @@ from frappe import _
 from frappe.utils import add_days, add_months, formatdate, get_datetime, now_datetime
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
 
 
 class AutomatedCampaignManager:
@@ -424,6 +430,7 @@ class AutomatedCampaignManager:
 
 # API Functions
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_automated_campaign(
     campaign_type: str,
     chapter_name: str = None,
@@ -477,6 +484,7 @@ def create_automated_campaign(
 
 
 @frappe.whitelist()
+@utility_api
 def get_campaign_types() -> Dict:
     """Get available campaign types"""
     manager = AutomatedCampaignManager()
@@ -484,6 +492,7 @@ def get_campaign_types() -> Dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_active_campaigns(chapter_name: str = None) -> Dict:
     """Get active campaigns for a chapter or organization"""
     filters = {"status": "In Progress"}  # Use actual field for filtering active campaigns
@@ -510,6 +519,7 @@ def get_active_campaigns(chapter_name: str = None) -> Dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def trigger_campaign_test(campaign_id: str) -> Dict:
     """Trigger a test run of a campaign"""
     # Check permissions

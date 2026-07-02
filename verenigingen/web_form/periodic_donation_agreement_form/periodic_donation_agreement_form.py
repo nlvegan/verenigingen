@@ -14,6 +14,11 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    self_service_api,
+    utility_api,
+)
 
 # Rate limiting configuration
 RATE_LIMIT_SUBMISSIONS_PER_HOUR = 5
@@ -110,6 +115,7 @@ def get_or_create_donor_for_user():
 
 
 @frappe.whitelist()
+@utility_api
 def calculate_payment_amount(annual_amount, payment_frequency: str):
     """Calculate payment amount based on annual amount and frequency"""
     annual = flt(annual_amount)
@@ -125,6 +131,7 @@ def calculate_payment_amount(annual_amount, payment_frequency: str):
 
 
 @frappe.whitelist()
+@utility_api
 def validate_bsn(bsn: str):
     """Validate BSN format and checksum"""
     from verenigingen.api.anbi_operations import validate_bsn as validate_bsn_api
@@ -134,6 +141,7 @@ def validate_bsn(bsn: str):
 
 
 @frappe.whitelist()
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def process_agreement_form(data):
     """Process the periodic donation agreement form submission
 
@@ -397,6 +405,7 @@ def get_submission_email_content(agreement, donor):
 
 
 @frappe.whitelist()
+@utility_api
 def get_agreement_terms():
     """Get terms and conditions for periodic donation agreements"""
     return """

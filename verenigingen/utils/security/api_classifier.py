@@ -23,6 +23,7 @@ from verenigingen.utils.security.api_security_framework import (
     APISecurityFramework,
     OperationType,
     SecurityLevel,
+    development_only_api,
     get_security_framework,
 )
 from verenigingen.utils.security.audit_logging import AuditSeverity, get_audit_logger
@@ -792,6 +793,7 @@ def get_api_classifier() -> APIClassifier:
 
 # API endpoints for classification and migration
 @frappe.whitelist()
+@development_only_api()
 def classify_all_api_endpoints():
     """API endpoint to classify all endpoints"""
     if Roles.SYSTEM_MANAGER not in frappe.get_roles():
@@ -813,6 +815,7 @@ def classify_all_api_endpoints():
 
 
 @frappe.whitelist()
+@development_only_api()
 def generate_migration_report():
     """Generate comprehensive migration report"""
     if Roles.SYSTEM_MANAGER not in frappe.get_roles():
@@ -830,6 +833,7 @@ def generate_migration_report():
 
 
 @frappe.whitelist()
+@development_only_api()
 def get_implementation_code(module_path: str, function_name: str):
     """Get implementation code for securing a specific endpoint"""
     if Roles.SYSTEM_MANAGER not in frappe.get_roles():

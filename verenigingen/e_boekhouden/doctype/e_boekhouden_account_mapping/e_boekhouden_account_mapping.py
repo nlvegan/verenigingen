@@ -5,6 +5,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    utility_api,
+)
+
 
 class EBoekhoudenAccountMapping(Document):
     def validate(self):
@@ -70,6 +76,7 @@ class EBoekhoudenAccountMapping(Document):
 
 
 @frappe.whitelist()
+@utility_api
 def get_mapping_for_mutation(account_code, description):
     """Get the appropriate mapping for a mutation based on account code and description"""
     # First try to find by account code
@@ -133,6 +140,7 @@ def get_mapping_for_mutation(account_code, description):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_default_mappings():
     """Create default mappings based on common Dutch accounting patterns"""
     default_mappings = [

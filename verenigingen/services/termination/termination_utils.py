@@ -2,11 +2,17 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+)
 
 # ===== Your existing functions from paste.txt go here =====
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def validate_termination_readiness(member_name: str):
     """
     Validate if a member is ready for termination and return impact assessment
@@ -191,6 +197,7 @@ def validate_termination_readiness(member_name: str):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_termination_impact_summary(member_name: str):
     """
     Get a summary of what will be affected by member termination
@@ -435,6 +442,7 @@ def generate_weekly_termination_report():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_termination_statistics():
     """
     Get overall termination statistics for dashboard

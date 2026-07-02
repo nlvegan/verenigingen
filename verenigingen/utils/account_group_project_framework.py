@@ -6,6 +6,8 @@ A configurable system for linking P&L account groups to projects and cost center
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, utility_api
+
 
 class AccountGroupProjectFramework:
     """Framework for managing account group to project/cost center mappings"""
@@ -133,24 +135,28 @@ account_group_framework = AccountGroupProjectFramework()
 
 # Convenience functions for external use
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_account_group_defaults(account_group):
     """Get defaults for an account group"""
     return account_group_framework.get_defaults_for_transaction(account_group)
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def validate_account_group_transaction(account_group, project=None, cost_center=None):
     """Validate a transaction for an account group"""
     return account_group_framework.validate_transaction(account_group, project, cost_center)
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_valid_projects_for_account_group(account_group):
     """Get valid projects for an account group"""
     return account_group_framework.get_valid_projects(account_group)
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_valid_cost_centers_for_account_group(account_group):
     """Get valid cost centers for an account group"""
     return account_group_framework.get_valid_cost_centers(account_group)

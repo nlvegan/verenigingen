@@ -14,6 +14,7 @@ from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 class VerenigingenEmailConfiguration(Document):
@@ -168,6 +169,7 @@ def get_email_configuration() -> VerenigingenEmailConfiguration:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def send_test_email(recipient: str) -> dict:
     """Send a test email to verify email configuration.
 
@@ -391,6 +393,7 @@ def _discover_notification_keys() -> dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def discover_notification_keys() -> dict:
     """API endpoint to discover notification keys in the codebase.
 
@@ -443,6 +446,7 @@ def discover_notification_keys() -> dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def add_notification_types(notification_types: str) -> dict:
     """Add new notification types to Verenigingen Email Configuration.
 

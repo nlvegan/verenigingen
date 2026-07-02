@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.security.api_security_framework import public_api
 
 
 def get_context(context):
@@ -51,6 +52,7 @@ def get_existing_donor():
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def process_donation_form(data):
     """Process the donation form submission"""
     try:

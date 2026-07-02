@@ -7,6 +7,11 @@ from frappe.model.document import Document
 from frappe.utils import cint
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+)
 
 
 class EventContactCampaign(Document):
@@ -99,6 +104,7 @@ class EventContactCampaign(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_contactable_members(chapter: str) -> list[dict]:
     """
     Get all contactable members for a chapter.
@@ -136,6 +142,7 @@ def get_contactable_members(chapter: str) -> list[dict]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def import_contactable_members(docname: str) -> dict:
     """
     Import contactable members into an Event Contact Campaign.
@@ -200,6 +207,7 @@ def import_contactable_members(docname: str) -> dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_progress_dashboard(docname: str) -> str:
     """Get the progress dashboard HTML for a campaign."""
     doc = frappe.get_doc("Event Contact Campaign", docname)
@@ -207,6 +215,7 @@ def get_progress_dashboard(docname: str) -> str:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_available_volunteers(docname: str) -> list[dict]:
     """
     Get available volunteers based on the campaign's owner_type.
@@ -272,6 +281,7 @@ def get_available_volunteers(docname: str) -> list[dict]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def distribute_members(docname: str, volunteer_ids: str = None) -> dict:
     """
     Distribute members in the contact list among selected volunteers.
@@ -348,6 +358,7 @@ def distribute_members(docname: str, volunteer_ids: str = None) -> dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def clear_assignments(docname: str) -> dict:
     """
     Clear all volunteer assignments from the contact list.

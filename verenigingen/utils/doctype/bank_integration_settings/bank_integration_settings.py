@@ -4,6 +4,8 @@
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class BankIntegrationSettings(Document):
     """Bank Integration Settings for PSD2 API connections"""
@@ -92,6 +94,7 @@ class BankIntegrationSettings(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_bank_connection():
     """Test bank API connection from client side"""
     settings = frappe.get_single("Bank Integration Settings")
@@ -100,6 +103,7 @@ def test_bank_connection():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_oauth_token():
     """Refresh OAuth2 token from client side"""
     settings = frappe.get_single("Bank Integration Settings")

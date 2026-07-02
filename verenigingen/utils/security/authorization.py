@@ -24,6 +24,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import PermissionError as VerenigingenPermissionError, log_error
+from verenigingen.utils.security.api_security_framework import utility_api
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, log_security_event
 from verenigingen.utils.security.authorization_engine import get_authorization_engine
 from verenigingen.utils.security.types import OperationType
@@ -689,6 +690,7 @@ def require_sepa_admin(func):
 
 # API endpoints for permission management
 @frappe.whitelist(allow_guest=False)
+@utility_api
 def get_user_sepa_permissions(user: str = None):
     # Utility operation: SEPA permission retrieval
     """
@@ -741,6 +743,7 @@ def get_user_sepa_permissions(user: str = None):
 
 
 @frappe.whitelist()
+@utility_api
 def check_sepa_operation_permission(operation: str, context: str = None):
     # Utility operation: SEPA operation permission check
     """

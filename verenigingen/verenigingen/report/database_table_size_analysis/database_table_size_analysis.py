@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def execute(filters=None):
@@ -144,6 +145,7 @@ def get_chart_data(data):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def optimize_all_tables():
     """
     Run OPTIMIZE TABLE on all tables to reclaim space.
@@ -186,6 +188,7 @@ def optimize_all_tables():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def analyze_all_tables():
     """
     Run ANALYZE TABLE on all tables to update statistics.

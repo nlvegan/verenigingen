@@ -6,7 +6,7 @@ Replaces the complex department hierarchy with simple role-based approvals
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def get_volunteer_expense_approver(volunteer_name):
@@ -74,6 +74,7 @@ def update_employee_approver(volunteer_doc=None, method=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_all_expense_approvers():
     """Refresh expense approvers for all volunteers with employee records"""
     updated_count = 0

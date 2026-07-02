@@ -8,7 +8,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_months, add_years, date_diff, flt, getdate
 
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, utility_api
 
 
 class PeriodicDonationAgreement(Document):
@@ -520,6 +520,7 @@ class PeriodicDonationAgreement(Document):
             frappe.throw(_(errors[0]))
 
     @frappe.whitelist()
+    @utility_api
     def get_anbi_validation_status(self):
         """
         Get comprehensive ANBI validation status for UI feedback and diagnostics.

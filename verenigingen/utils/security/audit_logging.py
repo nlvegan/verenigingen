@@ -19,6 +19,7 @@ from verenigingen.utils.constants import Roles
 # Lazy import for email_service to avoid circular dependency
 # from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.security.api_security_framework import high_security_api
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity, OperationType
 
 
@@ -967,6 +968,7 @@ def audit_log(event_type: str, severity: str = "info", capture_args: bool = Fals
 
 # API endpoints for audit log management
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @_development_only
 def search_audit_logs(**filters):
     """
@@ -992,6 +994,7 @@ def search_audit_logs(**filters):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @_development_only
 def get_audit_statistics(days: int = 7):
     """

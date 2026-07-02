@@ -420,6 +420,7 @@ class PerformanceOptimizationSetup(Document):
             frappe.logger().error(f"Rollback failed: {str(e)}")
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def remove_optimizations(self):
         """Manually remove performance optimizations"""
         if not frappe.has_permission(self.doctype, "write"):

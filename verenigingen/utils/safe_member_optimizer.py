@@ -27,6 +27,12 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    utility_api,
+)
+
 
 class SafeMemberOptimizer:
     """
@@ -432,6 +438,7 @@ safe_member_optimizer = SafeMemberOptimizer()
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def enable_safe_optimization(enabled: bool = True):
     """Enable or disable safe member optimization (admin function)"""
     safe_member_optimizer.enabled = bool(enabled)
@@ -440,6 +447,7 @@ def enable_safe_optimization(enabled: bool = True):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def clear_optimization_caches():
     """Clear all optimization caches (admin function)"""
     safe_member_optimizer.clear_caches()
@@ -447,6 +455,7 @@ def clear_optimization_caches():
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_optimization_stats():
     """Get optimization statistics (admin function) - using Frappe native patterns"""
     try:

@@ -4,8 +4,16 @@ Portal customization utilities for member-focused portal configuration
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def setup_member_portal_menu():
     """Configure portal menu for association members - disable ERP items, add member items"""
     try:
@@ -121,6 +129,7 @@ def setup_member_portal_menu():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def reset_portal_menu_to_member_only():
     """Reset portal menu to only show member/volunteer relevant items"""
     try:
@@ -195,6 +204,7 @@ def reset_portal_menu_to_member_only():
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_clean_member_portal_menu():
     """Get a clean list of portal menu items relevant for members"""
     try:
@@ -229,6 +239,7 @@ def get_clean_member_portal_menu():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def analyze_current_portal_usage():
     """Analyze which portal menu items are actually being used"""
     try:

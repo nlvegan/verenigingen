@@ -19,9 +19,15 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_deleted_document_statistics() -> OperationResult[Dict[str, Any]]:
     """
     Get statistics about the Deleted Document table.
@@ -104,6 +110,7 @@ def get_deleted_document_statistics() -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_all_deleted_documents() -> OperationResult[Dict[str, Any]]:
     """
     Clear ALL deleted documents from the Deleted Document table.
@@ -175,6 +182,7 @@ def clear_all_deleted_documents() -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_deleted_documents_older_than_days(days=90) -> OperationResult[Dict[str, Any]]:
     """
     Clear deleted documents older than specified days.
@@ -268,6 +276,7 @@ def clear_deleted_documents_older_than_days(days=90) -> OperationResult[Dict[str
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_deleted_documents_by_doctype(doctype: str, older_than_days=None) -> OperationResult[Dict[str, Any]]:
     """
     Clear deleted documents for a specific DocType.
@@ -372,6 +381,7 @@ def clear_deleted_documents_by_doctype(doctype: str, older_than_days=None) -> Op
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def permanently_delete_doctype_documents(
     doctype: str, document_names: str | list
 ) -> OperationResult[Dict[str, Any]]:

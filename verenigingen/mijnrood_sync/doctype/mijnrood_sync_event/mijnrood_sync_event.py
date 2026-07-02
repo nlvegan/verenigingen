@@ -3,9 +3,12 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class MijnRoodSyncEvent(Document):
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def approve(self):
         """Approve this sync event for application."""
         if self.status != "Pending":
@@ -17,6 +20,7 @@ class MijnRoodSyncEvent(Document):
         self.save()
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def reject(self):
         """Reject this sync event."""
         if self.status != "Pending":
@@ -28,6 +32,7 @@ class MijnRoodSyncEvent(Document):
         self.save()
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def ignore_event(self):
         """Ignore this sync event (acknowledged but not applied)."""
         if self.status != "Pending":
@@ -39,6 +44,7 @@ class MijnRoodSyncEvent(Document):
         self.save()
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def approve_and_apply(self):
         """Approve and immediately apply this sync event."""
         if self.status != "Pending":
@@ -57,6 +63,7 @@ class MijnRoodSyncEvent(Document):
         return service.apply_event(self.name)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def apply_event(self):
         """Apply this approved sync event to Verenigingen data."""
         if self.status != "Approved":
@@ -70,12 +77,14 @@ class MijnRoodSyncEvent(Document):
         return service.apply_event(self.name)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_member_comparison_data(self):
         """Return current Frappe member field values for comparison with MijnRood data."""
         return _get_member_comparison_data(self.name)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_comparison_data(event_name: str) -> dict:
     """Return current Frappe member field values for comparison with MijnRood data.
 

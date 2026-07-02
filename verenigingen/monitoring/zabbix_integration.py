@@ -13,6 +13,8 @@ import sys
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, webhook_api
+
 # Add the scripts directory to the Python path
 scripts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "scripts")
 if scripts_dir not in sys.path:
@@ -70,6 +72,7 @@ def health_check():
 
 
 @frappe.whitelist()
+@webhook_api(operation_type=OperationType.WEBHOOK_PROCESSING)
 def zabbix_webhook_receiver():
     """Receive webhooks from Zabbix for auto-remediation."""
     return _zabbix_webhook_receiver()

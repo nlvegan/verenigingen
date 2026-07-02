@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import getdate, today, validate_email_address
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import development_only_api
 
 
 def validate_email(email, allow_existing=False):
@@ -345,6 +346,7 @@ def check_application_eligibility(data, allow_existing_email=False):
 
 
 @frappe.whitelist()
+@development_only_api()
 def debug_application_eligibility():
     """Debug function to test application eligibility validation"""
     # Security check: Only allow debug functions in development or for System Managers

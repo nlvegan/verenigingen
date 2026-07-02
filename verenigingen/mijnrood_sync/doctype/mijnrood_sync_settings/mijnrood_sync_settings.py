@@ -4,11 +4,16 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+)
 
 
 class MijnRoodSyncSettings(Document):
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def test_connection(self):
         """Test SSH tunnel and database connectivity."""
         from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
@@ -30,6 +35,7 @@ class MijnRoodSyncSettings(Document):
             return {"success": False, "message": error_msg}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def diagnose_ssh_auth(self, attempt_handshake: bool = False):
         """Report which SSH auth path would fire and what key (if any) parses.
 
@@ -249,6 +255,7 @@ class MijnRoodSyncSettings(Document):
         return result
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def trigger_sync_now(self):
         """Enqueue an immediate sync job."""
         frappe.enqueue(
@@ -389,6 +396,7 @@ class MijnRoodSyncSettings(Document):
         frappe.cache.delete_value("mijnrood_role_mapping")
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def fetch_lidmaatschapstypes_from_mijnrood(self):
         """Fetch membership statuses from MijnRood's admin_membershipstatus table.
 
@@ -485,6 +493,7 @@ class MijnRoodSyncSettings(Document):
         return {"success": True, "message": message}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def populate_default_status_mapping(self):
         """Load default status mapping values into the child table.
 
@@ -522,6 +531,7 @@ class MijnRoodSyncSettings(Document):
         }
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def populate_default_role_mapping(self):
         """Load default role mapping values into the child table.
 
@@ -565,6 +575,7 @@ class MijnRoodSyncSettings(Document):
         }
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def first_time_setup(self):
         """One-click initial configuration for a fresh MijnRood Sync install.
 
@@ -663,6 +674,7 @@ class MijnRoodSyncSettings(Document):
         return {purpose: spec["name"] for purpose, spec in teams.items()}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def auto_classify_folders(self):
         """Auto-classify document_type and chapter on folder mapping rows.
 
@@ -678,6 +690,7 @@ class MijnRoodSyncSettings(Document):
         return service.auto_classify_folder_mappings()
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def fetch_document_folders(self):
         """Fetch document folders from MijnRood and populate the mapping table.
 
@@ -702,6 +715,7 @@ class MijnRoodSyncSettings(Document):
         return result
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def import_documents(self):
         """Enqueue a background job to import documents from MijnRood.
 

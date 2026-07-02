@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import development_only_api
 
 
 def ensure_payment_history_current():
@@ -61,6 +62,7 @@ def ensure_payment_history_current():
 
 
 @frappe.whitelist()
+@development_only_api()
 def test_event_system():
     """Test function to verify the event system is working.
 

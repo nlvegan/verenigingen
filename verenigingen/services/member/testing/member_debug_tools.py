@@ -38,6 +38,7 @@ from frappe.utils import now_datetime, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import development_only_api
 
 
 class MemberDebugToolsService(StatelessService):
@@ -54,6 +55,7 @@ def _get_service() -> MemberDebugToolsService:
 
 
 @frappe.whitelist()
+@development_only_api()
 def debug_button_conditions(member_name) -> OperationResult[Dict[str, Any]]:
     """Debug what buttons should appear for a member.
 
@@ -125,6 +127,7 @@ def debug_button_conditions(member_name) -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@development_only_api()
 def debug_member_id_assignment(member_name) -> OperationResult[Dict[str, Any]]:
     """Debug why member ID assignment is failing.
 
@@ -183,6 +186,7 @@ def debug_member_id_assignment(member_name) -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@development_only_api()
 def debug_member_status(member_name) -> OperationResult[Dict[str, Any]]:
     """Debug member status for button investigation.
 

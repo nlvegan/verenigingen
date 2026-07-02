@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url_to_form, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class Movement(Document):
     def validate(self):
@@ -195,6 +197,7 @@ class Movement(Document):
         self.activity_summary_html = html
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def suggest_potential_members(self):
         """API method to get suggested members based on tags"""
         if not self.related_tags:

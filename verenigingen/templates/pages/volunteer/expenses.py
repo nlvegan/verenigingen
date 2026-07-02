@@ -24,7 +24,11 @@ from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
     validate_expense_data,
 )
 from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_current_user
-from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    high_security_api,
+    self_service_api,
+    standard_api,
+)
 from verenigingen.utils.security.types import OperationType
 
 
@@ -236,6 +240,7 @@ def submit_expense(expense_data=None, additional_expenses=None):
 
 
 @frappe.whitelist(allow_guest=False)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def submit_multiple_expenses(expenses):
     """Submit multiple expenses from the portal at once.
 
@@ -414,6 +419,7 @@ def get_expense_details(expense_name: str):
 
 
 @frappe.whitelist(allow_guest=False)
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def get_volunteer_expense_context():
     """Get context data for the expense claim form (API endpoint)."""
     try:

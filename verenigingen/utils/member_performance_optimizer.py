@@ -487,6 +487,7 @@ member_optimizer = MemberPerformanceOptimizer()
 
 # Convenience functions for common operations
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_member_optimized(**kwargs):
     """Whitelisted method for optimized member creation"""
     return member_optimizer.create_member_optimized(kwargs)

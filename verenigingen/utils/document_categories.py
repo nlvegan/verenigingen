@@ -11,6 +11,8 @@ during installation (see setup/__init__.py).
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, utility_api
+
 # Fallback defaults used only when Settings child table is empty
 # (e.g. fresh install before after_install runs)
 _FALLBACK_CATEGORIES = {
@@ -43,6 +45,7 @@ def _get_categories_from_settings() -> dict[str, str]:
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_document_category_options():
     """
     Get all available document categories for select fields.

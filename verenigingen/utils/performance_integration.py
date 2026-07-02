@@ -39,6 +39,7 @@ from verenigingen.utils.performance_event_handlers import (
     optimized_update_member_payment_history,
     optimized_update_member_payment_history_from_invoice,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, utility_api
 
 
 class PerformanceIntegration:
@@ -246,24 +247,28 @@ def trigger_bulk_member_optimization(member_names: List[str]):
 
 # API endpoints for safe performance management
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def install_safe_performance_optimizations():
     """API endpoint to install safe performance optimizations"""
     return PerformanceIntegration.install()
 
 
 @frappe.whitelist()
+@utility_api
 def get_performance_system_status():
     """API endpoint to get performance system status"""
     return PerformanceIntegration.get_status()
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def uninstall_performance_optimizations():
     """API endpoint to uninstall performance optimizations"""
     return PerformanceIntegration.uninstall()
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def trigger_member_bulk_optimization(member_names: str | list):
     """API endpoint to trigger bulk member optimization"""
     try:

@@ -8,8 +8,11 @@ Simple validation utilities for the email system.
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import development_only_api
+
 
 @frappe.whitelist()
+@development_only_api()
 def validate_email_system_components():
     """Validate that email system components can be imported and instantiated"""
 

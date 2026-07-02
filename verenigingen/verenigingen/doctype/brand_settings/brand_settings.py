@@ -431,6 +431,7 @@ class BrandSettings(Document):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def get_active_brand_settings():
     """Get the brand settings (now a Single doctype)
 

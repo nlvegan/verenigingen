@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def cleanup_corrupted_sessions():
     """
@@ -179,6 +181,7 @@ def validate_current_session():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def run_session_cleanup():
     """
     API endpoint to run session cleanup

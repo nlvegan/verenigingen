@@ -65,8 +65,11 @@ from verenigingen.utils.member_utils import (
     get_member_name_for_user,
     get_volunteer_for_member,
 )
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 # Permission Caching System
@@ -178,7 +181,7 @@ def can_access_termination_functions_api():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api()
 def test_team_member_access(team_name: str | None = None):
     """Test function to verify team member access permissions"""
     user = frappe.session.user

@@ -4,6 +4,7 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.utils.brand_css_generator import get_brand_css_file_path
+from verenigingen.utils.security.api_security_framework import public_api
 
 
 def get_context(context):
@@ -41,6 +42,7 @@ def get_context(context):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def serve_brand_css():
     """Serve brand CSS with proper MIME type"""
     try:
