@@ -4903,15 +4903,28 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 ...
         """
         if isinstance(role_or_roles, str):
-            if frappe.db.exists("Role Profile", role_or_roles):
-                roles = [r.role for r in frappe.get_doc("Role Profile", role_or_roles).roles]
-                key = f"profile-{role_or_roles}"
-            else:
-                roles = [role_or_roles]
-                key = role_or_roles
+            names = [role_or_roles]
+            key = f"profile-{role_or_roles}" if frappe.db.exists("Role Profile", role_or_roles) else role_or_roles
         else:
-            roles = list(role_or_roles)
-            key = "_".join(sorted(roles))
+            names = list(role_or_roles)
+            key = "_".join(sorted(names))
+
+        # A requested name that matches a Role Profile grants its security tier via
+        # the role-profile authorization table (Rule 4). After the audit #2 Rule-5
+        # cap, HIGH/CRITICAL access requires the assigned PROFILE, not the bare role
+        # -- a scratch user given only roles is capped at MEDIUM and denied
+        # HIGH/CRITICAL endpoints. So collect the matching profile(s) and assign them
+        # too, alongside each profile's constituent roles (Frappe DocPerm checks
+        # still need the raw roles).
+        roles = []
+        profiles = []
+        for name in names:
+            if frappe.db.exists("Role Profile", name):
+                profiles.append(name)
+                roles.extend(r.role for r in frappe.get_doc("Role Profile", name).roles)
+            else:
+                roles.append(name)
+        roles = list(dict.fromkeys(roles))  # dedupe, preserve order
 
         if not email:
             # Deterministic, reusable scratch user per role-set + test run
@@ -4921,7 +4934,37 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # create_test_user reuses existing User if present and resets roles each call
         self.create_test_user(email, roles=roles)
+
+        if profiles:
+            self._assign_role_profiles(email, profiles)
+
         return self.as_user(email)
+
+    def _assign_role_profiles(self, email, profiles):
+        """Assign role profile(s) to a scratch user so the security framework's
+        role-profile authorization (Rule 4) grants the intended HIGH/CRITICAL tier.
+
+        get_user_role_profiles reads both User.role_profile_name and the
+        role_profiles child table, so populate both; then invalidate the auth
+        engine's per-user cache so the assignment is visible immediately.
+        """
+        original_user = frappe.session.user
+        frappe.set_user("Administrator")
+        try:
+            user = frappe.get_doc("User", email)
+            user.set("role_profiles", [{"role_profile": p} for p in profiles])
+            user.role_profile_name = profiles[0]
+            user.save(ignore_permissions=True)
+        finally:
+            frappe.set_user(original_user)
+
+        try:
+            from verenigingen.utils.security.api_security_framework import get_security_framework
+
+            get_security_framework().auth_engine.invalidate_user_cache(email)
+        except Exception:
+            # Cache invalidation is best-effort; the 5-min TTL bounds staleness.
+            pass
 
     def as_staff(self, **kwargs):
         """Shortcut: run as a scratch user with Verenigingen Staff role only.
