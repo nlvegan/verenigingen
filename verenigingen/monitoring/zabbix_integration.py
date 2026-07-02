@@ -14,8 +14,6 @@ import sys
 import frappe
 from frappe import _
 
-from verenigingen.utils.security.api_security_framework import OperationType, webhook_api
-
 # Add the scripts directory to the Python path
 scripts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "scripts")
 if scripts_dir not in sys.path:
@@ -91,8 +89,15 @@ def health_check():
         return {"status": "unhealthy", "error": str(e), "timestamp": frappe.utils.now_datetime().isoformat()}
 
 
-@frappe.whitelist()
-@webhook_api(operation_type=OperationType.WEBHOOK_PROCESSING)
+@frappe.whitelist(allow_guest=True)
 def zabbix_webhook_receiver():
-    """Receive webhooks from Zabbix for auto-remediation."""
+    """Receive webhooks from Zabbix for auto-remediation.
+
+    Guest-reachable but authenticated inside the scripts implementation via an
+    HMAC signature over the request body (``zabbix_webhook_secret`` +
+    ``X-Zabbix-Signature``). Auto-remediation is dangerous (cache flush / RQ-job
+    failure / Redis restart), so the signature is mandatory and fails closed when
+    no secret is configured. Not gated by the shared read token used for
+    metrics/health — remediation requires its own dedicated secret.
+    """
     return _zabbix_webhook_receiver()

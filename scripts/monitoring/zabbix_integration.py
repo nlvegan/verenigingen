@@ -21,8 +21,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, cstr, flt, get_datetime, now_datetime
 
-from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
-
 
 class ZabbixIntegration:
     """Main Zabbix integration class supporting both legacy and 7.0 features"""
@@ -689,19 +687,21 @@ def health_check():
     }
 
 
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
+@frappe.whitelist(allow_guest=True)
 def zabbix_webhook_receiver():
     """
     Enhanced webhook receiver supporting both legacy and Zabbix 7.0 formats
     Handles alerts, creates issues, and supports auto-remediation
     """
     try:
-        # Validate signature if configured
-        if frappe.conf.get("zabbix_webhook_secret"):
-            if not validate_webhook_signature():
-                frappe.response["http_status_code"] = 401
-                return {"status": "error", "message": "Invalid signature"}
+        # Auto-remediation can flush the cache, fail RQ jobs and restart Redis, so
+        # this endpoint MUST authenticate. Require a valid HMAC signature over the
+        # request body; validate_webhook_signature() fails closed when no
+        # zabbix_webhook_secret is configured, so an unconfigured site rejects all
+        # calls rather than executing remediation from an unauthenticated request.
+        if not validate_webhook_signature():
+            frappe.response["http_status_code"] = 401
+            return {"status": "error", "message": "Invalid or missing webhook signature"}
 
         # Get webhook data
         data = frappe.request.get_json()
@@ -815,17 +815,27 @@ def is_valid_zabbix_request():
 
 
 def validate_webhook_signature():
-    """Validate Zabbix webhook signature"""
+    """Validate the Zabbix webhook HMAC signature.
+
+    Fails CLOSED: returns False when no ``zabbix_webhook_secret`` is configured,
+    when there is no request, or when the signature header is missing/incorrect.
+    The secret guards a dangerous auto-remediation endpoint, so "no secret" must
+    mean "reject", never "allow".
+    """
     secret = frappe.conf.get("zabbix_webhook_secret")
     if not secret:
-        return True
+        return False
+
+    request = getattr(frappe.local, "request", None)
+    if request is None:
+        return False
 
     signature = frappe.get_request_header("X-Zabbix-Signature")
     if not signature:
         return False
 
     # Calculate expected signature
-    body = frappe.request.get_data()
+    body = request.get_data()
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
     return hmac.compare_digest(signature, expected)
@@ -1078,7 +1088,9 @@ def process_legacy_webhook(data):
         "trigger_name": data.get("trigger"),
         "severity": data.get("severity"),
         "host": data.get("host"),
-        "timestamp": data.get("timestamp", now_datetime()),
+        # Default to an ISO string, not a datetime object: the alert dict is later
+        # json.dumps()'d in log_alert(), which would raise on a raw datetime.
+        "timestamp": data.get("timestamp", now_datetime().isoformat()),
         "value": data.get("value"),
         "operational_data": {},
         "tags": [],
