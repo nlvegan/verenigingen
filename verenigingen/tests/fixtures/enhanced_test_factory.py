@@ -1546,6 +1546,7 @@ class EnhancedTestDataFactory:
 
         # Check if user already exists
         if frappe.db.exists("User", admin_email):
+            self._ensure_admin_role_profile(admin_email)
             return frappe.get_doc("User", admin_email)
 
         # Create test admin user with full permissions
@@ -1571,8 +1572,21 @@ class EnhancedTestDataFactory:
         admin_user.append("roles", {"role": "System Manager"})
         admin_user.append("roles", {"role": "Verenigingen Administrator"})
         admin_user.save()
+        self._ensure_admin_role_profile(admin_email)
 
         return admin_user
+
+    def _ensure_admin_role_profile(self, admin_email):
+        """Give the shared test-admin user the Verenigingen Administrator role profile.
+
+        After the audit #2 Rule-5 cap, HIGH/CRITICAL API access requires an assigned
+        role PROFILE (Rule 4), not a bare role -- so without this the "admin" user
+        this factory hands out is denied every secured endpoint. Its sole purpose is
+        a fully-privileged admin, so the profile is exactly right.
+        """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(admin_email, "Verenigingen Administrator")
 
     def create_team(self, **kwargs):
         """Create team with validation and improved isolation"""
@@ -1831,11 +1845,18 @@ class EnhancedTestDataFactory:
 
         scenario = {"authorized_users": [], "unauthorized_users": []}
 
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
         # Create authorized users
         for role in authorized_roles:
             user = self.create_user_with_roles(
                 email=self.generate_test_email(f"auth_{role.lower().replace(' ', '_')}"), roles=[role]
             )
+            # Post the audit #2 Rule-5 cap, HIGH/CRITICAL access needs the assigned
+            # role PROFILE (Rule 4), not just the role -- assign it so "authorized"
+            # users actually clear the tier gate. Unauthorized users below are left
+            # profileless (or with only a low-tier profile) so they stay denied.
+            grant_matching_role_profiles(user.email, role)
             scenario["authorized_users"].append(user)
 
         # Create unauthorized users

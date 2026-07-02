@@ -38,6 +38,11 @@ class TestChapterDashboardPage(VereningingenTestCase):
         self.board_user = self.create_test_user(
             self.board_email, roles=["Verenigingen Chapter Board Member"]
         )
+        # Post the Rule-5 cap, the dashboard endpoint (@high_security_api) needs an
+        # assigned role PROFILE, not a bare Chapter Board Member role.
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(self.board_email, "Verenigingen Chapter Board Member")
         self.board_member = self.create_test_member(
             chapter=self.chapter.name, email=self.board_email
         )
