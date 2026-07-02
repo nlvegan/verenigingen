@@ -12,6 +12,7 @@ import os
 import sys
 
 import frappe
+from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, webhook_api
 
@@ -28,21 +29,39 @@ def _import_monitoring_functions():
         from monitoring.zabbix_integration import (  # noqa: E402  # noqa: E402
             get_metrics_for_zabbix as _get_metrics_for_zabbix,
             health_check as _health_check,  # noqa: E402
+            is_valid_request as _is_valid_request,
             zabbix_webhook_receiver as _zabbix_webhook_receiver,
         )
 
-        return _get_metrics_for_zabbix, _health_check, _zabbix_webhook_receiver
+        return _get_metrics_for_zabbix, _health_check, _zabbix_webhook_receiver, _is_valid_request
     except ImportError as e:
         frappe.log_error(f"Failed to import monitoring functions: {str(e)}")
-        return None, None, None
+        return None, None, None, None
 
 
-_get_metrics_for_zabbix, _health_check, _zabbix_webhook_receiver = _import_monitoring_functions()
+(
+    _get_metrics_for_zabbix,
+    _health_check,
+    _zabbix_webhook_receiver,
+    _is_valid_request,
+) = _import_monitoring_functions()
+
+
+def _require_zabbix_auth():
+    """Deny the request unless it is an authorized monitoring caller.
+
+    Enforced here (before the swallowing try/except below) so an unauthenticated
+    request gets a clean 403 instead of a 200 error envelope. Fails CLOSED if the
+    scripts implementation could not be imported.
+    """
+    if _is_valid_request is None or not _is_valid_request():
+        raise frappe.PermissionError(_("Unauthorized monitoring request"))
 
 
 @frappe.whitelist(allow_guest=True)
 def get_metrics_for_zabbix():
     """Get metrics for Zabbix monitoring."""
+    _require_zabbix_auth()
     try:
         # Debug: Log the current user
         frappe.logger().info(f"get_metrics_for_zabbix called by user: {frappe.session.user}")
@@ -63,6 +82,7 @@ def get_metrics_for_zabbix():
 @frappe.whitelist(allow_guest=True)
 def health_check():
     """Health check endpoint for monitoring."""
+    _require_zabbix_auth()
     try:
         return _health_check()
     except Exception as e:
