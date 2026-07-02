@@ -19,6 +19,30 @@ from verenigingen.templates.pages.admin_tools import (
     get_context,
     json_encode_args
 )
+from verenigingen.utils.security.api_security_framework import get_security_framework
+
+
+def _grant_admin_critical(test_case):
+    """Let execute_admin_tool's @critical_api gate pass so tests reach its logic.
+
+    execute_admin_tool is wrapped with @critical_api. After the audit #2 Rule-5
+    cap, CRITICAL access is granted ONLY through an assigned role PROFILE (Rule 4);
+    a bare role and even System Manager cap at MEDIUM. The test DB's Administrator
+    carries no role profile, so without this the decorator denies the call before
+    the tool's own allow-list / argument / audit logic (the boundary under test)
+    ever runs. Run as Administrator and grant a CRITICAL-tier profile for the test.
+    """
+    frappe.set_user("Administrator")
+    engine = get_security_framework().auth_engine
+
+    def _profiles(user=None):
+        resolved = user or frappe.session.user
+        return ["Verenigingen System Administrator"] if resolved == "Administrator" else []
+
+    # Mock justified: Infrastructure - role-profile resolution, not the boundary under test
+    patcher = patch.object(engine, "get_user_role_profiles", side_effect=_profiles)
+    patcher.start()
+    test_case.addCleanup(patcher.stop)
 
 
 class TestAdminToolsSecurity(VereningingenTestCase):
@@ -28,8 +52,9 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         """Set up test environment"""
         super().setUp()
         self.original_user = frappe.session.user
-        # Set admin user for security testing
-        # VereningingenTestCase handles permissions automatically
+        # Run as Administrator with a CRITICAL role profile so execute_admin_tool's
+        # @critical_api gate passes and tests exercise the tool's own logic.
+        _grant_admin_critical(self)
         
     def tearDown(self):
         """Clean up after tests"""
@@ -443,8 +468,9 @@ class TestRCEPrevention(VereningingenTestCase):
         """Set up test environment"""
         super().setUp()
         self.original_user = frappe.session.user
-        # Set admin user for security testing
-        # VereningingenTestCase handles permissions automatically
+        # Run as Administrator with a CRITICAL role profile so execute_admin_tool's
+        # @critical_api gate passes and tests exercise the tool's own logic.
+        _grant_admin_critical(self)
         
     def tearDown(self):
         """Clean up after tests"""
@@ -518,8 +544,9 @@ class TestAdminToolsIntegration(VereningingenTestCase):
         """Set up test environment"""
         super().setUp()
         self.original_user = frappe.session.user
-        # Set admin user for security testing
-        # VereningingenTestCase handles permissions automatically
+        # Run as Administrator with a CRITICAL role profile so execute_admin_tool's
+        # @critical_api gate passes and tests exercise the tool's own logic.
+        _grant_admin_critical(self)
         
     def tearDown(self):
         """Clean up after tests"""
