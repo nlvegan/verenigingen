@@ -48,6 +48,20 @@ class TestMonitoringDashboardCoverage(VereningingenTestCase):
             )
             user.insert(ignore_permissions=True)
             self.track_doc("User", user.name)
+
+        # The dashboard endpoints are @high_security_api. After the audit #2 Rule-5
+        # cap, HIGH access is granted only via an assigned role PROFILE (Rule 4);
+        # a bare role caps at MEDIUM. Assign the profile matching each role so the
+        # admin user passes the gate -- Member still maps to LOW and stays denied.
+        profiles = [r for r in roles if frappe.db.exists("Role Profile", r)]
+        if profiles:
+            user = frappe.get_doc("User", email)
+            user.set("role_profiles", [{"role_profile": p} for p in profiles])
+            user.role_profile_name = profiles[0]
+            user.save(ignore_permissions=True)
+            from verenigingen.utils.security.api_security_framework import get_security_framework
+
+            get_security_framework().auth_engine.invalidate_user_cache(email)
         return email
 
     # ----- get_context: permission gating -----
