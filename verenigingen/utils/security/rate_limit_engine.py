@@ -65,15 +65,31 @@ class RateLimitEngine:
         Raises:
             VPermissionError: If no COR configuration found
         """
-        # Skip rate limiting during test execution (unless force_check is True)
-        if not force_check and getattr(frappe.flags, "in_test", False):
+        # Skip rate limiting during test execution and privileged server-side
+        # maintenance phases (install / migrate / patch), unless force_check is True.
+        #
+        # Rate limiting exists to throttle external HTTP callers; during install,
+        # migrate, and patch there is no such caller. Critically, the COR fixture
+        # (_generic_api_fallback and the per-operation rules) is loaded by
+        # sync_fixtures, which runs AFTER after_install hooks (see
+        # frappe/installer.py) and after patches — so a security-decorated
+        # function reached from a lifecycle hook or patch would otherwise hit the
+        # fail-closed branch below ("No rate limiting configuration found") and
+        # abort the install/migrate. These flags are only ever set by trusted CLI
+        # maintenance operations, never by an attacker-reachable request.
+        if not force_check and (
+            getattr(frappe.flags, "in_test", False)
+            or getattr(frappe.flags, "in_install", False)
+            or getattr(frappe.flags, "in_migrate", False)
+            or getattr(frappe.flags, "in_patch", False)
+        ):
             return RateLimitResult(
                 allowed=True,
                 current_count=0,
                 max_calls=999,
                 period_seconds=3600,
                 limit_type="test_bypass",
-                reason="Rate limiting skipped in test environment",
+                reason="Rate limiting skipped in test/install/migrate/patch context",
             )
 
         # Extract operation name from operation key
@@ -262,13 +278,22 @@ class RateLimitEngine:
         Returns:
             Cache key string
         """
+        # Namespace the counter by site. These keys are read/written via
+        # frappe.cache.incrby / .expire / .get, which are raw redis ops that do
+        # NOT pass through RedisWrapper.make_key (unlike set_value/get_value), so
+        # they carry no site prefix. On a multi-tenant bench sharing one Redis,
+        # an unprefixed key would collapse the same operation/user/IP counter
+        # across every site, letting one tenant exhaust another's rate-limit
+        # budget. Prefix with the site to restore per-site isolation.
+        site = getattr(frappe.local, "site", None) or "unknown-site"
+        prefix = f"cor_rate_limit:{site}:{limit_type}:{operation_name}"
         if scope == "global":
-            return f"cor_rate_limit:{limit_type}:{operation_name}"
+            return prefix
         elif scope == "per_ip":
             client_ip = self._get_client_ip()
-            return f"cor_rate_limit:{limit_type}:{operation_name}:{client_ip}"
+            return f"{prefix}:{client_ip}"
         else:  # per_user (default)
-            return f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
+            return f"{prefix}:{frappe.session.user}"
 
     def _get_client_ip(self) -> str:
         """

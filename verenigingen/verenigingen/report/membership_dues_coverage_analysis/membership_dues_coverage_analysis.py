@@ -9,7 +9,12 @@ from frappe import _
 from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.validation_utilities import DateRangeValidator, validate_document_exists
 
 
@@ -1367,6 +1372,7 @@ def generate_catchup_invoices(members: str | list, from_date=None, to_date=None)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def export_gap_analysis(filters: dict | str | None):
     """Export detailed gap analysis to Excel"""
 
@@ -1425,6 +1431,7 @@ def export_gap_analysis(filters: dict | str | None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_coverage_fields():
     """Debug function to check coverage field existence and data"""
 
@@ -1522,6 +1529,7 @@ def debug_coverage_fields():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_coverage_timeline_data(member: str, from_date=None, to_date=None):
     """Get detailed coverage timeline data for visualization"""
 

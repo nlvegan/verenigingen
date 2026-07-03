@@ -136,6 +136,12 @@ def generate_public_creator_email():
         # making user creation — and thus the whole setup — fail. Only underscores
         # (illegal in a hostname) need sanitising.
         clean_site = site_name.replace("_", "-")
+        # A dotless domain is not a valid email address. Production site names are
+        # FQDNs (they have a dot), but a bare site name such as the CI "test_site"
+        # sanitises to "test-site" with no TLD and would fail User email validation
+        # — and thus the whole setup. Fall back to a .local TLD in that case.
+        if "." not in clean_site:
+            clean_site = f"{clean_site}.local"
         user_email = f"public-creator@{clean_site}"
 
         counter = 1

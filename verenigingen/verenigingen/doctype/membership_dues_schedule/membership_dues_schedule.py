@@ -16,6 +16,7 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
     standard_api,
+    utility_api,
 )
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -1144,6 +1145,7 @@ def generate_dues_invoices(test_mode=False):
 
 
 @frappe.whitelist()
+@utility_api
 def get_parallel_invoice_generation_status():
     """
     Check the status of parallel invoice generation background jobs.

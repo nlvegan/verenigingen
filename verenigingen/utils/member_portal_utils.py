@@ -7,9 +7,11 @@ from frappe import _
 from frappe.utils import getdate
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api, utility_api
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_member_portal_stats():
     """
     Get statistics about member portal usage.
@@ -52,6 +54,7 @@ def get_member_portal_stats():
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_user_appropriate_home_page():
     """
     Get the appropriate home page for the current user

@@ -48,11 +48,13 @@ def _clear_all_test_rate_limit_counters():
         "test_global_scope",
         "nonexistent_operation_xyz",
     ]
+    site = frappe.local.site
     for op_name in test_operations:
-        # Clear per-user counters (use delete() for raw key deletion)
-        frappe.cache().delete(f"cor_rate_limit:interactive:{op_name}:Administrator")
+        # Clear per-user counters (use delete() for raw key deletion).
+        # Keys are site-namespaced (see RateLimitEngine._build_cache_key).
+        frappe.cache().delete(f"cor_rate_limit:{site}:interactive:{op_name}:Administrator")
         # Clear global counters
-        frappe.cache().delete(f"cor_rate_limit:interactive:{op_name}")
+        frappe.cache().delete(f"cor_rate_limit:{site}:interactive:{op_name}")
 
 
 @contextmanager
@@ -161,7 +163,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
         Note: We use delete() instead of delete_value() because setex() uses raw keys
         while delete_value() transforms keys with make_key().
         """
-        cache_key = f"cor_rate_limit:interactive:{operation_name}:{user}"
+        cache_key = f"cor_rate_limit:{frappe.local.site}:interactive:{operation_name}:{user}"
         frappe.cache().delete(cache_key)
 
     def test_cor_rate_limit_enforces_after_max_calls(self):
@@ -213,7 +215,7 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
 
         with self.set_user("Administrator"):
             self._clear_rate_limit_counter(operation_name)
-            cache_key = f"cor_rate_limit:interactive:{operation_name}:Administrator"
+            cache_key = f"cor_rate_limit:{frappe.local.site}:interactive:{operation_name}:Administrator"
 
             original_in_test = getattr(frappe.flags, "in_test", False)
             try:
@@ -280,6 +282,62 @@ class TestCORRateLimitingEnforcement(EnhancedTestCase):
                     frappe.db.set_value(
                         "Critical Operation Rule", fallback_cor, "enabled", 1
                     )
+                    frappe.db.commit()
+
+    def test_maintenance_flags_bypass_rate_limit(self):
+        """Install/migrate/patch phases must skip the fail-closed COR lookup.
+
+        The COR fixture (_generic_api_fallback) is loaded by sync_fixtures, which
+        runs AFTER after_install hooks and after patches. A security-decorated
+        function reached from a lifecycle hook or patch would otherwise raise
+        "No rate limiting configuration found" and abort the install/migrate.
+        With no COR configured, each maintenance flag must yield an allowed
+        result rather than raising.
+        """
+        operation_name = "nonexistent_operation_during_setup"
+
+        with self.set_user("Administrator"):
+            original_in_test = getattr(frappe.flags, "in_test", False)
+            fallback_cor = None
+            fallback_was_enabled = False
+
+            try:
+                frappe.flags.in_test = False
+
+                # Disable the generic fallback so the fail-closed branch is the
+                # only thing that could stop us.
+                fallback_cor = frappe.db.get_value(
+                    "Critical Operation Rule",
+                    {"operation_name": "_generic_api_fallback"},
+                    "name",
+                )
+                if fallback_cor:
+                    fallback_was_enabled = frappe.db.get_value(
+                        "Critical Operation Rule", fallback_cor, "enabled"
+                    )
+                    frappe.db.set_value("Critical Operation Rule", fallback_cor, "enabled", 0)
+                    frappe.db.commit()
+
+                for flag in ("in_install", "in_migrate", "in_patch"):
+                    with mock_http_request():
+                        original_flag = getattr(frappe.flags, flag, False)
+                        try:
+                            setattr(frappe.flags, flag, True)
+                            result = self.framework.rate_limiter.check_rate_limit(
+                                operation_name,
+                                context=ExecutionContext.INTERACTIVE,
+                            )
+                            self.assertTrue(
+                                result.allowed,
+                                f"rate limit should be bypassed while frappe.flags.{flag} is set",
+                            )
+                        finally:
+                            setattr(frappe.flags, flag, original_flag)
+
+            finally:
+                frappe.flags.in_test = original_in_test
+                if fallback_cor and fallback_was_enabled:
+                    frappe.db.set_value("Critical Operation Rule", fallback_cor, "enabled", 1)
                     frappe.db.commit()
 
     def test_cor_rate_limit_headers_generation(self):
@@ -383,7 +441,9 @@ class TestCORRateLimitingScopes(EnhancedTestCase):
         user1 = self.create_test_user("global_user1@test.com", roles=["Verenigingen Staff"])
         user2 = self.create_test_user("global_user2@test.com", roles=["Verenigingen Staff"])
 
-        frappe.cache().delete_value(f"cor_rate_limit:interactive:{operation_name}")
+        # Raw delete (not delete_value) to match the raw incrby key written by the
+        # engine; keys are site-namespaced. Global scope has no user/ip suffix.
+        frappe.cache().delete(f"cor_rate_limit:{frappe.local.site}:interactive:{operation_name}")
 
         original_in_test = getattr(frappe.flags, "in_test", False)
         try:
@@ -423,3 +483,27 @@ class TestCORRateLimitingScopes(EnhancedTestCase):
 
         finally:
             frappe.flags.in_test = original_in_test
+
+
+class TestRateLimitKeyNamespacing(EnhancedTestCase):
+    """Audit #7: rate-limit counter keys must be namespaced per site.
+
+    The engine reads/writes counters via raw redis ops (incrby/expire/get) that
+    bypass RedisWrapper.make_key, so without an explicit site prefix a shared
+    Redis would collapse counters across tenants. Guard the key format directly.
+    """
+
+    def test_build_cache_key_includes_site(self):
+        from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+        engine = get_rate_limit_engine()
+        site = frappe.local.site
+
+        global_key = engine._build_cache_key("some_op", "global", "interactive")
+        self.assertEqual(global_key, f"cor_rate_limit:{site}:interactive:some_op")
+
+        user_key = engine._build_cache_key("some_op", "per_user", "interactive")
+        self.assertTrue(user_key.startswith(f"cor_rate_limit:{site}:interactive:some_op:"))
+        # The site segment must sit between the prefix and the operation, so two
+        # different sites can never produce the same key for the same op/user.
+        self.assertIn(f":{site}:", user_key)

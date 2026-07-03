@@ -9,8 +9,11 @@ import frappe
 from verenigingen.utils.api_response import APIResponse, api_response_handler
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 
 
 def format_address_for_country(address_doc):
@@ -194,7 +197,7 @@ def format_member_address(member_name: str):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api()
 def test_address_formatting():
     """Test the address formatting with sample data"""
     try:

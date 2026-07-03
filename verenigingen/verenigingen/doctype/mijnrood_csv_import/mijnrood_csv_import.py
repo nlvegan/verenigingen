@@ -36,7 +36,11 @@ from verenigingen.utils.csv_import_processor import (
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+)
 
 try:
     import pandas as pd
@@ -885,6 +889,7 @@ class MijnroodCSVImport(Document):
             return f"Error generating summary: {str(e)}"
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def retry_failed_account_creations(self):
         """
         Retry failed account creation requests from the associated Bulk Operation Tracker.
@@ -993,6 +998,7 @@ class MijnroodCSVImport(Document):
             frappe.throw(_("Error retrying failed account creations: {0}").format(str(e)))
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def retry_failed_volunteer_creations(self):
         """
         Retry volunteer creation for members that failed during import.
@@ -1785,6 +1791,7 @@ def get_import_template():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def update_import_tracking_after_retry(import_doc_name: str):
     """
     Update import tracking fields after retry processing completes.
@@ -1820,6 +1827,7 @@ def update_import_tracking_after_retry(import_doc_name: str):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def process_import_background(import_doc_name: str, test_mode: bool = False):
     """
     Background job function to process member CSV import.

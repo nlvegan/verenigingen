@@ -356,12 +356,28 @@ class TestClassifierWhitelistedAPIs(EnhancedTestCase):
     gate passes here.
     """
 
+    _orig_developer_mode = False  # sentinel: "not set"
+
     def setUp(self):
         super().setUp()
         # Reset the global classifier so each test starts clean.
         import verenigingen.utils.security.api_classifier as mod
 
         mod._api_classifier = None
+        # The wrapper endpoints are @development_only_api, blocked unless the
+        # environment resolves to DEVELOPMENT. CI runs without developer_mode
+        # (→ PRODUCTION), so enable it for the test and restore it in tearDown.
+        self._orig_developer_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+    def tearDown(self):
+        if self._orig_developer_mode is not False:
+            if self._orig_developer_mode is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = self._orig_developer_mode
+            self._orig_developer_mode = False
+        super().tearDown()
 
     def test_classify_all_api_endpoints_success(self):
         result = classify_all_api_endpoints()

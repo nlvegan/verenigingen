@@ -41,10 +41,19 @@ class AuthorizationPolicy:
     2        | Guest check                    | All except PUBLIC    | Reject unauthenticated users
     3        | LOW level                      | LOW only             | Any authenticated user allowed
     4        | Role Profile (primary)         | MEDIUM, HIGH, CRIT   | User's assigned role profile grants access
-    5        | Individual Role (secondary)    | MEDIUM, HIGH, CRIT   | User role name matches profile name in mapping
+    5        | Individual Role (secondary)    | MEDIUM only          | User role name matches profile name in mapping (capped at MEDIUM)
     6        | System Manager exception       | MEDIUM only          | System Manager gets MEDIUM access
     7        | DENY                           | All                  | No matching rule found
+
+    SECURITY NOTE: HIGH and CRITICAL access is grantable ONLY through an assigned
+    Role Profile (Rule 4). The individual-role fallback (Rule 5) and the System
+    Manager exception (Rule 6) are both capped at MEDIUM, so a bare role can never
+    confer member-data or financial/admin API access.
     """
+
+    # Security levels that must be granted via an assigned Role Profile only.
+    # Rule 5 (bare individual role) and Rule 6 (System Manager) do not apply here.
+    PROFILE_ONLY_LEVELS = frozenset({SecurityLevel.HIGH, SecurityLevel.CRITICAL})
 
     # Role Profile to Security Level mapping
     # This replaces hardcoded role lists with role profile-based access
@@ -167,16 +176,27 @@ class AuthorizationPolicy:
                 )
 
         # ===== RULE 5: Secondary - Individual role matches profile name =====
-        # This supports backwards compatibility where role names match profile names
-        for role in user_roles:
-            allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role, [])
-            if required_level in allowed_levels:
-                return AuthResult(
-                    granted=True,
-                    rule_matched="rule_5_individual_role",
-                    auth_path=f"individual_role:{role}",
-                    reason=f"Individual role {role} grants {required_level.value} access",
-                )
+        # Backwards-compatibility path for users who hold a role whose name matches
+        # a mapping key but have not been assigned the corresponding Role Profile.
+        #
+        # SECURITY: this path is capped at MEDIUM. HIGH (member-data) and CRITICAL
+        # (financial/admin/SEPA) access must come from a vetted Role Profile
+        # assignment (Rule 4), never from a bare role. Otherwise granting a role
+        # such as "Verenigingen Administrator" or "Verenigingen Chapter Board Member"
+        # for an unrelated feature would silently confer elevated API access without
+        # the corresponding role profile — the very escalation the role-profile model
+        # exists to prevent. (LOW is already granted to any authenticated user by
+        # Rule 3, so in practice Rule 5 only adds MEDIUM here.)
+        if required_level not in self.PROFILE_ONLY_LEVELS:
+            for role in user_roles:
+                allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role, [])
+                if required_level in allowed_levels:
+                    return AuthResult(
+                        granted=True,
+                        rule_matched="rule_5_individual_role",
+                        auth_path=f"individual_role:{role}",
+                        reason=f"Individual role {role} grants {required_level.value} access",
+                    )
 
         # ===== RULE 6: System Manager exception for MEDIUM =====
         if Roles.SYSTEM_MANAGER in user_roles and required_level == SecurityLevel.MEDIUM:

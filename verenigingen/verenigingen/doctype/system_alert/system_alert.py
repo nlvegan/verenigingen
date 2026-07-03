@@ -61,7 +61,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now
 
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, utility_api
 
 
 class SystemAlert(Document):
@@ -222,6 +222,7 @@ def resolve_alert(alert_name: str):
 
 
 @frappe.whitelist()
+@utility_api
 def get_alert_summary():
     """Get alert summary for dashboard"""
     try:

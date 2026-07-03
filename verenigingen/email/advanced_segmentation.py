@@ -15,6 +15,13 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
+
 
 class AdvancedSegmentationManager:
     """Manager for advanced member segmentation and targeting"""
@@ -647,6 +654,7 @@ class AdvancedSegmentationManager:
 
 # API Functions
 @frappe.whitelist()
+@utility_api
 def get_available_segments(chapter_name: str = None) -> Dict:
     """Get available segmentation options"""
     manager = AdvancedSegmentationManager()
@@ -666,6 +674,7 @@ def get_available_segments(chapter_name: str = None) -> Dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_segment_recipients(segment_id: str, chapter_name: str = None, preview_only: bool = False) -> Dict:
     """
     Get recipients for a segment
@@ -701,6 +710,7 @@ def get_segment_recipients(segment_id: str, chapter_name: str = None, preview_on
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_segment_combination(
     segment_ids: str, operation: str = "intersection", chapter_name: str = None
 ) -> Dict:
@@ -732,6 +742,7 @@ def create_segment_combination(
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def analyze_segment_overlap(segment_ids: str, chapter_name: str = None) -> Dict:
     """
     Analyze overlap between segments
@@ -760,6 +771,7 @@ def analyze_segment_overlap(segment_ids: str, chapter_name: str = None) -> Dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_segment_suggestions(chapter_name: str = None) -> Dict:
     """Get segment suggestions for a chapter"""
     # Check permissions

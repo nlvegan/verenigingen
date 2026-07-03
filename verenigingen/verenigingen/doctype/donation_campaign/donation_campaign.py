@@ -9,10 +9,10 @@ from frappe.utils import flt, getdate
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
 )
-from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -330,7 +330,7 @@ class DonationCampaign(Document):
 
     @staticmethod
     @frappe.whitelist()
-    @development_only()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def test_enhancements():
         """Test donation campaign enhancements"""
         results = []

@@ -69,6 +69,19 @@ def _get_trusted_proxy_networks() -> List[ipaddress.IPv4Network | ipaddress.IPv6
             "trust_private_networks": true  // Optional, defaults to true
         }
 
+    SECURITY / HARDENING:
+        The default trusts all private/loopback ranges so that the common
+        single-host nginx->gunicorn deployment (REMOTE_ADDR=127.0.0.1) reads the
+        real client from X-Forwarded-For without extra config. This is safe ONLY
+        when the front proxy APPENDS to XFF (the standard
+        `proxy_add_x_forwarded_for`). If your proxy passes an attacker-supplied
+        XFF through unchanged, or clients can reach the app server directly from
+        a private network, an attacker can spoof their source IP. In those
+        deployments, set "trust_private_networks": false and list ONLY your real
+        proxy addresses in "trusted_proxies" so XFF is trusted from those hops
+        alone. The CRITICAL-endpoint IP allowlist and per-IP rate limiting rely
+        on this resolution.
+
     Returns:
         List of parsed network objects
     """
@@ -228,9 +241,14 @@ def get_client_ip() -> str:
         if not _is_trusted_proxy(ip, trusted_networks):
             return ip
 
-    # All IPs in chain are trusted proxies (unusual)
-    # Return leftmost (original client per spec)
-    return forwarded_ips[0] if forwarded_ips else remote_addr
+    # Every hop in the chain is a trusted proxy (unusual). Do NOT return the
+    # leftmost XFF entry: that value is fully attacker-controllable (any client
+    # can prepend an arbitrary IP), so returning it would let an attacker forge
+    # a source IP that matches an IP allowlist made of private addresses, or
+    # rotate the value to evade per-IP rate limits. Fall back to the actual
+    # connecting address (remote_addr), which cannot be spoofed. This fails
+    # closed for allowlist checks (a proxy IP won't match a client allowlist).
+    return remote_addr
 
 
 def get_client_ip_with_info() -> dict:

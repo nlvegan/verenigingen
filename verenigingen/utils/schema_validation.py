@@ -8,8 +8,11 @@ Validates that the Chapter Board Member schema fixes are properly applied.
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import development_only_api
+
 
 @frappe.whitelist()
+@development_only_api()
 def validate_chapter_board_schema_fixes():
     """Validate that schema fixes are working correctly"""
 

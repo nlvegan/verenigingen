@@ -15,6 +15,7 @@ Architecture:
 """
 
 import time
+from dataclasses import replace as dataclass_replace
 from functools import wraps
 from typing import Any, Callable, Dict, List
 
@@ -885,7 +886,15 @@ def api_security_framework(
 
             # Determine security level
             level = security_level or framework.classify_endpoint(func, operation_type)
-            profile = framework.get_security_profile(level)
+            # SECURITY: copy the profile before applying per-endpoint overrides.
+            # get_security_profile() returns the shared class-level SECURITY_PROFILES
+            # instance; mutating it in place would leak an endpoint's overrides
+            # (allowed_environments, max_request_size) onto every other endpoint that
+            # shares the same SecurityLevel. A dev-only endpoint would poison the LOW
+            # profile's allowed_environments and 403 all self-service/utility endpoints
+            # in production; a custom max_request_size would raise the size limit for
+            # every other MEDIUM endpoint. Copy makes the override request-local.
+            profile = dataclass_replace(framework.get_security_profile(level))
 
             # Override profile settings if specified
             if allowed_environments:
@@ -919,10 +928,15 @@ def api_security_framework(
                         implicit_allowed=self_service_implicit_allowed, **self_service_kwargs
                     )
 
-                    # Enhanced content validation for TOCTOU protection
+                    # Enhanced content validation for TOCTOU protection.
+                    # Resolve the caller's member with the canonical user-first
+                    # resolver (Member.user, then Member.email) — matching the
+                    # ownership gate. An email-only lookup silently skipped this
+                    # deep check for members whose Member.user differs from their
+                    # login email, disabling TOCTOU protection for that class of user.
                     current_user = frappe.session.user
                     if current_user not in ("Administrator", "Guest"):
-                        user_member = frappe.db.get_value("Member", {"email": current_user}, "name")
+                        user_member = framework.self_service_controller.get_user_member(current_user)
                         if user_member:
                             framework._validate_self_service_request_content(user_member, **kwargs)
 
@@ -1241,6 +1255,16 @@ def self_service_api(
         - Authentication required (rejects Guest)
         - LOW security level — any authenticated user passes auth
         - self_service_only=True — caller's member must match the target
+
+    OWNERSHIP CONTRACT (important):
+        The framework only understands member/volunteer identifiers (member,
+        member_name, member_id, volunteer[/_name/_id]). If your endpoint decides
+        what to act on from a DIFFERENT identifier — customer, donor, membership,
+        mandate, payment_plan, a bare `name`, etc. — the framework CANNOT verify
+        ownership of it, and (with implicit_allowed=True) the call is admitted as
+        implicit self-service. Such endpoints MUST perform their own ownership
+        check (resolve the entity to a member and compare to the session user).
+        All current implicit_allowed endpoints do this; keep it that way.
 
     Args:
         operation_type: Classification for rate limiting / audit context

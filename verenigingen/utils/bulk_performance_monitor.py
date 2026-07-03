@@ -17,6 +17,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def collect_performance_metrics() -> Dict:
     """
@@ -242,6 +244,7 @@ def check_performance_thresholds() -> Dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_performance_dashboard_data():
     """Get performance data for admin dashboard display."""
     if not frappe.has_permission("Bulk Operation Tracker", "read"):

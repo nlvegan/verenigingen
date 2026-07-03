@@ -169,3 +169,98 @@ class TestSelfServiceOperations(PortalSelfServiceTestMixin, EnhancedTestCase):
         policy = AuthorizationPolicy()
         levels = policy.ROLE_PROFILE_SECURITY_MAPPING.get("Verenigingen Member", [])
         self.assertEqual(levels, [SecurityLevel.LOW])
+
+    # --- audit finding #3/#5: multi-field + deep-content ownership -----------
+
+    def test_sibling_member_id_cannot_smuggle_foreign_target(self):
+        """Audit #3: passing a matching `member` must NOT let a foreign `member_id`
+        slip past the gate. Every explicit identifier is validated, not just the
+        first one found."""
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+        intruder_user = self._link_member_to_user(intruder)
+
+        with self._as_user(intruder_user.name):
+            with self.assertRaises(VPermissionError):
+                # member = own (matches) but member_id = victim (foreign)
+                self.framework._validate_self_service_access(
+                    member=intruder.name, member_id=owner.name
+                )
+
+    def test_matching_sibling_fields_pass(self):
+        """Multiple identifiers that all point at the caller's own member pass."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
+
+        with self._as_user(user.name):
+            self.assertTrue(
+                self.framework._validate_self_service_access(
+                    member=member.name, member_id=member.name
+                )
+            )
+
+    def test_content_check_flags_top_level_scalar_member_id(self):
+        """Audit #3: deep content validation inspects top-level scalar identifiers,
+        not just nested dict/list structures."""
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+
+        with self.assertRaises(VPermissionError):
+            # intruder is the caller; a foreign member_id scalar must be caught
+            self.framework._validate_self_service_request_content(
+                intruder.name, member_id=owner.name
+            )
+
+    def test_content_check_flags_member_inside_json_string(self):
+        """Audit #4: a member reference hidden inside a JSON-encoded string payload
+        is parsed and flagged."""
+        import json as _json
+
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+
+        payload = _json.dumps({"member": owner.name, "amount": 5})
+        with self.assertRaises(VPermissionError):
+            self.framework._validate_self_service_request_content(intruder.name, data=payload)
+
+    def test_content_check_flags_member_inside_json_string_with_leading_whitespace(self):
+        """Audit review #1: a JSON payload with leading whitespace/newline must
+        still be inspected. json.loads tolerates leading whitespace, so a first-
+        char fast-reject would let ' {"member":"VICTIM"}' bypass the inspector
+        while the endpoint still parses it."""
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+
+        for payload in (
+            ' {"member": "%s"}' % owner.name,
+            '\t{"member": "%s"}' % owner.name,
+            '\n {"member": "%s"}' % owner.name,
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(VPermissionError):
+                    self.framework._validate_self_service_request_content(
+                        intruder.name, data=payload
+                    )
+
+    def test_content_check_passes_for_own_member_in_json_string(self):
+        """JSON payload referencing the caller's own member is allowed."""
+        import json as _json
+
+        member = self.create_test_member(birth_date="1990-01-01")
+        payload = _json.dumps({"member": member.name, "amount": 5})
+        # Should not raise
+        self.assertTrue(
+            self.framework._validate_self_service_request_content(member.name, data=payload)
+        )
+
+    def test_explicit_unresolvable_volunteer_fails_closed(self):
+        """Audit #5: an explicit but unresolvable `volunteer` reference must be
+        denied (fail closed), not silently collapse to implicit self-service."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
+
+        with self._as_user(user.name):
+            with self.assertRaises(VPermissionError):
+                self.framework._validate_self_service_access(
+                    volunteer="NONEXISTENT-VOLUNTEER-XYZ", implicit_allowed=True
+                )

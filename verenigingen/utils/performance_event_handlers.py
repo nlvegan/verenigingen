@@ -23,6 +23,11 @@ from verenigingen.utils.optimized_queries import (
     OptimizedVolunteerQueries,
     validate_member_names,
 )
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    utility_api,
+)
 
 
 class PerformanceEventHandlers:
@@ -308,6 +313,7 @@ def on_sepa_mandate_change(doc, method=None):
 
 # API endpoints for manual optimization triggers
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def trigger_member_optimization(member_names: str | list):
     """
     API endpoint to manually trigger member optimization
@@ -332,6 +338,7 @@ def trigger_member_optimization(member_names: str | list):
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def get_optimization_status():
     """
     API endpoint to get current optimization system status

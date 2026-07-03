@@ -431,6 +431,7 @@ class BrandSettings(Document):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def get_active_brand_settings():
     """Get the brand settings (now a Single doctype)
 
@@ -445,6 +446,26 @@ def get_active_brand_settings():
         # Get Brand Settings as a Single doctype
         settings_doc = frappe.get_single("Brand Settings")
         settings = settings_doc.as_dict()
+
+        # This endpoint is guest-accessible (@public_api). Strip framework
+        # metadata before returning: owner/modified_by expose user emails to
+        # anonymous callers, and the rest is internal bookkeeping. Only brand
+        # config fields (colors, logo, description, …) should be public.
+        for meta_field in (
+            "owner",
+            "modified_by",
+            "modified",
+            "creation",
+            "docstatus",
+            "idx",
+            "name",
+            "doctype",
+            "_user_tags",
+            "_comments",
+            "_assign",
+            "_liked_by",
+        ):
+            settings.pop(meta_field, None)
 
         # Cache for 1 hour
         frappe.cache().set_value("active_brand_settings", settings, expires_in_sec=3600)

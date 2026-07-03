@@ -12,6 +12,7 @@ import os
 import sys
 
 import frappe
+from frappe import _
 
 # Add the scripts directory to the Python path
 scripts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "scripts")
@@ -26,21 +27,39 @@ def _import_monitoring_functions():
         from monitoring.zabbix_integration import (  # noqa: E402  # noqa: E402
             get_metrics_for_zabbix as _get_metrics_for_zabbix,
             health_check as _health_check,  # noqa: E402
+            is_valid_request as _is_valid_request,
             zabbix_webhook_receiver as _zabbix_webhook_receiver,
         )
 
-        return _get_metrics_for_zabbix, _health_check, _zabbix_webhook_receiver
+        return _get_metrics_for_zabbix, _health_check, _zabbix_webhook_receiver, _is_valid_request
     except ImportError as e:
         frappe.log_error(f"Failed to import monitoring functions: {str(e)}")
-        return None, None, None
+        return None, None, None, None
 
 
-_get_metrics_for_zabbix, _health_check, _zabbix_webhook_receiver = _import_monitoring_functions()
+(
+    _get_metrics_for_zabbix,
+    _health_check,
+    _zabbix_webhook_receiver,
+    _is_valid_request,
+) = _import_monitoring_functions()
+
+
+def _require_zabbix_auth():
+    """Deny the request unless it is an authorized monitoring caller.
+
+    Enforced here (before the swallowing try/except below) so an unauthenticated
+    request gets a clean 403 instead of a 200 error envelope. Fails CLOSED if the
+    scripts implementation could not be imported.
+    """
+    if _is_valid_request is None or not _is_valid_request():
+        raise frappe.PermissionError(_("Unauthorized monitoring request"))
 
 
 @frappe.whitelist(allow_guest=True)
 def get_metrics_for_zabbix():
     """Get metrics for Zabbix monitoring."""
+    _require_zabbix_auth()
     try:
         # Debug: Log the current user
         frappe.logger().info(f"get_metrics_for_zabbix called by user: {frappe.session.user}")
@@ -61,6 +80,7 @@ def get_metrics_for_zabbix():
 @frappe.whitelist(allow_guest=True)
 def health_check():
     """Health check endpoint for monitoring."""
+    _require_zabbix_auth()
     try:
         return _health_check()
     except Exception as e:
@@ -69,7 +89,15 @@ def health_check():
         return {"status": "unhealthy", "error": str(e), "timestamp": frappe.utils.now_datetime().isoformat()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def zabbix_webhook_receiver():
-    """Receive webhooks from Zabbix for auto-remediation."""
+    """Receive webhooks from Zabbix for auto-remediation.
+
+    Guest-reachable but authenticated inside the scripts implementation via an
+    HMAC signature over the request body (``zabbix_webhook_secret`` +
+    ``X-Zabbix-Signature``). Auto-remediation is dangerous (cache flush / RQ-job
+    failure / Redis restart), so the signature is mandatory and fails closed when
+    no secret is configured. Not gated by the shared read token used for
+    metrics/health — remediation requires its own dedicated secret.
+    """
     return _zabbix_webhook_receiver()

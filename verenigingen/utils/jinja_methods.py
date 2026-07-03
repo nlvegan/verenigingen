@@ -4,8 +4,11 @@ Jinja template methods for Verenigingen app
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
+
 
 @frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_brand_css_variables():
     """Get brand color CSS variables for templates"""
     try:

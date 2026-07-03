@@ -25,6 +25,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def coerce_test_mode(value) -> bool:
     """Coerce a `test_mode` argument to a real bool.
@@ -351,7 +353,22 @@ class CSVImportBackgroundProcessor:
         frappe.db.commit()
 
 
+# Import processors that may be dispatched via queue_csv_import_processing.
+# processor_method is caller-supplied and flows straight into frappe.enqueue, so
+# it MUST be constrained to this allow-list — otherwise the endpoint is an
+# arbitrary-method-execution primitive for anyone who can reach it.
+ALLOWED_IMPORT_PROCESSORS = frozenset(
+    {
+        "verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.process_import_background",
+        "verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import.process_import_background",
+        "verenigingen.verenigingen.doctype.vip_import.vip_import.process_import_background",
+        "verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import.process_import_background",
+    }
+)
+
+
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def queue_csv_import_processing(
     import_doc_name: str, doctype: str, processor_method: str, timeout: int = 3600, queue: str = "long"
 ):
@@ -361,14 +378,17 @@ def queue_csv_import_processing(
     Args:
         import_doc_name: Name of the import document
         doctype: DocType name of the import document
-        processor_method: Fully qualified method path to process the import
-                         (e.g., "verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.process_import_background")
+        processor_method: Fully qualified method path to process the import.
+                         MUST be one of ALLOWED_IMPORT_PROCESSORS.
         timeout: Job timeout in seconds (default 1 hour)
         queue: Queue name (default "long")
 
     Returns:
         dict: Job enqueue confirmation
     """
+    if processor_method not in ALLOWED_IMPORT_PROCESSORS:
+        frappe.throw(_("Invalid import processor: {0}").format(processor_method), frappe.PermissionError)
+
     frappe.enqueue(
         method=processor_method,
         queue=queue,

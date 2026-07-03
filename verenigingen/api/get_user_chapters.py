@@ -15,8 +15,8 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
-@public_api(operation_type=OperationType.PUBLIC)  # Public chapter listing with user membership status
 @frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)  # Public chapter listing with user membership status
 def get_user_chapter_data() -> OperationResult[Dict[str, Any]]:
     """Get current user's chapter memberships"""
     try:

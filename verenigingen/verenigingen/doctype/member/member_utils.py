@@ -9,6 +9,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
+    public_api,
     standard_api,
 )
 
@@ -43,10 +44,14 @@ def get_iban_bank_codes():
     }
 
 
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.PUBLIC)
-def is_chapter_management_enabled():
-    """Check if chapter management is enabled in settings"""
+def _chapter_management_enabled():
+    """Plain (un-whitelisted) chapter-management setting check.
+
+    Use this for internal / server-side calls and from guest-accessible
+    endpoints. The whitelisted is_chapter_management_enabled() API delegates
+    here; calling the whitelisted wrapper internally would run its @standard_api
+    (MEDIUM) auth check against the current session and deny guest/portal paths.
+    """
     try:
         return frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management") == 1
     except (frappe.DoesNotExistError, frappe.ValidationError) as e:
@@ -55,6 +60,13 @@ def is_chapter_management_enabled():
     except frappe.DatabaseError as e:
         frappe.log_error(f"Database error in chapter management check: {str(e)}", "Member Utils")
         return True
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
+def is_chapter_management_enabled():
+    """Check if chapter management is enabled in settings (whitelisted API)."""
+    return _chapter_management_enabled()
 
 
 # get_board_memberships moved to ChapterManagementService
@@ -451,9 +463,15 @@ def get_member_form_settings():
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def find_chapter_by_postal_code(postal_code):
     """Find chapters matching a postal code"""
-    if not is_chapter_management_enabled():
+    # Read the setting directly rather than calling the whitelisted
+    # is_chapter_management_enabled() API: that helper is @standard_api (MEDIUM),
+    # so invoking it from this guest-accessible endpoint ran a MEDIUM auth check
+    # against the (Guest) session and denied the request. _chapter_management_enabled()
+    # is a plain, un-gated helper with the same default-enabled-on-error semantics.
+    if not _chapter_management_enabled():
         return {"success": False, "message": "Chapter management is disabled"}
 
     if not postal_code:

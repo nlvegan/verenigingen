@@ -4,7 +4,12 @@ import frappe
 from frappe.utils import now
 from frappe.utils.background_jobs import enqueue
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    utility_api,
+)
 
 
 def refresh_all_member_financial_histories():
@@ -362,6 +367,7 @@ def update_single_member_duration(member_name: str):
 
 
 @frappe.whitelist()
+@utility_api
 def get_duration_update_stats():
     """
     DEPRECATED: Get statistics about membership duration.

@@ -8,8 +8,12 @@ as it was redundant with Frappe's built-in functionality.
 See archived/security_implementations/CSRF_ARCHIVAL_NOTES.md for details.
 """
 
+import hmac
+
 import frappe
 from frappe import _
+
+from verenigingen.utils.security.api_security_framework import utility_api
 
 
 class CSRFError(frappe.ValidationError):
@@ -70,8 +74,9 @@ class CSRFProtection:
                 raise CSRFError(_("CSRF validation not available for guest users"))
             raise CSRFError(_("No CSRF token in session"))
 
-        # Validate token matches
-        if token != expected_token:
+        # Validate token matches using a constant-time comparison to avoid a
+        # timing oracle on the expected token.
+        if not hmac.compare_digest(str(token), str(expected_token)):
             raise CSRFError(_("CSRF token is invalid"))
 
         return True
@@ -95,10 +100,10 @@ class CSRFProtection:
             # Check form data
             token = frappe.form_dict.get("csrf_token")
 
-        if not token:
-            # Fallback to session token
-            token = frappe.session.data.get("csrf_token")
-
+        # SECURITY: do NOT fall back to the session's own csrf_token here. Doing so
+        # made validate_request() compare the session token against itself, so a
+        # request that simply omitted the CSRF header/field always passed. A token
+        # must be supplied by the client (header or form field) to be validated.
         return token
 
     @classmethod
@@ -143,6 +148,7 @@ class CSRFProtection:
 
 # API endpoints for backwards compatibility
 @frappe.whitelist(allow_guest=False)
+@utility_api
 def get_csrf_token():
     """
     API endpoint to get CSRF token for current user
@@ -167,6 +173,7 @@ def get_csrf_token():
 
 
 @frappe.whitelist(allow_guest=False)
+@utility_api
 def validate_csrf_token(token: str):
     """
     API endpoint to validate CSRF token

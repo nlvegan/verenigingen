@@ -12,7 +12,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.document.document_portal_service import get_document_portal_service
-from verenigingen.utils.document_categories import get_category_icon, get_document_category_options
+from verenigingen.utils.document_categories import _format_category_options, get_category_icon
 from verenigingen.utils.member_utils import require_login
 
 
@@ -62,7 +62,7 @@ def get_context(context):
     context.documents = serialize_dates(browse_result.get("documents", []))
 
     # Get document categories for filter dropdown
-    categories_raw = get_document_category_options()
+    categories_raw = _format_category_options()
     context.categories = [
         {"name": cat, "icon": get_category_icon(cat)} for cat in categories_raw.split("\n") if cat
     ]

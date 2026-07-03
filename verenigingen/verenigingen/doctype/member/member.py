@@ -280,6 +280,7 @@ class Member(
         return get_member_address_display_service().get_address_members_html(self)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_volunteer_details_html(self) -> str:
         """Get HTML content for volunteer details field."""
         from verenigingen.services.member.display.member_volunteer_display_service import (
@@ -1007,6 +1008,7 @@ def assign_member_id(member_name: str):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_volunteer_details_html_for_member(member_name: str) -> str:
     """Get volunteer details HTML for a specific member by name."""
     from verenigingen.services.member.display.member_volunteer_display_service import (

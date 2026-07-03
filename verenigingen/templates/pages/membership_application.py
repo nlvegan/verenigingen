@@ -90,6 +90,7 @@ def get_membership_type_details(membership_type_name: str):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def get_dues_schedules_for_membership_type(membership_type_name: str):
     """Get all dues schedule templates for a specific membership type.
 

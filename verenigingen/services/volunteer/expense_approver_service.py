@@ -154,21 +154,52 @@ class VolunteerExpenseApproverService(StatelessService):
         """
         user = frappe.get_doc("User", user_email)
 
-        if "Expense Approver" not in [r.role for r in user.roles]:
-            user.append("roles", {"role": "Expense Approver"})
+        if "Expense Approver" in [r.role for r in user.roles]:
+            return
 
-            # Use secure document operation instead of permission bypass
-            result = secure_document_operation(
-                operation="save",
-                doc=user,
-                justification="Adding Expense Approver role for volunteer expense management",
-                required_permissions=["User:write", "Role:assign"],
+        user.append("roles", {"role": "Expense Approver"})
+
+        # Use secure document operation instead of permission bypass
+        result = secure_document_operation(
+            operation="save",
+            doc=user,
+            justification="Adding Expense Approver role for volunteer expense management",
+            required_permissions=["User:write", "Role:assign"],
+        )
+
+        if not result.success:
+            frappe.throw(_("Failed to assign Expense Approver role: {0}").format("; ".join(result.errors)))
+
+        # A user carrying a Role Profile has its `roles` table re-synced from the
+        # profile on every save (User.populate_role_profile_roles), which silently
+        # strips this ad-hoc role -- so the save above "succeeds" without granting
+        # it. Since the security hardening made role PROFILES the norm (HIGH/CRITICAL
+        # tiers are profile-only), that is the common case. When the role did not
+        # persist, grant it via a direct Has Role insert -- the sanctioned pattern
+        # for adding a single role without re-validating (hence re-syncing) the whole
+        # roles table (mirrors permissions.py::ensure_chapter_board_member_role).
+        if not frappe.db.exists(
+            "Has Role", {"parent": user_email, "role": "Expense Approver", "parenttype": "User"}
+        ):
+            # validator-skip: child-table-direct-insert (intentional - role-profile re-sync workaround)
+            frappe.get_doc(
+                {
+                    "doctype": "Has Role",
+                    "parent": user_email,
+                    "parenttype": "User",
+                    "parentfield": "roles",
+                    "role": "Expense Approver",
+                }
+                # Security: system operation granting only the single hard-coded "Expense
+                # Approver" role to an already-selected approver, gated by the audited
+                # secure_document_operation above; ignore_permissions avoids re-validating
+                # (and thus re-syncing away) the user's full roles table.
+            ).insert(ignore_permissions=True)
+            frappe.clear_cache(user=user_email)
+            frappe.logger().info(
+                f"SECURITY AUDIT: Granted Expense Approver role to {user_email} via direct insert "
+                f"(role-profile re-sync stripped the standard assignment) - User: {frappe.session.user}"
             )
-
-            if not result.success:
-                frappe.throw(
-                    _("Failed to assign Expense Approver role: {0}").format("; ".join(result.errors))
-                )
 
     def _load_volunteer(self):
         """Lazy load volunteer document"""

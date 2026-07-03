@@ -16,6 +16,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.error_handling import get_logger
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 class APIDocGenerator:
@@ -644,6 +645,7 @@ class APIDocGenerator:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def generate_api_documentation():
     """Generate API documentation in multiple formats"""
 
@@ -686,6 +688,7 @@ def generate_api_documentation():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_api_endpoints_summary():
     """Get summary of all API endpoints"""
 

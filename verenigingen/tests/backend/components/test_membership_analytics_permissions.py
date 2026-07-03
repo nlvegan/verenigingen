@@ -60,10 +60,17 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         # Add specified roles
         for role in roles:
             user.append("roles", {"role": role})
-        
+
         user.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         frappe.db.commit()
-        
+
+        # Post the audit #2 Rule-5 cap, HIGH/CRITICAL access needs an assigned role
+        # PROFILE; assign the profile matching each role so admin/staff/board users
+        # clear the analytics endpoints' gate (Member/no-role stay denied).
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(email, roles)
+
         return email
     
     def setUp(self):
@@ -585,7 +592,13 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
         user.roles = []
         user.append("roles", {"role": "Verenigingen Staff"})
         user.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
-        
+
+        # Post the Rule-5 cap, the analytics endpoints (@high_security_api) require an
+        # assigned role PROFILE, not a bare Staff role. Grant the matching profile.
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(email, "Verenigingen Staff")
+
         # Link user to chapter via Member if one exists for this user
         # Note: Chapter Member requires a Member reference, not User
         member_name = frappe.db.get_value("Member", {"user": email}, "name")

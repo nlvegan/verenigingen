@@ -7,6 +7,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, get_last_day, get_quarter_ending, getdate
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+)
+
 
 def execute(filters=None):
     """
@@ -291,6 +297,7 @@ def get_member_billing_frequency(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def apply_suggestion(member_id: str, suggested_date):
     """Apply suggested end date to member record"""
 
@@ -320,6 +327,7 @@ def apply_suggestion(member_id: str, suggested_date):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def apply_all_suggestions():
     """Apply all high-confidence suggestions in batch"""
 

@@ -12,6 +12,8 @@ from logging.handlers import RotatingFileHandler
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def setup_security_logger():
     """
@@ -106,6 +108,7 @@ def verify_logger_configuration():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_security_log_info():
     """
     Get information about the security log file.
@@ -119,6 +122,7 @@ def get_security_log_info():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_recent_security_logs(lines=50):
     """
     Get the most recent security log entries.

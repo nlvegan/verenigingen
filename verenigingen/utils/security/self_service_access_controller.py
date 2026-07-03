@@ -10,6 +10,7 @@ DEPENDENCY RULES:
 - MUST NOT import from api_security_framework.py (to avoid circular imports)
 """
 
+import json
 from typing import Any, Callable, Dict, List, Optional
 
 import frappe
@@ -18,6 +19,30 @@ from frappe import _
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.utils.security.client_ip import get_client_ip as centralized_get_client_ip
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity
+
+
+def _try_parse_json(value: str):
+    """Best-effort parse of a JSON-encoded string.
+
+    Returns the parsed object on success, or None if the string is not JSON.
+    Used by the self-service content inspector to see member/volunteer
+    references hidden inside JSON string payloads.
+    """
+    if not value:
+        return None
+    # Fast reject on the first NON-WHITESPACE char: json.loads (and the endpoints
+    # that consume the payload) tolerate leading whitespace, so peeking at value[0]
+    # alone let ' {"member":"VICTIM"}' slip past the inspector while json.loads
+    # still parsed it. Only object/array payloads can carry nested refs.
+    stripped = value.lstrip()
+    if not stripped or stripped[0] not in "[{":
+        return None
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError, RecursionError):
+        # RecursionError: deeply-nested JSON (a cheap ~40KB payload) would
+        # otherwise raise uncaught and 500. Treat unparseable input as "not JSON".
+        return None
 
 
 class SelfServiceAccessController:
@@ -145,34 +170,50 @@ class SelfServiceAccessController:
         # Get user's member record
         user_member = self.get_user_member(current_user)
 
-        # Find target member from request parameters
-        target_member = self._extract_target_member(**kwargs)
+        # Collect EVERY explicit member/volunteer identifier present in the request.
+        # Validating only the first one let an attacker pass a matching `member`
+        # while smuggling a foreign `member_id`/`volunteer` that the endpoint then
+        # acts on. Every explicit target must resolve to the caller's own member.
+        explicit_targets = self._extract_target_members(**kwargs)
 
         # Handle implicit self-service (no explicit target)
-        if not target_member:
+        if not explicit_targets:
             return self._handle_implicit_self_service(current_user, user_member, implicit_allowed)
 
-        # Validate explicit target access
-        return self._validate_target_access(target_member, user_member)
+        # Validate explicit target access - all identifiers must match the caller.
+        for field, target_member in explicit_targets:
+            # An explicit volunteer/member reference that cannot be resolved to a
+            # member (nonexistent, or no member link) is a foreign/invalid target,
+            # not "no target" - fail closed rather than collapsing to implicit self.
+            if target_member is None:
+                raise VPermissionError(
+                    _("Access denied: unable to verify your ownership of '{0}'").format(field)
+                )
+            self._validate_target_access(target_member, user_member)
 
-    def _extract_target_member(self, **kwargs) -> Optional[str]:
+        return True
+
+    def _extract_target_members(self, **kwargs) -> List[tuple]:
         """
-        Extract target member from request parameters.
+        Extract ALL target member identifiers from request parameters.
 
         Args:
             **kwargs: Request parameters
 
         Returns:
-            Target member name or None
+            List of (field_name, resolved_member_or_None) tuples for every member/
+            volunteer identifier present in the request. `volunteer` values are
+            resolved to their linked member (None if unresolvable).
         """
+        targets = []
         for field in self.MEMBER_FIELDS:
             if field in kwargs and kwargs[field]:
                 if field == "volunteer":
-                    # For volunteer operations, get the linked member
-                    return self.get_volunteer_member(kwargs[field])
+                    # For volunteer operations, resolve the linked member.
+                    targets.append((field, self.get_volunteer_member(kwargs[field])))
                 else:
-                    return kwargs[field]
-        return None
+                    targets.append((field, kwargs[field]))
+        return targets
 
     def _handle_implicit_self_service(
         self, current_user: str, user_member: Optional[str], implicit_allowed: bool
@@ -283,8 +324,28 @@ class SelfServiceAccessController:
         """
         violations = []
 
-        def inspect_data(data, path=""):
+        # Bound the traversal depth so a deeply-nested payload cannot exhaust the
+        # stack. Legitimate member/volunteer references live near the surface;
+        # 64 levels is far beyond any real request shape. Fails closed (a payload
+        # nested past the cap simply isn't inspected further, and the ownership
+        # gate + endpoint self-checks still apply).
+        MAX_DEPTH = 64
+
+        def inspect_data(data, path="", depth=0):
             """Recursively inspect data for member/volunteer references"""
+            if depth > MAX_DEPTH:
+                return
+
+            if isinstance(data, str):
+                # Frappe delivers nested / child-table payloads as JSON strings.
+                # Parse them so member/volunteer references hidden inside a JSON
+                # string (e.g. data='{"member":"VICTIM"}') are not invisible to
+                # the ownership inspection.
+                parsed = _try_parse_json(data)
+                if isinstance(parsed, (dict, list)):
+                    inspect_data(parsed, path, depth + 1)
+                return
+
             if isinstance(data, dict):
                 for key, value in data.items():
                     current_path = f"{path}.{key}" if path else key
@@ -318,18 +379,19 @@ class SelfServiceAccessController:
                                     }
                                 )
 
-                    # Recursively check nested structures
-                    elif isinstance(value, (dict, list)):
-                        inspect_data(value, current_path)
+                    # Recursively check nested structures (dict/list) and
+                    # JSON-encoded strings.
+                    else:
+                        inspect_data(value, current_path, depth + 1)
 
             elif isinstance(data, list):
                 for i, item in enumerate(data):
-                    inspect_data(item, f"{path}[{i}]")
+                    inspect_data(item, f"{path}[{i}]", depth + 1)
 
-        # Inspect all parameters
-        for key, value in kwargs.items():
-            if isinstance(value, (dict, list)):
-                inspect_data(value, key)
+        # Inspect all parameters, including top-level scalar member/volunteer
+        # identifiers (member_id, member_name, volunteer_id, ...) which were
+        # previously skipped because only dict/list values were recursed into.
+        inspect_data(kwargs)
 
         return violations
 

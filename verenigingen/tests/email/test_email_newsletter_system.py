@@ -501,6 +501,8 @@ class TestEmailNewsletterSystemBusinessLogic(EnhancedTestCase):
     Validates email sending, template rendering, campaign execution, etc.
     """
 
+    _orig_developer_mode = False  # sentinel: "not set"
+
     def setUp(self):
         super().setUp()
         self.template_manager = NewsletterTemplateManager()
@@ -510,6 +512,21 @@ class TestEmailNewsletterSystemBusinessLogic(EnhancedTestCase):
         self.setup_business_test_data()
         # Initialize email manager with chapter doc after creating test data
         self.email_manager = SimplifiedEmailManager(self.test_chapter)
+        # validate_email_system_components() is @development_only_api, whose gate
+        # only passes in DEVELOPMENT. CI runs without developer_mode (→ PRODUCTION);
+        # enable it for the test and restore it in tearDown. Set last so a failure
+        # earlier in setUp cannot leak the conf change.
+        self._orig_developer_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+    def tearDown(self):
+        if self._orig_developer_mode is not False:
+            if self._orig_developer_mode is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = self._orig_developer_mode
+            self._orig_developer_mode = False
+        super().tearDown()
 
     def setup_business_test_data(self):
         """Setup test data for business logic testing"""

@@ -314,8 +314,29 @@ class TestTOCTOUPenetrationTesting(EnhancedTestCase):
             email="attacker@example.com"
         )
 
+        # The endpoint is @self_service_api: the guard resolves the caller's member
+        # (Member.user first, then Member.email) and denies with a generic "Access
+        # denied" -- NOT the body's "tampering detected" -- if the caller is not a
+        # real, member-linked user. The factory uniquifies member emails, so create
+        # real Users with the members' ACTUAL emails and link them back; otherwise
+        # the attacker is denied at auth before the body's tampering check runs.
+        attacker_user = self.create_test_user(
+            email=member_b.email,
+            roles=["Verenigingen Member"],
+            first_name="Attacker",
+            last_name="User",
+        )
+        member_b.db_set("user", attacker_user.name)
+        self.create_test_user(
+            email=member_a.email,
+            roles=["Verenigingen Member"],
+            first_name="Victim",
+            last_name="User",
+        )
+        member_a.db_set("user", member_a.email)
+
         # Set session as attacker
-        frappe.set_user("attacker@example.com")
+        frappe.set_user(member_b.email)
 
         # Test various injection patterns
         injection_patterns = [

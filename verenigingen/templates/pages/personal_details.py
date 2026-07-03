@@ -12,6 +12,7 @@ from frappe.utils import cint, today
 
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
 
 
 def get_context(context):
@@ -97,6 +98,7 @@ def has_website_permission(doc, ptype, user, verbose=False):
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
+@self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def update_personal_details():
     """Handle personal details form submission"""
 

@@ -159,6 +159,22 @@ def assign_webhook_roles(webhook_email):
         )
         if not has_role_profile:
             user_doc.append("role_profiles", {"role_profile": "Verenigingen Webhook User"})
+
+        # Ensure the Module Profile exists before linking it. In production the
+        # v2_1 sync_module_profiles patch creates it during migrate, but on a fresh
+        # site (or a test DB where this setup runs before that patch) the record is
+        # absent and assigning a non-existent Module Profile fails User validation.
+        # Create it idempotently, mirroring the patch's in_install flag handling
+        # (its Module Profile on_update queues a locked background job otherwise).
+        if not frappe.db.exists("Module Profile", "Verenigingen Webhook User"):
+            from verenigingen.patches.v2_1.sync_module_profiles_safely import sync_module_profiles
+
+            original_in_install = frappe.flags.in_install
+            frappe.flags.in_install = True
+            try:
+                sync_module_profiles()
+            finally:
+                frappe.flags.in_install = original_in_install
         user_doc.module_profile = "Verenigingen Webhook User"
 
         user_doc.save(ignore_permissions=True)

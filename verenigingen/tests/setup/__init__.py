@@ -432,6 +432,34 @@ def _seed_verenigingen_test_system_user():
             user.save(ignore_permissions=True)
             frappe.db.commit()
 
+    # After the audit #2 Rule-5 cap, HIGH/CRITICAL API access is grantable ONLY
+    # through an assigned role PROFILE -- a bare role (even System Manager) tops out
+    # at MEDIUM. The creation_user drives automated privileged operations that call
+    # decorated endpoints in-process (e.g. create_volunteer_from_member
+    # @high_security_api during application approval, assign_member_to_chapter
+    # @critical_api during chapter assignment), so it must carry a profile granting
+    # those tiers or those operations fail closed. Assign the highest-tier profile
+    # that exists as a fixture on this site (guarded like the roles above; a
+    # non-existent profile -- or its synced roles -- would make save() throw on a
+    # bare CI site).
+    for profile_name in ("Verenigingen Administrator", "Verenigingen Staff"):
+        if not frappe.db.exists("Role Profile", profile_name):
+            continue
+        user = frappe.get_doc("User", test_user_email)
+        assigned = {rp.role_profile for rp in (user.get("role_profiles") or [])}
+        if profile_name not in assigned:
+            user.set("role_profiles", [{"role_profile": profile_name}])
+            user.role_profile_name = profile_name
+            user.save(ignore_permissions=True)
+            frappe.db.commit()
+            try:
+                from verenigingen.utils.security.api_security_framework import get_security_framework
+
+                get_security_framework().auth_engine.invalidate_user_cache(test_user_email)
+            except Exception:
+                pass  # best-effort; the cache TTL bounds staleness
+        break
+
     current = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
     if current != test_user_email:
         # set_single_value writes the Singles row directly without firing

@@ -22,6 +22,7 @@ Projects can be linked to teams/chapters either:
 1. Directly via custom_team or custom_chapter fields
 2. Indirectly via name matching (project name contains team/chapter name)
 """
+
 import re
 from functools import lru_cache
 
@@ -29,6 +30,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 # Custom Exceptions
@@ -575,6 +577,7 @@ def get_team_permission_level(team_name, volunteer, permission_type):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_user_project_teams(user: str | None = None):
     """
     Get all teams, chapters, and their projects that a user has access to
@@ -587,6 +590,12 @@ def get_user_project_teams(user: str | None = None):
     """
     if not user:
         user = frappe.session.user
+    elif user != frappe.session.user:
+        # Querying another user's team/chapter/project access is an enumeration
+        # vector; restrict cross-user lookups to privileged roles.
+        privileged = {"System Manager", "Verenigingen Administrator", "Verenigingen System Administrator"}
+        if not privileged.intersection(frappe.get_roles()):
+            frappe.throw(_("Not permitted to view another user's project access"), frappe.PermissionError)
 
     try:
         # Use cached helper function (replaces 2 queries with 1)

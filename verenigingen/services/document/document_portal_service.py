@@ -30,7 +30,7 @@ from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.document_categories import get_category_icon, get_document_category_options
+from verenigingen.utils.document_categories import _format_category_options, get_category_icon
 
 
 @dataclass
@@ -179,7 +179,7 @@ class DocumentPortalService(StatelessService):
                 ]
 
             # Get document categories
-            categories_raw = get_document_category_options()
+            categories_raw = _format_category_options()
             categories = [
                 {"name": cat, "icon": get_category_icon(cat)} for cat in categories_raw.split("\n") if cat
             ]

@@ -7,6 +7,7 @@ specifically designed for association management APIs.
 """
 
 import json
+import math
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -136,12 +137,22 @@ class ValidationRule:
                 }
         elif expected_type == "float":
             try:
-                float(value)
+                parsed_float = float(value)
             except (ValueError, TypeError):
                 return {
                     "valid": False,
                     "severity": self.severity.value,
                     "message": self.message or _("{0} must be a number").format(field_name or "Field"),
+                    "rule_type": self.rule_type.value,
+                }
+            # Reject nan/inf: float("nan") and float("inf") parse successfully but
+            # make every subsequent bound comparison false, so a RANGE rule would
+            # accept them (e.g. amount="nan" slipping past min=0.01/max=10000).
+            if not math.isfinite(parsed_float):
+                return {
+                    "valid": False,
+                    "severity": self.severity.value,
+                    "message": self.message or _("{0} must be a finite number").format(field_name or "Field"),
                     "rule_type": self.rule_type.value,
                 }
         elif expected_type == "boolean" and not isinstance(value, bool):
@@ -214,6 +225,16 @@ class ValidationRule:
         try:
             numeric_value = float(value)
 
+            # Reject nan/inf up front: comparisons against nan are always false,
+            # so an unchecked nan would satisfy both min and max bounds.
+            if not math.isfinite(numeric_value):
+                return {
+                    "valid": False,
+                    "severity": self.severity.value,
+                    "message": self.message or _("{0} must be a finite number").format(field_name or "Field"),
+                    "rule_type": self.rule_type.value,
+                }
+
             min_val = self.params.get("min")
             max_val = self.params.get("max")
 
@@ -285,7 +306,10 @@ class ValidationRule:
             return {"valid": True}
 
         try:
-            if not re.match(pattern, str(value)):
+            # Use fullmatch, not match: re.match anchors only at the start, so a
+            # pattern like r"[A-Z]{2}\d+" would accept "AB12<script>". fullmatch
+            # requires the ENTIRE value to conform.
+            if not re.fullmatch(pattern, str(value)):
                 return {
                     "valid": False,
                     "severity": self.severity.value,

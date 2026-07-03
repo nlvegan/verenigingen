@@ -99,6 +99,18 @@ class TestValidationRuleType(VereningingenTestCase):
         self.assertFalse(result["valid"])
         self.assertIn("number", result["message"])
 
+    def test_float_nan_rejected(self):
+        """Audit #8: float("nan") parses successfully but must be rejected."""
+        rule = ValidationRule(ValidationType.TYPE, expected_type="float")
+        result = rule.validate("nan", "amount")
+        self.assertFalse(result["valid"])
+        self.assertIn("finite", result["message"])
+
+    def test_float_infinity_rejected(self):
+        """Audit #8: float("inf") must be rejected by the float type rule."""
+        rule = ValidationRule(ValidationType.TYPE, expected_type="float")
+        self.assertFalse(rule.validate("inf", "amount")["valid"])
+
     def test_boolean_valid_accepts_string_flags(self):
         rule = ValidationRule(ValidationType.TYPE, expected_type="boolean")
         for v in ["true", "false", "0", "1", True, False]:
@@ -238,6 +250,20 @@ class TestValidationRuleRange(VereningingenTestCase):
         self.assertTrue(rule.validate(100, "f")["valid"])
         self.assertFalse(rule.validate(4, "f")["valid"])
 
+    def test_nan_rejected(self):
+        """Audit #8: nan must be rejected. Comparisons against nan are always
+        false, so an unchecked nan satisfies both min and max bounds."""
+        rule = ValidationRule(ValidationType.RANGE, min=0.01, max=10000)
+        result = rule.validate("nan", "amount")
+        self.assertFalse(result["valid"])
+        self.assertIn("finite", result["message"])
+
+    def test_infinity_rejected(self):
+        """Audit #8: inf must be rejected by RANGE bounds."""
+        rule = ValidationRule(ValidationType.RANGE, min=0.01, max=10000)
+        self.assertFalse(rule.validate("inf", "amount")["valid"])
+        self.assertFalse(rule.validate("-inf", "amount")["valid"])
+
 
 class TestValidationRuleLength(VereningingenTestCase):
     """ValidationType.LENGTH rule"""
@@ -309,6 +335,17 @@ class TestValidationRulePattern(VereningingenTestCase):
         result = rule.validate("x", "f")
         self.assertFalse(result["valid"])
         self.assertIn("pattern", result["message"].lower())
+
+    def test_pattern_uses_fullmatch_not_prefix_match(self):
+        """Audit #8: a non-anchored pattern must not accept trailing junk.
+
+        re.match anchors only at the start, so r"[A-Z]{2}\\d+" would accept
+        "AB12<script>". fullmatch requires the whole value to conform.
+        """
+        rule = ValidationRule(ValidationType.PATTERN, pattern=r"[A-Z]{2}\d+")
+        self.assertTrue(rule.validate("AB12", "code")["valid"])
+        self.assertFalse(rule.validate("AB12<script>", "code")["valid"])
+        self.assertFalse(rule.validate("AB12 extra", "code")["valid"])
 
 
 class TestValidationRuleEnum(VereningingenTestCase):

@@ -544,14 +544,19 @@ class TestVolunteerSkillSearchHelpers(EnhancedTestCase):
         self.assertIsInstance(results, list)
 
     def test_get_all_skills_list_includes_active_volunteer_skill(self):
-        # Clear the TTL cache so the freshly added skill is visible.
-        self.module._get_all_skills_list_cached.cache_clear()
+        # Clear the TTL cache so the freshly added skill is visible. The cached
+        # helper now lives in the skill-query service (extracted from the controller).
+        from verenigingen.services.volunteer.skill_query_service import get_all_skills_list_cached
+
+        get_all_skills_list_cached.cache_clear()
         with self.assertNoErrorLog():
             skills = self.module.get_all_skills_list()
         self.assertTrue(any(s["volunteer_skill"] == self.unique_skill for s in skills))
 
     def test_get_skill_insights_structure_and_expert_skill(self):
-        self.module._get_all_skills_list_cached.cache_clear()
+        from verenigingen.services.volunteer.skill_query_service import get_all_skills_list_cached
+
+        get_all_skills_list_cached.cache_clear()
         with self.assertNoErrorLog():
             insights = self.module.get_skill_insights()
         self.assertIn("popular_skills", insights)

@@ -30,9 +30,15 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+)
 
 
 @frappe.whitelist(allow_guest=False)
+@critical_api(operation_type=OperationType.ADMIN)
 def apply_optimizations():
     """Apply all performance optimizations to the database"""
 
@@ -71,6 +77,7 @@ def apply_optimizations():
 
 
 @frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_optimization_status():
     """Check the current status of performance optimizations"""
 
@@ -129,6 +136,7 @@ def check_optimization_status():
 
 
 @frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.ADMIN)
 def analyze_query_performance():
     """Analyze current query performance and identify bottlenecks"""
 

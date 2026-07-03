@@ -10,6 +10,7 @@ from frappe.utils import add_days, add_months, getdate, today
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.member_utils import get_active_membership_for_member
 from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def create_dues_schedule_from_application(membership_application):
@@ -302,6 +303,7 @@ def _calculate_member_paid_ytd_python(customer: str) -> float:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def adjust_dues_schedule(
     schedule_name: str, new_amount=None, new_frequency=None, new_next_date=None, reason=None
 ):

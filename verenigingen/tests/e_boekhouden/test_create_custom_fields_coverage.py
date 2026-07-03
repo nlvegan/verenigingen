@@ -110,7 +110,10 @@ class TestCreateEboekhoudenCustomFields(EnhancedTestCase):
             "Custom Field", {"dt": "Sales Invoice", "fieldname": "eboekhouden_invoice_number"}
         )
         self.assertEqual(si_inv.fieldtype, "Data")
-        self.assertEqual(si_inv.unique, 1)
+        # NOT unique: eBoekhouden invoice numbers legitimately repeat across
+        # suppliers/years, so a unique constraint here breaks migration
+        # (see create_eboekhouden_custom_fields.py and fixtures/custom_field.json).
+        self.assertEqual(si_inv.unique, 0)
         je_type = frappe.get_doc(
             "Custom Field", {"dt": "Journal Entry", "fieldname": "eboekhouden_mutation_type"}
         )
