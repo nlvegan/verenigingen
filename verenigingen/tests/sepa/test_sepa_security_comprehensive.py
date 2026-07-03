@@ -281,6 +281,13 @@ class TestSecurityIntegration(EnhancedTestCase):
         """Test secure API endpoint with all security measures"""
         # Create test user with appropriate permissions
         user = self.create_test_user("manager@example.com", ["Verenigingen Staff"])
+        # load_unpaid_invoices_secure is @high_security_api. After the audit #2
+        # Rule-5 cap, HIGH is grantable only via an assigned role PROFILE; the bare
+        # "Verenigingen Staff" role tops out at MEDIUM. Assign the matching profile
+        # so the auth layer passes and the "full stack" past auth is exercised.
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
+        grant_matching_role_profiles(user.email, "Verenigingen Staff")
 
         with self.set_user(user.email):
             # Test that secure endpoints require proper setup

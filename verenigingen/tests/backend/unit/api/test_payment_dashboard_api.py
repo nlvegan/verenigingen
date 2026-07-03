@@ -337,9 +337,13 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         """Create a real User with admin privileges linked to self.member.
 
         export_payment_history_csv is @high_security_api, so the acting user must
-        hold an admin role to clear the decorator AND be linked to the member so
-        get_member_from_user() resolves the record.
+        hold an admin role PROFILE to clear the decorator AND be linked to the
+        member so get_member_from_user() resolves the record. After the audit #2
+        Rule-5 cap a bare role tops out at MEDIUM, so the same-named role profile
+        ("Verenigingen Administrator") is required to reach HIGH.
         """
+        from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+
         user_email = f"csv.admin.{self.member.name}@example.com".lower()
         if not frappe.db.exists("User", user_email):
             frappe.get_doc(
@@ -352,6 +356,7 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
                     "roles": [{"role": "Verenigingen Administrator"}, {"role": "System Manager"}],
                 }
             ).insert()
+        grant_matching_role_profiles(user_email, "Verenigingen Administrator")
         frappe.db.set_value("Member", self.member.name, "user", user_email)
         frappe.db.commit()
         return user_email

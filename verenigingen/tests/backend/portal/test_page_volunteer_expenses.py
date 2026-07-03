@@ -141,10 +141,15 @@ class TestVolunteerExpensesPage(EnhancedTestCase):
     # ---- get_volunteer_expense_context ---------------------------------
 
     def test_volunteer_expense_context_guest(self):
+        # get_volunteer_expense_context is @self_service_api + whitelist(allow_guest
+        # =False): the security framework denies Guest before the body runs (matching
+        # the HTTP 403 a guest always got), so the call raises rather than returning
+        # the legacy in-body "please log in" dict.
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+
         with self.as_user("Guest"):
-            result = expenses.get_volunteer_expense_context()
-        self.assertFalse(result["success"])
-        self.assertIn("log in", result["message"].lower())
+            with self.assertRaises(VPermissionError):
+                expenses.get_volunteer_expense_context()
 
     def test_volunteer_expense_context_happy_path(self):
         with self.as_user(self.user_email):
@@ -185,7 +190,12 @@ class TestVolunteerExpensesPage(EnhancedTestCase):
     # ---- submit_multiple_expenses --------------------------------------
 
     def test_submit_multiple_expenses_guest(self):
+        # submit_multiple_expenses is @self_service_api + whitelist(allow_guest=
+        # False): the security framework denies Guest before the body runs (matching
+        # the HTTP 403 a guest always got), so the call raises rather than returning
+        # the legacy in-body "please log in" dict.
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+
         with self.as_user("Guest"):
-            result = expenses.submit_multiple_expenses([])
-        self.assertFalse(result["success"])
-        self.assertIn("log in", result["message"].lower())
+            with self.assertRaises(VPermissionError):
+                expenses.submit_multiple_expenses([])

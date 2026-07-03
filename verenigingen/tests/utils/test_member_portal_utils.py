@@ -56,6 +56,12 @@ class TestMemberPortalUtils(EnhancedTestCase):
         # ("Verenigingen Member") + a linked Member record. The stats SQL filters
         # on that role; if it still filtered on the phantom "Member" role (which
         # does not exist on prod) the count would not move.
+        # Materialise the factory's lazily-created test-admin user before the
+        # baseline snapshot. Since 3fdb030a that admin carries the "Verenigingen
+        # Member" role via its assigned role profile, so if it is first created
+        # inside _make_portal_member (below) it would inflate the delta to +2.
+        # Creating it up front means it is counted in `before` and `stats` alike.
+        self.factory.ensure_test_admin_user()
         before = get_member_portal_stats()
         self.assertNotIn("error", before)
         self._make_portal_member(roles=["Verenigingen Member"])
@@ -73,8 +79,16 @@ class TestMemberPortalUtils(EnhancedTestCase):
 
     # ------------------------------------------ get_user_appropriate_home_page
     def test_home_page_guest(self):
+        # get_user_appropriate_home_page is @utility_api (LOW), so the security
+        # framework denies Guest before the body's "/web" guest branch runs. The
+        # only production caller is authenticated Desk JS (verenigingen_settings.js)
+        # and guests cannot reach a plain @frappe.whitelist() over HTTP, so the
+        # in-body guest branch is unreachable in production; assert the denial.
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+
         with self.set_user("Guest"):
-            self.assertEqual(get_user_appropriate_home_page(), "/web")
+            with self.assertRaises(VPermissionError):
+                get_user_appropriate_home_page()
 
     def test_home_page_member_linked(self):
         _, email = self._make_portal_member(roles=["Verenigingen Member"])

@@ -181,18 +181,41 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
 
         Every other deny test stops at the @critical_api tier gate, leaving the
         inner ``if not can_assign_member_to_chapter(...)`` branch
-        (member_management.py:43-44) untested. 'Verenigingen National Board
-        Member' grants the CRITICAL security level (so the decorator lets the
-        call through) but is NOT in Roles.ADMIN_ROLES and holds no board seat on
-        the target chapter, so can_assign returns False. @handle_api_error then
-        converts the raised PermissionError into a failure OperationResult rather
-        than propagating it.
+        (member_management.py:43-44) untested. To reach it we need an actor that
+        clears the CRITICAL decorator but that ``can_assign_member_to_chapter``
+        rejects.
+
+        After the audit #2 Rule-5 cap, CRITICAL is grantable only through an
+        assigned role PROFILE (decorator Rule 4 reads ``get_user_role_profiles``),
+        yet every CRITICAL-granting profile also syncs an ADMIN_ROLE (e.g.
+        'Verenigingen Staff') that would satisfy ``can_assign``'s admin fast-path.
+        So we assign the 'Verenigingen National Board Member' profile (→ CRITICAL
+        at the decorator) and then strip the synced ADMIN_ROLES from the user's
+        Has Role rows, WITHOUT touching the profile assignment. The decorator
+        still sees the profile; ``can_assign`` (which reads ``frappe.get_roles``)
+        no longer sees an admin role and, with no board seat on the target
+        chapter, returns False. @handle_api_error then converts the raised
+        PermissionError into a failure OperationResult rather than propagating it.
         """
+        from verenigingen.utils.constants import Roles
+
         target = self._make_member()
         actor = self._make_member()
         user = self._link_member_to_user(
-            actor, roles=("Verenigingen National Board Member",), role_profile=None
+            actor,
+            roles=("Verenigingen National Board Member",),
+            role_profile="Verenigingen National Board Member",
         )
+        # Strip the profile-synced admin roles via direct SQL so User.save does not
+        # re-sync them, leaving the profile assignment (hence CRITICAL) intact.
+        frappe.db.delete(
+            "Has Role", {"parent": user.name, "role": ["in", list(Roles.ADMIN_ROLES)]}
+        )
+        frappe.db.commit()
+        frappe.clear_cache(user=user.name)
+        from verenigingen.utils.security.api_security_framework import get_security_framework
+
+        get_security_framework().auth_engine.invalidate_user_cache(user.name)
         with self._as_user(user.name):
             result = member_management.assign_member_to_chapter(target.name, self.chapter.name)
         # Passed the decorator (no "access denied" raise) but the inner check

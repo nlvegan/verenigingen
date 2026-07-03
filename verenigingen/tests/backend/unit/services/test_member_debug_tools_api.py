@@ -26,6 +26,8 @@ import unittest
 class TestMemberDebugToolsAPI(EnhancedTestCase):
     """Unit tests for Member Debug Tools API endpoints"""
 
+    _orig_developer_mode = False  # sentinel: "not set" (distinct from None/0/1)
+
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
@@ -34,6 +36,21 @@ class TestMemberDebugToolsAPI(EnhancedTestCase):
             first_name="DebugTools",
             last_name="TestMember"
         )
+        # These endpoints are @development_only_api, blocked unless the environment
+        # resolves to DEVELOPMENT. CI runs without developer_mode (→ PRODUCTION), so
+        # enable it for the duration of the test and restore it in tearDown. Set it
+        # last so a failure earlier in setUp can never leak the conf change.
+        self._orig_developer_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+    def tearDown(self):
+        if self._orig_developer_mode is not False:
+            if self._orig_developer_mode is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = self._orig_developer_mode
+            self._orig_developer_mode = False
+        super().tearDown()
 
     def test_debug_button_conditions_returns_operation_result(self):
         """Test debug_button_conditions returns OperationResult"""

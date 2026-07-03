@@ -14,7 +14,9 @@ These tests build real Member / Volunteer / Employee / Expense Claim documents
 custom_volunteer-over-employee priority) and every "not found" branch.
 
 The whitelisted helpers are called through their real security-decorated
-wrappers (this env runs developer_mode, so the environment gate passes).
+wrappers. Several are @development_only_api, whose environment gate only passes
+in DEVELOPMENT; CI runs without developer_mode (→ PRODUCTION), so setUp enables
+developer_mode for the duration of each test and restores it in tearDown.
 """
 
 import frappe
@@ -26,6 +28,24 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 
 class TestDocumentLinks(VereningingenTestCase):
     """Integration coverage for setup/document_links.py."""
+
+    _orig_developer_mode = False  # sentinel: "not set"
+
+    def setUp(self):
+        super().setUp()
+        # Several helpers under test are @development_only_api; their environment
+        # gate only passes in DEVELOPMENT. CI runs without developer_mode.
+        self._orig_developer_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+    def tearDown(self):
+        if self._orig_developer_mode is not False:
+            if self._orig_developer_mode is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = self._orig_developer_mode
+            self._orig_developer_mode = False
+        super().tearDown()
 
     # ----------------------------------------------------------------- helpers
     def _company(self):

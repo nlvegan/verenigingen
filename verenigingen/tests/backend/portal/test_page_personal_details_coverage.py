@@ -290,13 +290,18 @@ class TestPagePersonalDetailsBehavior(EnhancedTestCase):
 
     def test_update_no_member_record_throws(self):
         from verenigingen.templates.pages.personal_details import update_personal_details
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
 
         nomember = self._make_user_without_member()
 
         with self.as_user(nomember):
             frappe.local.form_dict = frappe._dict({"first_name": "Jan", "last_name": "Vandenberg"})
             try:
-                with self.assertRaises(frappe.DoesNotExistError):
+                # update_personal_details is @self_service_api: the framework's
+                # implicit self-service resolver rejects a user with no linked member
+                # ("Self-service operations require valid member account") before the
+                # body's own DoesNotExistError can fire.
+                with self.assertRaises(VPermissionError):
                     update_personal_details()
             finally:
                 frappe.local.form_dict = frappe._dict()
