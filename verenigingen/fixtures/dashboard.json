@@ -8,19 +8,19 @@
     "width": "Half"
    },
    {
-    "chart": "Monthly Revenue Trends",
+    "chart": "Monthly Dues Revenue",
     "width": "Half"
    },
    {
-    "chart": "Outstanding Invoices by Month",
+    "chart": "Outstanding Dues Invoices by Month",
     "width": "Half"
    },
    {
-    "chart": "Revenue by Payment Status",
+    "chart": "Dues Revenue by Payment Status",
     "width": "Half"
    },
    {
-    "chart": "Revenue by Quarter",
+    "chart": "Dues Revenue by Quarter",
     "width": "Half"
    }
   ],

@@ -231,7 +231,7 @@ Donations are tracked through the Donation DocType with automatic Donor record c
 
 - **Membership Revenue Projection** report (fixture)
 - Payment status and SEPA batch reports via ERPNext Report Builder
-- Dashboard charts: Member Count by Chapter, Monthly Revenue Trends, Outstanding Invoices by Month, Revenue by Payment Status, SEPA Payment Status, and more (deployed as fixtures)
+- Dashboard charts: Member Count by Chapter, Monthly Dues Revenue, Outstanding Dues Invoices by Month, Dues Revenue by Payment Status, SEPA Payment Status, and more (deployed as fixtures)
 
 ## Scheduled Tasks
 
@@ -341,10 +341,10 @@ These charts are deployed as fixtures and appear in the Verenigingen workspace:
 - Member Pronoun Distribution
 - Members with Outstanding Invoices
 - SEPA Payment Status
-- Monthly Revenue Trends
-- Outstanding Invoices by Month
-- Revenue by Payment Status
-- Revenue by Quarter
+- Monthly Dues Revenue
+- Outstanding Dues Invoices by Month
+- Dues Revenue by Payment Status
+- Dues Revenue by Quarter
 
 ### Dashboards (Fixtures)
 
