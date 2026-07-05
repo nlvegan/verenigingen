@@ -3850,6 +3850,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         start_date = kwargs.pop("start_date", frappe.utils.today())
         sync_member_since = kwargs.pop("sync_member_since", True)
+        # Mirror the production approval/import flows (membership_creation_service,
+        # related_records_orchestrator): suppress the on_submit hook that
+        # auto-creates a Membership Dues Schedule. Lets dues/billing tests build a
+        # membership fixture without a schedule to then delete, rather than
+        # submitting and immediately cancelling the hook-created one.
+        skip_dues_schedule = kwargs.pop("skip_dues_schedule_creation", False)
 
         membership_data = {
             "doctype": "Membership",
@@ -3873,6 +3879,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             start_date
         ) < frappe.utils.getdate(frappe.utils.today()):
             membership._is_csv_import = True
+        if skip_dues_schedule:
+            membership.flags.skip_dues_schedule_creation = True
         membership.insert()
 
         # Track for cleanup in tearDown
