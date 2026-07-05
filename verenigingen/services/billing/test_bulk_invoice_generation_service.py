@@ -110,42 +110,17 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
         frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
     def _make_membership_type(self):
-        role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
-        mt = frappe.new_doc("Membership Type")
-        mt.membership_type_name = f"BIG-Type-{frappe.generate_hash(length=8)}"
-        mt.description = "Bulk invoice gen test type"
-        mt.minimum_amount = 0.01
-        mt.is_active = 1
-        mt.role_profile = role_profile
-        mt.save()
+        # Shared factory (EnhancedTestCase); low minimum keeps it permissive.
+        mt = self.create_test_membership_type(membership_type_name="BIG-Type", minimum_amount=0.01)
         self._committed_docs.append(("Membership Type", mt.name))
         return mt
 
     def _make_member(self, status="Active"):
-        member = frappe.new_doc("Member")
-        member.first_name = "BulkGen"
-        member.last_name = f"T{frappe.generate_hash(length=6)}"
-        member.email = f"bulkgen.{frappe.generate_hash(length=8)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "1 Bulk Street"
-        member.postal_code = "1234AB"
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.save()
+        member = self.create_test_member(member_since=today())
         if status != "Active":
             frappe.db.set_value("Member", member.name, "status", status)
         self._committed_docs.append(("Member", member.name))
         return member
-
-    def _deactivate_auto_schedules(self, member_name):
-        for name in frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "is_template": 0, "status": "Active"},
-            pluck="name",
-        ):
-            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
 
     def _make_dues_schedule(
         self,
@@ -157,16 +132,14 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
         next_invoice_date=None,
         test_mode=0,
     ):
-        membership = frappe.new_doc("Membership")
-        membership.member = member.name
-        membership.membership_type = membership_type.name
-        membership.start_date = today()
-        membership.status = "Active"
-        membership.save()
-        membership.submit()
+        # skip_dues_schedule_creation suppresses the on_submit hook, so the only
+        # schedule for this member is the explicit one built below.
+        membership = self.create_test_membership(
+            member_name=member.name,
+            membership_type_name=membership_type.name,
+            skip_dues_schedule_creation=True,
+        )
         self._committed_docs.append(("Membership", membership.name))
-
-        self._deactivate_auto_schedules(member.name)
 
         ds = frappe.new_doc("Membership Dues Schedule")
         ds.schedule_name = f"BIG-{member.name}-{frappe.generate_hash(length=8)}"
@@ -546,42 +519,17 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
         return doc
 
     def _make_membership_type(self):
-        role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
-        mt = frappe.new_doc("Membership Type")
-        mt.membership_type_name = f"BIGap-Type-{frappe.generate_hash(length=8)}"
-        mt.description = "Bulk gen gap test type"
-        mt.minimum_amount = 0.01
-        mt.is_active = 1
-        mt.role_profile = role_profile
-        mt.save()
+        # Shared factory (EnhancedTestCase); low minimum keeps it permissive.
+        mt = self.create_test_membership_type(membership_type_name="BIGap-Type", minimum_amount=0.01)
         self._committed_docs.append(("Membership Type", mt.name))
         return mt
 
     def _make_member(self, status="Active"):
-        member = frappe.new_doc("Member")
-        member.first_name = "BulkGap"
-        member.last_name = f"T{frappe.generate_hash(length=6)}"
-        member.email = f"bulkgap.{frappe.generate_hash(length=8)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "1 Gap Street"
-        member.postal_code = "1234AB"
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.save()
+        member = self.create_test_member(member_since=today())
         if status != "Active":
             frappe.db.set_value("Member", member.name, "status", status)
         self._committed_docs.append(("Member", member.name))
         return member
-
-    def _deactivate_auto_schedules(self, member_name):
-        for name in frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_name, "is_template": 0, "status": "Active"},
-            pluck="name",
-        ):
-            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
 
     def _make_dues_schedule(
         self,
@@ -593,16 +541,14 @@ class TestBulkInvoiceGenerationServiceGaps(EnhancedTestCase):
         next_invoice_date=None,
         test_mode=0,
     ):
-        membership = frappe.new_doc("Membership")
-        membership.member = member.name
-        membership.membership_type = membership_type.name
-        membership.start_date = today()
-        membership.status = "Active"
-        membership.save()
-        membership.submit()
+        # skip_dues_schedule_creation suppresses the on_submit hook, so the only
+        # schedule for this member is the explicit one built below.
+        membership = self.create_test_membership(
+            member_name=member.name,
+            membership_type_name=membership_type.name,
+            skip_dues_schedule_creation=True,
+        )
         self._committed_docs.append(("Membership", membership.name))
-
-        self._deactivate_auto_schedules(member.name)
 
         ds = frappe.new_doc("Membership Dues Schedule")
         ds.schedule_name = f"BIGap-{member.name}-{frappe.generate_hash(length=8)}"

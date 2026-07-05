@@ -57,12 +57,7 @@ class TestSalesInvoiceHooks(EnhancedTestCase):
         """Create a Member; Member.save() auto-provisions a linked Customer
         (Customer.member is a unique link), so we reuse that customer rather than
         creating a second one (which would collide on the unique member key)."""
-        member = frappe.new_doc("Member")
-        member.first_name = "Hooks"
-        member.last_name = f"M{frappe.generate_hash(length=6)}"
-        member.email = f"hooks.{frappe.generate_hash(length=8)}@example.com"
-        member.member_since = nowdate()
-        member.save()
+        member = self.create_test_member(member_since=nowdate())
         self._tracked.append(("Member", member.name))
 
         cust_name = frappe.db.get_value("Member", member.name, "customer") or frappe.db.get_value(

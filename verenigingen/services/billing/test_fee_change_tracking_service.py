@@ -20,7 +20,6 @@ member, so deletion cascades clean them up.
 """
 
 import frappe
-from frappe.utils import today
 
 from verenigingen.services.billing.fee_change_tracking_service import (
     FeeChangeTrackingService,
@@ -52,42 +51,23 @@ class TestFeeChangeTrackingServiceBranches(EnhancedTestCase):
     # Fixture helpers
     # ------------------------------------------------------------------
     def _make_schedule(self, amount=10.0, status="Active"):
-        role_profile = frappe.db.get_value(
-            "Role Profile", {"name": ["like", "%Member%"]}, "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
-        mt = frappe.new_doc("Membership Type")
-        mt.membership_type_name = f"FCT-Type-{frappe.generate_hash(length=8)}"
-        mt.description = "Fee change tracking test type"
-        mt.minimum_amount = 0.01
-        mt.is_active = 1
-        mt.role_profile = role_profile
-        mt.save()
+        # Background fixtures via the shared factory (EnhancedTestCase). A low
+        # minimum_amount keeps the type permissive so the custom dues_rate below
+        # always validates.
+        mt = self.create_test_membership_type(membership_type_name="FCT-Type", minimum_amount=0.01)
         self._tracked.append(("Membership Type", mt.name))
 
-        member = frappe.new_doc("Member")
-        member.first_name = "FeeTrack"
-        member.last_name = f"M{frappe.generate_hash(length=6)}"
-        member.email = f"feetrack.{frappe.generate_hash(length=8)}@example.com"
-        member.member_since = today()
-        member.save()
+        member = self.create_test_member()
         self._tracked.append(("Member", member.name))
 
-        membership = frappe.new_doc("Membership")
-        membership.member = member.name
-        membership.membership_type = mt.name
-        membership.start_date = today()
-        membership.status = "Active"
-        membership.save()
-        membership.submit()
+        # skip_dues_schedule_creation suppresses the on_submit hook, so our
+        # schedule below is the only one — no auto-created schedule to deactivate.
+        membership = self.create_test_membership(
+            member_name=member.name,
+            membership_type_name=mt.name,
+            skip_dues_schedule_creation=True,
+        )
         self._tracked.append(("Membership", membership.name))
-
-        # Deactivate any auto-created schedule so ours is the only active one.
-        for name in frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member.name, "is_template": 0, "status": "Active"},
-            pluck="name",
-        ):
-            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
 
         ds = frappe.new_doc("Membership Dues Schedule")
         ds.schedule_name = f"FCT-{member.name}-{frappe.generate_hash(length=8)}"
