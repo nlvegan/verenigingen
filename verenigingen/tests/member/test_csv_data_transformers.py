@@ -95,8 +95,16 @@ class TestCSVDataTransformers(FrappeTestCase):
         # Dutch format with slashes
         self.assertEqual(parse_date("31/12/2023"), "2023-12-31")
 
-        # US format (MM/DD/YYYY)
+        # US format with impossible month is auto-swapped
         self.assertEqual(parse_date("12/31/2023"), "2023-12-31")
+
+        # Ambiguous DD-MM (both parts <= 12) is read DAY-FIRST for our
+        # European sources: "12-03-1965" is 12 March, not 3 December.
+        # Regression guard for the old dead format-loop that defaulted
+        # to month-first.
+        self.assertEqual(parse_date("12-03-1965"), "1965-03-12")
+        self.assertEqual(parse_date("03-12-1965"), "1965-12-03")
+        self.assertEqual(parse_date("01/02/2023"), "2023-02-01")
 
         # Invalid dates return None
         self.assertIsNone(parse_date("invalid"))
@@ -287,7 +295,9 @@ class TestMembershipTypeForCSVImport(FrappeTestCase):
 class TestDuesScheduleTemplateFromPaymentPeriod(FrappeTestCase):
     """Test suite for dues schedule template lookup from payment period"""
 
-    def _create_mock_settings(self, monthly="Monthly Template", quarterly="Quarterly Template", annual="Annual Template"):
+    def _create_mock_settings(
+        self, monthly="Monthly Template", quarterly="Quarterly Template", annual="Annual Template"
+    ):
         """Create a mock settings object"""
         mock_settings = MagicMock()
         mock_settings.csv_monthly_dues_schedule = monthly

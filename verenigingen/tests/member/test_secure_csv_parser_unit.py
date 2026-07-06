@@ -238,6 +238,40 @@ Jane Smith,jane@example.com,0687654321
 			if os.path.exists(temp_path):
 				os.unlink(temp_path)
 
+	def test_read_excel_normalises_nan_and_float_cells(self):
+		"""Excel cells: empty -> '' (not 'nan'), numeric -> no '.0' suffix.
+
+		Regression guard: pandas reads empty xlsx cells as NaN and numeric
+		columns as float, so without dtype=str + fillna("") an empty cell
+		stringifies to the literal 'nan' and a year 1965 becomes '1965.0',
+		polluting every downstream field. Only reproducible via .xlsx —
+		empty CSV cells are already "".
+		"""
+		import pandas as pd
+
+		df = pd.DataFrame(
+			[
+				{"member_id": "NVV-1", "birth_year": 1965, "phone": "0612345678"},
+				{"member_id": "NVV-2", "birth_year": None, "phone": None},
+			]
+		)
+		with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+			temp_path = f.name
+		try:
+			df.to_excel(temp_path, index=False, engine="openpyxl")
+			result = self.parser._read_file_from_path(temp_path)
+
+			self.assertEqual(len(result), 2)
+			# Numeric cell must not carry a ".0" float suffix.
+			self.assertEqual(str(result[0]["birth_year"]), "1965")
+			# Empty cells must be "" — never the literal string "nan".
+			self.assertEqual(result[1]["birth_year"], "")
+			self.assertEqual(result[1]["phone"], "")
+			self.assertNotEqual(result[1]["phone"], "nan")
+		finally:
+			if os.path.exists(temp_path):
+				os.unlink(temp_path)
+
 	def test_read_file_from_path_handles_utf8_bom(self):
 		"""Test file reading handles UTF-8 BOM correctly"""
 		csv_content = "name,email\nJohn Doe,john@example.com\n"

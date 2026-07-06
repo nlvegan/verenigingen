@@ -295,10 +295,19 @@ class SecureCSVParser:
                 )
 
             try:
-                # Read Excel file using pandas
+                # Read Excel file using pandas.
+                # dtype=str keeps numeric cells as-is instead of coercing
+                # them to float — otherwise a year like 1965 comes back as
+                # "1965.0" and a numeric id as "12345.0". fillna("")
+                # normalises empty cells (pandas NaN) to "" so downstream
+                # empty-value guards behave identically to the CSV path;
+                # without it NaN stringifies to the literal "nan" and
+                # pollutes every unmapped field and child row.
                 df = pd.read_excel(
-                    file_path, engine="openpyxl" if file_path.lower().endswith(".xlsx") else None
-                )
+                    file_path,
+                    engine="openpyxl" if file_path.lower().endswith(".xlsx") else None,
+                    dtype=str,
+                ).fillna("")
                 # Convert to list of dictionaries and remove empty rows
                 records = df.to_dict("records")
                 return [
@@ -357,11 +366,15 @@ class SecureCSVParser:
                 )
 
             try:
-                # Read Excel file using pandas from bytes
+                # Read Excel file using pandas from bytes. See the
+                # path-based reader above for why dtype=str + fillna("")
+                # are required (avoid "1965.0" float coercion and the
+                # literal "nan" leaking from empty cells).
                 df = pd.read_excel(
                     io.BytesIO(file_content),
                     engine="openpyxl" if filename.lower().endswith(".xlsx") else None,
-                )
+                    dtype=str,
+                ).fillna("")
                 # Convert to list of dictionaries
                 return df.to_dict("records")
             except Exception as e:

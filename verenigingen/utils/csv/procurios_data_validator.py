@@ -33,9 +33,15 @@ class ProcuriosDataValidator:
 
     # Address prefixes and their subfield suffixes
     ADDRESS_TYPES = ("Standaardadres", "Postadres", "Factuuradres")
+    # Some exports provide a combined "Nummer met toevoeging"; others
+    # split the house number into "Nummer" + "Toevoeging". Both are
+    # supported — the split addition is merged back into house_number
+    # after collection (see map_row_data).
     ADDRESS_SUBFIELDS = {
         "Straat": "street",
         "Nummer met toevoeging": "house_number",
+        "Nummer": "house_number",
+        "Toevoeging": "house_number_addition",
         "Postcode": "pincode",
         "Plaats": "city",
         "Landnaam": "country",
@@ -135,6 +141,33 @@ class ProcuriosDataValidator:
                 mapped[member_field] = self._clean_native_field(member_field, value)
                 continue
 
+            # IBAN column name varies by export, e.g.
+            # "Bankrekening (alleen het IBAN deel)". Require the "iban"
+            # hint too so sibling bank columns (e.g. "Bankrekening
+            # (tenaamstelling)" account-holder, notes) are NOT written to
+            # Member.iban — that would fail IBAN validation and reject the
+            # whole row. A plain "Bankrekening" column still maps to iban
+            # via the exact NATIVE_FIELD_MAPPING lookup above.
+            if key_lower.startswith("bankrekening") and "iban" in key_lower:
+                mapped["iban"] = self._clean_native_field("iban", value)
+                continue
+
+            # Birth year (year-only column). Stored as <year>-01-01 so it
+            # can populate the native Date field birth_date; age is
+            # year-granular and no birthday automation depends on the day.
+            # Guard against overwriting a precise date already set from a
+            # "Geboortedatum" column — a full date always wins over a year,
+            # regardless of column order.
+            if key_lower == "geboortejaar":
+                if "birth_date" not in mapped:
+                    birth_date = self._map_birth_year(value)
+                    if birth_date:
+                        mapped["birth_date"] = birth_date
+                        continue
+                    # Not a recognisable year — fall through to procurios_data.
+                else:
+                    continue  # birth_date already set from a full date
+
             # Check name derivation fields
             if key_lower in self.NAME_FIELDS:
                 mapped[f"_raw_{key_lower.replace(' ', '_')}"] = value
@@ -183,7 +216,21 @@ class ProcuriosDataValidator:
 
         # Convert address dicts to list (skip empty ones)
         for addr in address_data.values():
-            has_data = any(v for k, v in addr.items() if k != "address_type" and v and str(v).strip())
+            # Merge a split "Toevoeging" back into the house number
+            # ("10" + "A" -> "10 A") so address_line1 stays complete.
+            addition = addr.pop("house_number_addition", "")
+            if addition:
+                house_number = (addr.get("house_number") or "").strip()
+                addr["house_number"] = f"{house_number} {addition}".strip()
+            # A bare house number (or its addition) is not itself an
+            # address — require a locating field (street/city/pincode/
+            # country/addressee) so a lone "Toevoeging" or "Nummer" cell
+            # doesn't fabricate a junk Address like address_line1="A".
+            has_data = any(
+                v
+                for k, v in addr.items()
+                if k not in ("address_type", "house_number") and v and str(v).strip()
+            )
             if has_data:
                 mapped["addresses"].append(addr)
 
@@ -239,6 +286,27 @@ class ProcuriosDataValidator:
             remainder = remainder[len(tussenvoegsel) :].strip()
 
         return remainder
+
+    def _map_birth_year(self, value: str) -> str:
+        """Map a Procurios "Geboortejaar" value to a birth_date string.
+
+        The column holds a year only. We store it as ``<year>-01-01``:
+        the native Member.birth_date is a Date, age is computed at
+        year granularity, and no birthday automation depends on the
+        exact day. A defensive ``.0`` strip guards against float-coerced
+        exports (e.g. "1965.0"); a full date value falls back to
+        parse_date so mixed exports still work. Implausible years (outside
+        1900-2100) are rejected rather than fabricated into a bogus
+        birth_date like "9999-01-01".
+        """
+        v = (value or "").strip()
+        match = re.match(r"^(\d{4})(?:\.0)?$", v)
+        if match:
+            year = int(match.group(1))
+            if 1900 <= year <= 2100:
+                return f"{year:04d}-01-01"
+            return ""  # implausible year — leave for procurios_data
+        return parse_date(v) or ""
 
     def _clean_native_field(self, field_name: str, value: str) -> Any:
         """Clean a value for a native Member field."""

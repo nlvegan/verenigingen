@@ -102,9 +102,7 @@ class TestProcuriosDataValidator(unittest.TestCase):
         self.assertEqual(self.validator.categorize_field("Contributie jaarlid"), "Financial")
         self.assertEqual(self.validator.categorize_field("Bankrekening"), "Financial")
         self.assertEqual(self.validator.categorize_field("€ 60,-"), "Financial")
-        self.assertEqual(
-            self.validator.categorize_field("Bedrag openstaande facturen"), "Financial"
-        )
+        self.assertEqual(self.validator.categorize_field("Bedrag openstaande facturen"), "Financial")
 
     def test_categorize_field_subscription(self):
         """Subscription fields are categorized correctly."""
@@ -267,6 +265,177 @@ class TestProcuriosDataValidator(unittest.TestCase):
         mapped = self.validator.map_row_data(row, row_num=1)
         self.assertEqual(len(mapped.get("addresses", [])), 0)
 
+    def test_split_house_number_merged(self):
+        """Separate 'Nummer' + 'Toevoeging' columns merge into house_number."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Standaardadres: Straat": "Herenweg",
+            "Standaardadres: Nummer": "255",
+            "Standaardadres: Toevoeging": "A",
+            "Standaardadres: Plaats": "Vinkeveen",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(len(mapped["addresses"]), 1)
+        self.assertEqual(mapped["addresses"][0]["house_number"], "255 A")
+        # The split-addition scratch key must not leak into the address dict.
+        self.assertNotIn("house_number_addition", mapped["addresses"][0])
+
+    def test_house_number_without_toevoeging(self):
+        """A bare 'Nummer' with no 'Toevoeging' maps cleanly (no trailing space)."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Standaardadres: Straat": "Herenweg",
+            "Standaardadres: Nummer": "10",
+            "Standaardadres: Plaats": "Vinkeveen",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["addresses"][0]["house_number"], "10")
+
+    def test_lone_house_number_does_not_create_address(self):
+        """A house number / addition with no street/city/pincode is not an
+        address (would otherwise fabricate address_line1='A')."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Standaardadres: Nummer": "12",
+            "Standaardadres: Toevoeging": "A",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(len(mapped.get("addresses", [])), 0)
+
+    def test_iban_column_variant_maps_to_iban(self):
+        """The 'Bankrekening (alleen het IBAN deel)' variant maps to iban."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Bankrekening (alleen het IBAN deel)": "NL58ASNB0782351581",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["iban"], "NL58ASNB0782351581")
+        # Should NOT also land in the procurios_data child list.
+        labels = [item["field_label"] for item in mapped["procurios_data"]]
+        self.assertNotIn("Bankrekening (alleen het IBAN deel)", labels)
+
+    def test_non_iban_bankrekening_column_not_treated_as_iban(self):
+        """A sibling 'Bankrekening (...)' column without an IBAN hint must
+        NOT clobber the real IBAN, even when it sorts after it."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Bankrekening (alleen het IBAN deel)": "NL58ASNB0782351581",
+            "Bankrekening (tenaamstelling)": "J. de Vries",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        # Real IBAN survives (not overwritten by the account-holder column).
+        self.assertEqual(mapped["iban"], "NL58ASNB0782351581")
+        # Account-holder value is preserved in procurios_data, not lost.
+        labels = [item["field_label"] for item in mapped["procurios_data"]]
+        self.assertIn("Bankrekening (tenaamstelling)", labels)
+
+    def test_geboortejaar_maps_to_january_first(self):
+        """A year-only 'Geboortejaar' becomes a <year>-01-01 birth_date."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortejaar": "1965",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["birth_date"], "1965-01-01")
+
+    def test_geboortejaar_float_suffix_tolerated(self):
+        """A float-coerced 'Geboortejaar' ('1965.0') still maps correctly."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortejaar": "1965.0",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["birth_date"], "1965-01-01")
+
+    def test_geboortejaar_implausible_year_rejected(self):
+        """An implausible 4-digit year is not fabricated into a birth_date."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortejaar": "9999",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertNotIn("birth_date", mapped)
+        labels = [item["field_label"] for item in mapped["procurios_data"]]
+        self.assertIn("Geboortejaar", labels)
+
+    def test_geboortejaar_non_year_falls_through(self):
+        """A non-year 'Geboortejaar' value is not fabricated into a date."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortejaar": "onbekend",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertNotIn("birth_date", mapped)
+        labels = [item["field_label"] for item in mapped["procurios_data"]]
+        self.assertIn("Geboortejaar", labels)
+
+    def test_geboortedatum_parsed_day_first(self):
+        """A Dutch Geboortedatum with day<=12 is read day-first, not month-first."""
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortedatum": "07-11-1980",  # 7 November, not 11 July
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["birth_date"], "1980-11-07")
+
+    def test_geboortejaar_accepts_full_date(self):
+        """A full date in the 'Geboortejaar' column falls back to parse_date.
+
+        parse_date reads day<=12 dates day-first (European), so day=15 is
+        used here only to keep the assertion trivially unambiguous.
+        """
+        row = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortejaar": "15-03-1965",
+        }
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["birth_date"], "1965-03-15")
+
+    def test_full_birthdate_not_overwritten_by_birth_year(self):
+        """When both Geboortedatum and Geboortejaar are present, the precise
+        date wins regardless of column order (year must not clobber it)."""
+        # Geboortedatum first, then Geboortejaar.
+        row1 = {
+            "Systeem ID": "1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortedatum": "15-03-1965",
+            "Geboortejaar": "1965",
+        }
+        self.assertEqual(self.validator.map_row_data(row1, 1)["birth_date"], "1965-03-15")
+
+        # Reverse order: Geboortejaar first, then Geboortedatum.
+        row2 = {
+            "Systeem ID": "2",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Berg",
+            "Geboortejaar": "1965",
+            "Geboortedatum": "15-03-1965",
+        }
+        self.assertEqual(self.validator.map_row_data(row2, 2)["birth_date"], "1965-03-15")
+
 
 # ---- Controller-level tests (integration; need a Frappe site) ---------------
 
@@ -277,19 +446,23 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  
 
 def _create_stub_procurios_csv_import_doc():
     """Test fixture: insert a Procurios CSV Import with a placeholder file."""
-    file_doc = frappe.get_doc({
-        "doctype": "File",
-        "file_name": "stub_member.csv",
-        "is_private": 1,
-        "content": b"stub",
-    })
+    file_doc = frappe.get_doc(
+        {
+            "doctype": "File",
+            "file_name": "stub_member.csv",
+            "is_private": 1,
+            "content": b"stub",
+        }
+    )
     file_doc.flags.ignore_permissions = True
     file_doc.insert()
 
-    doc = frappe.get_doc({
-        "doctype": "Procurios CSV Import",
-        "csv_file": file_doc.file_url,
-    })
+    doc = frappe.get_doc(
+        {
+            "doctype": "Procurios CSV Import",
+            "csv_file": file_doc.file_url,
+        }
+    )
     doc.flags.ignore_permissions = True
     doc.insert()
     return doc
@@ -368,7 +541,6 @@ class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
 from verenigingen.tests.fixtures.procurios_csv_fixtures import (  # noqa: E402
     create_csv_file_attachment,
 )
-
 
 _MEMBER_CSV_HEADERS = [
     "NVV-relatienummer",

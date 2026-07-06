@@ -8,7 +8,6 @@ All functions are stateless and have no side effects (except logging).
 """
 
 import re
-from datetime import datetime
 from typing import Any, Optional
 
 import frappe
@@ -217,7 +216,10 @@ def parse_date(date_str: str) -> Optional[str]:
     """
     Parse date string to YYYY-MM-DD format.
 
-    Tries multiple common date formats to handle various CSV sources.
+    Our CSV sources are European, so ambiguous DD-MM vs MM-DD dates are
+    read day-first: "12-03-1965" is 12 March, not 3 December. getdate's
+    fast path handles ISO (YYYY-MM-DD) directly and only applies the
+    day-first heuristic to genuinely ambiguous values.
 
     Args:
         date_str: Date string in various possible formats
@@ -227,22 +229,24 @@ def parse_date(date_str: str) -> Optional[str]:
 
     Example:
         "31-12-2023" → "2023-12-31"
+        "12-03-1965" → "1965-03-12"   (day-first, European)
         "2023/12/31" → "2023-12-31"
-        "12/31/2023" → "2023-12-31"
+        "12/31/2023" → "2023-12-31"   (impossible month → auto-swapped)
     """
     if not date_str:
         return None
 
-    # Try different date formats
-    formats = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]
+    # parse_day_first=True disambiguates DD-MM-YYYY toward day-first.
+    # NOTE: the previous implementation looped over a format list but
+    # never applied the formats (it called getdate(date_str) every
+    # iteration), so getdate silently defaulted to month-first and
+    # misread every day<=12 European date.
+    try:
+        parsed = getdate(date_str, parse_day_first=True)
+    except (ValueError, TypeError, frappe.ValidationError):
+        return None
 
-    for fmt in formats:
-        try:
-            return getdate(date_str).strftime("%Y-%m-%d")
-        except (ValueError, TypeError, frappe.ValidationError):
-            continue
-
-    return None
+    return parsed.strftime("%Y-%m-%d") if parsed else None
 
 
 # Payment Period and Membership Type Utilities
