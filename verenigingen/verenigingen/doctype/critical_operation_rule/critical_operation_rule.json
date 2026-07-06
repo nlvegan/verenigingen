@@ -119,13 +119,15 @@
       "fieldname": "required_roles",
       "fieldtype": "Small Text",
       "label": "Required Roles",
-      "description": "Comma-separated list of required roles"
+      "read_only": 1,
+      "description": "Informational only — NOT enforced. Authorization is enforced by Security Level via the role-profile mapping (ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py), not by this field."
     },
     {
       "fieldname": "required_permissions",
       "fieldtype": "Small Text",
       "label": "Required Permissions",
-      "description": "Comma-separated list of required permissions (format: DocType:permission)"
+      "read_only": 1,
+      "description": "Informational only — NOT enforced. Authorization is enforced by Security Level, not by this field."
     },
     {
       "fieldname": "column_break_10",
@@ -135,14 +137,16 @@
       "default": "0",
       "fieldname": "allow_system_user",
       "fieldtype": "Check",
+      "hidden": 1,
       "label": "Allow System User Fallback",
-      "description": "Enable only when this operation must run in automated/webhook contexts where the triggering user lacks direct permissions. Requires justification for critical operations."
+      "description": "Dormant on this doctype (0 rows use it; the config value is not consumed). The enforced system-user fallback is the secure_document_operation(allow_system_user=...) parameter. Hidden to reduce form surface; unhide if wired up."
     },
     {
       "fieldname": "bypass_validations",
       "fieldtype": "Small Text",
+      "hidden": 1,
       "label": "Allowed Validation Bypasses",
-      "description": "Comma-separated list of validations that can be bypassed"
+      "description": "Dormant on this doctype (0 rows use it; the config value is not consumed). Bypasses are driven by the secure_document_operation(bypass_validations=...) parameter. Hidden to reduce form surface; unhide if wired up."
     },
     {
       "fieldname": "rate_limiting_section",
@@ -212,18 +216,22 @@
     {
       "fieldname": "business_rules_section",
       "fieldtype": "Section Break",
-      "label": "Business Rules"
+      "hidden": 1,
+      "label": "Business Rules",
+      "description": "Dormant capability group — 0 rows use these; only enable_business_validation/amount_threshold are wired to a live path (business-rule validation), and that path is currently unused. Hidden to reduce form surface; unhide if a concrete use lands."
     },
     {
       "default": "0",
       "fieldname": "enable_business_validation",
       "fieldtype": "Check",
+      "hidden": 1,
       "label": "Enable Business Validation"
     },
     {
       "depends_on": "enable_business_validation",
       "fieldname": "amount_threshold",
       "fieldtype": "Currency",
+      "hidden": 1,
       "label": "Amount Threshold",
       "description": "Alert if operation exceeds this amount"
     },
@@ -234,14 +242,16 @@
     {
       "fieldname": "time_restrictions",
       "fieldtype": "Small Text",
+      "hidden": 1,
       "label": "Time Restrictions",
-      "description": "Business hours only, weekend restrictions, etc."
+      "description": "Dormant — not consumed by any code path."
     },
     {
       "fieldname": "ip_restrictions",
       "fieldtype": "Small Text",
+      "hidden": 1,
       "label": "IP Restrictions",
-      "description": "Comma-separated list of allowed IP ranges"
+      "description": "Dormant — COR-level IP restriction is not consumed; IP enforcement is profile-driven (SecurityProfile.ip_restrictions)."
     },
     {
       "fieldname": "audit_settings_section",

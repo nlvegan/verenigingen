@@ -289,8 +289,10 @@ class CriticalOperationRule(Document):
             # frappe.message_log before raising, and that message reaches the
             # client even when the DoesNotExistError is caught below.
             if not frappe.db.exists("Critical Operation Rule", operation_name):
-                frappe.logger("verenigingen.api_security").info(
-                    f"No Critical Operation Rule found for operation '{operation_name}'"
+                # Expected/normal: no per-operation override -> caller uses preset
+                # defaults. Debug-level so it does not read as a missing-fixture error.
+                frappe.logger("verenigingen.api_security").debug(
+                    f"No Critical Operation Rule for operation '{operation_name}'; using preset defaults"
                 )
                 return None
 
