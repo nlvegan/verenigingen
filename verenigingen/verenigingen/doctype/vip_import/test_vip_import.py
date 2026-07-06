@@ -45,6 +45,21 @@ class TestVIPDataValidator(FrappeTestCase):
         self.assertEqual(mapped["last_name"], "de Vries")
         self.assertEqual(mapped["vip_status"], "available")
 
+    def test_start_date_parsed_day_first(self):
+        """A Dutch date_joined with day<=12 is read day-first, not month-first.
+
+        Regression guard for VIP consolidating onto the shared parse_date
+        helper (previously its own getdate fallback defaulted to
+        month-first, so "07-11-1980" wrongly became 11 July).
+        """
+        row = {
+            "id": "1",
+            "first_name": "Jan",
+            "date_joined": "07-11-1980",  # 7 November, not 11 July
+        }
+        mapped = self.validator.map_row_data(row, 2)
+        self.assertEqual(mapped["start_date"], "1980-11-07")
+
     def test_status_mapping(self):
         """Test VIP status to Volunteer status mapping."""
         test_cases = [

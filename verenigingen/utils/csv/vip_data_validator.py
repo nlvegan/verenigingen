@@ -11,10 +11,9 @@ This validator handles one-time imports before API bridging is established.
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-import frappe
 from frappe.utils import getdate, today
 
-from verenigingen.utils.csv.data_transformers import clean_phone_number, clean_value
+from verenigingen.utils.csv.data_transformers import clean_phone_number, parse_date
 
 
 class VIPDataValidator:
@@ -217,7 +216,14 @@ class VIPDataValidator:
 
     def _parse_date(self, value: str) -> Optional[str]:
         """
-        Parse date value to YYYY-MM-DD format.
+        Parse a VIP date to YYYY-MM-DD format.
+
+        Delegates to the shared parse_date helper so VIP dates parse
+        identically to the other CSV importers: getdate handles ISO,
+        slash- and dot-separated formats, and ambiguous DD-MM values are
+        read day-first (European). Previously this method had its own
+        getdate-then-strptime fallback that defaulted ambiguous dates to
+        month-first (e.g. "12-03-1965" -> 3 December instead of 12 March).
 
         Args:
             value: Date string in various formats
@@ -225,32 +231,7 @@ class VIPDataValidator:
         Returns:
             Date string in YYYY-MM-DD format or None if invalid
         """
-        if not value:
-            return None
-
-        try:
-            # Try parsing with Frappe's getdate
-            parsed = getdate(value)
-            return str(parsed)
-        except Exception:
-            # Try common date formats
-            import datetime
-
-            formats = [
-                "%Y-%m-%d",
-                "%d-%m-%Y",
-                "%d/%m/%Y",
-                "%Y/%m/%d",
-                "%d.%m.%Y",
-            ]
-            for fmt in formats:
-                try:
-                    parsed = datetime.datetime.strptime(value, fmt)
-                    return parsed.strftime("%Y-%m-%d")
-                except ValueError:
-                    continue
-
-            return None
+        return parse_date(value)
 
     def _is_delegated_account(self, row: Dict) -> bool:
         """
