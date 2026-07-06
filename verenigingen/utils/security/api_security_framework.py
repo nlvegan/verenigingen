@@ -695,11 +695,16 @@ class APISecurityFramework:
                     frappe.cache.set_value(cache_key, result, expires_in_sec=600)
                     return result
 
-            # Log when operation rules aren't found to help with debugging
-            frappe.logger("verenigingen.api_security").info(
-                f"Critical Operation Rule lookup failed for function '{func_name}' from module '{module_name}'. "
-                f"Tried operation names: {potential_operation_names}. "
-                f"This indicates either missing Critical Operation Rule fixture data or incorrect naming conventions."
+            # Absence of a per-operation Critical Operation Rule is the normal,
+            # expected state: the endpoint simply uses its decorator preset (and
+            # the rate-limit engine's _generic_api_fallback). Logged at debug only
+            # as a naming-mismatch aid, NOT as an error. Treating absence as a
+            # problem is what drove the seeding of one COR row per endpoint
+            # (~2,600 rows); keep this quiet so sparse rules stay sustainable.
+            frappe.logger("verenigingen.api_security").debug(
+                f"No per-operation Critical Operation Rule for function '{func_name}' "
+                f"(module '{module_name}'); using preset defaults. "
+                f"Tried operation names: {potential_operation_names}."
             )
 
         except Exception as e:
