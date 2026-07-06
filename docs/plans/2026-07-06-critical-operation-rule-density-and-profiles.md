@@ -85,9 +85,29 @@ deviates from its profile.
 sparse rows; the long tail (211 configs, 50% of rows are non-modal within their coarse
 bucket) means "merge to N presets" requires judgement, not a mechanical squash.
 
-**Decision input:** run the density report. If the effective config set is genuinely
-~12–20 after merging near-duplicates, the refactor pays off; if the tail is genuinely
-irreducible, keep the report (b) and skip the refactor.
+**Decision input — coverage curve (measured, veg11):**
+
+| Coverage of endpoints | Configs needed |
+|---|---|
+| 50% | 3 |
+| 68% | 12 |
+| 80% | 33 |
+| 90% | 72 |
+| 99% | 186 |
+| 100% | 211 |
+
+65 configs (30%) are true one-offs (1 endpoint each); ~102 configs are used by ≤2
+endpoints, covering 139 tail endpoints.
+
+**Verdict: the refactor is NOT clearly worth it.** The 211 do not collapse toward
+~12–20 — a concentrated head (3 configs = 50%, 12 = 68%) sits on a long, heavy tail (72
+configs for 90%, 65 genuine one-offs). A named-profiles migration would realistically
+land at "~12 canonical profiles + ~60–70 endpoints keeping explicit overrides + a long
+one-off tail" — a partial win with real migration cost on a security-critical path. The
+shipped density report already captures the practical discoverability value (you can
+*see* the ~12 common profiles and the tail) without that risk. Recommendation: keep the
+report; treat named-profiles as deferred/optional, not planned. Revisit only if the tail
+is later shown to be accidental drift rather than intentional per-endpoint tuning.
 
 ## Keystone + cleanups — DONE (branch `refactor/cor-log-reframe-dead-field-cleanup`)
 
