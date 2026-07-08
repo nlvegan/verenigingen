@@ -225,52 +225,6 @@ class MemberLifecycleUnitTest(EnhancedTestCase):
             ineligible_result.is_valid, "A volunteer well below the minimum age must NOT be eligible"
         )
 
-    def test_membership_status_transitions(self):
-        """Test status transitions via the real validate_status_transition() service
-        function -- previously this test invented its own status vocabulary
-        ("Application Pending", "On Hold", "Withdrawn") that doesn't even exist on the
-        Member DocType's status Select field, and asserted against its own reimplemented
-        table instead of the production one.
-
-        NOTE: validate_status_transition() is currently NOT wired into the Member save
-        lifecycle (no before_save/validate caller) -- see backlog-dead-code.md (Module 4).
-        This test pins the function's own allowed_transitions logic directly; it does NOT
-        assert live lifecycle enforcement. If the function is later hooked into save (or
-        removed), update this test accordingly."""
-
-        from verenigingen.services.member.core.member_status_service import (
-            validate_status_transition,
-        )
-
-        # Transitions the production allowed_transitions table (member_status_service.py)
-        # actually defines as valid.
-        valid_transitions = [
-            ("Pending", "Active"),
-            ("Pending", "Rejected"),
-            ("Active", "Suspended"),
-            ("Suspended", "Active"),
-            ("Active", "Quit"),
-        ]
-
-        for from_status, to_status in valid_transitions:
-            member_stub = frappe._dict({"status": from_status})
-            result = validate_status_transition(member_stub, to_status)
-            self.assertTrue(result["valid"], f"Transition from {from_status} to {to_status} should be valid")
-
-        # Transitions the production table does NOT allow (terminal states / skipped steps).
-        invalid_transitions = [
-            ("Quit", "Active"),  # Terminal state
-            ("Rejected", "Active"),  # Terminal state
-            ("Pending", "Quit"),  # Not a defined transition
-        ]
-
-        for from_status, to_status in invalid_transitions:
-            member_stub = frappe._dict({"status": from_status})
-            result = validate_status_transition(member_stub, to_status)
-            self.assertFalse(
-                result["valid"], f"Transition from {from_status} to {to_status} should be invalid"
-            )
-
     def test_postal_code_normalization(self):
         """Test Dutch postal code normalization via the real normalize_dutch_postal_code()
         utility (utils/validation/postal_code_validator.py) -- previously this reimplemented

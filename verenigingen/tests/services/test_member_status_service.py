@@ -5,15 +5,14 @@
 Integration tests for member_status_service.
 
 Covers application-status defaulting, status/membership-status synchronization
-against real Membership records, status-transition validation, colour mapping,
-is_application_member and status summaries.
+against real Membership records, colour mapping, is_application_member and
+status summaries.
 """
 
 import unittest
 
 import frappe
 from frappe.utils import add_days, today
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.services.member.core.member_status_service import (
     get_member_status_color,
@@ -22,8 +21,8 @@ from verenigingen.services.member.core.member_status_service import (
     set_member_application_status_defaults,
     sync_member_status_fields,
     update_member_membership_status,
-    validate_status_transition,
 )
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestApplicationStatusDefaults(EnhancedTestCase):
@@ -115,35 +114,6 @@ class TestMembershipStatusComputation(EnhancedTestCase):
         self.assertIn("membership_status", result.data)
         # No membership -> Lapsed
         self.assertEqual(result.data["membership_status"], "Lapsed")
-
-
-class TestStatusTransitionValidation(EnhancedTestCase):
-    """validate_status_transition allowed-transition matrix."""
-
-    def _doc(self, status):
-        return frappe._dict(status=status)
-
-    def test_pending_to_active_allowed(self):
-        result = validate_status_transition(self._doc("Pending"), "Active")
-        self.assertTrue(result["valid"])
-
-    def test_active_to_pending_not_allowed(self):
-        result = validate_status_transition(self._doc("Active"), "Pending")
-        self.assertFalse(result["valid"])
-        self.assertIn("Cannot transition", result["message"])
-
-    def test_quit_is_terminal(self):
-        result = validate_status_transition(self._doc("Quit"), "Active")
-        self.assertFalse(result["valid"])
-
-    def test_empty_status_to_active_allowed(self):
-        result = validate_status_transition(self._doc(""), "Active")
-        self.assertTrue(result["valid"])
-
-    def test_unknown_status_rejected(self):
-        result = validate_status_transition(self._doc("Bogus"), "Active")
-        self.assertFalse(result["valid"])
-        self.assertIn("Unknown current status", result["message"])
 
 
 class TestStatusHelpers(EnhancedTestCase):

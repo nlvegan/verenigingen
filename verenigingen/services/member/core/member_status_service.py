@@ -190,37 +190,6 @@ def get_member_status_color(status):
     return status_colors.get(status, "secondary")
 
 
-def validate_status_transition(member_doc, new_status):
-    """Validate that a status transition is allowed.
-
-    Args:
-        member_doc: Member document instance
-        new_status (str): New status to transition to
-
-    Returns:
-        dict: Validation result with valid/message fields
-    """
-    current_status = getattr(member_doc, "status", "")
-
-    # Define allowed transitions
-    allowed_transitions = {
-        "": ["Active", "Pending"],
-        "Pending": ["Active", "Rejected", "Suspended"],
-        "Active": ["Suspended", "Quit"],
-        "Suspended": ["Active", "Quit"],
-        "Quit": [],  # Terminal state
-        "Rejected": [],  # Terminal state
-    }
-
-    if current_status in allowed_transitions:
-        if new_status in allowed_transitions[current_status]:
-            return {"valid": True}
-        else:
-            return {"valid": False, "message": f"Cannot transition from '{current_status}' to '{new_status}'"}
-    else:
-        return {"valid": False, "message": f"Unknown current status: '{current_status}'"}
-
-
 def get_member_status_summary(member_doc):
     """Get a summary of member's current status information.
 

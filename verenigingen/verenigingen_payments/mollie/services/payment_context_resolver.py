@@ -163,11 +163,12 @@ class PaymentContextResolver:
         if donation_name:
             return PaymentContext("donation", "Donation", donation_name)
 
-        # Check members (for one-time member payments)
-        member_name = frappe.db.get_value("Member", {"payment_id": payment_id}, "name")
-        if member_name:
-            return PaymentContext("membership", "Member", member_name)
-
+        # NOTE: Member has no `payment_id` field (only Donation does), so a
+        # `get_value("Member", {"payment_id": ...})` lookup here raised an
+        # OperationalError on every call that reached it -- masked by
+        # resolve_context()'s outer `except Exception`, which silently swallowed
+        # the crash and made Strategy 4 (customer + timestamp fallback)
+        # unreachable. One-time member payments are resolved via that fallback.
         return None
 
     def _resolve_from_customer_fallback(self, payment_id: str, payment_data: Any) -> Optional[PaymentContext]:
