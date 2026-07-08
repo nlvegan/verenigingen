@@ -22,10 +22,10 @@ from verenigingen.e_boekhouden.utils.eboekhouden_transaction_type_mapper import 
 from verenigingen.tests.e_boekhouden.fixtures import (
     MUTATION_SOAP_CAMELCASE_FACTUUR_ONTVANGEN,
     MUTATION_SOAP_CAMELCASE_FACTUUR_VERSTUURD,
-    MUTATION_SOAP_FACTUURBETALING_ONTVANGEN,
-    MUTATION_SOAP_FACTUURBETALING_VERSTUURD,
     MUTATION_SOAP_FACTUUR_ONTVANGEN,
     MUTATION_SOAP_FACTUUR_VERSTUURD,
+    MUTATION_SOAP_FACTUURBETALING_ONTVANGEN,
+    MUTATION_SOAP_FACTUURBETALING_VERSTUURD,
     MUTATION_SOAP_GELD_ONTVANGEN,
     MUTATION_SOAP_MEMORIAAL,
     MUTATION_TYPE_0_OPENING_BALANCE,
@@ -189,6 +189,13 @@ class TestFallbackAndEdgeCases(unittest.TestCase):
 
         Note: This test documents current behavior. The code should be fixed to handle
         unknown numeric types gracefully by returning "Journal Entry" instead of raising.
+
+        KEEP-WITH-NOTE (2026-07-08 false-confidence remediation, report 25c): this is a
+        known-bug tripwire, not a desired contract. It intentionally pins the current-wrong
+        AttributeError behavior so a future fix (making unknown numeric types fall back to
+        "Journal Entry") is a deliberate, visible change to this test rather than a silent
+        behavior drift. Do not delete or "fix" this test without also fixing
+        get_erpnext_document_type() itself.
         """
         with self.assertRaises(AttributeError):
             get_erpnext_document_type(99)
@@ -435,9 +442,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should accept type 3 normal payment"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -449,9 +454,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should accept type 4 normal payment"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -463,9 +466,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should accept type 4 negative (supplier refund)"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -477,9 +478,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should accept type 5 (money received)"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -491,9 +490,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should accept type 6 (money sent)"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -505,9 +502,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should reject type 3 negative without invoice (generic refund)"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -520,9 +515,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should accept type 3 negative WITH invoice (credit note)"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")
@@ -535,9 +528,7 @@ class TestPaymentProcessorRouting(unittest.TestCase):
         """PaymentProcessor should reject invoice types (1, 2)"""
         from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-        with patch(
-            "verenigingen.e_boekhouden.utils.processors.base_processor.frappe"
-        ) as mock_base_frappe:
+        with patch("verenigingen.e_boekhouden.utils.processors.base_processor.frappe") as mock_base_frappe:
             mock_base_frappe.db.get_value.return_value = "Default Cost Center"
 
             processor = PaymentProcessor(company="Test Company")

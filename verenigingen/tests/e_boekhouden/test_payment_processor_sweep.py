@@ -89,7 +89,9 @@ class _PayProcBase(EnhancedTestCase):
         r.account_name = f"EBPS {root_type} Root"
         r.company = COMPANY
         r.root_type = root_type
-        r.report_type = "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        r.report_type = (
+            "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        )
         r.is_group = 1
         r.insert(ignore_permissions=True)
         return r.name
@@ -104,7 +106,9 @@ class _PayProcBase(EnhancedTestCase):
         a.company = COMPANY
         a.account_type = account_type
         a.root_type = root_type
-        a.report_type = "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        a.report_type = (
+            "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        )
         a.is_group = 0
         a.parent_account = cls._make_root(root_type)
         a.insert(ignore_permissions=True)
@@ -149,9 +153,7 @@ class _PayProcBase(EnhancedTestCase):
 
         # Bank Account linked to the bank GL account; convert_gl_account_to_bank_account
         # resolves this from {account, company}.
-        existing = frappe.db.get_value(
-            "Bank Account", {"account": cls.bank, "company": COMPANY}, "name"
-        )
+        existing = frappe.db.get_value("Bank Account", {"account": cls.bank, "company": COMPANY}, "name")
         if existing:
             cls.bank_account = existing
             return
@@ -404,9 +406,7 @@ class TestCreateBankTransactionForJE(_PayProcBase):
             name="FAKE-JE-ZERO",
             posting_date=nowdate(),
             accounts=[
-                frappe._dict(
-                    account=self.bank, debit_in_account_currency=0, credit_in_account_currency=0
-                )
+                frappe._dict(account=self.bank, debit_in_account_currency=0, credit_in_account_currency=0)
             ],
         )
         result = p._create_bank_transaction_for_journal_entry(
@@ -533,6 +533,12 @@ class TestLinkBankTransactionToJE(_PayProcBase):
 # ---------------------------------------------------------------------------
 # _link_bank_transaction_to_payment  (NOTE: dead code -- no production caller;
 # tested to pin documented behaviour and guard against accidental reuse)
+#
+# KEEP-WITH-NOTE (2026-07-08 false-confidence remediation, report 25c): confirmed
+# still dead (re-grepped callers) during the remediation pass. Left in place as a
+# dead-code tripwire rather than deleted -- the methods do assert real link/
+# reconcile + idempotency effects, so if this path is ever wired back up (a real
+# caller added), these tests already cover it correctly.
 # ---------------------------------------------------------------------------
 class TestLinkBankTransactionToPayment(_PayProcBase):
     def _make_draft_bt(self, ref, amount=25.0):
@@ -601,9 +607,7 @@ class TestUpdateBankTransactionParty(_PayProcBase):
         self._saved_auto = frappe.db.get_single_value(
             "E-Boekhouden Settings", "auto_create_parties_from_bank_transactions"
         )
-        frappe.db.set_single_value(
-            "E-Boekhouden Settings", "auto_create_parties_from_bank_transactions", 0
-        )
+        frappe.db.set_single_value("E-Boekhouden Settings", "auto_create_parties_from_bank_transactions", 0)
 
     def tearDown(self):
         frappe.db.set_single_value(
@@ -641,9 +645,7 @@ class TestUpdateBankTransactionParty(_PayProcBase):
         supplier = self._make_supplier("EBPS Party Update Supplier")
         bt = self._make_draft_bt("EB-PARTY-7350001")
         p = self._processor()
-        p._update_bank_transaction_party(
-            bt.name, {"party_type": "Supplier", "party_name": supplier}
-        )
+        p._update_bank_transaction_party(bt.name, {"party_type": "Supplier", "party_name": supplier})
         bt.reload()
         self.assertEqual(bt.party_type, "Supplier")
         self.assertEqual(bt.party, supplier)
