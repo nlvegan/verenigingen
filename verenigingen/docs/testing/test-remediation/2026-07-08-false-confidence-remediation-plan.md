@@ -12,7 +12,8 @@
 
 - **Test-files only.** Never modify production code in this roadmap. Dead prod code → `backlog-dead-code.md`; missing features → `backlog-missing-coverage.md`.
 - **Run tests on `test_site_1`..`test_site_5` — NEVER `veg11.veganisme.org`** (its `before_tests` bootstrap crashes on EUR-vs-INR).
-- **Every rewrite is mutation-verified:** green on current code, then break the target and confirm the test goes red, then revert the break.
+- **Every rewrite AND every new unhappy gap-fill test is mutation-verified:** green on current code, then break the target and confirm the test goes red, then revert the break.
+- **Bounded unhappy gap-fill (added 2026-07-08):** while in a module's prod code, also add real UNHAPPY tests for that module's NAMED unhappy gaps (the per-task "OFFSET/GAP CANDIDATES" list) + any genuine-rejection path you directly touch. Bounded — do NOT audit the whole module for every missing case. Assert a genuine raise/throw/permission-denial, NOT a graceful-fallback (that is EDGE). Count these separately from offset adds.
 - **Coverage gate = Codecov delta (regression-based).** No wave may regress module coverage vs. its start (`coverage-Δ ≥ 0`).
 - **Fixtures via factory base classes** (`EnhancedTestCase` / `VereningingenTestCase`) — never hand-rolled Member/Membership docs (per CLAUDE.md pre-implementation checklist).
 - **Single accumulating branch:** `refactor/test-false-confidence-remediation`. One conventional commit per module: `test(<module>): remediate false-confidence tests`. Never commit to `develop` directly.
@@ -164,6 +165,11 @@ these steps. `<M>` = module number, `<name>` = module name.
   - Target **missing** endpoint/feature → delete test; append to `backlog-missing-coverage.md`.
   - Before any delete: `grep -rn "from .*<deleted module> import\|import <deleted module>" verenigingen/`
     to confirm nothing imports the file.
+  - **Bounded gap-fill (§2.5):** after dispositioning, add real UNHAPPY tests for this module's
+    NAMED gaps (the task's GAP CANDIDATES list) + any genuine-rejection path you directly touched.
+    Assert a real raise/throw/permission-denial (NOT a graceful-fallback → that's EDGE, skip it).
+    Mutation-verify these in C4 like rewrites. Bounded: do NOT audit the whole module for every
+    missing case. Record the added-unhappy count separately in the tracker row.
 
 - [ ] **C4: Mutation-verify every rewrite.** For each rewritten test:
   ```bash

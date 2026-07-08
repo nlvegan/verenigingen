@@ -33,6 +33,12 @@ zero-coverage modules beyond the empty scaffolds we encounter in-batch.
    **coverage-neutral-or-positive** on its module. The CI gate never regresses; gate config is not
    touched. This is feasible precisely because the inventory found abundant real gaps to add
    meaningful tests against on the same modules.
+5. **Bounded unhappy gap-fill (added 2026-07-08).** While an agent is already in a module's prod
+   code to rewrite its tautologies, it also fills that module's **named** money-path unhappy gaps
+   (from the offset-candidate list) plus any genuine-rejection path it directly touches. This is
+   *bounded* — it does NOT audit the whole module for every missing case (that stays deferred, §3).
+   New unhappy tests assert a genuine raise/throw/permission-denial (not a graceful-fallback, which
+   is EDGE), are mutation-verified like rewrites, and are tracked separately from offset adds.
 
 ## 3. Scope & non-goals
 
@@ -40,14 +46,19 @@ zero-coverage modules beyond the empty scaffolds we encounter in-batch.
 tautological tests to assert real behavior, and adding just enough real tests on the same module to
 keep coverage neutral-or-positive per batch.
 
-**Non-goals (spun off to backlogs, not done here):**
+Adding real tests is also in scope where it is **bounded** — the offset rewrites/adds (§2.4) and
+the named per-module unhappy gap-fill (§2.5).
+
+**Non-goals (spun off to backlogs / later roadmaps, not done here):**
 - **Deleting dead production code.** When a test's target turns out to be dead, we delete the test
   and record the dead prod code to a `dead-code` backlog for a separate pass. (Memory lesson:
   dead-code claims are unreliable — deletion of prod code needs its own careful track.)
 - **Building missing features.** When a test references a nonexistent endpoint/feature, we delete
   the aspirational test and record the intended behavior to a `missing-coverage` backlog, so the
   lost intent is recoverable.
-- **Net-new negative-path suites** beyond in-batch offset (that is gap-class #2, a later roadmap).
+- **Unbounded module-wide negative-path audits.** Filling *every* missing unhappy case across a
+  module (vs. the §2.5 named gaps) stays deferred to a dedicated gap-class-#2 roadmap — it does not
+  converge per module and would stall the waves.
 
 ## 4. Artifacts
 
@@ -122,9 +133,11 @@ Each roadmap entry links to the inventory report(s) that name that module's offe
 A module batch is complete only when **all** hold:
 
 - Every flagged test in the module is dispositioned (deleted / rewritten / kept-with-note).
-- **Every rewrite is mutation-verified:** green on current code; then the target is deliberately
-  broken and the test is confirmed **red**; break reverted. A rewrite that cannot be shown to fail
-  on a break is not done.
+- **Every rewrite AND every new unhappy gap-fill test is mutation-verified:** green on current
+  code; then the target is deliberately broken and the test is confirmed **red**; break reverted. A
+  test that cannot be shown to fail on a break is not done.
+- **Bounded unhappy gap-fill done (§2.5):** the module's named money-path unhappy gaps are covered
+  by real UNHAPPY tests, counted separately from offset adds in the tracker.
 - **Coverage delta ≥ 0** (the CI gate is a **Codecov delta gate** — it fails on a coverage
   *regression* vs. base, not on an absolute threshold; so "do not regress" is the exact target).
   Measured per module with file-scoped `coverage run --include=<module glob>` (the reusable per-file

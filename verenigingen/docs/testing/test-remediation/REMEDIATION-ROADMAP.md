@@ -13,7 +13,9 @@ Wave 4: 10 Co-located doctype controllers + mijnrood_sync
 1. Snapshot baseline module coverage.
 2. Grep the machine-detectable patterns + read the inventory-named offenders; confirm each flag.
 3. Disposition each: live→rewrite, dead→delete+log dead-code, missing→delete+log missing-coverage.
-4. Mutation-verify every rewrite (green→break→red→revert).
+   Then bounded gap-fill: add real UNHAPPY tests for the module's NAMED gaps + genuine-rejection
+   paths touched (genuine raise/throw, NOT graceful-fallback). Bounded, not a whole-module audit.
+4. Mutation-verify every rewrite AND every new unhappy test (green→break→red→revert).
 5. Re-run the module suite green on a test_site_N.
 6. Confirm coverage-Δ ≥ 0 vs. baseline; if a deletion dropped coverage, add an offsetting real test.
 7. Update TRACKER + backlogs; commit `test(<module>): remediate false-confidence tests`.

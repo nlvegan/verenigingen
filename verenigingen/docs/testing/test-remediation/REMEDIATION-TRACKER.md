@@ -2,6 +2,7 @@
 
 Branch: refactor/test-false-confidence-remediation · Gate: Codecov delta (no regression)
 Legend: ⬜ pending · 🟨 in wave · ✅ done
+"Added" column format: `<offset> (+<unhappy gap-fill>)` — offset adds and bounded unhappy gap-fill (§2.5) counted separately.
 
 | # | Module | Status | Flagged | Deleted | Rewritten | Added | Coverage Δ | Commit | Backlog refs |
 |---|--------|--------|--------:|--------:|----------:|------:|:----------:|--------|--------------|
