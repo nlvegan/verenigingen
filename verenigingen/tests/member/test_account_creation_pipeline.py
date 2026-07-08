@@ -114,6 +114,91 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
         finally:
             frappe.set_user(current_user)
             
+    def test_load_request_raises_when_request_missing(self):
+        """load_request() must raise DoesNotExistError for a non-existent ACR.
+
+        Genuine rejection: account_creation_manager.py load_request() line 71
+        `raise frappe.DoesNotExistError(...)` guards the whole pipeline against
+        being driven with a bogus request name.
+        """
+        missing_name = f"ACR-Member-does-not-exist-{self.uid}"
+        self.assertFalse(frappe.db.exists("Account Creation Request", missing_name))
+
+        manager = AccountCreationManager(missing_name)
+        with self.assertRaises(frappe.DoesNotExistError) as ctx:
+            manager.load_request()
+        # Assert the custom guard message (lowercase "Account creation request"),
+        # which is distinct from Frappe get_doc()'s core "Account Creation Request
+        # ... not found" fallback — so the assertion pins the guard, not the core.
+        self.assertIn("Account creation request", str(ctx.exception))
+
+    def test_validate_permissions_rejects_guest_user(self):
+        """validate_processing_permissions() must deny Guest (no anonymous ACR).
+
+        Genuine rejection: account_creation_manager.py line 459
+        `raise frappe.PermissionError("Account creation requires authenticated user")`.
+        """
+        member = self.create_test_member(
+            first_name=f"Guest{self.uid}",
+            last_name="Denied",
+            email=f"guest.denied.{self.uid}@test.invalid",
+        )
+        request = frappe.get_doc({
+            "doctype": "Account Creation Request",
+            "request_type": "Member",
+            "source_record": member.name,
+            "email": member.email,
+            "full_name": member.full_name,
+            "requested_roles": [{"role": "Verenigingen Member"}],
+        })
+        request.insert()
+
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+
+        # Guest session IS the behaviour under test; as_user restores the
+        # original user on exit.
+        with self.as_user("Guest"):
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                manager.validate_processing_permissions()
+        self.assertIn("authenticated user", str(ctx.exception))
+
+    def test_validate_permissions_rejects_unassignable_requested_role(self):
+        """An admin-tier runner still cannot assign a role outside its allow-list.
+
+        Genuine rejection: account_creation_manager.py line 473
+        `raise frappe.PermissionError(f"Cannot assign role: {role_row.role}")`.
+        Verenigingen Staff passes the ADMIN_ROLES gate (line 465) but
+        can_assign_role() denies "Verenigingen Administrator", so the per-role
+        loop rejects it — this is the privilege-escalation guard, distinct from
+        the no-admin-role branch covered by test_permission_validation_in_manager.
+        """
+        member = self.create_test_member(
+            first_name=f"Escalate{self.uid}",
+            last_name="Blocked",
+            email=f"escalate.blocked.{self.uid}@test.invalid",
+        )
+        # Inserted under the default Administrator context (can_request_role
+        # permits it); the pipeline-time gate is what we exercise below.
+        request = frappe.get_doc({
+            "doctype": "Account Creation Request",
+            "request_type": "Member",
+            "source_record": member.name,
+            "email": member.email,
+            "full_name": member.full_name,
+            "requested_roles": [{"role": "Verenigingen Administrator"}],
+        })
+        request.insert()
+
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+
+        with self.as_staff():
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                manager.validate_processing_permissions()
+        self.assertIn("Cannot assign role", str(ctx.exception))
+        self.assertIn("Verenigingen Administrator", str(ctx.exception))
+
     def test_role_assignment_permission_validation(self):
         """Test that role assignment validates permissions properly"""
         member = self.create_test_member(
