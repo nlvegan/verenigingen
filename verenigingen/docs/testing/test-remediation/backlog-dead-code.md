@@ -3,6 +3,20 @@
 Prod symbols with no callers, surfaced when a test's target turned out unreachable.
 Format: `- <file>:<symbol> — from <deleted test> — re-grep callers before deleting prod code.`
 
+## ✅ RESOLVED — branch `fix/test-remediation-backlog` (production fixes with mutation-verified tests)
+- **PaymentContextResolver `Member.payment_id` crash** (Module 2) — **FIXED `016572f2`.** Dropped the dead
+  Member lookup branch; Strategy 4 now reachable. 2 direct regression tests added (mutation-verified).
+- **SEPA `log_error` arg-swap** (`sepa_batch_processor.py`, Module 1) — **FIXED `016572f2`.** Now `title=/message=`;
+  `test_performance_degradation_handling` tightened to assert the title lands in `method` (mutation-verified).
+- **`is_membership_related` hardcoded-True stubs** (both overdue_member_payments reports, Module 8) —
+  **DELETED `016572f2`** (zero callers).
+- **`member_status_service.validate_status_transition`** (Module 4) — **DELETED `016572f2`** as a never-wired
+  duplicate (Member status validation is already wired in `member_validation_service.py`); removed the two
+  test suites that only pinned it.
+- **Membership Termination Request `on_update_after_submit` dead hook + orphaned module-level
+  `handle_status_change`** (Module 6) — **REMOVED `016572f2`.** The hook duplicated the controller's own
+  `on_update_after_submit` method and never fired (approval service uses `.save()`, docstatus stays 0).
+
 - `verenigingen/verenigingen_payments/mollie/services/payment_context_resolver.py:PaymentContextResolver._resolve_from_document_lookup` (line ~167) queries `frappe.db.get_value("Member", {"payment_id": payment_id}, "name")`, but the **Member doctype has no `payment_id` field** (only Donation does — confirmed via `member.json` vs `donation.json`). This raises `MySQLdb.OperationalError: Unknown column 'payment_id' in 'WHERE'` on every call where the preceding Donation lookup also misses. The exception is masked by `resolve_context()`'s outer `except Exception: return None`, so callers never see a crash — but it means **Strategy 4 (`_resolve_from_customer_fallback`, the customer-ID + timestamp window fallback) is unreachable in practice** whenever a payment isn't resolved by metadata/subscription/donation-payment_id lookup. Surfaced while rewriting `test_payment_context_resolver.py`'s assertion-free tests (all 5 rewritten tests return None via this masked path, not via a clean "no match" fallthrough — see their docstrings). This is a live bug, not literally dead code, but the practical effect (strategy 4 never runs) is the same — **needs a real prod fix** (drop the bogus Member.payment_id branch, or add the field) before Strategy 4 becomes reachable. NOT fixed here (test-files-only mandate); flagging for controller/dedicated-pass review.
 
 ## Module 4 — Member-financial & history

@@ -3,6 +3,12 @@
 Intended behaviors from tests deleted because they referenced nonexistent endpoints/features.
 Format: `- <intended behavior> — from <deleted test> — build feature OR write real test.`
 
+## ✅ RESOLVED — branch `fix/test-remediation-backlog`
+- **Member deletion cascade for SEPA Mandates** (Module 1) — **FIXED `85dbc7d0`.**
+  `MemberCleanupService.handle_member_deletion()` now force-deletes the linked SEPA Mandate documents (their
+  `member` link previously dangled → `LinkExistsError`). `test_mandate_cleanup_on_member_deletion` flipped from
+  characterization (pinning the defect) to assert successful cascade (mutation-verified on test_site_2).
+
 - PaymentContext (in `payment_context_resolver.py`) validation of empty/invalid `payment_type` / `target_doctype` / `target_name` — from deleted `test_payment_context_resolver.py::TestPaymentContextResolver.test_context_validation`. The deleted test built `PaymentContext("", "Donation", "test")` etc. and left the assertions as a TODO comment ("Note: Actual validation behavior depends on implementation... ready for when validation is added"). `PaymentContext.__init__` is a bare data container with zero validation logic today. Build the feature (reject/flag empty fields) OR write a real test once validation exists.
 
 ## Module 4 — Member-financial & history
