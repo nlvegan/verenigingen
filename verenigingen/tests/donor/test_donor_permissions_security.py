@@ -19,9 +19,10 @@ import unittest
 
 import frappe
 from frappe.utils import random_string
-from verenigingen.tests.utils.base import VereningingenTestCase
+
+from verenigingen.permissions import get_donor_permission_query, has_donor_permission
 from verenigingen.tests.fixtures.enhanced_test_factory import MockRolesContext
-from verenigingen.permissions import has_donor_permission, get_donor_permission_query
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestDonorPermissionsSecurity(VereningingenTestCase):
@@ -130,7 +131,8 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
                     # The raw payload's leading bare quote must not appear unescaped
                     # (i.e. not preceded by a backslash and not doubled).
                     self.assertNotIn(
-                        "= '; DROP", query,
+                        "= '; DROP",
+                        query,
                         f"Payload quote appears unescaped in query: {query}",
                     )
 
@@ -160,13 +162,23 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
                 frappe.db.get_value = mock_get_value
 
                 try:
+                    # get_address_permission_query() looks up the member unconditionally
+                    # (unlike the donor/SEPA factory, it is not role-gated), so
+                    # mock_get_value's payload always flows into the condition here -
+                    # assert the escaped result directly rather than guarding on it.
                     query = get_address_permission_query(self.test_member_user)
 
-                    # Verify proper escaping
-                    if query and query != "1=0":
-                        self.assertIn("tabAddress", query)
-                        # Should contain properly escaped content
-                        self.assertIn("'", query)
+                    self.assertIn("tabAddress", query)
+                    self.assertIn("'", query, "Should contain escaped quotes")
+                    self.assertTrue(
+                        "\\'" in query or "''" in query,
+                        f"Injection payload's quote must be escaped in query: {query}",
+                    )
+                    self.assertNotIn(
+                        "= '; DROP",
+                        query,
+                        f"Payload quote appears unescaped in query: {query}",
+                    )
 
                 finally:
                     frappe.db.get_value = original_get_value
@@ -447,8 +459,8 @@ class TestDonorPermissionsEdgeCases(VereningingenTestCase):
         )
 
         # Simulate concurrent permission checks
-        import threading
         import queue
+        import threading
 
         results = queue.Queue()
 

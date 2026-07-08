@@ -9,50 +9,31 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestVerenigingenSettings(EnhancedTestCase):
     """Test Verenigingen Settings functionality"""
 
-    def test_dues_payments_receivable_account_field_exists(self):
-        """Test that the dues_payments_receivable_account field exists and is accessible"""
-        # TODO: This test requires complex ERPNext Account setup with parent accounts
-        # Skipping for now - needs investigation of Account creation dependencies
-        self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
+    def test_dues_payments_receivable_account_field_migrated(self):
+        """dues_payments_receivable_account is a Link->Account on Payments Settings.
 
-        # Note: dues_payments_receivable_account is now in Verenigingen Payments Settings
-        settings = frappe.get_single("Verenigingen Payments Settings")
-
-        # Test field exists
-        self.assertTrue(hasattr(settings, "dues_payments_receivable_account"))
-
-        # Test field can be set to an account
-        test_account = self.create_test_account(
-            account_name="Test Dues Receivable", account_type="Receivable"
+        The field was migrated out of Verenigingen Settings into Verenigingen
+        Payments Settings. This is a schema drift guard: it asserts the field is
+        present with the correct type/options on the migration target, so a
+        removal or type change is caught. (Previously an unconditional skipTest.)
+        """
+        field = frappe.get_meta("Verenigingen Payments Settings").get_field(
+            "dues_payments_receivable_account"
         )
+        self.assertIsNotNone(field, "dues_payments_receivable_account missing from Payments Settings")
+        self.assertEqual(field.fieldtype, "Link")
+        self.assertEqual(field.options, "Account")
 
-        settings.dues_payments_receivable_account = test_account
-        settings.save()
+    def test_dues_income_account_field_migrated(self):
+        """dues_income_account is a Link->Account on Verenigingen Payments Settings.
 
-        # Reload and verify
-        settings.reload()
-        self.assertEqual(settings.dues_payments_receivable_account, test_account)
-
-    def test_dues_income_account_field_exists(self):
-        """Test that the dues_income_account field exists and is accessible"""
-        # TODO: This test requires complex ERPNext Account setup with parent accounts
-        # Skipping for now - needs investigation of Account creation dependencies
-        self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
-
-        # Note: dues_income_account is now in Verenigingen Payments Settings
-        settings = frappe.get_single("Verenigingen Payments Settings")
-
-        # Test that field exists and is accessible
-        self.assertTrue(hasattr(settings, "dues_income_account"))
-
-        # Test that we can set and get the value
-        test_account = "8000 - Test Income Account - TC"
-        settings.dues_income_account = test_account
-        settings.save()
-
-        # Reload and verify
-        settings.reload()
-        self.assertEqual(settings.dues_income_account, test_account)
+        Schema drift guard for the field migrated out of Verenigingen Settings.
+        (Previously an unconditional skipTest.)
+        """
+        field = frappe.get_meta("Verenigingen Payments Settings").get_field("dues_income_account")
+        self.assertIsNotNone(field, "dues_income_account missing from Payments Settings")
+        self.assertEqual(field.fieldtype, "Link")
+        self.assertEqual(field.options, "Account")
 
     def test_sales_invoice_account_handler_integration(self):
         """Test that the account handler correctly uses the dues_payments_receivable_account field"""

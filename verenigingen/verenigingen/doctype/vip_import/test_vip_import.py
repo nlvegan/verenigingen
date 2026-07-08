@@ -835,46 +835,42 @@ class TestVIPImportRobustness(FrappeTestCase):
         frappe.db.commit()
         return member
 
-    def test_create_volunteers_batch_uses_service(self):
-        """Test that _create_volunteers_batch uses BulkVolunteerCreationService."""
-        from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
-            BulkVolunteerCreationSummary,
+    def test_create_volunteers_batch_creates_real_volunteer(self):
+        """_create_volunteers_batch drives the real BulkVolunteerCreationService,
+        actually creating a Volunteer for the member (no service mock).
+
+        The previous version of this test patched the very service under test and
+        asserted the mock's own return value (a tautology). This drives the real
+        service path and asserts a concrete effect: the summary counts one
+        creation AND a Volunteer row now exists linked to the member.
+        """
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+            _create_volunteers_batch,
         )
 
-        # Create test member
+        # Create test member (no pre-existing volunteer)
         member = self._create_test_member(
             first_name="Bulk",
             last_name="ServiceTest",
             email="bulk-service-test@example.com",
         )
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}))
 
         try:
-            # Mock the service
-            mock_summary = BulkVolunteerCreationSummary(
-                total_attempted=1,
-                created=1,
-            )
+            result = _create_volunteers_batch(member_names=[member.name], import_batch_name="TEST-BULK")
 
-            # _create_volunteers_batch imports get_bulk_volunteer_creation_service
-            # lazily from the service module, so patch it at its source module.
-            with patch(
-                "verenigingen.services.volunteer.bulk_volunteer_creation_service.get_bulk_volunteer_creation_service"
-            ) as mock_get_service:
-                mock_service = MagicMock()
-                mock_service.create_volunteers_for_members.return_value = mock_summary
-                mock_get_service.return_value = mock_service
+            # Real summary reflects the real work done
+            self.assertEqual(result.total_attempted, 1)
+            self.assertEqual(result.created, 1)
 
-                from verenigingen.verenigingen.doctype.vip_import.vip_import import (
-                    _create_volunteers_batch,
-                )
-
-                result = _create_volunteers_batch(member_names=[member.name], import_batch_name="TEST-BULK")
-
-                mock_service.create_volunteers_for_members.assert_called_once()
-                self.assertEqual(result.created, 1)
-
+            # Concrete effect: a Volunteer was actually persisted for this member
+            volunteer_name = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+            self.assertIsNotNone(volunteer_name)
         finally:
-            # Cleanup
+            # Cleanup created volunteer + member
+            for vol in frappe.get_all("Volunteer", filters={"member": member.name}, pluck="name"):
+                frappe.delete_doc("Volunteer", vol, force=True)
+            frappe.db.set_value("Member", member.name, "volunteer_record", None, update_modified=False)
             member.delete(ignore_permissions=True)
             frappe.db.commit()
 

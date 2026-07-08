@@ -2,9 +2,10 @@
 # See license.txt
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import frappe
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
@@ -15,11 +16,43 @@ from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_
 class TestMembershipDuesSchedule(EnhancedTestCase):
     """Test Membership Dues Schedule business logic validation"""
 
-    def test_dues_schedule_validation(self):
-        """Test basic dues schedule validation"""
-        # This test validates the enhanced test framework is working
-        # Membership Dues Schedule specific business logic tests can be added here
-        self.assertTrue(True)  # Placeholder for actual business logic tests
+    def test_negative_dues_rate_rejected_on_save(self):
+        """A real, saved schedule cannot be given a negative dues_rate.
+
+        The controller's validate() chain runs validate_financial_constraints()
+        (rejects amounts below the template's minimum) before
+        validate_rate_boundaries() (rejects negative amounts specifically, via
+        InvalidDuesRateError). With a real, non-zero template minimum,
+        -5.0 trips the financial-constraints guard first and surfaces a plain
+        frappe.ValidationError naming the rejected rate. Unlike the existing
+        unit tests in test_dues_schedule_validation_service.py (which call
+        the service functions directly against a manually-built, unsaved
+        doc), this exercises the full document lifecycle: a real member with
+        an active membership and an already-saved schedule, mutated and
+        saved again, to prove a negative rate is actually rejected end to
+        end through doc.save() rather than merely by the isolated service
+        unit.
+        """
+        membership_type = self.create_test_membership_type(
+            membership_type_name="NegRate Type",
+            amount=30.0,
+            contribution_mode="Fixed Amount",
+        )
+        member, schedule = self.create_test_member_with_schedule(
+            first_name="NegRate",
+            last_name="Member",
+            membership_type_name=membership_type.name,
+            start_date=today(),
+        )
+
+        schedule.dues_rate = -5.0
+        with self.assertRaises(frappe.ValidationError) as cm:
+            schedule.save()
+        self.assertIn("-5.00", str(cm.exception))
+
+        # The rejected value must not have been persisted.
+        schedule.reload()
+        self.assertGreaterEqual(schedule.dues_rate, 0)
 
 
 class TestErrorMessageDeduplication(unittest.TestCase):

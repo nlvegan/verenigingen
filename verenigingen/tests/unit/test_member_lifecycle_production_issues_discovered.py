@@ -1,129 +1,110 @@
 """
-Phase 5.1 Member Lifecycle Mock Elimination: Production Issues Discovered
-=========================================================================
+Member Lifecycle: Structural/Behavioral Regression Guards
+===========================================================
 
-SUMMARY: Mock elimination testing of member lifecycle business logic has
-discovered 6 critical production issues that traditional mocked tests miss entirely.
+Originally a Phase 5.1 "production issues discovered" journal: 7/7 methods were pure
+`print()` narration documenting findings from an earlier debugging session, with zero
+assertions -- they always passed regardless of what the code actually did.
 
-PRODUCTION ISSUES DISCOVERED:
-1. ❌ Invalid Member Status: "Application Pending" not in valid status list
-2. ❌ Missing Address Fields: Member has primary_address Link, not postal_code directly  
-3. ❌ Enhanced Test Factory API: create_test_chapter vs create_chapter inconsistency
-4. ❌ Address Title Required: Address DocType requires address_title field
-5. ❌ Member Status Override: Enhanced Test Factory defaults to "Active" status
-6. ❌ Enhanced Test Factory Method Signatures: create_test_membership parameters incorrect
+Converted to real regression guards for the same findings, each calling/inspecting the
+actual production DocType metadata or business logic instead of just describing it:
 
-BUSINESS LOGIC GAPS IDENTIFIED:
-- Real Member status validation differs from expectations
-- Address relationship structure more complex than assumed
-- Member ID generation may require different triggers
-- Dutch name formatting may use different algorithms
-
-MOCK ELIMINATION VALUE PROVEN:
-✅ Real database testing discovers actual production problems immediately
-✅ 6/6 issues found on first test run - 100% discovery rate
-✅ Issues span validation, relationships, API design, and business rules
-✅ Traditional mocked tests would never discover any of these issues
-
-This demonstrates that Phase 5.1 Database Mock Elimination methodology
-successfully identifies real production issues across business critical areas.
+1. Member.status valid options (previously: printed a hardcoded list).
+2. Member uses primary_address (Link to Address), not a direct postal_code field.
+3. Address DocType genuinely requires address_title when created standalone (real
+   unhappy path -- frappe.contacts.doctype.address.address.Address.autoname()).
+4. Member ID generation actually produces a value for an Active member.
+5. Enhanced Test Factory preserves an explicitly requested status rather than silently
+   overriding it to "Active".
 """
 
 import frappe
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestMemberLifecycleProductionIssues(EnhancedTestCase):
-    """Document production issues discovered through mock elimination"""
+    """Regression guards for structural/business findings about Member lifecycle"""
 
-    def test_production_issue_1_invalid_member_status(self):
-        """Production Issue #1: Invalid Member Status Values"""
-        
-        # DISCOVERED: "Application Pending" is not a valid Member status
-        # VALID STATUSES (from Member.json line 508): 
-        # "Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"
-        
-        valid_statuses = ["Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"]
-        
-        print(f"🔍 Production Issue #1: Member Status Validation")
-        print(f"   ❌ Invalid: 'Application Pending' (used in original mocked tests)")
-        print(f"   ✅ Valid: {valid_statuses}")
+    def test_member_status_options_match_docmeta(self):
+        """Member.status is a Select field with a fixed set of valid values --
+        "Application Pending" (used by older mocked tests) is NOT one of them."""
 
-    def test_production_issue_2_address_relationship_structure(self):
-        """Production Issue #2: Address Relationship Complexity"""
-        
-        # DISCOVERED: Member DocType uses primary_address Link to Address DocType
-        # NOT direct postal_code/address_line_1 fields as mocked tests assumed
-        
-        print(f"🔍 Production Issue #2: Address Structure")
-        print(f"   ❌ Assumed: Direct postal_code field on Member")
-        print(f"   ✅ Actual: primary_address Link to Address DocType")
-        print(f"   📋 Impact: All postal code business logic tests invalid")
+        status_field = frappe.get_meta("Member").get_field("status")
+        valid_statuses = [s for s in status_field.options.split("\n") if s]
 
-    def test_production_issue_3_enhanced_test_factory_api_inconsistency(self):
-        """Production Issue #3: Enhanced Test Factory API Inconsistencies"""
-        
-        # DISCOVERED: Method naming inconsistencies in Enhanced Test Factory
-        
-        api_issues = [
-            ("create_test_chapter", "create_chapter", "Chapter creation"),
-            ("create_test_membership", "Different signature required", "Membership creation")
-        ]
-        
-        print(f"🔍 Production Issue #3: Enhanced Test Factory API")
-        for expected, actual, context in api_issues:
-            print(f"   ❌ Expected: {expected}")
-            print(f"   ✅ Actual: {actual} ({context})")
+        self.assertEqual(
+            valid_statuses,
+            ["Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"],
+        )
+        self.assertNotIn("Application Pending", valid_statuses)
 
-    def test_production_issue_4_address_title_requirement(self):
-        """Production Issue #4: Address DocType Validation Requirements"""
-        
-        # DISCOVERED: Address DocType requires address_title field for creation
-        # Frappe Address validation: "Address Title is mandatory"
-        
-        print(f"🔍 Production Issue #4: Address Validation")
-        print(f"   ❌ Missing: address_title field in Address creation")
-        print(f"   ✅ Required: Frappe Address DocType validation")
-        print(f"   📋 Impact: All address creation tests fail")
+    def test_member_uses_primary_address_link_not_direct_fields(self):
+        """Member has a primary_address Link to Address, not a direct postal_code field --
+        address data lives on the linked Address document."""
 
-    def test_production_issue_5_member_status_override(self):
-        """Production Issue #5: Enhanced Test Factory Default Behavior"""
-        
-        # DISCOVERED: Enhanced Test Factory overrides status to "Active" by default
-        # Even when explicitly setting status="Pending"
-        
-        print(f"🔍 Production Issue #5: Status Override Behavior")
-        print(f"   ❌ Expected: Explicit status='Pending' should be preserved")
-        print(f"   ✅ Actual: Enhanced Test Factory defaults to 'Active'")
-        print(f"   📋 Impact: Status transition testing logic invalid")
+        meta = frappe.get_meta("Member")
+        primary_address_field = meta.get_field("primary_address")
 
-    def test_production_issue_6_member_id_generation_real_behavior(self):
-        """Production Issue #6: Member ID Generation Real Implementation"""
-        
-        # DISCOVERED: Real member ID generation works (generates numeric IDs)
-        # But behavior differs from mocked expectations
-        
-        print(f"🔍 Production Issue #6: Member ID Generation")
-        print(f"   ❌ Mocked: generate_member_id() returns 'M-2024-001' format")
-        print(f"   ✅ Actual: Real system generates numeric IDs like '6463'")
-        print(f"   📋 Impact: All member ID format assumptions incorrect")
+        self.assertIsNotNone(primary_address_field, "Member should have a primary_address field")
+        self.assertEqual(primary_address_field.fieldtype, "Link")
+        self.assertEqual(primary_address_field.options, "Address")
+        self.assertIsNone(meta.get_field("postal_code"), "Member should NOT have a direct postal_code field")
 
-    def test_mock_elimination_success_metrics(self):
-        """Summary: Mock Elimination Methodology Success Metrics"""
-        
-        metrics = {
-            "Total Issues Discovered": 6,
-            "Test Runs Required": 1,
-            "Discovery Rate": "100%",
-            "Business Areas Affected": ["Member Lifecycle", "Address Management", "Status Validation", "API Design"],
-            "Issue Types": ["Validation", "Relationships", "API Signatures", "Business Logic", "Defaults"]
-        }
-        
-        print(f"\n✅ PHASE 5.1 MOCK ELIMINATION SUCCESS METRICS:")
-        for metric, value in metrics.items():
-            print(f"   {metric}: {value}")
-        
-        print(f"\n🎯 CONCLUSION:")
-        print(f"   Mock elimination immediately discovers real production issues")
-        print(f"   that mocked unit tests can never find. This validates the")
-        print(f"   Phase 5.1 methodology for business-critical system improvement.")
+    def test_address_creation_without_title_or_links_raises(self):
+        """Real unhappy path: Frappe's Address DocType requires address_title when there
+        are no links to derive a default title from (Address.autoname())."""
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._insert_address_without_title_or_links()
+
+        self.assertIn("mandatory", str(ctx.exception).lower())
+
+    def _insert_address_without_title_or_links(self):
+        """Factory-style helper: build+insert an Address with no title and no links,
+        deliberately missing the data Address.autoname() needs to derive a default
+        title, so the permission bypass required for a from-scratch insert lives
+        here rather than in the test body."""
+
+        address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_type": "Personal",
+                "address_line1": "Some Street 1",
+                "city": "Amsterdam",
+                "country": "Netherlands",
+                "pincode": "1012AB",
+                # Deliberately no address_title and no links
+            }
+        )
+        address.insert(ignore_permissions=True)
+        return address
+
+    def test_member_id_generation_produces_real_value(self):
+        """An Active (non-application) member should end up with a real, non-empty
+        member_id after creation via the real save/insert lifecycle.
+
+        member_id=None is passed explicitly: the factory's own defaults pre-assign a
+        member_id, which would mask the real production generation logic entirely if
+        left in place -- see MemberBeforeSaveService._handle_id_generation(), which
+        only generates one when member_id is still falsy at save time.
+        """
+
+        member = self.create_test_member(status="Active", member_id=None)
+
+        self.assertTrue(member.member_id, "Active member should have a member_id assigned")
+
+    def test_enhanced_test_factory_preserves_explicit_status(self):
+        """The factory must not silently override an explicitly requested status to
+        "Active" -- many other tests in the suite rely on this to set up non-Active
+        fixtures (Pending, Suspended, etc)."""
+
+        member = self.create_test_member(status="Suspended")
+
+        self.assertEqual(member.status, "Suspended")
+
+
+if __name__ == "__main__":
+    import unittest
+
+    unittest.main()
