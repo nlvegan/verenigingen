@@ -122,6 +122,38 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
             user_doc.append("roles", {"role": "Expense Approver"})
         user_doc.save(ignore_permissions=True)
 
+    def test_has_expense_claim_permission_scoped_to_board_chapter(self):
+        """The treasurer-approval gap: a Financial chapter-board member (Expense
+        Approver) may access an Expense Claim attributed to THEIR chapter, but not one
+        from another chapter. Exercises has_expense_claim_permission directly -- the
+        Expense Claim has_permission hook -- with the same attribute shape Frappe passes
+        (custom_chapter / employee), so no full HRMS Expense Claim document is required.
+        """
+        from verenigingen.permissions import has_expense_claim_permission
+
+        own_chapter_claim = frappe._dict(custom_chapter=self.chapter1.name, employee=None)
+        other_chapter_claim = frappe._dict(custom_chapter=self.chapter2.name, employee=None)
+
+        self.assertTrue(
+            has_expense_claim_permission(own_chapter_claim, self.board_user.name),
+            "board member must access an expense claim for their own chapter",
+        )
+        self.assertFalse(
+            has_expense_claim_permission(other_chapter_claim, self.board_user.name),
+            "board member must NOT access an expense claim for a chapter they don't sit on",
+        )
+
+    def test_expense_claim_permission_query_scopes_to_board_chapter(self):
+        """The permission-query counterpart: a board member's Expense Claim query must
+        be filtered to their chapter (mentions chapter1) and must not be an unrestricted
+        empty string (which would expose every chapter's claims)."""
+        from verenigingen.permissions import get_expense_claim_permission_query
+
+        condition = get_expense_claim_permission_query(self.board_user.name)
+        self.assertTrue(condition, "board member must get a restricting query, not full access")
+        self.assertIn(self.chapter1.name, condition)
+        self.assertNotIn(self.chapter2.name, condition)
+
     def test_api_security_decorators_applied(self):
         """Verify all expense query APIs have security decorators"""
         from verenigingen.api import expense_claim_queries
@@ -323,8 +355,9 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         """Verify no duplicate SQL conditions in queries"""
         frappe.set_user(self.staff_user.name)
 
-        from verenigingen.api import expense_claim_queries
         import inspect
+
+        from verenigingen.api import expense_claim_queries
 
         # Get source code of the function
         source = inspect.getsource(expense_claim_queries.get_user_accessible_chapters_for_expenses)

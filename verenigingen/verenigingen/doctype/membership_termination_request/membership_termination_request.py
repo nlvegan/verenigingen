@@ -310,13 +310,6 @@ def on_workflow_action(doc, action):
         doc.execute_termination_internal()
 
 
-# Module-level function for document hooks
-def handle_status_change(doc, method=None):
-    """Handle status changes for termination requests"""
-    if hasattr(doc, "handle_status_change"):
-        doc.handle_status_change()
-
-
 # Public API methods that can be called from outside
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)

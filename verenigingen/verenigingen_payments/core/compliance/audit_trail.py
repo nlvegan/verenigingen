@@ -71,12 +71,57 @@ class ImmutableAuditTrail:
     - Compliance reporting
     """
 
+    # Case-insensitive substrings marking a details key as a secret or PII value.
+    # Their values are redacted before an audit entry is hashed and persisted.
+    _SENSITIVE_KEY_MARKERS = (
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "auth_token",
+        "access_key",
+        "private_key",
+        "iban",
+        "bic",
+        "credit_card",
+        "card_number",
+        "cardnumber",
+        "cvv",
+    )
+    _REDACTED = "***REDACTED***"
+
     def __init__(self):
         """Initialize audit trail system"""
         self.chain_lock = threading.RLock()
         self.buffer = []
         self.buffer_size = 100
         self.last_hash = self._get_last_hash()
+
+    def _mask_sensitive_fields(self, data):
+        """Redact secret/PII values from an audit `details` payload before it is
+        hashed and stored in the Mollie Audit Log.
+
+        The audit trail must record that an event happened without leaking
+        credentials or bank/card data. Any key whose name contains one of
+        `_SENSITIVE_KEY_MARKERS` has its value replaced with `_REDACTED`; the walk
+        recurses into nested dicts and lists. Returns a new structure -- the
+        caller's dict is never mutated -- so masking is applied consistently before
+        the entry hash is computed (the persisted hash covers the masked data).
+        """
+        if isinstance(data, dict):
+            masked = {}
+            for key, value in data.items():
+                if isinstance(key, str) and any(m in key.lower() for m in self._SENSITIVE_KEY_MARKERS):
+                    masked[key] = self._REDACTED
+                else:
+                    masked[key] = self._mask_sensitive_fields(value)
+            return masked
+        if isinstance(data, (list, tuple)):
+            return [self._mask_sensitive_fields(v) for v in data]
+        return data
 
     def log_event(
         self,
@@ -109,7 +154,7 @@ class ImmutableAuditTrail:
                 "event_type": event_type.value,
                 "severity": severity.value,
                 "description": description,
-                "details": details or {},
+                "details": self._mask_sensitive_fields(details or {}),
                 "user": user or frappe.session.user,
                 "entity_type": entity_type,
                 "entity_id": entity_id,

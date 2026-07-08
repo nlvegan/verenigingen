@@ -239,15 +239,6 @@ def get_data(filters):
     return data
 
 
-def is_membership_related(document_name):
-    """
-    Updated to use dues schedules instead of subscriptions.
-    Always returns True for membership-related payments.
-    """
-    # Always return True for backward compatibility
-    return True
-
-
 def get_member_info_by_customer(customer):
     """Get member information by customer using standardized utilities"""
     try:

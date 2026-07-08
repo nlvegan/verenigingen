@@ -258,6 +258,23 @@ class DirectDebitBatch(Document):
         self.entry_count = totals["entry_count"]
         self.total_amount = totals["total_amount"]
 
+    def before_submit(self):
+        """Reject submitting a batch scheduled to collect on a date in the past.
+
+        A SEPA direct-debit collection date must be today or in the future -- banks
+        require advance notice and cannot execute a debit dated in the past. This
+        guards only the real submit path: historical batches recorded for
+        reconciliation set docstatus directly in the DB and never call submit(), so
+        they are unaffected. Previously nothing validated batch_date against today.
+        """
+        if self.batch_date and getdate(self.batch_date) < getdate(today()):
+            frappe.throw(
+                _(
+                    "Batch date {0} is in the past. A SEPA collection cannot be scheduled "
+                    "for a past date -- set the batch date to today or a future date."
+                ).format(self.batch_date)
+            )
+
     def on_submit(self):
         """Generate SEPA file on submit if not already generated"""
         if not self.sepa_file_generated:

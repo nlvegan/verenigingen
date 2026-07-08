@@ -35,52 +35,32 @@ class TestVerenigingenSettings(EnhancedTestCase):
         self.assertEqual(field.fieldtype, "Link")
         self.assertEqual(field.options, "Account")
 
-    def test_sales_invoice_account_handler_integration(self):
-        """Test that the account handler correctly uses the dues_payments_receivable_account field"""
-        # TODO: This test requires complex ERPNext Account setup with parent accounts
-        # Skipping for now - needs investigation of Account creation dependencies
-        self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
+    def test_sales_invoice_account_handler_uses_dues_receivable_for_membership(self):
+        """A membership Sales Invoice whose debit_to is the company default must be
+        switched to the VPS dues_payments_receivable_account by the account handler.
 
+        Exercises set_membership_receivable_account() end-to-end against real Accounts
+        + a real Verenigingen Payments Settings value (previously an unconditional
+        skipTest -- the account-parent setup is handled via a sibling of the company
+        default, no hardcoded chart-of-accounts names)."""
         from verenigingen.services.billing.sales_invoice_account_handler import (
             set_membership_receivable_account,
         )
 
-        # Create test accounts
-        company_default_account = self.create_test_account(
-            account_name="Company Default Receivable", account_type="Receivable"
-        )
+        company = self._get_test_company()
+        company_default = self._get_or_create_receivable_account(company)
+        dues_account = self._make_dues_receivable_account(company, company_default)
 
-        dues_receivable_account = self.create_test_account(
-            account_name="Dues Specific Receivable", account_type="Receivable"
-        )
+        vps = frappe.get_single("Verenigingen Payments Settings")
+        vps.dues_payments_receivable_account = dues_account
+        vps.save()
 
-        # Configure Verenigingen Payments Settings (dues accounts are now there)
-        payments_settings = frappe.get_single("Verenigingen Payments Settings")
-        payments_settings.dues_payments_receivable_account = dues_receivable_account
-        payments_settings.save()
-
-        # Get company from main settings
-        settings = frappe.get_single("Verenigingen Settings")
-
-        # Configure Company with default receivable account
-        company = frappe.get_doc("Company", settings.company)
-        company.default_receivable_account = company_default_account
-        company.save()
-
-        # Create a test member and customer
-        member = self.create_test_member(first_name="Test", last_name="Member")
-
-        # Create mock Sales Invoice with membership item
         invoice = frappe.new_doc("Sales Invoice")
-        invoice.company = settings.company
-        invoice.customer = member.customer
-        invoice.debit_to = company_default_account  # Start with company default
-
-        # Add membership item
+        invoice.company = company
+        invoice.debit_to = company_default  # starts at the company default
         invoice.append(
             "items",
             {
-                "item_code": "MEMBERSHIP-ITEM",
                 "item_name": "Membership Dues",
                 "item_group": "Membership",
                 "qty": 1,
@@ -88,58 +68,35 @@ class TestVerenigingenSettings(EnhancedTestCase):
             },
         )
 
-        # Test the account handler function
         set_membership_receivable_account(invoice)
 
-        # Verify account was changed to dues-specific account
         self.assertEqual(
             invoice.debit_to,
-            dues_receivable_account,
-            "Invoice should use dues_payments_receivable_account for membership invoices",
+            dues_account,
+            "membership invoice at the company default must switch to the VPS dues account",
         )
 
-    def test_non_membership_invoice_unchanged(self):
-        """Test that non-membership invoices keep the company default account"""
-        # TODO: This test requires complex ERPNext Account setup with parent accounts
-        # Skipping for now - needs investigation of Account creation dependencies
-        self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
-
+    def test_non_membership_invoice_keeps_company_default(self):
+        """A non-membership invoice (no membership item, non-member customer) must keep
+        its company-default debit_to -- the handler only overrides membership invoices."""
         from verenigingen.services.billing.sales_invoice_account_handler import (
             set_membership_receivable_account,
         )
 
-        # Create test accounts
-        company_default_account = self.create_test_account(
-            account_name="Company Default Receivable 2", account_type="Receivable"
-        )
+        company = self._get_test_company()
+        company_default = self._get_or_create_receivable_account(company)
+        dues_account = self._make_dues_receivable_account(company, company_default)
 
-        dues_receivable_account = self.create_test_account(
-            account_name="Dues Specific Receivable 2", account_type="Receivable"
-        )
+        vps = frappe.get_single("Verenigingen Payments Settings")
+        vps.dues_payments_receivable_account = dues_account
+        vps.save()
 
-        # Configure Verenigingen Payments Settings (dues accounts are now there)
-        payments_settings = frappe.get_single("Verenigingen Payments Settings")
-        payments_settings.dues_payments_receivable_account = dues_receivable_account
-        payments_settings.save()
-
-        # Get company from main settings
-        settings = frappe.get_single("Verenigingen Settings")
-
-        company = frappe.get_doc("Company", settings.company)
-        company.default_receivable_account = company_default_account
-        company.save()
-
-        # Create mock Sales Invoice with non-membership item
         invoice = frappe.new_doc("Sales Invoice")
-        invoice.company = settings.company
-        invoice.customer = "Customer-001"  # Non-member customer
-        invoice.debit_to = company_default_account
-
-        # Add non-membership item
+        invoice.company = company
+        invoice.debit_to = company_default
         invoice.append(
             "items",
             {
-                "item_code": "SERVICE-ITEM",
                 "item_name": "General Service",
                 "item_group": "Services",
                 "qty": 1,
@@ -147,16 +104,31 @@ class TestVerenigingenSettings(EnhancedTestCase):
             },
         )
 
-        # Test the account handler
-        original_debit_to = invoice.debit_to
         set_membership_receivable_account(invoice)
 
-        # Verify account was NOT changed
         self.assertEqual(
             invoice.debit_to,
-            original_debit_to,
-            "Non-membership invoices should keep original debit_to account",
+            company_default,
+            "non-membership invoice must keep the company default debit_to",
         )
+
+    def _make_dues_receivable_account(self, company, company_default):
+        """Create a distinct non-group Receivable account as a sibling of the company
+        default, to stand in for VPS.dues_payments_receivable_account. Tracked for
+        cleanup; no commit, so the test transaction rolls it back."""
+        parent = frappe.db.get_value("Account", company_default, "parent_account")
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": f"Test Dues Receivable {frappe.generate_hash(length=6)}",
+                "account_type": "Receivable",
+                "parent_account": parent,
+                "company": company,
+            }
+        )
+        account.insert()
+        self.track_doc("Account", account.name)
+        return account.name
 
     def test_account_handler_error_handling(self):
         """Test that the account handler handles errors gracefully"""
@@ -199,35 +171,3 @@ class TestVerenigingenSettings(EnhancedTestCase):
     def _as_admin(self):
         """Switch the session to Administrator to exercise the admin-only endpoint."""
         frappe.set_user("Administrator")
-
-    def create_test_account(self, account_name, account_type="Receivable", parent_account=None):
-        """Helper method to create test accounts"""
-        if frappe.db.exists("Account", account_name):
-            return account_name
-
-        settings = frappe.get_single("Verenigingen Settings")
-        company = settings.company
-
-        # Get parent account if not specified
-        if not parent_account:
-            if account_type == "Receivable":
-                parent_account = frappe.db.get_value(
-                    "Account", {"account_type": "Receivable", "is_group": 1, "company": company}, "name"
-                )
-            if not parent_account:
-                # Fallback to a known group account
-                parent_account = "Accounts Receivable - TC"
-
-        account = frappe.get_doc(
-            {
-                "doctype": "Account",
-                "account_name": account_name,
-                "account_type": account_type,
-                "parent_account": parent_account,
-                "company": company,
-            }
-        )
-        account.insert()
-        frappe.db.commit()
-
-        return account.name

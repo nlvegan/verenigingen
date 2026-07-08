@@ -228,8 +228,8 @@ class SEPABatchProcessor:
 
         except Exception as e:
             frappe.log_error(
-                f"Performance optimizer failed, falling back to standard processing: {str(e)}",
-                "SEPA Performance Optimizer Error",
+                title="SEPA Performance Optimizer Error",
+                message=f"Performance optimizer failed, falling back to standard processing: {str(e)}",
             )
             # Fallback to original logic
             self._add_invoices_to_batch_fallback(batch, invoices)

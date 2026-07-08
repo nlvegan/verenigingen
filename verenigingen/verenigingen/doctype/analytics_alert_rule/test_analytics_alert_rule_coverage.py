@@ -24,6 +24,7 @@ writes go through real secure_document_operation as Administrator.
 """
 
 import frappe
+from frappe.utils import flt
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -49,6 +50,27 @@ class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
         doc = frappe.get_doc(data)
         doc.insert()
         self.track_doc("Analytics Alert Rule", doc.name)
+        return doc
+
+    def _make_goal(self, goal_type="Member Count Growth", target_value=100):
+        """Create a real Membership Goal for the current year. achievement_percentage
+        is COMPUTED by the controller (current_value / target_value), so callers vary
+        target_value to obtain distinct achievement values rather than setting it."""
+        year = frappe.utils.now_datetime().year
+        doc = frappe.get_doc(
+            {
+                "doctype": "Membership Goal",
+                "goal_name": frappe.generate_hash("AAR Goal", 8),
+                "goal_year": year,
+                "goal_type": goal_type,
+                "target_value": target_value,
+                "start_date": f"{year}-01-01",
+                "end_date": f"{year}-12-31",
+                "status": "Active",
+            }
+        )
+        doc.insert()
+        self.track_doc("Membership Goal", doc.name)
         return doc
 
     # ------------------------------------------------------------- validate
@@ -162,13 +184,38 @@ class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
         self.assertGreaterEqual(rate, 0)
         self.assertLessEqual(rate, 100)
 
-    def test_calculate_revenue_returns_number(self):
+    def test_calculate_current_revenue_sums_submitted_member_invoices(self):
+        """calculate_current_revenue sums grand_total of SUBMITTED Sales Invoices that
+        carry a member and a recent posting_date. Asserted as a before/after delta so it
+        is robust to any other invoices already in the DB (value-level, not just type)."""
         rule = self._make_rule(metric="Revenue", threshold_value=0)
-        self.assertIsInstance(rule.calculate_current_revenue(), (int, float))
+        before = flt(rule.calculate_current_revenue())
 
-    def test_calculate_goal_achievement_returns_number(self):
+        member = self.create_test_member(first_name="Rev", last_name="Enue", email="rev.enue@example.com")
+        invoice = self.create_test_sales_invoice(customer=member.name, grand_total=250.0)
+        # The revenue query filters Sales Invoice.member; link it explicitly (submitted doc).
+        frappe.db.set_value("Sales Invoice", invoice.name, "member", member.name)
+
+        after = flt(rule.calculate_current_revenue())
+        self.assertAlmostEqual(after - before, 250.0, places=2)
+
+    def test_calculate_goal_achievement_averages_current_year_goals(self):
+        """calculate_goal_achievement returns the MEAN achievement_percentage across
+        current-year goals (not a sum / single value). The baseline has no current-year
+        goals, so two goals with distinct computed achievements must average exactly to
+        their mean. Uses each goal's controller-computed achievement as ground truth
+        (no in-test re-implementation)."""
         rule = self._make_rule(metric="Goal Achievement", threshold_value=50)
-        self.assertIsInstance(rule.calculate_goal_achievement(), (int, float))
+
+        g1 = self._make_goal(goal_type="Member Count Growth", target_value=50)
+        g2 = self._make_goal(goal_type="Member Count Growth", target_value=200)
+        a, b = flt(g1.achievement_percentage), flt(g2.achievement_percentage)
+
+        # Distinct targets on a non-zero current_value give distinct achievements; this
+        # is what lets the test distinguish an average from a sum or a single pick.
+        self.assertNotEqual(a, b, "test needs two distinct achievement values to be meaningful")
+
+        self.assertAlmostEqual(flt(rule.calculate_goal_achievement()), (a + b) / 2, places=2)
 
     # -------------------------------------------------------- format_message
     def test_format_message_default_template(self):

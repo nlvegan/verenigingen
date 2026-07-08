@@ -3,6 +3,40 @@
 Intended behaviors from tests deleted because they referenced nonexistent endpoints/features.
 Format: `- <intended behavior> — from <deleted test> — build feature OR write real test.`
 
+## ✅ RESOLVED — branch `fix/test-remediation-backlog`
+- **Member deletion cascade for SEPA Mandates** (Module 1) — **FIXED `85dbc7d0`.**
+  `MemberCleanupService.handle_member_deletion()` now force-deletes the linked SEPA Mandate documents (their
+  `member` link previously dangled → `LinkExistsError`). `test_mandate_cleanup_on_member_deletion` flipped from
+  characterization (pinning the defect) to assert successful cascade (mutation-verified on test_site_2).
+- **Server-side exclusive default membership type** (Module 6) — **BUILT `42e97625`.**
+  `MembershipType.enforce_single_default()` (on_update) clears `default_for_new_members` on all other types;
+  previously JS-only. Test asserts exactly one default survives (mutation-verified).
+- **SEPA batch execution-date past-rejection** (Module 1) — **BUILT `42e97625`.**
+  `DirectDebitBatch.before_submit()` rejects a batch whose `batch_date` is in the past (guards only the real
+  submit path; historical reconciliation batches set docstatus directly and are unaffected). Mutation-verified.
+- **PaymentContext empty-field validation** (Module 2) — **BUILT `cf59ef3c`.**
+  `PaymentContext.__init__` now rejects empty/blank payment_type/target_doctype/target_name. Mutation-verified.
+- **ImmutableAuditTrail secret/PII masking** (Module 9) — **BUILT `cf59ef3c`.**
+  `log_event` redacts sensitive keys (credentials/IBAN/card/token) in `details` before hashing/persisting.
+  Mutation-verified.
+- **analytics_alert_rule value-level coverage** (Module 10) — **TESTED `4613021a`.**
+  Replaced the two return-type smoke tests with real value assertions: revenue before/after delta == seeded
+  invoice; goal-achievement == mean of two distinct goals. Both mutation-verified. (Noted: Membership Goal
+  has no 'Cancelled' status, so the controller's `status != Cancelled` filter is a harmless dead no-op.)
+- **VPS `set_membership_receivable_account` integration** (Module 10) — **TESTED `3377cca4`.**
+  Un-skipped the two skipTest'd handler tests; membership invoice switches debit_to to the VPS dues account,
+  non-membership keeps the company default. Mutation-verified.
+- **Chapter-treasurer Expense Claim permission scoping** (Module 7) — **TESTED `03391d32`.**
+  `has_expense_claim_permission` / `get_expense_claim_permission_query`: a Financial board member can access
+  their own chapter's claim but not another's. Mutation-verified.
+
+### Deferred by decision (speculative / no stated requirement — see 2026-07-08 scope decision)
+The remaining SEPA/compliance backlog features were reviewed and **intentionally NOT built** this pass
+(YAGNI without a concrete requirement; several change real behavior): Dutch creditor-ID format validator,
+generic SEPA amount ceiling, ISO purpose-code validator, batch-booking-indicator decision logic, 36-month
+mandate non-use expiry, cross-field duplicate-member detection, auto SEPA-audit-log wiring on mandate create,
+SEPA Mandate in the DataRetentionPolicy mapping. Build these only when a product requirement calls for them.
+
 - PaymentContext (in `payment_context_resolver.py`) validation of empty/invalid `payment_type` / `target_doctype` / `target_name` — from deleted `test_payment_context_resolver.py::TestPaymentContextResolver.test_context_validation`. The deleted test built `PaymentContext("", "Donation", "test")` etc. and left the assertions as a TODO comment ("Note: Actual validation behavior depends on implementation... ready for when validation is added"). `PaymentContext.__init__` is a bare data container with zero validation logic today. Build the feature (reject/flag empty fields) OR write a real test once validation exists.
 
 ## Module 4 — Member-financial & history

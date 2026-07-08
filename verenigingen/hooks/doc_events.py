@@ -249,10 +249,11 @@ doc_events = {
     # =========================================================================
     # TERMINATION SYSTEM
     # =========================================================================
-    "Membership Termination Request": {
-        # validate: now handled in controller validate() method
-        "on_update_after_submit": "verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.handle_status_change",
-    },
+    # Note: "Membership Termination Request" on_update_after_submit hook removed -
+    # it duplicated the controller's own on_update_after_submit method (which Frappe
+    # calls automatically) and never fired anyway: the approval service persists via
+    # .save() (docstatus stays 0), so no after-submit event is ever raised. Real
+    # execution runs through the whitelisted execute_termination() doc method.
     # Note: Expulsion Report Entry hooks removed - these were incorrectly
     # referencing controller methods (validate, before_save, after_insert)
     # which are already called automatically by Frappe via the controller.

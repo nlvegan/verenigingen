@@ -170,20 +170,17 @@ class TestSEPAIntegrationPerformance(EnhancedTestCase):
         invoices_before = len(batch.invoices)
 
         self.expectErrorLog("SEPA Performance Optimizer Error", "Performance optimizer failed")
-        # NOTE: sepa_batch_processor.py's optimizer-failure handler calls
-        # frappe.log_error(message, title) -- but this Frappe version's
-        # log_error(title=None, message=None, ...) takes TITLE first. The
-        # call site has the arguments swapped, so the *title* ends up in the
-        # long "Performance optimizer failed..." string and the intended
-        # title ("SEPA Performance Optimizer Error") lands in the `error`
-        # field instead. This is a pre-existing production bug (out of scope
-        # here -- test files only); the check below matches on content in
-        # either field so it verifies the real observable behavior rather
-        # than encoding today's swapped ordering as "correct".
-        marker = "Performance optimizer failed, falling back to standard processing"
-        error_log_before = frappe.db.count(
-            "Error Log", {"method": ["like", f"%{marker}%"]}
-        ) + frappe.db.count("Error Log", {"error": ["like", f"%{marker}%"]})
+        # sepa_batch_processor.py's optimizer-failure handler calls
+        # frappe.log_error(title=..., message=...) with TITLE first, matching this
+        # Frappe version's log_error(title=None, message=None, ...) signature. So the
+        # Error Log's `method` field carries the STABLE title ("SEPA Performance
+        # Optimizer Error") -- searchable/groupable -- and `error` carries the
+        # per-exception detail. This asserts that correct placement: a regression to
+        # swapped args would drop the long per-exception message into `method` and
+        # break grouping, failing the method-field count below.
+        title = "SEPA Performance Optimizer Error"
+        detail = "Performance optimizer failed, falling back to standard processing"
+        errors_before = frappe.db.count("Error Log", {"method": title})
 
         with patch.object(
             processor.performance_optimizer,
@@ -192,15 +189,21 @@ class TestSEPAIntegrationPerformance(EnhancedTestCase):
         ):
             processor.add_invoices_to_batch_optimized(batch=batch, invoices=mock_invoices)
 
-        # The optimizer failure must be logged (confirms the fallback branch,
-        # not the primary optimized branch, actually ran)...
-        error_log_after = frappe.db.count("Error Log", {"method": ["like", f"%{marker}%"]}) + frappe.db.count(
-            "Error Log", {"error": ["like", f"%{marker}%"]}
-        )
+        # The optimizer failure must be logged under the stable title (confirms the
+        # fallback branch ran) with the title in `method`, not the long detail string.
+        errors_after = frappe.db.count("Error Log", {"method": title})
         self.assertEqual(
-            error_log_after,
-            error_log_before + 1,
-            "expected exactly one new Error Log entry for the optimizer failure",
+            errors_after,
+            errors_before + 1,
+            "expected exactly one new Error Log whose `method` field is the stable title "
+            "(a regression to swapped log_error args would put the long message here instead)",
+        )
+        latest = frappe.get_all(
+            "Error Log", filters={"method": title}, fields=["error"], order_by="creation desc", limit=1
+        )
+        self.assertTrue(
+            latest and detail in (latest[0].error or ""),
+            "the optimizer-failure detail must land in the Error Log `error` (message) field",
         )
         # ...and the invoices must have actually been added via the fallback,
         # not silently dropped.
