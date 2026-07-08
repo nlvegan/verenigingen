@@ -31,14 +31,11 @@ Compliance Testing:
 """
 
 import unittest
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from typing import Optional
 
 import frappe
-from frappe import _
 from frappe.test_runner import make_test_records
-from frappe.utils import add_days, flt, getdate, now_datetime, random_string, today
+from frappe.utils import add_days, flt, random_string, today
 
 # Import Enhanced Test Factory for business logic validation
 try:
@@ -52,13 +49,10 @@ except ImportError:
     EnhancedTestCase = FrappeTestCase
     HAS_ENHANCED_FACTORY = False
 
-# Import validation utilities
-try:
-    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, format_iban, validate_iban
+# Import validation utilities (feature-detection only; functions not called directly)
+import importlib.util
 
-    HAS_IBAN_VALIDATOR = True
-except ImportError:
-    HAS_IBAN_VALIDATOR = False
+HAS_IBAN_VALIDATOR = importlib.util.find_spec("verenigingen.utils.validation.iban_validator") is not None
 
 # Import member utilities
 try:
@@ -472,14 +466,14 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         Test SEPA mandate permissions respect member ownership.
 
         Validates:
-        - Member can access own mandates
-        - Member cannot access other's mandates
-        - Admin roles have full access
+        - Member can read their own mandate without a PermissionError.
         """
         mandate = self._create_test_mandate(status="Active")
         mandate.insert()
 
-        # Test with member role
+        # Switch to the owning member's user, restoring whoever was set before
+        # (do NOT hard-reset to Administrator — that masks the boundary under test).
+        original_user = frappe.session.user
         frappe.set_user(self.test_member.email or self.test_member.get("user"))
 
         # Should be able to read own mandate
@@ -489,27 +483,7 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         except frappe.PermissionError:
             self.fail("Member should be able to access own SEPA mandate")
         finally:
-            frappe.set_user("Administrator")
-
-    def test_mandate_data_protection_compliance(self):
-        """
-        Test SEPA mandate data protection and privacy compliance.
-
-        Validates:
-        - Sensitive field access logging
-        - Data minimization principles
-        - Audit trail creation
-        """
-        mandate = self._create_test_mandate(status="Active")
-        mandate.insert()
-
-        # Verify sensitive data is properly handled
-        self.assertIsNotNone(mandate.iban)
-        self.assertIsNotNone(mandate.account_holder_name)
-
-        # Check audit trail creation (if audit logging is implemented)
-        # This would check for audit log entries
-        pass
+            frappe.set_user(original_user)
 
     # ==========================================
     # Dutch Banking Compliance Tests
@@ -599,23 +573,6 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
 
         self.assertFalse(has_active_sepa_mandate(self.member_name))
 
-    def test_mollie_integration_mandate_creation(self):
-        """
-        Test SEPA mandate creation in a Mollie-integration context.
-
-        Validates the mandate is created with Active status. (The former
-        @patch on verenigingen.verenigingen_payments.mollie.utils.
-        mollie_test_helpers.create_mollie_customer was removed: that helper
-        module no longer exists, and the mock was never exercised by this
-        placeholder test, so patching it only raised an import-time
-        AttributeError.)
-        """
-        mandate = self._create_test_mandate(status="Active")
-        mandate.insert()
-
-        # Placeholder for actual Mollie integration testing
-        self.assertEqual(mandate.status, "Active")
-
     # ==========================================
     # Error Handling and Edge Cases
     # ==========================================
@@ -688,26 +645,32 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
 
     def test_mandate_cleanup_on_member_deletion(self):
         """
-        Test mandate cleanup when member is deleted.
+        Test member deletion when the member has an active SEPA mandate.
 
-        Validates:
-        - Proper cleanup procedures
-        - Data retention compliance
-        - Audit trail preservation
+        MemberCleanupService.handle_member_deletion() cascades deletion for
+        Membership / Membership Dues Schedule / Chapter Member and clears the
+        Member's "Member SEPA Mandate Link" child table, but it does NOT
+        delete, cancel, or unlink the SEPA Mandate document itself (whose
+        `member` field still points at the Member being deleted). Frappe's
+        link-existence check therefore rejects the deletion with a genuine
+        LinkExistsError rather than silently orphaning the mandate.
+
+        This is a real, currently-unhandled cascade gap (logged to
+        backlog-missing-coverage.md); the test documents the actual behavior
+        so a future fix to the cleanup service has a regression guard either
+        way (once cleanup is fixed to unlink/cancel mandates, this test
+        should be updated to assert successful deletion instead).
         """
         mandate = self._create_test_mandate(status="Active")
         mandate.insert()
-
-        # Store mandate name for later verification
         mandate_name = mandate.name
 
-        # Delete member (this should handle mandate cleanup)
-        # In production, this might set mandate to a special status
-        # rather than deleting it for compliance reasons
+        with self.assertRaises(frappe.LinkExistsError):
+            frappe.delete_doc("Member", self.member_name, ignore_permissions=True)
 
-        # Verify mandate handling after member deletion
-        # Implementation depends on business rules
+        # The mandate is untouched by the rejected deletion attempt.
         self.assertTrue(frappe.db.exists("SEPA Mandate", mandate_name))
+        self.assertTrue(frappe.db.exists("Member", self.member_name))
 
     # ==========================================
     # Performance and Query Optimization Tests
@@ -741,59 +704,6 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
 
                 # Verify results
                 self.assertEqual(len(active_mandates), 5)  # Half should be active
-
-    # ==========================================
-    # Compliance and Audit Tests
-    # ==========================================
-
-    def test_mandate_audit_logging(self):
-        """
-        Test comprehensive audit logging for SEPA mandate operations.
-
-        Validates:
-        - Creation audit logs
-        - Modification audit logs
-        - Status change tracking
-        - Compliance documentation
-        """
-        mandate = self._create_test_mandate(status="Draft")
-        mandate.insert()
-
-        # Verify creation was logged
-        # Implementation depends on audit logging system
-
-        # Test status change logging
-        mandate.status = "Active"
-        mandate.save()
-
-        # Test cancellation logging
-        mandate.status = "Cancelled"
-        mandate.cancellation_reason = "Test audit logging"
-        mandate.save()
-
-        # Verify all changes were logged
-        # Implementation depends on audit logging system
-
-    def test_mandate_data_retention_compliance(self):
-        """
-        Test data retention compliance for SEPA mandates.
-
-        Validates:
-        - Retention period enforcement
-        - Automatic archiving
-        - Compliance with European regulations
-        """
-        # Create old mandate (simulating aged data)
-        old_date = add_days(today(), -400)  # Over 1 year old
-
-        mandate = self._create_test_mandate(
-            status="Cancelled", sign_date=old_date, cancelled_date=add_days(old_date, 30)
-        )
-        mandate.insert()
-
-        # Test retention compliance
-        # Implementation depends on retention policies
-        self.assertTrue(frappe.db.exists("SEPA Mandate", mandate.name))
 
     def tearDown(self):
         """
