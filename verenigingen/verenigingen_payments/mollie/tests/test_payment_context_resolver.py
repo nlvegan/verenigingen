@@ -178,51 +178,65 @@ class TestPaymentContextResolver(EnhancedTestCase):
         # this might resolve differently
 
     def test_resolve_context_malformed_metadata(self):
-        """Test graceful handling of malformed metadata"""
+        """A non-dict metadata value falls through every resolution strategy to None.
+
+        _extract_metadata() only treats a non-empty dict as authoritative; a string
+        falls through to description-JSON parsing (fails here too, description is
+        plain text). Strategy 3 (_resolve_from_document_lookup) is then reached and
+        its Member lookup queries a `payment_id` column that does NOT exist on the
+        Member doctype (only Donation has one) -- this raises an OperationalError
+        that resolve_context's outer except swallows, returning None. So this test
+        genuinely observes "no context resolved", but via a masked DB error rather
+        than a clean strategy-4 miss; see backlog-dead-code.md for the underlying bug.
+        """
         payment_id = "test_malformed_meta_123"
 
         payment_data = self._create_mock_payment_data(
             payment_id=payment_id, metadata="invalid_metadata_format"  # Should be dict, not string
         )
 
-        # Should not crash
         context = self.resolver.resolve_context(payment_id, payment_data)
 
-        # May return None or default context depending on implementation
-        # The key is that it doesn't crash
+        self.assertIsNone(context)
 
     def test_resolve_context_invalid_json_description(self):
-        """Test graceful handling of invalid JSON in description"""
+        """Unparseable JSON in description is swallowed by json.JSONDecodeError, then
+        strategy 3's buggy Member.payment_id lookup raises and is masked by the outer
+        except (see test_resolve_context_malformed_metadata docstring) -- net effect
+        is still a real None, just not via a clean fallback chain."""
         payment_id = "test_invalid_json_123"
 
         payment_data = self._create_mock_payment_data(
             payment_id=payment_id, description='{"type": "donation", invalid json'  # Malformed JSON
         )
 
-        # Should not crash
         context = self.resolver.resolve_context(payment_id, payment_data)
 
-        # Should handle gracefully without throwing exceptions
+        self.assertIsNone(context)
 
     def test_resolve_context_missing_payment_data(self):
-        """Test resolution with missing payment data"""
+        """payment_data=None: strategies 1-2 handle None safely (hasattr/getattr on
+        None), but strategy 3's Member.payment_id bug still raises for this fresh
+        payment_id and is masked by the outer except -- resolve_context() itself
+        never raises to the caller, which is the real, observable guarantee here."""
         payment_id = "test_missing_data_123"
 
-        # Pass None as payment data
         context = self.resolver.resolve_context(payment_id, None)
 
-        # Should handle gracefully - may return None or attempt other resolution strategies
+        self.assertIsNone(context)
 
     def test_resolve_context_empty_metadata(self):
-        """Test resolution with empty metadata"""
+        """An empty metadata dict is falsy, so _extract_metadata falls through to the
+        description parse (default description "Test payment" is not JSON either),
+        then hits the same masked strategy-3 DB error as the other None-context cases
+        above; resolve_context() still returns None rather than propagating it."""
         payment_id = "test_empty_meta_123"
 
         payment_data = self._create_mock_payment_data(payment_id=payment_id, metadata={})
 
-        # Should attempt other resolution strategies
         context = self.resolver.resolve_context(payment_id, payment_data)
 
-        # Result depends on implementation - may find context via other means
+        self.assertIsNone(context)
 
     def test_resolve_context_multiple_resolution_strategies(self):
         """Test that resolver tries multiple strategies in order"""
@@ -245,7 +259,11 @@ class TestPaymentContextResolver(EnhancedTestCase):
         self.assertEqual(context.target_name, self.test_donation.name)
 
     def test_resolve_context_nonexistent_target(self):
-        """Test resolution when target document doesn't exist"""
+        """A donation_id that doesn't exist in the DB must not be trusted blindly:
+        _resolve_from_metadata() calls frappe.db.exists() before returning a context,
+        so a dangling reference is correctly rejected by strategy 1 (not a bogus
+        PaymentContext). Control then falls to strategy 3's masked Member.payment_id
+        DB error like the other None-context cases, landing on None either way."""
         payment_id = "test_nonexistent_123"
 
         payment_data = self._create_mock_payment_data(
@@ -257,26 +275,9 @@ class TestPaymentContextResolver(EnhancedTestCase):
             },
         )
 
-        # Should handle gracefully when target document doesn't exist
         context = self.resolver.resolve_context(payment_id, payment_data)
 
-        # May return None or a context with unvalidated target_name
-        # Key is that it doesn't crash
-
-    def test_context_validation(self):
-        """Test context validation logic"""
-        # Test valid context
-        valid_context = PaymentContext("donation", "Donation", self.test_donation.name)
-
-        # Test invalid contexts (if validation exists)
-        invalid_contexts = [
-            PaymentContext("", "Donation", "test"),  # Empty payment type
-            PaymentContext("donation", "", "test"),  # Empty doctype
-            PaymentContext("donation", "Donation", ""),  # Empty target name
-        ]
-
-        # Note: Actual validation behavior depends on implementation
-        # This test structure is ready for when validation is added
+        self.assertIsNone(context)
 
     def _create_mock_payment_data(self, payment_id, metadata=None, description=None, subscription_id=None):
         """

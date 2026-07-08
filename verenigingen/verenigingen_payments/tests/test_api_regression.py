@@ -20,11 +20,9 @@ Author: Verenigingen Development Team
 
 import unittest
 from datetime import datetime, timedelta
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.utils import nowdate, today
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -118,33 +116,27 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
             self.assertIsInstance(e, (frappe.ValidationError, frappe.DoesNotExistError, ImportError))
 
     def test_get_dues_collection_preview_api(self):
-        """Test get_dues_collection_preview API endpoint"""
-        try:
-            # Test with default parameters
-            result = get_dues_collection_preview()
+        """get_dues_collection_preview() never raises to the caller (see its own
+        try/except -> {"success": False, "error": ...}), so wrapping the call in a
+        try/except that just logs a warning on failure meant this test could silently
+        assert nothing at all if anything unexpected happened. Assert the real,
+        unconditional contract instead: a dict with success=True and the documented
+        collection-summary keys, whose types are load-bearing for callers.
+        """
+        result = get_dues_collection_preview()
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["success"], f"Preview call failed: {result.get('error')}")
+        self.assertIn("collections", result)
+        self.assertIsInstance(result["collections"], list)
+        self.assertIsInstance(result["total_dates"], int)
+        self.assertIsInstance(result["total_schedules"], int)
+        self.assertIsInstance(result["total_amount"], (int, float))
 
-            # Should return a dictionary with success indicator
-            self.assertIsInstance(result, dict)
-            self.assertIn("success", result)
-
-            # Test with specific parameters
-            collection_date = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
-            result = get_dues_collection_preview(collection_date=collection_date, days_ahead=14)
-
-            # Should handle parameters correctly
-            self.assertIsInstance(result, dict)
-            self.assertIn("success", result)
-
-            if result["success"]:
-                # Check expected response structure
-                self.assertIn("collections", result)
-                self.assertIn("total_dates", result)
-                self.assertIn("total_schedules", result)
-                self.assertIn("total_amount", result)
-
-        except Exception as e:
-            # API might fail due to missing dependencies
-            frappe.logger().warning(f"Preview API test failed: {str(e)}")
+        # Parameterized call must also succeed and stay internally consistent
+        collection_date = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
+        result = get_dues_collection_preview(collection_date=collection_date, days_ahead=14)
+        self.assertTrue(result["success"], f"Preview call failed: {result.get('error')}")
+        self.assertEqual(result["total_dates"], len(result["collections"]))
 
     def test_process_batch_api(self):
         """Test process_batch API endpoint"""
@@ -185,32 +177,53 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
             self.assertIsInstance(e, (frappe.ValidationError, frappe.PermissionError))
 
     def test_create_direct_debit_batch_for_unpaid_memberships_api(self):
-        """Test create_direct_debit_batch_for_unpaid_memberships API endpoint"""
-        try:
-            # Test the API
-            result = create_direct_debit_batch_for_unpaid_memberships()
+        """create_direct_debit_batch_for_unpaid_memberships() catches every internal
+        exception itself (returns None on failure), so it never actually raises to
+        the caller -- the outer try/except here was unreachable dead test code that
+        could mask a real failure silently. Instead of a shape-only isinstance check,
+        assert the real invariant: the batch this API creates (if any) must be
+        consistent with what the production selector (get_unpaid_membership_invoices)
+        reports right now -- same invoice count, same total amount, and the batch
+        document genuinely exists.
+        """
+        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
+            get_unpaid_membership_invoices,
+        )
 
-            # Should return None or batch name
-            self.assertIsInstance(result, (str, type(None)))
+        expected_invoices = get_unpaid_membership_invoices()
 
-        except Exception as e:
-            # Expected to fail if no unpaid memberships exist
-            frappe.logger().warning(f"Unpaid memberships API test: {str(e)}")
+        result = create_direct_debit_batch_for_unpaid_memberships()
+
+        if not expected_invoices:
+            self.assertIsNone(result, "No unpaid membership invoices exist; batch should not be created")
+            return
+
+        self.assertIsInstance(result, str)
+        self.assertTrue(frappe.db.exists("Direct Debit Batch", result))
+        self._track_test_document("Direct Debit Batch", result)
+        batch_doc = frappe.get_doc("Direct Debit Batch", result)
+        self.assertEqual(batch_doc.entry_count, len(expected_invoices))
+        self.assertAlmostEqual(
+            batch_doc.total_amount,
+            sum(inv["amount"] for inv in expected_invoices),
+            places=2,
+        )
 
     def test_api_security_decorators_preserved(self):
-        """Test that security decorators are preserved after refactoring"""
-        # Import the functions to check their decorators
-        import inspect
+        """Test that @critical_api security decorators are preserved after refactoring.
 
+        `_security_protected` is the real marker the security framework's wrapper sets
+        (see api_security_framework.py); checking `hasattr(func, "__name__")` (the
+        original assertion here) is vacuously true for any function and would never
+        catch a removed decorator.
+        """
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             create_enhanced_dues_batch,
             generate_direct_debit_batch,
-            get_dues_collection_preview,
             mark_invoices_as_paid,
             process_batch,
         )
 
-        # Check that functions are still whitelisted
         critical_functions = [
             generate_direct_debit_batch,
             process_batch,
@@ -219,11 +232,9 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
         ]
 
         for func in critical_functions:
-            # Check that @frappe.whitelist() is present
             self.assertTrue(
-                hasattr(func, "__wrapped__")
-                or getattr(func, "is_whitelisted", False)
-                or func.__name__ in frappe.get_all_hooks().get("whitelist", [])
+                getattr(func, "_security_protected", False),
+                f"{func.__name__} should be wrapped by a security decorator (_security_protected)",
             )
 
     def test_api_error_handling_consistency(self):
@@ -238,7 +249,7 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
 
         # Test with invalid parameters
         try:
-            result = mark_invoices_as_paid("INVALID_BATCH_NAME")
+            mark_invoices_as_paid("INVALID_BATCH_NAME")
             self.fail("Should have raised an exception for invalid batch name")
         except Exception as e:
             # Should raise appropriate exception type
@@ -408,7 +419,11 @@ class TestAPISecurityCompliance(unittest.TestCase):
     """Test suite for API security compliance"""
 
     def test_critical_api_decorators(self):
-        """Test that critical APIs have proper security decorators"""
+        """Critical (FINANCIAL) APIs must carry the @critical_api security wrapper.
+
+        Rewritten: `hasattr(api_func, "__name__")` is true for every Python function,
+        so the original assertion could never fail even if @critical_api were removed.
+        """
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             create_enhanced_dues_batch,
             generate_direct_debit_batch,
@@ -424,12 +439,13 @@ class TestAPISecurityCompliance(unittest.TestCase):
         ]
 
         for api_func in critical_apis:
-            # Check for security decorator presence
-            # This would be more specific in a real implementation
-            self.assertTrue(hasattr(api_func, "__wrapped__") or hasattr(api_func, "__name__"))
+            self.assertTrue(
+                getattr(api_func, "_security_protected", False),
+                f"{api_func.__name__} should be wrapped by @critical_api",
+            )
 
     def test_high_security_api_decorators(self):
-        """Test that high security APIs have proper decorators"""
+        """High-security APIs must carry the @high_security_api security wrapper."""
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             get_dues_collection_preview,
         )
@@ -437,8 +453,10 @@ class TestAPISecurityCompliance(unittest.TestCase):
         high_security_apis = [get_dues_collection_preview]
 
         for api_func in high_security_apis:
-            # Check for security decorator presence
-            self.assertTrue(hasattr(api_func, "__wrapped__") or hasattr(api_func, "__name__"))
+            self.assertTrue(
+                getattr(api_func, "_security_protected", False),
+                f"{api_func.__name__} should be wrapped by @high_security_api",
+            )
 
     def test_operation_type_classification(self):
         """Test that APIs are properly classified by operation type"""
