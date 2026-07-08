@@ -420,6 +420,26 @@ class TestChapterSecurity(EnhancedTestCase):
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 0)
 
+    def test_validate_chapter_permission_or_throw_denies_non_manager(self):
+        """A non-privileged user (no manageable chapters) gets a PermissionError.
+
+        Complements the admin happy-path test: an authenticated user with only
+        a basic member role, no board seat and no linked Member record has
+        get_user_manageable_chapters() == [], so can_user_manage_application()
+        returns False and validate_chapter_permission_or_throw must raise
+        frappe.PermissionError (not merely return).
+        """
+        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
+
+        member = self.create_test_member(first_name="SecDeny", last_name="Target")
+        plain_user = self.create_test_user(
+            self.factory.generate_test_email("plainuser"),
+            roles=["Verenigingen Member"],
+        )
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            validate_chapter_permission_or_throw(member.name, action="approve", user=plain_user.name)
+        self.assertIn("permission", str(ctx.exception).lower())
+
 
 # ---------------------------------------------------------------------------
 # 9. ChapterValidationService

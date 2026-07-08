@@ -261,5 +261,59 @@ class TestAccountOrganizationRanges(EnhancedTestCase):
         self.assertEqual(svc.tax_receivable_account, "1530")
 
 
+# ---------------------------------------------------------------------------
+# account_classification_service.classify_account - input-validation rejections
+#
+# These are pure, offline guard clauses that raise ValueError on malformed
+# account_data BEFORE any settings/DB access, so a bare service instance
+# (settings=None, lazily fetched) never touches the database here.
+# ---------------------------------------------------------------------------
+class TestClassifyAccountRejectsBadInput(unittest.TestCase):
+    def setUp(self):
+        from verenigingen.e_boekhouden.services.account_classification_service import (
+            AccountClassificationService,
+        )
+
+        self.svc = AccountClassificationService()
+
+    def test_code_too_long_raises(self):
+        # code > 20 chars is rejected as a DoS/malformed guard.
+        with self.assertRaises(ValueError) as ctx:
+            self.svc.classify_account({"code": "1" * 21, "description": "Valid description"})
+        self.assertIn("Account code exceeds maximum length", str(ctx.exception))
+
+    def test_description_too_long_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.svc.classify_account({"code": "1300", "description": "x" * 501})
+        self.assertIn("Account description exceeds maximum length", str(ctx.exception))
+
+    def test_category_too_long_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.svc.classify_account(
+                {"code": "1300", "description": "Debiteuren", "category": "D" * 21}
+            )
+        self.assertIn("Account category exceeds maximum length", str(ctx.exception))
+
+    def test_group_too_long_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.svc.classify_account(
+                {"code": "1300", "description": "Debiteuren", "group": "G" * 11}
+            )
+        self.assertIn("Account group exceeds maximum length", str(ctx.exception))
+
+    def test_missing_description_raises(self):
+        # description is a required field; blank (after strip) is rejected.
+        with self.assertRaises(ValueError) as ctx:
+            self.svc.classify_account({"code": "1300", "description": "   "})
+        self.assertIn("Account description is required", str(ctx.exception))
+
+    def test_invalid_code_characters_raises(self):
+        # A non-alphanumeric code (ignoring spaces/dashes) is rejected. The "@"
+        # makes isalnum() fail after the space/dash strip.
+        with self.assertRaises(ValueError) as ctx:
+            self.svc.classify_account({"code": "13@0", "description": "Debiteuren"})
+        self.assertIn("Account code contains invalid characters", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

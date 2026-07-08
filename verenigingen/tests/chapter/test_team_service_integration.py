@@ -503,6 +503,29 @@ class TestTeamValidationService(TeamDomainTestBase):
         with self.assertRaises(frappe.ValidationError):
             self.svc.validate_role_profile_configuration(team)
 
+    def test_validate_role_profile_unknown_team_role_throws(self):
+        """A role_specific_profiles row referencing a missing Team Role raises.
+
+        Distinct from the missing-Role-Profile case: here the role_profile IS
+        valid (so the profile-exists guard passes), but team_role points at a
+        Team Role that does not exist, exercising the final
+        ``frappe.db.exists("Team Role", ...)`` guard. The service method is
+        called directly, so Frappe's link validation (which only runs on save)
+        does not pre-empt the service's own existence check.
+        """
+        profile = self._ensure_role_profile()
+        team = self.create_test_team()
+        team.enable_role_specific_profiles = 1
+        team.default_role_profile = profile
+        team.append(
+            "role_specific_profiles",
+            {"team_role": "Ghost-Team-Role-XYZ", "role_profile": profile},
+        )
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.svc.validate_role_profile_configuration(team)
+        self.assertIn("Team Role", str(ctx.exception))
+        self.assertIn("does not exist", str(ctx.exception))
+
     def test_validate_role_profile_valid_config(self):
         """A consistent role-profile configuration validates True."""
         role = self._unique_team_role("Valid Role")

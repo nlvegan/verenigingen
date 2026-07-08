@@ -46,6 +46,27 @@ class TestExecuteValidation(EnhancedTestCase):
         ):
             self.assertIn(key, result.data)
 
+    def test_execute_validation_propagates_core_field_error(self):
+        """A core-field validation failure must propagate (block the save).
+
+        _validate_core_fields catches and re-raises delegated validation errors
+        so they surface out of execute_validation. Here an invalid last-name
+        character makes validate_member_name_fields throw; the orchestrator must
+        NOT swallow it into a success/failure result but let it propagate, or an
+        invalid member could be persisted silently.
+        """
+        member = self.create_test_member(
+            first_name="Prop",
+            last_name="Agate",
+            email="prop.agate@example.com",
+            birth_date="1985-05-05",
+        )
+        # Inject an invalid character in-memory (not saved) — validate_name
+        # rejects '!' as it is outside the allowed name pattern.
+        member.last_name = "Bad!Name"
+        with self.assertRaises(frappe.ValidationError):
+            self.service.execute_validation(member)
+
     def test_singleton_accessor(self):
         a = get_member_validation_service()
         b = get_member_validation_service()
