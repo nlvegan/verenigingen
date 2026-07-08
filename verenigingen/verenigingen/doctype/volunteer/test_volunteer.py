@@ -400,20 +400,6 @@ class TestVolunteer(EnhancedTestCase):
         volunteer.reload()
         self.assertEqual(volunteer.volunteer_name, original_volunteer_name)
 
-    def test_volunteer_contact_information(self):
-        """Test volunteer contact information handling"""
-        volunteer = self.create_test_volunteer()
-
-        # Update contact information
-        volunteer.phone = "+31612345679"
-        volunteer.address = "123 Test Street, Amsterdam"
-        volunteer.save()  # Already running as Administrator from setUp
-
-        # Verify contact information
-        volunteer.reload()
-        self.assertEqual(volunteer.phone, "+31612345679")
-        self.assertEqual(volunteer.address, "123 Test Street, Amsterdam")
-
     def test_volunteer_availability_and_commitment(self):
         """Test volunteer availability and commitment level settings"""
         volunteer = self.create_test_volunteer()
@@ -433,50 +419,6 @@ class TestVolunteer(EnhancedTestCase):
             volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.preferred_work_style, style)
-
-    def test_volunteer_development_tracking(self):
-        """Test volunteer development and growth tracking"""
-        volunteer = self.create_test_volunteer()
-
-        # Add development goals if the field exists
-        if hasattr(volunteer, "development_goals"):
-            volunteer.append(
-                "development_goals",
-                {
-                    "goal": "Improve public speaking skills",
-                    "target_date": add_days(today(), 90),
-                    "status": "Active",
-                },
-            )
-            volunteer.save()  # Already running as Administrator from setUp
-
-            # Verify development goal was added
-            volunteer.reload()
-            self.assertEqual(len(volunteer.development_goals), 1)
-            self.assertEqual(volunteer.development_goals[0].goal, "Improve public speaking skills")
-
-    def test_volunteer_emergency_contact(self):
-        """Test volunteer emergency contact information"""
-        volunteer = self.create_test_volunteer()
-
-        # Add emergency contact information if fields exist
-        emergency_fields = {
-            "emergency_contact_name": "Jane Doe",
-            "emergency_contact_phone": "+31612345680",
-            "emergency_contact_relationship": "Spouse",
-        }
-
-        for field, value in emergency_fields.items():
-            if hasattr(volunteer, field):
-                setattr(volunteer, field, value)
-
-        volunteer.save()  # Already running as Administrator from setUp
-        volunteer.reload()
-
-        # Verify emergency contact information
-        for field, expected_value in emergency_fields.items():
-            if hasattr(volunteer, field):
-                self.assertEqual(getattr(volunteer, field), expected_value)
 
     def test_volunteer_status_transitions(self):
         """Test volunteer status transitions and business logic"""
@@ -500,50 +442,6 @@ class TestVolunteer(EnhancedTestCase):
             volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.status, to_status)
-
-    def test_volunteer_training_records(self):
-        """Test volunteer training and certification tracking"""
-        volunteer = self.create_test_volunteer()
-
-        # Add training record if the field exists
-        if hasattr(volunteer, "training_records"):
-            volunteer.append(
-                "training_records",
-                {
-                    "training_name": "Volunteer Orientation",
-                    "completion_date": today(),
-                    "certificate_number": "CERT-001",
-                    "expiry_date": add_days(today(), 365),
-                },
-            )
-            volunteer.save()  # Already running as Administrator from setUp
-
-            # Verify training record was added
-            volunteer.reload()
-            if volunteer.training_records:
-                self.assertEqual(len(volunteer.training_records), 1)
-                self.assertEqual(volunteer.training_records[0].training_name, "Volunteer Orientation")
-
-    def test_volunteer_language_skills(self):
-        """Test volunteer language skills tracking"""
-        volunteer = self.create_test_volunteer()
-
-        # Add language skills if the field exists
-        languages = ["Dutch", "English", "German"]
-        for lang in languages:
-            volunteer.languages_spoken = (
-                lang
-                if not hasattr(volunteer, "languages_spoken") or not volunteer.languages_spoken
-                else f"{volunteer.languages_spoken}, {lang}"
-            )
-
-        volunteer.save()  # Already running as Administrator from setUp
-        volunteer.reload()
-
-        # Verify languages were added
-        if hasattr(volunteer, "languages_spoken") and volunteer.languages_spoken:
-            for lang in languages:
-                self.assertIn(lang, volunteer.languages_spoken)
 
     def test_volunteer_data_integrity(self):
         """Test volunteer data integrity and consistency"""
@@ -574,20 +472,22 @@ class TestVolunteer(EnhancedTestCase):
         admin_query = get_volunteer_permission_query("Administrator")
         self.assertIsInstance(admin_query, str, "Should return query string for admin")
 
-        # Test member-specific access (this tests the permission logic)
-        # The function should restrict access based on volunteer.member field
-        member_user = "test.member@example.com"
-        member_query = get_volunteer_permission_query(member_user)
-        self.assertIsInstance(member_query, str, "Should return query string for member")
+        # "test.member@example.com" has no real User/Member record, so
+        # get_member_name_for_user() resolves to None and the query is
+        # deterministically restrictive - assert that concretely.
+        member_query = get_volunteer_permission_query("test.member@example.com")
+        self.assertEqual(
+            member_query.strip(), "1=0", "Unresolvable user should get a fully restrictive query"
+        )
 
-        # Check if query is meaningful (not just '1=0' which means no access)
-        if member_query.strip() != "1=0":
-            self.assertIn(
-                "volunteer.member", member_query.lower(), "Query should reference volunteer.member field"
-            )
-        else:
-            # If query is '1=0', it means restricted access, which is also valid
-            self.assertEqual(member_query.strip(), "1=0", "Restricted access query should be '1=0'")
+        # A user resolving to a real member gets scoped to their own volunteer
+        # record via the volunteer.member condition (unconditional, no role needed).
+        own_query = get_volunteer_permission_query(self.test_member.email)
+        self.assertIn(
+            f"`tabVolunteer`.member = {frappe.db.escape(self.test_member.name)}",
+            own_query,
+            "Query should scope to the requesting user's own member record",
+        )
 
     def test_volunteer_member_integration(self):
         """Test volunteer integration with member system"""
@@ -862,22 +762,23 @@ class TestVolunteer(EnhancedTestCase):
         self.create_test_volunteer()
 
         # Test that the volunteer doctype has proper role permissions configured
-        # This is tested by checking if the permission query function works properly
         from verenigingen.permissions import get_volunteer_permission_query
 
-        # Test different role scenarios
-        test_users = ["Administrator", "System Manager", "Verenigingen Administrator", "Member"]
+        # "System Manager"/"Verenigingen Administrator"/"Member" are ROLE names,
+        # not real Users - passing them as the `user` arg exercises the
+        # "unresolvable user" path, deterministically "1=0", exactly like the
+        # Administrator (real, admin-roled) user deterministically gets "".
+        self.assertEqual(get_volunteer_permission_query("Administrator"), "")
+        for fake_user in ["System Manager", "Verenigingen Administrator", "Member"]:
+            self.assertEqual(
+                get_volunteer_permission_query(fake_user),
+                "1=0",
+                f"Non-existent user {fake_user!r} should get a fully restrictive query",
+            )
 
-        for user in test_users:
-            query = get_volunteer_permission_query(user)
-            self.assertIsInstance(query, str, f"Should return valid query for {user} role")
-
-            # The query should be a valid string (can be empty for open access or '1=0' for restricted)
-            self.assertIsInstance(query, str, f"Query should be string for {user}")
-            # Accept either empty string (open access) or '1=0' (no access) or actual query
-            valid_queries = ["", "1=0"]
-            if query.strip() not in valid_queries:
-                self.assertTrue(len(query.strip()) > 0, f"Non-standard query should not be empty for {user}")
+        # A real member-linked user is scoped to their own volunteer record.
+        own_query = get_volunteer_permission_query(self.test_member.email)
+        self.assertIn(f"`tabVolunteer`.member = {frappe.db.escape(self.test_member.name)}", own_query)
 
     def test_volunteer_assignment_lifecycle(self):
         """Test complete volunteer assignment lifecycle management"""

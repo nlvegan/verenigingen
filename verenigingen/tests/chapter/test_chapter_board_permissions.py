@@ -14,13 +14,13 @@ This test suite validates the complete permission system implementation
 to ensure proper security boundaries and functional correctness.
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+import unittest
+from unittest.mock import MagicMock, patch
 
 import frappe
-import unittest
-from unittest.mock import patch, MagicMock
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 def _ensure_test_region():
@@ -226,76 +226,6 @@ class TestChapterBoardPermissions(EnhancedTestCase):
                 "Board member should not have access to termination requests from other chapters",
             )
 
-    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
-    def test_volunteer_expense_chapter_filtering(self):
-        """Test that board members can only see expenses from their chapters"""
-        from verenigingen.permissions import has_volunteer_expense_permission
-
-        # Create volunteer expense for chapter 1
-        volunteer_expense = frappe.get_doc(
-            {
-                "doctype": "Volunteer Expense",
-                "volunteer": self.volunteer_1.name,
-                "expense_date": frappe.utils.today(),
-                "category": "Travel",
-                "description": "Test expense",
-                "amount": 100.00,
-                "organization_type": "Chapter",
-                "chapter": self.chapter_1.name,
-                "company": "Test Company",
-            }
-        )
-        volunteer_expense.save()
-
-        # Board member 1 (chapter 1) should have access
-        with self.set_user(self.board_member_1.email):
-            self.assertTrue(
-                has_volunteer_expense_permission(volunteer_expense, self.board_member_1.email),
-                "Board member should have access to expenses from their chapter",
-            )
-
-        # Board member 2 (chapter 2) should not have access
-        with self.set_user(self.board_member_2.email):
-            self.assertFalse(
-                has_volunteer_expense_permission(volunteer_expense, self.board_member_2.email),
-                "Board member should not have access to expenses from other chapters",
-            )
-
-    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
-    def test_treasurer_expense_approval(self):
-        """Test that only treasurers can approve volunteer expenses"""
-        from verenigingen.permissions import can_approve_volunteer_expense
-
-        # Create volunteer expense for chapter 1
-        volunteer_expense = frappe.get_doc(
-            {
-                "doctype": "Volunteer Expense",
-                "volunteer": self.volunteer_1.name,
-                "expense_date": frappe.utils.today(),
-                "category": "Travel",
-                "description": "Test expense",
-                "amount": 100.00,
-                "organization_type": "Chapter",
-                "chapter": self.chapter_1.name,
-                "company": "Test Company",
-            }
-        )
-        volunteer_expense.save()
-
-        # Board member 1 (treasurer in chapter 1) should be able to approve
-        with self.set_user(self.board_member_1.email):
-            self.assertTrue(
-                can_approve_volunteer_expense(volunteer_expense, self.board_member_1.email),
-                "Treasurer should be able to approve expenses",
-            )
-
-        # Board member 2 (secretary in chapter 2) should not be able to approve
-        with self.set_user(self.board_member_2.email):
-            self.assertFalse(
-                can_approve_volunteer_expense(volunteer_expense, self.board_member_2.email),
-                "Non-treasurer board member should not be able to approve expenses",
-            )
-
     def test_automatic_role_assignment(self):
         """Test automatic Chapter Board Member role assignment"""
         from verenigingen.permissions import assign_chapter_board_role
@@ -382,40 +312,6 @@ class TestChapterBoardPermissions(EnhancedTestCase):
             self.assertFalse(
                 access_granted, "Board member should not have access to memberships from other chapters"
             )
-
-    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
-    def test_expense_approval_workflow_validation(self):
-        """Test that expense approval workflow properly validates treasurer permissions"""
-        from verenigingen.utils.chapter_role_events import before_volunteer_expense_submit
-
-        # Create expense
-        expense = frappe.get_doc(
-            {
-                "doctype": "Volunteer Expense",
-                "volunteer": self.volunteer_1.name,
-                "expense_date": frappe.utils.today(),
-                "category": "Travel",
-                "description": "Test expense",
-                "amount": 100.00,
-                "organization_type": "Chapter",
-                "chapter": self.chapter_1.name,
-                "company": "Test Company",
-                "status": "Approved",  # Try to set to approved
-            }
-        )
-
-        # Should allow treasurer to approve (board member 1)
-        with self.set_user(self.board_member_1.email):
-            try:
-                before_volunteer_expense_submit(expense, "on_submit")
-                # Should not raise exception
-            except frappe.PermissionError:
-                self.fail("Treasurer should be able to approve expenses")
-
-        # Should not allow non-treasurer to approve (board member 2)
-        with self.set_user(self.board_member_2.email):
-            with self.assertRaises(frappe.PermissionError):
-                before_volunteer_expense_submit(expense, "on_submit")
 
     def add_member_to_chapter(self, member_name, chapter_name):
         """Helper method to add member to chapter"""
