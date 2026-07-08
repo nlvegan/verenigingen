@@ -179,6 +179,20 @@ class TestDuesScheduleLifecycleService(EnhancedTestCase):
         self.assertEqual(sched.status, "Cancelled")
         self.assertEqual(sched.notes, notes_before)
 
+    def test_cancel_from_dunning_status_raises(self):
+        # cancel_schedule only allows Active/Paused/Test as source states. A
+        # schedule in a SEPA dunning state (Grace Period / Suspended) reaches the
+        # allowed_from guard and must raise InvalidStatusTransitionError before
+        # any save. Simulate the dunning state in memory (the guard only reads
+        # schedule_doc.status; the raise path never touches the DB).
+        sched = self._make_active_schedule()
+        sched.status = "Suspended"
+        with self.assertRaises(InvalidStatusTransitionError) as cm:
+            self.svc.cancel_schedule(sched, reason="give up")
+        self.assertIn("Cannot cancel schedule with status 'Suspended'", str(cm.exception))
+        # Guard fired before mutation: status is untouched, not flipped to Cancelled.
+        self.assertEqual(sched.status, "Suspended")
+
     # ==================================================================
     # validate_status_transition
     # ==================================================================

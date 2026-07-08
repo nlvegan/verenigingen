@@ -210,3 +210,21 @@ class TestValidateMembershipTypeForApproval(VereningingenTestCase):
 
         with self.assertRaises(frappe.ValidationError):
             validate_membership_type_for_approval(mt.name, member, is_application_approval=False)
+
+    def test_missing_member_email_blocks_non_application_approval(self):
+        """When is_application_approval=False and the member has neither an active
+        membership nor an active dues schedule, a missing email is a hard block
+        (line 270): billing notifications require an address.
+        """
+        mt = self._make_type_with_template()
+        member = self.create_test_member(email="approval-email@example.com")
+        # Blank the email directly in DB (bypassing Member.validate reqd check) and
+        # reload so the in-memory doc reflects the empty value. The member has no
+        # membership/dues schedule, so the earlier guards pass and the email guard
+        # is the one that fires.
+        frappe.db.set_value("Member", member.name, "email", "")
+        member.reload()
+        self.assertFalse(member.email)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            validate_membership_type_for_approval(mt.name, member, is_application_approval=False)
+        self.assertIn("email is required", str(ctx.exception))

@@ -451,6 +451,88 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         self.assertTrue(current_dues_field.read_only)
 
 
+class TestAmendmentApprovalGenuineThrows(VereningingenTestCase):
+    """Genuine rejection paths in ContributionAmendmentApprovalService.
+
+    Covers throws that PROPAGATE (not the graceful apply_amendment() error-dict
+    surface):
+      - approve_amendment() on a non-pending amendment (line 161)
+      - reject_amendment() on a non-pending amendment (line 192)
+      - apply_billing_change() (unconditional not-implemented guard, line 384)
+    """
+
+    def setUp(self):
+        super().setUp()
+        member_email = f"amend-throws-{frappe.generate_hash(length=6)}@example.com"
+        self.member_user = self.create_test_user(email=member_email, roles=["Verenigingen Member"])
+        self.member = self.create_test_member(
+            first_name="Amend", last_name="Throws", email=member_email, user=self.member_user.name
+        )
+        # Template rate is €15; match the type minimum so dues-schedule creation
+        # on submit does not fail with a min>rate error.
+        self.membership_type = self.create_test_membership_type(minimum_amount=15.0)
+        self.membership = self.create_test_membership(
+            member=self.member.name, membership_type=self.membership_type.name, status="Active"
+        )
+        if self.membership.docstatus == 0:
+            self.membership.submit()
+
+    def _auto_approved_amendment(self):
+        """A fee INCREASE respects the minimum, so it is auto-approved on insert
+        (status 'Approved', not 'Pending Approval')."""
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": self.membership.name,
+                "member": self.member.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": 30.00,  # increase from the €15 template rate
+                "reason": "Auto-approved increase for throw test",
+                "effective_date": add_days(today(), 30),
+            }
+        )
+        # Runs in the default Administrator context (no user switch), which holds
+        # create permission on Contribution Amendment Request — no ignore_permissions
+        # bypass needed (unlike the member self-service tests above).
+        amendment.insert()
+        self.track_doc("Contribution Amendment Request", amendment.name)
+        amendment.reload()
+        # Precondition for the throws under test: must NOT be Pending Approval.
+        self.assertEqual(amendment.status, "Approved")
+        return amendment
+
+    def test_approve_non_pending_amendment_throws(self):
+        """Approving an already-Approved amendment is rejected (line 161)."""
+        amendment = self._auto_approved_amendment()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            amendment.approve_amendment("second approval attempt")
+        self.assertIn("Only pending amendments can be approved", str(ctx.exception))
+
+    def test_reject_non_pending_amendment_throws(self):
+        """Rejecting an already-Approved amendment is rejected (line 192)."""
+        amendment = self._auto_approved_amendment()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            amendment.reject_amendment("cannot reject an approved one")
+        self.assertIn("Only pending amendments can be rejected", str(ctx.exception))
+
+    def test_apply_billing_change_not_implemented_throws(self):
+        """apply_billing_change() is an unconditional not-implemented guard (line 384).
+
+        Exercise the service method directly: via apply_amendment() the throw is
+        caught and downgraded to an error dict, so the propagating behaviour is
+        only observable on the direct call.
+        """
+        from verenigingen.services.approval.contribution_amendment_approval_service import (
+            get_contribution_amendment_approval_service,
+        )
+
+        amendment = self._auto_approved_amendment()
+        service = get_contribution_amendment_approval_service(amendment)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            service.apply_billing_change(self.membership)
+        self.assertIn("Billing interval changes are not yet implemented", str(ctx.exception))
+
+
 def run_enhanced_amendment_tests():
     """Run the enhanced contribution amendment tests"""
     suite = unittest.TestLoader().loadTestsFromTestCase(TestEnhancedContributionAmendmentSystem)
