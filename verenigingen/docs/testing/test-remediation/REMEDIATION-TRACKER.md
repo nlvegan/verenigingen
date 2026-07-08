@@ -15,7 +15,7 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
 | 7 | Chapter/volunteer/donation/donor | ✅ | ~25 | 16 methods | 9 | 0 (+1) | ≥0 (dels dead) | 553b136a | dead-code ×1 |
 | 8 | Report/api/portal | ✅ | ~9 | 1 method | 7 | 0 (+1) | ≥0 (del dead-stub) | 2b8ad114 | dead-code ×1 |
 | 9 | Utils/infra/security | ✅ | ~31 | 1 file (17) + 2 methods | 17 | 0 (+0) | ≥0 (dels dead/removed-API) | 0c714ace | missing ×2 |
-| 10 | Co-located doctype + mijnrood_sync | ⬜ | | | | | | | |
+| 10 | Co-located doctype + mijnrood_sync | ✅ | ~10 | 0 | 4 files | 17 (+3) | ≥0 (scaffold adds) | ac4efd47 | missing ×2 |
 
 ## Wave log
 - **Wave 1 (2026-07-08) — SEPA / Payments / Billing — ✅ DONE.** 3 agents (distinct test sites 1/2/3),
@@ -68,3 +68,29 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
   - Skeptical Minor notes → final review: member_test_utilities can't detect member-scoping regressions;
     two permission tests coupled to factory email-suffix behavior; donor `_enhanced`/`_enhanced_fixed`
     confirmed NOT duplicates (kept).
+- **Wave 4 (2026-07-08) — Co-located doctype + mijnrood_sync (Module 10, final) — ✅ DONE.** 1 agent
+  (mostly test_site_1; vip_import full module run on test_site_2 to dodge a pre-existing unrelated
+  `Payment Session Log` test-record dependency error on site 1), then a skeptical-code-reviewer pass
+  (**APPROVED, 0 CHANGES-NEEDED** across all 8 files). Net: **4 empty scaffolds written + 4 files
+  rewritten, 20 new tests (17 scaffold-adds + 1 unhappy gap-fill + 2 skip→executing drift guards),
+  0 deleted**, all mutation-verified (each new/rewritten test's broken-prod-line → RED recorded).
+  Test-files-only; zero prod files modified (independently confirmed via `git status`). Commit `ac4efd47`.
+  - Scaffolds filled: `bulk_operation_tracker` (7 — real `validate()` ceil-formula + both `_complete_operation`
+    arms + JSON retry-queue parse/fallback, DB-roundtrip persisted), `verenigingen_payments_settings` (4 —
+    real `_validate_sepa_configuration` mod-97 `validate_iban` + creditor-id/company-iban rejections),
+    and `mijnrood_sync_log`/`mijnrood_sync_state` (3+3 — schema-contract drift guards; both controllers
+    are confirmed `class X(Document): pass`, so schema/autoname/unique/mandatory/JSON-roundtrip is the
+    correct max depth — reviewer explicitly agreed, not an excuse).
+  - Key wins: `expense_category` — 9 silently-`skipTest`'d tests made runnable (seed real Company +
+    Expense Account) so the `account_type != "Expense Account"` reject path actually executes;
+    `vip_import::test_create_volunteers_batch_uses_service` mock-into-tautology → drives the REAL
+    `BulkVolunteerCreationService` and asserts a persisted Volunteer + `created == 1`;
+    `member::test_chapter_matching` bare-`pass` stub → real postal-range in/out-of-range assertions
+    against `Chapter.matches_postal_code`.
+  - Kept-with-note (considered, not weakened): `mijnrood_sync/test_field_mapping_and_utils.py::TestStaticMappingConstants`
+    (legit static-constant drift guards); `analytics_alert_rule` type-check smokes (real SQL, value-pins
+    need heavy Sales-Invoice/Goal seeding → backlogged); `brand_settings`/`member_contact_request` shape
+    tests already have sibling value-pins. Reviewer's only nit: pre-existing unused tuple-unpack locals
+    in `test_vip_import.py` (outside changed hunks; ruff-clean, Pyright-only) — left as pre-existing.
+  - New backlog (missing-coverage ×2): VPS `dues_payments_receivable_account` → `set_membership_receivable_account`
+    integration still skip-guarded; `analytics_alert_rule` revenue/goal-achievement value-level coverage.
