@@ -19,6 +19,16 @@ Format: `- <intended behavior> — from <deleted test> — build feature OR writ
 - **ImmutableAuditTrail secret/PII masking** (Module 9) — **BUILT `cf59ef3c`.**
   `log_event` redacts sensitive keys (credentials/IBAN/card/token) in `details` before hashing/persisting.
   Mutation-verified.
+- **analytics_alert_rule value-level coverage** (Module 10) — **TESTED `4613021a`.**
+  Replaced the two return-type smoke tests with real value assertions: revenue before/after delta == seeded
+  invoice; goal-achievement == mean of two distinct goals. Both mutation-verified. (Noted: Membership Goal
+  has no 'Cancelled' status, so the controller's `status != Cancelled` filter is a harmless dead no-op.)
+- **VPS `set_membership_receivable_account` integration** (Module 10) — **TESTED `3377cca4`.**
+  Un-skipped the two skipTest'd handler tests; membership invoice switches debit_to to the VPS dues account,
+  non-membership keeps the company default. Mutation-verified.
+- **Chapter-treasurer Expense Claim permission scoping** (Module 7) — **TESTED `03391d32`.**
+  `has_expense_claim_permission` / `get_expense_claim_permission_query`: a Financial board member can access
+  their own chapter's claim but not another's. Mutation-verified.
 
 ### Deferred by decision (speculative / no stated requirement — see 2026-07-08 scope decision)
 The remaining SEPA/compliance backlog features were reviewed and **intentionally NOT built** this pass
