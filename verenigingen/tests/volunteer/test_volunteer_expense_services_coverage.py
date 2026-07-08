@@ -407,6 +407,57 @@ class TestExpenseSubmissionServiceDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         result = svc.submit_multiple_expenses_grouped("not-a-list")
         self.assertFalse(result.success)
 
+    # -- submit_expense: service-level volunteer parameter tampering (L167) --
+
+    def test_submit_expense_volunteer_tampering_raises(self):
+        """submit_expense raises PermissionError when expense_data.volunteer does
+        not match the service's own volunteer (parameter tampering).
+
+        This is the SERVICE-level guard. The @self_service_api decorator on the
+        portal wrapper (templates/pages/volunteer/expenses.submit_expense) denies
+        a mismatched caller EARLIER with a different message ("Self-service
+        operations can only be performed on your own data"), so the service-level
+        throw is only reachable via a direct service call like this one.
+        organization_type="National" keeps _validate_request passing so control
+        reaches the tampering check.
+        """
+        other_member = self.create_test_member(first_name="Tamper", last_name="Target")
+        other_volunteer = self.create_test_volunteer(member_name=other_member.name)
+
+        svc = self._svc()  # bound to self.volunteer
+        expense_data = {
+            "description": "Tampered submission",
+            "amount": 25.0,
+            "expense_date": "2025-01-01",
+            "organization_type": "National",
+            "category": "Whatever",
+            "volunteer": other_volunteer.name,  # mismatch -> tampering
+        }
+
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            svc.submit_expense(expense_data)
+        self.assertIn("tampering detected", str(ctx.exception))
+
+    # -- get_or_create_expense_type: category exists but no expense account (L204) --
+
+    def test_get_or_create_expense_type_no_account_raises(self):
+        """get_or_create_expense_type raises ValidationError when the Expense
+        Category exists but has no expense_account configured.
+
+        expense_account is reqd=1 on Expense Category, so this defensive branch is
+        only reached when the link is cleared after creation (e.g. the linked
+        account was deleted). The existing sibling tests only cover the
+        category-not-found branch (L195), not this missing-account branch (L204).
+        """
+        from verenigingen.services.volunteer.volunteer_expense_setup import (
+            get_or_create_expense_type,
+        )
+
+        cat = self._make_expense_category(with_account=False, name_hint="NoAcct")
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            get_or_create_expense_type(cat.name)
+        self.assertIn("does not have an expense account", str(ctx.exception))
+
 
 # ---------------------------------------------------------------------------
 # 2. volunteer_expense_portal_utils

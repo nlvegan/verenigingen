@@ -243,12 +243,94 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # Skipping for now as it requires complex permission setup
         pass  # TODO: Implement with permission mocking
 
-    @unittest.skip("Requires complex permission mocking with user/role setup")
+    # ---- Real permission-denial paths (no mocking) ------------------------
+    # The two skipped stubs above deferred these as "requires complex permission
+    # mocking". They need no mocking at all: a real deskless User carrying a role
+    # with the exact Payment Entry perms under test, driven with frappe.set_user.
+    # Custom DocPerm rows added via add_permission/update_permission_property are
+    # transaction-scoped and roll back with the test.
+
+    def _make_deskless_role_without_perms(self):
+        """A desk-access Role carrying ZERO doctype permissions."""
+        role = frappe.new_doc("Role")
+        role.role_name = f"PECS NoPerm {frappe.generate_hash(length=8)}"
+        role.desk_access = 1
+        role.insert()
+        self.track_doc("Role", role.name)
+        return role.name
+
+    def _make_user_with_roles(self, roles):
+        """A fresh, enabled User carrying exactly the supplied roles."""
+        user = frappe.new_doc("User")
+        user.email = f"pecs-restricted-{frappe.generate_hash(length=10)}@example.com"
+        user.first_name = "PECS Restricted"
+        user.send_welcome_email = 0
+        user.enabled = 1
+        for r in roles:
+            user.append("roles", {"role": r})
+        user.insert()
+        self.track_doc("User", user.name)
+        return user.name
+
+    def _grant_payment_entry_create(self, role):
+        """Grant Payment Entry read+create (but NOT submit) to ``role`` via a
+        Custom DocPerm, so the user clears the CREATE gate yet still trips the
+        SUBMIT gate. Transaction-scoped; rolls back with the test."""
+        from frappe.permissions import add_permission, update_permission_property
+
+        add_permission("Payment Entry", role, 0)  # sets read=1
+        update_permission_property("Payment Entry", role, 0, "create", 1)
+
+    def test_create_permission_denied_raises_permission_error(self):
+        """A user lacking Payment Entry CREATE is refused at the create gate
+        (payment_entry_creation_service.py:136-140), before any DB write. The
+        invoice exists and the amount is valid, so the ONLY reason to raise is
+        the create-permission check."""
+        # Seeded as Administrator (setUp context); the invoice only has to exist.
+        invoice = self._create_test_invoice(amount=Decimal("40.00"))
+        role = self._make_deskless_role_without_perms()
+        restricted_user = self._make_user_with_roles([role])
+        # Guard: this user genuinely lacks Payment Entry create.
+        self.assertFalse(frappe.has_permission("Payment Entry", "create", user=restricted_user))
+
+        frappe.set_user(restricted_user)
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("40.00"),
+                posting_date=date.today(),
+                reference_no="PERM-CREATE",
+                reference_date=date.today(),
+                mode_of_payment="SEPA Direct Debit",
+            )
+        # Exact literal from :138 — distinguishes the CREATE gate from the SUBMIT gate.
+        self.assertIn("Insufficient permissions to create payment entry", str(ctx.exception))
+
     def test_strict_mode_raises_permission_error_without_submit_permission(self):
-        """Test that strict mode raises exception if submit permission lacking"""
-        # This test would require mocking permission checks
-        # Skipping for now as it requires complex permission setup
-        pass  # TODO: Implement with permission mocking
+        """A user WITH Payment Entry CREATE but WITHOUT SUBMIT is refused in
+        strict mode (allow_draft_on_permission_failure=False) at :143-150, before
+        any DB write. Having create isolates the failure to the submit gate."""
+        invoice = self._create_test_invoice(amount=Decimal("45.00"))
+        role = self._make_deskless_role_without_perms()
+        self._grant_payment_entry_create(role)
+        restricted_user = self._make_user_with_roles([role])
+        # Guards: this user HAS create but LACKS submit.
+        self.assertTrue(frappe.has_permission("Payment Entry", "create", user=restricted_user))
+        self.assertFalse(frappe.has_permission("Payment Entry", "submit", user=restricted_user))
+
+        frappe.set_user(restricted_user)
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("45.00"),
+                posting_date=date.today(),
+                reference_no="PERM-SUBMIT",
+                reference_date=date.today(),
+                mode_of_payment="SEPA Direct Debit",
+                allow_draft_on_permission_failure=False,  # strict mode
+            )
+        # Exact literal from :148 — distinguishes the SUBMIT gate from the CREATE gate.
+        self.assertIn("Insufficient permissions to submit payment entry", str(ctx.exception))
 
     @unittest.skip("Requires complete ERPNext accounting setup - see file comments for known issues")
     def test_payment_entry_fields_correctly_set(self):

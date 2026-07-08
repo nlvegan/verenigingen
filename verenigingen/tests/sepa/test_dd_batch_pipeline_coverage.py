@@ -241,6 +241,35 @@ class TestBatchProcessingServiceValidation(_BatchPipelineBase):
         self.assertTrue(result["has_warnings"])
         self.assertTrue(any("not found" in e for e in result["errors"]))
 
+    def test_validate_invoices_all_invalid_throws_no_valid(self):
+        """When EVERY batch row fails validation (here: a single row pointing at a
+        non-existent invoice), valid_count stays 0 and the service throws
+        'No valid invoices found in batch' (batch_processing_service.py:239-240).
+
+        The sibling test_validate_invoices_reports_missing_invoice keeps ONE valid
+        invoice alongside the missing one, so valid_count == 1 and it does NOT throw;
+        this test isolates the valid_count == 0 refusal branch. The batch still has a
+        row, so it passes the earlier 'No invoices added to batch' guard (:194)."""
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = today()
+        batch.batch_type = "CORE"
+        batch.currency = "EUR"
+        # In-memory row only (not inserted) so the Link field's existence check is
+        # bypassed; the service reads invoice_item.invoice and finds no bulk detail.
+        batch.append(
+            "invoices",
+            {
+                "invoice": "ACC-SINV-NONEXISTENT-0001",
+                "amount": 10.0,
+                "currency": "EUR",
+                "status": "Pending",
+                "sequence_type": "FRST",
+            },
+        )
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.service.validate_batch_invoices_optimized(batch)
+        self.assertIn("No valid invoices found in batch", str(ctx.exception))
+
     def test_update_batch_status_all_successful(self):
         batch, _m, _mn = self._one_invoice_batch()
         self.service._update_batch_status_after_processing(batch, len(batch.invoices))
