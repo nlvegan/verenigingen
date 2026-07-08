@@ -21,6 +21,7 @@ from verenigingen.services.member.core.member_fee_change_service import (
     MemberFeeChangeService,
     get_member_fee_change_service,
 )
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestMemberFeeChangeService(FrappeTestCase):
@@ -219,6 +220,87 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         # Verify return value
         self.assertEqual(result, {"success": True})
+
+
+class TestMemberFeeChangeServiceRejectionPaths(VereningingenTestCase):
+    """Real, end-to-end unhappy-path coverage for MemberFeeChangeService.
+
+    These tests exercise the two genuine rejection branches of
+    ``handle_fee_override_changes()`` with real Member documents and a real
+    (non-admin) user - no business-logic mocking. Both throws propagate out of
+    the service because they sit outside its internal try/except.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Suppress the welcome/password e-mail Frappe attempts to send when a
+        # User is created (no mail account is configured on test sites), which
+        # would otherwise log an error and trip the error-log guard.
+        frappe.flags.mute_emails = True
+        # Seed a non-admin user holding ONLY the plain member role (no admin
+        # roles) as the fixture whose lack of permission is the behavior tested.
+        self.restricted_user = self._create_restricted_member_user()
+        # Persist a member with a known dues_rate so the DB value differs from
+        # the in-memory change the test makes below.
+        self.member = self.create_test_member(dues_rate=15.0)
+
+    def tearDown(self):
+        # The T1 test switches the active user to the denial user; always
+        # restore Administrator before cleanup (tracked-doc deletion needs it).
+        frappe.set_user("Administrator")
+        super().tearDown()
+
+    def _create_restricted_member_user(self):
+        """Create a User with only the 'Verenigingen Member' role (no admin roles)."""
+        email = f"fee-denial-{frappe.generate_hash()[:8]}@example.com"
+        self.create_test_user(email, roles=["Verenigingen Member"])
+        return email
+
+    def _make_new_member_doc_with_rate(self, rate):
+        """Build an UNINSERTED Member doc carrying the given dues_rate.
+
+        The factory always inserts (and wraps insert-time errors in a plain
+        Exception), so it cannot yield the deliberately-invalid, ``is_new()``
+        document required to reach the new-member branch of
+        ``handle_fee_override_changes()``. ``frappe.new_doc`` returns a real
+        Member controller instance without persisting it.
+        """
+        member_doc = frappe.new_doc("Member")
+        member_doc.dues_rate = rate
+        return member_doc
+
+    def test_non_admin_cannot_override_existing_member_fee(self):
+        """T1: changing an existing member's dues_rate as a non-admin is denied.
+
+        Reaches member_fee_validation_service.validate_fee_override_permissions()
+        via member_fee_change_service.handle_fee_override_changes() (line 103),
+        which raises frappe.PermissionError outside the service try/except.
+        """
+        # In-memory change differs from the persisted value (15.0) -> real change.
+        self.member.dues_rate = 25.0
+
+        # Switching to the non-admin user IS the denial path under test.
+        frappe.set_user(self.restricted_user)
+
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            get_member_fee_change_service().handle_fee_override_changes(self.member)
+        self.assertIn("do not have permission to override", str(ctx.exception))
+
+    def test_new_member_with_negative_fee_is_rejected(self):
+        """T2: a new member with a negative dues_rate is rejected.
+
+        Reaches member_fee_validation_service.validate_fee_override_amount()
+        via the new-document branch of handle_fee_override_changes() (line 111),
+        which raises frappe.ValidationError outside the service try/except.
+
+        Note: dues_rate == 0 is falsy and intentionally skipped by the validator,
+        so a negative value (not zero) is required to trigger the rejection.
+        """
+        member_doc = self._make_new_member_doc_with_rate(-5)
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            get_member_fee_change_service().handle_fee_override_changes(member_doc)
+        self.assertIn("must be greater than 0", str(ctx.exception))
 
 
 def run_tests():

@@ -94,3 +94,38 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
     in `test_vip_import.py` (outside changed hunks; ruff-clean, Pyright-only) — left as pre-existing.
   - New backlog (missing-coverage ×2): VPS `dues_payments_receivable_account` → `set_membership_receivable_account`
     integration still skip-guarded; `analytics_alert_rule` revenue/goal-achievement value-level coverage.
+
+## Negative-path coverage push (2026-07-08, branch `test/negative-path-coverage-push`)
+Follow-on to the false-confidence remediation, targeting the test-inventory's **Class-2 headline
+finding** (suite is unhappy-light, ~17%; core money-path services near-zero on asserted
+failure/rejection). Method: triage each named money-path area for a GENUINE rejection/rollback target
+(vs graceful-degradation, which is EDGE and out of scope), then add real mutation-verified UNHAPPY
+tests only where a genuine target exists. Test-files-only; **zero production files changed**. One
+`skeptical-code-reviewer` pass: **MEANINGFUL 9/9**, no tautological/stub-defeated/fixture tests.
+
+**Triaged 5 areas (5 read-only agents):**
+- ❌ **field-sync** — graceful-only *by design* (`field_sync_service.py` docstring: "Never throws
+  exceptions"; all failures swallowed/`OperationResult.fail`). No genuine target; its two real branches
+  (missing link, no-op-when-unchanged) already covered. No test added.
+- ⚠️ **member-import lock-contention** — services degrade gracefully (`("skipped"/"failed", …)`, never
+  raise); in-process same-connection GET_LOCK is re-entrant, so a *real* contention test needs a second
+  DB connection. Deferred (EDGE, higher-effort). No test added.
+- ✅ **fee-change-history** — 2 tests (`test_member_fee_change_service.py`): non-admin fee-override
+  `PermissionError` (`member_fee_validation_service.py:197`) + negative-`dues_rate` `ValidationError`
+  (`:82`, new-doc branch). Note the `dues_rate==0` no-op quirk.
+- ✅ **bank-reconciliation** — 3 tests: two `create_reconciliation` permission gates
+  (`bank_transaction_reconciliation.py:496/:499` — throw is caught internally → asserts `False` + the
+  permission-named tracking Comment, mutation-sensitive) + no-default-bank-account throw
+  (`sepa_reconciliation.py:1185`, clean `assertRaises`). The atomic-rollback guarantee (`:581`) left
+  deferred (harness-hazardous: real `frappe.db.rollback()` bleeds into the test transaction).
+- ✅ **SEPA FRST/RCUR sequence-type** — 4 tests (`test_sepa_sequence_type_compliance.py`; base
+  FRST→RCUR already covered by `b863d59a`): renewal-reset RCUR→FRST (`sign_date > last_usage_date`,
+  the untested branch), prior-Pending-stays-FRST, child-hook derives RCUR directly, and
+  `validate_sequence_types` flags RCUR-on-first-use as Critical. Built on the compliance file, not
+  `test_sepa_sequence_type_validation.py` (which is in `known_test_failures.txt` — red base).
+  Finding: the scheduled daily batch leaves per-row `sequence_type` blank → auto-derives FRST, so the
+  blanket batch-level RCUR is harmless and the daily flow does NOT trip the critical guard; S4 covers
+  the defense-in-depth branch, documented in-test.
+
+**Net: 9 new mutation-verified negative-path tests across 3 areas (fee-change ×2, bank-recon ×3,
+SEPA ×4); 2 areas correctly yielded no clean target.** Sites test_site_1/2/3.

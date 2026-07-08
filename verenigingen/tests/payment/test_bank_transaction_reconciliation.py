@@ -1087,5 +1087,167 @@ class TestProcessSepaReturnFile(BTRBase):
         self.assertEqual(btr.parse_pain002_file("<Document><TxInfAndSts>"), [])
 
 
+# =============================================================================
+# create_reconciliation permission gates (B1 / B2)
+# =============================================================================
+class TestCreateReconciliationPermissions(BTRBase):
+    """Real restricted-user coverage for the two permission guards at the top of
+    ``create_reconciliation`` (lines ~495-499):
+
+        if not frappe.has_permission("Bank Transaction", "write"):
+            frappe.throw(_("Insufficient permissions to update bank transactions"))
+        if not frappe.has_permission("Payment Entry", "create"):
+            frappe.throw(_("Insufficient permissions to create payment entries"))
+
+    IMPORTANT (observable behaviour, NOT a raised exception): both ``frappe.throw``
+    calls execute inside the method's outer ``try:`` (line ~493), whose
+    ``except Exception`` (line ~628) catches the ValidationError, logs it, calls
+    ``_mark_transaction_unreconciled`` and returns ``False``. The denial therefore
+    surfaces to a caller as ``create_reconciliation(...) is False`` plus a tracking
+    Comment on the Bank Transaction whose text names the failing permission — NOT
+    as a propagated exception. These tests assert that mutation-sensitive
+    observable (the permission-named comment), which is what a caller/operator
+    actually sees, rather than a swallowed raise.
+
+    All existing tests run as Administrator (System Manager), so neither guard was
+    exercised before.
+    """
+
+    def tearDown(self):
+        # Restore Administrator BEFORE the base-class rollback so teardown runs
+        # with full privileges (the switch to a restricted user is the behaviour
+        # under test, confined to the test body).
+        frappe.set_user("Administrator")
+        super().tearDown()
+
+    # ---- restricted-user / role seeding (factory helpers) ------------------
+
+    def _make_deskless_role_without_perms(self):
+        """A desk-access Role carrying ZERO doctype permissions."""
+        role_name = f"BTR NoPerm {frappe.generate_hash(length=8)}"
+        role = frappe.new_doc("Role")
+        role.role_name = role_name
+        role.desk_access = 1
+        role.insert(ignore_permissions=True)
+        return role_name
+
+    def _make_user_with_roles(self, roles):
+        """A fresh, enabled User carrying exactly the supplied roles."""
+        email = f"btr-restricted-{frappe.generate_hash(length=10)}@example.com"
+        user = frappe.new_doc("User")
+        user.email = email
+        user.first_name = "BTR Restricted"
+        user.send_welcome_email = 0
+        user.enabled = 1
+        for r in roles:
+            user.append("roles", {"role": r})
+        user.insert(ignore_permissions=True)
+        return email
+
+    def _grant_bank_transaction_write(self, role):
+        """Grant read+write (but NOT create on Payment Entry) to ``role`` via a
+        Custom DocPerm so the user clears the Bank-Transaction gate yet still trips
+        the Payment-Entry gate. Custom DocPerm rows are transaction-scoped and roll
+        back with the test."""
+        from frappe.permissions import add_permission, update_permission_property
+
+        add_permission("Bank Transaction", role, 0)  # sets read=1
+        update_permission_property("Bank Transaction", role, 0, "write", 1)
+
+    def _comment_texts(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    # ---- B1: no Bank Transaction write -------------------------------------
+
+    def test_denied_without_bank_transaction_write(self):
+        """B1 (line ~496): a user lacking Bank Transaction WRITE cannot reconcile.
+        The refusal surfaces as ``False`` + a 'Insufficient permissions to update
+        bank transactions' tracking comment."""
+        it = self._make_member_with_invoice(first_name="PermB1", grand_total=30.0)
+        bt = self._make_bank_transaction(deposit=30.0, reference_number="PERM-B1", date=today())
+        match = {
+            "type": "invoice",
+            "reference": it["invoice"].name,
+            "confidence": 0.95,
+            "match_reason": "perm-denied b1",
+        }
+        role = self._make_deskless_role_without_perms()
+        restricted_user = self._make_user_with_roles([role])
+        # Guard: this user genuinely lacks Bank Transaction write.
+        self.assertFalse(frappe.has_permission("Bank Transaction", "write", user=restricted_user))
+
+        # The caught denial is logged at bank_transaction_reconciliation.py:629, and —
+        # because this user ALSO lacks BT write — the unreconciled-marking save fails
+        # and logs again at :644. Both are the behaviour under test, not incidental
+        # noise, so mark them expected (keeps VERENIGINGEN_FAIL_ON_ERROR_LOG=1 green).
+        self.expectErrorLog("Payment Reconciliation", "Transaction Status Update")
+
+        frappe.set_user(restricted_user)
+        result = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertFalse(result, "reconciliation must be refused without Bank Transaction write")
+        texts = self._comment_texts(bt.name)
+        # Asserts the exact literal thrown at bank_transaction_reconciliation.py:496
+        # (kept in sync with prod) — this is what distinguishes gate 496 from 499 and
+        # from any downstream failure that would also return False.
+        self.assertTrue(
+            any("Insufficient permissions to update bank transactions" in t for t in texts),
+            f"expected the BT-write denial reason in the tracking comments, got: {texts}",
+        )
+
+    # ---- B2: Bank Transaction write but no Payment Entry create ------------
+
+    def test_denied_without_payment_entry_create(self):
+        """B2 (line ~499): a user WITH Bank Transaction write but WITHOUT Payment
+        Entry CREATE clears the first gate and is refused at the second. The refusal
+        surfaces as ``False`` + a 'Insufficient permissions to create payment
+        entries' tracking comment, and (since the user can write) the transaction is
+        marked Unreconciled."""
+        it = self._make_member_with_invoice(first_name="PermB2", grand_total=35.0)
+        bt = self._make_bank_transaction(deposit=35.0, reference_number="PERM-B2", date=today())
+        match = {
+            "type": "invoice",
+            "reference": it["invoice"].name,
+            "confidence": 0.95,
+            "match_reason": "perm-denied b2",
+        }
+        role = self._make_deskless_role_without_perms()
+        self._grant_bank_transaction_write(role)
+        restricted_user = self._make_user_with_roles([role])
+        # Guards: this user HAS Bank Transaction write but LACKS Payment Entry create.
+        self.assertTrue(frappe.has_permission("Bank Transaction", "write", user=restricted_user))
+        self.assertFalse(frappe.has_permission("Payment Entry", "create", user=restricted_user))
+
+        # The caught denial is logged at bank_transaction_reconciliation.py:629. Unlike
+        # B1, the unreconciled-marking save SUCCEEDS here (user has BT write), so :644
+        # does not fire — only "Payment Reconciliation" is expected.
+        self.expectErrorLog("Payment Reconciliation")
+
+        frappe.set_user(restricted_user)
+        result = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertFalse(result, "reconciliation must be refused without Payment Entry create")
+        texts = self._comment_texts(bt.name)
+        # Asserts the exact literal thrown at bank_transaction_reconciliation.py:499
+        # (kept in sync with prod) — distinguishes gate 499 from gate 496 above.
+        self.assertTrue(
+            any("Insufficient permissions to create payment entries" in t for t in texts),
+            f"expected the PE-create denial reason in the tracking comments, got: {texts}",
+        )
+        # The user can write the Bank Transaction, so the refusal leaves it Unreconciled.
+        bt.reload()
+        self.assertEqual(bt.status, "Unreconciled")
+
+
 if __name__ == "__main__":
     unittest.main()
