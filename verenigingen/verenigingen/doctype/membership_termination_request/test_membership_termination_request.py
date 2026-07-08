@@ -4,13 +4,13 @@ Comprehensive Test Suite for Membership Termination Request
 Tests all aspects of the termination workflow including business logic, validation, and integration
 """
 
+import unittest
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import add_days, add_months, now_datetime, today
+from frappe.utils import add_days, add_months, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-import unittest
 
 
 class TestMembershipTerminationRequest(EnhancedTestCase):
@@ -20,11 +20,15 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         """Set up test environment using Enhanced Test Factory"""
         super().setUp()
 
-        # Create test member using Enhanced Test Factory
+        # Create test member using Enhanced Test Factory. NB: no explicit email --
+        # a hardcoded address here previously caused cross-run pollution (a member
+        # left in status "Quit" by a genuinely-executing termination test would
+        # make the NEXT run's validate_termination_request() reject as
+        # "Cannot terminate member with status: Quit"); the factory generates a
+        # unique email/member per test invocation instead.
         self.test_member = self.create_test_member(
             first_name="Test",
             last_name="Termination",
-            email="test.termination@example.com",
             status="Active",
             member_since=add_months(today(), -12),
         )
@@ -108,8 +112,17 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         self.assertEqual(termination_request.member, self.test_member.name)
         self.assertEqual(termination_request.termination_type, "Voluntary")
 
-    def test_status_workflow(self):
-        """Test status workflow transitions"""
+    def test_status_change_appends_audit_trail_entry(self):
+        """Each status change + save() actually persists AND appends a real
+        before_save audit-trail entry (TerminationAuditService.log_document_update)
+        recording the new status -- not just an in-memory field mutation.
+
+        NB: this doctype's is_submittable=0 in the JSON is a form-layer setting
+        only; nothing in production code ever calls .submit() on it (approval/
+        rejection/execution all go through .save()), so on_update_after_submit /
+        on_submit are unreachable via the real lifecycle -- see backlog-dead-code.md.
+        Every real status transition therefore happens via plain save(), which is
+        exactly what this test exercises."""
         termination_request = frappe.get_doc(
             {
                 "doctype": "Membership Termination Request",
@@ -120,17 +133,23 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
             }
         )
         termination_request.insert()
+        entries_before = len(termination_request.audit_trail)
 
-        # Test status transitions
-        statuses = ["Pending", "Approved", "Executed"]
+        statuses = ["Pending", "Approved", "Rejected"]
         for status in statuses:
             termination_request.status = status
             termination_request.save()
             termination_request.reload()
             self.assertEqual(termination_request.status, status)
 
+        self.assertEqual(len(termination_request.audit_trail), entries_before + len(statuses))
+        last_entry = termination_request.audit_trail[-1]
+        self.assertEqual(last_entry.action, "Document Updated")
+        self.assertIn("Rejected", last_entry.details)
+
     def test_audit_trail_functionality(self):
-        """Test audit trail creation and management"""
+        """add_audit_entry() appends a real row to the audit_trail child table
+        with the action/details/user it was given, not just existing as a no-op."""
         termination_request = frappe.get_doc(
             {
                 "doctype": "Membership Termination Request",
@@ -142,16 +161,20 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         )
         termination_request.insert()
 
-        # Test audit entry creation
+        entries_before = len(termination_request.audit_trail)
         termination_request.add_audit_entry("Test Action", "Test details for audit")
 
-        # Verify audit entry was created (if audit entries are stored)
-        # This depends on the implementation of add_audit_entry
-        self.assertTrue(hasattr(termination_request, "add_audit_entry"))
+        self.assertEqual(len(termination_request.audit_trail), entries_before + 1)
+        new_entry = termination_request.audit_trail[-1]
+        self.assertEqual(new_entry.action, "Test Action")
+        self.assertEqual(new_entry.details, "Test details for audit")
+        self.assertEqual(new_entry.user, frappe.session.user)
+        self.assertEqual(new_entry.system_action, 0)
 
     def test_approval_requirements_validation(self):
-        """Test approval requirements are set correctly"""
-        termination_request = frappe.get_doc(
+        """set_approval_requirements() (run from validate()) flags disciplinary
+        termination types as needing secondary approval; ordinary ones don't."""
+        voluntary_request = frappe.get_doc(
             {
                 "doctype": "Membership Termination Request",
                 "member": self.test_member.name,
@@ -160,10 +183,21 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert()
+        voluntary_request.insert()
+        self.assertEqual(voluntary_request.requires_secondary_approval, 0)
 
-        # Verify approval requirements are set
-        self.assertTrue(hasattr(termination_request, "set_approval_requirements"))
+        disciplinary_request = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": self.test_member.name,
+                "termination_type": "Disciplinary Action",
+                "termination_reason": "Test approval requirements",
+                "request_date": today(),
+                "disciplinary_documentation": "Evidence attached",
+            }
+        )
+        disciplinary_request.insert()
+        self.assertEqual(disciplinary_request.requires_secondary_approval, 1)
 
     def test_date_validation(self):
         """Test date validation logic"""
@@ -182,8 +216,12 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         termination_request.insert()
         self.assertEqual(termination_request.request_date, add_days(today(), 30))
 
-    def test_permission_validation(self):
-        """Test permission validation"""
+    @patch("verenigingen.permissions.can_terminate_member")
+    def test_permission_denied_for_member_blocks_creation(self, mock_can_terminate):
+        """validate_permissions() rejects the request when the user isn't allowed
+        to terminate this specific member (a genuine permission-denial path)."""
+        mock_can_terminate.return_value = False
+
         termination_request = frappe.get_doc(
             {
                 "doctype": "Membership Termination Request",
@@ -194,19 +232,28 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
             }
         )
 
-        # Test document creation (permission validation happens in validate)
-        termination_request.insert()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            termination_request.insert()
+        self.assertIn("permission", str(ctx.exception).lower())
 
-        # Verify permission validation method exists
-        self.assertTrue(hasattr(termination_request, "validate_permissions"))
-
-    @patch("verenigingen.utils.termination_integration.cancel_membership_safe")
-    @patch("verenigingen.utils.termination_integration.deactivate_user_account_safe")
+    @patch("verenigingen.services.termination.termination_integration.cancel_membership_safe")
+    @patch("verenigingen.services.termination.termination_integration.deactivate_user_account_safe")
     def test_termination_execution_workflow(self, mock_deactivate_user, mock_cancel_membership):
-        """Test complete termination execution workflow"""
-        # Mock the integration functions
-        mock_cancel_membership.return_value = {"success": True, "message": "Membership cancelled"}
-        mock_deactivate_user.return_value = {"success": True, "message": "User deactivated"}
+        """execute_termination_internal() runs the real declarative system-update
+        pipeline: it must start from status "Approved" (TerminationExecutionService
+        rejects any other status) and, on success, flips status to "Executed" and
+        records who/when. The two safe-integration boundary functions are mocked
+        (they belong to CancelMembershipsOperation / DeactivateUserAccountOperation
+        inside the pipeline, imported from services.termination.termination_integration
+        -- NOT the deprecated verenigingen.utils.termination_integration shim, which
+        the old version of this test patched and which the pipeline never imports
+        from); every other effect (status flip, tracking fields) is real."""
+        mock_cancel_membership.return_value = True
+        mock_deactivate_user.return_value = True
+
+        # Submit the setUp membership so CancelMembershipsOperation's active-membership
+        # query (status in Active/Pending, docstatus=1) actually finds it.
+        self.test_membership.submit()
 
         termination_request = frappe.get_doc(
             {
@@ -215,22 +262,27 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Test execution workflow",
                 "request_date": today(),
-                "status": "Executed",
+                "status": "Approved",
             }
         )
         termination_request.insert()
 
-        # Test execution workflow
-        try:
-            termination_request.execute_termination_internal()
+        result = termination_request.execute_termination_internal()
 
-            # Verify execution fields are set
-            self.assertIsNotNone(termination_request.executed_by)
-            self.assertIsNotNone(termination_request.execution_date)
+        self.assertTrue(result)
+        mock_cancel_membership.assert_called_once()
+        mock_deactivate_user.assert_called_once()
 
-        except Exception as e:
-            # If execution fails, verify it's due to expected reasons
-            self.assertIn("termination", str(e).lower())
+        termination_request.reload()
+        self.assertEqual(termination_request.status, "Executed")
+        self.assertEqual(termination_request.executed_by, frappe.session.user)
+        self.assertIsNotNone(termination_request.execution_date)
+        # _update_tracking() writes real counters from the pipeline's results dict;
+        # SEPA/board operations are disabled (cancel_sepa_mandates/end_board_positions
+        # default falsy) and the member has no outstanding invoices, so these stay 0.
+        self.assertEqual(termination_request.sepa_mandates_cancelled, 0)
+        self.assertEqual(termination_request.positions_ended, 0)
+        self.assertEqual(termination_request.outstanding_invoices_cancelled, 0)
 
     def test_different_termination_types(self):
         """Test different termination types"""
@@ -261,16 +313,29 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
             termination_request.insert()
             self.assertEqual(termination_request.termination_type, term_type)
 
-    def test_system_integration_methods(self):
-        """Test system integration methods exist and are callable"""
-        termination_request = frappe.new_doc("Membership Termination Request")
+    @patch("verenigingen.services.termination.TerminationExecutionService")
+    def test_execute_system_updates_safely_delegates_to_service(self, mock_service_cls):
+        """execute_system_updates_safely() must delegate to
+        TerminationExecutionService.execute_system_updates(self) rather than
+        reimplementing (or silently dropping) the update logic inline."""
+        mock_instance = mock_service_cls.return_value
+        mock_instance.execute_system_updates.return_value = {"success": True, "actions_taken": []}
 
-        # Test integration methods
-        integration_methods = ["execute_system_updates_safely", "execute_termination_internal"]
+        termination_request = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": self.test_member.name,
+                "termination_type": "Voluntary",
+                "termination_reason": "Test delegation",
+                "request_date": today(),
+            }
+        )
+        termination_request.insert()
 
-        for method_name in integration_methods:
-            self.assertTrue(hasattr(termination_request, method_name))
-            self.assertTrue(callable(getattr(termination_request, method_name)))
+        result = termination_request.execute_system_updates_safely()
+
+        mock_instance.execute_system_updates.assert_called_once_with(termination_request)
+        self.assertEqual(result, {"success": True, "actions_taken": []})
 
     def test_error_handling_scenarios(self):
         """Test error handling in various scenarios"""
@@ -288,52 +353,6 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         # Should raise validation error
         with self.assertRaises(frappe.ValidationError):
             termination_request.insert()
-
-    def test_document_status_changes(self):
-        """Test document status changes and their effects"""
-        termination_request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": self.test_member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test status changes",
-                "request_date": today(),
-            }
-        )
-        termination_request.insert()
-
-        # Test status change handling
-        original_status = termination_request.status
-        termination_request.status = "Approved"
-        termination_request.save()
-
-        # Verify status change was handled
-        self.assertEqual(termination_request.status, "Approved")
-        self.assertNotEqual(termination_request.status, original_status)
-
-    def test_termination_impact_tracking(self):
-        """Test tracking of termination impacts"""
-        termination_request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": self.test_member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test impact tracking",
-                "request_date": today(),
-            }
-        )
-        termination_request.insert()
-
-        # Test impact tracking fields
-        impact_fields = [
-            "sepa_mandates_cancelled",
-            "positions_ended",
-            "outstanding_invoices_cancelled",
-            "volunteer_expenses_cancelled",
-        ]
-
-        for field in impact_fields:
-            self.assertTrue(hasattr(termination_request, field))
 
     def test_concurrent_termination_requests(self):
         """Test handling of concurrent termination requests"""
@@ -365,76 +384,6 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
 
         # Verify both requests exist
         self.assertNotEqual(termination_request1.name, termination_request2.name)
-
-    def test_termination_analytics_integration(self):
-        """Test integration with termination analytics"""
-        termination_request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": self.test_member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test analytics",
-                "request_date": today(),
-            }
-        )
-        termination_request.insert()
-
-        # Test analytics module integration
-        try:
-            from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_analytics import (
-                get_termination_statistics,
-            )
-
-            # Test analytics function exists
-            self.assertTrue(callable(get_termination_statistics))
-
-        except ImportError:
-            # Analytics module might not be required
-            pass
-
-    def test_data_integrity_validation(self):
-        """Test data integrity validation"""
-        termination_request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": self.test_member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test data integrity",
-                "request_date": today(),
-            }
-        )
-        termination_request.insert()
-
-        # Test required fields
-        required_fields = ["member", "termination_type", "termination_reason", "request_date"]
-        for field in required_fields:
-            self.assertTrue(hasattr(termination_request, field))
-            self.assertIsNotNone(getattr(termination_request, field))
-
-    def test_workflow_state_management(self):
-        """Test workflow state management"""
-        termination_request = frappe.get_doc(
-            {
-                "doctype": "Membership Termination Request",
-                "member": self.test_member.name,
-                "termination_type": "Voluntary",
-                "termination_reason": "Test workflow state",
-                "request_date": today(),
-            }
-        )
-        termination_request.insert()
-
-        # Test workflow state transitions
-        valid_transitions = [("Pending", "Approved"), ("Approved", "Executed"), ("Pending", "Rejected")]
-
-        for from_status, to_status in valid_transitions:
-            termination_request.status = from_status
-            termination_request.save()
-
-            termination_request.status = to_status
-            termination_request.save()
-
-            self.assertEqual(termination_request.status, to_status)
 
 
 if __name__ == "__main__":

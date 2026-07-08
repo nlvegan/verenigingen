@@ -177,8 +177,11 @@ class TestMembership(EnhancedTestCase):
         self.assertEqual(membership.docstatus, 1)
         self.assertEqual(getdate(membership.start_date), getdate(add_months(today(), -6)))
 
-    def test_payment_sync(self):
-        """Test payment synchronization from dues schedule"""
+    def test_billing_amount_reflects_live_dues_schedule_rate(self):
+        """Membership.get_billing_amount() reads the member's active dues schedule's
+        LIVE dues_rate (via DuesScheduleRepository.get_active_schedule, a fresh DB
+        read), not a cached/stale amount -- a real regression here would surface as
+        stale billing amounts shown to members after a fee change."""
         membership = frappe.new_doc("Membership")
         membership.member = self.member.name
         membership.membership_type = self.membership_type_name
@@ -189,12 +192,16 @@ class TestMembership(EnhancedTestCase):
         dues_schedule_name = membership.get_dues_schedule()
         self.assertIsNotNone(dues_schedule_name)
 
-        next_invoice_date = add_months(today(), 1)
         dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
-        dues_schedule.db_set("next_invoice_date", next_invoice_date)
-        dues_schedule.reload()
+        self.assertEqual(membership.get_billing_amount(), dues_schedule.dues_rate)
 
-        self.assertEqual(getdate(dues_schedule.next_invoice_date), getdate(next_invoice_date))
+        # Change the schedule's rate directly at the DB level and confirm
+        # get_billing_amount() tracks the live value rather than a stale one.
+        new_rate = (dues_schedule.dues_rate or 0) + 25
+        frappe.db.set_value("Membership Dues Schedule", dues_schedule_name, "dues_rate", new_rate)
+        frappe.db.commit()
+
+        self.assertEqual(membership.get_billing_amount(), new_rate)
 
     def test_multiple_membership_validation(self):
         """Test validation preventing multiple active memberships"""

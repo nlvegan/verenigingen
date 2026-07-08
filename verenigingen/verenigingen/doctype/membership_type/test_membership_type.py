@@ -83,33 +83,3 @@ class TestMembershipType(EnhancedTestCase):
         # Should raise an error
         with self.assertRaises(frappe.exceptions.ValidationError):
             membership_type.insert()
-
-    def test_default_membership_type(self):
-        """Test setting a membership type as default"""
-        # Create a first membership type
-        first_type = frappe.new_doc("Membership Type")
-        first_type.membership_type_name = f"First Default {self.unique_id}"
-        first_type.billing_period = "Annual"
-        first_type.minimum_amount = 100
-        first_type.default_for_new_members = 1
-        first_type.role_profile = "Verenigingen Member"
-        first_type.insert()
-
-        # Create a second membership type
-        second_type = frappe.new_doc("Membership Type")
-        second_type.membership_type_name = f"Second Default {self.unique_id}"
-        second_type.billing_period = "Annual"
-        second_type.minimum_amount = 120
-        second_type.default_for_new_members = 1
-        second_type.role_profile = "Verenigingen Member"
-        second_type.insert()
-
-        # The business logic for ensuring only one default doesn't appear to be implemented
-        # This test documents the current behavior - multiple defaults can exist
-        # If exclusive default behavior is needed, it should be implemented in the controller
-
-        # Both types can be default simultaneously (current behavior)
-        self.assertEqual(first_type.default_for_new_members, 1)
-        self.assertEqual(second_type.default_for_new_members, 1)
-
-        # Enhanced Test Factory will handle cleanup automatically
