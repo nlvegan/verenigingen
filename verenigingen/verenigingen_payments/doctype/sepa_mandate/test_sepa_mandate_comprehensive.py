@@ -645,32 +645,27 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
 
     def test_mandate_cleanup_on_member_deletion(self):
         """
-        Test member deletion when the member has an active SEPA mandate.
+        Test member deletion cascade when the member has an active SEPA mandate.
 
         MemberCleanupService.handle_member_deletion() cascades deletion for
-        Membership / Membership Dues Schedule / Chapter Member and clears the
-        Member's "Member SEPA Mandate Link" child table, but it does NOT
-        delete, cancel, or unlink the SEPA Mandate document itself (whose
-        `member` field still points at the Member being deleted). Frappe's
-        link-existence check therefore rejects the deletion with a genuine
-        LinkExistsError rather than silently orphaning the mandate.
-
-        This is a real, currently-unhandled cascade gap (logged to
-        backlog-missing-coverage.md); the test documents the actual behavior
-        so a future fix to the cleanup service has a regression guard either
-        way (once cleanup is fixed to unlink/cancel mandates, this test
-        should be updated to assert successful deletion instead).
+        Membership / Membership Dues Schedule / Chapter Member AND now force-deletes
+        the SEPA Mandate documents whose `member` field points back at the Member.
+        Previously it only cleared the Member's "Member SEPA Mandate Link" child
+        table and left the mandate document's `member` link dangling, so Frappe's
+        link-existence check rejected the deletion with LinkExistsError. This test
+        pins the fixed cascade: deleting a Member with an active mandate succeeds
+        and removes the mandate (and its IBAN PII) too.
         """
         mandate = self._create_test_mandate(status="Active")
         mandate.insert()
         mandate_name = mandate.name
 
-        with self.assertRaises(frappe.LinkExistsError):
-            frappe.delete_doc("Member", self.member_name, ignore_permissions=True)
+        # Deletion succeeds -- the cascade now removes the linked SEPA Mandate too.
+        frappe.delete_doc("Member", self.member_name, ignore_permissions=True)
 
-        # The mandate is untouched by the rejected deletion attempt.
-        self.assertTrue(frappe.db.exists("SEPA Mandate", mandate_name))
-        self.assertTrue(frappe.db.exists("Member", self.member_name))
+        # Both the member and its cascade-deleted mandate are gone.
+        self.assertFalse(frappe.db.exists("SEPA Mandate", mandate_name))
+        self.assertFalse(frappe.db.exists("Member", self.member_name))
 
     # ==========================================
     # Performance and Query Optimization Tests

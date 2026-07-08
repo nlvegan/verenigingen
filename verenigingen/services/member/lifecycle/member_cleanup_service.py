@@ -175,6 +175,21 @@ class MemberCleanupService(StatelessService):
             except Exception as e:
                 self.logger.error(f"Error deleting Membership {membership_name}: {str(e)}")
 
+        # Delete SEPA Mandate documents linked to this member. The "Member SEPA
+        # Mandate Link" child table cleared further below only holds references;
+        # the actual SEPA Mandate documents carry a `member` Link field pointing
+        # back at this Member, so they must be deleted too -- otherwise deleting a
+        # Member with any mandate raises LinkExistsError. SEPA Mandate is not
+        # submittable, so a force delete is sufficient (also drops the IBAN PII).
+        sepa_mandates = frappe.get_all("SEPA Mandate", filters={"member": member_doc.name}, pluck="name")
+
+        for mandate_name in sepa_mandates:
+            try:
+                frappe.delete_doc("SEPA Mandate", mandate_name, force=True)
+                self.logger.info(f"Deleted SEPA Mandate {mandate_name}")
+            except Exception as e:
+                self.logger.error(f"Error deleting SEPA Mandate {mandate_name}: {str(e)}")
+
         # Delete Membership Dues Schedules linked to this member
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule", filters={"member": member_doc.name}, pluck="name"
