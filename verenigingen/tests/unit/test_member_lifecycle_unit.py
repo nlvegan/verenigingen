@@ -230,7 +230,13 @@ class MemberLifecycleUnitTest(EnhancedTestCase):
         function -- previously this test invented its own status vocabulary
         ("Application Pending", "On Hold", "Withdrawn") that doesn't even exist on the
         Member DocType's status Select field, and asserted against its own reimplemented
-        table instead of the production one."""
+        table instead of the production one.
+
+        NOTE: validate_status_transition() is currently NOT wired into the Member save
+        lifecycle (no before_save/validate caller) -- see backlog-dead-code.md (Module 4).
+        This test pins the function's own allowed_transitions logic directly; it does NOT
+        assert live lifecycle enforcement. If the function is later hooked into save (or
+        removed), update this test accordingly."""
 
         from verenigingen.services.member.core.member_status_service import (
             validate_status_transition,
