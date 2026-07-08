@@ -9,9 +9,9 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
 | 1 | SEPA | ✅ | ~24 | 1 file + 15 methods | 8 | 0 (+2) | ≥0 (dels zero-cov) | 0ba7be09 | dead-code ×2, missing ×11 |
 | 2 | Payments (mollie/ing/ponto) | ✅ | ~10 | 4 files | 10 | 0 (+0) | ≥0 (dels zero-cov) | bc9bff01 | dead-code ×1, missing ×1 |
 | 3 | Billing/dues/fee | ✅ | ~11 | 10 files | 1 | 0 (+1) | ≥0 (dels zero-cov) | 60efc52e | — |
-| 4 | Member-financial & history | ⬜ | | | | | | | |
-| 5 | e_boekhouden | ⬜ | | | | | | | |
-| 6 | Membership/termination | ⬜ | | | | | | | |
+| 4 | Member-financial & history | ✅ | ~25 | 1 file + 13 methods | 19 | 0 (+1) | ≥0 (dels cov-elsewhere) | 95a114ef | dead-code ×1, missing ×1 |
+| 5 | e_boekhouden | ✅ | ~12 | 1 method (+2 keep-note) | 7 | 0 (+0) | ≥0 | 12f9c3e7 | dead-code ×1 |
+| 6 | Membership/termination | ✅ | ~21 | 1 file (8 methods) + 6 methods | 7 | 0 (+1) | ≥0 (dels asserted-nothing) | ba1bebd6 | dead-code ×1, missing ×1 |
 | 7 | Chapter/volunteer/donation/donor | ⬜ | | | | | | | |
 | 8 | Report/api/portal | ⬜ | | | | | | | |
 | 9 | Utils/infra/security | ⬜ | | | | | | | |
@@ -38,3 +38,17 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
   - **Process fix for next waves:** add "run `pre-commit run --files <your files>` and fix violations"
     to the agent contract — Wave-1 agents ran bench tests but not the pre-commit test-quality hooks,
     causing controller-side cleanup at commit time.
+- **Wave 2 (2026-07-08) — Member-financial / e_boekhouden / Membership-termination — ✅ DONE.** 3 agents
+  (test sites 2/3/4, one fell back to 5), then a skeptical-code-reviewer pass (all 3 APPROVED, 0
+  Critical/Important). Net: **3 test files deleted + ~27 tautological methods removed, 33 rewritten to
+  call REAL production code (validators, status-service, PaymentProcessor) instead of in-test
+  reimplementations, 2 new UNHAPPY gap-fill tests**, all mutation-verified. Test-files-only; zero prod
+  files modified. Commits `95a114ef`/`12f9c3e7`/`ba1bebd6`.
+  - Controller cleanup: `ruff --fix`/`black` again removed unused imports the agents left (esp.
+    e_boekhouden test_transaction_type_classification) — the pre-commit-in-contract fix helped but did
+    not fully prevent it; keep verifying at commit time.
+  - Skeptical Minor notes → final review: a loose `assertIn("permission")` message check;
+    `test_party_resolver` pre-existing config-shape tests (left as-is); `test_membership_status_transitions`
+    may guard `validate_status_transition`, which has no production caller (backlogged as dead-code).
+  - New backlog items: e_boekhouden `validate_status_transition` unwired; member fee-override 0-is-no-op
+    quirk (docstring contradicts behavior); membership_type `default_for_new_members` enforced JS-only.
