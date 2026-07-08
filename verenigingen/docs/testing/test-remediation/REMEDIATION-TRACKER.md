@@ -12,9 +12,9 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
 | 4 | Member-financial & history | ✅ | ~25 | 1 file + 13 methods | 19 | 0 (+1) | ≥0 (dels cov-elsewhere) | 95a114ef | dead-code ×1, missing ×1 |
 | 5 | e_boekhouden | ✅ | ~12 | 1 method (+2 keep-note) | 7 | 0 (+0) | ≥0 | 12f9c3e7 | dead-code ×1 |
 | 6 | Membership/termination | ✅ | ~21 | 1 file (8 methods) + 6 methods | 7 | 0 (+1) | ≥0 (dels asserted-nothing) | ba1bebd6 | dead-code ×1, missing ×1 |
-| 7 | Chapter/volunteer/donation/donor | ⬜ | | | | | | | |
-| 8 | Report/api/portal | ⬜ | | | | | | | |
-| 9 | Utils/infra/security | ⬜ | | | | | | | |
+| 7 | Chapter/volunteer/donation/donor | ✅ | ~25 | 16 methods | 9 | 0 (+1) | ≥0 (dels dead) | 553b136a | dead-code ×1 |
+| 8 | Report/api/portal | ✅ | ~9 | 1 method | 7 | 0 (+1) | ≥0 (del dead-stub) | 2b8ad114 | dead-code ×1 |
+| 9 | Utils/infra/security | ✅ | ~31 | 1 file (17) + 2 methods | 17 | 0 (+0) | ≥0 (dels dead/removed-API) | 0c714ace | missing ×2 |
 | 10 | Co-located doctype + mijnrood_sync | ⬜ | | | | | | | |
 
 ## Wave log
@@ -52,3 +52,19 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
     may guard `validate_status_transition`, which has no production caller (backlogged as dead-code).
   - New backlog items: e_boekhouden `validate_status_transition` unwired; member fee-override 0-is-no-op
     quirk (docstring contradicts behavior); membership_type `default_for_new_members` enforced JS-only.
+- **Wave 3 (2026-07-08) — Chapter-donor-volunteer / Report-api-portal / Utils-infra-security — ✅ DONE.**
+  3 agents (sites 2/3/4), then a skeptical-code-reviewer pass (all 3 APPROVED, 0 Critical/Important).
+  Net: **~19 test methods + 1 file deleted, 33 rewritten, 2 new UNHAPPY**, all mutation-verified.
+  Test-files-only; zero prod files modified. Commits `553b136a`/`2b8ad114`/`0c714ace`.
+  - Highlight: the security agent **strengthened** 6 previously-`@unittest.skip`'d penetration tests into
+    real boundary assertions (webhook HMAC tamper/replay/forgery → SecurityException, token-bucket deny,
+    @high_security_api gating) — reviewer confirmed no genuine pen-test was weakened.
+  - Known-bug tripwire added: `security_monitoring_dashboard` filters key off `process_type` values that
+    are not valid SEPA-Audit-Log Select options → can never match (documented, pins current behavior).
+  - Two dead stubs flagged: `is_membership_related` (return-True, zero callers; byte-identical dup in
+    verenigingen_payments) and the archived Volunteer-Expense permission flow (doctype+fns removed).
+  - Process note: Module 8 agent returned early (waited on a background test) but its report + edits were
+    complete and verified; controller confirmed. ruff/enforcer re-verified clean at commit for all 3.
+  - Skeptical Minor notes → final review: member_test_utilities can't detect member-scoping regressions;
+    two permission tests coupled to factory email-suffix behavior; donor `_enhanced`/`_enhanced_fixed`
+    confirmed NOT duplicates (kept).
