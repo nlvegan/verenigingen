@@ -9,6 +9,7 @@ Tests the notification helper functions including:
 - notify_administrators() - admin notification convenience function
 """
 
+import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -21,7 +22,6 @@ from verenigingen.utils.notification_helpers import (
     notify_administrators,
     send_volunteer_email,
 )
-import unittest
 
 
 class TestSendVolunteerEmail(FrappeTestCase):
@@ -93,12 +93,15 @@ class TestSendVolunteerEmail(FrappeTestCase):
             self.assertIn("no email", result["reason"])
 
     def test_sends_email_with_correct_context(self):
-        """Test sends email with proper context built from volunteer/member.
+        """Test send_volunteer_email builds and forwards the real context.
 
-        Note: This test verifies the context building logic. Full integration
-        tests are in test_notification_configuration_integration.py.
+        Rewritten: the previous version never called send_volunteer_email at
+        all — it reimplemented the context-building dict inline and asserted
+        against its own reimplementation (always passes; catches nothing).
+        This calls the real function, mocking only the true I/O boundaries
+        (frappe.get_doc for the DB lookups, EmailService for the send), and
+        asserts on what the production code actually builds and forwards.
         """
-        # Test the context building pattern used by send_volunteer_email
         mock_member = MagicMock()
         mock_member.full_name = "Test Member"
         mock_member.first_name = "Test"
@@ -106,21 +109,36 @@ class TestSendVolunteerEmail(FrappeTestCase):
         mock_member.email = "test@example.com"
 
         mock_volunteer = MagicMock()
+        mock_volunteer.member = "MEM-001"
         mock_volunteer.volunteer_name = "Test Volunteer"
 
-        # Verify context would be built correctly
-        context = {
-            "member_name": mock_member.full_name or f"{mock_member.first_name} {mock_member.last_name}",
-            "volunteer_name": mock_volunteer.volunteer_name,
-            "member": mock_member,
-            "volunteer": mock_volunteer,
-        }
+        def get_doc_side_effect(doctype, name=None):
+            if doctype == "Volunteer":
+                return mock_volunteer
+            elif doctype == "Member":
+                return mock_member
+            return MagicMock()
 
-        # Merge extra context
-        extra_context = {"custom_field": "custom_value"}
-        context.update(extra_context)
+        mock_email_service = MagicMock()
+        mock_email_service.send_templated_email.return_value = {"success": True}
 
-        # Verify expected keys present
+        with patch("frappe.get_doc", side_effect=get_doc_side_effect):
+            with patch(
+                "verenigingen.services.communication.email_service.get_email_service",
+                return_value=mock_email_service,
+            ):
+                result = send_volunteer_email(
+                    volunteer="VOL-001",
+                    template_name="test_template",
+                    notification_key="test_key",
+                    extra_context={"custom_field": "custom_value"},
+                )
+
+        self.assertTrue(result["success"])
+        call_kwargs = mock_email_service.send_templated_email.call_args.kwargs
+        self.assertEqual(call_kwargs["recipients"], ["test@example.com"])
+        self.assertEqual(call_kwargs["template_name"], "test_template")
+        context = call_kwargs["context"]
         self.assertEqual(context["member_name"], "Test Member")
         self.assertEqual(context["volunteer_name"], "Test Volunteer")
         self.assertEqual(context["custom_field"], "custom_value")
@@ -156,7 +174,14 @@ class TestGetNotificationRecipients(FrappeTestCase):
                 self.assertEqual(result, ["admin@test.com", "manager@test.com"])
 
     def test_uses_default_roles_when_not_specified(self):
-        """Test uses default roles when not specified."""
+        """Test uses default roles (Roles.ADMIN_PAIR) when not specified.
+
+        Rewritten: the previous version computed `filters` and then asserted
+        nothing about it (dead local variable, 0 real assertions — would
+        pass unchanged even if the default-roles fallback were deleted).
+        """
+        from verenigingen.utils.constants import Roles
+
         mock_settings = MagicMock()
         mock_settings.test_field = None
 
@@ -165,26 +190,39 @@ class TestGetNotificationRecipients(FrappeTestCase):
                 mock_get_all.return_value = []
                 get_notification_recipients("test_field")
 
-                # Verify default roles were used in the query
+                # The default-roles fallback query must actually use ADMIN_PAIR.
                 call_args = mock_get_all.call_args
-                filters = call_args.kwargs.get("filters") or call_args.args[1] if len(call_args.args) > 1 else None
-                # The function should have been called to look up users
+                self.assertEqual(call_args.args[0], "User")
+                filters = call_args.kwargs["filters"]
+                role_filter = next(f for f in filters if f[0] == "Has Role")
+                self.assertEqual(set(role_filter[3]), set(Roles.ADMIN_PAIR))
 
     def test_emergency_fallback_to_system_manager(self):
-        """Test falls back to System Manager on exception.
+        """Test falls back to System Manager emails when the primary lookup raises.
 
-        Note: This is a unit test that verifies the fallback pattern exists.
-        The actual fallback uses frappe.get_all to find System Managers.
+        Rewritten: the previous version wrapped the call in try/except and,
+        on ANY exception, asserted `self.assertTrue(True)` — a tautology that
+        passes no matter what the fallback does (or doesn't do). This forces
+        the primary path to fail and asserts the actual System Manager
+        fallback query result is returned.
         """
-        # Test that exception handling exists in the function
-        # The function should handle exceptions gracefully and return a list
-        try:
-            # If settings don't exist, should not raise
-            result = get_notification_recipients("nonexistent_field_12345")
-            self.assertIsInstance(result, list)
-        except Exception:
-            # Even if an error occurs, verify fallback pattern
-            self.assertTrue(True)  # Pattern exists
+        from verenigingen.utils.constants import Roles
+
+        real_get_all = frappe.get_all
+
+        def get_all_side_effect(doctype, filters=None, **kwargs):
+            # The emergency-fallback call queries by System Manager role —
+            # intercept only that; anything else (e.g. frappe.log_error's own
+            # internal lookups) must still hit the real implementation.
+            if filters == [["Has Role", "role", "=", Roles.SYSTEM_MANAGER]]:
+                return ["sysmgr1@test.com", "sysmgr2@test.com", None]
+            return real_get_all(doctype, filters=filters, **kwargs)
+
+        with patch("frappe.get_single", side_effect=Exception("Settings unavailable")):
+            with patch("frappe.get_all", side_effect=get_all_side_effect):
+                result = get_notification_recipients("nonexistent_field_12345")
+
+        self.assertEqual(result, ["sysmgr1@test.com", "sysmgr2@test.com"])
 
 
 class TestGetThresholdSetting(FrappeTestCase):
@@ -217,6 +255,34 @@ class TestGetThresholdSetting(FrappeTestCase):
 class TestCreateSystemNotification(FrappeTestCase):
     """Test create_system_notification function."""
 
+    _TEST_RECIPIENT = "notification-helper-test@example.com"
+
+    def setUp(self):
+        super().setUp()
+        self._create_test_recipient()
+
+    def _create_test_recipient(self):
+        """Ensure a real, enabled User exists whose docname == email.
+
+        create_system_notification resolves recipients via a `pluck="email"`
+        query and then uses that value as the `for_user` Link (a User
+        docname). For most users name == email, but "Administrator"'s name
+        differs from its email — using it as a recipient here would 404 on
+        the Link. A dedicated fixture user sidesteps that special case.
+        """
+        if not frappe.db.exists("User", self._TEST_RECIPIENT):
+            user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": self._TEST_RECIPIENT,
+                    "first_name": "Notification",
+                    "last_name": "Helper Test",
+                    "enabled": 1,
+                    "send_welcome_email": 0,
+                }
+            )
+            user.insert(ignore_permissions=True)
+
     def test_returns_failure_when_no_recipients(self):
         """Test returns failure when no recipients provided."""
         result = create_system_notification(
@@ -240,36 +306,62 @@ class TestCreateSystemNotification(FrappeTestCase):
             self.assertIn("success", result)
 
     def test_truncates_long_subject(self):
-        """Test truncates subject longer than 200 chars.
+        """Test create_system_notification truncates a >200-char subject.
 
-        Note: This is a unit test that verifies the truncation logic.
-        The MAX_SUBJECT_LENGTH constant is 200.
+        Rewritten: the previous version never called create_system_notification —
+        it reimplemented the truncation slicing in-test and asserted against
+        its own copy (would stay green even if the production truncation were
+        deleted). This calls the real function against a real enabled user
+        ("Administrator", guaranteed to exist on every site) and reads back
+        the actually-stored Notification Log subject.
         """
-        MAX_SUBJECT_LENGTH = 200
-        long_subject = "A" * 300
+        long_subject = "S" * 300
 
-        # The function truncates to MAX_SUBJECT_LENGTH - 3 and adds "..."
-        expected_length = MAX_SUBJECT_LENGTH
+        result = create_system_notification(
+            recipients=[self._TEST_RECIPIENT],
+            subject=long_subject,
+            message="Truncation test message",
+        )
+        self.assertTrue(result["success"], result)
 
-        # Verify the logic directly
-        if len(long_subject) > MAX_SUBJECT_LENGTH:
-            truncated = long_subject[: MAX_SUBJECT_LENGTH - 3] + "..."
-            self.assertEqual(len(truncated), MAX_SUBJECT_LENGTH)
+        stored = frappe.get_all(
+            "Notification Log",
+            filters={"for_user": self._TEST_RECIPIENT, "subject": ["like", "SSS%"]},
+            fields=["subject"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(len(stored[0].subject), 200)
+        self.assertTrue(stored[0].subject.endswith("..."))
 
     def test_truncates_long_message(self):
-        """Test truncates message longer than 50KB.
+        """Test create_system_notification truncates a >50KB message.
 
-        Note: This is a unit test that verifies the truncation logic.
-        The MAX_MESSAGE_LENGTH constant is 50000.
+        Rewritten: the previous version never called create_system_notification —
+        it reimplemented the truncation slicing in-test. This calls the real
+        function and reads back the actually-stored email_content.
         """
-        MAX_MESSAGE_LENGTH = 50000
-        long_message = "A" * 60000
+        long_message = "M" * 60000
 
-        # Verify the logic directly
-        if len(long_message) > MAX_MESSAGE_LENGTH:
-            truncated = long_message[:MAX_MESSAGE_LENGTH] + "... [truncated]"
-            self.assertGreater(len(long_message), MAX_MESSAGE_LENGTH)
-            self.assertEqual(len(truncated), MAX_MESSAGE_LENGTH + 15)  # "... [truncated]" is 15 chars
+        result = create_system_notification(
+            recipients=[self._TEST_RECIPIENT],
+            subject="Truncate message test",
+            message=long_message,
+        )
+        self.assertTrue(result["success"], result)
+
+        stored = frappe.get_all(
+            "Notification Log",
+            filters={"for_user": self._TEST_RECIPIENT, "subject": "Truncate message test"},
+            fields=["email_content"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertEqual(len(stored), 1)
+        content = stored[0].email_content
+        self.assertTrue(content.endswith("... [truncated]"))
+        self.assertEqual(len(content), 50000 + len("... [truncated]"))
 
     def test_respects_notification_key_disable(self):
         """Test respects notification disabled via Verenigingen Email Configuration."""
@@ -312,19 +404,28 @@ class TestCreateSystemNotification(FrappeTestCase):
             self.assertTrue(result["skipped"])
 
     def test_limits_recipients_to_max(self):
-        """Test limits recipients to MAX_RECIPIENTS (100).
+        """Test create_system_notification caps recipients to MAX_RECIPIENTS (100).
 
-        Note: This is a unit test that verifies the limiting logic.
-        The MAX_RECIPIENTS constant is 100.
+        Rewritten: the previous version reimplemented the slicing in-test
+        instead of calling create_system_notification. This mocks only the
+        true DB boundary (the recipient-validation query, and doc creation —
+        creating 150 real Users would be excessive for a unit test) while
+        exercising the REAL MAX_RECIPIENTS-limiting code path and asserting
+        on its actual output.
         """
-        MAX_RECIPIENTS = 100
-        many_users = [f"user{i}@test.com" for i in range(150)]
+        many_emails = [f"user{i}@test.com" for i in range(150)]
 
-        # Verify the limiting logic directly
-        if len(many_users) > MAX_RECIPIENTS:
-            limited = many_users[:MAX_RECIPIENTS]
-            self.assertEqual(len(limited), MAX_RECIPIENTS)
-            self.assertLess(len(limited), len(many_users))
+        with patch("frappe.get_all", return_value=many_emails):
+            with patch("frappe.new_doc", return_value=MagicMock()) as mock_new_doc:
+                result = create_system_notification(
+                    recipients=many_emails,
+                    subject="Bulk recipient test",
+                    message="Test message",
+                )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["notifications_created"], 100)
+        self.assertEqual(mock_new_doc.call_count, 100)
 
 
 class TestNotifyAdministrators(FrappeTestCase):
@@ -341,9 +442,7 @@ class TestNotifyAdministrators(FrappeTestCase):
             "verenigingen.utils.notification_helpers._get_email_config_service",
             return_value=mock_config_service,
         ):
-            with patch(
-                "verenigingen.utils.notification_helpers.create_system_notification"
-            ) as mock_create:
+            with patch("verenigingen.utils.notification_helpers.create_system_notification") as mock_create:
                 mock_create.return_value = {"success": True, "notifications_created": 1}
 
                 notify_administrators(
@@ -392,9 +491,7 @@ class TestNotifyAdministrators(FrappeTestCase):
             "verenigingen.utils.notification_helpers._get_email_config_service",
             return_value=mock_config_service,
         ):
-            with patch(
-                "verenigingen.utils.notification_helpers.create_system_notification"
-            ) as mock_create:
+            with patch("verenigingen.utils.notification_helpers.create_system_notification") as mock_create:
                 mock_create.return_value = {"success": True, "notifications_created": 1}
 
                 notify_administrators(
@@ -404,9 +501,7 @@ class TestNotifyAdministrators(FrappeTestCase):
                 )
 
                 # Verify notification key was used
-                mock_config_service.get_recipients_for_notification.assert_called_with(
-                    "test_notification"
-                )
+                mock_config_service.get_recipients_for_notification.assert_called_with("test_notification")
 
     def test_passes_all_parameters_to_create_notification(self):
         """Test passes all parameters to create_system_notification."""
@@ -443,4 +538,5 @@ class TestNotifyAdministrators(FrappeTestCase):
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()
