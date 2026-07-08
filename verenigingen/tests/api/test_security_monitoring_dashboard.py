@@ -22,7 +22,7 @@ rather than assert a (currently impossible) non-empty result.
 """
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.api.security_monitoring_dashboard import (
     _calculate_security_score,
@@ -65,25 +65,53 @@ class TestSecurityMonitoringDashboard(VereningingenTestCase):
     # ------------------------------------------------------------------ #
     # Response-shape tests (whitelisted wrappers)                         #
     # ------------------------------------------------------------------ #
-    def test_dashboard_returns_nested_operation_result(self):
-        """The decorated endpoint returns the nested OperationResult dict."""
-        result = get_security_dashboard_data(24)
+    def test_dashboard_returns_nested_operation_result_with_fresh_timestamps(self):
+        """The decorated endpoint's nested timestamps are real, fresh values.
 
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result["success"])
-        self.assertIn("timestamp", result)
-        self.assertIn("data", result)
+        Strengthened from a pure envelope/shape check: both the outer
+        OperationResult ``timestamp`` and the inner payload's ``generated_at``
+        must parse as real datetimes taken during this call, not placeholders.
+        """
+        before = now_datetime()
+        result = get_security_dashboard_data(24)
+        after = now_datetime()
+
+        self.assertIs(result["success"], True)
+        outer_ts = get_datetime(result["timestamp"])
+        self.assertTrue(before <= outer_ts <= after, f"Outer timestamp {outer_ts} not in [{before}, {after}]")
+
         # Payload is nested one level deeper (OperationResult.ok wraps a dict
         # that itself has a "data" key).
         payload = result["data"]
-        self.assertIn("data", payload)
-        self.assertIn("generated_at", payload)
         self.assertEqual(payload["time_range_hours"], 24)
+        generated_at = get_datetime(payload["generated_at"])
+        self.assertTrue(
+            before <= generated_at <= after, f"generated_at {generated_at} not in [{before}, {after}]"
+        )
 
-    def test_dashboard_inner_sections_present(self):
-        """All seven dashboard sections are produced."""
+    def test_dashboard_summary_section_reflects_seeded_data(self):
+        """The full endpoint's summary section is wired to real audit-log data.
+
+        Strengthened from a pure key-presence check (which stays true even if
+        ``dashboard_data["summary"]`` were replaced by a static placeholder):
+        this proves ``get_security_dashboard_data`` actually calls through to
+        ``_get_security_summary`` by observing the counts move when new rows
+        are seeded, exercised end-to-end through the whitelisted endpoint
+        (unlike ``test_summary_counts_reflect_seeded_records``, which calls
+        the helper directly).
+        """
+        before_summary = get_security_dashboard_data(24)["data"]["data"]["summary"]
+
+        self._make_audit_log("Payment Processing", "Compliant", "wiring-check-ok")
+        self._make_audit_log("Payment Processing", "Failed", "wiring-check-bad")
+
         payload = get_security_dashboard_data(24)["data"]["data"]
+        after_summary = payload["summary"]
 
+        self.assertEqual(after_summary["total_security_events"] - before_summary["total_security_events"], 2)
+        self.assertEqual(after_summary["failed_operations"] - before_summary["failed_operations"], 1)
+
+        # All seven sections remain present alongside the now-verified summary.
         for section in (
             "summary",
             "recent_events",
@@ -105,21 +133,24 @@ class TestSecurityMonitoringDashboard(VereningingenTestCase):
         payload = get_security_dashboard_data("48")["data"]
         self.assertEqual(payload["time_range_hours"], 48)
 
-    def test_metrics_summary_shape(self):
-        """get_security_metrics_summary returns the flat metrics payload."""
-        result = get_security_metrics_summary()
+    def test_metrics_summary_reflects_seeded_data(self):
+        """get_security_metrics_summary's total_events_24h moves with real data.
 
+        Strengthened from a key-presence check to prove the flat summary
+        endpoint is actually wired to ``_get_security_summary`` (not a
+        hardcoded shape), by observing the count increase after seeding.
+        """
+        before = get_security_metrics_summary()["data"]["total_events_24h"]
+
+        self._make_audit_log("Payment Processing", "Compliant", "metrics-wiring-check")
+
+        result = get_security_metrics_summary()
         self.assertTrue(result["success"])
         data = result["data"]
-        for key in (
-            "security_score",
-            "total_events_24h",
-            "rate_violations_24h",
-            "auth_failures_24h",
-            "api_calls_24h",
-            "framework_status",
-        ):
-            self.assertIn(key, data)
+
+        self.assertEqual(data["total_events_24h"] - before, 1)
+        self.assertIsInstance(data["security_score"], (int, float))
+        self.assertIn(data["framework_status"], ("HEALTHY", "DEGRADED", "ERROR"))
 
     # ------------------------------------------------------------------ #
     # Aggregation tests (seed known data, assert it appears)              #
@@ -192,15 +223,21 @@ class TestSecurityMonitoringDashboard(VereningingenTestCase):
         self.assertEqual(after["failed_operations"] - before["failed_operations"], 2)
         self.assertEqual(after["critical_alerts"] - before["critical_alerts"], 1)
 
-    def test_summary_success_rate_bounds(self):
-        """success_rate stays within 0..100 with seeded failures present."""
+    def test_summary_success_rate_exact_value(self):
+        """success_rate is the exact (total-failed)/total*100 computation.
+
+        Strengthened from a ``0 <= x <= 100`` bounds check (true for almost
+        any plausible/buggy formula) to an exact expected value: 1 failed out
+        of 3 seeded events must yield 66.7, not merely "somewhere in range".
+        """
         cutoff = now_datetime()
         self._make_audit_log("Payment Processing", "Failed", "sr-bad")
         self._make_audit_log("Payment Processing", "Compliant", "sr-ok")
+        self._make_audit_log("Payment Processing", "Compliant", "sr-ok-2")
 
         summary = _get_security_summary(cutoff)
-        self.assertGreaterEqual(summary["success_rate"], 0)
-        self.assertLessEqual(summary["success_rate"], 100)
+        self.assertEqual(summary["total_security_events"], 3)
+        self.assertEqual(summary["success_rate"], 66.7)
 
     # ------------------------------------------------------------------ #
     # Pure-function tests: security score maths                          #
@@ -228,42 +265,57 @@ class TestSecurityMonitoringDashboard(VereningingenTestCase):
     # ------------------------------------------------------------------ #
     # Framework health                                                    #
     # ------------------------------------------------------------------ #
-    def test_framework_health_reports_components(self):
-        """Health check enumerates the four framework components."""
+    def test_framework_health_reports_real_cor_count(self):
+        """rate_limiting health message reflects the real enabled COR count.
+
+        Strengthened from "the key exists" to an exact value tied to live
+        database state: the message must literally embed
+        ``frappe.db.count("Critical Operation Rule", {"enabled": 1})``, not a
+        hardcoded or stale number.
+        """
+        expected_count = frappe.db.count("Critical Operation Rule", {"enabled": 1})
         health = _get_framework_health_status()
 
-        self.assertIn(health["overall_status"], ("HEALTHY", "DEGRADED", "ERROR"))
-        components = health["components"]
-        for comp in (
-            "api_security_framework",
-            "audit_logging",
-            "rate_limiting",
-            "csrf_protection",
-        ):
-            self.assertIn(comp, components)
+        self.assertEqual(
+            health["components"]["rate_limiting"],
+            f"✅ OPERATIONAL (COR-based, {expected_count} rules)",
+        )
 
     def test_framework_health_healthy_in_test_env(self):
-        """All components import cleanly in the test environment."""
+        """All non-COR components report the exact operational string.
+
+        Strengthened from a loose ``assertIn("OPERATIONAL", value)``
+        substring check (which would still pass if the "✅" marker were
+        dropped or the message reworded) to an exact match against the
+        documented success string.
+        """
         health = _get_framework_health_status()
         self.assertEqual(health["overall_status"], "HEALTHY")
-        for value in health["components"].values():
-            self.assertIn("OPERATIONAL", value)
+        for comp in ("api_security_framework", "audit_logging", "csrf_protection"):
+            self.assertEqual(health["components"][comp], "✅ OPERATIONAL")
 
     # ------------------------------------------------------------------ #
     # Documented dead-filter behaviour (process_type mismatch)           #
     # ------------------------------------------------------------------ #
-    def test_rate_limit_and_auth_sections_have_stable_shape(self):
-        """Rate-limit / auth-failure sections always return their zeroed shape.
+    def test_rate_limit_and_auth_filters_never_match_valid_process_types(self):
+        """CHARACTERIZATION / KNOWN BUG: these sections are permanently empty.
 
-        These filter on process_type values that are not valid SEPA Audit Log
-        Select options, so they can never match a real row.
+        ``_get_rate_limit_violations`` / ``_get_authentication_failures``
+        filter on ``process_type`` values ("rate_limit_exceeded",
+        "unauthorized_access_attempt", "authentication_failed") that are NOT
+        valid ``SEPA Audit Log`` ``process_type`` Select options (only
+        Mandate Creation / Batch Generation / Bank Submission / Payment
+        Processing exist). So even a seeded "Failed" event using a real,
+        valid process_type is never counted in either section.
+
+        This test pins that (buggy) behaviour as a tripwire: if someone adds
+        those process_type values to the Select options (or fixes the filter
+        to key off a real value/field), this test will fail and must be
+        updated to assert detection instead of permanent zero counts.
         """
+        self._make_audit_log("Payment Processing", "Failed", "auth-tripwire")
+
         payload = get_security_dashboard_data(24)["data"]["data"]
 
-        rl = payload["rate_limit_violations"]
-        for key in ("total_violations", "unique_users", "unique_ips", "recent_violations"):
-            self.assertIn(key, rl)
-
-        af = payload["authentication_failures"]
-        for key in ("total_failures", "unique_ips", "recent_failures"):
-            self.assertIn(key, af)
+        self.assertEqual(payload["rate_limit_violations"]["total_violations"], 0)
+        self.assertEqual(payload["authentication_failures"]["total_failures"], 0)

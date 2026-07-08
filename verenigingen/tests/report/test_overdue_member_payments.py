@@ -99,9 +99,7 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         self.assertTrue(report.validate_doctype_fields("Member", ["name", "full_name", "email"]))
 
     def test_validate_doctype_fields_missing_returns_false(self):
-        self.assertFalse(
-            report.validate_doctype_fields("Member", ["definitely_not_a_real_field_xyz"])
-        )
+        self.assertFalse(report.validate_doctype_fields("Member", ["definitely_not_a_real_field_xyz"]))
 
     # --------------------------------------------------------- empty branch
 
@@ -215,9 +213,7 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         self._overdue_invoice(member, due_date=add_days(today(), -70))
         # Set the active membership into a grace period expiring far in the future.
         frappe.db.set_value("Membership", membership.name, "grace_period_status", "Grace Period")
-        frappe.db.set_value(
-            "Membership", membership.name, "grace_period_expiry_date", add_days(today(), 30)
-        )
+        frappe.db.set_value("Membership", membership.name, "grace_period_expiry_date", add_days(today(), 30))
 
         with self.assertNoErrorLog():
             columns, data, _none, chart, summary = report.execute({})
@@ -233,9 +229,7 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         membership, _ = self._active_membership(member)
         self._overdue_invoice(member, due_date=add_days(today(), -70))
         frappe.db.set_value("Membership", membership.name, "grace_period_status", "Grace Period")
-        frappe.db.set_value(
-            "Membership", membership.name, "grace_period_expiry_date", add_days(today(), 3)
-        )
+        frappe.db.set_value("Membership", membership.name, "grace_period_expiry_date", add_days(today(), 3))
 
         with self.assertNoErrorLog():
             columns, data, _none, chart, summary = report.execute({})
@@ -248,9 +242,7 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         membership, _ = self._active_membership(member)
         self._overdue_invoice(member, due_date=add_days(today(), -70))
         frappe.db.set_value("Membership", membership.name, "grace_period_status", "Grace Period")
-        frappe.db.set_value(
-            "Membership", membership.name, "grace_period_expiry_date", add_days(today(), -1)
-        )
+        frappe.db.set_value("Membership", membership.name, "grace_period_expiry_date", add_days(today(), -1))
 
         with self.assertNoErrorLog():
             columns, data, _none, chart, summary = report.execute({})
@@ -308,9 +300,7 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
     def test_from_date_and_to_date_filter(self):
         in_range = self._member_with_customer()
         self._active_membership(in_range)
-        self._overdue_invoice(
-            in_range, due_date=add_days(today(), -20), posting_date=add_days(today(), -20)
-        )
+        self._overdue_invoice(in_range, due_date=add_days(today(), -20), posting_date=add_days(today(), -20))
 
         out_of_range = self._member_with_customer()
         self._active_membership(out_of_range)
@@ -324,21 +314,15 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
             )
         names = {r["member_name"] for r in data}
         self.assertIn(in_range.name, names)
-        self.assertNotIn(
-            out_of_range.name, names, "invoices posted outside the date window must be excluded"
-        )
+        self.assertNotIn(out_of_range.name, names, "invoices posted outside the date window must be excluded")
 
     def test_from_date_only_filter(self):
         member = self._member_with_customer()
         self._active_membership(member)
-        self._overdue_invoice(
-            member, due_date=add_days(today(), -20), posting_date=add_days(today(), -20)
-        )
+        self._overdue_invoice(member, due_date=add_days(today(), -20), posting_date=add_days(today(), -20))
 
         with self.assertNoErrorLog():
-            columns, data, _none, chart, summary = report.execute(
-                {"from_date": add_days(today(), -40)}
-            )
+            columns, data, _none, chart, summary = report.execute({"from_date": add_days(today(), -40)})
         names = {r["member_name"] for r in data}
         self.assertIn(member.name, names)
 
@@ -352,9 +336,7 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         self._overdue_invoice(member_b, due_date=add_days(today(), -20))
 
         with self.assertNoErrorLog():
-            columns, data, _none, chart, summary = report.execute(
-                {"membership_type": type_a.name}
-            )
+            columns, data, _none, chart, summary = report.execute({"membership_type": type_a.name})
         names = {r["member_name"] for r in data}
         self.assertIn(member_a.name, names)
         self.assertNotIn(member_b.name, names, "different membership type must be excluded")
@@ -446,5 +428,16 @@ class TestOverdueMemberPaymentsReport(VereningingenTestCase):
         self.assertIsNotNone(info)
         self.assertEqual(info["name"], member.name)
 
-    def test_is_membership_related_always_true(self):
-        self.assertTrue(report.is_membership_related("anything"))
+    # ---------------------------------------------------- invalid filter (unhappy)
+
+    def test_execute_raises_on_non_numeric_days_overdue_filter(self):
+        """A non-numeric days_overdue filter must raise, not be silently swallowed.
+
+        get_data() does ``int(filters.get("days_overdue"))`` with no guard, and
+        execute()'s outer except re-raises after logging. This is a genuine
+        invalid-parameter rejection path that was previously untested (only
+        the happy numeric-filter case was covered by
+        test_days_overdue_filter_excludes_recent).
+        """
+        with self.assertRaises(ValueError):
+            report.execute({"days_overdue": "not-a-number"})
