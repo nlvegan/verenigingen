@@ -117,6 +117,23 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
             except:
                 pass
 
+    def test_before_submit_rejects_past_batch_date(self):
+        """A batch scheduled to collect on a past date must be rejected at submit.
+
+        Guards DirectDebitBatch.before_submit(); called directly to isolate the
+        date check from the heavy submit/XML machinery."""
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = frappe.utils.add_days(today(), -1)
+        with self.assertRaises(frappe.ValidationError):
+            batch.before_submit()
+
+    def test_before_submit_allows_today_and_future_batch_date(self):
+        """Today and future collection dates are valid and must not be rejected."""
+        for valid_date in (today(), frappe.utils.add_days(today(), 5)):
+            batch = frappe.new_doc("Direct Debit Batch")
+            batch.batch_date = valid_date
+            batch.before_submit()  # must not raise
+
     def test_sepa_configuration_service(self):
         """Test SEPA Configuration Service functionality"""
         # Test settings retrieval

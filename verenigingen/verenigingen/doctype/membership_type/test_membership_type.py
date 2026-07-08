@@ -33,6 +33,36 @@ class TestMembershipType(EnhancedTestCase):
     def tearDown(self):
         super().tearDown()  # Enhanced Test Factory handles cleanup
 
+    def _make_type(self, suffix, default=0):
+        data = dict(self.membership_type_data)
+        data["membership_type_name"] = f"{data['membership_type_name']} {suffix}"
+        data["default_for_new_members"] = default
+        doc = frappe.new_doc("Membership Type")
+        doc.update(data)
+        doc.insert()
+        return doc
+
+    def test_default_for_new_members_is_exclusive(self):
+        """Only one Membership Type may be default_for_new_members at a time.
+
+        Saving a second type as default must clear the flag on the previous default --
+        enforced server-side (MembershipType.enforce_single_default), not only by the
+        client script, so REST API / Data Import / console writes cannot leave two
+        simultaneous defaults.
+        """
+        type_a = self._make_type("A", default=1)
+        self.assertEqual(frappe.db.get_value("Membership Type", type_a.name, "default_for_new_members"), 1)
+
+        type_b = self._make_type("B", default=1)
+
+        # Saving B as the default cleared A's flag -> exactly one default survives.
+        self.assertEqual(frappe.db.get_value("Membership Type", type_b.name, "default_for_new_members"), 1)
+        self.assertEqual(
+            frappe.db.get_value("Membership Type", type_a.name, "default_for_new_members"),
+            0,
+            "server-side enforcement must clear the previous default_for_new_members type",
+        )
+
     def test_create_membership_type(self):
         """Test creating a new membership type"""
         membership_type = frappe.new_doc("Membership Type")

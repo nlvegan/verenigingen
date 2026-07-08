@@ -39,6 +39,29 @@ class MembershipType(Document):
         """Update template when membership type changes"""
         if not frappe.flags.in_migrate:
             self.update_dues_schedule_template()
+        self.enforce_single_default()
+
+    def enforce_single_default(self):
+        """Enforce that at most one Membership Type is the default for new members.
+
+        `default_for_new_members` must be exclusive: when this type is saved with the
+        flag set, clear it on every other type. Previously this invariant was enforced
+        ONLY client-side (membership_type.js's frappe.confirm handler), so a type
+        created/updated via the REST API, Data Import, or bench console could leave
+        multiple simultaneous defaults -- a "business logic must be server-side"
+        (CLAUDE.md) gap that the `members_without_dues_schedule` report and any
+        default-type lookup could then read ambiguously.
+        """
+        if not self.default_for_new_members:
+            return
+
+        other_defaults = frappe.get_all(
+            "Membership Type",
+            filters={"default_for_new_members": 1, "name": ["!=", self.name]},
+            pluck="name",
+        )
+        for other in other_defaults:
+            frappe.db.set_value("Membership Type", other, "default_for_new_members", 0)
 
     def update_dues_schedule_template(self):
         """Update the dues schedule template when membership type changes"""
