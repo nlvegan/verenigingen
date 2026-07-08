@@ -39,6 +39,45 @@ class TestAuditTrailIntegrity(EnhancedTestCase):
             )
         trail._flush_buffer()
 
+    def test_log_event_redacts_sensitive_details(self):
+        """log_event must redact secrets/PII in the details payload before the entry
+        is hashed and persisted, so credentials and bank/card data never reach the
+        Mollie Audit Log. Non-sensitive fields are preserved and the caller's dict is
+        not mutated. Recurses into nested dicts and lists."""
+        trail = ImmutableAuditTrail()
+        original = {
+            "api_key": "sk_live_secret",
+            "password": "hunter2",
+            "iban": "NL02ABNA0123456789",
+            "credit_card": "4111111111111111",
+            "amount": 50.0,
+            "nested": {"access_token": "tok-123", "status": "paid"},
+            "items": [{"secret": "x", "label": "ok"}],
+        }
+        trail.log_event(
+            AuditEventType.PAYMENT_CREATED, AuditSeverity.INFO, "redaction test", details=original
+        )
+        stored = trail.buffer[-1]["details"]
+
+        # Secrets / PII redacted (including nested dict + list-of-dict).
+        for path in (
+            stored["api_key"],
+            stored["password"],
+            stored["iban"],
+            stored["credit_card"],
+            stored["nested"]["access_token"],
+            stored["items"][0]["secret"],
+        ):
+            self.assertEqual(path, trail._REDACTED)
+
+        # Non-sensitive values preserved.
+        self.assertEqual(stored["amount"], 50.0)
+        self.assertEqual(stored["nested"]["status"], "paid")
+        self.assertEqual(stored["items"][0]["label"], "ok")
+
+        # The caller's original dict must NOT be mutated.
+        self.assertEqual(original["api_key"], "sk_live_secret")
+
     def test_verify_integrity_valid_chain(self):
         """A freshly written chain should verify as valid (no crash, no errors)."""
         start = add_to_date(now_datetime(), seconds=-1)
@@ -72,6 +111,15 @@ class TestAuditTrailIntegrity(EnhancedTestCase):
         self.assertFalse(is_valid)
         self.assertTrue(errors)
 
+    def _make_audit_log_entry(self, **fields):
+        """Factory helper: insert a standalone (non-chain) Mollie Audit Log entry for
+        test scenarios. ignore_permissions is confined to this factory method (per the
+        test-quality standard) rather than being scattered through test bodies."""
+        entry = frappe.new_doc("Mollie Audit Log")
+        entry.update(fields)
+        entry.insert(ignore_permissions=True)
+        return entry
+
     def test_verify_integrity_ignores_non_chain_entries(self):
         """Standalone Mollie Audit Log entries (no chain linkage) must not break verification."""
         start = add_to_date(now_datetime(), seconds=-1)
@@ -80,15 +128,15 @@ class TestAuditTrailIntegrity(EnhancedTestCase):
 
         # Insert a standalone entry the way mollie/utils/audit.py does:
         # event_data WITHOUT a previous_hash marker, no chain participation.
-        other = frappe.new_doc("Mollie Audit Log")
-        other.event_type = "webhook_validation"
-        other.event_category = "Security"
-        other.description = "standalone non-chain entry"
-        other.event_data = json.dumps({"foo": "bar"})
-        other.severity = "info"
-        other.timestamp = now_datetime()
-        other.user = "Administrator"
-        other.insert(ignore_permissions=True)
+        self._make_audit_log_entry(
+            event_type="webhook_validation",
+            event_category="Security",
+            description="standalone non-chain entry",
+            event_data=json.dumps({"foo": "bar"}),
+            severity="info",
+            timestamp=now_datetime(),
+            user="Administrator",
+        )
 
         # Log one more chained event after the interloper.
         self._log_and_flush(trail, n=1)
@@ -110,14 +158,14 @@ class TestAuditTrailIntegrity(EnhancedTestCase):
         # "previous_hash" key but no "sequence", so it is NOT a chain entry
         # (writer #3 / mollie/utils/audit.py serializes arbitrary caller data).
         for i in range(25):
-            decoy = frappe.new_doc("Mollie Audit Log")
-            decoy.event_type = "webhook_validation"
-            decoy.description = f"decoy {i}"
-            decoy.event_data = json.dumps({"previous_hash": "deadbeef", "n": i})
-            decoy.severity = "info"
-            decoy.timestamp = now_datetime()
-            decoy.user = "Administrator"
-            decoy.insert(ignore_permissions=True)
+            self._make_audit_log_entry(
+                event_type="webhook_validation",
+                description=f"decoy {i}",
+                event_data=json.dumps({"previous_hash": "deadbeef", "n": i}),
+                severity="info",
+                timestamp=now_datetime(),
+                user="Administrator",
+            )
 
         fresh = ImmutableAuditTrail()
         self.assertEqual(fresh._get_last_hash(), tail_hash)
