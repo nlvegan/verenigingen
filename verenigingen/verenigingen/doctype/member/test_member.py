@@ -313,9 +313,51 @@ class TestMember(EnhancedTestCase):
             member.validate_iban_format("NL02ABNA")
 
     def test_chapter_matching(self):
-        """Test chapter assignment and matching based on address"""
-        # TODO: Implement chapter assignment test
-        pass
+        """Chapter matching by postal code returns the covering chapter only.
+
+        Exercises the real address->chapter matching path used to suggest a
+        chapter for a member: get_chapters_by_postal_code -> ChapterMatchingService
+        -> Chapter.matches_postal_code against a published chapter's postal ranges.
+        """
+        from verenigingen.verenigingen.doctype.chapter.chapter import get_chapters_by_postal_code
+
+        # Ensure a Region exists to attach the chapter to
+        region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
+        if not region:
+            region = (
+                frappe.get_doc(
+                    {
+                        "doctype": "Region",
+                        "region_name": "Test Region",
+                        "region_code": "TR",
+                        "country": "Netherlands",
+                        "is_active": 1,
+                    }
+                )
+                .insert()
+                .name
+            )
+
+        chapter = frappe.get_doc(
+            {
+                "doctype": "Chapter",
+                "name": f"Test Match Chapter {self.unique_id}",
+                "region": region,
+                "status": "Active",
+                "published": 1,
+                "introduction": "Postal matching test chapter",
+                "postal_codes": "1000-1999",
+            }
+        )
+        chapter.insert()
+
+        # A postal code inside the range matches this chapter
+        in_range = [c["name"] for c in get_chapters_by_postal_code("1500")]
+        self.assertIn(chapter.name, in_range)
+
+        # A postal code outside the range does not match this chapter
+        out_of_range = [c["name"] for c in get_chapters_by_postal_code("2500")]
+        self.assertNotIn(chapter.name, out_of_range)
 
     def test_new_member_skips_membership_status_update(self):
         """Test that new members don't cause database errors during creation"""
