@@ -183,28 +183,39 @@ def _get_recent_security_events(cutoff_time, limit=50):
         return []
 
 
+def _unique_ips_from_rows(rows):
+    """Collect distinct IPs from audit rows, preferring the ip_address column and
+    falling back to an ip_address nested in the JSON details blob."""
+    unique_ips = set()
+    for row in rows:
+        ip = row.get("ip_address")
+        if not ip and row.get("details"):
+            try:
+                ip = json.loads(row.get("details") or "{}").get("ip_address")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                ip = None
+        if ip:
+            unique_ips.add(ip)
+    return unique_ips
+
+
 def _get_rate_limit_violations(cutoff_time):
     """Get rate limiting violations"""
 
     try:
-        # Look for rate limit events in audit log
+        # Rate-limit events are general API/security events, so the audit logger routes
+        # them to API Audit Log (event_type), NOT SEPA Audit Log (process_type, whose
+        # Select options are only the four SEPA workflow stages). Querying SEPA Audit
+        # Log by process_type="rate_limit_exceeded" could never match — this panel was
+        # permanently empty.
         violations = frappe.get_all(
-            "SEPA Audit Log",
-            filters={"creation": [">=", cutoff_time], "process_type": "rate_limit_exceeded"},
-            fields=["user", "creation", "details", "action"],
-            order_by="creation desc",
+            "API Audit Log",
+            filters={"timestamp": [">=", cutoff_time], "event_type": "rate_limit_exceeded"},
+            fields=["user", "ip_address", "timestamp", "details", "event_type"],
+            order_by="timestamp desc",
         )
 
-        # Extract IP addresses from details if available
-        unique_ips = set()
-        for v in violations:
-            if v.get("details"):
-                try:
-                    details = json.loads(v.get("details", "{}"))
-                    if details.get("ip_address"):
-                        unique_ips.add(details.get("ip_address"))
-                except:
-                    pass
+        unique_ips = _unique_ips_from_rows(violations)
 
         return {
             "total_violations": len(violations),
@@ -222,28 +233,23 @@ def _get_authentication_failures(cutoff_time):
     """Get authentication failure statistics"""
 
     try:
-        # Look for authentication failure events
+        # Authentication/authorization failures are general security events routed to
+        # API Audit Log (event_type), not SEPA Audit Log. The prior query filtered SEPA
+        # Audit Log by process_type in ("unauthorized_access_attempt",
+        # "authentication_failed") — neither is a valid process_type Select option (and
+        # "authentication_failed" is not a logged event type at all; the real login
+        # failure event is "failed_login_attempt") — so it never matched.
         failures = frappe.get_all(
-            "SEPA Audit Log",
+            "API Audit Log",
             filters={
-                "creation": [">=", cutoff_time],
-                "process_type": ["in", ["unauthorized_access_attempt", "authentication_failed"]],
-                "compliance_status": ["in", ["Failed", "Exception"]],
+                "timestamp": [">=", cutoff_time],
+                "event_type": ["in", ["failed_login_attempt", "unauthorized_access_attempt"]],
             },
-            fields=["user", "creation", "details", "action", "compliance_status"],
-            order_by="creation desc",
+            fields=["user", "ip_address", "timestamp", "details", "event_type", "severity"],
+            order_by="timestamp desc",
         )
 
-        # Extract IP addresses from details if available
-        unique_ips = set()
-        for f in failures:
-            if f.get("details"):
-                try:
-                    details = json.loads(f.get("details", "{}"))
-                    if details.get("ip_address"):
-                        unique_ips.add(details.get("ip_address"))
-                except:
-                    pass
+        unique_ips = _unique_ips_from_rows(failures)
 
         return {
             "total_failures": len(failures),
@@ -312,10 +318,11 @@ def _get_active_security_alerts():
                 }
             )
 
-        # Check for high rate limit violations
+        # Check for high rate limit violations. Rate-limit events live in API Audit Log
+        # (event_type), not SEPA Audit Log (process_type) — see _get_rate_limit_violations.
         rate_violations = frappe.get_all(
-            "SEPA Audit Log",
-            filters={"creation": [">=", add_days(now_datetime(), -1)], "process_type": "rate_limit_exceeded"},
+            "API Audit Log",
+            filters={"timestamp": [">=", add_days(now_datetime(), -1)], "event_type": "rate_limit_exceeded"},
         )
 
         if len(rate_violations) > 10:
