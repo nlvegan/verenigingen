@@ -349,6 +349,17 @@ class ContributionAmendmentRequest(Document):
         # not be able to approve their own dues change (e.g. a decrease to the
         # minimum). Staff/admin-initiated requests keep the auto-approval decision.
         if self.requested_by_member and not self._is_privileged_amendment_user():
+            # Only scrub when the request was actually AUTO-APPROVED just above. In that
+            # case set_auto_approval_status() stamped approval provenance (approved_by =
+            # the member, approved_date, "Auto-approved..." notes) that must not survive
+            # onto a pending doc — it would falsely read as self-approved and mislead
+            # staff review / any downstream logic keying off approved_by. If the request
+            # was already Pending for a SPECIFIC reason (below the minimum fee, or a
+            # membership-type change), leave that reason intact for the reviewer.
+            if self.status == "Approved":
+                self.approved_by = None
+                self.approved_date = None
+                self.internal_notes = "Requires manual approval: member self-service request"
             self.status = "Pending Approval"
 
     def after_insert(self):

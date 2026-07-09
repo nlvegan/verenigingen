@@ -106,45 +106,96 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         schedule.save()
         return schedule
 
+    def _amendment_payload(self, requested_amount, reason, effective_date=None):
+        return {
+            "doctype": "Contribution Amendment Request",
+            "membership": self.test_membership.name,
+            "member": self.test_member.name,
+            "amendment_type": "Fee Change",
+            "requested_amount": requested_amount,
+            "reason": reason,
+            "effective_date": effective_date if effective_date is not None else add_days(today(), 30),
+        }
+
     def _insert_member_amendment(self, requested_amount, reason, effective_date=None):
-        """Insert a Contribution Amendment Request as member-created fixture data.
+        """Insert a Contribution Amendment Request as MEMBER self-service fixture data.
 
         In production, members create amendments through a self-service API that
-        handles permissions; tests bypass DocPerm here so the auto-approval logic
-        — which records ``approved_by`` = session user — can be exercised. Call
-        inside a ``self._session_user(member.email)`` block so ``approved_by`` is
-        attributed to the member. This is fixture creation, hence the permission
-        bypass lives in this helper rather than inline test logic.
+        handles permissions; tests bypass DocPerm here. Call inside a
+        ``self._session_user(member.email)`` block: the before_insert self-service
+        guard binds the record to the caller and routes it to manual review, so a
+        member's own request never auto-approves (see
+        test_member_self_service_amendment_stays_pending). This is fixture creation,
+        hence the permission bypass lives in this helper rather than inline test logic.
         """
-        amendment = frappe.get_doc(
-            {
-                "doctype": "Contribution Amendment Request",
-                "membership": self.test_membership.name,
-                "member": self.test_member.name,
-                "amendment_type": "Fee Change",
-                "requested_amount": requested_amount,
-                "reason": reason,
-                "effective_date": effective_date if effective_date is not None else add_days(today(), 30),
-            }
-        )
+        amendment = frappe.get_doc(self._amendment_payload(requested_amount, reason, effective_date))
         amendment.insert(ignore_permissions=True)
         self.track_doc("Contribution Amendment Request", amendment.name)
         return amendment
 
-    def test_enhanced_auto_approval_logic(self):
-        """Test enhanced auto-approval with configurable settings"""
+    def _insert_privileged_amendment(self, requested_amount, reason, effective_date=None):
+        """Insert an amendment as a PRIVILEGED actor (Administrator, the default test
+        user). Privileged staff/admin bypass the member self-service guard and retain
+        the auto-approval flow, so a Fee Change respecting the minimum fee auto-approves
+        on insert with approved_by = the acting user.
+        """
+        amendment = frappe.get_doc(self._amendment_payload(requested_amount, reason, effective_date))
+        amendment.insert()
+        self.track_doc("Contribution Amendment Request", amendment.name)
+        return amendment
 
-        # Test 1: Auto-approval for fee increase by member
+    def test_enhanced_auto_approval_logic(self):
+        """A privileged (staff/admin) fee-increase amendment that respects the minimum
+        fee auto-approves on insert: status Approved, approved_by = the acting user.
+
+        This is the surviving auto-approval path — member self-service requests never
+        auto-approve (covered by test_member_self_service_amendment_stays_pending)."""
+        # Runs as Administrator (default test user) => privileged => auto-approval flow.
+        amendment = self._insert_privileged_amendment(
+            requested_amount=25.00,  # Increase from typical €15, respects the €15 minimum
+            reason="Staff-recorded increase within auto-approval rules",
+        )
+
+        self.assertEqual(amendment.status, "Approved")
+        self.assertEqual(amendment.approved_by, frappe.session.user)
+        self.assertIn("Auto-approved", amendment.internal_notes or "")
+
+    def test_member_self_service_amendment_stays_pending(self):
+        """SECURITY: a member's OWN fee-change request must never auto-approve, even when
+        it respects the minimum fee — it always routes to manual staff review. Guards
+        contribution_amendment_request.before_insert (requested_by_member => Pending)."""
         with self._session_user(self.test_member.email):
             amendment = self._insert_member_amendment(
-                requested_amount=25.00,  # Increase from typical €15
-                reason="I can afford to contribute more",
+                requested_amount=25.00,  # Same increase that auto-approves for staff above
+                reason="Member self-service increase",
             )
 
-            # Should be auto-approved for fee increase by member
-            self.assertEqual(amendment.status, "Approved")
-            self.assertEqual(amendment.approved_by, self.test_member.email)
-            self.assertIn("Auto-approved", amendment.internal_notes or "")
+        self.assertTrue(amendment.requested_by_member)
+        self.assertEqual(amendment.status, "Pending Approval")
+        # The auto-approval decision runs before the security override; the override
+        # must scrub any approval provenance so a pending request is not falsely
+        # stamped as self-approved by the member.
+        self.assertFalse(amendment.approved_by, "pending member request must not carry approved_by")
+        self.assertFalse(amendment.approved_date)
+        self.assertNotIn("Auto-approved", amendment.internal_notes or "")
+
+    def test_member_pending_keeps_specific_reason(self):
+        """When a member request is Pending for a SPECIFIC reason (below the auto-approval
+        minimum fee), the self-service override must PRESERVE that reason, not clobber it
+        with a generic message — the scrub only applies to auto-approved requests.
+
+        Guards the `if self.status == "Approved"` conditional in before_insert's override:
+        a €10 decrease clears the €5 validation floor but is below the €15 auto-approval
+        minimum, so set_auto_approval_status records "below minimum fee" + Pending; that
+        reason must survive the member override for staff to see."""
+        with self._session_user(self.test_member.email):
+            amendment = self._insert_member_amendment(
+                requested_amount=10.00,  # >= €5 validation floor, < €15 auto-approval minimum
+                reason="Member decrease below the auto-approval floor",
+            )
+
+        self.assertEqual(amendment.status, "Pending Approval")
+        self.assertIn("below minimum", (amendment.internal_notes or "").lower())
 
     def test_manual_approval_required_for_decreases(self):
         """Test that fee decreases require manual approval"""
@@ -365,21 +416,24 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         self.assertEqual(dues_schedule.dues_rate, 50.00)
 
     def test_small_adjustment_auto_approval(self):
-        """Test auto-approval for small adjustments (< 5% change)"""
+        """A privileged fee change auto-approves whenever it respects the minimum fee,
+        at a different current amount (€20) than test_enhanced_auto_approval_logic (€15).
 
-        # Set up current amount of €20
-        initial_schedule = self._active_schedule_with_amount(20.00)
+        Note: current auto-approval keys ONLY off respects-minimum — the historical
+        SMALL_ADJUSTMENT_THRESHOLD (5%) is not consulted — so the €0.50/€20 = 2.5% figure
+        is illustrative, not the thing under test."""
 
-        # Create amendment with small change (€0.50 = 2.5% of €20)
-        with self._session_user(self.test_member.email):
-            amendment = self._insert_member_amendment(
-                requested_amount=20.50,
-                reason="Small adjustment",
-            )
+        # Set up current amount of €20 (the amount this test's auto-approval is measured against)
+        self._active_schedule_with_amount(20.00)
 
-            # A change that respects the minimum fee is auto-approved.
-            self.assertEqual(amendment.status, "Approved")
-            self.assertIn("Auto-approved", amendment.internal_notes or "")
+        # Privileged small change that respects the €15 minimum is auto-approved on insert.
+        amendment = self._insert_privileged_amendment(
+            requested_amount=20.50,
+            reason="Small adjustment",
+        )
+
+        self.assertEqual(amendment.status, "Approved")
+        self.assertIn("Auto-approved", amendment.internal_notes or "")
 
     def test_amendment_metadata_tracking(self):
         """Test that amendment metadata is properly tracked"""
