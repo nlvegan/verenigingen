@@ -165,6 +165,20 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
         self.test_activity.insert(ignore_permissions=True)
         self._docs_to_delete.append(("Volunteer Activity", self.test_activity.name))
 
+        # get_aggregated_assignments caches per-request on frappe.local, which is
+        # NOT rolled back between test methods. Combined with rolled-back
+        # naming-series reuse (a prior, rolled-back test can leave the same
+        # Assoc-Vol-YYYY-MM-### name), a stale cache entry keyed by this
+        # volunteer's name can leak in and shadow the assignments just created
+        # (observed in CI: a single Activity from another volunteer). We just
+        # changed this volunteer's assignment data, so invalidate its cache per
+        # the function's documented contract.
+        from verenigingen.services.volunteer.assignment_query_builder import (
+            invalidate_volunteer_assignment_cache,
+        )
+
+        invalidate_volunteer_assignment_cache(self.test_volunteer.name)
+
     def test_aggregated_assignments(self):
         """Test the aggregated assignments feature"""
         # Reload volunteer to ensure we have latest data
