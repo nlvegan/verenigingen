@@ -160,9 +160,15 @@ transaction (harness-hazardous — bleeds into sibling shards); global-Single mu
 contention. One candidate was correctly **dropped** mid-write (member_merge `execute_merge:307` guard — not
 mutation-isolable; a downstream `target.save()` independently enforces write perm).
 
-**Latent prod bug surfaced (test-files-only mandate — NOT fixed here):** `chapter_validation_service.py:90`
-`validate_chapter_access` has a `frappe.throw` swallowed by a broad `try/except` ("Don't block access on
-validation errors") — it never actually denies despite its docstring. Backlog for a dedicated prod pass.
+**Latent prod bug — FIXED (2026-07-09, commit follows on this branch).** `chapter_validation_service.py`
+`validate_chapter_access` had its deliberate `frappe.throw` swallowed by the broad `try/except Exception`
+("Don't block access on validation errors") — the National-Board access guard never actually denied despite
+its docstring. Fix: the throw now raises `frappe.PermissionError` (matching the documented `Raises:`
+contract) and a dedicated `except frappe.PermissionError: raise` re-raises it *before* the fail-open handler,
+so the intentional denial propagates while unexpected settings/role-lookup errors still fail open by design.
+Mutation-verified regression test added: `test_chapter_service_coverage.py::TestChapterValidationService::
+test_verenigingen_admin_blocked_from_national_board` (RED without the re-raise, GREEN with it; full module
+70/70 green + `test_national_chapter_access` 2/2 green). Also removed a pre-existing unused `today` import.
 
 **Push total: 48 mutation-verified negative-path tests (9 initial + 39 breadth), zero production changes,
 all skeptical-reviewed MEANINGFUL.**
