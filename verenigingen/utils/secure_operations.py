@@ -83,6 +83,7 @@ def _get_metrics() -> dict:
             "bypass_used": 0,
             "escalation_denied": 0,
             "bypass_denied": 0,
+            "system_operation": 0,
         }
     return _metrics.counters
 
@@ -344,7 +345,11 @@ class SecureOperationResult:
 
 
 def _execute_document_operation(
-    doc, operation: str, bypass_validations: List[str] = None, justification: str = ""
+    doc,
+    operation: str,
+    bypass_validations: List[str] = None,
+    justification: str = "",
+    ignore_permissions: bool = False,
 ):
     """
     Execute the correct document operation method
@@ -357,8 +362,16 @@ def _execute_document_operation(
         operation: Operation string ("create", "save", "submit", etc.)
         bypass_validations: List of validations to bypass (e.g., ["link_validation"])
         justification: Business justification for the operation
+        ignore_permissions: When True, skip Frappe's DocPerm check on the underlying
+            write (system-level operations only — see secure_document_operation's
+            system_operation mode). Business rules / controller validate() still run.
     """
     operation = operation.lower()
+
+    # System-level writes bypass DocPerm on the underlying operation. Set the flag
+    # once so every branch below (insert/save/submit/cancel/delete) honours it.
+    if ignore_permissions:
+        doc.flags.ignore_permissions = True
 
     if operation in ["create", "insert"]:
         doc.insert()
@@ -749,6 +762,7 @@ def secure_document_operation(
     allow_system_user: bool = True,
     validate_business_rules: bool = True,
     bypass_validations: List[str] = None,
+    system_operation: bool = False,
 ) -> SecureOperationResult:
     """
     Perform a document operation with proper security validation
@@ -772,6 +786,17 @@ def secure_document_operation(
         bypass_validations: List of validations to bypass (e.g., ["link_validation"]).
             SECURITY: Only System Manager and Verenigingen System Administrator roles
             can use this parameter.
+        system_operation: When True, treat this as a SYSTEM-LEVEL write that is NOT the
+            acting user's discretionary operation — an audit sink, event log, hook, or
+            background-job bookkeeping record that must be written regardless of who
+            triggered it. The acting user's DocPerm check is skipped and the underlying
+            write runs with ignore_permissions, while the justification is still
+            validated/recorded and the operation is audited with
+            permission_source="system_operation". Content MUST be system-constructed
+            (never raw user input) so there is no forgery surface. Do NOT use this for
+            user-facing discretionary operations — use the normal permission/escalation
+            path for those. Mutually exclusive with the allow_system_user escalation
+            path (this bypasses it entirely).
 
     Returns:
         SecureOperationResult with success status and audit information
@@ -821,18 +846,32 @@ def secure_document_operation(
     )
 
     try:
-        # Step 1: Validate current user permissions
-        current_user_has_permissions = validate_permissions(doc, operation, required_permissions)
+        # Step 1: Validate current user permissions. A system_operation is a
+        # non-discretionary system-level write (audit sink, hook, background
+        # bookkeeping) that must succeed regardless of the actor, so it skips the
+        # actor DocPerm check and runs the underlying write with ignore_permissions.
+        current_user_has_permissions = system_operation or validate_permissions(
+            doc, operation, required_permissions
+        )
 
         if current_user_has_permissions:
-            # Current user has sufficient permissions - proceed directly
-            frappe.logger().info(
-                f"SECURE_OP: {frappe.session.user} has permissions for {operation} "
-                f"on {doc.doctype} [{operation_id}]"
-            )
+            if system_operation:
+                increment_metric("system_operation")
+                frappe.logger().info(
+                    f"SECURE_OP: system-level {operation} on {doc.doctype} "
+                    f"(actor={frappe.session.user}) [{operation_id}]"
+                )
+            else:
+                # Current user has sufficient permissions - proceed directly
+                frappe.logger().info(
+                    f"SECURE_OP: {frappe.session.user} has permissions for {operation} "
+                    f"on {doc.doctype} [{operation_id}]"
+                )
 
-            # Perform operation with current user
-            _execute_document_operation(doc, operation, bypass_validations, justification)
+            # Perform operation (system_operation bypasses DocPerm on the write)
+            _execute_document_operation(
+                doc, operation, bypass_validations, justification, ignore_permissions=system_operation
+            )
 
             # SECURITY: Post-validation after bypass to verify document integrity
             if bypass_validations:
@@ -848,7 +887,7 @@ def secure_document_operation(
                 doc.name,
                 {
                     "performed_by": frappe.session.user,
-                    "permission_source": "current_user",
+                    "permission_source": "system_operation" if system_operation else "current_user",
                     "bypass_validations": bypass_validations or [],
                     "integrity_warnings": len(integrity_violations) if bypass_validations else 0,
                 },
