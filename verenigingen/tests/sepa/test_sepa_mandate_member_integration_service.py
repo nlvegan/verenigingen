@@ -201,6 +201,38 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
                                     filters={'parent': mandate.member, 'sepa_mandate': mandate.name})
             self.assertEqual(len(links), 1)
 
+    def test_controller_update_member_table_throws_for_unauthorized_user(self):
+        """SEPAMandate.update_member_sepa_mandates_table() re-surfaces a permission
+        failure as a ValidationError -- real user, real resolver, no mocks.
+
+        The controller wrapper throws when the integration service reports
+        success=False (sepa_mandate.py:221-222). A non-privileged user who is
+        neither admin/staff nor the mandate's own member genuinely fails the
+        clean permission resolver's can_access_member() check, so the service
+        catches the PermissionError, returns success=False, and the controller
+        throws. Unlike the mock-based service-layer tests above, this exercises
+        the undecorated controller method end-to-end through the real resolver;
+        no test otherwise calls update_member_sepa_mandates_table() at all.
+        """
+        mandate = self._create_test_mandate()
+
+        # A real user with no access to this member: it carries the member role
+        # but is not linked to any Member, so can_access_member() -> False.
+        stranger = self.create_test_user_with_roles(roles=["Verenigingen Member"])
+
+        # The service logs the caught PermissionError before the controller
+        # re-throws; whitelist that Error Log so the guard mixin stays quiet.
+        self.expectErrorLog("Error updating member SEPA mandates table")
+
+        original_user = frappe.session.user
+        frappe.set_user(stranger.name)
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                mandate.update_member_sepa_mandates_table()
+            self.assertIn("Insufficient permissions", str(ctx.exception))
+        finally:
+            frappe.set_user(original_user)
+
     # ========================================================================
     # Tests for _validate_sepa_mandate_permissions()
     # ========================================================================
