@@ -23,7 +23,6 @@ Architecture:
 
 import time
 import frappe
-from frappe.utils import getdate, add_days, now_datetime
 # FrappeTestCase import removed - all classes use EnhancedTestCase
 
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -440,10 +439,41 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
         self.assertLess(execution_time, 1.0,
                        f"Permission checks took too long: {execution_time:.2f}s")
                        
+    def test_disabled_user_denied_donor_access(self):
+        """
+        TEST 11: Disabled User Account Denial (defense in depth)
+
+        Frappe normally blocks disabled users at login, but a disabled user that
+        still holds the Verenigingen Member role and a valid member link would
+        otherwise pass the ownership check. has_donor_permission must deny them
+        explicitly (permissions.py disabled-user guard).
+        """
+        member1_email = "realmember1@securitytest.invalid"
+        member1_donor = self.test_donors[member1_email]
+
+        # Sanity: an enabled member normally has access to their own donor.
+        self.assertTrue(
+            has_donor_permission(member1_donor.name, member1_email),
+            "Enabled member should access their own donor",
+        )
+
+        user = frappe.get_doc("User", member1_email)
+        user.enabled = 0
+        user.save()
+        try:
+            result = has_donor_permission(member1_donor.name, member1_email)
+            self.assertFalse(
+                result,
+                "Disabled user must be denied donor access even with a valid member link",
+            )
+        finally:
+            user.enabled = 1
+            user.save()
+
     def tearDown(self):
         """Clean up test data"""
         # Permission context handled by Enhanced Test Factory
-        
+
         # Clean up test donors
         for donor in self.test_donors.values():
             try:
@@ -451,7 +481,7 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
                     frappe.delete_doc("Donor", donor.name, force=True)
             except Exception:
                 pass
-                
+
         # Clean up orphaned donor
         try:
             if hasattr(self, 'orphaned_donor') and DocumentExistenceValidator.check_document_exists("Donor", self.orphaned_donor.name):

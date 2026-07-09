@@ -21,50 +21,20 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
-
-class TestPartyConfig(unittest.TestCase):
-    """Tests for PARTY_CONFIG structure validation"""
-
-    def test_party_config_has_required_keys(self):
-        """Test that PARTY_CONFIG has Customer and Supplier configurations"""
-        from verenigingen.e_boekhouden.utils.party_resolver import PARTY_CONFIG
-
-        self.assertIn("Customer", PARTY_CONFIG)
-        self.assertIn("Supplier", PARTY_CONFIG)
-
-    def test_customer_config_has_required_fields(self):
-        """Test that Customer config has all required fields"""
-        from verenigingen.e_boekhouden.utils.party_resolver import PARTY_CONFIG
-
-        customer_config = PARTY_CONFIG["Customer"]
-
-        required_fields = [
-            "doctype",
-            "name_field",
-            "type_field",
-            "group_field",
-            "default_group",
-            "territory_field",
-            "default_territory",
-            "provisional_prefix",
-        ]
-
-        for field in required_fields:
-            self.assertIn(field, customer_config, f"Missing field: {field}")
-
-        self.assertEqual(customer_config["doctype"], "Customer")
-        self.assertEqual(customer_config["name_field"], "customer_name")
-        self.assertEqual(customer_config["territory_field"], "territory")
-
-    def test_supplier_config_has_required_fields(self):
-        """Test that Supplier config has all required fields"""
-        from verenigingen.e_boekhouden.utils.party_resolver import PARTY_CONFIG
-
-        supplier_config = PARTY_CONFIG["Supplier"]
-
-        self.assertEqual(supplier_config["doctype"], "Supplier")
-        self.assertEqual(supplier_config["name_field"], "supplier_name")
-        self.assertIsNone(supplier_config["territory_field"])  # Suppliers don't have territory
+# NOTE: The former TestPartyConfig class (test_party_config_has_required_keys,
+# test_customer_config_has_required_fields, test_supplier_config_has_required_fields)
+# was removed during the residual-tautology sweep. Those tests only mirrored the
+# PARTY_CONFIG constant (e.g. asserting name_field == "customer_name"). Every one of
+# those config values is exercised BEHAVIOURALLY against the real database by the
+# coverage twin test_party_resolver_coverage.py:
+#   - test_creates_real_provisional_customer  -> customer_name / customer_group /
+#     territory (name_field, group_field, default_group, territory_field, default_territory)
+#   - test_creates_real_provisional_supplier   -> supplier_name / supplier_group /
+#     no-territory (Supplier config)
+#   - test_creates_customer_with_contact_and_tax / test_creates_supplier_individual_minimal
+#     -> doctype + type_field routing.
+# A wrong config value would fail those real-DB assertions, so the constant-mirroring
+# tests added no independent signal.
 
 
 class TestExtractPartyNameAndType(unittest.TestCase):

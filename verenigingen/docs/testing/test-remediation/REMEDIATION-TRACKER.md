@@ -172,3 +172,43 @@ test_verenigingen_admin_blocked_from_national_board` (RED without the re-raise, 
 
 **Push total: 48 mutation-verified negative-path tests (9 initial + 39 breadth), zero production changes,
 all skeptical-reviewed MEANINGFUL.**
+
+## Residual tautology/OTHER sweep (2026-07-09, branch `test/residual-tautology-other-sweep`)
+Final follow-on: swept the tautology/OTHER offenders the inventory named that the 10-module remediation
+(services-domain-scoped) and the negative-path push did NOT reach — the non-services `tests/` trees.
+**Method note:** the inventory worklist is pre-remediation and STALE — cross-referenced every flagged
+offender against the ~90 test files already touched since 2026-07-07 (the remediation/negative-path/backlog
+commits), which had already fixed most named offenders (expense_category, volunteer, test_payment_direction,
+test_sepa_health, test_party_resolver-coverage, the tests/unit reimplementers, tests/api shape-only, etc.).
+That left a **crisp residual of 12 files**, remediated in 3 parallel agent batches (test sites 1/2/3), then one
+`skeptical-code-reviewer` pass reading prod-under-test: **33/34 in-scope tests MEANINGFUL** (the lone
+assertion-free survivor + 3 over-broad ones were then strengthened; see below). Test-files-only; **zero
+production files changed**.
+
+**Dispositions:**
+- **5 files DELETED** (dead/self-mock/0-assert, coverage confirmed elsewhere): `backend/validation/test_api_endpoints.py`
+  (5 classes all `@skip`, self-mocking `call_api_method` returning hardcoded dicts; endpoints don't exist),
+  `backend/integration/test_eboekhouden_integration.py` (class-level `@skip`, in-test arithmetic tautologies),
+  `services/test_donation_refactoring_integration.py` (0 `def test_*` print harness), donor
+  `test_donor_security_enhanced.py` + `test_donor_security_working.py` (consolidated into `_enhanced_fixed.py`).
+- **7 files rewritten/trimmed:** `backend/unit/api/test_chapter_api.py` (11 `assertIsNotNone`/try-except-pass →
+  assert persisted state; surfaced 2 latent test bugs — bulk ops passed bare strings, wrong kwargs),
+  `e_boekhouden/test_party_resolver.py` (3 constant-mirror tests deleted; 6 delegation-wrapper routing
+  change-detectors kept — reviewer confirmed mutation-survivable, twin bans mocking the live seam),
+  `member/test_member_status_transitions_enhanced.py` (3 bare-`pass` stubs → real membership_status/
+  application_status derivations), `backend/integration/test_erpnext_expense_integration.py` (16 archived-
+  doctype/dict-tautology deleted, 4 cost-center rewritten, 9 kept), `backend/integration/test_javascript_api_integration.py`
+  (4 source-lint pseudo-tests deleted, 3 behavioral kept), `donor/test_donor_security_enhanced_fixed.py`
+  (consolidation survivor, ported the unique disabled-user guard test), `backend/validation/test_fuzzy_logic_modernization_validation.py`
+  (fixed the assertion-free `test_no_auto_creation_patterns` + over-broad `test_fallback_chapter_assignment_fixed`
+  via `chapter=False` no-auto-chapter contract; strengthened `test_explicit_error_messages` to pin the email
+  message; de-hardcoded the age literal; extracted an `_ensure_low_priv_user` helper for enforcer compliance).
+- **Baseline hygiene:** pruned **25 stale `known_test_failures.txt` entries** for the deleted tests.
+- **Backlog:** Batch B surfaced a genuine prod dead-branch — `member_validation_service._clear_application_status_if_needed`
+  is silently undone by step-5 re-defaulting within the same save pipeline (net-unobservable). Logged to
+  `backlog-dead-code.md`, NOT fixed (test-files-only).
+
+**Out of scope, verified CI-green not-touched:** `test_active_to_suspended_transition`'s brittle
+`assertQueryCount(800)` fails only under isolated cold-metadata single-module runs; introduced 2026-03-10
+(pre the 2026-05-30 baseline) and not baselined → passes in CI's warm sharded `run-parallel-tests`. Sweep only
+reformatted it; left as-is.
