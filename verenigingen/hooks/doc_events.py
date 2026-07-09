@@ -203,9 +203,15 @@ doc_events = {
     # FINANCIAL SYSTEM - SEPA
     # =========================================================================
     "SEPA Mandate": {
+        "after_insert": [
+            "verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate_audit_hooks.log_mandate_created",
+        ],
         "after_save": [
             "verenigingen.utils.cache_invalidation.on_document_update",
             "verenigingen.utils.performance_event_handlers.on_sepa_mandate_change",
+        ],
+        "on_update": [
+            "verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate_audit_hooks.log_mandate_status_change",
         ],
         "on_submit": "verenigingen.utils.cache_invalidation.on_document_submit",
         "on_cancel": "verenigingen.utils.cache_invalidation.on_document_cancel",

@@ -65,8 +65,6 @@ import json
 import frappe
 from frappe.model.document import Document
 
-from verenigingen.utils.secure_operations import secure_document_operation
-
 
 class SEPAAuditLog(Document):
     """
@@ -267,7 +265,8 @@ class SEPAAuditLog(Document):
         - Detailed error reporting for debugging and monitoring
 
         Security:
-        - Uses ignore_permissions=True for system-level audit operations
+        - Inserts audit rows at system level (permissions bypassed) so the
+          compliance trail captures every event regardless of the acting user
         - Validates reference document existence before linking
         - Protects against audit trail corruption or loss
 
@@ -319,18 +318,20 @@ class SEPAAuditLog(Document):
                     doc.reference_doctype = reference_doc.doctype
                     doc.reference_name = reference_doc.name
 
-            # Insert with secure audit trail operation
-            result = secure_document_operation(
-                operation="insert",
-                doc=doc,
-                justification=f"Create SEPA audit log entry for {process_type} action '{action}' - compliance-required audit trail for regulatory oversight",
-                required_permissions=["SEPA Audit Log:create"],
-            )
-            if result.success:
-                return result.document  # Use .document attribute (not .doc)
-            else:
-                frappe.log_error(f"SEPA audit logging failed due to permissions: {'; '.join(result.errors)}")
-                return None
+            # Audit-sink writes are system-level compliance operations that must
+            # capture EVERY SEPA event regardless of the acting user's own
+            # permissions. Mandate/payment audit is frequently triggered from
+            # contexts whose session user has no "SEPA Audit Log:create" grant
+            # (e.g. a member creating a mandate via self-service); gating the write
+            # on that grant silently dropped the trail for exactly those actors.
+            # Insert with ignore_permissions -- matching this doctype's documented
+            # system-audit contract -- so the compliance trail is always recorded.
+            # Security: system-level compliance audit sink. Content is
+            # system-constructed (masked IBAN + statuses/ids), not user-supplied, so
+            # there is no forgery surface; append-only immutability is still enforced
+            # by the Administrator/System-Manager-only on_trash permission.
+            doc.insert(ignore_permissions=True)
+            return doc
 
         except Exception as e:
             frappe.log_error(f"SEPA audit logging failed: {str(e)}")
