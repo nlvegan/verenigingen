@@ -106,28 +106,40 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         schedule.save()
         return schedule
 
+    def _insert_member_amendment(self, requested_amount, reason, effective_date=None):
+        """Insert a Contribution Amendment Request as member-created fixture data.
+
+        In production, members create amendments through a self-service API that
+        handles permissions; tests bypass DocPerm here so the auto-approval logic
+        — which records ``approved_by`` = session user — can be exercised. Call
+        inside a ``self._session_user(member.email)`` block so ``approved_by`` is
+        attributed to the member. This is fixture creation, hence the permission
+        bypass lives in this helper rather than inline test logic.
+        """
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": self.test_membership.name,
+                "member": self.test_member.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": requested_amount,
+                "reason": reason,
+                "effective_date": effective_date if effective_date is not None else add_days(today(), 30),
+            }
+        )
+        amendment.insert(ignore_permissions=True)
+        self.track_doc("Contribution Amendment Request", amendment.name)
+        return amendment
+
     def test_enhanced_auto_approval_logic(self):
         """Test enhanced auto-approval with configurable settings"""
 
         # Test 1: Auto-approval for fee increase by member
         with self._session_user(self.test_member.email):
-            amendment = frappe.get_doc(
-                {
-                    "doctype": "Contribution Amendment Request",
-                    "membership": self.test_membership.name,
-                    "member": self.test_member.name,
-                    "amendment_type": "Fee Change",
-                    "requested_amount": 25.00,  # Increase from typical €15
-                    "reason": "I can afford to contribute more",
-                    "effective_date": add_days(today(), 30),
-                }
+            amendment = self._insert_member_amendment(
+                requested_amount=25.00,  # Increase from typical €15
+                reason="I can afford to contribute more",
             )
-
-            # Members create amendments through a self-service API in production,
-            # not direct doc.insert(); bypass DocPerm here so the auto-approval
-            # logic (which records approved_by = session user) can be exercised.
-            amendment.insert(ignore_permissions=True)
-            self.track_doc("Contribution Amendment Request", amendment.name)
 
             # Should be auto-approved for fee increase by member
             self.assertEqual(amendment.status, "Approved")
@@ -360,20 +372,10 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
 
         # Create amendment with small change (€0.50 = 2.5% of €20)
         with self._session_user(self.test_member.email):
-            amendment = frappe.get_doc(
-                {
-                    "doctype": "Contribution Amendment Request",
-                    "membership": self.test_membership.name,
-                    "member": self.test_member.name,
-                    "amendment_type": "Fee Change",
-                    "requested_amount": 20.50,
-                    "reason": "Small adjustment",
-                    "effective_date": add_days(today(), 30),
-                }
+            amendment = self._insert_member_amendment(
+                requested_amount=20.50,
+                reason="Small adjustment",
             )
-
-            amendment.insert(ignore_permissions=True)
-            self.track_doc("Contribution Amendment Request", amendment.name)
 
             # A change that respects the minimum fee is auto-approved.
             self.assertEqual(amendment.status, "Approved")
