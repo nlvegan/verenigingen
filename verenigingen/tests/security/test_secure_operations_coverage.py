@@ -195,9 +195,7 @@ class TestSecureOperationsCoverage(EnhancedTestCase):
         doc = frappe.new_doc("ToDo")
         doc.description = "perm check todo"
         # Administrator passes the basic check, but the required DocType is bogus.
-        self.assertFalse(
-            validate_permissions(doc, "create", required_permissions=["NoSuchDocTypeXYZ:read"])
-        )
+        self.assertFalse(validate_permissions(doc, "create", required_permissions=["NoSuchDocTypeXYZ:read"]))
 
     def test_validate_permissions_guest_denied_basic(self):
         from verenigingen.utils.secure_operations import validate_permissions
@@ -215,9 +213,7 @@ class TestSecureOperationsCoverage(EnhancedTestCase):
         doc.description = "specific perm check"
         with self._with_user(user.name):
             # Ordinary member lacks 'delete' on Chapter -> specific-permission branch denies.
-            self.assertFalse(
-                validate_permissions(doc, "read", required_permissions=["Chapter:delete"])
-            )
+            self.assertFalse(validate_permissions(doc, "read", required_permissions=["Chapter:delete"]))
 
     # ==================================================================
     # verify_document_integrity
@@ -345,6 +341,93 @@ class TestSecureOperationsCoverage(EnhancedTestCase):
         self.assertTrue(result.success, f"errors: {result.errors}")
         self.assertIsNotNone(result.doc_name)
         self.assertIs(result.document, doc)
+        # A normal (non-system) success is sourced to the current user -- guards the
+        # permission_source ternary against always reporting "system_operation".
+        sources = [
+            e["details"].get("permission_source")
+            for e in result.audit_trail
+            if e.get("details", {}).get("permission_source")
+        ]
+        self.assertIn("current_user", sources)
+        self.assertNotIn("system_operation", sources)
+
+    # ==================================================================
+    # system_operation mode (system-level writes bypass the actor DocPerm)
+    # ==================================================================
+    def test_system_operation_writes_despite_actor_lacking_permission(self):
+        """system_operation=True performs the write regardless of the acting user's
+        DocPerm (audit sinks / hooks / background bookkeeping), where the normal
+        path would deny it. The success is recorded with source 'system_operation'."""
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Baseline: as Guest, without system_operation and no escalation fallback, the
+        # create is denied.
+        self.expectErrorLog("Secure Operation Failed")
+        denied_doc = frappe.new_doc("ToDo")
+        denied_doc.description = "sysop baseline denied"
+        with self._with_user("Guest"):
+            denied = secure_document_operation(
+                operation="create",
+                doc=denied_doc,
+                justification="Guest create without system operation",
+                allow_system_user=False,
+            )
+        self.assertFalse(denied.success, "Guest create must be denied without system_operation")
+
+        # system_operation=True writes it anyway (ignore_permissions on the underlying
+        # insert) and marks the audit source.
+        sys_doc = frappe.new_doc("ToDo")
+        sys_doc.description = "sysop write"
+        with self._with_user("Guest"):
+            result = secure_document_operation(
+                operation="create",
+                doc=sys_doc,
+                justification="System sink writes a bookkeeping record for the actor",
+                system_operation=True,
+            )
+        self.assertTrue(result.success, f"errors: {result.errors}")
+        self.assertIsNotNone(result.doc_name)
+        self.track_doc("ToDo", result.doc_name)
+        self.assertTrue(frappe.db.exists("ToDo", result.doc_name))
+        sources = [
+            e["details"].get("permission_source")
+            for e in result.audit_trail
+            if e.get("details", {}).get("permission_source")
+        ]
+        self.assertIn("system_operation", sources)
+
+    def test_system_operation_still_validates_justification(self):
+        """system_operation does not relax the justification requirement — a too-short
+        justification is still rejected before any write happens."""
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        doc = frappe.new_doc("ToDo")
+        doc.description = "sysop short justification"
+        with self.assertRaises(frappe.ValidationError):
+            secure_document_operation(
+                operation="create",
+                doc=doc,
+                justification="short",  # < 10 chars
+                system_operation=True,
+            )
+
+    def test_system_operation_does_not_unlock_bypass_validations(self):
+        """SECURITY: system_operation waives ONLY the actor DocPerm check — it must NOT
+        unlock bypass_validations, which stays gated on the (stricter) bypass roles. An
+        unprivileged actor combining both is still denied at the bypass gate."""
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        doc = frappe.new_doc("ToDo")
+        doc.description = "sysop + bypass attempt"
+        with self._with_user("Guest"):
+            with self.assertRaises(frappe.PermissionError):
+                secure_document_operation(
+                    operation="create",
+                    doc=doc,
+                    justification="Guest attempts bypass_validations under system_operation",
+                    system_operation=True,
+                    bypass_validations=["link_validation"],
+                )
 
     def test_registry_is_singleton(self):
         from verenigingen.utils.secure_operations import get_critical_operations_registry

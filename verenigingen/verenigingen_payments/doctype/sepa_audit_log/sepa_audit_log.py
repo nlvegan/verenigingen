@@ -65,6 +65,8 @@ import json
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class SEPAAuditLog(Document):
     """
@@ -319,19 +321,27 @@ class SEPAAuditLog(Document):
                     doc.reference_name = reference_doc.name
 
             # Audit-sink writes are system-level compliance operations that must
-            # capture EVERY SEPA event regardless of the acting user's own
-            # permissions. Mandate/payment audit is frequently triggered from
-            # contexts whose session user has no "SEPA Audit Log:create" grant
-            # (e.g. a member creating a mandate via self-service); gating the write
-            # on that grant silently dropped the trail for exactly those actors.
-            # Insert with ignore_permissions -- matching this doctype's documented
-            # system-audit contract -- so the compliance trail is always recorded.
-            # Security: system-level compliance audit sink. Content is
-            # system-constructed (masked IBAN + statuses/ids), not user-supplied, so
+            # capture EVERY SEPA event regardless of the acting user's own permissions
+            # (mandate audit is frequently triggered by a member via self-service, who
+            # has no "SEPA Audit Log:create" grant). Route through secure_operations'
+            # system_operation mode: the write is unconditional (ignore_permissions on
+            # the insert) yet still recorded with a justification + audit trail. Content
+            # is system-constructed (masked IBAN + statuses/ids), not user-supplied, so
             # there is no forgery surface; append-only immutability is still enforced
             # by the Administrator/System-Manager-only on_trash permission.
-            doc.insert(ignore_permissions=True)
-            return doc
+            result = secure_document_operation(
+                operation="insert",
+                doc=doc,
+                justification=(
+                    f"Record SEPA audit log entry for {process_type} action '{action}' "
+                    "- compliance-required regulatory audit trail"
+                ),
+                system_operation=True,
+            )
+            if result.success:
+                return result.document
+            frappe.log_error(f"SEPA audit logging failed: {'; '.join(result.errors)}")
+            return None
 
         except Exception as e:
             frappe.log_error(f"SEPA audit logging failed: {str(e)}")
