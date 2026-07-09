@@ -25,7 +25,7 @@ proves the service correctly validates invoice existence without requiring full 
 import unittest
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -43,10 +43,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         super().setUp()
         # Create test member and customer for invoice creation
         self.test_member = self.create_test_member(
-            first_name="Payment",
-            last_name="Test",
-            email="payment.test@example.com",
-            birth_date="1990-01-01"
+            first_name="Payment", last_name="Test", email="payment.test@example.com", birth_date="1990-01-01"
         )
 
         # The factory already auto-creates and links a Customer for the member
@@ -56,15 +53,17 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
 
         # Ensure test item exists (CodeRabbit suggestion - avoid hardcoded item dependency)
         if not frappe.db.exists("Item", "Test Payment Service Item"):
-            item = frappe.get_doc({
-                "doctype": "Item",
-                "item_code": "Test Payment Service Item",
-                "item_name": "Test Payment Service Item",
-                "item_group": "Services",
-                "stock_uom": "Nos",
-                "is_stock_item": 0,
-                "is_sales_item": 1,
-            })
+            item = frappe.get_doc(
+                {
+                    "doctype": "Item",
+                    "item_code": "Test Payment Service Item",
+                    "item_name": "Test Payment Service Item",
+                    "item_group": "Services",
+                    "stock_uom": "Nos",
+                    "is_stock_item": 0,
+                    "is_sales_item": 1,
+                }
+            )
             item.insert()
             self.track_doc("Item", item.name)
 
@@ -83,11 +82,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             customer=self.test_customer.name,
             posting_date=date.today(),
             due_date=date.today(),
-            items=[{
-                "item_code": self.test_item_code,
-                "qty": 1,
-                "rate": float(amount)
-            }]
+            items=[{"item_code": self.test_item_code, "qty": 1, "rate": float(amount)}],
         )
         if status == "Submitted":
             invoice.submit()
@@ -106,7 +101,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             posting_date=date.today(),
             reference_no="TEST-REF-001",
             reference_date=date.today(),
-            mode_of_payment="SEPA Direct Debit"
+            mode_of_payment="SEPA Direct Debit",
         )
 
         # Assert
@@ -126,21 +121,25 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         invoice.submit()
 
         # Create mock bank transaction
-        bank_account = frappe.get_doc({
-            "doctype": "Bank Account",
-            "account_name": "Test Bank Account",
-            "bank": "Test Bank",
-            "account": "Test - Company"
-        }).insert()
+        bank_account = frappe.get_doc(
+            {
+                "doctype": "Bank Account",
+                "account_name": "Test Bank Account",
+                "bank": "Test Bank",
+                "account": "Test - Company",
+            }
+        ).insert()
 
-        bank_trans = frappe.get_doc({
-            "doctype": "Bank Transaction",
-            "bank_account": bank_account.name,
-            "date": date.today(),
-            "deposit": 75.00,
-            "description": "Test payment",
-            "reference_number": "BANK-REF-001"
-        }).insert()
+        bank_trans = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "bank_account": bank_account.name,
+                "date": date.today(),
+                "deposit": 75.00,
+                "description": "Test payment",
+                "reference_number": "BANK-REF-001",
+            }
+        ).insert()
 
         # Act
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
@@ -150,7 +149,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             reference_no="BANK-REF-001",
             reference_date=date.today(),
             mode_of_payment="Bank Transfer",
-            bank_transaction_name=bank_trans.name
+            bank_transaction_name=bank_trans.name,
         )
 
         # Assert
@@ -172,7 +171,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 posting_date=date.today(),
                 reference_no="TEST-REF-002",
                 reference_date=date.today(),
-                mode_of_payment="SEPA Direct Debit"
+                mode_of_payment="SEPA Direct Debit",
             )
 
         self.assertIn("greater than zero", str(context.exception))
@@ -191,7 +190,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 posting_date=date.today(),
                 reference_no="TEST-REF-003",
                 reference_date=date.today(),
-                mode_of_payment="SEPA Direct Debit"
+                mode_of_payment="SEPA Direct Debit",
             )
 
         self.assertIn("greater than zero", str(context.exception))
@@ -206,7 +205,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 posting_date=date.today(),
                 reference_no="TEST-REF-004",
                 reference_date=date.today(),
-                mode_of_payment="SEPA Direct Debit"
+                mode_of_payment="SEPA Direct Debit",
             )
 
     def test_decimal_to_float_conversion(self):
@@ -229,7 +228,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             posting_date=date.today(),
             reference_no="TEST-REF-005",
             reference_date=date.today(),
-            mode_of_payment="SEPA Direct Debit"
+            mode_of_payment="SEPA Direct Debit",
         )
 
         # Assert - ERPNext stores as float
@@ -349,7 +348,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             reference_no="CUSTOM-REF-123",
             reference_date=test_date,
             mode_of_payment="Bank Transfer",
-            payment_type="Receive"
+            payment_type="Receive",
         )
 
         # Assert all fields
@@ -375,7 +374,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             posting_date=date.today(),
             reference_no="PARTIAL-1",
             reference_date=date.today(),
-            mode_of_payment="SEPA Direct Debit"
+            mode_of_payment="SEPA Direct Debit",
         )
 
         payment2 = payment_entry_service.create_payment_entry_from_invoice(
@@ -384,7 +383,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             posting_date=date.today(),
             reference_no="PARTIAL-2",
             reference_date=date.today(),
-            mode_of_payment="SEPA Direct Debit"
+            mode_of_payment="SEPA Direct Debit",
         )
 
         # Assert - Both payments created successfully
@@ -394,32 +393,47 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.assertEqual(payment1.docstatus, 1)
         self.assertEqual(payment2.docstatus, 1)
 
-    @patch('verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service.frappe.log_error')
-    @patch('verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service.frappe.get_doc')
-    def test_error_logging_for_unexpected_exceptions(self, mock_get_doc, mock_log_error):
-        """Test that unexpected exceptions are logged properly"""
-        # Arrange - Create a mock invoice that exists in DB
-        with patch.object(frappe.db, 'exists', return_value=True):
-            with patch.object(frappe, 'has_permission', return_value=True):
-                # Simulate unexpected exception during payment entry creation
-                mock_get_doc.side_effect = RuntimeError("Unexpected database error")
+    def test_error_logging_for_unexpected_exceptions(self):
+        """Unexpected (non-Validation/Permission) errors hit the generic
+        except-branch, which logs to frappe.log_error with the invoice name and
+        the 'Payment Entry Unexpected Error' title before re-raising.
 
-                # Act & Assert
-                with self.assertRaises(Exception):
-                    payment_entry_service.create_payment_entry_from_invoice(
-                        invoice_name="SI-TEST-001",
-                        amount=Decimal("50.00"),
-                        posting_date=date.today(),
-                        reference_no="TEST-REF-LOG",
-                        reference_date=date.today(),
-                        mode_of_payment="SEPA Direct Debit"
-                    )
+        Uses a REAL submitted invoice and REAL permissions (Administrator in
+        tests). The downstream ERPNext ``get_payment_entry`` builder is patched
+        at its source module to raise a RuntimeError — simulating the rare
+        framework/database failure this branch exists to catch, without mocking
+        any frappe primitive. ``frappe.log_error`` is captured only to assert the
+        observability contract (title + invoice name); it does not alter control
+        flow.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("50.00"))
+        invoice.submit()
 
-                # Verify error was logged
-                mock_log_error.assert_called_once()
-                call_args = mock_log_error.call_args
-                self.assertIn("SI-TEST-001", call_args[0][0])  # Invoice name in error message
-                self.assertEqual(call_args[0][1], "Payment Entry Unexpected Error")  # Error title
+        with (
+            patch(
+                "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+                side_effect=RuntimeError("Unexpected database error"),
+            ),
+            patch(
+                "verenigingen.verenigingen_payments.services.payment."
+                "payment_entry_creation_service.frappe.log_error"
+            ) as mock_log_error,
+        ):
+            with self.assertRaises(Exception):
+                payment_entry_service.create_payment_entry_from_invoice(
+                    invoice_name=invoice.name,
+                    amount=Decimal("50.00"),
+                    posting_date=date.today(),
+                    reference_no="TEST-REF-LOG",
+                    reference_date=date.today(),
+                    mode_of_payment="SEPA Direct Debit",
+                )
+
+        # Verify the unexpected error was logged with the documented contract
+        mock_log_error.assert_called_once()
+        call_args = mock_log_error.call_args
+        self.assertIn(invoice.name, call_args[0][0])  # Invoice name in error message
+        self.assertEqual(call_args[0][1], "Payment Entry Unexpected Error")  # Error title
 
     def test_payment_type_parameter_respected(self):
         """Test that payment_type parameter (Receive/Pay) is properly used"""
@@ -435,7 +449,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             reference_no="RECEIVE-TEST",
             reference_date=date.today(),
             mode_of_payment="Cash",
-            payment_type="Receive"
+            payment_type="Receive",
         )
 
         # Assert
