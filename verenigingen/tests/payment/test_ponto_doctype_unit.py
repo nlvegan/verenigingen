@@ -138,6 +138,19 @@ class TestPontoPaymentLinkApi(EnhancedTestCase):
             # Should NOT raise
             link.cancel_ponto_request()
 
+    def test_send_payment_link_no_email_throws(self):
+        """send_payment_link with no email and no member raises ValidationError.
+
+        The email check is the first statement in send_payment_link and fires
+        entirely offline (before get_payment_url() / the email service), so no
+        Ponto API or email boundary is exercised.
+        """
+        link = self._create_link()  # no member, no email
+        link.insert()
+        with self.assertRaises(frappe.ValidationError) as cm:
+            link.send_payment_link()
+        self.assertIn("No email address provided", str(cm.exception))
+
 
 class TestPontoPaymentRequestApi(EnhancedTestCase):
     """API-calling branches of Ponto Payment Request with the client stubbed."""
