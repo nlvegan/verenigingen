@@ -129,3 +129,40 @@ tests only where a genuine target exists. Test-files-only; **zero production fil
 
 **Net: 9 new mutation-verified negative-path tests across 3 areas (fee-change ×2, bank-recon ×3,
 SEPA ×4); 2 areas correctly yielded no clean target.** Sites test_site_1/2/3.
+
+### Breadth sweep (2026-07-09) — remaining money-path/service surface, 6 waves of 2 agents
+Continuation to "until done": swept every remaining money-path/service cluster the same way (triage for a
+GENUINE reachable rejection target → add mutation-verified UNHAPPY test only where one exists; graceful
+degradation, decorator-shadowed internal throws, live-API-gated, and harness-hazardous rollback targets all
+excluded with rationale). **39 tests added across 12 domains; zero production files changed.** Two `skeptical-
+code-reviewer` passes (Wave 2 during the sweep + a consolidated pass over Waves 1/3/4/5/6): **MEANINGFUL 39/39,
+0 BROKEN, 0 WEAK** (3 minor "could add a message pin" notes, all still mutation-isolable).
+
+| Wave | Commit | Domains (tests) |
+|---|--------|-----------------|
+| 1 | `7cc8b141` | account-creation (6) · termination (1) |
+| 2 | `acf44015` | approval/creation orchestrators (7) · billing validators ex-fee-change (4) |
+| 3 | `2e02d8e5` | volunteer-expense (2) · payments services (3, incl. 2 `@unittest.skip` stubs un-skipped w/ real deskless user) |
+| 4 | `1cacfe42` | chapter/team/member-validation (3) · eBoekhouden offline validators (7) |
+| 5 | `a393a187` | payment-settings (3, Payment Plan) · SEPA mandate/DD-batch (1) |
+| 6 | `d6040475` | Ponto payment doctypes (1) · donor/donation + member-merge (1) |
+
+**Recurring finding (confirmed across ~20 services):** a large share of the audit's "unhappy gap" is
+**graceful-degradation by design** (OperationResult.fail / ValidationResult(ok=False) / error-dict / swallow-
+and-log), NOT missing tests — so the genuine asserted-rejection surface is real but far smaller than the ~17%
+headline implies. Waves 5–6 hit clear diminishing returns (both domains near-exhaustively covered → 4 then 2
+net-new), the signal that the money-path/service surface is swept.
+
+**Deferred/excluded classes (documented per wave, not silently dropped):** `@critical_api`/`@high_security_api`
+internal throws (decorator denies a non-privileged caller *before* the throw → binds to the decorator, not
+mutation-isolable); live-eBoekhouden/Mollie/Ponto-API-gated throws; real `frappe.db.rollback()` inside the test
+transaction (harness-hazardous — bleeds into sibling shards); global-Single mutation; second-DB-connection lock
+contention. One candidate was correctly **dropped** mid-write (member_merge `execute_merge:307` guard — not
+mutation-isolable; a downstream `target.save()` independently enforces write perm).
+
+**Latent prod bug surfaced (test-files-only mandate — NOT fixed here):** `chapter_validation_service.py:90`
+`validate_chapter_access` has a `frappe.throw` swallowed by a broad `try/except` ("Don't block access on
+validation errors") — it never actually denies despite its docstring. Backlog for a dedicated prod pass.
+
+**Push total: 48 mutation-verified negative-path tests (9 initial + 39 breadth), zero production changes,
+all skeptical-reviewed MEANINGFUL.**
