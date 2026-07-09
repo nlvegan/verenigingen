@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING
 
 import frappe
 from frappe import _
-from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.constants import Roles
@@ -91,12 +90,19 @@ class ChapterValidationService(StatelessService):
                         _(
                             "Verenigingen Administrators cannot edit the National Board chapter. "
                             "Please contact an administrator."
-                        )
+                        ),
+                        frappe.PermissionError,
                     )
 
+        except frappe.PermissionError:
+            # Deliberate security denial — must propagate. The broad except below
+            # is a fail-open guard for *unexpected* errors during the settings/role
+            # lookup (don't lock everyone out on a misconfiguration); it must not
+            # swallow the intentional access block raised just above.
+            raise
         except Exception as e:
             self.logger.error(f"Error validating chapter access for {chapter_doc.name}: {str(e)}")
-            # Don't block access on validation errors
+            # Don't block access on unexpected validation errors (fail-open by design)
 
     def auto_fix_required_fields(self, chapter_doc: "Document") -> None:
         """

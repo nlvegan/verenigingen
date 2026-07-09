@@ -109,6 +109,59 @@ class TestValidateAndGetMembershipType(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError):
             self.service._validate_and_get_membership_type(member)
 
+    def test_dangling_template_reference_throws(self):
+        """A membership type whose dues_schedule_template points at a schedule that
+        no longer exists must raise a specific 'does not exist' error.
+
+        This is the second template guard (line 233-241): the type HAS a template
+        configured (so the 'no template configured' branch is skipped), but the
+        referenced schedule is missing from the DB.
+        """
+        mt = self.create_test_membership_type()
+        # Point the type's template link at a nonexistent schedule. Use db.set_value
+        # to bypass Membership Type validation (a dangling link cannot be saved via
+        # the ORM but can arise from a deleted template in production).
+        frappe.db.set_value(
+            "Membership Type", mt.name, "dues_schedule_template", "MDS-DANGLING-DOES-NOT-EXIST-9999"
+        )
+        member = self.create_test_member(selected_membership_type=mt.name)
+        member.reload()
+        # Guard the branch: the member must NOT carry an application_dues_schedule,
+        # otherwise the first template guard would be satisfied differently.
+        self.assertFalse(getattr(member, "application_dues_schedule", None))
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.service._validate_and_get_membership_type(member)
+        self.assertIn("does not exist", str(ctx.exception))
+
+
+class TestGetOrCreateMembership(VereningingenTestCase):
+    """_get_or_create_membership() retry-scenario reject path."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MembershipCreationService()
+
+    def test_existing_active_membership_of_different_type_rejects(self):
+        """A member with an existing active (same-day) membership of type A must NOT
+        get a second membership of a DIFFERENT type B — the service throws and tells
+        the operator to cancel the existing membership first (line 329).
+        """
+        mt_a = self.create_test_membership_type()
+        mt_b = self.create_test_membership_type()
+        member = self.create_test_member(selected_membership_type=mt_a.name)
+        # Existing active + submitted membership of type A, started today. The factory
+        # only inserts (docstatus 0); prod's existing-membership query filters on
+        # {"status": "Active", "docstatus": 1}, so the membership MUST be submitted for
+        # _handle_existing_membership (and thus the line-329 throw) to be reachable.
+        existing = self.create_test_membership(member=member.name, membership_type=mt_a.name)
+        existing.submit()
+
+        type_b_doc = frappe.get_doc("Membership Type", mt_b.name)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            # start_date=None, is_csv_import=False; type mismatch is the trigger.
+            self.service._get_or_create_membership(member, type_b_doc, None, False)
+        self.assertIn("already has an active membership", str(ctx.exception))
+
 
 class TestResolveDuesTemplate(VereningingenTestCase):
     """_resolve_dues_template() — applicant-selected template validation."""

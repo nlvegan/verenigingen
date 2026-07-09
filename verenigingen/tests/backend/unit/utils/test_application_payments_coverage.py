@@ -146,3 +146,34 @@ class TestCreateCustomerForMember(VereningingenTestCase):
 
         second = ap.create_customer_for_member(member)
         self.assertEqual(first.name, second.name)
+
+    def test_customer_create_denied_for_restricted_user(self):
+        """A user without Customer create permission is refused: create_customer_for_member
+        throws 'Insufficient permissions to create Customer' (line 182) instead of
+        silently creating the record.
+
+        The restricted-user switch IS the behaviour under test; the base tearDown
+        restores the original session user.
+        """
+        member = self.create_test_member(
+            email=f"cust-perm-{frappe.generate_hash(length=6)}@example.com"
+        )
+        # Reach the permission check, not the early 'existing customer' return: drop
+        # the member link AND remove any auto-created Customer keyed on this member.
+        member.db_set("customer", None)
+        for cust in frappe.get_all("Customer", filters={"member": member.name}, pluck="name"):
+            frappe.delete_doc("Customer", cust, force=True, ignore_permissions=True)
+        member.reload()
+
+        restricted = self.create_test_user(
+            email=f"restricted-{frappe.generate_hash(length=6)}@example.com",
+            roles=["Verenigingen Member"],
+        )
+
+        frappe.set_user(restricted.name)
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                ap.create_customer_for_member(member)
+            self.assertIn("Insufficient permissions to create Customer", str(ctx.exception))
+        finally:
+            frappe.set_user("Administrator")

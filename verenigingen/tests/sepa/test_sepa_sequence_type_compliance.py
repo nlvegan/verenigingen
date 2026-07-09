@@ -34,7 +34,7 @@ import xml.etree.ElementTree as ET
 from decimal import Decimal
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
@@ -404,3 +404,207 @@ class TestMandateUsageLifecycle(_SEPASeqBase):
             "FRST",
             "After a failed collection the next collection must still be FRST",
         )
+
+
+class TestSequenceTypeDerivationBranches(_SEPASeqBase):
+    """Behavioral coverage for the FRST/RCUR derivation branches that are NOT
+    exercised by the base FRST->RCUR happy path (TestMandateUsageLifecycle) nor by
+    the mixed-batch XML tests.
+
+    Branches under test (SEPAMandateUsage.determine_sequence_type /
+    get_mandate_sequence_type):
+      - RENEWAL RESET: prior Collected usage exists BUT mandate.sign_date is later
+        than the last usage -> FRST ("Mandate was renewed after last usage").
+      - PENDING-ONLY: prior usage rows exist but none are Collected -> still FRST
+        (the history filter is status == "Collected").
+      - CHILD HOOK -> RCUR: the child-table determine_sequence_type() (not the API)
+        must derive RCUR when a genuine prior Collected usage exists.
+      - BATCH VALIDATION: a real new-mandate batch declaring RCUR-on-first-use must
+        be flagged Critical by DirectDebitBatch.validate_sequence_types().
+
+    All rows whose sequence_type is under assertion are DERIVED by production code
+    (sequence_type left unset); prior seed rows only set status/dates, never the
+    derived value under test.
+    """
+
+    def _seed_collected_usage(self, mandate_name, amount, usage_date):
+        """Seed a prior COLLECTED usage row dated `usage_date`.
+
+        The row is created through production `create_mandate_usage_record` (its own
+        sequence_type is derived, not asserted), then transitioned to Collected and
+        back-dated so the renewal / recurring rules have real history to read."""
+        usage_name = create_mandate_usage_record(
+            mandate_name=mandate_name,
+            reference_doctype="Sales Invoice",
+            reference_name=f"PRIOR-{frappe.generate_hash(length=8)}",
+            amount=amount,
+        )
+        mandate = frappe.get_doc("SEPA Mandate", mandate_name)
+        for row in mandate.usage_history:
+            if row.name == usage_name:
+                row.db_set("status", "Collected", update_modified=False)
+                row.db_set("processing_date", today(), update_modified=False)
+                row.db_set("usage_date", usage_date, update_modified=False)
+                break
+        return usage_name
+
+    def _pending_usage(self, mandate_name, amount):
+        """Create a usage row that stays Pending (create_mandate_usage_record never
+        marks Collected). Its sequence_type is derived by prod, not asserted here."""
+        return create_mandate_usage_record(
+            mandate_name=mandate_name,
+            reference_doctype="Sales Invoice",
+            reference_name=f"PEND-{frappe.generate_hash(length=8)}",
+            amount=amount,
+        )
+
+    def _derive_via_child_hook(self, mandate_name, amount=10.0):
+        """Append a NEW usage row with sequence_type UNSET and return the value the
+        child-table hook derived. This exercises SEPAMandateUsage.determine_sequence_type
+        (invoked by create_mandate_usage_record when sequence_type is None) -- the
+        derivation path, NOT the get_mandate_sequence_type API."""
+        usage_name = create_mandate_usage_record(
+            mandate_name=mandate_name,
+            reference_doctype="Sales Invoice",
+            reference_name=f"CHILD-{frappe.generate_hash(length=8)}",
+            amount=amount,
+        )
+        return frappe.db.get_value("SEPA Mandate Usage", usage_name, "sequence_type")
+
+    # ---- S1: RENEWAL RESET (RCUR -> FRST) ------------------------------------
+
+    def test_renewal_after_last_usage_resets_to_frst(self):
+        member = self._sepa.create_test_member(first_name="RenewReset")
+        # sign_date BEFORE the collection so the mandate is a normal recurring one.
+        mandate = self._sepa.create_test_sepa_mandate(member=member.name, sign_date=add_days(today(), -90))
+        self._seed_collected_usage(mandate.name, 25.0, usage_date=add_days(today(), -60))
+
+        # Baseline: sign_date (-90) is before the last collection (-60) -> RCUR.
+        baseline = get_mandate_sequence_type(mandate.name)
+        self.assertEqual(baseline["sequence_type"], "RCUR", "Un-renewed recurring mandate must be RCUR")
+
+        # RENEW: move sign_date to today (after the last usage). The renewal-reset
+        # rule must now return FRST with the renewal reason.
+        mandate.db_set("sign_date", today(), update_modified=False)
+
+        result = get_mandate_sequence_type(mandate.name)
+        self.assertEqual(
+            result["sequence_type"], "FRST", "A mandate renewed after its last usage must reset to FRST"
+        )
+        self.assertEqual(result["reason"], "Mandate was renewed after last usage")
+
+        # The child-table derivation path must reach the same FRST conclusion.
+        self.assertEqual(
+            self._derive_via_child_hook(mandate.name),
+            "FRST",
+            "determine_sequence_type() must also reset to FRST after a renewal",
+        )
+
+    # ---- S2: PENDING-ONLY HISTORY STAYS FRST ---------------------------------
+
+    def test_pending_usage_never_advances_to_rcur(self):
+        member = self._sepa.create_test_member(first_name="PendingOnly")
+        mandate = self._sepa.create_test_sepa_mandate(member=member.name)
+
+        # One Pending (never Collected) usage row -> history filter ignores it -> FRST.
+        self._pending_usage(mandate.name, 25.0)
+        first = get_mandate_sequence_type(mandate.name)
+        self.assertEqual(first["sequence_type"], "FRST", "A Pending-only mandate must still be FRST")
+        self.assertIn("First usage", first["reason"])
+
+        # A SECOND Pending usage must still not count as prior usage.
+        self._pending_usage(mandate.name, 30.0)
+        self.assertEqual(
+            get_mandate_sequence_type(mandate.name)["sequence_type"],
+            "FRST",
+            "Multiple Pending usages must not advance the mandate to RCUR",
+        )
+
+        # The child-table derivation path agrees (no Collected history -> FRST).
+        self.assertEqual(self._derive_via_child_hook(mandate.name), "FRST")
+
+    # ---- S3: CHILD-HOOK DERIVES RCUR DIRECTLY --------------------------------
+
+    def test_child_hook_derives_rcur_for_recurring_mandate(self):
+        member = self._sepa.create_test_member(first_name="ChildHookRcur")
+        # sign_date well before the collection so no renewal reset applies.
+        mandate = self._sepa.create_test_sepa_mandate(member=member.name, sign_date=add_days(today(), -90))
+        self._seed_collected_usage(mandate.name, 25.0, usage_date=add_days(today(), -30))
+
+        # A freshly appended usage row with sequence_type UNSET must be DERIVED to
+        # RCUR by the child-table hook (this is the RCUR return of
+        # SEPAMandateUsage.determine_sequence_type, which the API tests never touch).
+        derived = self._derive_via_child_hook(mandate.name)
+        self.assertEqual(
+            derived,
+            "RCUR",
+            "determine_sequence_type() must derive RCUR for a mandate with a prior collection",
+        )
+
+    # ---- S4: NEW-MANDATE BATCH FLAGS RCUR-ON-FIRST-USE AS CRITICAL ------------
+
+    def test_new_mandate_batch_flags_rcur_first_use_as_critical(self):
+        """A real Direct Debit Batch row declaring RCUR for a brand-new mandate must
+        be flagged Critical by validate_sequence_types (expected FRST, actual RCUR).
+
+        NOTE: the scheduled create_direct_debit_batch_for_unpaid_memberships() sets
+        the batch-level sequence_type to RCUR but leaves each invoice ROW's
+        sequence_type UNSET, so validate_sequence_types auto-assigns the derived FRST
+        per row and never flags a critical error via that entry point. This test
+        therefore drives validate_sequence_types directly with an explicit (wrong)
+        RCUR row, which is the branch that actually guards SEPA compliance."""
+        member = self._sepa.create_test_member(first_name="RcurFirstUse")
+        customer = self._sepa.create_test_customer(customer_name=f"Cust {member.full_name}")
+        member.db_set("customer", customer.name)
+        mandate = self._sepa.create_test_sepa_mandate(member=member.name)  # no prior usage
+        membership = self._sepa.create_test_membership(member=member.name)
+        invoice = self._sepa.create_test_sales_invoice(
+            customer=customer.name, member=member.name, membership=membership.name, submit=True
+        )
+
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.update(
+            {
+                "batch_date": today(),
+                "batch_description": f"RcurFirst {self._sepa.get_next_sequence('batch')}",
+                "currency": "EUR",
+                "status": "Draft",
+                "batch_type": "CORE",
+                "sequence_type": "RCUR",
+            }
+        )
+        # Automated flag: record the validation result instead of throwing so we can
+        # assert on validation_status / validation_errors.
+        batch._automated_processing = True
+        batch.append(
+            "invoices",
+            {
+                "invoice": invoice.name,
+                "membership": membership.name,
+                "member": member.name,
+                "member_name": member.full_name,
+                "amount": 25.0,
+                "currency": "EUR",
+                "iban": mandate.iban,
+                "mandate_reference": mandate.mandate_id,
+                "status": "Pending",
+                # WRONG: first use of a brand-new mandate must be FRST, not RCUR.
+                "sequence_type": "RCUR",
+            },
+        )
+        batch.total_amount = 25.0
+        batch.entry_count = 1
+        batch.insert()
+        self._track("Direct Debit Batch", batch.name)
+
+        self.assertEqual(
+            batch.validation_status,
+            "Critical Errors",
+            "RCUR declared for a first-use mandate must be a Critical validation error",
+        )
+        errors = frappe.parse_json(batch.validation_errors)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["invoice"], invoice.name)
+        self.assertIn("RCUR used for first mandate usage", errors[0]["issue"])
+        self.assertEqual(errors[0]["expected"], "FRST")
+        self.assertEqual(errors[0]["actual"], "RCUR")

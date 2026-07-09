@@ -237,6 +237,44 @@ class TestPaymentPlan(EnhancedTestCase):
         with self.assertRaises(frappe.ValidationError):
             plan.insert()
 
+    def test_zero_total_amount_throws(self):
+        """A zero total amount is rejected by validate_plan_details()."""
+        plan = self._create_plan(total_amount=0)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            plan.insert()
+        self.assertIn("Total amount must be greater than 0", str(ctx.exception))
+
+    def test_negative_total_amount_throws(self):
+        """A negative total amount is rejected by validate_plan_details()."""
+        plan = self._create_plan(total_amount=-50)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            plan.insert()
+        self.assertIn("Total amount must be greater than 0", str(ctx.exception))
+
+    def test_dues_schedule_of_other_member_throws(self):
+        """A dues schedule owned by a different member must be rejected.
+
+        validate_member_and_schedule() cross-checks that the linked
+        Membership Dues Schedule belongs to the plan's member; a mismatch is a
+        genuine configuration error, not graceful degradation.
+        """
+        other_member = self.create_test_member(first_name="OtherPP")
+        # An active membership auto-creates the member's active dues schedule
+        # (production after_insert), which we then mis-link to a different member.
+        self.create_test_membership(member_name=other_member.name)
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": other_member.name, "is_template": 0, "status": "Active"},
+            "name",
+        )
+        self.assertIsNotNone(schedule_name, "Expected an auto-created dues schedule for the other member")
+        # Plan.member defaults to self.member_name (a different member than
+        # the schedule's owner), so the ownership check must fail.
+        plan = self._create_plan(membership_dues_schedule=schedule_name)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            plan.insert()
+        self.assertIn("does not belong to selected member", str(ctx.exception))
+
 
 class TestDonationCampaign(EnhancedTestCase):
     """Tests for Donation Campaign DocType — date/goal validation, progress."""

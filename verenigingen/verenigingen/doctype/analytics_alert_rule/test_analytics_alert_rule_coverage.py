@@ -201,11 +201,29 @@ class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
 
     def test_calculate_goal_achievement_averages_current_year_goals(self):
         """calculate_goal_achievement returns the MEAN achievement_percentage across
-        current-year goals (not a sum / single value). The baseline has no current-year
-        goals, so two goals with distinct computed achievements must average exactly to
-        their mean. Uses each goal's controller-computed achievement as ground truth
-        (no in-test re-implementation)."""
+        current-year goals (not a sum / single value). Two goals with distinct computed
+        achievements must average exactly to their mean. Uses each goal's
+        controller-computed achievement as ground truth (no in-test re-implementation)."""
         rule = self._make_rule(metric="Goal Achievement", threshold_value=50)
+        year = frappe.utils.now_datetime().year
+
+        # Hermetic average: the rule averages EVERY current-year non-cancelled goal, so
+        # clear any ambient ones (transaction-scoped, rolled back) to pin the mean to
+        # exactly the two goals below.
+        frappe.db.delete("Membership Goal", {"goal_year": year})
+
+        # "Member Count Growth" current_value = members who joined this year. A fresh CI
+        # shard has none, so every achievement computes to 0.0 and the mean is
+        # meaningless. Seed members with member_since in the current year so current_value
+        # is a stable, non-zero base shared by both goals; distinct targets then yield
+        # distinct, non-zero achievements.
+        for i in range(5):
+            m = self.create_test_member(
+                first_name="GoalSeed",
+                last_name=f"M{i}",
+                email=f"goal.seed{i}.{frappe.generate_hash(length=6)}@example.com",
+            )
+            frappe.db.set_value("Member", m.name, "member_since", f"{year}-06-15", update_modified=False)
 
         g1 = self._make_goal(goal_type="Member Count Growth", target_value=50)
         g2 = self._make_goal(goal_type="Member Count Growth", target_value=200)
@@ -213,6 +231,7 @@ class TestAnalyticsAlertRuleCoverage(EnhancedTestCase):
 
         # Distinct targets on a non-zero current_value give distinct achievements; this
         # is what lets the test distinguish an average from a sum or a single pick.
+        self.assertGreater(a, 0, "seeded members should make current_value non-zero")
         self.assertNotEqual(a, b, "test needs two distinct achievement values to be meaningful")
 
         self.assertAlmostEqual(flt(rule.calculate_goal_achievement()), (a + b) / 2, places=2)

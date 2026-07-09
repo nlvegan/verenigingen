@@ -248,6 +248,53 @@ class TestMemberUserAccountService(EnhancedTestCase):
         # Verify it's a valid user
         self.assertTrue(frappe.db.exists("User", result.data))
 
+    # ------------------------------------------------------------------
+    # UNHAPPY-path tests: create_user_for_member() mandatory-field guards.
+    # These are genuine frappe.throw() rejections (member_user_account_service.py
+    # lines 262/265/268) that propagate as frappe.ValidationError before any
+    # User/Member write happens. The fields are blanked in-memory on a factory
+    # member, so no invalid record is ever persisted.
+    # ------------------------------------------------------------------
+
+    def test_create_user_for_member_missing_email_raises(self):
+        """create_user_for_member() rejects a member with no email."""
+        member = self.create_test_member(
+            first_name="NoEmail",
+            last_name="Member",
+            email=f"noemail.src.{random_string(8).lower()}@example.com",
+        )
+        member.email = ""  # in-memory only; nothing persisted
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.service.create_user_for_member(member, silent=True)
+        self.assertIn("Email is required", str(ctx.exception))
+
+    def test_create_user_for_member_missing_first_name_raises(self):
+        """create_user_for_member() rejects a member with no first name."""
+        member = self.create_test_member(
+            first_name="HasFirst",
+            last_name="Member",
+            email=f"nofirst.{random_string(8).lower()}@example.com",
+        )
+        member.first_name = ""  # in-memory only
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.service.create_user_for_member(member, silent=True)
+        self.assertIn("First name is required", str(ctx.exception))
+
+    def test_create_user_for_member_missing_last_name_raises(self):
+        """create_user_for_member() rejects a member with no last name."""
+        member = self.create_test_member(
+            first_name="HasFirst",
+            last_name="HasLast",
+            email=f"nolast.{random_string(8).lower()}@example.com",
+        )
+        member.last_name = ""  # in-memory only
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.service.create_user_for_member(member, silent=True)
+        self.assertIn("Last name is required", str(ctx.exception))
+
 
 def run_tests():
     """Helper function to run tests from console"""

@@ -20,6 +20,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.constants import Roles
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +421,26 @@ class TestChapterSecurity(EnhancedTestCase):
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 0)
 
+    def test_validate_chapter_permission_or_throw_denies_non_manager(self):
+        """A non-privileged user (no manageable chapters) gets a PermissionError.
+
+        Complements the admin happy-path test: an authenticated user with only
+        a basic member role, no board seat and no linked Member record has
+        get_user_manageable_chapters() == [], so can_user_manage_application()
+        returns False and validate_chapter_permission_or_throw must raise
+        frappe.PermissionError (not merely return).
+        """
+        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
+
+        member = self.create_test_member(first_name="SecDeny", last_name="Target")
+        plain_user = self.create_test_user(
+            self.factory.generate_test_email("plainuser"),
+            roles=["Verenigingen Member"],
+        )
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            validate_chapter_permission_or_throw(member.name, action="approve", user=plain_user.name)
+        self.assertIn("permission", str(ctx.exception).lower())
+
 
 # ---------------------------------------------------------------------------
 # 9. ChapterValidationService
@@ -444,6 +465,38 @@ class TestChapterValidationService(EnhancedTestCase):
         chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
         # Should not raise
         svc.validate_chapter_access(chapter_doc)
+
+    def test_verenigingen_admin_blocked_from_national_board(self):
+        """A Verenigingen Administrator (not System Manager) must be DENIED when
+        editing the configured national board chapter.
+
+        Regression guard: the deliberate ``frappe.throw`` sits inside a broad
+        ``try/except Exception`` in ``validate_chapter_access``. The except must
+        re-raise the intentional security denial (``frappe.PermissionError``)
+        instead of swallowing it — otherwise the guard never actually blocks and
+        silently fails open, contradicting its own docstring.
+        """
+        svc = self._get_service()
+        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
+
+        # Designate this chapter as the national board chapter. Non-committed:
+        # rolls back with the test, read in-transaction by prod (no shard race).
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "national_board_chapter", self.chapter.name
+        )
+
+        admin_user = self.create_test_user(
+            email=f"ver-admin-{frappe.generate_hash(length=6)}@test.com",
+            roles=[Roles.VERENIGINGEN_ADMIN],
+        )
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(admin_user.name)
+            with self.assertRaises(frappe.PermissionError):
+                svc.validate_chapter_access(chapter_doc)
+        finally:
+            frappe.set_user(original_user)
 
     def test_auto_fix_required_fields_test_chapter(self):
         """auto_fix_required_fields sets region for test chapter."""

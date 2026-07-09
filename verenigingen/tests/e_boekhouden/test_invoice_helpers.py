@@ -362,6 +362,18 @@ class TestGetCostCenter(_AccountFixtureBase):
         finally:
             self._setup_settings_default_company(prev)
 
+    def test_no_cost_center_for_company_raises(self):
+        # A company argument that has no default cost center and no matching
+        # "Main"/any Cost Center rows exhausts every lookup branch and must raise
+        # the final "No cost center found" ValidationError rather than returning
+        # None. An unknown company name reproduces this state offline: all three
+        # frappe.db.get_value lookups return None.
+        bogus_company = "ZZ Nonexistent Company For CC Test"
+        self.assertFalse(frappe.db.exists("Company", bogus_company))
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            get_cost_center("ignored-id", company=bogus_company)
+        self.assertIn("No cost center found for company", str(ctx.exception))
+
 
 class TestMapGrootboekSuccess(_AccountFixtureBase):
     def test_direct_account_name_match(self):

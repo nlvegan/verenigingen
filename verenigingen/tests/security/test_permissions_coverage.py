@@ -543,6 +543,55 @@ class TestTerminationAuthorization(PermissionsCoverageBase):
         # Non-member -> False.
         self.assertFalse(can_access_termination_functions(f"nobody-{self.token}@test.com"))
 
+    def test_controller_validate_permissions_blocks_other_chapter_member(self):
+        """The controller's validate_permissions() must convert a
+        can_terminate_member denial into a thrown ValidationError.
+
+        This pins the member-specific branch (membership_termination_request.py
+        validate_permissions L203-204), which is reachable in production during
+        document validate(). A board member of chapter A passes the *general*
+        access gate (can_access_termination_functions -> True), so the positive
+        control below proves the throw under test is the member-specific L204
+        check and not the L200 access gate:
+
+        - Own-chapter member: validate_permissions() must NOT raise.
+        - Other-chapter member: validate_permissions() raises ValidationError
+          ("...permission to terminate this member").
+
+        Distinct from test_validate_permissions_denies_unprivileged_user (which
+        exercises Frappe's doctype-level create gate -> PermissionError); here we
+        drive the controller method directly so the ValidationError branch is
+        exercised deterministically.
+        """
+        own_request = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": self.regular_member.name,
+                "termination_type": "Voluntary",
+                "termination_reason": "own-chapter member",
+            }
+        )
+        foreign_request = frappe.get_doc(
+            {
+                "doctype": "Membership Termination Request",
+                "member": self.other_member.name,
+                "termination_type": "Voluntary",
+                "termination_reason": "other-chapter member",
+            }
+        )
+
+        with self.as_user(self.board_user.name):
+            # Positive control: general access gate (L200) passes AND the
+            # member-specific check passes for the board's own chapter -> no throw.
+            own_request.validate_permissions()
+
+            # Negative: member-specific check (L203) fails for the other chapter,
+            # so validate_permissions raises at L204.
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                foreign_request.validate_permissions()
+
+        self.assertIn("permission to terminate this member", str(ctx.exception))
+
 
 class TestMemberLinkedFactory(PermissionsCoverageBase):
     """The _make_member_linked_permission factory powering Donor + SEPA Mandate."""

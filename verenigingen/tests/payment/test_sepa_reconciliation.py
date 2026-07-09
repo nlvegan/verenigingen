@@ -934,6 +934,55 @@ class TestManualReconciliation(ReconBase):
                 bt, {"member": it["member"].name, "invoice": "SINV-NOPE-XYZ", "amount": 25.0}
             )
 
+    def _make_extra_bank_account(self, company):
+        """Create a second non-group Bank-type GL account so the company has more
+        than one — which makes get_default_bank_cash_account's 'exactly one'
+        fallback return nothing when there is no configured default. Uncommitted;
+        rolls back with the test."""
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
+        )
+        acc = frappe.new_doc("Account")
+        acc.account_name = f"Extra SEPA Bank {frappe.generate_hash(length=5)}"
+        acc.company = company
+        acc.account_type = "Bank"
+        acc.parent_account = parent
+        acc.account_currency = "EUR"
+        acc.insert(ignore_permissions=True)
+        return acc.name
+
+    def test_create_manual_payment_entry_no_default_bank_account_throws(self):
+        """B3 (create_manual_payment_entry, line ~1185): when the invoice's company
+        has NO default bank account configured (and not exactly one Bank account so
+        the fallback can't guess one), the method throws 'No default bank account
+        configured for company ...'. Mirrors the sibling missing-customer /
+        missing-invoice throw tests, but exercises the bank-account config gate.
+
+        The default bank account is unset only within the test transaction (with the
+        Company document cache cleared so erpnext's get_cached_value re-reads it) and
+        restored in a finally block; the extra Bank account and the unset both roll
+        back with the test."""
+        it = self._make_member_with_invoice(first_name="ManNoBank", grand_total=25.0)
+        bt = self._make_bank_transaction(deposit=25.0, date=today(), description="SEPA DD")
+
+        original_default = frappe.db.get_value("Company", self.company, "default_bank_account")
+        # Guarantee > 1 Bank account so the "single account" fallback can't kick in.
+        self._make_extra_bank_account(self.company)
+        try:
+            frappe.db.set_value("Company", self.company, "default_bank_account", None)
+            frappe.clear_document_cache("Company", self.company)
+            with self.assertRaises(frappe.ValidationError) as cm:
+                recon.create_manual_payment_entry(
+                    bt,
+                    {"member": it["member"].name, "invoice": it["invoice"].name, "amount": 25.0},
+                )
+            self.assertIn("No default bank account configured", str(cm.exception))
+        finally:
+            # Restore the committed default + refresh the cache so sibling tests
+            # (which resolve a bank account via the same accessor) are unaffected.
+            frappe.db.set_value("Company", self.company, "default_bank_account", original_default)
+            frappe.clear_document_cache("Company", self.company)
+
 
 if __name__ == "__main__":
     unittest.main()

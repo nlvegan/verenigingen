@@ -19,6 +19,7 @@ values returned to these tests are dicts, not OperationResult objects:
 import frappe
 from frappe.utils import random_string
 from verenigingen.services.member_merge_service import (
+    MemberMergeService,
     get_merge_preview,
     execute_merge,
 )
@@ -228,6 +229,60 @@ class TestMemberMergeAPI(EnhancedTestCase):
             # On failure, should have error message
             self.assertIsNotNone(result["error"]["message"])
             self.assertIsInstance(result["error"].get("errors", []), list)
+
+
+class TestMemberMergePermissionDenial(EnhancedTestCase):
+    """Unhappy-path tests: the MemberMergeService methods enforce write
+    permission on BOTH members via ``source.check_permission("write")`` /
+    ``target.check_permission("write")`` and raise ``frappe.PermissionError``
+    for a caller lacking write access.
+
+    These exercise the raw service class directly (NOT the @critical_api public
+    endpoints, which convert the denial into a graceful OperationResult before
+    ever reaching check_permission). The pre-existing test_member_merge
+    ``test_permission_checks`` explicitly punts on this ("This would need to be
+    tested with a user without permissions"); these tests close that gap.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.source = self.create_test_member(
+            first_name="MergeDenySource",
+            last_name=f"S{self.uid}",
+            email=f"merge.deny.source.{random_string(8).lower()}@example.com",
+            birth_date="1990-01-01",
+        )
+        self.target = self.create_test_member(
+            first_name="MergeDenyTarget",
+            last_name=f"T{self.uid}",
+            email=f"merge.deny.target.{random_string(8).lower()}@example.com",
+            birth_date="1990-01-01",
+        )
+        # A plain member-role System User has no write permission on arbitrary
+        # Member records (and is not their owner), so check_permission("write")
+        # must deny it.
+        self.limited_user = self.create_test_user_with_roles(roles=["Verenigingen Member"])
+
+    def test_get_merge_preview_denies_non_privileged_user(self):
+        """get_merge_preview raises PermissionError when caller lacks write access.
+
+        The preview method has no downstream write, so the explicit
+        ``check_permission("write")`` guard is the sole gate — removing it lets
+        the call succeed (mutation-verified).
+
+        (execute_merge's own early check_permission guard is intentionally NOT
+        tested here: its downstream target.save()/delete also enforce write
+        permission, so the early guard is not mutation-isolable — removing it
+        still raises PermissionError downstream.)
+        """
+        service = MemberMergeService()
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(self.limited_user.name)
+            with self.assertRaises(frappe.PermissionError):
+                service.get_merge_preview(self.source.name, self.target.name)
+        finally:
+            frappe.set_user(original_user)
 
 
 def run_tests():

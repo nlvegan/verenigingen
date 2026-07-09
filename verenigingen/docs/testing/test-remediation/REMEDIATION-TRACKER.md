@@ -94,3 +94,81 @@ Legend: ⬜ pending · 🟨 in wave · ✅ done
     in `test_vip_import.py` (outside changed hunks; ruff-clean, Pyright-only) — left as pre-existing.
   - New backlog (missing-coverage ×2): VPS `dues_payments_receivable_account` → `set_membership_receivable_account`
     integration still skip-guarded; `analytics_alert_rule` revenue/goal-achievement value-level coverage.
+
+## Negative-path coverage push (2026-07-08, branch `test/negative-path-coverage-push`)
+Follow-on to the false-confidence remediation, targeting the test-inventory's **Class-2 headline
+finding** (suite is unhappy-light, ~17%; core money-path services near-zero on asserted
+failure/rejection). Method: triage each named money-path area for a GENUINE rejection/rollback target
+(vs graceful-degradation, which is EDGE and out of scope), then add real mutation-verified UNHAPPY
+tests only where a genuine target exists. Test-files-only; **zero production files changed**. One
+`skeptical-code-reviewer` pass: **MEANINGFUL 9/9**, no tautological/stub-defeated/fixture tests.
+
+**Triaged 5 areas (5 read-only agents):**
+- ❌ **field-sync** — graceful-only *by design* (`field_sync_service.py` docstring: "Never throws
+  exceptions"; all failures swallowed/`OperationResult.fail`). No genuine target; its two real branches
+  (missing link, no-op-when-unchanged) already covered. No test added.
+- ⚠️ **member-import lock-contention** — services degrade gracefully (`("skipped"/"failed", …)`, never
+  raise); in-process same-connection GET_LOCK is re-entrant, so a *real* contention test needs a second
+  DB connection. Deferred (EDGE, higher-effort). No test added.
+- ✅ **fee-change-history** — 2 tests (`test_member_fee_change_service.py`): non-admin fee-override
+  `PermissionError` (`member_fee_validation_service.py:197`) + negative-`dues_rate` `ValidationError`
+  (`:82`, new-doc branch). Note the `dues_rate==0` no-op quirk.
+- ✅ **bank-reconciliation** — 3 tests: two `create_reconciliation` permission gates
+  (`bank_transaction_reconciliation.py:496/:499` — throw is caught internally → asserts `False` + the
+  permission-named tracking Comment, mutation-sensitive) + no-default-bank-account throw
+  (`sepa_reconciliation.py:1185`, clean `assertRaises`). The atomic-rollback guarantee (`:581`) left
+  deferred (harness-hazardous: real `frappe.db.rollback()` bleeds into the test transaction).
+- ✅ **SEPA FRST/RCUR sequence-type** — 4 tests (`test_sepa_sequence_type_compliance.py`; base
+  FRST→RCUR already covered by `b863d59a`): renewal-reset RCUR→FRST (`sign_date > last_usage_date`,
+  the untested branch), prior-Pending-stays-FRST, child-hook derives RCUR directly, and
+  `validate_sequence_types` flags RCUR-on-first-use as Critical. Built on the compliance file, not
+  `test_sepa_sequence_type_validation.py` (which is in `known_test_failures.txt` — red base).
+  Finding: the scheduled daily batch leaves per-row `sequence_type` blank → auto-derives FRST, so the
+  blanket batch-level RCUR is harmless and the daily flow does NOT trip the critical guard; S4 covers
+  the defense-in-depth branch, documented in-test.
+
+**Net: 9 new mutation-verified negative-path tests across 3 areas (fee-change ×2, bank-recon ×3,
+SEPA ×4); 2 areas correctly yielded no clean target.** Sites test_site_1/2/3.
+
+### Breadth sweep (2026-07-09) — remaining money-path/service surface, 6 waves of 2 agents
+Continuation to "until done": swept every remaining money-path/service cluster the same way (triage for a
+GENUINE reachable rejection target → add mutation-verified UNHAPPY test only where one exists; graceful
+degradation, decorator-shadowed internal throws, live-API-gated, and harness-hazardous rollback targets all
+excluded with rationale). **39 tests added across 12 domains; zero production files changed.** Two `skeptical-
+code-reviewer` passes (Wave 2 during the sweep + a consolidated pass over Waves 1/3/4/5/6): **MEANINGFUL 39/39,
+0 BROKEN, 0 WEAK** (3 minor "could add a message pin" notes, all still mutation-isolable).
+
+| Wave | Commit | Domains (tests) |
+|---|--------|-----------------|
+| 1 | `7cc8b141` | account-creation (6) · termination (1) |
+| 2 | `acf44015` | approval/creation orchestrators (7) · billing validators ex-fee-change (4) |
+| 3 | `2e02d8e5` | volunteer-expense (2) · payments services (3, incl. 2 `@unittest.skip` stubs un-skipped w/ real deskless user) |
+| 4 | `1cacfe42` | chapter/team/member-validation (3) · eBoekhouden offline validators (7) |
+| 5 | `a393a187` | payment-settings (3, Payment Plan) · SEPA mandate/DD-batch (1) |
+| 6 | `d6040475` | Ponto payment doctypes (1) · donor/donation + member-merge (1) |
+
+**Recurring finding (confirmed across ~20 services):** a large share of the audit's "unhappy gap" is
+**graceful-degradation by design** (OperationResult.fail / ValidationResult(ok=False) / error-dict / swallow-
+and-log), NOT missing tests — so the genuine asserted-rejection surface is real but far smaller than the ~17%
+headline implies. Waves 5–6 hit clear diminishing returns (both domains near-exhaustively covered → 4 then 2
+net-new), the signal that the money-path/service surface is swept.
+
+**Deferred/excluded classes (documented per wave, not silently dropped):** `@critical_api`/`@high_security_api`
+internal throws (decorator denies a non-privileged caller *before* the throw → binds to the decorator, not
+mutation-isolable); live-eBoekhouden/Mollie/Ponto-API-gated throws; real `frappe.db.rollback()` inside the test
+transaction (harness-hazardous — bleeds into sibling shards); global-Single mutation; second-DB-connection lock
+contention. One candidate was correctly **dropped** mid-write (member_merge `execute_merge:307` guard — not
+mutation-isolable; a downstream `target.save()` independently enforces write perm).
+
+**Latent prod bug — FIXED (2026-07-09, commit follows on this branch).** `chapter_validation_service.py`
+`validate_chapter_access` had its deliberate `frappe.throw` swallowed by the broad `try/except Exception`
+("Don't block access on validation errors") — the National-Board access guard never actually denied despite
+its docstring. Fix: the throw now raises `frappe.PermissionError` (matching the documented `Raises:`
+contract) and a dedicated `except frappe.PermissionError: raise` re-raises it *before* the fail-open handler,
+so the intentional denial propagates while unexpected settings/role-lookup errors still fail open by design.
+Mutation-verified regression test added: `test_chapter_service_coverage.py::TestChapterValidationService::
+test_verenigingen_admin_blocked_from_national_board` (RED without the re-raise, GREEN with it; full module
+70/70 green + `test_national_chapter_access` 2/2 green). Also removed a pre-existing unused `today` import.
+
+**Push total: 48 mutation-verified negative-path tests (9 initial + 39 breadth), zero production changes,
+all skeptical-reviewed MEANINGFUL.**

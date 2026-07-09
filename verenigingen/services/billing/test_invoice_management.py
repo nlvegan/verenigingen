@@ -140,6 +140,21 @@ class TestInvoiceManagement(EnhancedTestCase):
         frappe.db.commit()
         return ds.name
 
+    def _make_limited_user(self):
+        """Create a real, logged-in-capable User with NO admin roles (fresh users
+        carry only All/Guest). Used to exercise the internal role guard on the
+        cleanup endpoints, which requires user == Administrator OR System Manager
+        OR Verenigingen Administrator. Committed + tracked for tearDown cleanup."""
+        email = f"im.noperm.{frappe.generate_hash(length=8)}@example.com"
+        u = frappe.new_doc("User")
+        u.email = email
+        u.first_name = "NoPerm"
+        u.send_welcome_email = 0
+        u.insert(ignore_permissions=True)
+        self._committed_docs.append(("User", email))
+        frappe.db.commit()
+        return email
+
     # ------------------------------------------------------------------
     # get_dues_schedules_summary
     # ------------------------------------------------------------------
@@ -614,3 +629,35 @@ class TestInvoiceManagement(EnhancedTestCase):
         names = {p.get("schedule") for p in data["processed_schedules"]}
         self.assertNotIn(ds.name, names)
         self.assertEqual(data["filter_criteria"], {"billing_frequency": "Annual"})
+
+    # ------------------------------------------------------------------
+    # Permission guards — cleanup_* endpoints reject non-admin callers.
+    #
+    # These three cleanup endpoints are decorated @development_only_api (allowed
+    # here because setUp forces developer_mode=1), which — unlike @critical_api /
+    # @high_security_api — does NOT gate on a security level, so a non-admin
+    # caller reaches the endpoint body and hits its internal role guard:
+    #     user == Administrator OR System Manager OR Verenigingen Administrator
+    # A fresh User has neither role, so each endpoint must frappe.throw before
+    # doing any work.
+    # ------------------------------------------------------------------
+    def test_cleanup_schedules_denied_for_non_admin(self):
+        email = self._make_limited_user()
+        with self.set_user(email):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                im.cleanup_orphaned_schedules(dry_run=True)
+        self.assertIn("Insufficient permissions for schedule cleanup", str(cm.exception))
+
+    def test_cleanup_member_references_denied_for_non_admin(self):
+        email = self._make_limited_user()
+        with self.set_user(email):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                im.cleanup_orphaned_member_references(dry_run=True)
+        self.assertIn("Insufficient permissions for member reference cleanup", str(cm.exception))
+
+    def test_cleanup_membership_data_denied_for_non_admin(self):
+        email = self._make_limited_user()
+        with self.set_user(email):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                im.cleanup_orphaned_membership_data(dry_run=True)
+        self.assertIn("Insufficient permissions for membership data cleanup", str(cm.exception))
