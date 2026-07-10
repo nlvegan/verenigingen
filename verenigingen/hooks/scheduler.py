@@ -106,6 +106,8 @@ scheduler_events = {
         "verenigingen.services.volunteer.expense_history_batch_processor.validate_expense_history_integrity",
         # Session cleanup
         "verenigingen.utils.session_cleanup_enhanced.scheduled_session_cleanup",
+        # Data retention (gated; dry-run unless explicitly enabled in settings)
+        "verenigingen.verenigingen_payments.core.compliance.data_retention_policy.run_scheduled_retention_policies",
     ],
     # =========================================================================
     # MONTHLY TASKS

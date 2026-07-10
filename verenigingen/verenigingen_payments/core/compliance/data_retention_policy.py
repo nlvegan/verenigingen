@@ -660,3 +660,55 @@ class DataRetentionPolicy:
 
         # Would check actual schedule
         return add_days(now_datetime(), 1).isoformat()
+
+
+def run_scheduled_retention_policies() -> Dict[str, Any]:
+    """Weekly scheduler entrypoint: gated, dry-run-by-default retention run.
+
+    Registered in hooks/scheduler.py under "weekly". Does nothing unless
+    Data Retention Settings.enabled is on. Never raises out of the scheduler
+    tick — failures are logged and recorded into last_run_summary.
+    """
+    settings = frappe.get_single("Data Retention Settings")
+    if not settings.enabled:
+        return {"skipped": True}
+
+    dry_run = bool(settings.dry_run_only)
+    try:
+        policy = DataRetentionPolicy()
+        results = policy.apply_retention_policies(dry_run=dry_run)
+        summary = _summarize_retention_results(results)
+        frappe.db.set_single_value(
+            "Data Retention Settings",
+            {"last_run": now_datetime(), "last_run_summary": summary},
+            update_modified=False,
+        )
+        # The audit-trail logger buffers in memory; flush so the compliance
+        # record is actually persisted for this low-frequency job.
+        try:
+            from .audit_trail import get_audit_trail
+
+            get_audit_trail()._flush_buffer()
+        except Exception:
+            frappe.logger("retention").warning("audit-trail flush failed", exc_info=True)
+        frappe.db.commit()
+        return results
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Data retention run failed")
+        frappe.db.set_single_value(
+            "Data Retention Settings",
+            {"last_run": now_datetime(), "last_run_summary": f"ERROR: {e}"},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        return {"skipped": False, "error": str(e)}
+
+
+def _summarize_retention_results(results: Dict[str, Any]) -> str:
+    """Compact per-category summary for the settings singleton."""
+    lines = [f"dry_run={results.get('dry_run')} total={results.get('total_records_affected', 0)}"]
+    for cat in results.get("categories_processed", []):
+        lines.append(f"{cat['category']}: {cat['records_affected']} ({cat['action']})")
+    if results.get("errors"):
+        lines.append(f"errors: {len(results['errors'])}")
+    return "\n".join(lines)[:1000]

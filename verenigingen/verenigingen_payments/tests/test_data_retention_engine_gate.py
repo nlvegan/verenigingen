@@ -5,6 +5,8 @@ is off AND the category's live flag is on AND the category is in the code-level
 LIVE_CAPABLE_CATEGORIES allowlist. Every assertion is mutation-sensitive.
 """
 
+import frappe
+
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.core.compliance.data_retention_policy import (
     LIVE_CAPABLE_CATEGORIES,
@@ -18,6 +20,16 @@ class TestDataRetentionEngineGate(VereningingenTestCase):
         self.assertEqual(LIVE_CAPABLE_CATEGORIES, {DataCategory.TEMPORARY_DATA})
 
     def test_load_custom_policies_is_noop_without_rows(self):
+        # Since the Task 4 seed patch (verenigingen.patches.v1_0.
+        # seed_data_retention_category_policies), a migrated site's singleton is
+        # NOT empty by default -- it carries the 9 seeded rows. Explicitly empty
+        # the table here to exercise the true "no configured rows" branch; the
+        # test transaction rollback restores the seeded rows afterwards.
+        settings = frappe.get_single("Data Retention Settings")
+        settings.flags.ignore_permissions = True
+        settings.set("category_policies", [])
+        settings.save()
+
         # With no configured settings rows, code defaults survive and no live flags set.
         policy = DataRetentionPolicy()
         self.assertEqual(policy.retention_periods[DataCategory.PAYMENT_DATA], 2555)
