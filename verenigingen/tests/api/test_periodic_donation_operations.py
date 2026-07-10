@@ -29,6 +29,7 @@ from verenigingen.api.periodic_donation_operations import (
     export_agreements,
     generate_tax_receipts,
     link_donation_to_agreement,
+    render_tax_receipt_html,
     send_renewal_reminders,
 )
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
@@ -257,9 +258,7 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         self.assertFalse(self._ok(result))
         self.assertTrue(self._errors(result))
         # No cross-donor link must be persisted.
-        self.assertFalse(
-            frappe.db.get_value("Donation", donation.name, "periodic_donation_agreement")
-        )
+        self.assertFalse(frappe.db.get_value("Donation", donation.name, "periodic_donation_agreement"))
 
     def test_link_donation_already_linked_rejected(self):
         donor = self._make_donor(anbi_consent=1)
@@ -295,9 +294,7 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         # Far-future end date -> outside a 90-day window.
         donor_far = self._make_donor(anbi_consent=1)
         far = self.create_anbi_compliant_agreement(donor=donor_far.name, status="Active")
-        frappe.db.set_value(
-            "Periodic Donation Agreement", far.name, "end_date", add_days(today(), 400)
-        )
+        frappe.db.set_value("Periodic Donation Agreement", far.name, "end_date", add_days(today(), 400))
 
         result = send_renewal_reminders(days_before_expiry=90)
         self.assertTrue(self._ok(result), self._errors(result))
@@ -341,9 +338,7 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         donor = self._make_donor(anbi_consent=1)
         # Draft (not Active) agreement, even though expiring.
         draft = self.create_anbi_compliant_agreement(donor=donor.name, status="Draft")
-        frappe.db.set_value(
-            "Periodic Donation Agreement", draft.name, "end_date", add_days(today(), 10)
-        )
+        frappe.db.set_value("Periodic Donation Agreement", draft.name, "end_date", add_days(today(), 10))
 
         result = send_renewal_reminders(days_before_expiry=90)
         self.assertTrue(self._ok(result), self._errors(result))
@@ -366,13 +361,28 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
     # ================================================================== #
     # generate_tax_receipts
     #
-    # Each Active + anbi_eligible agreement gets a tax receipt: the per-agreement
-    # body records a "Tax receipt generated" audit comment via
-    # ``frappe.get_doc(...).add_comment("Comment", ...)`` and bumps
-    # ``generated_count``.
+    # Each Active + anbi_eligible agreement gets a real confirmation receipt:
+    # the per-agreement body renders receipt HTML, converts it to a PDF, and
+    # attaches it as a private File to the agreement (deterministically named
+    # ``ANBI_Tax_Receipt_<agreement_number>.pdf``), then records a
+    # "Tax receipt generated" audit comment ONLY after the File is saved, and
+    # bumps ``generated_count``. Re-running replaces the existing receipt File
+    # (exactly one per agreement).
     # ================================================================== #
-    def test_generate_tax_receipts_query_selects_active_anbi_agreements(self):
-        # Active + ANBI eligible -> should be selected by the query.
+    def _receipt_files(self, agreement_name):
+        """All File records attached to an agreement whose name looks like a receipt."""
+        return frappe.get_all(
+            "File",
+            filters={
+                "attached_to_doctype": "Periodic Donation Agreement",
+                "attached_to_name": agreement_name,
+                "file_name": ["like", "ANBI_Tax_Receipt_%"],
+            },
+            fields=["name", "file_name", "is_private"],
+        )
+
+    def test_generate_tax_receipts_attaches_pdf_file_to_agreement(self):
+        # Active + ANBI eligible -> should get a real receipt File.
         donor_anbi = self._make_donor(anbi_consent=1)
         anbi = self.create_anbi_compliant_agreement(donor=donor_anbi.name, status="Active")
         self.assertEqual(anbi.anbi_eligible, 1)
@@ -380,15 +390,33 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
 
         result = generate_tax_receipts(filters={})
         self.assertTrue(self._ok(result), self._errors(result))
-
-        # The Active ANBI agreement gets a receipt, so generated_count >= 1.
         self.assertGreaterEqual(
             self._data(result)["generated_count"],
             1,
             "An Active ANBI-eligible agreement should get a tax receipt.",
         )
 
-        # And a "Tax receipt generated" audit comment is recorded on it.
+        # A private receipt File is now attached to the agreement. Frappe's
+        # save_file may insert a uniqueness hash before the extension, so the
+        # deterministic part is the stem prefix.
+        files = self._receipt_files(anbi.name)
+        self.assertEqual(len(files), 1, "exactly one receipt File must be attached")
+        self.assertTrue(
+            files[0].file_name.startswith(f"ANBI_Tax_Receipt_{anbi.agreement_number}"),
+            f"unexpected receipt file name: {files[0].file_name}",
+        )
+        self.assertTrue(files[0].file_name.endswith(".pdf"))
+        self.assertEqual(files[0].is_private, 1, "the receipt must be a private File")
+        self.track_doc("File", files[0].name)
+
+        # The File holds real, non-empty PDF bytes (a %PDF header).
+        content = frappe.get_doc("File", files[0].name).get_content()
+        if isinstance(content, str):
+            content = content.encode("latin-1", errors="ignore")
+        self.assertTrue(content, "receipt File must have content")
+        self.assertTrue(content.startswith(b"%PDF"), "receipt File must be a real PDF")
+
+        # And a "Tax receipt generated" audit comment is recorded on the agreement.
         comments = frappe.get_all(
             "Comment",
             filters={
@@ -402,35 +430,78 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
             "A tax-receipt comment must be recorded on the ANBI agreement.",
         )
 
+    def test_generate_tax_receipts_is_idempotent_replace(self):
+        """Re-running must not pile up duplicate receipt Files."""
+        donor = self._make_donor(anbi_consent=1)
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        first = generate_tax_receipts(filters={})
+        self.assertTrue(self._ok(first), self._errors(first))
+        second = generate_tax_receipts(filters={})
+        self.assertTrue(self._ok(second), self._errors(second))
+
+        files = self._receipt_files(anbi.name)
+        self.assertEqual(
+            len(files),
+            1,
+            "re-running must replace, not duplicate, the receipt File",
+        )
+        for f in files:
+            self.track_doc("File", f.name)
+
     def test_generate_tax_receipts_accepts_json_string_filters(self):
         """filters may arrive as a JSON string from the HTTP layer; must parse and succeed."""
         result = generate_tax_receipts(filters=json.dumps({"status": "Active"}))
         self.assertTrue(self._ok(result), self._errors(result))
         self.assertIn("generated_count", self._data(result))
 
-    def test_generate_tax_receipts_skips_non_anbi_pledge(self):
-        donor = self._make_donor(anbi_consent=0)
-        pledge = self.create_non_anbi_pledge(donor=donor.name, status="Active")
-        # A 1-year pledge is not ANBI eligible.
+    def test_generate_tax_receipts_skips_non_anbi_pledge_but_not_anbi(self):
+        # A non-ANBI 1-year pledge is not eligible ...
+        donor_pledge = self._make_donor(anbi_consent=0)
+        pledge = self.create_non_anbi_pledge(donor=donor_pledge.name, status="Active")
         self.assertEqual(pledge.anbi_eligible, 0)
+        # ... while an Active ANBI agreement in the SAME run is.
+        donor_anbi = self._make_donor(anbi_consent=1)
+        anbi = self.create_anbi_compliant_agreement(donor=donor_anbi.name, status="Active")
 
         result = generate_tax_receipts(filters={})
         self.assertTrue(self._ok(result), self._errors(result))
 
-        # The anbi_eligible=1 filter excludes pledges entirely (independent of the
-        # add_comment bug), so a pledge must never receive a receipt comment.
-        comments = frappe.get_all(
-            "Comment",
-            filters={
-                "reference_doctype": "Periodic Donation Agreement",
-                "reference_name": pledge.name,
-            },
-            fields=["content"],
-        )
-        self.assertFalse(
-            any("Tax receipt generated" in (c.content or "") for c in comments),
+        # The skip is selective: the pledge gets nothing, the ANBI agreement gets
+        # a receipt (proves the anbi_eligible filter, not a global no-op).
+        self.assertEqual(
+            len(self._receipt_files(pledge.name)),
+            0,
             "Non-ANBI pledge must not receive a tax receipt (anbi_eligible filter)",
         )
+        anbi_files = self._receipt_files(anbi.name)
+        self.assertEqual(len(anbi_files), 1, "the ANBI agreement in the same run must get a receipt")
+        self.track_doc("File", anbi_files[0].name)
+
+    def test_render_tax_receipt_html_contains_agreement_and_donor(self):
+        """The pure renderer must embed the real agreement + donor identity."""
+        donor = self._make_donor(anbi_consent=1, donor_name="Renderer Test Donor Unique")
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        html = render_tax_receipt_html(anbi.name)
+        self.assertIn(anbi.agreement_number, html)
+        self.assertIn("Renderer Test Donor Unique", html)
+        # The deductibility statement is the whole point of the receipt -- assert
+        # the actual sentence, not just the substring "ANBI" (which the static
+        # template title always contains regardless of data).
+        self.assertIn("full tax deductibility", html)
+
+    def test_render_tax_receipt_html_escapes_donor_controlled_input(self):
+        """Donor-controlled fields are HTML-escaped in the renderer (render_template
+        does NOT autoescape, and the HTML is fed to wkhtmltopdf). Frappe strips
+        full tags like <script> at storage, so this asserts on a metacharacter
+        that survives storage -- '&' -- proving the renderer's escaping is live."""
+        donor = self._make_donor(anbi_consent=1, donor_name="Acme & Co Foundation")
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        html = render_tax_receipt_html(anbi.name)
+        self.assertIn("Acme &amp; Co Foundation", html, "donor name must be HTML-escaped")
+        self.assertNotIn("Acme & Co Foundation", html, "a raw, unescaped ampersand must not appear")
 
     # ================================================================== #
     # export_agreements  /  report get_data

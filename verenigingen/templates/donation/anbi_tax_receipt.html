@@ -1,0 +1,71 @@
+{#-
+    ANBI periodic-donation agreement confirmation receipt.
+
+    Rendered by verenigingen.api.periodic_donation_operations.render_tax_receipt_html
+    and converted to a PDF that is attached to the Periodic Donation Agreement.
+
+    This is a *confirmation* receipt (the agreement qualifies for full ANBI
+    deductibility), NOT an annual statement of amounts actually received.
+
+    NOTE: render_template does not autoescape. render_tax_receipt_html escapes
+    every donor/org-controlled string before passing it here, so values are
+    already HTML-safe. Do not add raw user input to this template.
+
+    Context (all values pre-formatted / pre-escaped by the caller):
+      org_name, org_rsin, issue_date,
+      donor_name, donor_address,
+      agreement_number, agreement_type, annual_amount,
+      start_date, end_date
+-#}
+<div style="font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; max-width: 680px; margin: 0 auto; font-size: 13px; line-height: 1.5;">
+    <div style="border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 20px;">
+        <div style="font-size: 18px; font-weight: bold;">{{ org_name }}</div>
+        {% if org_rsin %}<div style="font-size: 12px; color: #555;">{{ _("RSIN") }}: {{ org_rsin }}</div>{% endif %}
+    </div>
+
+    <h1 style="font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px 0;">
+        {{ _("Tax Receipt — ANBI Periodic Donation") }}
+    </h1>
+    <div style="color: #555; margin-bottom: 20px;">{{ _("Issued on {0}").format(issue_date) }}</div>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="padding: 6px 0; width: 40%; color: #555;">{{ _("Donor") }}</td>
+            <td style="padding: 6px 0; font-weight: bold;">{{ donor_name }}</td>
+        </tr>
+        {% if donor_address %}
+        <tr>
+            <td style="padding: 6px 0; color: #555; vertical-align: top;">{{ _("Address") }}</td>
+            <td style="padding: 6px 0;">{{ donor_address }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td style="padding: 6px 0; color: #555;">{{ _("Agreement Number") }}</td>
+            <td style="padding: 6px 0; font-weight: bold;">{{ agreement_number }}</td>
+        </tr>
+        {% if agreement_type %}
+        <tr>
+            <td style="padding: 6px 0; color: #555;">{{ _("Agreement Type") }}</td>
+            <td style="padding: 6px 0;">{{ agreement_type }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td style="padding: 6px 0; color: #555;">{{ _("Annual Amount") }}</td>
+            <td style="padding: 6px 0; font-weight: bold;">{{ annual_amount }}</td>
+        </tr>
+        {% if start_date %}
+        <tr>
+            <td style="padding: 6px 0; color: #555;">{{ _("Agreement Period") }}</td>
+            <td style="padding: 6px 0;">{{ start_date }}{% if end_date %} &ndash; {{ end_date }}{% endif %}</td>
+        </tr>
+        {% endif %}
+    </table>
+
+    <p style="margin-bottom: 16px;">
+        {{ _("This receipt confirms that the periodic donation agreement identified above qualifies for full tax deductibility under Dutch ANBI regulations (periodieke gift).") }}
+    </p>
+
+    <p style="color: #555; font-size: 11px; margin-top: 28px; border-top: 1px solid #ddd; padding-top: 12px;">
+        {{ _("This document was generated automatically. Please retain it for your records.") }}
+    </p>
+</div>

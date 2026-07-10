@@ -181,20 +181,30 @@ frappe.query_reports['ANBI Periodic Agreements'] = {
 		});
 
 		report.page.add_inner_button(__('Generate Tax Receipts'), () => {
-			const filters = report.get_filter_values();
-			filters.generate_receipts = true;
+			frappe.confirm(
+				__(
+					'Generate confirmation receipts for ALL active ANBI agreements? A receipt PDF is attached to each agreement.'
+				),
+				() => {
+					const filters = report.get_filter_values();
+					filters.generate_receipts = true;
 
-			frappe.call({
-				method: 'verenigingen.api.anbi_operations.generate_tax_receipts',
-				args: {
-					filters
-				},
-				callback(r) {
-					if (r.message) {
-						frappe.msgprint(__('{0} tax receipts generated', [r.message.generated_count]));
-					}
+					frappe.call({
+						method: 'verenigingen.api.periodic_donation_operations.generate_tax_receipts',
+						args: {
+							filters
+						},
+						callback(r) {
+							if (r.message) {
+								// @critical_api serializes OperationResult into a nested
+								// envelope ({data: {...}}); fall back to flat for safety.
+								const data = r.message.data || r.message;
+								frappe.msgprint(__('{0} tax receipts generated', [data.generated_count]));
+							}
+						}
+					});
 				}
-			});
+			);
 		});
 
 		report.page.add_inner_button(__('Export Agreements'), () => {
