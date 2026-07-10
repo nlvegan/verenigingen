@@ -14,24 +14,16 @@ Implements Week 3 Day 1-2 requirements from the SEPA billing improvements projec
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, get_datetime, now
+from frappe.utils import get_datetime, now
 
-from verenigingen.utils.constants import Roles
-from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
-from verenigingen.utils.performance_utils import performance_monitor
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    critical_api,
-    high_security_api,
-    standard_api,
-)
+from verenigingen.utils.error_handling import SEPAError
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
@@ -603,123 +595,3 @@ class SEPARetryConfigs:
             circuit_breaker_threshold=5,
             circuit_breaker_window=300,
         )
-
-
-# API Functions
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-@handle_api_error
-def execute_with_retry(operation_type: str, operation_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    API endpoint to execute SEPA operations with retry logic
-
-    Args:
-        operation_type: Type of operation (batch_creation, xml_generation, etc.)
-        operation_data: Data for the operation
-
-    Returns:
-        Operation result with retry information
-    """
-    retry_manager = SEPARetryManager()
-
-    # Get appropriate configuration
-    config_map = {
-        "batch_creation": SEPARetryConfigs.batch_creation(),
-        "xml_generation": SEPARetryConfigs.xml_generation(),
-        "database": SEPARetryConfigs.database_operations(),
-        "file": SEPARetryConfigs.file_operations(),
-        "network": SEPARetryConfigs.network_operations(),
-    }
-
-    config = config_map.get(operation_type, SEPARetryManager().default_config)
-
-    # This is a placeholder - in real implementation, you'd route to actual operations
-    def mock_operation():
-        if operation_type == "batch_creation":
-            # Import and call actual batch creation
-            from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
-                SEPABatchRaceConditionManager,
-            )
-
-            manager = SEPABatchRaceConditionManager()
-            return manager.create_batch_with_race_protection(operation_data)
-        else:
-            # Placeholder for other operations
-            return {"success": True, "message": f"Operation {operation_type} completed"}
-
-    result = retry_manager.retry_operation(
-        operation=mock_operation,
-        config=config,
-        operation_id=f"api_{operation_type}",
-        context={"operation_type": operation_type, "api_call": True},
-    )
-
-    return {
-        "success": result.success,
-        "result": result.result,
-        "retry_info": {
-            "total_attempts": result.total_attempts,
-            "total_duration": result.total_duration,
-            "attempts": [
-                {
-                    "attempt": a.attempt,
-                    "success": a.success,
-                    "duration": a.duration,
-                    "delay": a.delay,
-                    "error": str(a.error) if a.error else None,
-                }
-                for a in result.attempts
-            ],
-        },
-        "final_error": str(result.final_error) if result.final_error else None,
-    }
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.REPORTING)
-@handle_api_error
-def get_retry_statistics(operation_id: str = None) -> Dict[str, Any]:
-    """
-    Get retry statistics for monitoring
-
-    Args:
-        operation_id: Specific operation ID or None for all
-
-    Returns:
-        Retry statistics
-    """
-    retry_manager = SEPARetryManager()
-    return {
-        "failure_stats": retry_manager.get_failure_stats(operation_id),
-        "circuit_breaker_states": {
-            op_id: {"state": cb.state, "failure_count": cb.failure_count}
-            for op_id, cb in retry_manager.circuit_breakers.items()
-        },
-    }
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
-@handle_api_error
-def reset_retry_circuit_breaker(operation_id: str) -> Dict[str, Any]:
-    """
-    Reset circuit breaker for operation (admin only)
-
-    Args:
-        operation_id: Operation to reset
-
-    Returns:
-        Reset result
-    """
-    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
-        raise SEPAError(_("Only system managers can reset circuit breakers"))
-
-    retry_manager = SEPARetryManager()
-    success = retry_manager.reset_circuit_breaker(operation_id)
-
-    return {
-        "success": success,
-        "message": f"Circuit breaker reset for {operation_id}" if success else "Operation not found",
-    }
