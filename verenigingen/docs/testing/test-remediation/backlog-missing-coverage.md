@@ -97,6 +97,13 @@ SEPA Mandate in the DataRetentionPolicy mapping. Build these only when a product
   - **Aging basis:** `_process_payment_data` / `_process_personal_data` age by `creation`, not business/posting
     date — misleading for eBoekhouden-migrated historical rows. Sanity-check dry-run counts against business
     dates before ever allow-listing these.
+  - **`temporary_data` live DELETE skips legal-hold checks** (`_process_temporary_data` uses a bulk raw
+    `DELETE ... WHERE action='webhook_validation'` with no per-row `_is_on_legal_hold` and bypasses `on_trash`),
+    unlike the payment/personal branches. Nil impact today (legal holds are in-memory + out of scope), but if
+    legal-hold persistence is ever added this path would silently ignore holds. Add the per-row hold check then.
+  - **`_get_next_retention_run()` hardcodes `now + 1 day`** while the job is registered **weekly** → the
+    `get_retention_report()` "next run" is wrong now that the report is reachable. Pre-existing; cheap to fix or
+    drop when the report surface is actually used.
 - Generic SEPA payment-amount ceiling (positive, ≤2 decimals, ≤ EUR 1,000,000) — from deleted `test_payment_amount_validation`. No such universal validator exists; the only real amount check is `SEPAMandateUsage.validate_amount()`, which only compares against that specific mandate's own `maximum_amount` field.
 - SEPA payment-batch execution-date validation (reject a batch dated in the past) — from deleted `test_payment_batch_validation`. `DirectDebitBatch.validate()`/`validate_invoices()`/`validate_sequence_types()` never check `batch_date` against today.
 - Dutch SEPA creditor-identifier (Incassant-ID) format validation — from deleted `test_creditor_identifier_validation`. No validator for the `NL##ZZZ#########` format exists anywhere in the SEPA codebase.
