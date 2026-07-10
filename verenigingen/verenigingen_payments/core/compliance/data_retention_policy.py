@@ -25,6 +25,7 @@ class DataCategory(Enum):
     """Categories of data with different retention requirements"""
 
     PAYMENT_DATA = "payment_data"
+    MANDATE_DATA = "mandate_data"  # SEPA Mandate (holds IBAN/BIC/account-holder PII)
     PERSONAL_DATA = "personal_data"
     TRANSACTION_DATA = "transaction_data"
     AUDIT_LOGS = "audit_logs"
@@ -52,11 +53,24 @@ class DataRetentionPolicy:
     - Automated data lifecycle management
     - Legal hold support
     - Compliance reporting
+
+    NOTE (orphan scaffolding): as of 2026-07, this class has NO callers — it is
+    not registered in any ``scheduler_events`` hook, exposed by any whitelisted
+    API, nor instantiated by production code. It is compliance scaffolding kept
+    correct-by-construction. Before relying on it, wire it into a scheduler job
+    and finalize the PROVISIONAL retention periods/actions (notably the SEPA
+    Mandate ones added below). Tracked in
+    ``docs/testing/test-remediation/backlog-missing-coverage.md``.
     """
 
     # Default retention periods in days
     DEFAULT_RETENTION_PERIODS = {
         DataCategory.PAYMENT_DATA: 2555,  # 7 years for financial records
+        # PROVISIONAL period for SEPA mandates. The concrete SEPA/GDPR rule
+        # (mandates must be retained for ~14 months after their last collection,
+        # then the IBAN PII anonymized) is deferred; 7 years is used as a safe
+        # upper-bound placeholder so the plumbing is wired without under-retaining.
+        DataCategory.MANDATE_DATA: 2555,
         DataCategory.PERSONAL_DATA: 1095,  # 3 years for personal data
         DataCategory.TRANSACTION_DATA: 2555,  # 7 years for transactions
         DataCategory.AUDIT_LOGS: 2555,  # 7 years for audit trails
@@ -69,6 +83,10 @@ class DataRetentionPolicy:
     # Default actions when retention expires
     DEFAULT_RETENTION_ACTIONS = {
         DataCategory.PAYMENT_DATA: RetentionAction.ANONYMIZE,
+        # Anonymize (not delete): the mandate row is a legal/audit artifact, but
+        # its IBAN/BIC PII must be scrubbed once retention expires. Concrete
+        # anonymization specifics are deferred (see period comment above).
+        DataCategory.MANDATE_DATA: RetentionAction.ANONYMIZE,
         DataCategory.PERSONAL_DATA: RetentionAction.DELETE,
         DataCategory.TRANSACTION_DATA: RetentionAction.ARCHIVE,
         DataCategory.AUDIT_LOGS: RetentionAction.ARCHIVE,
@@ -439,6 +457,7 @@ class DataRetentionPolicy:
 
         mapping = {
             DataCategory.PAYMENT_DATA: "Payment Entry",
+            DataCategory.MANDATE_DATA: "SEPA Mandate",
             DataCategory.PERSONAL_DATA: "Member",
             DataCategory.TRANSACTION_DATA: "Sales Invoice",
             DataCategory.AUDIT_LOGS: "Mollie Audit Log",
