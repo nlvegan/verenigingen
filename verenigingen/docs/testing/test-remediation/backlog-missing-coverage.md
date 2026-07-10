@@ -64,7 +64,17 @@ SEPA Mandate in the DataRetentionPolicy mapping. Build these only when a product
 - SEPA Mandate data-protection/access-audit assertions — from deleted `test_mandate_data_protection_compliance`. No field-level masking or perm_level restriction exists on `iban`/`account_holder_name`/`bic` in `sepa_mandate.json`; ownership access control is already covered for real by `test_mandate_permission_member_ownership`. No distinct feature gap beyond the audit-trail item above.
 - Mollie-specific SEPA Mandate creation coupling — from deleted `test_mollie_integration_mandate_creation`. Grepped `verenigingen/verenigingen_payments/mollie/` for any `frappe.new_doc("SEPA Mandate")`/`frappe.get_doc({"doctype": "SEPA Mandate"...})` call: none exists. There is no real integration point where a Mollie flow creates or touches a SEPA Mandate document; if one is intended (e.g. a Mollie-initiated mandate), build it and write a real test against that path.
 - Mandate non-use expiry (e.g. auto-expire a mandate unused for 36 months) — from deleted `test_mandate_expiry_validation` (`test_sepa_business_logic_unit.py`). `SEPAMandate.set_status_based_on_dates()` only expires a mandate from its explicit `expiry_date` field; there is no usage-history-derived "expired due to non-use" rule anywhere in `sepa_mandate.py` or `sepa_mandate_lifecycle_service.py`.
-- SEPA Mandate is not covered by `DataRetentionPolicy._category_to_doctype()` (`verenigingen_payments/core/compliance/data_retention_policy.py`) — from deleted `test_mandate_data_retention_compliance`. The mapping only covers `Payment Entry` / `Member` / `Sales Invoice` / `Mollie Audit Log` / `Journal Entry`; SEPA Mandate (which holds IBAN PII) has no retention/anonymization policy. Extend the mapping if SEPA Mandate PII needs retention compliance.
+- ~~SEPA Mandate is not covered by `DataRetentionPolicy._category_to_doctype()`~~ — **✅ RESOLVED 2026-07-10.**
+  Added first-class `DataCategory.MANDATE_DATA` → `SEPA Mandate` mapping plus a retention period + action entry
+  (so the engine can iterate the new category without `KeyError`), covered by 5 mutation-verified tests in
+  `verenigingen/verenigingen_payments/tests/test_data_retention_policy.py` (mapping resolution, engine config,
+  dry-run processing, count routing, legal-hold detection). **Retention *period* value / anonymization specifics
+  are PROVISIONAL / deferred** — 7yr placeholder with `ANONYMIZE` action, commented in-file; the real SEPA rule
+  (~14 months after last collection, then anonymize IBAN) is not yet finalized.
+  - **⚠ Orphan-class flag (new follow-up):** `DataRetentionPolicy` itself has **no callers** — it is not
+    registered in any `scheduler_events` hook, exposed by any whitelisted API, nor instantiated by production
+    code. It is correct-by-construction compliance scaffolding only. Before it does anything at runtime it must
+    be **wired into a scheduler job** (and the provisional periods above finalized). Tracked here as a real gap.
 - Generic SEPA payment-amount ceiling (positive, ≤2 decimals, ≤ EUR 1,000,000) — from deleted `test_payment_amount_validation`. No such universal validator exists; the only real amount check is `SEPAMandateUsage.validate_amount()`, which only compares against that specific mandate's own `maximum_amount` field.
 - SEPA payment-batch execution-date validation (reject a batch dated in the past) — from deleted `test_payment_batch_validation`. `DirectDebitBatch.validate()`/`validate_invoices()`/`validate_sequence_types()` never check `batch_date` against today.
 - Dutch SEPA creditor-identifier (Incassant-ID) format validation — from deleted `test_creditor_identifier_validation`. No validator for the `NL##ZZZ#########` format exists anywhere in the SEPA codebase.
