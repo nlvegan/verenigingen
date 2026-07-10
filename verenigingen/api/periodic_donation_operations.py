@@ -286,36 +286,41 @@ def get_renewal_reminder_email(agreement, days_remaining):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def generate_tax_receipts(filters: dict | str) -> OperationResult[Dict[str, Any]]:
     """
-    Generate tax receipts for periodic donations
+    Generate ANBI confirmation receipts for active periodic donation agreements.
+
+    For each Active + ANBI-eligible agreement, renders a confirmation receipt,
+    converts it to a PDF, and attaches it to the agreement as a private File
+    (deterministically named, replacing any prior receipt so exactly one current
+    receipt exists per agreement). Only agreements whose receipt is actually
+    produced and saved are counted.
 
     Args:
-        filters: Report filters dict
+        filters: Report filters dict (parsed for HTTP-layer compatibility; the
+            selection itself is fixed to Active + ANBI-eligible agreements).
 
     Returns:
-        OperationResult: Number of receipts generated
+        OperationResult: {"generated_count": int, "failed": [{name, error}, ...]}
     """
     try:
-        # Parse filters
+        # Parse filters (may arrive as a JSON string from the HTTP layer).
         filters = json.loads(filters) if isinstance(filters, str) else filters
 
-        # Get agreements that need receipts
-        agreement_filters = {"status": "Active", "anbi_eligible": 1}
-
+        # Only Active, ANBI-eligible agreements receive a tax receipt.
         agreements = frappe.get_all(
             "Periodic Donation Agreement",
-            filters=agreement_filters,
-            fields=["name", "donor", "donor_name", "agreement_number", "annual_amount"],
+            filters={"status": "Active", "anbi_eligible": 1},
+            fields=["name", "agreement_number"],
         )
 
         generated_count = 0
+        failed = []
 
         for agreement in agreements:
             try:
-                # Generate receipt document (placeholder - implement actual receipt generation)
-                generate_tax_receipt_content(agreement)
+                _attach_tax_receipt_pdf(agreement.name, agreement.agreement_number)
 
-                # Save as attachment or create custom doctype (frappe has no
-                # module-level add_comment; it is a Document method)
+                # Audit comment is recorded ONLY after the receipt File is saved,
+                # so the trail never claims a receipt that was not produced.
                 frappe.get_doc("Periodic Donation Agreement", agreement.name).add_comment(
                     "Comment",
                     f"Tax receipt generated for {frappe.utils.formatdate(today())}",
@@ -324,14 +329,21 @@ def generate_tax_receipts(filters: dict | str) -> OperationResult[Dict[str, Any]
                 generated_count += 1
 
             except Exception as e:
+                failed.append({"name": agreement.name, "error": str(e)})
                 frappe.log_error(
                     f"Failed to generate tax receipt for {agreement.agreement_number}: {str(e)}\n{traceback.format_exc()}",
                     "Tax Receipt Generation Error",
                 )
 
+        # Persist the File attachments/deletions (consistent with the sibling
+        # whitelisted ops in this module, and required if ever run from a
+        # background/scheduled context).
+        frappe.db.commit()
+
         return OperationResult.ok(
             {
                 "generated_count": generated_count,
+                "failed": failed,
             },
             message=_("{0} tax receipts generated").format(generated_count),
         )
@@ -343,19 +355,93 @@ def generate_tax_receipts(filters: dict | str) -> OperationResult[Dict[str, Any]
         return OperationResult.fail(_("Failed to generate tax receipts"), errors=[str(e)])
 
 
-def generate_tax_receipt_content(agreement):
-    """Generate tax receipt content"""
-    # This is a placeholder - implement actual receipt generation
-    return f"""
-    TAX RECEIPT - ANBI PERIODIC DONATION
+def _attach_tax_receipt_pdf(agreement_name: str, agreement_number: str) -> str:
+    """Render the receipt, convert to PDF, and attach it (idempotent replace).
 
-    Agreement Number: {agreement.agreement_number}
-    Donor: {agreement.donor_name}
-    Annual Amount: €{agreement.annual_amount:,.2f}
-
-    This receipt confirms your periodic donation agreement qualifies for full tax deductibility
-    under Dutch ANBI regulations.
+    Returns the file_url of the attached receipt File.
     """
+    from frappe.utils.file_manager import save_file
+    from frappe.utils.pdf import get_pdf
+
+    html = render_tax_receipt_html(agreement_name)
+    pdf_bytes = get_pdf(html)
+    file_stem = f"ANBI_Tax_Receipt_{agreement_number}"
+    file_name = f"{file_stem}.pdf"
+
+    # Save the fresh receipt FIRST, so a failure here never destroys a
+    # previously-good receipt (delete-then-save would leave the agreement with
+    # nothing if save_file raised).
+    file_doc = save_file(
+        file_name,
+        pdf_bytes,
+        "Periodic Donation Agreement",
+        agreement_name,
+        is_private=1,
+    )
+
+    # Then remove any OTHER (older) receipt File for this agreement so exactly
+    # one current receipt remains (idempotent replace). Match by the
+    # deterministic stem -- save_file inserts a uniqueness hash before the
+    # extension when a same-named file already exists on disk -- with LIKE
+    # metacharacters escaped, scoped to this agreement via attached_to_name, and
+    # excluding the file we just saved.
+    like_stem = file_stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    stale = frappe.get_all(
+        "File",
+        filters={
+            "attached_to_doctype": "Periodic Donation Agreement",
+            "attached_to_name": agreement_name,
+            "file_name": ["like", f"{like_stem}%"],
+            "name": ["!=", file_doc.name],
+        },
+        pluck="name",
+    )
+    for file_id in stale:
+        # Security: called only from the FINANCIAL @critical_api generate_tax_receipts
+        # (privileged actors). Targets are this app's own auto-generated receipt Files,
+        # scoped to a single agreement (attached_to_name) by the deterministic receipt
+        # stem -- never arbitrary user attachments. ignore_permissions lets the receipt
+        # replace run for background/service actors without a role-gated permission check.
+        frappe.delete_doc("File", file_id, ignore_permissions=True, force=True)
+
+    return file_doc.file_url
+
+
+def render_tax_receipt_html(agreement_name: str) -> str:
+    """Render the ANBI confirmation-receipt HTML for a periodic donation agreement.
+
+    Pure (no side effects) so it is independently testable. Pulls the issuing
+    organization identity from Verenigingen Settings and the donor identity from
+    the linked Donor record.
+
+    Frappe's render_template does NOT autoescape, and the rendered HTML is fed to
+    wkhtmltopdf, so every donor/org-controlled string is escaped here before it
+    reaches the template (prevents HTML/JS injection into the PDF). Money/date
+    values are framework-formatted and safe.
+    """
+    from frappe.utils import escape_html
+
+    agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
+    donor = frappe.get_doc("Donor", agreement.donor)
+
+    org_name = frappe.db.get_single_value("Verenigingen Settings", "company_name") or ""
+    company = frappe.db.get_single_value("Verenigingen Settings", "company")
+    org_rsin = frappe.db.get_value("Company", company, "tax_id") if company else None
+    donor_address = donor.get("address")
+
+    context = {
+        "org_name": escape_html(org_name),
+        "org_rsin": escape_html(org_rsin) if org_rsin else None,
+        "issue_date": frappe.utils.formatdate(today()),
+        "donor_name": escape_html(agreement.donor_name or donor.donor_name or ""),
+        "donor_address": escape_html(donor_address) if donor_address else None,
+        "agreement_number": escape_html(agreement.agreement_number or ""),
+        "agreement_type": escape_html(agreement.agreement_type) if agreement.agreement_type else None,
+        "annual_amount": frappe.utils.fmt_money(agreement.annual_amount, currency="EUR"),
+        "start_date": frappe.utils.formatdate(agreement.start_date) if agreement.start_date else None,
+        "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,
+    }
+    return frappe.render_template("verenigingen/templates/donation/anbi_tax_receipt.html", context)
 
 
 @frappe.whitelist()
