@@ -75,9 +75,6 @@ class MemberValidationService(StatelessService):
         # 5. Status field synchronization (conditional)
         validations["status_sync"] = self._sync_status_fields_if_needed(member_doc)
 
-        # 6. Application status clearing (conditional)
-        validations["application_status"] = self._clear_application_status_if_needed(member_doc)
-
         # Collect any errors
         for val_name, val_result in validations.items():
             if isinstance(val_result, dict) and val_result.get("error"):
@@ -230,41 +227,6 @@ class MemberValidationService(StatelessService):
         except Exception as e:
             # Re-raise validation errors as they should block the save
             raise
-
-    def _clear_application_status_if_needed(self, member_doc: "Document") -> dict:
-        """Clear application_status once member leaves application workflow.
-
-        Application workflow states are: Pending, Under Review, Approved, Rejected, Payment Pending
-        Once member becomes Active, Terminated, Suspended, etc., application_status is no longer relevant.
-
-        IMPORTANT: Don't clear if we're in an explicit approve/reject operation
-        (ignore_status_validation flag) or if status is "Rejected" (rejected status
-        should preserve application_status)
-
-        Args:
-            member_doc: The Member document
-
-        Returns:
-            dict: Operation result
-        """
-        # Check conditions for clearing
-        should_skip = getattr(member_doc.flags, "ignore_status_validation", False)
-        status_allows_clear = member_doc.status not in ["Pending", "Rejected"]
-        app_status_is_workflow = member_doc.application_status in [
-            "Pending",
-            "Under Review",
-            "Approved",
-            "Payment Pending",
-        ]
-
-        if should_skip:
-            return {"success": True, "cleared": False, "reason": "ignore_status_validation"}
-
-        if status_allows_clear and app_status_is_workflow:
-            member_doc.application_status = None
-            return {"success": True, "cleared": True}
-
-        return {"success": True, "cleared": False, "reason": "conditions_not_met"}
 
 
 # Module-level singleton accessor
