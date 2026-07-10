@@ -35,14 +35,13 @@ class TestExecuteValidation(EnhancedTestCase):
         )
         result = self.service.execute_validation(member)
         self.assertTrue(result.success)
-        # All six validation slots present
+        # All five validation slots present
         for key in (
             "core_fields",
             "duration",
             "payment",
             "member_id",
             "status_sync",
-            "application_status",
         ):
             self.assertIn(key, result.data)
 
@@ -71,52 +70,6 @@ class TestExecuteValidation(EnhancedTestCase):
         a = get_member_validation_service()
         b = get_member_validation_service()
         self.assertIs(a, b)
-
-
-class TestClearApplicationStatus(EnhancedTestCase):
-    """_clear_application_status_if_needed branch coverage."""
-
-    def setUp(self):
-        super().setUp()
-        self.service = MemberValidationService()
-
-    def _doc(self, status, app_status, ignore=False):
-        return frappe._dict(
-            status=status,
-            application_status=app_status,
-            flags=frappe._dict(ignore_status_validation=ignore),
-        )
-
-    def test_clears_when_active_and_workflow_app_status(self):
-        doc = self._doc("Active", "Approved")
-        result = self.service._clear_application_status_if_needed(doc)
-        self.assertTrue(result["cleared"])
-        self.assertIsNone(doc.application_status)
-
-    def test_does_not_clear_when_pending(self):
-        doc = self._doc("Pending", "Pending")
-        result = self.service._clear_application_status_if_needed(doc)
-        self.assertFalse(result["cleared"])
-        self.assertEqual(doc.application_status, "Pending")
-
-    def test_does_not_clear_when_rejected(self):
-        doc = self._doc("Rejected", "Rejected")
-        result = self.service._clear_application_status_if_needed(doc)
-        self.assertFalse(result["cleared"])
-
-    def test_skips_when_ignore_flag_set(self):
-        doc = self._doc("Active", "Approved", ignore=True)
-        result = self.service._clear_application_status_if_needed(doc)
-        self.assertFalse(result["cleared"])
-        self.assertEqual(result["reason"], "ignore_status_validation")
-        # application_status preserved
-        self.assertEqual(doc.application_status, "Approved")
-
-    def test_no_clear_when_app_status_not_workflow(self):
-        doc = self._doc("Active", "Terminated")
-        result = self.service._clear_application_status_if_needed(doc)
-        self.assertFalse(result["cleared"])
-        self.assertEqual(result["reason"], "conditions_not_met")
 
 
 class TestSyncStatusSkipFlag(EnhancedTestCase):

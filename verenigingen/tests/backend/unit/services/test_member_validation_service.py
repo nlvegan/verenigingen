@@ -54,7 +54,6 @@ class TestMemberValidationServiceExecute(unittest.TestCase):
         self.assertIn("payment", validations)
         self.assertIn("member_id", validations)
         self.assertIn("status_sync", validations)
-        self.assertIn("application_status", validations)
 
 
 class TestMemberValidationServiceDuration(unittest.TestCase):
@@ -167,92 +166,6 @@ class TestMemberValidationServiceStatusSync(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertTrue(result["skipped"])
         self.assertEqual(result["reason"], "ignore_status_validation")
-
-
-class TestMemberValidationServiceApplicationStatus(unittest.TestCase):
-    """Test _clear_application_status_if_needed() method"""
-
-    def setUp(self):
-        super().setUp()
-        from verenigingen.services.member.validation.member_validation_service import (
-            get_member_validation_service,
-        )
-        self.service = get_member_validation_service()
-
-    def test_clears_when_conditions_met(self):
-        """Test that application_status is cleared when conditions are met"""
-        mock_member = MagicMock()
-        mock_member.name = "MEM-001"
-        mock_member.status = "Active"  # Not Pending or Rejected
-        mock_member.application_status = "Approved"  # Is workflow status
-        mock_member.flags = MagicMock()
-        mock_member.flags.ignore_status_validation = False
-
-        result = self.service._clear_application_status_if_needed(mock_member)
-
-        self.assertTrue(result["success"])
-        self.assertTrue(result["cleared"])
-        self.assertIsNone(mock_member.application_status)
-
-    def test_skips_when_ignore_flag_set(self):
-        """Test that clearing is skipped when ignore flag is set"""
-        mock_member = MagicMock()
-        mock_member.name = "MEM-001"
-        mock_member.status = "Active"
-        mock_member.application_status = "Approved"
-        mock_member.flags = MagicMock()
-        mock_member.flags.ignore_status_validation = True
-
-        result = self.service._clear_application_status_if_needed(mock_member)
-
-        self.assertTrue(result["success"])
-        self.assertFalse(result["cleared"])
-        self.assertEqual(result["reason"], "ignore_status_validation")
-
-    def test_skips_when_status_is_pending(self):
-        """Test that clearing is skipped when status is Pending"""
-        mock_member = MagicMock()
-        mock_member.name = "MEM-001"
-        mock_member.status = "Pending"
-        mock_member.application_status = "Under Review"
-        mock_member.flags = MagicMock()
-        mock_member.flags.ignore_status_validation = False
-
-        result = self.service._clear_application_status_if_needed(mock_member)
-
-        self.assertTrue(result["success"])
-        self.assertFalse(result["cleared"])
-        self.assertEqual(result["reason"], "conditions_not_met")
-
-    def test_skips_when_status_is_rejected(self):
-        """Test that clearing is skipped when status is Rejected"""
-        mock_member = MagicMock()
-        mock_member.name = "MEM-001"
-        mock_member.status = "Rejected"
-        mock_member.application_status = "Approved"
-        mock_member.flags = MagicMock()
-        mock_member.flags.ignore_status_validation = False
-
-        result = self.service._clear_application_status_if_needed(mock_member)
-
-        self.assertTrue(result["success"])
-        self.assertFalse(result["cleared"])
-        self.assertEqual(result["reason"], "conditions_not_met")
-
-    def test_skips_when_application_status_not_workflow(self):
-        """Test that clearing is skipped when application_status is not a workflow status"""
-        mock_member = MagicMock()
-        mock_member.name = "MEM-001"
-        mock_member.status = "Active"
-        mock_member.application_status = None  # Not a workflow status
-        mock_member.flags = MagicMock()
-        mock_member.flags.ignore_status_validation = False
-
-        result = self.service._clear_application_status_if_needed(mock_member)
-
-        self.assertTrue(result["success"])
-        self.assertFalse(result["cleared"])
-        self.assertEqual(result["reason"], "conditions_not_met")
 
 
 class TestMemberValidationServiceMemberIdAndFees(unittest.TestCase):
