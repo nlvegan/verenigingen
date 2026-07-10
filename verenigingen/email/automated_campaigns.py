@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 """
 Automated Newsletter Campaigns
-Phase 3 Implementation - Scheduled and Automated Email Campaigns
 
-This module provides automated campaign functionality for recurring newsletters
-and event-driven email communications.
+FUTURE GOAL — NOT FULLY BUILT (as of 2026-07). This module scaffolds automated,
+recurring/event-driven member email campaigns (monthly newsletter, welcome
+series, event reminders, renewal reminders, volunteer recruitment). The Python
+orchestration exists, but the feature is NOT wired up: it depends on custom
+fields (``campaign_type`` / ``template_id`` / ``content_config`` / ``chapter`` /
+``segment``) on the standard ERPNext ``Email Campaign`` DocType that were never
+created, and on email templates that may not exist. As a result:
+  - ``create_campaign`` writes those fields, but Frappe silently drops unknown
+    fields, so they are never persisted;
+  - ``process_scheduled_campaigns`` (daily scheduler) therefore reads them back
+    as absent. It now SKIPS such campaigns cleanly (previously it ``KeyError``-ed
+    and logged an error for every due campaign), and never fabricates content.
+
+To actually build this, decide the model first — e.g. integrate with **Frappe
+CRM** (its Campaign/Email primitives) or add the custom fields above to Email
+Campaign (or a dedicated DocType) — then wire real content generation + templates
+and add per-campaign-type tests. Until then this stays a safe no-op.
 """
 
 import json
@@ -166,6 +180,7 @@ class AutomatedCampaignManager:
         now = now_datetime()
         processed = []
         errors = []
+        skipped = []
 
         # SECURITY FIX: Check if DocType exists before querying
         if not frappe.db.exists("DocType", "Email Campaign"):
@@ -199,6 +214,10 @@ class AutomatedCampaignManager:
                     processed.append(campaign["campaign_name"])
                     # Update next run date
                     self._update_next_run_date(campaign["name"])
+                elif result.get("skipped"):
+                    # Feature not built (missing custom-field schema) -> skip
+                    # quietly rather than reporting a run failure.
+                    skipped.append(campaign["campaign_name"])
                 else:
                     errors.append(f"{campaign['campaign_name']}: {result['error']}")
 
@@ -208,16 +227,33 @@ class AutomatedCampaignManager:
         return {
             "success": len(errors) == 0,
             "processed": processed,
+            "skipped": skipped,
             "errors": errors,
             "total_processed": len(processed),
         }
 
     def _execute_campaign(self, campaign: Dict) -> Dict:
-        """Execute a single campaign"""
+        """Execute a single campaign.
+
+        NOTE: the automated-campaigns feature is not fully built (see the module
+        docstring / FUTURE GOAL). It depends on custom fields
+        (``campaign_type`` / ``template_id`` / ``content_config``) on the standard
+        Email Campaign DocType that were never created, so a real campaign never
+        carries a ``campaign_type``. Skip such campaigns cleanly instead of
+        ``KeyError``-ing (which the daily scheduler previously logged as an error
+        for every due campaign).
+        """
+        campaign_type = campaign.get("campaign_type")
+        if not campaign_type or campaign_type not in self.campaign_types:
+            return {
+                "success": False,
+                "skipped": True,
+                "error": "Automated campaigns not configured (feature not yet built)",
+            }
         try:
             # Get campaign configuration
             content_config = json.loads(campaign.get("content_config") or "{}")
-            campaign_def = self.campaign_types.get(campaign["campaign_type"], {})
+            campaign_def = self.campaign_types.get(campaign_type, {})
 
             # Generate content if needed
             if campaign_def.get("requires_content"):
@@ -262,29 +298,14 @@ class AutomatedCampaignManager:
         now = now_datetime()
         chapter_name = campaign.get("chapter", "Organization")
 
-        # Get chapter highlights (placeholder - would integrate with actual data)
-        highlights = config.get(
-            "highlights",
-            "• Successfully completed our monthly community outreach program<br>"
-            "• Welcomed 15 new members to our chapter<br>"
-            "• Raised €1,200 for our annual fundraising campaign",
-        )
-
-        # Get upcoming events (placeholder - would integrate with Events system)
-        upcoming_events = config.get(
-            "upcoming_events",
-            "• <strong>Community Cleanup Day</strong> - Next Saturday 10:00 AM<br>"
-            "• <strong>Monthly Board Meeting</strong> - First Tuesday of next month<br>"
-            "• <strong>Volunteer Training Session</strong> - March 15th, 7:00 PM",
-        )
-
-        # Get volunteer spotlight (placeholder)
-        volunteer_spotlight = config.get(
-            "volunteer_spotlight",
-            "<strong>This month we recognize Sarah Johnson</strong> for her outstanding "
-            "dedication to our community programs. Sarah has volunteered over 40 hours "
-            "this month and has been instrumental in organizing our food drive initiative.",
-        )
+        # Content comes from the campaign's content_config. FUTURE GOAL: wire these
+        # to real data (chapter activity / Events system / volunteer records).
+        # Defaults are intentionally EMPTY — never fabricate member-facing content
+        # (this previously shipped a fake "Sarah Johnson" volunteer spotlight and
+        # invented member counts / fundraising figures).
+        highlights = config.get("highlights", "")
+        upcoming_events = config.get("upcoming_events", "")
+        volunteer_spotlight = config.get("volunteer_spotlight", "")
 
         return {
             "chapter_name": chapter_name,
@@ -296,23 +317,14 @@ class AutomatedCampaignManager:
 
     def _generate_volunteer_content(self, campaign: Dict, config: Dict) -> Dict:
         """Generate content for volunteer recruitment"""
-        chapter_name = campaign.get("chapter", "Organization")
-
+        # FUTURE GOAL: source these from real volunteer/chapter data. Defaults are
+        # empty on purpose — never invent contact details or figures.
         return {
-            "opportunity_title": config.get("opportunity_title", "Community Outreach Volunteers Needed"),
-            "time_commitment": config.get("time_commitment", "2-4 hours per week, flexible scheduling"),
-            "skills_needed": config.get(
-                "skills_needed",
-                "• Enthusiasm for community service<br>"
-                "• Good communication skills<br>"
-                "• Reliability and commitment<br>"
-                "• No prior experience necessary - training provided!",
-            ),
-            "contact_info": config.get(
-                "contact_info",
-                f"Email: volunteers@{chapter_name.lower().replace(' ', '')}.org<br>" "Phone: +31 20 123 4567",
-            ),
-            "contact_email": config.get("contact_email", "volunteers@organization.org"),
+            "opportunity_title": config.get("opportunity_title", ""),
+            "time_commitment": config.get("time_commitment", ""),
+            "skills_needed": config.get("skills_needed", ""),
+            "contact_info": config.get("contact_info", ""),
+            "contact_email": config.get("contact_email", ""),
         }
 
     def _get_default_content(self, campaign: Dict) -> Dict:

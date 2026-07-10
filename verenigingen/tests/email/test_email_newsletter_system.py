@@ -685,6 +685,25 @@ class TestEmailNewsletterSystemBusinessLogic(EnhancedTestCase):
             else:
                 self.assertTrue(schedule_result.get("success"))
 
+    def test_execute_campaign_skips_unconfigured_instead_of_erroring(self):
+        """A due campaign lacking the (never-built) campaign_type schema is skipped
+        cleanly, not KeyError-ed. Guards the graceful-degrade of the unbuilt feature."""
+        result = self.campaign_manager._execute_campaign(
+            {"name": "EC-unconfigured", "campaign_name": "Unconfigured"}
+        )
+        self.assertFalse(result["success"])
+        self.assertTrue(result.get("skipped"))
+        self.assertIn("not yet built", result["error"])
+
+    def test_newsletter_content_never_fabricates_defaults(self):
+        """Empty content_config yields empty content — no invented member data."""
+        content = self.campaign_manager._generate_monthly_newsletter_content(
+            {"campaign_type": "monthly_newsletter", "chapter": "Test"}, {}
+        )
+        self.assertEqual(content["highlights"], "")
+        self.assertEqual(content["upcoming_events"], "")
+        self.assertEqual(content["volunteer_spotlight"], "")
+
     def test_email_system_component_validation(self):
         """
         Test that all email system components can be validated.
