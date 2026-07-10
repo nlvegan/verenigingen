@@ -15,6 +15,26 @@ sections B and C. Each entry is `file:line — description`. Verify reachability
 
 ---
 
+## Verification log — 2026-07-10 (in progress)
+
+Each item independently re-checked against current code + reachability (callers / schema / whitelist).
+Verdicts: **CONFIRMED** (real, as described) · **NUANCED** (real but severity/reachability differs) · **pending** (not yet re-verified).
+
+- **B1 (email tracking) — NUANCED.** The stub is real (real 22 KB impl sits at `analytics_tracker.py.disabled`; live stub only defines `class EmailAnalyticsTracker`, missing the module-level `track_open`/`track_click`/`get_member_engagement`/`get_email_analytics` that callers import → `ImportError`). BUT the `email_tracking.py` webhook wrappers (`process_tracking_webhook`, `get_member_engagement_stats`) have **zero callers** → dead, not "silently failing in prod". The genuinely-reachable consumers are `utils/email_campaign.py:117` (imports missing `get_email_analytics`) and `email/validation_utils.py:53` (instantiates the stub). Net: email analytics is **unbuilt**, not actively erroring on a live path. Fix = restore the `.disabled` impl, or delete the dead wrappers + stub.
+- **B2 (automated campaigns) — CONFIRMED.** `process_scheduled_campaigns` is scheduled **daily** (`hooks/scheduler.py:27`); `campaign_type`/`content_config` confirmed **absent** from ERPNext's `Email Campaign` DocFields → `_execute_campaign` fails for any due campaign; fake-content fallback present. Impact gated on whether prod has due `Email Campaign` records.
+- **B3 (eBoekhouden addresses) — CONFIRMED.** `_add_party_address` (`party_resolver.py:651`) is a no-op and is called on the **live** customer (`:659`) and supplier (`:663`) import paths → addresses silently never imported during relation import.
+- **B4 (migration pre-validation) — CONFIRMED (low-harm).** `_run_pre_validation` always returns `can_proceed:True` and the caller (`:272`) relies on it → the gate is vacuous. But it validates nothing to begin with, so it's an **unimplemented safety feature**, not an active data-loss bug.
+- **C1 (ANBI tax receipts) — CONFIRMED.** Live `@frappe.whitelist` + `@critical_api(FINANCIAL)` (`:285`). Calls `generate_tax_receipt_content()` (a placeholder string), **discards it**, only adds a "receipt generated" comment, and returns "N generated" → real ANBI compliance gap (no receipt is actually produced/saved/emailed).
+- **C2 (Mollie dashboard) — CONFIRMED.** Live `@frappe.whitelist` + `@high_security_api(FINANCIAL)` (`:12`); returns hardcoded placeholder balances/settlements.
+- **C3 (SEPA execute_with_retry) — CONFIRMED.** Live `@frappe.whitelist` + `@critical_api(FINANCIAL)` (`:611`); fakes success via `mock_operation()`.
+- **C4 (sepa_retry_batch.process_single_operation) — CONFIRMED (internal).** Not a direct endpoint (internal method `:161`), reachable via the batch controller; simulates retry outcomes by string-matching.
+- **C5 (fix_schedule_dates) — NUANCED.** The `def` at `:327` is a **nested function** (indented inside another), not a top-level whitelisted endpoint as originally rated → lower reachability/severity; needs a closer look before actioning.
+- **A6 (Billing Interval Change) — CONFIRMED, NUANCED.** It IS a real selectable `amendment_type` (`contribution_amendment_request.json:91`), and the approval service's `apply_billing_change` (`:382`) throws "not yet implemented" (dispatched at `:237`). BUT a **parallel handler exists** in `mollie_subscription_sync_service.py:510` for the same type → subscription-backed members may route through the Mollie path instead of dead-ending. Confirm which path a real approved amendment takes before fixing.
+- **D (require_permission bypass) — CONFIRMED.** The always-`True` `require_permission` (singular, `error_handling.py:594`) has **zero callers** (the grep hits are `require_permissions`, plural — a different, real function). Latent landmine, as described.
+- **A1–A5 (user-facing stubs) — pending** (each is present in a rendered template/form; reachability = "is the control shown", generally yes — spot-verify per item before actioning). **E, F — pending.**
+
+---
+
 ## A. User-facing features that appear available but don't work
 - `verenigingen/verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.js:347` — **"Generate PDF"** button shows "will be implemented in Phase 3".
 - `verenigingen/templates/pages/donate.html:517` — entire **ANBI tax-deduction section** disabled via `{% if false %}`.
