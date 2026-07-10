@@ -71,10 +71,32 @@ SEPA Mandate in the DataRetentionPolicy mapping. Build these only when a product
   dry-run processing, count routing, legal-hold detection). **Retention *period* value / anonymization specifics
   are PROVISIONAL / deferred** — 7yr placeholder with `ANONYMIZE` action, commented in-file; the real SEPA rule
   (~14 months after last collection, then anonymize IBAN) is not yet finalized.
-  - **⚠ Orphan-class flag (new follow-up):** `DataRetentionPolicy` itself has **no callers** — it is not
-    registered in any `scheduler_events` hook, exposed by any whitelisted API, nor instantiated by production
-    code. It is correct-by-construction compliance scaffolding only. Before it does anything at runtime it must
-    be **wired into a scheduler job** (and the provisional periods above finalized). Tracked here as a real gap.
+  - **✅ Orphan-class flag RESOLVED 2026-07-10 (engine activated).** `DataRetentionPolicy` was wired into a
+    **weekly, gated, dry-run-by-default** scheduler job (`run_scheduled_retention_policies`), configurable via
+    the new `Data Retention Settings` Single (+ `Data Retention Category Policy` child), linked from
+    Verenigingen Settings. Live purging is **allow-listed** (`LIVE_CAPABLE_CATEGORIES = {temporary_data}`) — the
+    only verified/tested destructive path; every other category is forced to dry-run regardless of settings.
+    Design/plan: `docs/superpowers/{specs,plans}/2026-07-10-data-retention-engine-activation*`.
+
+- **Data Retention engine — live-path hazards (BLOCKED from `LIVE_CAPABLE_CATEGORIES`, NOT fixed).** These are
+  pre-existing bugs in the engine's untested processing branches. Activation makes them *reachable*, so each
+  corresponding category is deliberately kept out of the live allowlist until fixed + integration-tested. Fix
+  one, add a live-path test (mirror `test_retention_live_temporary_data.py`), then add the category to the
+  allowlist — never the reverse.
+  - **`audit_logs`:** `_archive_audit_log` (`data_retention_policy.py` ~L373) does
+    `frappe.db.set_value("Mollie Audit Log", …, "archived", 1)`, but **`Mollie Audit Log` has no `archived`
+    field** → "unknown column" on the first row, swallowed into `results["errors"]`. The dry-run branch
+    short-circuits with a `count()` before this line, so **dry-run cannot surface it**.
+  - **`payment_data`:** `_anonymize_payment` mutates a **submitted** `Payment Entry` (`party`/`reference_no`)
+    via `db.set_value`, bypassing controller validation → GL Entry / eBoekhouden reconciliation desync risk.
+  - **`personal_data`:** two field bugs — `_process_personal_data`'s SELECT referenced a non-existent
+    `Member.phone` (**fixed to `contact_number`** in commit `b6edb78d` because that SELECT runs even in
+    dry-run), but `_anonymize_personal_data` (`~L391`) **still writes a non-existent `phone` field** via
+    `db.set_value` on the (unreachable) live path. Also `_delete_personal_data` does
+    `frappe.delete_doc("Member", force=True)`.
+  - **Aging basis:** `_process_payment_data` / `_process_personal_data` age by `creation`, not business/posting
+    date — misleading for eBoekhouden-migrated historical rows. Sanity-check dry-run counts against business
+    dates before ever allow-listing these.
 - Generic SEPA payment-amount ceiling (positive, ≤2 decimals, ≤ EUR 1,000,000) — from deleted `test_payment_amount_validation`. No such universal validator exists; the only real amount check is `SEPAMandateUsage.validate_amount()`, which only compares against that specific mandate's own `maximum_amount` field.
 - SEPA payment-batch execution-date validation (reject a batch dated in the past) — from deleted `test_payment_batch_validation`. `DirectDebitBatch.validate()`/`validate_invoices()`/`validate_sequence_types()` never check `batch_date` against today.
 - Dutch SEPA creditor-identifier (Incassant-ID) format validation — from deleted `test_creditor_identifier_validation`. No validator for the `NL##ZZZ#########` format exists anywhere in the SEPA codebase.
