@@ -79,9 +79,10 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         # Reload immediately after creation to get fresh timestamp
         member.reload()
 
-        # Set initial state — `status` must be "Pending" to keep `application_status`
-        # in the application workflow (MemberValidationService._clear_application_status_if_needed
-        # clears app_status once member.status leaves Pending/Rejected).
+        # Set the initial application-workflow state. (The former
+        # MemberValidationService._clear_application_status_if_needed step was
+        # removed as a net-unobservable no-op — its clear was re-defaulted within
+        # the same save — so application_status now simply persists as set.)
         member.status = "Pending"
         member.application_status = "Pending"
         member.save()
@@ -92,12 +93,10 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         # Verify workflow state
         self.assertEqual(member.application_status, "Pending")
 
-        # Test state transition (simulate approval). flags.ignore_status_validation
-        # prevents MemberValidationService._clear_application_status_if_needed from
-        # clearing application_status during the test scenario.
-        # NOTE: production approve/reject code does NOT currently set this flag —
-        # see follow-up: investigate whether production approval silently clears
-        # application_status (skeptical review of PR #99 raised this question).
+        # Test state transition (simulate approval). The PR #99 follow-up
+        # ("does production approval silently clear application_status?") is
+        # resolved: it does not — the clearing step was net-unobservable dead
+        # wiring and has been removed, so application_status persists as set.
         member.flags.ignore_status_validation = True
         member.application_status = "Approved"
         member.save()
@@ -228,12 +227,9 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
             email="test.idempotent@example.com"
         )
 
-        # Manually set member to approved state. flags.ignore_status_validation
-        # prevents MemberValidationService._clear_application_status_if_needed
-        # from clearing application_status once status leaves Pending/Rejected.
-        # NOTE: production approve/reject code does NOT currently set this flag —
-        # see follow-up: investigate whether production approval silently clears
-        # application_status (skeptical review of PR #99 raised this question).
+        # Manually set member to approved state. The former application_status
+        # clearing step was removed as a net-unobservable no-op, so
+        # application_status persists as set here regardless of member.status.
         member.reload()
         member.flags.ignore_status_validation = True
         member.application_status = "Approved"
