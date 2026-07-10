@@ -669,12 +669,12 @@ def run_scheduled_retention_policies() -> Dict[str, Any]:
     Data Retention Settings.enabled is on. Never raises out of the scheduler
     tick — failures are logged and recorded into last_run_summary.
     """
-    settings = frappe.get_single("Data Retention Settings")
-    if not settings.enabled:
-        return {"skipped": True}
-
-    dry_run = bool(settings.dry_run_only)
     try:
+        settings = frappe.get_single("Data Retention Settings")
+        if not settings.enabled:
+            return {"skipped": True}
+
+        dry_run = bool(settings.dry_run_only)
         policy = DataRetentionPolicy()
         results = policy.apply_retention_policies(dry_run=dry_run)
         summary = _summarize_retention_results(results)

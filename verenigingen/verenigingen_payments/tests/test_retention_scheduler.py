@@ -33,6 +33,9 @@ class TestRetentionScheduler(VereningingenTestCase):
         member = self.create_test_member(
             first_name="Retention", last_name="Survivor", email="retention.survivor@test.com"
         )
+        # This entrypoint deliberately calls frappe.db.commit(), so its writes
+        # persist past the normal per-test rollback boundary; isolation relies
+        # on setUp()'s reset of Data Retention Settings and tracked-doc teardown.
         result = run_scheduled_retention_policies()
         self.assertFalse(result.get("skipped"))
         self.assertTrue(result["dry_run"])
