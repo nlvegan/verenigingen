@@ -1,0 +1,76 @@
+{
+  "actions": [],
+  "creation": "2026-07-10 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "enabled",
+    "dry_run_only",
+    "policies_section",
+    "category_policies",
+    "status_section",
+    "last_run",
+    "last_run_summary"
+  ],
+  "fields": [
+    {
+      "default": "0",
+      "description": "Master switch. When off, the weekly retention job does nothing.",
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Retention Engine Enabled"
+    },
+    {
+      "default": "1",
+      "description": "Global safety gate. When on, the job only reports what WOULD be purged; nothing is deleted or anonymized.",
+      "fieldname": "dry_run_only",
+      "fieldtype": "Check",
+      "label": "Dry-run Only"
+    },
+    {
+      "fieldname": "policies_section",
+      "fieldtype": "Section Break",
+      "label": "Category Policies"
+    },
+    {
+      "fieldname": "category_policies",
+      "fieldtype": "Table",
+      "label": "Category Policies",
+      "options": "Data Retention Category Policy"
+    },
+    {
+      "fieldname": "status_section",
+      "fieldtype": "Section Break",
+      "label": "Last Run"
+    },
+    {
+      "fieldname": "last_run",
+      "fieldtype": "Datetime",
+      "label": "Last Run",
+      "read_only": 1
+    },
+    {
+      "fieldname": "last_run_summary",
+      "fieldtype": "Small Text",
+      "label": "Last Run Summary",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "issingle": 1,
+  "links": [],
+  "modified": "2026-07-10 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Data Retention Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {"create": 1, "delete": 1, "email": 1, "print": 1, "read": 1, "role": "System Manager", "share": 1, "write": 1},
+    {"create": 1, "delete": 1, "email": 1, "print": 1, "read": 1, "role": "Verenigingen Administrator", "share": 1, "write": 1}
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

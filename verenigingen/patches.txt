@@ -54,3 +54,4 @@ verenigingen.patches.v2_2.add_staff_to_membership_workflow
 verenigingen.patches.v2_2.add_mollie_portal_self_service_critical_operation_rules
 verenigingen.patches.v2_2.resync_stuck_mollie_amendment_syncs
 verenigingen.patches.v2_2.split_dd_batch_scheme_and_sequence
+verenigingen.patches.v1_0.seed_data_retention_category_policies

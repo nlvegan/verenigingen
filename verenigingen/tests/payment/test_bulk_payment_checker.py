@@ -12,11 +12,12 @@ The checker is built with ``object.__new__`` and then has its two collaborators
 DuesPaymentProcessor that need site-specific Mollie/account configuration.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import (
@@ -40,13 +41,17 @@ def _sdk_payment(
     status="paid",
     value="25.00",
     currency="EUR",
-    created="2026-06-10T10:00:00+00:00",
-    paid="2026-06-10T10:05:00+00:00",
+    created=None,
+    paid=None,
     description="Membership dues",
     customer_id="cst_1",
     subscription_id=None,
 ):
     """A dict in the shape MolliePayment.from_mollie_api consumes."""
+    if created is None or paid is None:
+        _recent = (now_datetime() - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        created = created or _recent
+        paid = paid or _recent
     return {
         "id": pid,
         "amount": {"value": value, "currency": currency},
@@ -338,9 +343,7 @@ class TestCheckPaymentsForCustomer(EnhancedTestCase):
     """check_payments_for_customer end-to-end against a fake SDK + creator."""
 
     def test_returns_processable_dues_payment(self):
-        sdk = _FakeSDKClient(
-            payments_by_customer={"cst_1": [_sdk_payment("tr_a", value="25.00")]}
-        )
+        sdk = _FakeSDKClient(payments_by_customer={"cst_1": [_sdk_payment("tr_a", value="25.00")]})
         checker = _build_checker(sdk)
 
         with _patch_bt_creator():
@@ -365,9 +368,7 @@ class TestCheckPaymentsForCustomer(EnhancedTestCase):
         self.assertEqual(len(result["payments"]), 1)
 
     def test_filters_payment_outside_date_window(self):
-        old = _sdk_payment(
-            "tr_old", created="2026-01-01T10:00:00+00:00", paid="2026-01-01T10:00:00+00:00"
-        )
+        old = _sdk_payment("tr_old", created="2026-01-01T10:00:00+00:00", paid="2026-01-01T10:00:00+00:00")
         sdk = _FakeSDKClient(payments_by_customer={"cst_1": [old]})
         checker = _build_checker(sdk)
 
@@ -487,8 +488,9 @@ class TestCheckAllCustomersDiscovery(EnhancedTestCase):
         checker = _build_checker(sdk)
 
         # Avoid the real 600ms rate-limit sleep between members.
-        with _patch_bt_creator(), patch(
-            "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.time.sleep"
+        with (
+            _patch_bt_creator(),
+            patch("verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.time.sleep"),
         ):
             result = checker.check_all_customers_for_new_payments(days_back=30, max_members=500)
 
@@ -519,8 +521,9 @@ class TestCheckAllCustomersDiscovery(EnhancedTestCase):
         sdk = _FakeSDKClient(raise_for=raise_for)
         checker = _build_checker(sdk)
 
-        with _patch_bt_creator(), patch(
-            "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.time.sleep"
+        with (
+            _patch_bt_creator(),
+            patch("verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.time.sleep"),
         ):
             result = checker.check_all_customers_for_new_payments(days_back=30, max_members=500)
 
@@ -562,9 +565,7 @@ class TestCheckAllCustomersDiscovery(EnhancedTestCase):
 
         checker.check_payments_for_customer = _always_error
 
-        with patch(
-            "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.time.sleep"
-        ):
+        with patch("verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.time.sleep"):
             result = checker.check_all_customers_for_new_payments(days_back=30, max_members=500)
 
         self.assertTrue(result["circuit_breaker_triggered"])

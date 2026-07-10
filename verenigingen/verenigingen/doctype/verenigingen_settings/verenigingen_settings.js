@@ -154,6 +154,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 		frm.trigger('setup_buttons_for_membership');
 		frm.trigger('setup_buttons_for_donation');
 		frm.trigger('setup_member_portal_buttons');
+		frm.trigger('setup_compliance_buttons');
 	},
 
 	setup_buttons_for_membership(frm) {
@@ -300,6 +301,14 @@ frappe.ui.form.on('Verenigingen Settings', {
 				});
 			},
 			__('Member Portal')
+		);
+	},
+
+	setup_compliance_buttons(frm) {
+		frm.add_custom_button(
+			__('Data Retention'),
+			() => frappe.set_route('Form', 'Data Retention Settings'),
+			__('Compliance')
 		);
 	}
 });
