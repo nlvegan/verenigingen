@@ -649,9 +649,67 @@ class EBoekhoudenPartyResolver:
             debug_info.append(f"Failed to create contact for {party.name}: {str(e)}")
 
     def _add_party_address(self, party, relation_details, debug_info=None):
-        """Add address to party (stub for future implementation)"""
-        if debug_info:
-            debug_info.append(f"Address data available for {party.doctype.lower()} (not implemented yet)")
+        """Create and link an Address for the party from eBoekhouden relation data.
+
+        Mirrors ``RelationMigrationService._create_address`` so the
+        transaction-driven party-resolution path attaches addresses too
+        (this was previously a no-op stub, so addresses were silently dropped
+        on the party-extractor / enrichment-queue paths).
+        """
+        if debug_info is None:
+            debug_info = []
+
+        try:
+            # REST (lowercase Dutch) is the primary format; keep SOAP/English fallbacks.
+            address_line1 = (
+                relation_details.get("adres")
+                or relation_details.get("Adres")
+                or relation_details.get("address")
+                or ""
+            ).strip()
+            city = (
+                relation_details.get("plaats")
+                or relation_details.get("Plaats")
+                or relation_details.get("city")
+                or ""
+            ).strip()
+            postal_code = (
+                relation_details.get("postcode")
+                or relation_details.get("Postcode")
+                or relation_details.get("postalCode")
+                or ""
+            ).strip()
+            country = (
+                relation_details.get("land")
+                or relation_details.get("Land")
+                or relation_details.get("country")
+                or "Netherlands"
+            ).strip() or "Netherlands"
+
+            # Nothing worth persisting without at least a street or a city.
+            if not address_line1 and not city:
+                debug_info.append(f"No usable address data for {party.doctype.lower()} {party.name}")
+                return
+
+            address = frappe.get_doc(
+                {
+                    "doctype": "Address",
+                    "address_title": f"{party.name} Address",
+                    # address_type is mandatory on Address with no DB default.
+                    "address_type": "Billing",
+                    "address_line1": address_line1,
+                    "city": city,
+                    "pincode": postal_code,
+                    "country": country,
+                    "links": [{"link_doctype": party.doctype, "link_name": party.name}],
+                }
+            )
+            address.insert()
+            debug_info.append(f"Created address for {party.doctype.lower()} {party.name}: {address.name}")
+
+        except Exception as e:
+            debug_info.append(f"Failed to create address for {party.doctype.lower()} {party.name}: {str(e)}")
+            frappe.logger().error(f"eBoekhouden: failed to create address for {party.name}: {e}")
 
     # Legacy address methods for backwards compatibility
     def add_customer_address(self, customer, relation_details, debug_info=None):

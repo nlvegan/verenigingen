@@ -362,26 +362,51 @@ class TestGetDefaultPartyRealDB(EnhancedTestCase):
             self.resolver._get_default_party("Supplier")
 
 
-class TestAddPartyAddressStub(EnhancedTestCase):
-    """_add_party_address and its legacy wrappers are stubs that only log."""
+class TestAddPartyAddressRealDB(EnhancedTestCase):
+    """_add_party_address creates and links a real Address from relation data."""
 
     def setUp(self):
         super().setUp()
         self.resolver = EBoekhoudenPartyResolver()
 
-    def test_add_party_address_appends_debug(self):
+    def _linked_addresses(self, doctype, name):
+        return frappe.get_all(
+            "Dynamic Link",
+            filters={"link_doctype": doctype, "link_name": name, "parenttype": "Address"},
+            pluck="parent",
+        )
+
+    def test_add_party_address_creates_linked_address(self):
+        """Relation address fields (adres/postcode/plaats) create a linked Address."""
         rel = frappe.generate_hash(length=8)
         name = self.resolver._create_provisional_party("Customer", rel, [])
         party = frappe.get_doc("Customer", name)
-        # _add_party_address only logs when debug_info is truthy (non-empty list).
-        debug = ["seed"]
-        self.resolver._add_party_address(party, {"adres": "Straat 1"}, debug)
-        self.assertTrue(any("Address data available" in m for m in debug))
+        debug = []
+        self.resolver._add_party_address(
+            party, {"adres": "Keizersgracht 123", "postcode": "1015 CJ", "plaats": "Amsterdam"}, debug
+        )
+        linked = self._linked_addresses("Customer", name)
+        self.assertEqual(len(linked), 1)
+        addr = frappe.get_doc("Address", linked[0])
+        self.assertEqual(addr.address_line1, "Keizersgracht 123")
+        self.assertEqual(addr.city, "Amsterdam")
+        self.assertEqual(addr.pincode, "1015 CJ")
+        self.assertTrue(any("Created address" in m for m in debug))
 
-    def test_legacy_address_wrappers_delegate(self):
+    def test_add_party_address_no_data_is_noop(self):
+        """Empty address fields create no Address and log the skip."""
+        rel = frappe.generate_hash(length=8)
+        name = self.resolver._create_provisional_party("Customer", rel, [])
+        party = frappe.get_doc("Customer", name)
+        debug = []
+        self.resolver._add_party_address(party, {"adres": "", "plaats": ""}, debug)
+        self.assertEqual(self._linked_addresses("Customer", name), [])
+        self.assertTrue(any("No usable address" in m for m in debug))
+
+    def test_legacy_supplier_wrapper_creates_address(self):
+        """add_supplier_address delegates to _add_party_address and creates the Address."""
         rel = frappe.generate_hash(length=8)
         name = self.resolver._create_provisional_party("Supplier", rel, [])
         supplier = frappe.get_doc("Supplier", name)
-        debug = ["seed"]
-        self.resolver.add_supplier_address(supplier, {}, debug)
-        self.assertTrue(any("Address data available" in m for m in debug))
+        self.resolver.add_supplier_address(supplier, {"adres": "Damrak 1", "plaats": "Amsterdam"}, [])
+        self.assertEqual(len(self._linked_addresses("Supplier", name)), 1)
