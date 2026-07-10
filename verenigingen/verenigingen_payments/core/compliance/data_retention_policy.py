@@ -44,6 +44,17 @@ class RetentionAction(Enum):
     REVIEW = "review"
 
 
+# Categories whose LIVE (destructive) processing path has been individually
+# verified safe and is allowed to run. Everything else is forced to dry-run
+# regardless of settings. Kept intentionally minimal:
+#   - temporary_data: a clean DELETE of aged webhook_validation Mollie Audit Log
+#     rows; verified + integration-tested.
+# Excluded (see backlog): audit_logs (archive writes a non-existent field),
+# payment_data (anonymizes a submitted Payment Entry -> GL desync risk),
+# personal_data (Member delete) — all unverified/known-broken.
+LIVE_CAPABLE_CATEGORIES = {DataCategory.TEMPORARY_DATA}
+
+
 class DataRetentionPolicy:
     """
     Comprehensive data retention policy management
@@ -100,13 +111,46 @@ class DataRetentionPolicy:
         """Initialize data retention policy manager"""
         self.retention_periods = self.DEFAULT_RETENTION_PERIODS.copy()
         self.retention_actions = self.DEFAULT_RETENTION_ACTIONS.copy()
+        self.category_live_flags: Dict[DataCategory, bool] = {}
         self.legal_holds = {}
         self._load_custom_policies()
 
     def _load_custom_policies(self):
-        """Load custom retention policies from database"""
-        # Would load from a configuration DocType
-        pass
+        """Load custom retention policies from the Data Retention Settings singleton.
+
+        Robust to pre-migrate / absent DocType / empty table / unknown category
+        strings — any of which leaves the code defaults in place.
+        """
+        # A Single DocType has no table of its own (stored in tabSingles), so
+        # check for the DocType's METADATA, not a table.
+        if not frappe.db.exists("DocType", "Data Retention Settings"):
+            return
+        try:
+            settings = frappe.get_single("Data Retention Settings")
+            rows = settings.get("category_policies") or []
+        except Exception:
+            # Child table tabData Retention Category Policy may not exist yet
+            # (pre-migrate) -> keep code defaults.
+            return
+
+        by_value = {c.value: c for c in DataCategory}
+        for row in rows:
+            category = by_value.get(row.category)
+            if category is None:
+                frappe.logger("retention").warning(
+                    f"Unknown retention category '{row.category}' in settings; skipping"
+                )
+                continue
+            if row.retention_days:
+                self.retention_periods[category] = int(row.retention_days)
+            if row.action:
+                try:
+                    self.retention_actions[category] = RetentionAction(row.action)
+                except ValueError:
+                    frappe.logger("retention").warning(
+                        f"Unknown retention action '{row.action}' for {row.category}; skipping"
+                    )
+            self.category_live_flags[category] = bool(row.live_enabled)
 
     def apply_retention_policies(self, dry_run: bool = True) -> Dict[str, Any]:
         """
@@ -139,6 +183,21 @@ class DataRetentionPolicy:
 
         return results
 
+    def _effective_dry_run(self, category: "DataCategory", dry_run: bool) -> bool:
+        """Layered live-execution gate.
+
+        A category runs LIVE only when the global dry_run is off AND the
+        category is flagged live in settings AND it is in the code-level
+        LIVE_CAPABLE_CATEGORIES allowlist. Monotonic: can only ever be MORE
+        conservative than the raw dry_run.
+        """
+        is_live = (
+            not dry_run
+            and self.category_live_flags.get(category, False)
+            and category in LIVE_CAPABLE_CATEGORIES
+        )
+        return not is_live
+
     def _process_category(self, category: DataCategory, dry_run: bool) -> Dict[str, Any]:
         """
         Process retention policy for a specific category
@@ -153,6 +212,7 @@ class DataRetentionPolicy:
         retention_days = self.retention_periods[category]
         retention_action = self.retention_actions[category]
         cutoff_date = add_days(now_datetime(), -retention_days)
+        effective_dry_run = self._effective_dry_run(category, dry_run)
 
         result = {
             "category": category.value,
@@ -165,16 +225,24 @@ class DataRetentionPolicy:
 
         # Process based on category
         if category == DataCategory.PAYMENT_DATA:
-            result["records_affected"] = self._process_payment_data(cutoff_date, retention_action, dry_run)
+            result["records_affected"] = self._process_payment_data(
+                cutoff_date, retention_action, effective_dry_run
+            )
 
         elif category == DataCategory.PERSONAL_DATA:
-            result["records_affected"] = self._process_personal_data(cutoff_date, retention_action, dry_run)
+            result["records_affected"] = self._process_personal_data(
+                cutoff_date, retention_action, effective_dry_run
+            )
 
         elif category == DataCategory.AUDIT_LOGS:
-            result["records_affected"] = self._process_audit_logs(cutoff_date, retention_action, dry_run)
+            result["records_affected"] = self._process_audit_logs(
+                cutoff_date, retention_action, effective_dry_run
+            )
 
         elif category == DataCategory.TEMPORARY_DATA:
-            result["records_affected"] = self._process_temporary_data(cutoff_date, retention_action, dry_run)
+            result["records_affected"] = self._process_temporary_data(
+                cutoff_date, retention_action, effective_dry_run
+            )
 
         # Check for legal holds
         held_records = self._check_legal_holds(category, cutoff_date)
@@ -218,7 +286,7 @@ class DataRetentionPolicy:
         # This would process Member records and related personal information
         old_records = frappe.db.sql(
             """
-            SELECT name, first_name, last_name, email, phone
+            SELECT name, first_name, last_name, email, contact_number
             FROM `tabMember`
             WHERE creation < %s
                 AND membership_status = 'Inactive'
