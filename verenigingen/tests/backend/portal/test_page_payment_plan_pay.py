@@ -71,3 +71,23 @@ class TestPagePaymentPlanPay(VereningingenTestCase):
             ctx = frappe._dict()
             payment_plan_pay.get_context(ctx)
         self.assertTrue(ctx.get("no_access"))
+
+    def test_page_lists_enabled_online_methods(self):
+        from unittest.mock import patch
+
+        from verenigingen.templates.pages import payment_plan_pay
+
+        both = [
+            {"id": "mollie", "label": "Online payment"},
+            {"id": "ing_ideal", "label": "iDEAL via ING/Pay.nl"},
+        ]
+        frappe.form_dict = frappe._dict({"plan": self.plan.name})
+        with (
+            patch.object(payment_plan_pay.PaymentHook, "get_available_methods", return_value=both),
+            self.as_user(self.member.email),
+        ):
+            ctx = frappe._dict()
+            payment_plan_pay.get_context(ctx)
+        ids = {m["id"] for m in ctx.payment_methods}
+        self.assertIn("ing_ideal", ids)
+        self.assertIn("mollie", ids)

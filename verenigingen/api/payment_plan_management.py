@@ -339,6 +339,7 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
         # Amount is server-derived from the stored installment.
         amount = flt(installment.amount)
 
+        gateway_label = {"mollie": "Mollie", "ing_ideal": "Pay.nl"}.get(method, method)
         intent = frappe.get_doc(
             {
                 "doctype": "Payment Plan Payment",
@@ -347,7 +348,7 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
                 "amount": amount,
                 "currency": "EUR",
                 "member": member_name,
-                "gateway": "Mollie",
+                "gateway": gateway_label,
                 "status": "Pending",
             }
         )

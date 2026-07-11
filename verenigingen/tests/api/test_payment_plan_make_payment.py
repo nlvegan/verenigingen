@@ -135,3 +135,19 @@ class TestPaymentPlanMakePayment(VereningingenTestCase):
             result = m.initiate_installment_payment(plan=self.plan.name, installment_number=1)
         self.assertTrue(result["success"], result)
         self.track_doc("Payment Plan Payment", (result.get("data") or result)["intent"])
+
+    def test_ing_ideal_records_paynl_gateway(self):
+        from verenigingen.api import payment_plan_management as m
+
+        _captured, fake = self._spy_initiate()
+        with (
+            patch.object(m.PaymentHook, "initiate_payment", side_effect=fake),
+            self.as_user(self.member.email),
+        ):
+            result = m.initiate_installment_payment(
+                plan=self.plan.name, installment_number=1, method="ing_ideal"
+            )
+        self.assertTrue(result["success"], result)
+        intent_name = (result.get("data") or result)["intent"]
+        self.track_doc("Payment Plan Payment", intent_name)
+        self.assertEqual(frappe.db.get_value("Payment Plan Payment", intent_name, "gateway"), "Pay.nl")

@@ -1013,6 +1013,37 @@ class CashGateway(PaymentGateway):
         return {"status": "pending", "message": "Manual verification required"}
 
 
+class INGCheckoutGateway(PaymentGateway):
+    """Pay.nl (iDEAL) via ING Checkout, exposed through PaymentHook."""
+
+    def process_payment(self, ref_doc, form_data):
+        from verenigingen.verenigingen_payments.ing_checkout.api.payment import create_ideal_order
+
+        amount = form_data.get("amount") or getattr(ref_doc, "amount", None)
+        result = create_ideal_order(
+            reference_doctype=ref_doc.doctype,
+            reference_name=ref_doc.name,
+            amount=amount,
+            description=form_data.get("description_override"),
+        )
+        if not result.get("success"):
+            return {"status": "error", "message": result.get("message") or "Payment could not be started"}
+        # Normalize to the shared "redirect_required" shape (PaymentHook._normalize_gateway_response
+        # emits data.url from payment_url).
+        return {
+            "status": "redirect_required",
+            "payment_url": result.get("redirect_url"),
+            "payment_id": result.get("transaction_id"),
+        }
+
+    def handle_webhook(self, payload):
+        # ING owns its webhook route (ing_checkout/api/webhook.py); not used here.
+        return {"status": "not_applicable"}
+
+    def get_payment_status(self, payment_id):
+        return {"status": "delegated"}
+
+
 class PaymentGatewayFactory:
     """Factory class to get appropriate payment gateway"""
 
@@ -1022,6 +1053,7 @@ class PaymentGatewayFactory:
         "Ponto": PontoGateway,
         "SEPA Direct Debit": SEPAGateway,
         "Cash": CashGateway,
+        "ING Checkout": INGCheckoutGateway,
     }
 
     @classmethod

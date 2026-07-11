@@ -76,6 +76,12 @@ def create_ideal_payment(
             description="Membership fee 2025"
         )
         # Redirect user to result["redirect_url"]
+
+    Note:
+        This is a thin whitelisted wrapper around `create_ideal_order`, which
+        holds the actual order-creation logic and is also called directly by
+        trusted internal callers (e.g. other payment gateways) that don't go
+        through the whitelist/request layer.
     """
     try:
         # Validate inputs
@@ -83,7 +89,52 @@ def create_ideal_payment(
             frappe.throw(_("Reference document is required"))
         if not amount or amount <= 0:
             frappe.throw(_("Amount must be greater than 0"))
+    except Exception as e:
+        frappe.log_error(
+            title="ING Checkout Payment Error",
+            message=f"Unexpected error creating iDEAL payment: {str(e)}",
+        )
+        return {
+            "success": False,
+            "message": _("An unexpected error occurred"),
+        }
 
+    return create_ideal_order(reference_doctype, reference_name, amount, description, return_url)
+
+
+def create_ideal_order(
+    reference_doctype: str,
+    reference_name: str,
+    amount: float,
+    description: str = None,
+    return_url: str = None,
+) -> dict:
+    """
+    Core iDEAL order creation, without the whitelist/security decorators.
+
+    Builds the Pay.nl order, creates the `ING Checkout Transaction` tracking
+    record, and returns the same shape as `create_ideal_payment`. Callers are
+    trusted to have already authorized the request (e.g. a payment gateway
+    acting on behalf of an authenticated flow) - the reference-document
+    existence check and read-permission check below still run regardless,
+    since they are cheap and reference-document specific.
+
+    Args:
+        reference_doctype: DocType to link payment to (e.g., "Sales Invoice")
+        reference_name: Document name
+        amount: Amount in EUR (e.g., 25.00)
+        description: Payment description (shown on bank statement, max 30 chars)
+        return_url: Optional URL to redirect after payment
+
+    Returns:
+        dict with:
+            - success: bool
+            - transaction_id: Pay.nl order ID
+            - redirect_url: URL to redirect user for payment
+            - reference: Structured reference (DOCTYPE_CODE:DOCUMENT_NAME)
+            - message: Status message
+    """
+    try:
         # Check document exists
         if not frappe.db.exists(reference_doctype, reference_name):
             frappe.throw(_("Reference document not found: {0} {1}").format(reference_doctype, reference_name))
@@ -118,6 +169,7 @@ def create_ideal_payment(
             "Sales Invoice": "SINV",
             "Member": "MEM",
             "Purchase Invoice": "PINV",
+            "Payment Plan Payment": "PPP",
         }
         doctype_code = DOCTYPE_CODES.get(reference_doctype, reference_doctype[:4].upper())
         reference = f"{doctype_code}:{reference_name}"
