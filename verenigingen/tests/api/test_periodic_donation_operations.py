@@ -27,8 +27,10 @@ from frappe.utils import add_days, add_years, flt, today
 from verenigingen.api.periodic_donation_operations import (
     create_periodic_agreement,
     export_agreements,
+    generate_agreement_pdf,
     generate_tax_receipts,
     link_donation_to_agreement,
+    render_agreement_html,
     render_tax_receipt_html,
     send_renewal_reminders,
 )
@@ -572,3 +574,108 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         )
         if file_doc:
             self.track_doc("File", file_doc[0].name)
+
+    # ================================================================== #
+    # generate_agreement_pdf  (A1 -- per-agreement "Generate PDF" button)
+    #
+    # Renders the agreement DOCUMENT (terms + signature blocks), converts it
+    # to a PDF, attaches it as a private File (deterministically named,
+    # idempotent-replace), records an audit comment ONLY after the File is
+    # saved, and returns the File's url. Distinct from generate_tax_receipts
+    # (the ANBI confirmation receipt).
+    # ================================================================== #
+    def _agreement_files(self, agreement_name):
+        """All File records attached to an agreement whose name looks like the agreement PDF."""
+        return frappe.get_all(
+            "File",
+            filters={
+                "attached_to_doctype": "Periodic Donation Agreement",
+                "attached_to_name": agreement_name,
+                "file_name": ["like", "Periodic_Donation_Agreement_%"],
+            },
+            fields=["name", "file_name", "is_private"],
+        )
+
+    def test_generate_agreement_pdf_attaches_pdf_file_and_returns_url(self):
+        donor = self._make_donor(anbi_consent=1)
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        result = generate_agreement_pdf(agreement=anbi.name)
+        self.assertTrue(self._ok(result), self._errors(result))
+        self.assertIn("file_url", self._data(result))
+
+        # Exactly one private agreement PDF File is attached (stem prefix is the
+        # deterministic part; save_file may append a uniqueness hash).
+        files = self._agreement_files(anbi.name)
+        self.assertEqual(len(files), 1, "exactly one agreement PDF File must be attached")
+        self.assertTrue(
+            files[0].file_name.startswith(f"Periodic_Donation_Agreement_{anbi.agreement_number}"),
+            f"unexpected agreement file name: {files[0].file_name}",
+        )
+        self.assertTrue(files[0].file_name.endswith(".pdf"))
+        self.assertEqual(files[0].is_private, 1, "the agreement PDF must be a private File")
+        self.track_doc("File", files[0].name)
+
+        # Returned url points at the File we just attached.
+        self.assertEqual(
+            frappe.db.get_value("File", files[0].name, "file_url"),
+            self._data(result)["file_url"],
+        )
+
+        # Real, non-empty PDF bytes.
+        content = frappe.get_doc("File", files[0].name).get_content()
+        if isinstance(content, str):
+            content = content.encode("latin-1", errors="ignore")
+        self.assertTrue(content.startswith(b"%PDF"), "agreement File must be a real PDF")
+
+        # Audit comment recorded on the agreement.
+        comments = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Periodic Donation Agreement",
+                "reference_name": anbi.name,
+            },
+            fields=["content"],
+        )
+        self.assertTrue(
+            any("Agreement PDF generated" in (c.content or "") for c in comments),
+            "An agreement-PDF comment must be recorded on the agreement.",
+        )
+
+    def test_generate_agreement_pdf_is_idempotent_replace(self):
+        """Re-running must replace, not duplicate, the agreement PDF File."""
+        donor = self._make_donor(anbi_consent=1)
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        first = generate_agreement_pdf(agreement=anbi.name)
+        self.assertTrue(self._ok(first), self._errors(first))
+        second = generate_agreement_pdf(agreement=anbi.name)
+        self.assertTrue(self._ok(second), self._errors(second))
+
+        files = self._agreement_files(anbi.name)
+        self.assertEqual(len(files), 1, "re-running must replace, not duplicate, the agreement PDF")
+        for f in files:
+            self.track_doc("File", f.name)
+
+    def test_render_agreement_html_contains_terms_and_signatures(self):
+        """The pure renderer embeds the real agreement/donor identity, the amount,
+        and the signature section (the whole reason this is a document, not a receipt)."""
+        donor = self._make_donor(anbi_consent=1, donor_name="Agreement Renderer Donor Unique")
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        html = render_agreement_html(anbi.name)
+        self.assertIn(anbi.agreement_number, html)
+        self.assertIn("Agreement Renderer Donor Unique", html)
+        self.assertIn("Periodic Donation Agreement", html)
+        self.assertIn("Signatures", html)
+
+    def test_render_agreement_html_escapes_donor_controlled_input(self):
+        """Donor-controlled fields are HTML-escaped (render_template does NOT
+        autoescape and the HTML feeds wkhtmltopdf). '&' survives storage, so it
+        proves the renderer's escaping is live."""
+        donor = self._make_donor(anbi_consent=1, donor_name="Acme & Co Foundation")
+        anbi = self.create_anbi_compliant_agreement(donor=donor.name, status="Active")
+
+        html = render_agreement_html(anbi.name)
+        self.assertIn("Acme &amp; Co Foundation", html, "donor name must be HTML-escaped")
+        self.assertNotIn("Acme & Co Foundation", html, "a raw, unescaped ampersand must not appear")

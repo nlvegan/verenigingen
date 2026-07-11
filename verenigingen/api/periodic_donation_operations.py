@@ -356,21 +356,34 @@ def generate_tax_receipts(filters: dict | str) -> OperationResult[Dict[str, Any]
 
 
 def _attach_tax_receipt_pdf(agreement_name: str, agreement_number: str) -> str:
-    """Render the receipt, convert to PDF, and attach it (idempotent replace).
+    """Render the ANBI tax receipt, convert to PDF, and attach it (idempotent replace).
 
     Returns the file_url of the attached receipt File.
+    """
+    return _attach_generated_pdf(
+        agreement_name,
+        f"ANBI_Tax_Receipt_{agreement_number}",
+        render_tax_receipt_html(agreement_name),
+    )
+
+
+def _attach_generated_pdf(agreement_name: str, file_stem: str, html: str) -> str:
+    """Convert rendered HTML to a PDF and attach it to the agreement as a private
+    File, replacing any prior File with the same deterministic stem so exactly one
+    current copy remains (idempotent replace). Returns the attached File's file_url.
+
+    Shared by the tax-receipt (generate_tax_receipts) and agreement-document
+    (generate_agreement_pdf) generators -- both FINANCIAL @critical_api ops run by
+    privileged actors against this app's own auto-generated Files.
     """
     from frappe.utils.file_manager import save_file
     from frappe.utils.pdf import get_pdf
 
-    html = render_tax_receipt_html(agreement_name)
     pdf_bytes = get_pdf(html)
-    file_stem = f"ANBI_Tax_Receipt_{agreement_number}"
     file_name = f"{file_stem}.pdf"
 
-    # Save the fresh receipt FIRST, so a failure here never destroys a
-    # previously-good receipt (delete-then-save would leave the agreement with
-    # nothing if save_file raised).
+    # Save the fresh copy FIRST, so a failure here never destroys a previously-good
+    # File (delete-then-save would leave the agreement with nothing if save_file raised).
     file_doc = save_file(
         file_name,
         pdf_bytes,
@@ -379,12 +392,11 @@ def _attach_tax_receipt_pdf(agreement_name: str, agreement_number: str) -> str:
         is_private=1,
     )
 
-    # Then remove any OTHER (older) receipt File for this agreement so exactly
-    # one current receipt remains (idempotent replace). Match by the
-    # deterministic stem -- save_file inserts a uniqueness hash before the
-    # extension when a same-named file already exists on disk -- with LIKE
-    # metacharacters escaped, scoped to this agreement via attached_to_name, and
-    # excluding the file we just saved.
+    # Then remove any OTHER (older) File with this deterministic stem for this
+    # agreement so exactly one current copy remains. save_file inserts a uniqueness
+    # hash before the extension when a same-named file already exists on disk, so
+    # match by stem prefix -- with LIKE metacharacters escaped -- scoped to this
+    # agreement via attached_to_name, and excluding the file we just saved.
     like_stem = file_stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     stale = frappe.get_all(
         "File",
@@ -397,11 +409,11 @@ def _attach_tax_receipt_pdf(agreement_name: str, agreement_number: str) -> str:
         pluck="name",
     )
     for file_id in stale:
-        # Security: called only from the FINANCIAL @critical_api generate_tax_receipts
-        # (privileged actors). Targets are this app's own auto-generated receipt Files,
-        # scoped to a single agreement (attached_to_name) by the deterministic receipt
-        # stem -- never arbitrary user attachments. ignore_permissions lets the receipt
-        # replace run for background/service actors without a role-gated permission check.
+        # Security: called only from FINANCIAL @critical_api ops (privileged actors).
+        # Targets are this app's own auto-generated Files, scoped to a single
+        # agreement (attached_to_name) by the deterministic stem -- never arbitrary
+        # user attachments. ignore_permissions lets the replace run for
+        # background/service actors without a role-gated permission check.
         frappe.delete_doc("File", file_id, ignore_permissions=True, force=True)
 
     return file_doc.file_url
@@ -442,6 +454,100 @@ def render_tax_receipt_html(agreement_name: str) -> str:
         "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,
     }
     return frappe.render_template("verenigingen/templates/donation/anbi_tax_receipt.html", context)
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+def generate_agreement_pdf(agreement: str) -> OperationResult[Dict[str, Any]]:
+    """Generate the agreement-document PDF for a single periodic donation agreement.
+
+    Renders the agreement (donor + organization identity, terms, ANBI details and
+    signature blocks), converts it to a PDF, and attaches it to the agreement as a
+    private File (deterministically named, replacing any prior generated copy). The
+    audit comment is written ONLY after the File is saved, so the trail never claims
+    a document that was not produced.
+
+    Args:
+        agreement: Periodic Donation Agreement name.
+
+    Returns:
+        OperationResult: {"file_url": str} of the attached agreement PDF.
+    """
+    try:
+        agreement_doc = frappe.get_doc("Periodic Donation Agreement", agreement)
+
+        file_url = _attach_generated_pdf(
+            agreement,
+            f"Periodic_Donation_Agreement_{agreement_doc.agreement_number}",
+            render_agreement_html(agreement),
+        )
+
+        agreement_doc.add_comment(
+            "Comment",
+            f"Agreement PDF generated for {frappe.utils.formatdate(today())}",
+        )
+        frappe.db.commit()
+
+        return OperationResult.ok(
+            {"file_url": file_url},
+            message=_("Agreement PDF generated"),
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to generate agreement PDF for {agreement}: {str(e)}\n{traceback.format_exc()}",
+            "Agreement PDF Error",
+        )
+        return OperationResult.fail(_("Failed to generate agreement PDF"), errors=[str(e)])
+
+
+def render_agreement_html(agreement_name: str) -> str:
+    """Render the periodic-donation-agreement document HTML for a single agreement.
+
+    Pure (no side effects) so it is independently testable. Pulls issuing-org
+    identity from Verenigingen Settings and donor identity from the linked Donor.
+
+    Frappe's render_template does NOT autoescape, and the rendered HTML is fed to
+    wkhtmltopdf, so every donor/org-controlled string is escaped here before it
+    reaches the template. Money/date values are framework-formatted and the
+    remaining fields come from fixed Select option sets, so all are safe.
+    """
+    from frappe.utils import escape_html
+
+    agreement = frappe.get_doc("Periodic Donation Agreement", agreement_name)
+    donor = frappe.get_doc("Donor", agreement.donor)
+
+    org_name = frappe.db.get_single_value("Verenigingen Settings", "company_name") or ""
+    company = frappe.db.get_single_value("Verenigingen Settings", "company")
+    org_rsin = frappe.db.get_value("Company", company, "tax_id") if company else None
+    donor_address = donor.get("address")
+
+    context = {
+        "org_name": escape_html(org_name),
+        "org_rsin": escape_html(org_rsin) if org_rsin else None,
+        "issue_date": frappe.utils.formatdate(today()),
+        "donor_name": escape_html(agreement.donor_name or donor.donor_name or ""),
+        "donor_address": escape_html(donor_address) if donor_address else None,
+        "agreement_number": escape_html(agreement.agreement_number or ""),
+        "agreement_type": escape_html(agreement.agreement_type) if agreement.agreement_type else None,
+        "anbi_eligible": bool(agreement.anbi_eligible),
+        "annual_amount": frappe.utils.fmt_money(agreement.annual_amount, currency="EUR"),
+        "payment_frequency": (
+            escape_html(agreement.payment_frequency) if agreement.payment_frequency else None
+        ),
+        "payment_amount": (
+            frappe.utils.fmt_money(agreement.payment_amount, currency="EUR")
+            if agreement.payment_amount
+            else None
+        ),
+        "payment_method": escape_html(agreement.payment_method) if agreement.payment_method else None,
+        "agreement_duration": (
+            escape_html(agreement.agreement_duration_years) if agreement.agreement_duration_years else None
+        ),
+        "start_date": frappe.utils.formatdate(agreement.start_date) if agreement.start_date else None,
+        "end_date": frappe.utils.formatdate(agreement.end_date) if agreement.end_date else None,
+    }
+    return frappe.render_template("verenigingen/templates/donation/periodic_donation_agreement.html", context)
 
 
 @frappe.whitelist()
