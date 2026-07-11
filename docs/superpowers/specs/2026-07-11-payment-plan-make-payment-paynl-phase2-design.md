@@ -2,7 +2,13 @@
 
 **Date:** 2026-07-11
 **Audit item:** A3 Phase 2 (2026-07-10 TODO / unfinished-feature audit). Phase 1 (Mollie) = PR #148 (merged).
-**Status:** Design — awaiting skeptical review
+**Status:** Design — revised after skeptical review (2026-07-11)
+
+> **Revision note:** A skeptical design review confirmed the *initiation* path (new gateway + factory + normalization) is sound, but found the *finalization* path's chosen insertion point wrong and dangerous. Fixed below:
+> 1. **Finalize at the TOP of ING's `handle_payment` webhook entry** (parallel to Mollie's top-level dispatch) — NOT inside `update_from_webhook`, which runs inside `handle_payment`'s savepoint. The shared finalizer calls `frappe.db.commit()`/`rollback()`; inside ING's savepoint that would commit the whole request, destroy the savepoint, and release the FOR-UPDATE lock early.
+> 2. **Establish a privileged webhook user before finalizing.** ING's `handle_payment` currently runs as **Guest** (`authenticate_webhook()` is imported but never called); `PaymentPlan.process_payment` is `@high_security_api(FINANCIAL)` and rejects Guest — the finalizer would catch it, return `error`, ING would log success + return 200, and Pay.nl would stop retrying → **silent lost payment**.
+> 3. **Translate a finalizer `error` result into an HTTP 500** on the ING path so Pay.nl retries (Mollie inspects the return dict; ING relies on exceptions→500 — the finalizer never raises).
+> 4. **Do NOT branch `update_from_webhook`** (it advances `status="Paid"` before finalizing → a retry after a failed finalize would skip forever). The `/payment-success` return path already works for ING via `orderId` (spec's earlier worry was unfounded). Factual corrections: `create_ideal_payment` is `@high_security_api(FINANCIAL)` (not `@standard_api`); `intent.gateway` is currently hardcoded `"Mollie"` and needs a `method→gateway` map; `intent.payment_id` is set at finalize, not initiation.
 
 ## Problem / goal
 
@@ -36,46 +42,62 @@ Goal: a member can pay the next payable installment via Pay.nl iDEAL; the instal
 ## Architecture
 
 ### 1. ING Checkout as a `PaymentHook` gateway
-- **New method** in `PaymentHook`: id `ing_ideal` (label e.g. "iDEAL (Pay.nl)"), `type=REDIRECT`. Add to `_METHOD_TO_GATEWAY` → gateway name `"ING Checkout"`. `get_available_methods()` gains an ING branch that appends the method **iff** ING Checkout settings are enabled/configured (mirroring the Mollie availability check) — so visibility is config-driven.
+- **New method** in `PaymentHook`: id `ing_ideal`, label **"iDEAL via ING/Pay.nl"** (distinct from Mollie's "Online payment" to avoid two identical-looking iDEAL buttons), `type=REDIRECT`. Add to `_METHOD_TO_GATEWAY` → gateway name `"ING Checkout"`. `get_available_methods()` gains an ING branch that appends the method **iff** ING Checkout is enabled — **guarded in try/except** (like the other gateway branches): `get_ing_checkout_settings()` THROWS when disabled (`ing_checkout_settings.py:99-102`), so an unguarded branch would crash the whole method list and hide Mollie/SEPA/cash on the pay page too. Use `is_ing_checkout_enabled()`/`settings.enabled`.
 - **`INGCheckoutGateway(PaymentGateway)`** in `utils/payment_gateways.py` (or an ING-owned module registered into the factory): `process_payment(ref_doc, form_data)`:
   - reads amount from `form_data["amount"]` (falls back to `ref_doc.amount`), currency EUR, description from `form_data.get("description_override")`;
   - calls the **extracted core** of `create_ideal_payment` (an internal service function, e.g. `ing_checkout/services/transaction_service.py::create_ideal_order(reference_doctype, reference_name, amount, description, return_url)` — refactor `create_ideal_payment` to a thin `@frappe.whitelist()` wrapper over it so the gateway can call the core without the whitelist layer);
   - returns `{"status": "redirect_required", "payment_url": <redirect_url>, "payment_id": <order_id>}` so the existing `_normalize_gateway_response` redirect branch yields `{action: redirect, data:{url}, payment_id}`. No new normalization branch needed.
-  - `handle_webhook`/`get_payment_status`: minimal (ING's own webhook route handles confirmation; these can delegate or raise `NotImplementedError` with a comment, matching how other gateways treat unused ABC methods — verify BankTransferGateway's pattern).
+  - `handle_webhook`/`get_payment_status`: ING's own webhook route (`ing_checkout/api/webhook.py`) handles confirmation, so these return a benign dict — `{"status": "not_applicable"}` / `{"status": "delegated"}` — matching the existing convention (`BankTransferGateway.handle_webhook` at `payment_gateways.py:81-83`, `PontoGateway` at `:957-964`). Do NOT raise `NotImplementedError`.
 - Register `"ING Checkout": INGCheckoutGateway` in `PaymentGatewayFactory._gateways`.
 
 ### 2. Shared, gateway-agnostic installment finalizer (DRY)
-- Extract the Phase-1 finalization core into `verenigingen_payments/services/payment_plan_finalization.py::finalize_payment_plan_installment(intent_name, payment_reference, mollie_or_gateway_status="paid") -> dict` (module location TBD — a gateway-neutral home, NOT under `mollie/`). It performs: FOR-UPDATE lock on the intent, idempotency guard on the locked status, installment-already-Paid double-payment guard (log + skip), `PaymentPlan.process_payment(...)`, then mark intent Paid — returning `{"status": "success"|"skipped"|"error", ...}`.
+- Extract the Phase-1 finalization core into `verenigingen_payments/services/payment_plan_finalization.py::finalize_payment_plan_installment(intent_name, payment_reference, status="paid") -> dict` (gateway-neutral home, NOT under `mollie/`). It performs: FOR-UPDATE lock on the intent, idempotency guard on the locked status, installment-already-Paid double-payment guard (log + skip), `PaymentPlan.process_payment(...)`, then mark intent Paid — returning `{"status": "success"|"skipped"|"error", ...}`. It **keeps its `frappe.db.commit()`/`rollback()`** — these are correct ONLY when the finalizer runs at a webhook top level with no enclosing savepoint (Mollie's dispatch and ING's new top-of-`handle_payment` dispatch both satisfy this; that's precisely why it must NOT be called from inside `update_from_webhook`).
 - **Refactor Phase 1**: `mollie/services/payment_plan_payment_handler.py::handle_payment_plan_payment` becomes a thin adapter that maps the Mollie payment status to `paid/failed/expired` and calls `finalize_payment_plan_installment`. Phase-1 tests must stay green (behavior identical).
 
-### 3. ING finalization branch + intent reuse
-- Add `"Payment Plan Payment": "PPP"` to **`create_ideal_payment`/core `DOCTYPE_CODES`** (payment.py) and `"PPP": "Payment Plan Payment"` to **`_parse_reference` `DOCTYPE_MAP`** (webhook.py). (Fallback `[:4].upper()` would give `PAYM`, colliding-risk and asymmetric — set both explicitly.)
-- Branch **`ING Checkout Transaction.update_from_webhook`** (or `_create_payment_entry_with_savepoint`): when `reference_doctype == "Payment Plan Payment"` and status→Paid, call `finalize_payment_plan_installment(reference_name, payment_reference=transaction_id)` **instead of** the generic Payment Entry path. Set the intent `payment_id` = Pay.nl order id at initiation (the gateway/core writes it, mirroring Phase 1).
-- The pay-page initiate endpoint (`initiate_installment_payment`) already takes `method`; widen it and the page's method filter from `id == "mollie"` to any REDIRECT online method returned by `get_available_methods()` (i.e. `mollie` + `ing_ideal`). The intent's `gateway` field records which was used.
+### 3. ING finalization — at the webhook ENTRY, not in the transaction doctype
+- Add `"Payment Plan Payment": "PPP"` to the **initiation core `DOCTYPE_CODES`** (payment.py) and `"PPP": "Payment Plan Payment"` to **`_parse_reference` `DOCTYPE_MAP`** (webhook.py). Set both explicitly (the `[:4].upper()` fallback gives `PAYM`, asymmetric/collision-risk).
+- **Dispatch at the top of `ing_checkout/api/webhook.py::handle_payment`** (after signature verification + idempotency, BEFORE the `frappe.db.savepoint(...)` block and BEFORE `_process_payment_webhook`): parse the order's `reference`; when `reference_doctype == "Payment Plan Payment"`:
+  1. **Authenticate**: call the existing (currently-unused) `authenticate_webhook()` / set the ING `webhook_user` so `process_payment`'s FINANCIAL tier passes (default Administrator passes; a restricted webhook user must hold the tier — deployment note, same class as Phase 1);
+  2. call the shared `finalize_payment_plan_installment(reference_name, payment_reference=order_id, status=<mapped pay.nl status>)` — which runs at top level, so its `commit()`/`rollback()` are safe (no enclosing savepoint / advanced transaction status);
+  3. translate the result → HTTP: `success`/`skipped` → 200; **`error` → raise (or set `http_status_code=500`)** so Pay.nl retries (do NOT log success + 200 on an error);
+  4. `return` — do NOT fall through to `_process_payment_webhook`/`update_from_webhook`/generic Payment Entry. Optionally `db_set` the `ING Checkout Transaction.status` for tracking parity (no generic PE).
+  Other reference types fall through to the existing ING flow unchanged.
+- **Do NOT branch `update_from_webhook`** — it advances `status="Paid"` and `save()`s before finalizing, and its "already paid" guard keys on `old_status != "Paid"`; a first-finalize failure there would make every Pay.nl retry short-circuit and never finalize.
+- **Intent reuse:** the Phase-1 intent doctype is the reference. `payment_id` is set by the shared finalizer at finalize time (Pay.nl order id), exactly as Phase 1 does for Mollie — NOT at initiation.
+- **`intent.gateway`:** `initiate_installment_payment` currently hardcodes `"Mollie"` (`payment_plan_management.py:350`). Add a `method → gateway` map (`mollie→"Mollie"`, `ing_ideal→"Pay.nl"`) and record the chosen gateway.
+- **Pay page:** widen the method filter in `templates/pages/payment_plan_pay.py` (and the endpoint) from `id == "mollie"` to the set of enabled REDIRECT online methods `get_available_methods()` returns (`mollie` + `ing_ideal`). No template rewrite (it already loops `payment_methods`).
 
 ## Security & integrity
 - Reuse Phase-1 endpoint ownership/payable-state/server-amount guards unchanged (gateway-independent).
-- ING `create_ideal_payment` already `check_permission`s the reference doc; the intent is the caller's own (created by the ownership-checked endpoint).
-- Finalization runs from ING's webhook (allow_guest, signature-verified) as the ING webhook context; `process_payment`'s `@high_security_api(FINANCIAL)` applies — confirm the ING webhook runs with sufficient privilege (ING webhook uses its own service-user/system context; verify, same class of concern as Phase 1's `webhook_user`).
-- The shared finalizer's idempotency + double-payment guards protect both gateways identically.
+- ING `create_ideal_payment` is `@high_security_api(FINANCIAL)` and already `check_permission`s the reference doc; the intent is the caller's own (created by the ownership-checked endpoint). When the gateway calls the extracted core, that FINANCIAL gate is lost — but the PaymentHook/endpoint path has already validated ownership + membership, so the core call is trusted.
+- **CRITICAL:** ING's `handle_payment` webhook currently runs as **Guest** (`authenticate_webhook()` is imported but never called — verified zero call sites). `process_payment` is `@high_security_api(FINANCIAL)`, whose `validate_authentication` fires even on in-process calls and rejects Guest → the finalizer catches it, returns `error`. The new dispatch MUST set a privileged webhook user (`authenticate_webhook()` / a `webhook_user` holding the FINANCIAL tier; default Administrator passes) **before** calling the finalizer, and MUST surface an `error` result as HTTP 500 (not a swallowed 200) so Pay.nl retries.
+- The shared finalizer's idempotency (intent FOR-UPDATE + status guard) + double-payment (installment-already-Paid) guards protect both gateways identically. Two tracking records exist per Pay.nl payment (the `Payment Plan Payment` intent = domain state; the `ING Checkout Transaction` = gateway tracking) — finalization idempotency keys on the **intent** status, not the ING transaction.
 
 ## Edge cases
 - Both gateways enabled → member sees two online options (config-driven, intended). Only one is used per payment; the intent's `gateway` records it.
-- Pay.nl webhook vs return-page eventual consistency: same model as Phase 1 (webhook is source of truth; return page shows intent status). ING's default return is `/payment-success` — add "Payment Plan Payment" to that page's `ALLOWED_PAYMENT_DOCTYPES` was done in Phase 1; ING appends `?orderId=` not `?docname=`, so verify the return page resolves the intent for the ING path (may need the ING transaction→intent lookup, OR set ING `return_url` to the Phase-1 `/payment-success?doctype=Payment Plan Payment&docname=<intent>`).
+- **Return page already works for ING** (spec's earlier worry was unfounded): `payment_success.py` checks `orderId` first → `handle_ing_checkout_return` looks up the `ING Checkout Transaction` by order id and resolves `reference_doctype/name` generically; `"Payment Plan Payment"` is already in `ALLOWED_PAYMENT_DOCTYPES` (added in Phase 1). `initiate_installment_payment` passes no `redirect_urls`, so the ING core defaults `return_url=/payment-success` and Pay.nl appends `?orderId=`. Webhook remains source of truth; the return page shows current status.
+- **Status-ordering:** because finalization happens at the top of `handle_payment` (before `_process_payment_webhook`/`update_from_webhook` runs), the ING transaction's `status`/`old_status` short-circuit never gates payment-plan finalization — avoiding the "first finalize fails → retry sees Paid → never finalizes" trap.
 - Failed/expired Pay.nl status → intent Failed/Expired, installment stays payable (shared finalizer handles).
+- ING disabled → `get_available_methods` omits `ing_ideal` (guarded); the pay page simply shows Mollie (or a "not available" message if neither is enabled).
 
 ## Testing (real-DB, no business-logic mocks)
 - **Shared finalizer**: the extracted `finalize_payment_plan_installment` keeps all Phase-1 webhook tests green (Mollie adapter unchanged behavior); add gateway-neutral unit tests for the finalizer directly.
 - **PaymentHook**: `get_available_methods` includes `ing_ideal` only when ING enabled; `initiate_payment(method="ing_ideal", reference_doctype="Payment Plan Payment", …)` returns a normalized redirect (ING client stubbed at the HTTP boundary, per existing ING test patterns in `ing_checkout/tests/`).
-- **ING finalization branch**: a Paid Pay.nl webhook for a `Payment Plan Payment` reference finalizes the installment via the shared finalizer (assert installment Paid + intent Paid), does NOT create a generic Payment Entry, and is idempotent; a Sales-Invoice reference still creates the generic Payment Entry (no regression to ING's existing flow).
+- **ING webhook dispatch (the critical path)**: a Paid Pay.nl webhook for a `Payment Plan Payment` reference finalizes via the shared finalizer (assert installment Paid + intent Paid), does NOT create a generic Payment Entry, and is idempotent; a Sales-Invoice reference still creates the generic Payment Entry (no regression). Specifically assert:
+  - the finalizer runs with a **privileged user** (not Guest) — a test that the dispatch does not get rejected by `process_payment`'s FINANCIAL gate;
+  - a finalizer **`error` → HTTP 500** (not a swallowed 200), so Pay.nl retries;
+  - finalization happens at `handle_payment` top level (dispatch fires **before** `_process_payment_webhook`; the ING transaction's status short-circuit never blocks a payment-plan retry).
 - **Reference maps**: `create_ideal_order` emits `PPP:<intent>` and `_parse_reference` round-trips it back to ("Payment Plan Payment", intent).
 - **Pay page / endpoint**: `initiate_installment_payment(method="ing_ideal")` creates the intent with gateway="Pay.nl" and returns the Pay.nl redirect; the page lists both online methods when both enabled.
 
-## Open questions for review
-1. Best home for `INGCheckoutGateway` and the shared finalizer (avoid a Mollie↔ING import tangle; keep the finalizer gateway-neutral).
-2. Does extracting `create_ideal_payment`'s core out of the whitelist wrapper break any assumptions (CSRF, `frappe.session`, the `@standard_api` decorator's audit logging)?
-3. The `/payment-success` return for the ING path (orderId vs docname) — confirm the resolution path.
-4. Whether `ING Checkout Transaction.update_from_webhook`'s existing STATUS_MAP + savepoint semantics compose cleanly with the shared finalizer's own FOR-UPDATE/commit (nested transaction concerns).
+## Resolved by review (were open questions)
+1. **Home:** `finalize_payment_plan_installment` → `verenigingen_payments/services/payment_plan_finalization.py` (gateway-neutral, no Mollie/ING import tangle); `INGCheckoutGateway` → `utils/payment_gateways.py` beside the others (or an ING-owned module registered into the factory).
+2. **Extracting the core** out of the whitelist wrapper is safe: the body only touches `frappe.session` via `check_permission`; refactor `create_ideal_payment` into a thin `@high_security_api(FINANCIAL)` `@frappe.whitelist()` wrapper over a `create_ideal_order(...)` core the gateway calls. (Decorator is `@high_security_api`, not `@standard_api`.)
+3. **Return path already works** (see Edge cases) — no extra plumbing.
+4. **Transaction composition is the whole reason** finalization moved to the top of `handle_payment` (no enclosing savepoint), NOT inside `update_from_webhook`. The finalizer keeps its own FOR-UPDATE + commit/rollback.
+
+## Deployment note
+The ING `webhook_user` (like Mollie's) must hold the FINANCIAL tier for `process_payment` to run; it defaults to Administrator (which passes). Document in the PR.
 
 ## Deliverable
 One PR off `develop`, independent, after Phase 1 (#148) merged. Reuses the Phase-1 intent doctype + pay page + button.
