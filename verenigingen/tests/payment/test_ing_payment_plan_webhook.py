@@ -107,6 +107,19 @@ class TestINGPaymentPlanWebhook(VereningingenTestCase):
         ):
             return wh.handle_payment()
 
+    def _create_transaction(self, transaction_id, status="Paid", amount=40.0):
+        txn = frappe.get_doc(
+            {
+                "doctype": "ING Checkout Transaction",
+                "transaction_id": transaction_id,
+                "status": status,
+                "amount": amount,
+                "currency": "EUR",
+            }
+        ).insert(ignore_permissions=True)
+        self.track_doc("ING Checkout Transaction", txn.name)
+        return txn
+
     def _create_intent(self, payment_id="EX-hook"):
         intent = frappe.get_doc(
             {
@@ -195,6 +208,32 @@ class TestINGPaymentPlanWebhook(VereningingenTestCase):
         # The intent/plan were left untouched by the mocked-error finalizer.
         intent.reload()
         self.assertEqual(intent.status, "Pending")
+
+    def test_duplicate_paid_delivery_does_not_downgrade_transaction(self):
+        """Regression (A3 phase 2 final review): a duplicate delivery of an
+        already-finalized paid installment must not flip the ING Checkout
+        Transaction back to "Pending". The finalizer's idempotency guard
+        returns {"status": "skipped"} for an intent that is already "Paid",
+        and _maybe_finalize_payment_plan must leave a Paid transaction's
+        status untouched on any non-success result.
+        """
+        from verenigingen.verenigingen_payments.ing_checkout.api.webhook import (
+            _maybe_finalize_payment_plan,
+        )
+
+        order_id = "EX-dup-paid"
+        # Intent is already finalized (status Paid) - triggers the finalizer's
+        # own idempotency guard, which returns {"status": "skipped", ...}.
+        intent = self._create_intent(payment_id=order_id)
+        frappe.db.set_value("Payment Plan Payment", intent.name, "status", "Paid")
+
+        txn = self._create_transaction(order_id, status="Paid")
+
+        handled = _maybe_finalize_payment_plan(order_id, _order_payload(order_id, intent.name, 100))
+        self.assertTrue(handled)
+
+        txn.reload()
+        self.assertEqual(txn.status, "Paid")
 
     def test_handle_payment_finalizer_success_returns_200(self):
         """Companion positive case: a successful finalize via the full

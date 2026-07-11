@@ -397,9 +397,9 @@ class PaymentHook:
     def _get_ing_config(cls) -> dict:
         """Check if ING Checkout (Pay.nl iDEAL) is enabled.
 
-        Wrapped in try/except because get_ing_checkout_settings() throws when
-        disabled/unconfigured - a crash here must not take down the whole
-        method list.
+        Wrapped in try/except defensively against any settings-read failure
+        (e.g. the ING Checkout Settings DocType missing, or get_single()
+        raising) - a crash here must not take down the whole method list.
         """
         try:
             from verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings import (

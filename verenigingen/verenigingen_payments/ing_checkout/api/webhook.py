@@ -73,14 +73,13 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
     )
 
     # Keep the ING Checkout Transaction status in sync for ops clarity (no PE).
-    txn_name = frappe.db.get_value("ING Checkout Transaction", {"transaction_id": order_id}, "name")
-    if txn_name:
-        frappe.db.set_value(
-            "ING Checkout Transaction",
-            txn_name,
-            "status",
-            "Paid" if result["status"] == "success" else "Pending",
-        )
+    # Only advance to "Paid" on a genuine success - a duplicate-delivery
+    # "skipped" result must NOT downgrade an already-Paid transaction back to
+    # "Pending", so non-success results leave the field untouched.
+    if result["status"] == "success":
+        txn_name = frappe.db.get_value("ING Checkout Transaction", {"transaction_id": order_id}, "name")
+        if txn_name:
+            frappe.db.set_value("ING Checkout Transaction", txn_name, "status", "Paid")
 
     if result["status"] == "error":
         # Return 500 WITHOUT writing a Webhook Processing Log entry (an error

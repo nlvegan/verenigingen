@@ -1026,6 +1026,8 @@ class INGCheckoutGateway(PaymentGateway):
             amount=amount,
             description=form_data.get("description_override"),
         )
+        if not result.get("success"):
+            return {"status": "error", "message": result.get("message") or "Payment could not be started"}
         # Normalize to the shared "redirect_required" shape (PaymentHook._normalize_gateway_response
         # emits data.url from payment_url).
         return {
