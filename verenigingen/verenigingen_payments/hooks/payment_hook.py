@@ -62,6 +62,7 @@ class PaymentHook:
     SEPA = "sepa"
     BANK_TRANSFER = "bank_transfer"
     CASH = "cash"
+    ING_IDEAL = "ing_ideal"
 
     # Mapping from internal IDs to gateway names
     _METHOD_TO_GATEWAY = {
@@ -70,6 +71,7 @@ class PaymentHook:
         SEPA: "SEPA Direct Debit",
         BANK_TRANSFER: "Bank Transfer",
         CASH: "Cash",
+        ING_IDEAL: "ING Checkout",
     }
 
     @classmethod
@@ -115,6 +117,20 @@ class PaymentHook:
                 pass  # Skip if recurring required but not supported
             else:
                 methods.append(mollie_method)
+
+        # Check ING Checkout (Pay.nl iDEAL) availability. iDEAL one-off orders
+        # don't support recurring, so skip entirely when recurring is requested.
+        ing_config = cls._get_ing_config()
+        if ing_config.get("available") and not context.get("recurring"):
+            methods.append(
+                {
+                    "id": cls.ING_IDEAL,
+                    "label": _("iDEAL via ING/Pay.nl"),
+                    "description": _("Pay by iDEAL through ING/Pay.nl"),
+                    "supports_recurring": False,
+                    "type": PaymentAction.REDIRECT,
+                }
+            )
 
         # Check Ponto availability
         ponto_config = cls._get_ponto_config()
@@ -376,6 +392,23 @@ class PaymentHook:
                 f"[{error_id}] Mollie config check failed: {e}", "Payment Configuration - Mollie"
             )
             return {"available": False, "reason": f"Configuration error (ref: {error_id})"}
+
+    @classmethod
+    def _get_ing_config(cls) -> dict:
+        """Check if ING Checkout (Pay.nl iDEAL) is enabled.
+
+        Wrapped in try/except because get_ing_checkout_settings() throws when
+        disabled/unconfigured - a crash here must not take down the whole
+        method list.
+        """
+        try:
+            from verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings import (
+                is_ing_checkout_enabled,
+            )
+
+            return {"available": bool(is_ing_checkout_enabled().get("enabled"))}
+        except Exception:
+            return {"available": False}
 
     @classmethod
     def _get_sepa_config(cls) -> dict:
