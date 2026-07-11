@@ -591,31 +591,6 @@ def validate_postal_code(postal_code: str, country: str = "NL") -> None:
     # Add other country validations as needed
 
 
-def require_permission(permission_type: str, throw: bool = True) -> bool:
-    """
-    Check if current user has required permission
-
-    Args:
-        permission_type: Type of permission to check
-        throw: Whether to throw exception if permission denied
-
-    Returns:
-        True if user has permission
-
-    Raises:
-        PermissionError: If user lacks permission and throw=True
-    """
-    # Implementation depends on specific permission system
-    # This is a placeholder for the actual permission checking logic
-
-    has_perm = True  # Replace with actual permission check
-
-    if not has_perm and throw:
-        raise PermissionError(_("Access denied. Required permission: {0}").format(permission_type))
-
-    return has_perm
-
-
 def safe_get_doc(doctype: str, name: str, for_update: bool = False) -> Optional[Any]:
     """
     Safely get a document with proper error handling
