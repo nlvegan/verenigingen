@@ -15,6 +15,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, self_service_api
+from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentHook
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -284,3 +285,109 @@ def calculate_payment_plan_preview(total_amount, installments, frequency) -> Ope
             title=_("Error calculating payment plan preview"), message=f"{str(e)}\n\n{traceback.format_exc()}"
         )
         return OperationResult.from_exception(e, message=_("Failed to calculate payment plan preview"))
+
+
+PAYABLE_INSTALLMENT_STATUSES = ("Pending", "Overdue")
+
+
+def get_next_payable_installment(plan_doc):
+    """Return the earliest Pending/Overdue installment (dict) or None."""
+    payable = [i for i in plan_doc.installments if i.status in PAYABLE_INSTALLMENT_STATUSES]
+    if not payable:
+        return None
+    nxt = min(payable, key=lambda i: (i.due_date or plan_doc.start_date, i.installment_number))
+    return {
+        "installment_number": nxt.installment_number,
+        "amount": nxt.amount,
+        "status": nxt.status,
+        "due_date": nxt.due_date,
+    }
+
+
+@frappe.whitelist()
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
+def initiate_installment_payment(plan, installment_number, method="mollie") -> OperationResult:
+    """Start an online payment for one payment-plan installment.
+
+    Validates the plan belongs to the current member and the installment is
+    payable (Pending/Overdue), creates a Payment Plan Payment intent for the
+    server-derived installment amount, and initiates the gateway payment,
+    returning the redirect URL. Never marks anything Paid — that happens only on
+    the confirmed webhook.
+    """
+    intent = None
+    try:
+        installment_number = int(installment_number)
+        plan_doc = frappe.get_doc("Payment Plan", plan)
+
+        # Ownership: the plan's member must map to the current user.
+        member_name = get_current_user_member_name()
+        if not member_name or plan_doc.member != member_name:
+            return OperationResult.fail(message=_("You can only pay your own payment plans"))
+
+        if plan_doc.status != "Active":
+            return OperationResult.fail(message=_("This payment plan is not active"))
+
+        installment = next(
+            (i for i in plan_doc.installments if i.installment_number == installment_number), None
+        )
+        if not installment:
+            return OperationResult.fail(message=_("Installment not found"))
+        if installment.status not in PAYABLE_INSTALLMENT_STATUSES:
+            return OperationResult.fail(message=_("This installment is not payable"))
+
+        # Amount is server-derived from the stored installment.
+        amount = flt(installment.amount)
+
+        intent = frappe.get_doc(
+            {
+                "doctype": "Payment Plan Payment",
+                "payment_plan": plan_doc.name,
+                "installment_number": installment_number,
+                "amount": amount,
+                "currency": "EUR",
+                "member": member_name,
+                "gateway": "Mollie",
+                "status": "Pending",
+            }
+        )
+        # Security: intent is scoped to the caller's own plan (ownership checked
+        # above); created on their behalf so the gateway has a reference doc.
+        intent.insert(ignore_permissions=True)
+
+        member_doc = frappe.get_doc("Member", member_name)
+        result = PaymentHook.initiate_payment(
+            method=method,
+            amount=amount,
+            reference_doctype="Payment Plan Payment",
+            reference_name=intent.name,
+            payer_info={"email": member_doc.email, "name": member_doc.full_name},
+            description=_("Payment plan {0} installment {1}").format(plan_doc.name, installment_number),
+        )
+
+        if not result.get("success"):
+            intent.db_set("status", "Failed")
+            return OperationResult.fail(message=result.get("message") or _("Payment could not be started"))
+
+        # PaymentHook.initiate_payment nests the checkout URL at data["url"]
+        # (see _normalize_gateway_response redirect branch); there is no
+        # top-level "redirect_url" key.
+        redirect_url = (result.get("data") or {}).get("url")
+        return OperationResult.ok(
+            {"redirect_url": redirect_url, "intent": intent.name},
+            message=_("Payment started"),
+        )
+
+    except Exception as e:
+        # If the intent was created before the failure, mark it Failed so it is not
+        # left dangling as Pending.
+        try:
+            if intent is not None and intent.name:
+                frappe.db.set_value("Payment Plan Payment", intent.name, "status", "Failed")
+        except Exception:
+            pass
+        frappe.log_error(
+            f"initiate_installment_payment failed for {plan}/{installment_number}: {e}",
+            "Payment Plan Payment",
+        )
+        return OperationResult.from_exception(e, message=_("Failed to start payment"))

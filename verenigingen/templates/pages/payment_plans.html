@@ -304,6 +304,12 @@ function renderPaymentPlans() {
     container.innerHTML = memberPaymentPlans.map(plan => renderPaymentPlan(plan)).join('');
 }
 
+function hasPayableInstallment(plan) {
+    return (plan.installments || []).some(function (i) {
+        return i.status === 'Pending' || i.status === 'Overdue';
+    });
+}
+
 function renderPaymentPlan(plan) {
     const progress = plan.total_amount > 0 ? (plan.total_paid / plan.total_amount) * 100 : 0;
     const statusClass = `status-${escapeHtml(plan.status.toLowerCase().replace(' ', '-'))}`;
@@ -339,7 +345,7 @@ function renderPaymentPlan(plan) {
 
             ${renderInstallmentsTable(plan)}
 
-            ${plan.status === 'Active' && plan.next_payment_date ?
+            ${plan.status === 'Active' && hasPayableInstallment(plan) ?
                 `<button class="btn btn-primary" onclick="showPaymentForm('${escapeHtml(plan.name)}')">Make Payment</button>` : ''}
         </div>
     `;
@@ -435,8 +441,7 @@ function handlePaymentPlanRequest(event) {
 }
 
 function showPaymentForm(planId) {
-    // This would show a payment form - for now, show an alert
-    showAlert('info', 'Payment recording feature coming soon. Please contact support to record payments.');
+    window.location.href = '/payment_plan_pay?plan=' + encodeURIComponent(planId);
 }
 
 function showAlert(type, message) {

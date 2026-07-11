@@ -13,7 +13,7 @@ from verenigingen.utils.security.api_security_framework import public_api
 
 # Whitelist of doctypes allowed for public payment status queries
 # This prevents IDOR attacks by limiting what documents can be accessed
-ALLOWED_PAYMENT_DOCTYPES = {"Donation", "Member Application", "Sales Invoice"}
+ALLOWED_PAYMENT_DOCTYPES = {"Donation", "Member Application", "Sales Invoice", "Payment Plan Payment"}
 
 
 def validate_payment_document_access(doctype, docname, payment_id):

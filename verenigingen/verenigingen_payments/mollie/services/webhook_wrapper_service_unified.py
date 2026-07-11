@@ -366,6 +366,22 @@ class UnifiedWebhookWrapperService:
             # Fetch payment to classify it
             try:
                 payment = router.fetch_payment(payment_id)
+
+                # PAYMENT PLAN PAYMENTS: finalize the installment and return
+                # BEFORE donation classification (whose "donation" keyword would
+                # otherwise misroute these to the donation lookup -> 500 loop).
+                _md = (
+                    payment.get("metadata")
+                    if isinstance(payment, dict)
+                    else getattr(payment, "metadata", None)
+                )
+                if isinstance(_md, dict) and _md.get("reference_doctype") == "Payment Plan Payment":
+                    from .payment_plan_payment_handler import handle_payment_plan_payment
+
+                    result = handle_payment_plan_payment(payment_id, payment)
+                    result["duration_seconds"] = time.time() - start_time
+                    return result
+
                 classification = router.classify_payment(payment)
 
                 self.logger.info(
@@ -1518,9 +1534,9 @@ class UnifiedWebhookWrapperService:
                         "donation_reference": donation.name,
                         "donation_date": paid_date or donation.donation_date or frappe.utils.nowdate(),
                         "donation_amount": amount,
-                        "donation_status": "One-time"
-                        if not payment_data.get("subscription_id")
-                        else "Recurring",
+                        "donation_status": (
+                            "One-time" if not payment_data.get("subscription_id") else "Recurring"
+                        ),
                         "payment_method": "Mollie",
                         "paid": 1,
                     }
