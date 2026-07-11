@@ -1,198 +1,207 @@
 {
-  "actions": [],
-  "autoname": "MAL-.YYYY.-.#####",
-  "creation": "2025-01-16 10:30:00.000000",
-  "doctype": "DocType",
-  "editable_grid": 0,
-  "engine": "InnoDB",
-  "field_order": [
-    "event_type",
-    "event_category",
-    "severity",
-    "column_break_main",
-    "user",
-    "timestamp",
-    "ip_address",
-    "description_section",
-    "description",
-    "event_data",
-    "legacy_section",
-    "action",
-    "status",
-    "details",
-    "security_section",
-    "integrity_hash"
-  ],
-  "fields": [
-    {
-      "fieldname": "event_type",
-      "fieldtype": "Data",
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "label": "Event Type",
-      "read_only": 1,
-      "description": "Type of event (e.g., payment_created, webhook_received, financial_entry_error)"
-    },
-    {
-      "fieldname": "event_category",
-      "fieldtype": "Select",
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "label": "Event Category",
-      "options": "\npayment\nsubscription\nwebhook_processing\nsecurity\nreconciliation\nconfiguration",
-      "read_only": 1,
-      "description": "Category of the event for filtering and reporting"
-    },
-    {
-      "fieldname": "severity",
-      "fieldtype": "Select",
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "label": "Severity",
-      "options": "info\nwarning\nerror\ncritical",
-      "default": "info",
-      "read_only": 1
-    },
-    {
-      "fieldname": "column_break_main",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "user",
-      "fieldtype": "Link",
-      "in_list_view": 1,
-      "label": "User",
-      "options": "User",
-      "read_only": 1
-    },
-    {
-      "fieldname": "timestamp",
-      "fieldtype": "Datetime",
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "label": "Timestamp",
-      "read_only": 1
-    },
-    {
-      "fieldname": "ip_address",
-      "fieldtype": "Data",
-      "label": "IP Address",
-      "read_only": 1
-    },
-    {
-      "fieldname": "description_section",
-      "fieldtype": "Section Break",
-      "label": "Event Details"
-    },
-    {
-      "fieldname": "description",
-      "fieldtype": "Small Text",
-      "label": "Description",
-      "read_only": 1,
-      "description": "Human-readable description of the event"
-    },
-    {
-      "fieldname": "event_data",
-      "fieldtype": "JSON",
-      "label": "Event Data",
-      "read_only": 1,
-      "description": "Structured JSON data associated with the event"
-    },
-    {
-      "fieldname": "legacy_section",
-      "fieldtype": "Section Break",
-      "label": "Legacy Fields",
-      "collapsible": 1,
-      "description": "Deprecated fields maintained for backwards compatibility"
-    },
-    {
-      "fieldname": "action",
-      "fieldtype": "Data",
-      "label": "Action (Legacy)",
-      "read_only": 1,
-      "description": "Deprecated: Use event_type instead"
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status (Legacy)",
-      "options": "\nsuccess\nfailed\nwarning",
-      "read_only": 1,
-      "description": "Deprecated: Use severity instead"
-    },
-    {
-      "fieldname": "details",
-      "fieldtype": "Long Text",
-      "label": "Details (Legacy)",
-      "read_only": 1,
-      "description": "Deprecated: Use description and event_data instead"
-    },
-    {
-      "fieldname": "security_section",
-      "fieldtype": "Section Break",
-      "label": "Security"
-    },
-    {
-      "fieldname": "integrity_hash",
-      "fieldtype": "Data",
-      "label": "Integrity Hash",
-      "length": 64,
-      "read_only": 1,
-      "description": "SHA256 hash for audit trail immutability"
-    }
-  ],
-  "index_web_pages_for_search": 0,
-  "links": [],
-  "modified": "2025-12-02 15:00:00.000000",
-  "modified_by": "Administrator",
-  "module": "Verenigingen Payments",
-  "name": "Mollie Audit Log",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 0,
-      "email": 0,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "role": "System Manager",
-      "share": 0,
-      "write": 1
-    },
-    {
-      "create": 0,
-      "delete": 0,
-      "email": 0,
-      "export": 1,
-      "print": 0,
-      "read": 1,
-      "report": 1,
-      "role": "Accounts Manager",
-      "share": 0,
-      "write": 0
-    },
-    {
-      "create": 1,
-      "delete": 0,
-      "email": 0,
-      "export": 0,
-      "print": 0,
-      "read": 1,
-      "report": 0,
-      "role": "Verenigingen Webhook User",
-      "share": 0,
-      "write": 1
-    }
-  ],
-  "quick_entry": 0,
-  "read_only": 1,
-  "read_only_onload": 1,
-  "sort_field": "timestamp",
-  "sort_order": "DESC",
-  "title_field": "event_type",
-  "track_changes": 0,
-  "track_seen": 0,
-  "track_views": 0
+ "actions": [],
+ "autoname": "MAL-.YYYY.-.#####",
+ "creation": "2025-01-16 10:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "event_type",
+  "event_category",
+  "severity",
+  "column_break_main",
+  "user",
+  "timestamp",
+  "ip_address",
+  "description_section",
+  "description",
+  "event_data",
+  "legacy_section",
+  "action",
+  "status",
+  "details",
+  "security_section",
+  "integrity_hash",
+  "archived"
+ ],
+ "fields": [
+  {
+   "fieldname": "event_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Event Type",
+   "read_only": 1,
+   "description": "Type of event (e.g., payment_created, webhook_received, financial_entry_error)"
+  },
+  {
+   "fieldname": "event_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Event Category",
+   "options": "\npayment\nsubscription\nwebhook_processing\nsecurity\nreconciliation\nconfiguration",
+   "read_only": 1,
+   "description": "Category of the event for filtering and reporting"
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Severity",
+   "options": "info\nwarning\nerror\ncritical",
+   "default": "info",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description_section",
+   "fieldtype": "Section Break",
+   "label": "Event Details"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "read_only": 1,
+   "description": "Human-readable description of the event"
+  },
+  {
+   "fieldname": "event_data",
+   "fieldtype": "JSON",
+   "label": "Event Data",
+   "read_only": 1,
+   "description": "Structured JSON data associated with the event"
+  },
+  {
+   "fieldname": "legacy_section",
+   "fieldtype": "Section Break",
+   "label": "Legacy Fields",
+   "collapsible": 1,
+   "description": "Deprecated fields maintained for backwards compatibility"
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "label": "Action (Legacy)",
+   "read_only": 1,
+   "description": "Deprecated: Use event_type instead"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status (Legacy)",
+   "options": "\nsuccess\nfailed\nwarning",
+   "read_only": 1,
+   "description": "Deprecated: Use severity instead"
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Long Text",
+   "label": "Details (Legacy)",
+   "read_only": 1,
+   "description": "Deprecated: Use description and event_data instead"
+  },
+  {
+   "fieldname": "security_section",
+   "fieldtype": "Section Break",
+   "label": "Security"
+  },
+  {
+   "fieldname": "integrity_hash",
+   "fieldtype": "Data",
+   "label": "Integrity Hash",
+   "length": 64,
+   "read_only": 1,
+   "description": "SHA256 hash for audit trail immutability"
+  },
+  {
+   "fieldname": "archived",
+   "fieldtype": "Check",
+   "label": "Archived",
+   "default": "0",
+   "read_only": 1,
+   "description": "Marked archived by the data-retention engine (retained, not deleted)."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2025-12-02 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Mollie Audit Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 0,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 0,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 0,
+   "write": 0
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Verenigingen Webhook User",
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "quick_entry": 0,
+ "read_only": 1,
+ "read_only_onload": 1,
+ "sort_field": "timestamp",
+ "sort_order": "DESC",
+ "title_field": "event_type",
+ "track_changes": 0,
+ "track_seen": 0,
+ "track_views": 0
 }
