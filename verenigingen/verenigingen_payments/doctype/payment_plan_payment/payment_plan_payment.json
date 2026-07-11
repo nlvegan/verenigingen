@@ -1,0 +1,49 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_plan",
+  "installment_number",
+  "member",
+  "column_break_1",
+  "amount",
+  "currency",
+  "gateway",
+  "section_break_1",
+  "status",
+  "paid",
+  "payment_id"
+ ],
+ "fields": [
+  {"fieldname": "payment_plan", "fieldtype": "Link", "label": "Payment Plan", "options": "Payment Plan", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "installment_number", "fieldtype": "Int", "label": "Installment Number", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "member", "fieldtype": "Link", "label": "Member", "options": "Member"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "amount", "fieldtype": "Currency", "label": "Amount", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "currency", "fieldtype": "Data", "label": "Currency", "default": "EUR"},
+  {"fieldname": "gateway", "fieldtype": "Data", "label": "Gateway"},
+  {"fieldname": "section_break_1", "fieldtype": "Section Break"},
+  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Pending\nPaid\nFailed\nExpired", "default": "Pending", "in_list_view": 1},
+  {"fieldname": "paid", "fieldtype": "Check", "label": "Paid", "default": "0"},
+  {"fieldname": "payment_id", "fieldtype": "Data", "label": "Payment ID", "read_only": 1}
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Payment Plan Payment",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Verenigingen Administrator", "read": 1, "write": 1, "create": 1, "report": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

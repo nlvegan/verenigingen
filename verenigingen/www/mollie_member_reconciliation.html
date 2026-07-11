@@ -396,13 +396,13 @@ function displayMembers(members) {
                         <div class="col-md-6">
                             <h6>Active Subscriptions</h6>
                             <div class="subscription-list">
-                                ${renderSubscriptions(member.active_subscriptions, true)}
+                                ${renderSubscriptions(member.active_subscriptions, true, member.member_id)}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <h6>Inactive Subscriptions</h6>
                             <div class="subscription-list">
-                                ${renderSubscriptions(member.inactive_subscriptions, false)}
+                                ${renderSubscriptions(member.inactive_subscriptions, false, member.member_id)}
                             </div>
                         </div>
                     </div>
@@ -428,7 +428,7 @@ function displayMembers(members) {
     listDiv.innerHTML = html;
 }
 
-function renderSubscriptions(subscriptions, isActive) {
+function renderSubscriptions(subscriptions, isActive, memberId) {
     if (subscriptions.length === 0) {
         return '<p class="text-muted">None</p>';
     }
@@ -445,7 +445,7 @@ function renderSubscriptions(subscriptions, isActive) {
             ${sub.next_payment_date ? `<div><small>Next: ${sub.next_payment_date}</small></div>` : ''}
             ${sub.cancelled_at ? `<div><small>Cancelled: ${sub.cancelled_at}</small></div>` : ''}
             ${isActive ? `
-                <button class="btn btn-xs btn-primary mt-1" onclick="setMemberSubscription('${sub.subscription_id}')">
+                <button class="btn btn-xs btn-primary mt-1" onclick="setMemberSubscription('${escapeHtml(memberId)}', '${escapeHtml(sub.subscription_id)}')">
                     Set as Current
                 </button>
             ` : ''}
@@ -524,9 +524,29 @@ function updateMemberInPlace(updatedMember) {
     }
 }
 
-function setMemberSubscription(subscriptionId) {
-    // This would need the member ID - would need to adjust the rendering to include it
-    frappe.show_alert({message: 'Feature coming soon', indicator: 'blue'});
+function setMemberSubscription(memberId, subscriptionId) {
+    if (!confirm(`Set subscription ${subscriptionId} as current for member ${memberId}?`)) {
+        return;
+    }
+
+    frappe.call({
+        method: 'verenigingen.www.mollie_member_reconciliation.update_member_mollie_fields',
+        args: {
+            member_id: memberId,
+            mollie_subscription_id: subscriptionId
+        },
+        callback: function(r) {
+            // OperationResult wraps data in r.message.data
+            if (r.message && r.message.success) {
+                const data = r.message.data;
+                frappe.show_alert({message: data.message, indicator: 'green'});
+                // Update just this member's data in place (mirrors applyQuickFix)
+                updateMemberInPlace(data.updated_member);
+            } else {
+                frappe.show_alert({message: 'Update failed: ' + (r.message ? (r.message.error_message || r.message.error) : 'Unknown error'), indicator: 'red'});
+            }
+        }
+    });
 }
 
 async function applyAllQuickFixes() {
