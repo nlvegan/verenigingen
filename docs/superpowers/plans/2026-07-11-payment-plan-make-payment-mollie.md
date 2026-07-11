@@ -370,8 +370,10 @@ class TestPaymentPlanMakePayment(VereningingenTestCase):
 
         def _fake(**kwargs):
             captured.update(kwargs)
+            # Mirror the REAL PaymentHook.initiate_payment redirect contract:
+            # the checkout URL is nested at data["url"] (no top-level redirect_url).
             return {"success": True, "action": "redirect", "payment_id": "tr_test",
-                    "data": {}, "redirect_url": "https://mollie/checkout"}
+                    "data": {"url": "https://mollie/checkout"}}
 
         return captured, _fake
 
@@ -522,7 +524,10 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
             intent.db_set("status", "Failed")
             return OperationResult.fail(message=result.get("message") or _("Payment could not be started"))
 
-        redirect_url = result.get("redirect_url") or (result.get("data") or {}).get("redirect_url")
+        # PaymentHook.initiate_payment nests the checkout URL at data["url"]
+        # (see _normalize_gateway_response redirect branch); there is no
+        # top-level "redirect_url" key.
+        redirect_url = (result.get("data") or {}).get("url")
         return OperationResult.ok(
             {"redirect_url": redirect_url, "intent": intent.name},
             message=_("Payment started"),
