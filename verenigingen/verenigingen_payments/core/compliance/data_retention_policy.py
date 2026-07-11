@@ -49,9 +49,16 @@ class RetentionAction(Enum):
 # regardless of settings. Kept intentionally minimal:
 #   - temporary_data: a clean DELETE of aged webhook_validation Mollie Audit Log
 #     rows; verified + integration-tested.
-# Excluded (see backlog): audit_logs (archive writes a non-existent field),
-# payment_data (anonymizes a submitted Payment Entry -> GL desync risk),
-# personal_data (Member delete) — all unverified/known-broken.
+# Still excluded (but their live-path CRASH/CORRUPTION bugs are now fixed +
+# regression-tested, so they can be enabled once the broader work lands):
+#   - audit_logs: archive marks a real `archived` field (was non-existent) and
+#     no longer crashes on datetime JSON serialization; idempotent re-runs.
+#   - payment_data: anonymize now REFUSES to mutate a submitted Payment Entry
+#     (was rewriting `party`/`reference_no` -> broken Link + GL/eBoekhouden desync).
+#   - personal_data: anonymize writes real Member fields (`contact_number` /
+#     normalized address; was the non-existent `phone`/`address`).
+# Enabling live destructive purge for these is a separate compliance decision
+# (PROVISIONAL retention periods; the engine is still orphan scaffolding).
 LIVE_CAPABLE_CATEGORIES = {DataCategory.TEMPORARY_DATA}
 
 
@@ -310,18 +317,21 @@ class DataRetentionPolicy:
     def _process_audit_logs(self, cutoff_date: datetime, action: RetentionAction, dry_run: bool) -> int:
         """Process audit log retention"""
 
-        # Count audit logs older than cutoff
-        count = frappe.db.count("Mollie Audit Log", {"timestamp": ["<", cutoff_date]})
+        # Count audit logs older than cutoff that are not already archived
+        # (archival marks `archived=1` instead of deleting; excluding them keeps
+        # re-runs idempotent and the count honest).
+        count = frappe.db.count("Mollie Audit Log", {"timestamp": ["<", cutoff_date], "archived": ["!=", 1]})
 
         if dry_run or action != RetentionAction.ARCHIVE:
             return count
 
-        # Archive old audit logs
+        # Archive old, not-yet-archived audit logs
         old_logs = frappe.db.sql(
             """
             SELECT *
             FROM `tabMollie Audit Log`
             WHERE timestamp < %s
+                AND (archived IS NULL OR archived = 0)
         """,
             cutoff_date,
             as_dict=True,
@@ -361,19 +371,34 @@ class DataRetentionPolicy:
         return temp_records
 
     def _anonymize_payment(self, payment: Dict[str, Any]):
-        """Anonymize payment data while preserving structure"""
+        """Anonymize a payment record.
 
-        # Generate consistent anonymous ID
-        anon_id = self._generate_anonymous_id(payment["name"])
+        Payment Entries selected for retention are ALWAYS submitted (docstatus=1;
+        see _process_payment_data's query). The previous implementation silently
+        rewrote `party`/`reference_no` on the submitted document via db.set_value —
+        which (a) points `party` at a non-existent Customer/Supplier (a broken Link),
+        and (b) leaves the already-posted GL Entries and the eBoekhouden mirror
+        referencing the ORIGINAL party, desyncing the ledger. Submitted financial
+        records must be retained intact for legal/tax compliance; the donor/customer
+        PII is anonymized on the linked party via the personal_data category, not by
+        mutating the immutable payment. So we do NOT touch a submitted Payment Entry.
+        """
+        docstatus = frappe.db.get_value("Payment Entry", payment["name"], "docstatus")
+        if docstatus == 1:
+            frappe.logger("retention").warning(
+                f"Skipped anonymizing submitted Payment Entry {payment['name']}: "
+                "financial records are retained intact for legal/tax compliance; "
+                "anonymize the linked party via the personal_data category instead."
+            )
+            return
 
+        # Draft (docstatus=0) entries have no posted GL/eBoekhouden impact, so the
+        # free-text remark can be scrubbed safely. Party/reference_no are left alone
+        # (a broken Link is worse than an un-anonymized draft).
         frappe.db.set_value(
             "Payment Entry",
             payment["name"],
-            {
-                "party": f"ANON_{anon_id}",
-                "reference_no": f"REF_{anon_id}",
-                "remarks": "Anonymized for data retention compliance",
-            },
+            {"remarks": "Anonymized for data retention compliance"},
         )
 
     def _anonymize_personal_data(self, record: Dict[str, Any]):
@@ -381,6 +406,11 @@ class DataRetentionPolicy:
 
         anon_id = self._generate_anonymous_id(record["name"])
 
+        # Only real Member fields (previously wrote non-existent `phone`/`address`,
+        # which raised "Unknown column" on every live run). The phone lives in
+        # `contact_number`; address PII on the Member record lives in the
+        # normalized address fields (the linked `primary_address` Address doc is a
+        # separate record, out of scope for this Member-level anonymization).
         frappe.db.set_value(
             "Member",
             record["name"],
@@ -388,8 +418,10 @@ class DataRetentionPolicy:
                 "first_name": "Anonymous",
                 "last_name": anon_id[:8],
                 "email": f"anon_{anon_id}@example.com",
-                "phone": "000-000-0000",
-                "address": "Anonymized",
+                "contact_number": "000-000-0000",
+                "normalized_address_line": "Anonymized",
+                "normalized_city": "Anonymized",
+                "address_fingerprint": None,
             },
         )
 
@@ -413,7 +445,10 @@ class DataRetentionPolicy:
             "doctype": doctype,
             "record_id": record.get("name"),
             "archived_date": now_datetime(),
-            "data": json.dumps(record),
+            # default=str so datetime/Decimal values from a `SELECT *` row don't
+            # raise "Object of type datetime is not JSON serializable" (the archive
+            # path is only reached on a LIVE run, so dry-run never surfaced it).
+            "data": json.dumps(record, default=str),
             "checksum": self._calculate_checksum(record),
         }
 
@@ -574,7 +609,7 @@ class DataRetentionPolicy:
         """Calculate data checksum"""
 
         if isinstance(data, dict):
-            data = json.dumps(data, sort_keys=True)
+            data = json.dumps(data, sort_keys=True, default=str)
 
         return hashlib.sha256(str(data).encode()).hexdigest()
 
