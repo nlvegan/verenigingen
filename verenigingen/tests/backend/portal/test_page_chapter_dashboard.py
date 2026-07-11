@@ -272,3 +272,162 @@ class TestPageChapterDashboard(EnhancedTestCase):
         self.assertEqual(metrics["members"]["total"], 1)
         self.assertEqual(metrics["members"]["active"], 1)
         self.assertIn("expenses", metrics)
+
+
+class TestChapterDashboardPendingExpenseApprovals(EnhancedTestCase):
+    """get_pending_expense_approvals + its wiring into get_pending_actions.
+
+    Builds real ERPNext Expense Claim documents (no mocks); skips only when the
+    site lacks the Company/accounts needed to construct one. Previously the
+    dashboard hardcoded expense_approvals=[] so the "Expense Approvals (N)"
+    header always showed 0.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Inserting an Expense Claim enqueues a member-history update on a
+        # process-global batch queue. Clear it before/after so this test's
+        # (rolled-back) claims can't be re-processed by a later test ->
+        # DoesNotExistError -> swallowed log_error -> Error-Log guard trip.
+        from verenigingen.utils.financial_history_batch_processor import (
+            FinancialHistoryBatchProcessor,
+        )
+
+        self._batch = FinancialHistoryBatchProcessor
+        self._batch._expense_queue.clear()
+
+    def tearDown(self):
+        self._batch._expense_queue.clear()
+        super().tearDown()
+
+    # ------------------------------------------------------------------ helpers
+    def _company(self):
+        return (
+            "_Test Company"
+            if frappe.db.exists("Company", "_Test Company")
+            else (frappe.get_all("Company", limit=1, pluck="name") or [None])[0]
+        )
+
+    def _accounts(self, company):
+        expense = frappe.db.get_value(
+            "Account", {"account_type": "Expense Account", "company": company, "is_group": 0}, "name"
+        )
+        payable = frappe.db.get_value(
+            "Account", {"account_type": "Payable", "company": company, "is_group": 0}, "name"
+        )
+        return expense, payable
+
+    def _make_employee(self, company):
+        emp = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"VeR{frappe.generate_hash(length=5)}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": company,
+            }
+        ).insert(ignore_permissions=True)
+        self._track_test_document("Employee", emp.name, priority=2)
+        return emp
+
+    def _make_draft_expense_claim(self, company, chapter_name, amount=12.5):
+        """A Draft (docstatus=0, approval_status=Draft) Expense Claim on chapter_name."""
+        expense_acct, payable = self._accounts(company)
+        if not expense_acct or not payable:
+            self.skipTest("No expense/payable accounts available")
+        employee = self._make_employee(company)
+        ec = frappe.get_doc(
+            {
+                "doctype": "Expense Claim",
+                "employee": employee.name,
+                "company": company,
+                "custom_organization_type": "Chapter",
+                "custom_chapter": chapter_name,
+                # HRMS defaults approval_status to "Draft" on a real request; the
+                # test harness skips that field default, so set it explicitly to
+                # reflect the production state a pending claim actually has.
+                "approval_status": "Draft",
+                "posting_date": frappe.utils.today(),
+                "currency": "EUR",
+                "exchange_rate": 1,
+                "payable_account": payable,
+                "expenses": [
+                    {
+                        "expense_type": "Food",
+                        "amount": amount,
+                        "sanctioned_amount": amount,
+                        "expense_date": frappe.utils.today(),
+                        "default_account": expense_acct,
+                    }
+                ],
+            }
+        ).insert(ignore_permissions=True)
+        self._track_test_document("Expense Claim", ec.name, priority=1)
+        return ec
+
+    # ------------------------------------------------------------------ tests
+    def test_returns_draft_claim_for_chapter_with_fields(self):
+        from verenigingen.templates.pages.chapter_dashboard import get_pending_expense_approvals
+
+        company = self._company()
+        if not company:
+            self.skipTest("No Company available")
+        chapter = self.create_test_chapter()
+        ec = self._make_draft_expense_claim(company, chapter.name, amount=12.5)
+
+        rows = get_pending_expense_approvals(chapter.name)
+        matched = [r for r in rows if r["name"] == ec.name]
+        self.assertEqual(len(matched), 1, "draft claim for this chapter should be listed")
+        self.assertEqual(matched[0]["total_claimed_amount"], 12.5)
+        # Fields the template renders must be present.
+        for field in ("name", "employee_name", "custom_volunteer", "posting_date"):
+            self.assertIn(field, matched[0])
+
+    def test_excludes_other_chapter_and_non_draft(self):
+        from verenigingen.templates.pages.chapter_dashboard import get_pending_expense_approvals
+
+        company = self._company()
+        if not company:
+            self.skipTest("No Company available")
+        chapter = self.create_test_chapter()
+        other_chapter = self.create_test_chapter()
+
+        # Claim on a different chapter -> must not leak in.
+        other_claim = self._make_draft_expense_claim(company, other_chapter.name)
+        # Claim on our chapter but no longer Draft -> excluded by approval_status filter.
+        approved_claim = self._make_draft_expense_claim(company, chapter.name)
+        frappe.db.set_value("Expense Claim", approved_claim.name, "approval_status", "Approved")
+
+        names = [r["name"] for r in get_pending_expense_approvals(chapter.name)]
+        self.assertNotIn(other_claim.name, names)
+        self.assertNotIn(approved_claim.name, names)
+
+    def test_wired_into_get_pending_actions(self):
+        from verenigingen.templates.pages.chapter_dashboard import (
+            get_pending_actions,
+            get_pending_expense_approvals,
+        )
+
+        company = self._company()
+        if not company:
+            self.skipTest("No Company available")
+        chapter = self.create_test_chapter()
+        ec = self._make_draft_expense_claim(company, chapter.name)
+
+        actions = get_pending_actions(chapter.name)
+        approval_names = [r["name"] for r in actions["expense_approvals"]]
+        self.assertIn(
+            ec.name,
+            approval_names,
+            "get_pending_actions must surface real pending claims (was hardcoded [])",
+        )
+        # total_pending must account for the expense approvals it reports.
+        self.assertEqual(
+            actions["total_pending"],
+            len(actions["membership_applications"])
+            + len(actions["expense_approvals"])
+            + len(actions["board_tasks"]),
+        )
+        self.assertEqual(len(actions["expense_approvals"]), len(get_pending_expense_approvals(chapter.name)))
