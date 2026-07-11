@@ -344,9 +344,24 @@ function activate_agreement(frm) {
 	});
 }
 
-function generate_agreement_pdf(_frm) {
-	// TODO: Implement PDF generation
-	frappe.msgprint(__('PDF generation will be implemented in Phase 3'));
+function generate_agreement_pdf(frm) {
+	frappe.call({
+		method: 'verenigingen.api.periodic_donation_operations.generate_agreement_pdf',
+		args: { agreement: frm.doc.name },
+		freeze: true,
+		freeze_message: __('Generating agreement PDF...'),
+		callback(r) {
+			// @critical_api wraps the payload in an OperationResult envelope
+			// (r.message.data); fall back to a flat shape defensively.
+			const data = (r.message && r.message.data) || r.message || {};
+			if (data.file_url) {
+				window.open(data.file_url);
+				frm.reload_doc();
+			} else {
+				frappe.msgprint(__('Failed to generate agreement PDF.'));
+			}
+		}
+	});
 }
 
 function add_donation_statistics(frm) {
