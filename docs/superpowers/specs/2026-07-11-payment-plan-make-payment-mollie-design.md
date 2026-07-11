@@ -68,6 +68,12 @@ payment (Mollie webhook), never by member self-assertion.
 
 - `PaymentHook.get_available_methods()` — returns the method choices
   (`verenigingen_payments/hooks/payment_hook.py`). Reference-agnostic.
+- `PaymentHook.initiate_payment(...)` — needs a **small change**: it currently
+  builds `form_data` from a fixed key set (`payment_hook.py:277-289`) and has no
+  `description` parameter, so it silently drops any description. Add an optional
+  `description: str | None = None` param and forward it as
+  `form_data["description_override"]` (which `MollieGateway` already honors,
+  `payment_gateways.py:171`). Backward compatible (default `None`).
 - `MollieGateway.process_payment(ref_doc, form_data)` — reads
   `ref_doc.amount` / `.currency` / `.doctype` / `.name`, sets
   `ref_doc.db_set("payment_id", …)`, and writes generic
@@ -121,9 +127,12 @@ payment (Mollie webhook), never by member self-assertion.
      `Pending` or `Overdue` (not `Paid`),
    - creates a **Payment Plan Payment** intent record (see below) for that
      installment with `amount` = installment amount (server-derived),
-   - calls `PaymentHook.initiate_payment(method="mollie", amount, reference_doctype="Payment Plan Payment", reference_name=<intent>, payer_info=…)`, passing a
-     **`description_override`** like `"Payment plan {plan} installment {n}"`
-     (avoids the classifier's `"donation"` keyword collision),
+   - calls `PaymentHook.initiate_payment(method="mollie", amount, reference_doctype="Payment Plan Payment", reference_name=<intent>, payer_info=…, description="Payment plan {plan} installment {n}")`.
+     This threads through the new `description` param → `form_data["description_override"]`
+     → the Mollie payment description. It (a) shows the member a correct
+     description on Mollie's checkout instead of "Donation …", and (b) is
+     defence-in-depth against the classifier's `"donation"` keyword (the
+     pre-classification dispatch below is the primary guarantee),
    - returns the Mollie redirect URL. The page redirects the member to Mollie.
 3. **Pay.** Member completes payment on Mollie's hosted checkout.
 4. **Confirm (webhook, source of truth).** Mollie calls the webhook. A new
@@ -133,14 +142,19 @@ payment (Mollie webhook), never by member self-assertion.
    `Payment Plan Payment` routes to a new handler `handle_payment_plan_payment`
    that:
    - loads the intent by `payment_id`,
+   - takes a **`FOR UPDATE` row lock on the intent** for the whole guard →
+     finalize → mark-paid sequence, so concurrent duplicate deliveries serialize,
    - **idempotency guard:** if the intent is already `Paid`, return a success
      (HTTP 200) no-op — never let it reach `process_payment` (which throws on an
      already-Paid installment → would become a 500 retry loop),
-   - on Mollie status `paid`: atomically transition the intent
-     `Pending`→`Paid` (status-guarded `db.set_value` / row lock so concurrent
-     duplicate deliveries don't double-process), then call
-     `plan.process_payment(intent.installment_number, intent.amount,
-     payment_reference=payment_id)`,
+   - on Mollie status `paid`: call `plan.process_payment(intent.installment_number,
+     intent.amount, payment_reference=payment_id)` **first**, and only mark the
+     intent `Paid` **after it returns successfully**. Ordering matters: if the
+     intent were flipped to `Paid` before `process_payment`'s `self.save()`
+     (`payment_plan.py:294`) threw, the installment would never finalize yet every
+     retry would short-circuit at the `Paid` guard → payment permanently lost.
+     (`process_payment` swallows Payment-Entry/email errors at `:332,366`, so the
+     realistic throw point is the `save()`.)
    - on `failed`/`expired`: mark the intent `Failed`/`Expired` (installment
      stays payable so the member can retry).
    Non-`Payment Plan Payment` metadata falls through to the existing Donation
@@ -204,6 +218,9 @@ a `# Security:` note. Members do not directly write it.
   classification; Donation flow is the fall-through.
 - `templates/pages/payment_success.py` — add `"Payment Plan Payment"` to
   `ALLOWED_PAYMENT_DOCTYPES`.
+- `verenigingen_payments/hooks/payment_hook.py::initiate_payment` — add optional
+  `description` param, forwarded as `form_data["description_override"]`
+  (backward compatible). `MollieGateway` itself is unchanged.
 
 ## Security & permissions
 
@@ -235,9 +252,11 @@ a `# Security:` note. Members do not directly write it.
   `process_payment()` (which throws on an already-Paid installment,
   `payment_plan.py:278` → would otherwise become a 500 → Mollie retry storm).
   The existing `UnifiedIdempotencyManager` is Donation-centric and does not
-  track intents, so idempotency rests on the intent's own status transition —
-  make it atomic (status-guarded `db.set_value` or row lock) to survive
-  concurrent duplicate deliveries.
+  track intents, so idempotency rests on the intent's own status transition. Hold
+  a `FOR UPDATE` lock on the intent across guard → `process_payment` → mark-`Paid`,
+  and set `Paid` **only after** `process_payment` returns (see flow step 4) so a
+  mid-finalize failure can't leave a `Paid` intent with an unfinalized
+  installment.
 - Partial payment: `process_payment()` already handles `payment_amount <
   installment.amount`; Phase 1 always pays the full installment amount, so this
   path is not exercised but is not broken.
@@ -252,8 +271,9 @@ a `# Security:` note. Members do not directly write it.
     the correct server-derived amount and returns a redirect (Mollie client
     stubbed at the HTTP boundary only, per existing Mollie test patterns);
   - resolves an **`Overdue`** installment as payable (not just `Pending`);
-  - passes a `description_override` that does **not** contain "donation" (assert
-    the classifier would not tag it DONATION);
+  - the `description` passed to `initiate_payment` actually threads into the
+    payment (assert the Mollie payment description is the installment text, not
+    `"Donation …"` — proves the new `payment_hook.py` param works);
   - rejects a plan not owned by the caller;
   - rejects when the installment is `Paid`.
 - **Webhook dispatch → confirmation** (the core new behaviour):
@@ -266,6 +286,8 @@ a `# Security:` note. Members do not directly write it.
     flow (dispatch does not regress donations);
   - a second delivery of the same `paid` webhook returns success and does **not**
     re-run `process_payment` (idempotent, no 500);
+  - if `process_payment` raises mid-finalize, the intent is **not** left `Paid`
+    (ordering guard — a retry can still finalize the installment);
   - a `failed`/`expired` webhook marks the intent Failed/Expired and leaves the
     installment payable.
 - **Return page**: `payment-success` accepts `doctype=Payment Plan Payment`
