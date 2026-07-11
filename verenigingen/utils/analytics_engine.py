@@ -55,6 +55,20 @@ from frappe.utils import add_to_date, get_datetime, now, now_datetime
 from verenigingen.utils.error_handling import get_logger
 from verenigingen.utils.performance_dashboard import _performance_metrics
 
+# Compliance-critical doctypes whose record changes must be auditable via Frappe's
+# change-tracking (Version history). Used by AnalyticsEngine._check_audit_trail_gaps
+# to measure audit-trail completeness. These carry money, PII, or legally-significant
+# lifecycle state, so a disabled audit trail on any of them is a real compliance gap.
+AUDIT_CRITICAL_DOCTYPES = [
+    "Member",
+    "Membership",
+    "Donation",
+    "Periodic Donation Agreement",
+    "SEPA Mandate",
+    "Direct Debit Batch",
+    "Membership Termination Request",
+]
+
 
 class AnalyticsEngine:
     """Advanced analytics engine for monitoring data analysis and insights"""
@@ -1209,16 +1223,51 @@ class AnalyticsEngine:
             }
 
     def _check_audit_trail_gaps(self) -> Dict[str, Any]:
-        """Check audit trail completeness.
+        """Check audit-trail completeness across compliance-critical doctypes.
 
-        Stub: returns placeholder score. Real implementation would query audit log tables.
+        Measures how many of AUDIT_CRITICAL_DOCTYPES have Frappe change-tracking
+        (Version history) enabled -- a real, queryable proxy for "changes to this
+        record are auditable". Replaces a former hardcoded placeholder score.
         """
-        return {
-            "status": "gap_identified",
-            "score": 85.0,
-            "coverage_by_process": {},
-            "recommendations": [],
-        }
+        return self._audit_trail_coverage(AUDIT_CRITICAL_DOCTYPES)
+
+    def _audit_trail_coverage(self, doctypes: List[str]) -> Dict[str, Any]:
+        """Compute change-tracking coverage for the given doctypes.
+
+        Missing (not-installed) doctypes are skipped rather than counted, so the
+        score reflects only doctypes that actually exist on this site.
+        """
+        try:
+            coverage_by_process: Dict[str, bool] = {}
+            for dt in doctypes:
+                if not frappe.db.exists("DocType", dt):
+                    continue
+                coverage_by_process[dt] = bool(frappe.get_meta(dt).track_changes)
+
+            total = len(coverage_by_process)
+            covered = sum(1 for tracked in coverage_by_process.values() if tracked)
+            score = (covered / total * 100) if total else 0
+
+            untracked = [dt for dt, tracked in coverage_by_process.items() if not tracked]
+
+            return {
+                "status": "compliant" if score > 90 else "gap_identified",
+                "score": score,
+                "coverage_by_process": coverage_by_process,
+                "recommendations": (
+                    []
+                    if not untracked
+                    else [f"Enable change tracking (audit trail) on: {', '.join(untracked)}"]
+                ),
+            }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "score": 0,
+                "error": str(e),
+                "recommendations": ["Fix audit trail completeness checking system"],
+            }
 
     def _calculate_overall_compliance_score(self, compliance_status: Dict) -> float:
         """Calculate overall compliance score"""

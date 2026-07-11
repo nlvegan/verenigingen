@@ -17,7 +17,7 @@ change that added this file.
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.utils.analytics_engine import AnalyticsEngine
+from verenigingen.utils.analytics_engine import AUDIT_CRITICAL_DOCTYPES, AnalyticsEngine
 
 
 class TestAnalyticsEngine(VereningingenTestCase):
@@ -36,9 +36,9 @@ class TestAnalyticsEngine(VereningingenTestCase):
         engine's raw SQL within the same test and disappears afterwards; it is
         also tracked for class-level cleanup as a belt-and-braces measure.
         """
-        doc = frappe.get_doc(
-            {"doctype": "Error Log", "method": method, "error": error_text}
-        ).insert(ignore_permissions=True)
+        doc = frappe.get_doc({"doctype": "Error Log", "method": method, "error": error_text}).insert(
+            ignore_permissions=True
+        )
         if owner:
             # owner is auto-set to the session user on insert; override it so
             # affected-user aggregation has more than one distinct value.
@@ -198,6 +198,51 @@ class TestAnalyticsEngine(VereningingenTestCase):
         self.assertIn("compliance_areas", result)
         self.assertIn("sepa_compliance", result["compliance_areas"])
         self.assertIn("audit_trail_completeness", result["compliance_areas"])
+
+    # -- _check_audit_trail_gaps (C6: was a hardcoded 85.0 stub) ---------
+
+    def test_check_audit_trail_gaps_measures_real_tracking(self):
+        """The audit-trail score must be COMPUTED from real change-tracking
+        config, not the former fabricated 85.0. Every compliance-critical
+        doctype in this app has track_changes enabled, so a correct real
+        measurement scores 100 and reports no gaps."""
+        result = self.engine._check_audit_trail_gaps()
+
+        # Not the old hardcoded stub value.
+        self.assertNotEqual(result["score"], 85.0, "score must be measured, not the 85.0 stub")
+        self.assertEqual(result["score"], 100.0)
+        self.assertEqual(result["status"], "compliant")
+        self.assertEqual(result["recommendations"], [])
+        # Every installed critical doctype is reported as tracked.
+        for dt in AUDIT_CRITICAL_DOCTYPES:
+            if frappe.db.exists("DocType", dt):
+                self.assertIs(
+                    result["coverage_by_process"].get(dt),
+                    True,
+                    f"{dt} is a track_changes doctype and must count as covered",
+                )
+
+    def test_audit_trail_coverage_flags_untracked_doctype(self):
+        """A doctype without change tracking must drop the score and be named in
+        the recommendations (Error Log is a core, non-track_changes doctype)."""
+        result = self.engine._audit_trail_coverage(["Member", "Error Log"])
+
+        self.assertEqual(result["score"], 50.0)
+        self.assertEqual(result["status"], "gap_identified")
+        self.assertIs(result["coverage_by_process"]["Member"], True)
+        self.assertIs(result["coverage_by_process"]["Error Log"], False)
+        self.assertTrue(
+            any("Error Log" in rec for rec in result["recommendations"]),
+            "the untracked doctype must be named in a remediation recommendation",
+        )
+
+    def test_audit_trail_coverage_skips_missing_doctype(self):
+        """Nonexistent doctypes are skipped, not counted or crashed on."""
+        result = self.engine._audit_trail_coverage(["Member", "Nonexistent DocType XYZ"])
+
+        self.assertNotIn("Nonexistent DocType XYZ", result["coverage_by_process"])
+        self.assertIn("Member", result["coverage_by_process"])
+        self.assertEqual(result["score"], 100.0)
 
     # -- generate_insights_report ---------------------------------------
 
