@@ -33,8 +33,9 @@ def get_context(context):
     context.plan = plan
     context.member = member
     context.installment = get_next_payable_installment(plan)
-    # Phase 1: only online (Mollie) methods are wired for payment plans.
-    context.payment_methods = [m for m in PaymentHook.get_available_methods() if m["id"] == "mollie"]
+    # Phase 2: offer all enabled online REDIRECT methods (Mollie + Pay.nl/ING iDEAL).
+    ONLINE_METHODS = {"mollie", "ing_ideal"}
+    context.payment_methods = [m for m in PaymentHook.get_available_methods() if m["id"] in ONLINE_METHODS]
     return context
 
 
