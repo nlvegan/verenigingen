@@ -90,7 +90,7 @@ class TestPaymentPlanPaymentWebhook(VereningingenTestCase):
         handle_payment_plan_payment("tr_hook1", _payment("tr_hook1", intent.name))
         # Second delivery must not raise and must not re-run process_payment.
         result = handle_payment_plan_payment("tr_hook1", _payment("tr_hook1", intent.name))
-        self.assertIn(result["status"], ("success", "skipped"))
+        self.assertEqual(result["status"], "skipped")
         plan = frappe.get_doc("Payment Plan", self.plan.name)
         # Still exactly one Paid installment (no double processing / no throw).
         self.assertEqual(plan.installments[0].status, "Paid")

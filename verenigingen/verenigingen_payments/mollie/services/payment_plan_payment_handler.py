@@ -28,47 +28,57 @@ def _metadata(payment) -> dict:
 def handle_payment_plan_payment(payment_id: str, payment) -> dict:
     """Idempotently finalize the installment for a Payment Plan Payment intent."""
     intent_name = _metadata(payment).get("reference_docname")
-    if not intent_name or not frappe.db.exists("Payment Plan Payment", intent_name):
-        # Nothing we can do; do not 500 (Mollie would retry forever).
-        return {"status": "error", "message": f"intent {intent_name} not found"}
-
     status = _payment_status(payment)
 
     try:
-        # Serialize concurrent duplicate deliveries on this intent.
-        frappe.db.sql("SELECT name FROM `tabPayment Plan Payment` WHERE name=%s FOR UPDATE", intent_name)
-        intent = frappe.get_doc("Payment Plan Payment", intent_name)
+        # Lock the intent row and read the fields we act on FROM THE LOCKED ROW
+        # (CLAUDE.md Pattern 5). A separate plain ORM read could return a stale
+        # pre-lock snapshot under REPEATABLE READ and let a concurrent duplicate
+        # delivery slip past the idempotency guard into process_payment.
+        locked = frappe.db.sql(
+            """SELECT name, status, payment_plan, installment_number, amount, payment_id
+               FROM `tabPayment Plan Payment` WHERE name=%s FOR UPDATE""",
+            intent_name,
+            as_dict=True,
+        )
+        if not locked:
+            # Unknown/missing intent -> do not 500 (Mollie would retry forever).
+            frappe.db.commit()
+            return {"status": "error", "message": f"intent {intent_name} not found"}
+        row = locked[0]
 
-        # Idempotency guard: already finalized -> success no-op (never reach
-        # process_payment, which throws on an already-Paid installment).
-        if intent.status == "Paid":
+        # Idempotency guard on the LOCKED status: already finalized -> no-op
+        # (never reach process_payment, which throws on an already-Paid installment).
+        if row.status == "Paid":
             frappe.db.commit()
             return {"status": "skipped", "message": "already processed"}
 
         if status != "paid":
-            # failed / expired / open -> record and leave installment payable.
+            # failed / expired / open -> record and leave the installment payable.
             new_status = {"failed": "Failed", "expired": "Expired", "canceled": "Failed"}.get(
-                status, intent.status
+                status, row.status
             )
-            intent.db_set("status", new_status)
+            frappe.db.set_value("Payment Plan Payment", intent_name, "status", new_status)
             frappe.db.commit()
             return {"status": "skipped", "message": f"payment status {status}"}
 
-        # Confirmed paid: finalize the installment FIRST, mark intent Paid only
-        # after it returns (so a mid-finalize failure leaves the intent
-        # re-processable rather than a Paid intent with an unfinalized installment).
-        # Security: webhook context; finalization runs as the webhook user.
-        plan = frappe.get_doc("Payment Plan", intent.payment_plan)
+        # Confirmed paid: finalize the installment FIRST, mark the intent Paid only
+        # AFTER it returns (a mid-finalize failure must leave the intent
+        # re-processable, not a Paid intent with an unfinalized installment).
+        # Security: webhook context; finalization runs as the webhook user (defaults
+        # to Administrator; a restricted webhook_user must hold the FINANCIAL tier).
+        plan = frappe.get_doc("Payment Plan", row.payment_plan)
         plan.process_payment(
-            installment_number=intent.installment_number,
-            payment_amount=intent.amount,
+            installment_number=row.installment_number,
+            payment_amount=row.amount,
             payment_reference=payment_id,
             payment_date=today(),
         )
-        intent.db_set("status", "Paid")
-        intent.db_set("paid", 1)
-        if not intent.payment_id:
-            intent.db_set("payment_id", payment_id)
+        frappe.db.set_value(
+            "Payment Plan Payment",
+            intent_name,
+            {"status": "Paid", "paid": 1, "payment_id": row.payment_id or payment_id},
+        )
         frappe.db.commit()
         return {"status": "success", "intent": intent_name}
 
@@ -78,6 +88,4 @@ def handle_payment_plan_payment(payment_id: str, payment) -> dict:
             f"Payment plan payment finalize failed for intent {intent_name}: {e}",
             "Payment Plan Payment Webhook",
         )
-        # Return error (not raise) so the caller decides the HTTP code; a 500 here
-        # would trigger Mollie retries, which is acceptable since we rolled back.
         return {"status": "error", "message": str(e)}
