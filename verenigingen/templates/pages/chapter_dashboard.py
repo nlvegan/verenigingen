@@ -540,8 +540,8 @@ def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     for app in pending_apps:
         app["is_overdue"] = (app.get("days_pending", 0) or 0) > OVERDUE_APPLICATION_DAYS
 
-    # Get pending expense approvals (placeholder)
-    pending_expenses = []  # Will be implemented when expense system is fully integrated
+    # Get pending expense approvals awaiting board action
+    pending_expenses = get_pending_expense_approvals(chapter_name)
 
     # Get board tasks (placeholder)
     board_tasks = []  # Will be implemented with task management
@@ -552,6 +552,31 @@ def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
         "board_tasks": board_tasks,
         "total_pending": len(pending_apps) + len(pending_expenses) + len(board_tasks),
     }
+
+
+def get_pending_expense_approvals(chapter_name: str) -> List[Dict[str, Any]]:
+    """Get expense claims awaiting board approval for this chapter.
+
+    Uses the same "pending" filter as get_basic_expense_stats (unsubmitted
+    Draft claims), but returns actionable rows for the dashboard's "Requires
+    Your Attention" list instead of just aggregate totals.
+    """
+    try:
+        return frappe.get_all(
+            "Expense Claim",
+            filters={"custom_chapter": chapter_name, "approval_status": "Draft", "docstatus": 0},
+            fields=[
+                "name",
+                "employee_name",
+                "custom_volunteer",
+                "total_claimed_amount",
+                "posting_date",
+            ],
+            order_by="posting_date asc",
+        )
+    except Exception as e:
+        frappe.log_error(f"Error fetching pending expenses for {chapter_name}: {str(e)}")
+        return []
 
 
 def get_financial_summary(chapter_name: str) -> Dict[str, Any]:

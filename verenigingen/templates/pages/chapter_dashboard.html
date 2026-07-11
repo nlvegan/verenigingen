@@ -230,11 +230,32 @@
                             </div>
                         {% endif %}
 
-                        <!-- Placeholder for expense approvals -->
+                        <!-- Pending Expense Approvals -->
                         {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.expense_approvals %}
-                            <div class="pending-section">
-                                <h4><i class="fa fa-money"></i> Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
-                                <!-- Will be implemented when expense system is integrated -->
+                            <div class="mb-6 last:mb-0">
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-money"></i> Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
+                                <ul class="list-none p-0 m-0 space-y-3">
+                                    {% for expense in dashboard_data.pending_actions.expense_approvals %}
+                                        <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-gray-50">
+                                            <div class="flex flex-col gap-1">
+                                                <a href="/app/expense-claim/{{ expense.name }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
+                                                    {{ expense.employee_name or expense.custom_volunteer or expense.name }}
+                                                </a>
+                                                <small class="text-gray-600 text-sm">
+                                                    €{{ "%.2f"|format(expense.total_claimed_amount or 0) }}
+                                                    {% if expense.posting_date %} &middot; {{ format_date(expense.posting_date, '%d %b %Y') }}{% endif %}
+                                                </small>
+                                            </div>
+                                            {% if user_board_role and user_board_role.permissions.can_approve_expenses %}
+                                                <div class="flex gap-2 flex-shrink-0">
+                                                    <a href="/app/expense-claim/{{ expense.name }}" class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg transition-all no-underline">
+                                                        <i class="fa fa-eye mr-1"></i> Review Expense
+                                                    </a>
+                                                </div>
+                                            {% endif %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
                             </div>
                         {% endif %}
 
