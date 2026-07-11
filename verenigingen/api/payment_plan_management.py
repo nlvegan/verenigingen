@@ -368,7 +368,10 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
             intent.db_set("status", "Failed")
             return OperationResult.fail(message=result.get("message") or _("Payment could not be started"))
 
-        redirect_url = result.get("redirect_url") or (result.get("data") or {}).get("redirect_url")
+        # PaymentHook.initiate_payment nests the checkout URL at data["url"]
+        # (see _normalize_gateway_response redirect branch); there is no
+        # top-level "redirect_url" key.
+        redirect_url = (result.get("data") or {}).get("url")
         return OperationResult.ok(
             {"redirect_url": redirect_url, "intent": intent.name},
             message=_("Payment started"),

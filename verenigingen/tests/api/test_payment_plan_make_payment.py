@@ -61,12 +61,13 @@ class TestPaymentPlanMakePayment(VereningingenTestCase):
 
         def _fake(**kwargs):
             captured.update(kwargs)
+            # Mirror the REAL PaymentHook.initiate_payment redirect contract:
+            # the checkout URL is nested at data["url"] (no top-level redirect_url).
             return {
                 "success": True,
                 "action": "redirect",
                 "payment_id": "tr_test",
-                "data": {},
-                "redirect_url": "https://mollie/checkout",
+                "data": {"url": "https://mollie/checkout"},
             }
 
         return captured, _fake
