@@ -315,6 +315,7 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
     returning the redirect URL. Never marks anything Paid — that happens only on
     the confirmed webhook.
     """
+    intent = None
     try:
         installment_number = int(installment_number)
         plan_doc = frappe.get_doc("Payment Plan", plan)
@@ -378,6 +379,13 @@ def initiate_installment_payment(plan, installment_number, method="mollie") -> O
         )
 
     except Exception as e:
+        # If the intent was created before the failure, mark it Failed so it is not
+        # left dangling as Pending.
+        try:
+            if intent is not None and intent.name:
+                frappe.db.set_value("Payment Plan Payment", intent.name, "status", "Failed")
+        except Exception:
+            pass
         frappe.log_error(
             f"initiate_installment_payment failed for {plan}/{installment_number}: {e}",
             "Payment Plan Payment",

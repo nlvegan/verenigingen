@@ -37,5 +37,8 @@ class TestPaymentSuccessPlanPayment(VereningingenTestCase):
         frappe.form_dict = frappe._dict({"doctype": "Payment Plan Payment", "docname": intent.name})
         context = frappe._dict()
         payment_success.get_context(context)
-        # Must NOT be the "invalid document type" error path.
-        self.assertNotIn("Invalid document type", str(context.get("error") or ""))
+        # get_context never sets context.error; the disallowed-doctype rejection
+        # lands in payment_status="error" / payment_message="Invalid document type...".
+        # Assert against those REAL keys so this test actually fails pre-fix.
+        self.assertNotIn("Invalid document type", str(context.get("payment_message") or ""))
+        self.assertNotEqual(context.get("payment_status"), "error")

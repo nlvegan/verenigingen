@@ -95,6 +95,40 @@ class TestPaymentPlanPaymentWebhook(VereningingenTestCase):
         # Still exactly one Paid installment (no double processing / no throw).
         self.assertEqual(plan.installments[0].status, "Paid")
 
+    def test_second_intent_for_same_installment_is_skipped_not_double_processed(self):
+        """Two intents for the SAME installment (member opened the pay page twice
+        and both Mollie payments succeeded): the first finalizes normally, the
+        second must be skipped (not throw "already paid" -> 500 -> Mollie retry
+        loop), and the duplicate real charge is flagged via the intent's own
+        status rather than silently dropped."""
+        from verenigingen.verenigingen_payments.mollie.services.payment_plan_payment_handler import (
+            handle_payment_plan_payment,
+        )
+
+        first_intent = self._create_intent(installment_number=1, payment_id="tr_hook_first")
+        second_intent = self._create_intent(installment_number=1, payment_id="tr_hook_second")
+
+        first_result = handle_payment_plan_payment(
+            "tr_hook_first", _payment("tr_hook_first", first_intent.name)
+        )
+        self.assertEqual(first_result["status"], "success")
+        plan = frappe.get_doc("Payment Plan", self.plan.name)
+        self.assertEqual(plan.installments[0].status, "Paid")
+
+        second_result = handle_payment_plan_payment(
+            "tr_hook_second", _payment("tr_hook_second", second_intent.name)
+        )
+        self.assertEqual(second_result["status"], "skipped")
+
+        # Installment is still Paid exactly once (no double processing / no throw).
+        plan.reload()
+        self.assertEqual(plan.installments[0].status, "Paid")
+
+        # The second intent is marked Paid too, so it's not left dangling/re-tried,
+        # while the log flags it for manual refund review.
+        second_intent.reload()
+        self.assertEqual(second_intent.status, "Paid")
+
     def test_failed_webhook_marks_intent_failed_installment_stays_payable(self):
         from verenigingen.verenigingen_payments.mollie.services.payment_plan_payment_handler import (
             handle_payment_plan_payment,

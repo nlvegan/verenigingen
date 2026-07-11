@@ -42,7 +42,10 @@ def handle_payment_plan_payment(payment_id: str, payment) -> dict:
             as_dict=True,
         )
         if not locked:
-            # Unknown/missing intent -> do not 500 (Mollie would retry forever).
+            # Intent not found. Return an error (HTTP 500) so Mollie retries: the
+            # webhook can legitimately arrive before the initiating request has
+            # committed the intent. Mollie's retry schedule is bounded, so a truly
+            # orphaned payment stops retrying on its own.
             frappe.db.commit()
             return {"status": "error", "message": f"intent {intent_name} not found"}
         row = locked[0]
@@ -62,11 +65,39 @@ def handle_payment_plan_payment(payment_id: str, payment) -> dict:
             frappe.db.commit()
             return {"status": "skipped", "message": f"payment status {status}"}
 
+        # Guard against a SECOND intent for the SAME installment (e.g. the member
+        # opened the pay page twice and both Mollie payments succeeded). The
+        # installment is already Paid via the other intent; calling process_payment
+        # would throw "already paid" -> error -> HTTP 500 -> Mollie retries forever,
+        # and the duplicate (real) charge would go unnoticed. Stop the loop, flag the
+        # duplicate charge for manual refund, and mark THIS intent Paid so it is not
+        # reprocessed.
+        installment_status = frappe.db.get_value(
+            "Payment Plan Installment",
+            {"parent": row.payment_plan, "installment_number": row.installment_number},
+            "status",
+        )
+        if installment_status == "Paid":
+            frappe.log_error(
+                f"Duplicate payment-plan installment payment: intent {intent_name} for installment "
+                f"{row.installment_number} of {row.payment_plan}, which is already Paid. A real "
+                f"payment ({payment_id}) was taken -> MANUAL REFUND REVIEW NEEDED.",
+                "Payment Plan Payment Double Payment",
+            )
+            frappe.db.set_value(
+                "Payment Plan Payment",
+                intent_name,
+                {"status": "Paid", "paid": 1, "payment_id": row.payment_id or payment_id},
+            )
+            frappe.db.commit()
+            return {"status": "skipped", "message": "installment already paid"}
+
         # Confirmed paid: finalize the installment FIRST, mark the intent Paid only
         # AFTER it returns (a mid-finalize failure must leave the intent
         # re-processable, not a Paid intent with an unfinalized installment).
         # Security: webhook context; finalization runs as the webhook user (defaults
-        # to Administrator; a restricted webhook_user must hold the FINANCIAL tier).
+        # to Administrator; a restricted webhook_user must hold the FINANCIAL tier,
+        # since PaymentPlan.process_payment is decorated @high_security_api(FINANCIAL)).
         plan = frappe.get_doc("Payment Plan", row.payment_plan)
         plan.process_payment(
             installment_number=row.installment_number,
