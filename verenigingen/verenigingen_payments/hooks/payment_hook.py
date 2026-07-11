@@ -184,6 +184,7 @@ class PaymentHook:
         redirect_urls: dict | None = None,
         recurring: bool = False,
         interval: str | None = None,
+        description: str | None = None,
     ) -> dict[str, Any]:
         """
         Initiate payment via the specified method.
@@ -197,6 +198,7 @@ class PaymentHook:
             redirect_urls: URLs for redirects {"success": "...", "cancel": "..."}
             recurring: Whether this is a recurring payment setup
             interval: Recurring interval (e.g., "1 month", "3 months", "1 year")
+            description: Optional payment description override forwarded to the gateway
 
         Returns:
             Standardized response:
@@ -285,6 +287,7 @@ class PaymentHook:
                     "interval": interval,
                     "redirect_url": redirect_urls.get("success") if redirect_urls else None,
                     "cancel_url": redirect_urls.get("cancel") if redirect_urls else None,
+                    "description_override": description,
                 }
             )
 
