@@ -1,10 +1,20 @@
 # Copyright (c) 2026, Verenigingen
 """Pay.nl webhook -> payment-plan installment finalization."""
 
+import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import frappe
 from frappe.utils import today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+
+WEBHOOK_MODULE = "verenigingen.verenigingen_payments.ing_checkout.api.webhook"
+FINALIZER_PATH = (
+    "verenigingen.verenigingen_payments.services.payment_plan_finalization."
+    "finalize_payment_plan_installment"
+)
 
 
 def _order_payload(order_id, intent_name, status_code=100):
@@ -56,6 +66,46 @@ class TestINGPaymentPlanWebhook(VereningingenTestCase):
         p.save(ignore_permissions=True)
         self.track_doc("Payment Plan", p.name)
         return p
+
+    def _install_request(self, body: bytes):
+        """Install a request-like object so handle_payment() can be driven
+        end-to-end, mirroring the scaffolding in
+        ing_checkout/tests/test_webhook_endpoints.py.
+        """
+        self._orig_request = getattr(frappe.local, "request", None)
+        frappe.local.response = frappe._dict({})
+        frappe.local.request_ip = "203.0.113.9"
+        frappe.local.form_dict = frappe._dict({})
+        frappe.local.request = SimpleNamespace(
+            method="POST",
+            path="/api/method/ing_checkout_webhook",
+            get_data=lambda: body,
+            data=body,
+            headers=SimpleNamespace(get=lambda key, default=None: default),
+        )
+        self.addCleanup(self._restore_request)
+
+    def _restore_request(self):
+        frappe.local.request = self._orig_request
+
+    def _handle_payment_for_reference(self, order_id, intent_name, status_code=100):
+        """Drive the full handle_payment() entry point for a PPP: reference,
+        with only the true external boundaries (rate limiter, signature
+        verification) stubbed out. is_duplicate_webhook and log_webhook run
+        for real so the dedup-log assertion reflects production behavior.
+        """
+        self._install_request(json.dumps(_order_payload(order_id, intent_name, status_code)).encode("utf-8"))
+
+        limiter = MagicMock()
+        limiter.check_rate_limit.return_value = (True, None)
+
+        from verenigingen.verenigingen_payments.ing_checkout.api import webhook as wh
+
+        with (
+            patch(f"{WEBHOOK_MODULE}.get_webhook_rate_limiter", return_value=limiter),
+            patch(f"{WEBHOOK_MODULE}.verify_ing_checkout_webhook", return_value=True),
+        ):
+            return wh.handle_payment()
 
     def _create_intent(self, payment_id="EX-hook"):
         intent = frappe.get_doc(
@@ -114,3 +164,50 @@ class TestINGPaymentPlanWebhook(VereningingenTestCase):
         self.assertEqual(intent.status, "Failed")
         plan = frappe.get_doc("Payment Plan", self.plan.name)
         self.assertEqual(plan.installments[0].status, "Pending")
+
+    def test_handle_payment_finalizer_error_returns_500_with_no_dedup_log(self):
+        """Regression (A3 phase 2 review): the literal mechanism preventing a
+        dedup row on finalizer error lives in handle_payment()'s own control
+        flow (webhook.py:85-89), not in _maybe_finalize_payment_plan alone.
+        Drive the full entry point -- not the helper directly -- so this test
+        actually exercises that branch.
+        """
+        intent = self._create_intent(payment_id="EX-hook-err")
+        order_id = "ING-ERR-1"
+
+        before = frappe.get_all("Webhook Processing Log", filters={"webhook_id": order_id}, pluck="name")
+        self.assertEqual(before, [])
+        before_total = frappe.db.count("Webhook Processing Log")
+
+        with patch(FINALIZER_PATH, return_value={"status": "error", "message": "boom"}):
+            result = self._handle_payment_for_reference(order_id, intent.name, status_code=100)
+
+        self.assertEqual(frappe.local.response.get("http_status_code"), 500)
+        self.assertEqual(result.get("status"), "error")
+
+        # No Webhook Processing Log row was written for this event -- an
+        # error dedup row would make Pay.nl's identical retry short-circuit
+        # to a 200 "duplicate" and the finalizer would never re-run.
+        after = frappe.get_all("Webhook Processing Log", filters={"webhook_id": order_id}, pluck="name")
+        self.assertEqual(after, [])
+        self.assertEqual(frappe.db.count("Webhook Processing Log"), before_total)
+
+        # The intent/plan were left untouched by the mocked-error finalizer.
+        intent.reload()
+        self.assertEqual(intent.status, "Pending")
+
+    def test_handle_payment_finalizer_success_returns_200(self):
+        """Companion positive case: a successful finalize via the full
+        handle_payment() entry point does NOT set a 500 status.
+        """
+        intent = self._create_intent(payment_id="EX-hook-ok")
+        order_id = "ING-OK-1"
+
+        with patch(
+            FINALIZER_PATH,
+            return_value={"status": "success", "message": "ok"},
+        ):
+            result = self._handle_payment_for_reference(order_id, intent.name, status_code=100)
+
+        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)
+        self.assertEqual(result.get("status"), "success")
