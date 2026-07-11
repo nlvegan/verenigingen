@@ -41,6 +41,55 @@ from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security impo
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import log_webhook_received
 
 
+def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
+    """If this Pay.nl order references a Payment Plan Payment, finalize the
+    installment and return True (webhook consumed). Otherwise return False.
+
+    Runs at webhook TOP LEVEL (no enclosing savepoint) so the shared finalizer's
+    commit/rollback are safe.
+    """
+    order_object = payload.get("object", {}) or {}
+    reference = order_object.get("reference", "")
+    reference_doctype, reference_name = _parse_reference(reference)
+    if reference_doctype != "Payment Plan Payment" or not reference_name:
+        return False
+
+    # Authenticate: process_payment is @high_security_api(FINANCIAL) and would
+    # reject the Guest webhook context. Runs AFTER signature verification.
+    authenticate_webhook()
+
+    status_code = (order_object.get("status") or {}).get("code")
+    gateway_status = {100: "paid", -63: "failed", -90: "failed", -64: "expired"}.get(status_code, "pending")
+    if gateway_status == "pending":
+        # Not final yet; ack 200 so Pay.nl doesn't hammer, do not finalize.
+        return True
+
+    from verenigingen.verenigingen_payments.services.payment_plan_finalization import (
+        finalize_payment_plan_installment,
+    )
+
+    result = finalize_payment_plan_installment(
+        reference_name, payment_reference=order_id, status=gateway_status
+    )
+
+    # Keep the ING Checkout Transaction status in sync for ops clarity (no PE).
+    txn_name = frappe.db.get_value("ING Checkout Transaction", {"transaction_id": order_id}, "name")
+    if txn_name:
+        frappe.db.set_value(
+            "ING Checkout Transaction",
+            txn_name,
+            "status",
+            "Paid" if result["status"] == "success" else "Pending",
+        )
+
+    if result["status"] == "error":
+        # Return 500 WITHOUT writing a Webhook Processing Log entry (an error
+        # dedup row would make Pay.nl's identical retry short-circuit to 200
+        # duplicate and never re-run). The finalizer already wrote an Error Log.
+        frappe.local.response["http_status_code"] = 500
+    return True
+
+
 def _safe_savepoint_name(prefix: str, identifier: Optional[str]) -> str:
     """Build a SQL-safe savepoint identifier.
 
@@ -167,10 +216,20 @@ def handle_payment():
         log_webhook_received(
             webhook_id=order_id or reference or "unknown",
             webhook_type="ing_checkout",
-            payload_size=len(frappe.request.data)
-            if getattr(frappe, "request", None) and getattr(frappe.request, "data", None)
-            else 0,
+            payload_size=(
+                len(frappe.request.data)
+                if getattr(frappe, "request", None) and getattr(frappe.request, "data", None)
+                else 0
+            ),
         )
+
+        # Payment-plan payments finalize here, at top level, before the savepoint
+        # block — the shared finalizer commits/rolls back and must not run inside
+        # ING's savepoint.
+        if _maybe_finalize_payment_plan(order_id, payload):
+            if frappe.local.response.get("http_status_code") == 500:
+                return {"status": "error", "message": "payment plan finalization failed"}
+            return {"status": "success", "order_id": order_id, "handled": "payment_plan"}
 
         # Process the payment with savepoint for atomicity
         savepoint_name = _safe_savepoint_name("ing_payment", order_id)
@@ -535,6 +594,7 @@ def _parse_reference(reference: str) -> tuple:
         "SINV": "Sales Invoice",
         "MEM": "Member",
         "PINV": "Purchase Invoice",
+        "PPP": "Payment Plan Payment",
     }
 
     # New format: DOCTYPE_CODE:DOCUMENT_NAME
