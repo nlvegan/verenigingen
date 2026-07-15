@@ -1,0 +1,24 @@
+{
+ "actions": [],
+ "creation": "2026-07-15 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["procurios_type", "membership_type"],
+ "fields": [
+  {"fieldname": "procurios_type", "fieldtype": "Data", "in_list_view": 1, "label": "Procurios Type", "read_only": 1, "columns": 4},
+  {"fieldname": "membership_type", "fieldtype": "Link", "in_list_view": 1, "label": "Membership Type", "options": "Membership Type", "columns": 4}
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-15 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Procurios Membership Type Mapping",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
