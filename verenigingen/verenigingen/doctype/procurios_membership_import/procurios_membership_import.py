@@ -294,6 +294,19 @@ class ProcuriosMembershipImport(BaseCSVImport):
             # created/skipped miscount.
             raise frappe.ValidationError(f"membership creation returned no result for member {member_name}")
 
+        # Invariant: Step 4 (already_active skip) prevents reaching this for a
+        # member who already holds an active Membership, so create_membership_from_csv's
+        # advisory-lock double-check should not return a *pre-existing* membership
+        # here. Guard defensively anyway: if it returned one already tagged with a
+        # different procurios_membership_id, don't overwrite the tag or miscount it
+        # as created — surface it as a per-row error instead.
+        existing_tag = frappe.db.get_value("Membership", membership_name, "procurios_membership_id")
+        if existing_tag and existing_tag != row.procurios_membership_id:
+            raise frappe.ValidationError(
+                f"membership {membership_name} already tagged with procurios_membership_id "
+                f"'{existing_tag}'; refusing to retag as '{row.procurios_membership_id}'"
+            )
+
         # Idempotency marker so re-imports skip this membership.
         frappe.db.set_value(
             "Membership",
@@ -318,23 +331,37 @@ class ProcuriosMembershipImport(BaseCSVImport):
         Elevate to Administrator for the insert/submit so
         `Membership.validate_dates`'s minimum-1-year rule (which only *throws*
         for non-System-Manager users) degrades to a warning.
+
+        The final status is derived by `Membership.set_status` from the dates we
+        provide — never set directly — so it must be steered per row type:
+
+        - Cancelled: carry the historic `cancellation_date`; `set_status` checks
+          it first (past → "Cancelled").
+        - Expired: carry NO `cancellation_date`. `set_renewal_date` computes a
+          past `renewal_date` from the historic `start_date` + type period, and
+          `set_status` (reached only after the cancellation branch) → "Expired".
+
+        `_is_csv_import` is deliberately NOT set on this historical path: that
+        flag pushes `renewal_date` to today+period (future) to keep *active*
+        imports Active, which would wrongly suppress the Expired status here.
         """
+        membership_data = {
+            "doctype": "Membership",
+            "member": member_name,
+            "membership_type": caches.type_mapping[row.procurios_type],
+            "start_date": row.start_date,
+            "procurios_membership_id": row.procurios_membership_id,
+        }
+        if row.status == "Cancelled":
+            membership_data["cancellation_date"] = row.cancellation_date
+            membership_data["cancellation_reason"] = "Imported from Procurios (historical)"
+
         original_user = frappe.session.user
+        original_suppress = frappe.flags.get("suppress_grace_period_message")
         try:
             frappe.set_user("Administrator")
             frappe.flags.suppress_grace_period_message = True
-            membership = frappe.get_doc(
-                {
-                    "doctype": "Membership",
-                    "member": member_name,
-                    "membership_type": caches.type_mapping[row.procurios_type],
-                    "start_date": row.start_date,
-                    "cancellation_date": row.cancellation_date,
-                    "cancellation_reason": "Imported from Procurios (historical)",
-                    "procurios_membership_id": row.procurios_membership_id,
-                }
-            )
-            membership._is_csv_import = True
+            membership = frappe.get_doc(membership_data)
             # Security: Background bulk import driven by an admin-submitted,
             # validated CSV. The import DocType is gated to System Manager /
             # Verenigingen Administrator; per-row historical Membership inserts
@@ -342,9 +369,12 @@ class ProcuriosMembershipImport(BaseCSVImport):
             membership.flags.ignore_permissions = True
             membership.flags.skip_dues_schedule_creation = True  # no billing for historical
             membership.insert()
-            membership.submit()  # set_status -> Cancelled/Expired from cancellation/renewal date
+            membership.submit()  # set_status -> Cancelled (cancellation_date) / Expired (past renewal_date)
         finally:
             frappe.set_user(original_user)
+            # Reset the flag we set above so it does not leak True onto the rest
+            # of the batch (other rows / callers rely on the default behaviour).
+            frappe.flags.suppress_grace_period_message = original_suppress
 
         caches.existing_membership_ids.add(row.procurios_membership_id)
         return ("created", membership.name)
