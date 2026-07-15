@@ -434,15 +434,21 @@ def process_import_background(import_doc_name: str, test_mode=False):
             mark_import_failed(doc, "Missing required columns: " + ", ".join(missing))
             return
 
-        # Refresh the type mapping from the CSV before enforcing it, so a
-        # freshly-supplied file whose validate step was skipped still surfaces
-        # unmapped types rather than importing with an empty mapping.
-        doc._sync_type_mapping(doc._validator.extract_membership_types(csv_data))
-        incomplete = doc._incomplete_mapping_types()
-        if incomplete:
+        # Enforce a complete membership-type mapping WITHOUT re-saving the child
+        # table. On a submitted doc (the real UI flow submits before enqueuing
+        # this job) membership_type_mapping is NOT allow_on_submit, so rebuilding
+        # and saving it here would trip validate_update_after_submit and fail the
+        # whole import. The mapping was already populated and persisted at VALIDATE
+        # time (docstatus=0, in _validate_and_preview_csv). So instead of a
+        # post-submit write, compare the CSV's distinct Types against the persisted,
+        # fully-mapped rows and fail if any CSV Type has no membership_type.
+        csv_types = doc._validator.extract_membership_types(csv_data)
+        type_mapping = doc._get_type_mapping()  # {procurios_type: membership_type} for MAPPED rows only
+        unmapped = [t for t in csv_types if t not in type_mapping]
+        if unmapped:
             mark_import_failed(
                 doc,
-                "Complete the membership-type mapping before importing: " + ", ".join(incomplete),
+                "Complete the membership-type mapping before importing: " + ", ".join(unmapped),
             )
             return
 

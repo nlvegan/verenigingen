@@ -125,12 +125,20 @@ class TestMembershipImportFlow(EnhancedTestCase):
         ).insert(ignore_permissions=True)
 
     def _run_import(self, rows, mapping, as_user=None):
-        """Create + validate the import doc, apply the type mapping, then run
-        the background processor synchronously. Returns the reloaded doc.
+        """Create + validate the import doc, apply the type mapping, SUBMIT it,
+        then run the background processor synchronously. Returns the reloaded doc.
 
-        The doc prep (validate/save) always runs as the current (admin) user;
-        only the background processor runs as `as_user` when supplied, so tests
-        can exercise the importer under a non-System-Manager identity.
+        This mirrors the production trigger: the real UI submits the import doc,
+        and BaseCSVImport.on_submit enqueues process_import_background with
+        now=False (which does NOT run inline in tests). We therefore submit the
+        doc (docstatus=1) and then run the enqueued job by hand against the
+        SUBMITTED doc, exactly as a worker would. Running the job on a submitted
+        doc is what surfaces the post-submit child-table-write regression that a
+        draft-only harness never caught.
+
+        The doc prep (validate/save/submit) always runs as the current (admin)
+        user; only the background processor runs as `as_user` when supplied, so
+        tests can exercise the importer under a non-System-Manager identity.
         """
         url = self._make_csv_file(rows)
         doc = self._make_import_doc(url)
@@ -140,10 +148,13 @@ class TestMembershipImportFlow(EnhancedTestCase):
         doc._validate_and_preview_csv()
         doc.reload()
 
+        # The mapping must be complete BEFORE submit — membership_type_mapping is
+        # not allow_on_submit, so it can only be written while docstatus=0.
         for child in doc.membership_type_mapping:
             if child.procurios_type in mapping:
                 child.membership_type = mapping[child.procurios_type]
         doc.save()
+        doc.submit()
         frappe.db.commit()
 
         if as_user:
@@ -335,6 +346,61 @@ class TestMembershipImportFlow(EnhancedTestCase):
         )
         self.assertEqual(len(m), 1)
         self.assertEqual(m[0].status, "Cancelled")
+
+    def test_mixed_batch_active_cancelled_and_no_member(self):
+        """One CSV file, three rows: an active (member exists), a cancelled
+        (member exists), and a no-member row. Exercises the in-loop cache
+        mutations that single-row tests never touch."""
+        active_member = self.create_test_member(procurios_id="910001")
+        cancelled_member = self.create_test_member(procurios_id="910002")
+
+        doc = self._run_import(
+            [
+                "910001,Active One,Maandlid,1 Maand,2022-11-27,,,2.5,910001",
+                "910002,Cancelled Two,Jaarlid,1 Jaar,2018-01-01,2020-06-01,,20,910002",
+                "919999,Ghost Three,Maandlid,1 Maand,2022-11-27,,,2.5,910003",
+            ],
+            {"Maandlid": self.monthly_type.name, "Jaarlid": self.annual_type.name},
+        )
+
+        # Two created (active + cancelled historical), one skipped (no member).
+        self.assertEqual(doc.memberships_created, 2, msg=doc.error_log)
+        self.assertEqual(doc.memberships_skipped, 1)
+
+        # Active member -> Active Membership + dues schedule.
+        active = frappe.get_all(
+            "Membership",
+            filters={"member": active_member.name},
+            fields=["name", "status", "procurios_membership_id"],
+        )
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0].status, "Active")
+        self.assertEqual(active[0].procurios_membership_id, "910001")
+        self.assertTrue(
+            frappe.db.exists(
+                "Membership Dues Schedule", {"member": active_member.name, "is_template": 0}
+            ),
+            "active member must get a dues schedule",
+        )
+
+        # Cancelled member -> Cancelled historical Membership, no dues schedule.
+        cancelled = frappe.get_all(
+            "Membership",
+            filters={"member": cancelled_member.name},
+            fields=["name", "status"],
+        )
+        self.assertEqual(len(cancelled), 1)
+        self.assertEqual(cancelled[0].status, "Cancelled")
+        self.assertFalse(
+            frappe.db.exists("Membership Dues Schedule", {"member": cancelled_member.name}),
+            "historical cancelled member must NOT get a dues schedule",
+        )
+
+        # No-member row skipped and logged.
+        self.assertIn("no Member with procurios_id=919999", doc.error_log)
+
+        # Skipped summary reflects exactly the one no_member skip.
+        self.assertIn("no_member: 1", doc.skipped_summary)
 
     def test_already_active_membership_skips_and_logs(self):
         member = self.create_test_member(procurios_id="900005")
