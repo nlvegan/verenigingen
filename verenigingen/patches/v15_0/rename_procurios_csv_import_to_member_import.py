@@ -26,3 +26,38 @@ def execute():
     ):
         rename_doc("DocType", "Procurios CSV Import", "Member Import", force=True)
         frappe.clear_cache(doctype="Member Import")
+
+    _drop_stale_naming_series_property_setters()
+
+
+def _drop_stale_naming_series_property_setters():
+    """Remove the old PROC-IMP- naming_series Property Setters, if present.
+
+    The original "Procurios CSV Import" DocType carried auto-created Property
+    Setters overriding the naming_series `options`/`default` with
+    `PROC-IMP-.YYYY.-.####.`. `rename_doc` re-points these at "Member Import"
+    but keeps the stale value, so the merged meta keeps serving PROC-IMP- and
+    the JSON's new `MEM-IMP-.YYYY.-.####.` never takes effect (new records
+    would keep getting PROC-IMP- names). Deleting the stale Property Setters
+    lets the synced DocField options/default apply. Idempotent: runs whether or
+    not the rename happened this pass, and only removes PROC-IMP- values so any
+    other naming customization is left untouched.
+    """
+    stale = frappe.get_all(
+        "Property Setter",
+        filters={
+            "doc_type": "Member Import",
+            "field_name": "naming_series",
+            "property": ["in", ["options", "default"]],
+            "value": ["like", "PROC-IMP-%"],
+        },
+        pluck="name",
+    )
+    if not stale:
+        return
+    # Direct row delete rather than frappe.delete_doc: a Property Setter has no
+    # dynamic links to clean up, and delete_doc enqueues a background job
+    # (delete_dynamic_links) that throws QueueOverloaded on a busy site and
+    # would make this patch fail mid-migrate. A row delete is sufficient.
+    frappe.db.delete("Property Setter", {"name": ["in", stale]})
+    frappe.clear_cache(doctype="Member Import")
