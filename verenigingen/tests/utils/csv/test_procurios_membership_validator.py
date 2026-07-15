@@ -74,3 +74,22 @@ class TestProcuriosMembershipValidator(unittest.TestCase):
     def test_comma_decimal_dues_rate(self):
         rows, _ = self.v.validate_and_map([self._row(**{"Normale prijs (type)": "2,5"})])
         self.assertEqual(rows[0].dues_rate, 2.5)
+
+    def test_kwartaal_payment_period(self):
+        rows, _ = self.v.validate_and_map([self._row(Type="Kwartaallid", Looptijd="1 Kwartaal")])
+        self.assertEqual(rows[0].payment_period, "Kwartaal")
+
+    def test_cancelled_cascade_falls_back_to_einddatum_then_today(self):
+        rows, _ = self.v.validate_and_map([self._row(Opgezegd="ja", Einddatum="2023-05-01")])
+        self.assertEqual(rows[0].status, "Cancelled")
+        self.assertEqual(rows[0].cancellation_date, "2023-05-01")
+
+        rows, _ = self.v.validate_and_map([self._row(Opgezegd="ja", Einddatum="")])
+        self.assertEqual(rows[0].status, "Cancelled")
+        self.assertEqual(rows[0].cancellation_date, "2026-07-15")
+
+    def test_dues_rate_falls_back_to_abonnement_column(self):
+        rows, _ = self.v.validate_and_map(
+            [self._row(**{"Normale prijs (type)": "", "Normale prijs (abonnement)": "20"})]
+        )
+        self.assertEqual(rows[0].dues_rate, 20.0)
