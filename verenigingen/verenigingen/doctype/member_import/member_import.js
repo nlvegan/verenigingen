@@ -1,7 +1,7 @@
 // Copyright (c) 2026, Verenigingen and contributors
 // For license information, please see license.txt
 
-frappe.ui.form.on('Procurios CSV Import', {
+frappe.ui.form.on('Member Import', {
 	refresh(frm) {
 		frm.clear_custom_buttons();
 

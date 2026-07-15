@@ -533,7 +533,7 @@ class TestCoerceTestMode(unittest.TestCase):
     """Unit tests for the shared coerce_test_mode helper.
 
     Lives in verenigingen.utils.csv_import_processor and is now used by
-    both Procurios CSV Import and Procurios Mandate Import. Whitelisted
+    both Member Import and Procurios Mandate Import. Whitelisted
     endpoints receive every arg as a string from REST, so non-empty
     strings like 'false' must NOT be treated as truthy.
     """
@@ -566,7 +566,7 @@ class TestCoerceTestMode(unittest.TestCase):
 class TestPropertyCacheHits(EnhancedTestCase):
     """Regression guard for the property-cache name-mangling fix.
 
-    Both Procurios CSV Import and Procurios Mandate Import historically
+    Both Member Import and Procurios Mandate Import historically
     used `self.__validator` / `self.__parser` with `hasattr(self, "__x")`
     — the hasattr never matched the mangled attribute name, so the cache
     never hit. The fix renamed to single-underscore. Without these tests

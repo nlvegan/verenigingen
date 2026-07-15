@@ -350,7 +350,7 @@
  "verenigingen.tests.member.test_membership_commitment_period": 4,
  "verenigingen.tests.member.test_membership_type_change": 4,
  "verenigingen.tests.member.test_mijnrood_member_reconciliation": 10,
- "verenigingen.tests.member.test_procurios_csv_import": 15,
+ "verenigingen.tests.member.test_member_import": 15,
  "verenigingen.tests.member.test_secure_csv_parser_unit": 14,
  "verenigingen.tests.member.test_secure_member_list_performance": 20,
  "verenigingen.tests.member.test_termination_service_coverage": 12,

@@ -4,7 +4,7 @@
 """Shared scaffolding for Procurios CSV importers.
 
 Two DocType controllers share ~120 LOC of structural boilerplate
-(`procurios_mandate_import.py` and `procurios_csv_import.py`). This
+(`procurios_mandate_import.py` and `member_import.py`). This
 module hosts:
 
   - `BaseCSVImport`: a Document subclass providing the shared
@@ -185,7 +185,7 @@ class BaseCSVImport(Document):
     cache-slot name keeps the cache shared across the inheritance
     chain and consistent with `hasattr(self, "_parser_instance")`.
     Tests `TestPropertyCacheHits` /
-    `TestProcuriosCSVImportPropertyCache` are explicit regression
+    `TestMemberImportPropertyCache` are explicit regression
     guards on this.
     """
 

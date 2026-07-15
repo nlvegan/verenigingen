@@ -39,17 +39,16 @@ COUNTRY_NAME_MAP = {
 }
 
 
-class ProcuriosCSVImport(BaseCSVImport):
+class MemberImport(BaseCSVImport):
     _BACKGROUND_METHOD = (
-        "verenigingen.verenigingen.doctype.procurios_csv_import."
-        "procurios_csv_import.process_import_background"
+        "verenigingen.verenigingen.doctype.member_import.member_import.process_import_background"
     )
 
     @property
     def _validator(self) -> ProcuriosDataValidator:
         # Cache slot is `_validator_instance` (single underscore) to match
         # the BaseCSVImport name-mangling-safe pattern. See base class
-        # docstring + TestProcuriosCSVImportPropertyCache.
+        # docstring + TestMemberImportPropertyCache.
         if not hasattr(self, "_validator_instance"):
             self._validator_instance = ProcuriosDataValidator(
                 import_gender=bool(self.import_gender),
@@ -264,14 +263,14 @@ class ProcuriosCSVImport(BaseCSVImport):
 @critical_api(operation_type=OperationType.ADMIN)
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation."""
-    return run_csv_validation("Procurios CSV Import", import_doc_name)
+    return run_csv_validation("Member Import", import_doc_name)
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
-    doc, test_mode = prepare_background_import("Procurios CSV Import", import_doc_name, test_mode)
+    doc, test_mode = prepare_background_import("Member Import", import_doc_name, test_mode)
 
     try:
         csv_data = doc._read_csv_file()
@@ -291,7 +290,7 @@ def process_import_background(import_doc_name: str, test_mode=False):
                     row["_type_value"] = item["field_value"]
                     break
 
-        processor = CSVImportBackgroundProcessor(import_doc_name, "Procurios CSV Import")
+        processor = CSVImportBackgroundProcessor(import_doc_name, "Member Import")
         processor.load_import_doc()
 
         # `bulk_member_operations` is the sibling-specific flag. The CM
