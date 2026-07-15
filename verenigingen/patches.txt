@@ -2,6 +2,7 @@
 # Patches added in this section will be executed before doctypes are migrated
 # Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
 verenigingen.patches.v1_0.create_eboekhouden_fields
+verenigingen.patches.v15_0.rename_procurios_csv_import_to_member_import
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
@@ -55,3 +56,4 @@ verenigingen.patches.v2_2.add_mollie_portal_self_service_critical_operation_rule
 verenigingen.patches.v2_2.resync_stuck_mollie_amendment_syncs
 verenigingen.patches.v2_2.split_dd_batch_scheme_and_sequence
 verenigingen.patches.v1_0.seed_data_retention_category_policies
+verenigingen.patches.v15_0.add_procurios_membership_id_field

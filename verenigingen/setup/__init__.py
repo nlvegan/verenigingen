@@ -223,7 +223,22 @@ def get_custom_fields():
                 "insert_after": "membership_type",
                 "default": "EXEMPT_MEMBERSHIP",
                 "translatable": 0,
-            }
+            },
+            {
+                # Idempotency key for the Procurios membership import. Defined
+                # here (not only in the v15_0 patch) because patches are
+                # skipped on fresh installs — CI builds a fresh site, so the
+                # field must come from make_custom_fields/after_install too.
+                "fieldname": "procurios_membership_id",
+                "label": "Procurios Membership ID",
+                "fieldtype": "Data",
+                "read_only": 1,
+                "no_copy": 1,
+                "search_index": 1,
+                "insert_after": "amended_from",
+                "description": "Procurios membership Id this record was imported from (idempotency key).",
+                "translatable": 0,
+            },
         ],
     }
 

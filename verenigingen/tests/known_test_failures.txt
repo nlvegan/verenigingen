@@ -2221,7 +2221,7 @@ test_500_rows_completes_in_reasonable_time (verenigingen.tests.payment.test_proc
 # -- non-deterministic tail: passed in run 27490766737, failed in 27491954356
 #    (CSV end-to-end member creation + duplicate-skip depends on DB state under
 #    parallel load). Same order-dependence class; baselined for stability.
-test_end_to_end_creates_members_and_skips_duplicate (verenigingen.tests.member.test_procurios_csv_import.TestProcuriosCSVImportEndToEnd.test_end_to_end_creates_members_and_skips_duplicate)
+test_end_to_end_creates_members_and_skips_duplicate (verenigingen.tests.member.test_member_import.TestMemberImportEndToEnd.test_end_to_end_creates_members_and_skips_duplicate)
 # -- order-dependence: money-path rows clobbered under 8-shard shared-DB load
 #    (run 27715616172, failed on BOTH the initial run and a `--failed` rerun on
 #    their respective shards; both pass deterministically in isolation locally —

@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Verenigingen and contributors
 # See license.txt
 #
-# Coverage sweep for the Procurios CSV Import controller, targeting the surfaces
-# the existing tests (verenigingen/tests/member/test_procurios_csv_import.py)
+# Coverage sweep for the Member Import controller, targeting the surfaces
+# the existing tests (verenigingen/tests/member/test_member_import.py)
 # leave uncovered:
 #
 #   - _validate_and_preview_csv(): empty-file failure, ready-for-import, and the
@@ -57,7 +57,7 @@ def _member_csv_row(**overrides):
 def _make_import_doc(file_url, **fields):
     doc = frappe.get_doc(
         {
-            "doctype": "Procurios CSV Import",
+            "doctype": "Member Import",
             "csv_file": file_url,
             "csv_delimiter": "Semicolon",
             **fields,

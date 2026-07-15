@@ -444,8 +444,8 @@ import frappe  # noqa: E402
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  # noqa: E402
 
 
-def _create_stub_procurios_csv_import_doc():
-    """Test fixture: insert a Procurios CSV Import with a placeholder file."""
+def _create_stub_member_import_doc():
+    """Test fixture: insert a Member Import with a placeholder file."""
     file_doc = frappe.get_doc(
         {
             "doctype": "File",
@@ -459,7 +459,7 @@ def _create_stub_procurios_csv_import_doc():
 
     doc = frappe.get_doc(
         {
-            "doctype": "Procurios CSV Import",
+            "doctype": "Member Import",
             "csv_file": file_doc.file_url,
         }
     )
@@ -468,7 +468,7 @@ def _create_stub_procurios_csv_import_doc():
     return doc
 
 
-class TestProcuriosCSVImportPermissions(EnhancedTestCase):
+class TestMemberImportPermissions(EnhancedTestCase):
     """Non-admin users must not be able to trigger the whitelisted endpoints.
 
     Sibling of TestProcuriosMandateImportPermissions. The endpoints carry the
@@ -479,11 +479,11 @@ class TestProcuriosCSVImportPermissions(EnhancedTestCase):
     """
 
     def test_non_admin_cannot_validate(self):
-        from verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import import (
+        from verenigingen.verenigingen.doctype.member_import.member_import import (
             validate_import_file,
         )
 
-        doc = _create_stub_procurios_csv_import_doc()
+        doc = _create_stub_member_import_doc()
 
         original_user = frappe.session.user
         try:
@@ -494,11 +494,11 @@ class TestProcuriosCSVImportPermissions(EnhancedTestCase):
             frappe.set_user(original_user)
 
     def test_non_admin_cannot_run_background(self):
-        from verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import import (
+        from verenigingen.verenigingen.doctype.member_import.member_import import (
             process_import_background,
         )
 
-        doc = _create_stub_procurios_csv_import_doc()
+        doc = _create_stub_member_import_doc()
 
         original_user = frappe.session.user
         try:
@@ -512,7 +512,7 @@ class TestProcuriosCSVImportPermissions(EnhancedTestCase):
             frappe.set_user(original_user)
 
 
-class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
+class TestMemberImportPropertyCache(EnhancedTestCase):
     """Regression guard for the property-cache name-mangling fix.
 
     See TestPropertyCacheHits in test_procurios_mandate_import.py for the
@@ -520,7 +520,7 @@ class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
     """
 
     def test_validator_is_cached(self):
-        doc = _create_stub_procurios_csv_import_doc()
+        doc = _create_stub_member_import_doc()
         first = doc._validator
         self.assertIs(first, doc._validator)
         # Pin the cache-slot name — assertIs alone would still pass if a
@@ -530,7 +530,7 @@ class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
         self.assertIn("_validator_instance", doc.__dict__)
 
     def test_parser_is_cached(self):
-        doc = _create_stub_procurios_csv_import_doc()
+        doc = _create_stub_member_import_doc()
         first = doc._parser
         self.assertIs(first, doc._parser)
         self.assertIn("_parser_instance", doc.__dict__)
@@ -603,11 +603,11 @@ def _create_existing_member(member_id, suffix):
     return member
 
 
-def _create_procurios_csv_import_doc(file_url):
-    """Test fixture: insert a Procurios CSV Import pointing at `file_url`."""
+def _create_member_import_doc(file_url):
+    """Test fixture: insert a Member Import pointing at `file_url`."""
     doc = frappe.get_doc(
         {
-            "doctype": "Procurios CSV Import",
+            "doctype": "Member Import",
             "csv_file": file_url,
             "csv_delimiter": "Semicolon",
         }
@@ -617,7 +617,7 @@ def _create_procurios_csv_import_doc(file_url):
     return doc
 
 
-class TestProcuriosCSVImportEndToEnd(EnhancedTestCase):
+class TestMemberImportEndToEnd(EnhancedTestCase):
     """Full validate → process_import_background flow run in-process.
 
     Procurios handoff §8 test gap: 'No test that the sibling
@@ -669,10 +669,10 @@ class TestProcuriosCSVImportEndToEnd(EnhancedTestCase):
             ),
         ]
         file_url = _create_member_csv_attachment(rows)
-        doc = _create_procurios_csv_import_doc(file_url)
+        doc = _create_member_import_doc(file_url)
         doc.submit()  # enqueues; we drive synchronously
 
-        from verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import import (
+        from verenigingen.verenigingen.doctype.member_import.member_import import (
             process_import_background,
         )
 

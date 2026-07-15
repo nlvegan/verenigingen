@@ -44,8 +44,8 @@
       "fieldtype": "Select",
       "hidden": 1,
       "label": "Naming Series",
-      "options": "PROC-IMP-.YYYY.-.####.",
-      "default": "PROC-IMP-.YYYY.-.####."
+      "options": "MEM-IMP-.YYYY.-.####.",
+      "default": "MEM-IMP-.YYYY.-.####."
     },
     {
       "fieldname": "import_configuration_section",
@@ -257,7 +257,7 @@
   "modified": "2026-03-31 10:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
-  "name": "Procurios CSV Import",
+  "name": "Member Import",
   "naming_rule": "By \"Naming Series\" field",
   "owner": "Administrator",
   "permissions": [

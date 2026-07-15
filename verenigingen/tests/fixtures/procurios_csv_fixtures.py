@@ -4,7 +4,7 @@
 """Shared test fixtures for the two Procurios CSV importers.
 
 `tests/payment/test_procurios_mandate_import.py` and
-`tests/member/test_procurios_csv_import.py` both need to write rows to a
+`tests/member/test_member_import.py` both need to write rows to a
 temp CSV and register the result as a Frappe File. Both also occasionally
 need to register a raw arbitrary CSV blob (for malformed-CSV scenarios).
 

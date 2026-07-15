@@ -360,7 +360,7 @@ class CSVImportBackgroundProcessor:
 ALLOWED_IMPORT_PROCESSORS = frozenset(
     {
         "verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.process_import_background",
-        "verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import.process_import_background",
+        "verenigingen.verenigingen.doctype.member_import.member_import.process_import_background",
         "verenigingen.verenigingen.doctype.vip_import.vip_import.process_import_background",
         "verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import.process_import_background",
     }
