@@ -67,8 +67,7 @@ class ProcuriosMembershipImport(BaseCSVImport):
             self._sync_type_mapping(self._validator.extract_membership_types(csv_data))
 
             mapped, errors = self._validator.validate_and_map(csv_data)
-            if errors:
-                self.db_set("error_log", format_truncated_error_log(errors))
+            row_error_log = format_truncated_error_log(errors) if errors else ""
 
             preview = [
                 {
@@ -86,13 +85,17 @@ class ProcuriosMembershipImport(BaseCSVImport):
             self.db_set("descriptive_name", f"Procurios membership import - {len(csv_data)} rows")
 
             missing_templates = self._missing_dues_templates()
-            if missing_templates:
-                self.db_set(
-                    "error_log",
-                    "WARNING: Verenigingen Settings missing dues-schedule templates: "
-                    + ", ".join(missing_templates)
-                    + " — active memberships with these payment periods will fail.",
-                )
+            dues_warning_log = (
+                "WARNING: Verenigingen Settings missing dues-schedule templates: "
+                + ", ".join(missing_templates)
+                + " — active memberships with these payment periods will fail."
+                if missing_templates
+                else ""
+            )
+
+            combined_error_log = "\n\n".join(filter(None, [row_error_log, dues_warning_log]))
+            if combined_error_log:
+                self.db_set("error_log", combined_error_log)
 
             self.db_set("import_status", "Ready for Import" if mapped else "Failed")
             if not mapped and not errors:

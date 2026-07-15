@@ -74,3 +74,32 @@ class TestProcuriosMembershipImportValidate(FrappeTestCase):
         doc._validate_and_preview_csv()
         doc.reload()
         self.assertEqual(doc._incomplete_mapping_types(), ["Maandlid"])
+
+    def test_error_log_keeps_both_row_errors_and_dues_warning(self):
+        # One valid row (so `mapped` is non-empty and we exercise the
+        # dues-template check) plus one malformed row (empty required
+        # "Debiteur Id" column) so the validator also reports a row error.
+        doc = self._make_import(
+            [
+                "67017,Amanda,Maandlid,1 Maand,2022-11-27,,,2.5,7112",
+                ",Annelies,Jaarlid,1 Jaar,2020-01-30,,,20,5124",
+            ]
+        )
+        original = {
+            f: frappe.db.get_single_value("Verenigingen Settings", f)
+            for f in (
+                "csv_monthly_dues_schedule",
+                "csv_quarterly_dues_schedule",
+                "csv_annual_dues_schedule",
+            )
+        }
+        try:
+            frappe.db.set_single_value("Verenigingen Settings", "csv_monthly_dues_schedule", "")
+            doc._validate_and_preview_csv()
+            doc.reload()
+            self.assertIn("Row 3", doc.error_log)
+            self.assertIn("required column", doc.error_log)
+            self.assertIn("dues-schedule templates", doc.error_log)
+        finally:
+            for field, value in original.items():
+                frappe.db.set_single_value("Verenigingen Settings", field, value)
