@@ -14,18 +14,27 @@ Design: docs/superpowers/specs/2026-07-15-procurios-membership-mandate-import-de
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
 import frappe
 
+from verenigingen.services.csv_import.membership_import_service import (
+    get_membership_import_service,
+)
 from verenigingen.utils.csv.base_csv_import import (
     BaseCSVImport,
     format_truncated_error_log,
     mark_import_failed,
+    prepare_background_import,
+    run_csv_validation,
 )
 from verenigingen.utils.csv.procurios_membership_validator import (
+    ProcuriosMembershipRow,
     ProcuriosMembershipValidator,
 )
+from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 # dues-schedule template settings fields (checked on validate)
 DUES_TEMPLATE_SETTINGS = [
@@ -33,6 +42,26 @@ DUES_TEMPLATE_SETTINGS = [
     "csv_quarterly_dues_schedule",
     "csv_annual_dues_schedule",
 ]
+
+# Per-reason skip counters, in the order they appear in skipped_summary.
+_SKIP_REASONS = ("no_member", "ambiguous_member", "duplicate", "already_active", "error")
+
+
+@dataclass
+class _Caches:
+    """Pre-built lookup tables — populated once before the per-row loop."""
+
+    # procurios_id -> Member.name (ambiguous ids dropped, see _build_caches).
+    procurios_id_to_member: Dict[str, str] = field(default_factory=dict)
+    # procurios_ids that map to more than one Member; rows referencing one are
+    # skipped as `ambiguous_member` rather than silently misassigned.
+    ambiguous_procurios_ids: Set[str] = field(default_factory=set)
+    # Set of Membership.procurios_membership_id already imported (idempotency).
+    existing_membership_ids: Set[str] = field(default_factory=set)
+    # Members that currently hold a submitted, Active Membership.
+    members_with_active_membership: Set[str] = field(default_factory=set)
+    # procurios_type -> Membership Type name (completed mapping).
+    type_mapping: Dict[str, str] = field(default_factory=dict)
 
 
 class ProcuriosMembershipImport(BaseCSVImport):
@@ -139,3 +168,307 @@ class ProcuriosMembershipImport(BaseCSVImport):
     def _missing_dues_templates(self) -> List[str]:
         settings = frappe.get_single("Verenigingen Settings")
         return [f for f in DUES_TEMPLATE_SETTINGS if not settings.get(f)]
+
+    # ---- caches ----
+
+    def _build_caches(self) -> _Caches:
+        """Build all lookup caches with one query each."""
+        caches = _Caches()
+
+        # Member.procurios_id is a plain Data field without a unique
+        # constraint. If two Members share the same procurios_id, neither can
+        # be matched unambiguously — drop the id and remember it so the row
+        # gets a clear skip reason instead of a silent misassignment.
+        for m in frappe.get_all(
+            "Member",
+            filters={"procurios_id": ["!=", ""]},
+            fields=["name", "procurios_id"],
+        ):
+            if not m.procurios_id:
+                continue
+            if m.procurios_id in caches.ambiguous_procurios_ids:
+                continue
+            if m.procurios_id in caches.procurios_id_to_member:
+                caches.ambiguous_procurios_ids.add(m.procurios_id)
+                caches.procurios_id_to_member.pop(m.procurios_id, None)
+                continue
+            caches.procurios_id_to_member[m.procurios_id] = m.name
+
+        caches.existing_membership_ids = set(
+            frappe.get_all(
+                "Membership",
+                filters={"procurios_membership_id": ["!=", ""]},
+                pluck="procurios_membership_id",
+            )
+        )
+        caches.members_with_active_membership = set(
+            frappe.get_all(
+                "Membership",
+                filters={"status": "Active", "docstatus": 1},
+                pluck="member",
+            )
+        )
+        caches.type_mapping = self._get_type_mapping()
+        return caches
+
+    # ---- per-row processor ----
+
+    def _process_single_member(
+        self,
+        row: ProcuriosMembershipRow,
+        error_log: List[str],
+        caches: _Caches,
+        skip_counters: Dict[str, int],
+    ) -> Tuple[str, str]:
+        """Process one mapped row. Returns (status, membership_name).
+
+        Status is "created" or "skipped". On skip, the relevant counter in
+        `skip_counters` is incremented. Per-row exceptions are caught, logged,
+        and counted under "error" — they never propagate.
+        """
+        try:
+            # 1. Ambiguous member
+            if row.debiteur_id in caches.ambiguous_procurios_ids:
+                skip_counters["ambiguous_member"] += 1
+                error_log.append(
+                    f"Row {row.row_number} ({row.debiteur_naam}): "
+                    f"procurios_id={row.debiteur_id} matches multiple Members; "
+                    f"cannot import unambiguously"
+                )
+                return ("skipped", "")
+
+            # 2. No matching member
+            member_name = caches.procurios_id_to_member.get(row.debiteur_id)
+            if not member_name:
+                skip_counters["no_member"] += 1
+                error_log.append(
+                    f"Row {row.row_number} ({row.debiteur_naam}): "
+                    f"no Member with procurios_id={row.debiteur_id}"
+                )
+                return ("skipped", "")
+
+            # 3. Duplicate (idempotency on procurios_membership_id)
+            if row.procurios_membership_id in caches.existing_membership_ids:
+                skip_counters["duplicate"] += 1
+                return ("skipped", "")
+
+            # 4. Already-active conflict (active rows only)
+            if row.status == "Active" and member_name in caches.members_with_active_membership:
+                skip_counters["already_active"] += 1
+                error_log.append(
+                    f"Row {row.row_number} ({row.debiteur_naam}): "
+                    f"member {member_name} already has an active membership"
+                )
+                return ("skipped", "")
+
+            # 5. Create
+            if row.status == "Active":
+                return self._create_active_membership(row, member_name, caches)
+            return self._create_historical_membership(row, member_name, caches)
+
+        except Exception as e:
+            skip_counters["error"] += 1
+            sanitized = sanitize_error_for_audit(str(e))
+            error_log.append(f"Row {row.row_number} ({row.debiteur_naam}): {sanitized}")
+            return ("skipped", "")
+
+    def _create_active_membership(
+        self,
+        row: ProcuriosMembershipRow,
+        member_name: str,
+        caches: _Caches,
+    ) -> Tuple[str, str]:
+        """Create a live Membership + dues schedule via MembershipImportService."""
+        member_doc = frappe.get_doc("Member", member_name)
+        row_data = {
+            "member_id": row.debiteur_id,
+            "membership_type": caches.type_mapping[row.procurios_type],
+            "payment_period": row.payment_period,
+            "member_since": row.start_date,
+            "dues_rate": row.dues_rate,
+        }
+        membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
+        if not membership_name:
+            # Service swallows creation failures (logged to Error Log) and
+            # returns None. Surface it as a per-row error rather than a silent
+            # created/skipped miscount.
+            raise frappe.ValidationError(f"membership creation returned no result for member {member_name}")
+
+        # Idempotency marker so re-imports skip this membership.
+        frappe.db.set_value(
+            "Membership",
+            membership_name,
+            "procurios_membership_id",
+            row.procurios_membership_id,
+            update_modified=False,
+        )
+
+        caches.existing_membership_ids.add(row.procurios_membership_id)
+        caches.members_with_active_membership.add(member_name)
+        return ("created", membership_name)
+
+    def _create_historical_membership(
+        self,
+        row: ProcuriosMembershipRow,
+        member_name: str,
+        caches: _Caches,
+    ) -> Tuple[str, str]:
+        """Create a submitted historical Membership directly (no dues schedule).
+
+        Elevate to Administrator for the insert/submit so
+        `Membership.validate_dates`'s minimum-1-year rule (which only *throws*
+        for non-System-Manager users) degrades to a warning.
+        """
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Administrator")
+            frappe.flags.suppress_grace_period_message = True
+            membership = frappe.get_doc(
+                {
+                    "doctype": "Membership",
+                    "member": member_name,
+                    "membership_type": caches.type_mapping[row.procurios_type],
+                    "start_date": row.start_date,
+                    "cancellation_date": row.cancellation_date,
+                    "cancellation_reason": "Imported from Procurios (historical)",
+                    "procurios_membership_id": row.procurios_membership_id,
+                }
+            )
+            membership._is_csv_import = True
+            # Security: Background bulk import driven by an admin-submitted,
+            # validated CSV. The import DocType is gated to System Manager /
+            # Verenigingen Administrator; per-row historical Membership inserts
+            # run elevated to avoid re-checking the admin role for every row.
+            membership.flags.ignore_permissions = True
+            membership.flags.skip_dues_schedule_creation = True  # no billing for historical
+            membership.insert()
+            membership.submit()  # set_status -> Cancelled/Expired from cancellation/renewal date
+        finally:
+            frappe.set_user(original_user)
+
+        caches.existing_membership_ids.add(row.procurios_membership_id)
+        return ("created", membership.name)
+
+    # ---- finalize ----
+
+    def _finalize_import_results(
+        self,
+        created_count: int,
+        updated_count: int,  # noqa: ARG002 — processor passes; memberships have no update path
+        skipped_count: int,  # noqa: ARG002 — derived from skip_counters for consistency
+        error_log: List[str],
+        _created_records=None,
+        _updated_records=None,
+        _skipped_records=None,
+        skip_counters: Optional[Dict[str, int]] = None,
+    ) -> None:
+        """Write final counters + bounded error log + per-reason summary."""
+        self.reload()
+        counters = dict(skip_counters or {})
+        self.memberships_created = created_count
+        self.memberships_skipped = sum(counters.values())
+        self.import_status = "Completed"
+
+        if error_log:
+            self.error_log = format_truncated_error_log(error_log)
+
+        self.skipped_summary = "\n".join(f"{k}: {counters.get(k, 0)}" for k in _SKIP_REASONS)
+
+        # Security: Background job updating its own import status document; the
+        # whole flow is gated by submit permission on Procurios Membership Import.
+        self.save(ignore_permissions=True)
+        frappe.db.commit()
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def validate_import_file(import_doc_name: str) -> dict:
+    """Manually trigger CSV validation (called from the client script)."""
+    return run_csv_validation("Procurios Membership Import", import_doc_name)
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def process_import_background(import_doc_name: str, test_mode=False):
+    """Background job: validate, build caches, process, finalize."""
+    import traceback
+
+    from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+
+    doc, test_mode = prepare_background_import("Procurios Membership Import", import_doc_name, test_mode)
+    try:
+        csv_data = doc._read_csv_file()
+        headers = list(csv_data[0].keys()) if csv_data else []
+        missing = doc._validator.check_required_columns(headers)
+        if missing:
+            mark_import_failed(doc, "Missing required columns: " + ", ".join(missing))
+            return
+
+        # Refresh the type mapping from the CSV before enforcing it, so a
+        # freshly-supplied file whose validate step was skipped still surfaces
+        # unmapped types rather than importing with an empty mapping.
+        doc._sync_type_mapping(doc._validator.extract_membership_types(csv_data))
+        incomplete = doc._incomplete_mapping_types()
+        if incomplete:
+            mark_import_failed(
+                doc,
+                "Complete the membership-type mapping before importing: " + ", ".join(incomplete),
+            )
+            return
+
+        mapped, validator_errors = doc._validator.validate_and_map(csv_data)
+        if not mapped:
+            mark_import_failed(
+                doc,
+                (
+                    format_truncated_error_log(validator_errors)
+                    if validator_errors
+                    else "No valid rows to import"
+                ),
+            )
+            return
+
+        if test_mode:
+            mapped = mapped[:25]
+
+        caches = doc._build_caches()
+        # Validator-stage row-mapping errors (bad dates, missing required
+        # fields) are real per-row failures: pre-seed `error` so they count
+        # toward memberships_skipped and skipped_summary, not just error_log.
+        skip_counters = {k: 0 for k in _SKIP_REASONS}
+        skip_counters["error"] = len(validator_errors)
+        seeded_errors = list(validator_errors)
+
+        def _row_callback(mapped_row, error_log_list):
+            return doc._process_single_member(mapped_row, error_log_list, caches, skip_counters)
+
+        def _finalize(created, updated, skipped, error_log, *records):
+            combined = seeded_errors + list(error_log)
+            doc._finalize_import_results(
+                created,
+                updated,
+                skipped,
+                combined,
+                *records,
+                skip_counters=skip_counters,
+            )
+
+        processor = CSVImportBackgroundProcessor(import_doc_name, "Procurios Membership Import")
+        processor.load_import_doc()
+        processor.process_import(
+            data_rows=mapped,
+            process_row_callback=_row_callback,
+            finalize_callback=_finalize,
+            batch_size=50,
+            batch_commit=True,
+            progress_field_map={
+                "created": "memberships_created",
+                "skipped": "memberships_skipped",
+            },
+        )
+
+    except Exception:
+        mark_import_failed(doc, traceback.format_exc())
+    finally:
+        frappe.flags.in_background_job = False
+        frappe.flags.ignore_version_changes = False
