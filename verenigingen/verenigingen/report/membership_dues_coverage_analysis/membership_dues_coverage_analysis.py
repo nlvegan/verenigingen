@@ -1380,6 +1380,9 @@ def export_gap_analysis(filters: dict | str | None):
     if not frappe.has_permission("Member", "read"):
         frappe.throw(_("Insufficient permissions to export member data"))
 
+    from frappe.utils.file_manager import save_file
+    from frappe.utils.xlsxutils import make_xlsx
+
     from verenigingen.utils.validation.api_validators import parse_json_filters
 
     filters = parse_json_filters(filters)
@@ -1387,47 +1390,38 @@ def export_gap_analysis(filters: dict | str | None):
     # Get report data
     columns, data = execute(filters)
 
-    # Create Excel file
-    from frappe.utils.xlsxutils import make_xlsx
-
-    # Add detailed timeline data for each member
-    detailed_data = []
+    # make_xlsx expects rows as lists of cell values (not dicts). Build a header
+    # row from the column labels, then one list per data row in column order.
+    fieldnames = [col["fieldname"] for col in columns]
+    rows = [[col.get("label", col["fieldname"]) for col in columns]]
 
     for row in data:
-        if row["gap_days"] > 0:  # Only include members with gaps
+        if row.get("gap_days", 0) > 0:  # Only include members with gaps
             member_name = row["member"]
 
-            # Get detailed coverage analysis
+            # Add summary row
+            rows.append([row.get(fieldname, "") for fieldname in fieldnames])
+
+            # Add one sub-row per gap
             coverage_analysis = calculate_coverage_timeline(
                 member_name, filters.get("from_date"), filters.get("to_date")
             )
-
-            # Add summary row
-            detailed_data.append(row)
-
-            # Add gap details
             for gap in coverage_analysis["gaps"]:
-                gap_row = {
-                    "member": "",  # Empty for sub-rows
+                gap_values = {
                     "member_name": f"  → Gap: {gap['gap_start']} to {gap['gap_end']}",
                     "gap_days": gap["gap_days"],
                     "gap_type": gap["gap_type"],
-                    "coverage_percentage": "",
                     "current_gaps": f"{gap['gap_days']} days ({gap['gap_type']})",
-                    # Clear other fields for gap rows
-                    **{
-                        col["fieldname"]: ""
-                        for col in columns
-                        if col["fieldname"] not in ["member", "member_name", "gap_days", "current_gaps"]
-                    },
                 }
-                detailed_data.append(gap_row)
+                rows.append([gap_values.get(fieldname, "") for fieldname in fieldnames])
 
-    # Generate Excel file
+    # Generate the Excel file and persist it as a private File so the caller can
+    # download it via the returned file_url (the report JS opens file_url).
     file_name = f"dues_coverage_gap_analysis_{frappe.utils.now()}.xlsx"
-    xlsx_file = make_xlsx(detailed_data, "Gap Analysis", file_name=file_name)
+    xlsx_file = make_xlsx(rows, "Gap Analysis")
+    saved = save_file(file_name, xlsx_file.getvalue(), None, None, is_private=1)
 
-    return {"file_url": xlsx_file, "message": f"Gap analysis exported to {file_name}"}
+    return {"file_url": saved.file_url, "message": _("Gap analysis exported to {0}").format(file_name)}
 
 
 @frappe.whitelist()

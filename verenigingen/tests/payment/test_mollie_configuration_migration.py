@@ -60,8 +60,14 @@ class TestMollieConfigurationMigration(FrappeTestCase):
             self.assertEqual(result["status"], "skipped")
 
     def test_balance_report_uses_config_service(self):
-        """Test that mollie_balance_report uses configuration service"""
-        from verenigingen.verenigingen_payments.report.mollie_balance_report.mollie_balance_report import (
+        """Test that mollie_balance_report uses configuration service.
+
+        Imports the LIVE report copy (``verenigingen/verenigingen/report/...``);
+        the duplicate under ``verenigingen_payments/report/`` was shadowed dead
+        code and has been removed (see backlog-dead-code.md, report-name
+        collisions).
+        """
+        from verenigingen.verenigingen.report.mollie_balance_report.mollie_balance_report import (
             execute,
         )
 
@@ -71,10 +77,10 @@ class TestMollieConfigurationMigration(FrappeTestCase):
         self.assertIsInstance(columns, list)
         self.assertIsInstance(data, list)
 
-        # If backend API not enabled, should return error message in data
+        # When the backend API is not enabled the live report msgprints a notice
+        # and returns no rows (the dict-based report yields an empty data list).
         if not get_mollie_config().is_backend_api_enabled():
-            self.assertEqual(len(data), 1)
-            self.assertIn("not enabled", data[0][0])
+            self.assertEqual(data, [])
 
     def test_bank_transaction_reconciliation_uses_config_service(self):
         """Test that bank_transaction_reconciliation uses configuration service"""
