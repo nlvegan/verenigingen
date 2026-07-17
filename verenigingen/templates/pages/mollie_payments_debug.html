@@ -4,10 +4,11 @@
 
 {% block head_include %}
 {{ super() }}
-<link href="/css/brand_colors.css?v={{ frappe.utils.now() }}" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
 /* ==========================================================================
-   BRUTALIST MOLLIE DEBUG - Uses Brand Colors from /css/brand_colors.css
+   BRUTALIST MOLLIE DEBUG - Uses Brand Colors (see brand_css macro)
    ========================================================================== */
 
 /* Hide base template's empty header wrapper */

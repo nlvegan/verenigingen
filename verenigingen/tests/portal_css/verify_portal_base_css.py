@@ -80,6 +80,23 @@ def _frappe_website_classes():
 def run():
     errors = []
 
+    # Outside a real HTTP request, frappe.local.session_obj is never populated
+    # (it's only set by the cookie-based auth flow in frappe.auth.LoginManager).
+    # Several admin pages' get_context() call frappe.sessions.get_csrf_token(),
+    # which — when the token isn't cached yet — calls
+    # frappe.local.session_obj.update(force=True) and raises AttributeError.
+    # Frappe's route resolver swallows that into a generic "Server Error" page
+    # instead of propagating it here. _render_with_user() calls
+    # frappe.set_user() before every render, which resets local.session.data
+    # (wiping any cached token) but does NOT touch local.session_obj — so a
+    # single harmless stub with a no-op update() installed once, up front,
+    # satisfies every subsequent get_csrf_token() call for the rest of the run.
+    class _NoopSessionObj:
+        def update(self, *args, **kwargs):
+            pass
+
+    frappe.local.session_obj = _NoopSessionObj()
+
     # --- B. Bleed disjointness (static) ---
     sel = _sheet_selectors()
     print("portal_base.css selectors:", sorted(sel))
@@ -113,6 +130,10 @@ def run():
             errors.append(f"RENDER: {route} raised {type(e).__name__}: {e}")
             continue
         has_sheet = PORTAL_CSS_LINK in html
+        if ok and route in ("admin_tools", "mollie_payments_debug",
+                            "mollie_payment_processing", "ponto_api_debug"):
+            if html.count("/css/brand_colors.css") != 1:
+                errors.append(f"BRAND: {route} brand_colors.css link count != 1")
         inline_wrap = ".wide-layout-wrapper" in html and "<style" in html and \
             bool(re.search(r"<style[^>]*>[^<]*\.wide-layout-wrapper", html, re.S))
         print(f"{route:32} {str(ok):>3} {str(has_sheet):>6} {str(inline_wrap):>10}")
