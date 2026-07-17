@@ -134,6 +134,9 @@ def run():
                             "mollie_payment_processing", "ponto_api_debug"):
             if html.count("/css/brand_colors.css") != 1:
                 errors.append(f"BRAND: {route} brand_colors.css link count != 1")
+        if ok and route in ("address_change", "contact_request", "my_teams", "volunteer/dashboard"):
+            if len(re.findall(r'<link[^>]+tailwind\.css', html)) != 1:
+                errors.append(f"TAILWIND: {route} tailwind link count != 1")
         inline_wrap = ".wide-layout-wrapper" in html and "<style" in html and \
             bool(re.search(r"<style[^>]*>[^<]*\.wide-layout-wrapper", html, re.S))
         print(f"{route:32} {str(ok):>3} {str(has_sheet):>6} {str(inline_wrap):>10}")
