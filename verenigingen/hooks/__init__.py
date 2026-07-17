@@ -36,11 +36,7 @@ from verenigingen.hooks.lifecycle import (
     on_startup,
 )
 from verenigingen.hooks.permissions import has_permission, permission_query_conditions
-from verenigingen.hooks.portal import (
-    standard_portal_menu_items,
-    update_website_context,
-    website_context,
-)
+from verenigingen.hooks.portal import update_website_context
 from verenigingen.hooks.scheduler import scheduler_events
 
 # =============================================================================

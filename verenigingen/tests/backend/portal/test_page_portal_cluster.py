@@ -210,15 +210,6 @@ class TestPageMyTeams(PortalPageTestBase):
         # can_view_members defaults True for any team member
         self.assertTrue(ctx.teams[0]["can_view_members"])
 
-    def test_has_website_permission(self):
-        from verenigingen.templates.pages import my_teams
-
-        member, user = self._make_member_with_user()
-        # Member email matches user; has_website_permission keys on Member.email.
-        member.db_set("email", user)
-        self.assertTrue(my_teams.has_website_permission(None, "read", user))
-        self.assertFalse(my_teams.has_website_permission(None, "read", "Guest"))
-
 
 class TestPageApplyForMembership(PortalPageTestBase):
     """verenigingen.templates.pages.apply_for_membership
@@ -663,14 +654,6 @@ class TestPageMemberPortal(PortalPageTestBase):
         self.assertEqual(ctx.volunteer.name, volunteer.name)
         titles = [a["title"] for a in ctx.quick_actions]
         self.assertIn("Volunteer Dashboard", titles)
-
-    def test_has_website_permission(self):
-        from verenigingen.templates.pages import member_portal
-
-        member, user = self._make_member_with_user()
-        member.db_set("email", user)
-        self.assertTrue(member_portal.has_website_permission(None, "read", user))
-        self.assertFalse(member_portal.has_website_permission(None, "read", "Guest"))
 
     def test_quick_actions_always_present(self):
         from verenigingen.templates.pages.member_portal import get_quick_actions

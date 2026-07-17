@@ -80,51 +80,51 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         users = {}
 
         # Member with full access
-        users['member_full'] = self.create_test_user_with_roles(
+        users["member_full"] = self.create_test_user_with_roles(
             email="member.full@test.verenigingen.invalid",
             roles=["Verenigingen Member"],
             first_name="Test",
-            last_name="Member Full"
+            last_name="Member Full",
         )
 
         # Member with limited access
-        users['member_limited'] = self.create_test_user_with_roles(
+        users["member_limited"] = self.create_test_user_with_roles(
             email="member.limited@test.verenigingen.invalid",
             roles=["Verenigingen Member"],
             first_name="Test",
-            last_name="Member Limited"
+            last_name="Member Limited",
         )
 
         # Volunteer with member access
-        users['volunteer'] = self.create_test_user_with_roles(
+        users["volunteer"] = self.create_test_user_with_roles(
             email="volunteer@test.verenigingen.invalid",
             roles=["Verenigingen Volunteer", "Verenigingen Member"],
             first_name="Test",
-            last_name="Volunteer"
+            last_name="Volunteer",
         )
 
         # Staff user with administrative access
-        users['staff'] = self.create_test_user_with_roles(
+        users["staff"] = self.create_test_user_with_roles(
             email="staff@test.verenigingen.invalid",
             roles=["Verenigingen Staff", "Verenigingen Staff"],
             first_name="Test",
-            last_name="Staff"
+            last_name="Staff",
         )
 
         # Admin user with full system access
-        users['admin'] = self.create_test_user_with_roles(
+        users["admin"] = self.create_test_user_with_roles(
             email="admin@test.verenigingen.invalid",
             roles=["System Manager", "Verenigingen Administrator"],
             first_name="Test",
-            last_name="Administrator"
+            last_name="Administrator",
         )
 
         # User without member record (orphaned user scenario)
-        users['orphaned'] = self.create_test_user_with_roles(
+        users["orphaned"] = self.create_test_user_with_roles(
             email="orphaned@test.verenigingen.invalid",
             roles=["Verenigingen Member"],
             first_name="Orphaned",
-            last_name="User"
+            last_name="User",
         )
 
         return users
@@ -138,7 +138,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         # at Member.validate time, otherwise it throws "IBAN is required for SEPA
         # Direct Debit payment method". The SEPA mandate created later reuses the
         # same IBAN.
-        members['member_full'] = self.create_test_member(
+        members["member_full"] = self.create_test_member(
             first_name="Test",
             last_name="Member Full",
             email="member.full@test.verenigingen.invalid",
@@ -146,21 +146,21 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             payment_method="SEPA Direct Debit",
             iban="NL91ABNA0417164300",
             bank_account_name="Test Member Full",
-            status="Active"
+            status="Active",
         )
 
         # Limited access member without payment setup
-        members['member_limited'] = self.create_test_member(
+        members["member_limited"] = self.create_test_member(
             first_name="Test",
             last_name="Member Limited",
             email="member.limited@test.verenigingen.invalid",
             birth_date=add_days(getdate(), -7000),  # 19+ years old
             payment_method="Manual",
-            status="Active"
+            status="Active",
         )
 
         # Volunteer member with both member and volunteer access
-        members['volunteer'] = self.create_test_member(
+        members["volunteer"] = self.create_test_member(
             first_name="Test",
             last_name="Volunteer",
             email="volunteer@test.verenigingen.invalid",
@@ -170,7 +170,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             # Add Mollie subscription details
             mollie_customer_id="cst_test_volunteer",
             mollie_subscription_id="sub_test_volunteer",
-            subscription_status="active"
+            subscription_status="active",
         )
 
         # Note: staff and admin users intentionally don't have member records
@@ -204,24 +204,26 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
     def _setup_sepa_mandates(self):
         """Create SEPA mandates for financial testing"""
         # Create active SEPA mandate for member_full
-        if hasattr(self, 'test_members') and 'member_full' in self.test_members:
-            member = self.test_members['member_full']
+        if hasattr(self, "test_members") and "member_full" in self.test_members:
+            member = self.test_members["member_full"]
 
-            sepa_mandate = frappe.get_doc({
-                "doctype": "SEPA Mandate",
-                "member": member.name,
-                "mandate_id": f"TEST-MANDATE-{member.name}",
-                "iban": "NL91ABNA0417164300",
-                "bic": "ABNANL2A",
-                "account_holder_name": member.full_name,
-                "status": "Active",
-                "is_active": 1,
-                "sign_date": getdate(),
-                "mandate_type": "RCUR",  # Recurring payment
-                # scheme is reqd=1; its DocType default ("SEPA") is not applied to
-                # a dict-constructed doc before validation, so set it explicitly.
-                "scheme": "SEPA"
-            })
+            sepa_mandate = frappe.get_doc(
+                {
+                    "doctype": "SEPA Mandate",
+                    "member": member.name,
+                    "mandate_id": f"TEST-MANDATE-{member.name}",
+                    "iban": "NL91ABNA0417164300",
+                    "bic": "ABNANL2A",
+                    "account_holder_name": member.full_name,
+                    "status": "Active",
+                    "is_active": 1,
+                    "sign_date": getdate(),
+                    "mandate_type": "RCUR",  # Recurring payment
+                    # scheme is reqd=1; its DocType default ("SEPA") is not applied to
+                    # a dict-constructed doc before validation, so set it explicitly.
+                    "scheme": "SEPA",
+                }
+            )
             sepa_mandate.insert()
 
             # Update member with SEPA details. Reload first: the member row was
@@ -236,21 +238,21 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
 
     def _setup_volunteer_relationships(self):
         """Create volunteer records for role-based testing"""
-        if hasattr(self, 'test_members') and 'volunteer' in self.test_members:
-            volunteer_member = self.test_members['volunteer']
+        if hasattr(self, "test_members") and "volunteer" in self.test_members:
+            volunteer_member = self.test_members["volunteer"]
 
             self.test_volunteer = self.create_test_volunteer(
                 member_name=volunteer_member.name,
                 volunteer_name=volunteer_member.full_name,
                 email=volunteer_member.email,
                 status="Active",
-                start_date=getdate()
+                start_date=getdate(),
             )
 
             # Align the volunteer email to the volunteer user's login email so
             # get_volunteer_name_for_user (which looks up Volunteer by email/user)
             # resolves it. The factory uniquifies the volunteer email otherwise.
-            volunteer_user = self.test_users['volunteer']
+            volunteer_user = self.test_users["volunteer"]
             self.test_volunteer.email = volunteer_user.name
             self.test_volunteer.save()
             self.test_volunteer.reload()
@@ -261,8 +263,8 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         """Test complete member authentication flow: login → lookup → permissions"""
 
         # Test successful member authentication flow
-        test_user = self.test_users['member_full']
-        expected_member = self.test_members['member_full']
+        test_user = self.test_users["member_full"]
+        expected_member = self.test_members["member_full"]
 
         with self.as_user(test_user.email):
             # 1. Test user session is valid
@@ -287,7 +289,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
     def test_member_authentication_with_orphaned_user(self):
         """Test authentication with user who has role but no member record"""
 
-        orphaned_user = self.test_users['orphaned']
+        orphaned_user = self.test_users["orphaned"]
 
         with self.as_user(orphaned_user.email):
             # 1. User session should be valid
@@ -308,7 +310,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
     def test_member_authentication_fallback_mechanisms(self):
         """Test authentication fallback mechanisms and error handling"""
 
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             # Test with None user input
             result = get_member_name_for_user(None)
             self.assertIsNone(result)
@@ -324,11 +326,11 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
     def test_member_ownership_validation_comprehensive(self):
         """Test comprehensive member ownership validation scenarios"""
 
-        member_full = self.test_members['member_full']
-        member_limited = self.test_members['member_limited']
+        member_full = self.test_members["member_full"]
+        member_limited = self.test_members["member_limited"]
 
         # Test valid ownership validation
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             # Should pass - user owns this member record
             validate_member_ownership(member_full.name)
 
@@ -347,8 +349,8 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
     def test_volunteer_authentication_integration(self):
         """Test volunteer authentication integration with member system"""
 
-        volunteer_user = self.test_users['volunteer']
-        volunteer_member = self.test_members['volunteer']
+        volunteer_user = self.test_users["volunteer"]
+        volunteer_member = self.test_members["volunteer"]
 
         with self.as_user(volunteer_user.email):
             # 1. Test member lookup works for volunteer
@@ -366,29 +368,10 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
 
     # ===== PORTAL AUTHENTICATION TESTS =====
 
-    def test_portal_page_access_controls(self):
-        """Test portal page access controls with different user types"""
-        from verenigingen.templates.pages.member_portal import has_website_permission
-
-        # Test member portal access
-        with self.as_user(self.test_users['member_full'].email):
-            has_access = has_website_permission(None, None, frappe.session.user, False)
-            self.assertTrue(has_access)
-
-        # Test guest user portal access
-        with self.as_user("Guest"):
-            has_access = has_website_permission(None, None, frappe.session.user, False)
-            self.assertFalse(has_access)
-
-        # Test orphaned user portal access
-        with self.as_user(self.test_users['orphaned'].email):
-            has_access = has_website_permission(None, None, frappe.session.user, False)
-            self.assertFalse(has_access)
-
     def test_portal_context_generation_security(self):
         """Test portal context generation with security validation"""
 
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             from verenigingen.templates.pages.member_portal import get_context
 
             # get_context sets attributes on the context (context.no_cache = 1),
@@ -398,23 +381,23 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             result_context = get_context(context)
 
             # Verify context has required security elements
-            self.assertIn('member', result_context)
-            self.assertEqual(result_context['no_cache'], 1)
+            self.assertIn("member", result_context)
+            self.assertEqual(result_context["no_cache"], 1)
 
             # Verify member context matches current user
-            member = result_context['member']
+            member = result_context["member"]
             self.assertEqual(member.email, frappe.session.user)
 
     def test_portal_session_security_integration(self):
         """Test portal session security and CSRF protection"""
 
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             # Note: frappe.session.csrf_token is only populated within an HTTP
             # request context; under `bench run-tests` there is no request, so it
             # is legitimately None and is not asserted here.
 
             # Test session user consistency
-            self.assertEqual(frappe.session.user, self.test_users['member_full'].email)
+            self.assertEqual(frappe.session.user, self.test_users["member_full"].email)
 
             # Verify session contains security metadata
             self.assertIsNotNone(frappe.session.sid)
@@ -436,25 +419,25 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             # HIGH-level lookup of an arbitrary member's data
             return {"member": target_member, "access": "granted"}
 
-        target = self.test_members['member_full'].name
+        target = self.test_members["member_full"].name
 
         # POSITIVE: Staff (HIGH) and Admin (CRITICAL ⊃ HIGH) are entitled.
-        with self.as_user(self.test_users['staff'].email):
+        with self.as_user(self.test_users["staff"].email):
             result = admin_member_data_api(target)
             self.assertEqual(result["access"], "granted")
             self.assertEqual(result["member"], target)
 
-        with self.as_user(self.test_users['admin'].email):
+        with self.as_user(self.test_users["admin"].email):
             result = admin_member_data_api(target)
             self.assertEqual(result["access"], "granted")
 
         # NEGATIVE: a plain Member (LOW) cannot reach a HIGH endpoint.
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             with self.assertRaises(frappe.PermissionError):
                 admin_member_data_api(target)
 
         # NEGATIVE: a Volunteer (MEDIUM) still cannot reach a HIGH endpoint.
-        with self.as_user(self.test_users['volunteer'].email):
+        with self.as_user(self.test_users["volunteer"].email):
             with self.assertRaises(frappe.PermissionError):
                 admin_member_data_api(target)
 
@@ -482,10 +465,10 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
                 "mandate": sepa_mandate["name"] if sepa_mandate else None,
             }
 
-        target = self.test_members['member_full'].name
+        target = self.test_members["member_full"].name
 
         # POSITIVE: Verenigingen Administrator is entitled to CRITICAL.
-        with self.as_user(self.test_users['admin'].email):
+        with self.as_user(self.test_users["admin"].email):
             result = financial_api(target)
             self.assertEqual(result["financial_access"], "granted")
             self.assertIn("mandate", result)
@@ -493,17 +476,17 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             self.assertIsNotNone(result["mandate"])
 
         # NEGATIVE: Staff has HIGH but NOT CRITICAL.
-        with self.as_user(self.test_users['staff'].email):
+        with self.as_user(self.test_users["staff"].email):
             with self.assertRaises(frappe.PermissionError):
                 financial_api(target)
 
         # NEGATIVE: a Volunteer (MEDIUM) cannot reach CRITICAL.
-        with self.as_user(self.test_users['volunteer'].email):
+        with self.as_user(self.test_users["volunteer"].email):
             with self.assertRaises(frappe.PermissionError):
                 financial_api(target)
 
         # NEGATIVE: a plain Member (LOW) cannot reach CRITICAL.
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             with self.assertRaises(frappe.PermissionError):
                 financial_api(target)
 
@@ -525,17 +508,17 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             validate_member_ownership(member)
             return {"ownership": "validated", "target": member}
 
-        member_full = self.test_members['member_full']
-        member_limited = self.test_members['member_limited']
+        member_full = self.test_members["member_full"]
+        member_limited = self.test_members["member_limited"]
 
         # POSITIVE: member acts on OWN record.
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             result = ownership_api(member=member_full.name)
             self.assertEqual(result["ownership"], "validated")
             self.assertEqual(result["target"], member_full.name)
 
         # NEGATIVE: member attempts to act on ANOTHER member's record.
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             with self.assertRaises(frappe.PermissionError):
                 ownership_api(member=member_limited.name)
 
@@ -559,22 +542,22 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
                 "member": member,
             }
 
-        member_full = self.test_members['member_full']
-        member_limited = self.test_members['member_limited']
+        member_full = self.test_members["member_full"]
+        member_limited = self.test_members["member_limited"]
 
         # POSITIVE: several authenticated, owned-data calls succeed under the limit.
         successful_calls = 0
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             for _ in range(5):
                 result = rate_limited_self_service_api(member=member_full.name)
-                self.assertEqual(result["user"], self.test_users['member_full'].email)
+                self.assertEqual(result["user"], self.test_users["member_full"].email)
                 self.assertEqual(result["member"], member_full.name)
                 successful_calls += 1
 
         self.assertEqual(successful_calls, 5, "All under-limit owned-data calls should succeed")
 
         # NEGATIVE: the contract still denies cross-member access for the same user.
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             with self.assertRaises(frappe.PermissionError):
                 rate_limited_self_service_api(member=member_limited.name)
 
@@ -583,30 +566,30 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
     def test_sepa_mandate_access_controls(self):
         """Test SEPA mandate access controls and financial data security"""
 
-        member_with_sepa = self.test_members['member_full']
-        member_without_sepa = self.test_members['member_limited']
+        member_with_sepa = self.test_members["member_full"]
+        member_without_sepa = self.test_members["member_limited"]
 
         # Test SEPA mandate access for member with mandate
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             sepa_mandate = get_member_sepa_mandate(member_with_sepa.name)
             self.assertIsNotNone(sepa_mandate)
             self.assertEqual(sepa_mandate["status"], "Active")
             self.assertIn("iban", sepa_mandate)
 
         # Test SEPA mandate access for member without mandate
-        with self.as_user(self.test_users['member_limited'].email):
+        with self.as_user(self.test_users["member_limited"].email):
             sepa_mandate = get_member_sepa_mandate(member_without_sepa.name)
             self.assertIsNone(sepa_mandate)
 
     def test_sepa_mandate_cross_member_access_prevention(self):
         """Test prevention of cross-member SEPA mandate access"""
 
-        member_with_sepa = self.test_members['member_full']
+        member_with_sepa = self.test_members["member_full"]
 
         # Member should not be able to access another member's SEPA mandate
-        with self.as_user(self.test_users['member_limited'].email):
+        with self.as_user(self.test_users["member_limited"].email):
             # This should work - checking your own (non-existent) mandate
-            own_mandate = get_member_sepa_mandate(self.test_members['member_limited'].name)
+            own_mandate = get_member_sepa_mandate(self.test_members["member_limited"].name)
             self.assertIsNone(own_mandate)
 
             # This tests the API security - shouldn't be able to check other's mandates
@@ -619,17 +602,17 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         """Test Mollie subscription authentication integration"""
 
         # Test member with Mollie subscription
-        with self.as_user(self.test_users['volunteer'].email):
+        with self.as_user(self.test_users["volunteer"].email):
             has_subscription = has_mollie_subscription()
             self.assertTrue(has_subscription)
 
         # Test member without Mollie subscription
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             has_subscription = has_mollie_subscription()
             self.assertFalse(has_subscription)  # Uses SEPA, not Mollie
 
         # Test orphaned user without member record
-        with self.as_user(self.test_users['orphaned'].email):
+        with self.as_user(self.test_users["orphaned"].email):
             has_subscription = has_mollie_subscription()
             self.assertFalse(has_subscription)
 
@@ -641,9 +624,9 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         # Test session hijacking prevention
         original_user = frappe.session.user
 
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             member_name = get_current_user_member_name()
-            self.assertEqual(member_name, self.test_members['member_full'].name)
+            self.assertEqual(member_name, self.test_members["member_full"].name)
 
         # Verify session restored properly
         frappe.set_user(original_user)
@@ -661,8 +644,8 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         # which cannot see the current uncommitted test transaction. Commit setUp
         # data and pass the site/identifiers needed to init each thread context.
         site = frappe.local.site
-        member_user_email = self.test_users['member_full'].name
-        expected_member_name = self.test_members['member_full'].name
+        member_user_email = self.test_users["member_full"].name
+        expected_member_name = self.test_members["member_full"].name
         frappe.db.commit()
 
         def authenticate_and_lookup():
@@ -743,20 +726,20 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             return {"level": "medium", "access": "granted"}
 
         # ----- admin: CRITICAL + HIGH + MEDIUM all granted -----
-        with self.as_user(self.test_users['admin'].email):
+        with self.as_user(self.test_users["admin"].email):
             self.assertEqual(critical_level_api()["access"], "granted")
             self.assertEqual(high_level_api()["access"], "granted")
             self.assertEqual(medium_level_api()["access"], "granted")
 
         # ----- staff: HIGH + MEDIUM granted, CRITICAL denied -----
-        with self.as_user(self.test_users['staff'].email):
+        with self.as_user(self.test_users["staff"].email):
             with self.assertRaises(frappe.PermissionError):
                 critical_level_api()
             self.assertEqual(high_level_api()["access"], "granted")
             self.assertEqual(medium_level_api()["access"], "granted")
 
         # ----- volunteer: MEDIUM granted, HIGH + CRITICAL denied -----
-        with self.as_user(self.test_users['volunteer'].email):
+        with self.as_user(self.test_users["volunteer"].email):
             with self.assertRaises(frappe.PermissionError):
                 critical_level_api()
             with self.assertRaises(frappe.PermissionError):
@@ -764,7 +747,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             self.assertEqual(medium_level_api()["access"], "granted")
 
         # ----- member: LOW only -> denied at MEDIUM, HIGH and CRITICAL -----
-        with self.as_user(self.test_users['member_full'].email):
+        with self.as_user(self.test_users["member_full"].email):
             with self.assertRaises(frappe.PermissionError):
                 critical_level_api()
             with self.assertRaises(frappe.PermissionError):
@@ -791,11 +774,14 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
 
         # Clean up any security audit logs that might have been created
         try:
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 DELETE FROM `tabError Log`
                 WHERE creation >= %s
                 AND error LIKE '%test%'
-            """, (self.test_start_time,))
+            """,
+                (self.test_start_time,),
+            )
         except Exception:
             pass  # Ignore cleanup errors
 
@@ -803,6 +789,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
 
 
 # ===== UTILITY FUNCTIONS FOR TESTING =====
+
 
 def run_authentication_integration_tests():
     """Run comprehensive authentication integration tests"""

@@ -82,20 +82,18 @@ def check_handler_signature(func, min_positional: int = 1, handler_type: str = "
     params = list(sig.parameters.values())
 
     # Check for *args or **kwargs - these accept anything
-    has_var_positional = any(
-        p.kind == inspect.Parameter.VAR_POSITIONAL for p in params
-    )
-    has_var_keyword = any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in params
-    )
+    has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
 
     if has_var_positional or has_var_keyword:
         return True, None  # Accepts variable arguments
 
     # Count positional parameters (including those with defaults)
     positional_count = sum(
-        1 for p in params
-        if p.kind in (
+        1
+        for p in params
+        if p.kind
+        in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         )
@@ -182,9 +180,45 @@ class TestHooksImportSafety(unittest.TestCase):
         """hooks/portal.py should have expected exports."""
         portal = load_hooks_submodule("portal")
 
-        self.assertTrue(hasattr(portal, "standard_portal_menu_items"))
-        self.assertTrue(hasattr(portal, "website_context"))
         self.assertTrue(hasattr(portal, "update_website_context"))
+
+    def test_portal_declares_no_standard_portal_menu_items(self):
+        """portal.py must not declare standard_portal_menu_items.
+
+        Frappe's PortalSettings.sync_menu() calls remove_deleted_doctype_items(), which
+        drops every item whose reference_doctype is not an existing DocType - and ""
+        never is. Route-only entries for custom template pages are therefore added and
+        stripped again on every migrate, never reaching users. This app renders portal
+        navigation from its own role-based templates instead.
+        """
+        portal = load_hooks_submodule("portal")
+
+        self.assertFalse(
+            hasattr(portal, "standard_portal_menu_items"),
+            "standard_portal_menu_items entries with an empty reference_doctype are "
+            "silently discarded on every migrate - use the portal_nav templates",
+        )
+
+    def test_portal_website_context_registers_no_method_paths(self):
+        """website_context must not be used to register context processors.
+
+        Frappe copies website_context entries into the page context verbatim as static
+        key/value pairs (website_settings.py::get_website_settings); it never resolves
+        them as callables. A method path registered there is silently never invoked -
+        context processors belong in update_website_context instead. Static values are
+        a legitimate use (ERPNext registers favicon/splash_image this way), so this
+        checks for method paths rather than banning the key outright.
+        """
+        portal = load_hooks_submodule("portal")
+        website_context = getattr(portal, "website_context", {})
+
+        for key, value in website_context.items():
+            with self.subTest(key=key):
+                self.assertFalse(
+                    isinstance(value, str) and value.startswith("verenigingen."),
+                    f"website_context[{key!r}] is a method path and will never be called - "
+                    f"register it under update_website_context instead",
+                )
 
     def test_lifecycle_exports(self):
         """hooks/lifecycle.py should have expected exports."""
@@ -237,9 +271,7 @@ class TestDocEventHandlerResolution(unittest.TestCase):
                         # Check signature - doc event handlers need at least 1 param (doc)
                         is_valid, sig_error = check_handler_signature(result, min_positional=1)
                         if not is_valid:
-                            signature_errors.append(
-                                f"{doctype}.{event_name}: {handler} - {sig_error}"
-                            )
+                            signature_errors.append(f"{doctype}.{event_name}: {handler} - {sig_error}")
 
         if missing_handlers:
             self.fail(f"Missing or non-callable handlers:\n" + "\n".join(missing_handlers[:20]))
@@ -261,15 +293,10 @@ class TestDocEventHandlerResolution(unittest.TestCase):
 
                 for handler in handlers:
                     if handler != handler.strip():
-                        whitespace_errors.append(
-                            f"{doctype}.{event_name}: '{handler}' has whitespace"
-                        )
+                        whitespace_errors.append(f"{doctype}.{event_name}: '{handler}' has whitespace")
 
         if whitespace_errors:
-            self.fail(
-                f"Handler paths with whitespace (copy-paste error?):\n"
-                + "\n".join(whitespace_errors)
-            )
+            self.fail(f"Handler paths with whitespace (copy-paste error?):\n" + "\n".join(whitespace_errors))
 
     def test_membership_handlers_exist(self):
         """Core Membership handlers should exist."""
@@ -355,10 +382,7 @@ class TestSchedulerHandlerResolution(unittest.TestCase):
                     whitespace_errors.append(f"{frequency}: '{handler}' has whitespace")
 
         if whitespace_errors:
-            self.fail(
-                f"Scheduler handler paths with whitespace:\n"
-                + "\n".join(whitespace_errors)
-            )
+            self.fail(f"Scheduler handler paths with whitespace:\n" + "\n".join(whitespace_errors))
 
     def test_all_cron_handlers_exist(self):
         """All cron handlers should be importable and callable."""
@@ -582,19 +606,6 @@ class TestHooksDataIntegrity(unittest.TestCase):
             else:
                 self.fail(f"Fixture should be string or dict: {fixture}")
 
-    def test_portal_menu_structure(self):
-        """Portal menu items should have proper structure."""
-        portal_module = load_hooks_submodule("portal")
-        menu_items = portal_module.standard_portal_menu_items
-
-        self.assertIsInstance(menu_items, list)
-        self.assertGreater(len(menu_items), 0)
-
-        for item in menu_items:
-            self.assertIn("title", item)
-            self.assertIn("route", item)
-            self.assertIn("role", item)
-
 
 class TestHooksPackageImport(unittest.TestCase):
     """Phase 3 tests: verify verenigingen.hooks package imports correctly."""
@@ -654,8 +665,6 @@ class TestHooksPackageImport(unittest.TestCase):
             "permission_query_conditions",
             "has_permission",
             # From portal.py
-            "standard_portal_menu_items",
-            "website_context",
             "update_website_context",
             # From scheduler.py
             "scheduler_events",
@@ -720,18 +729,13 @@ class TestOverrideDocTypeClassResolution(unittest.TestCase):
                 cls = getattr(module, cls_name)
 
                 if isinstance(cls, type) and not issubclass(cls, Document):
-                    inheritance_errors.append(
-                        f"{doctype}: {override_path} does not inherit from Document"
-                    )
+                    inheritance_errors.append(f"{doctype}: {override_path} does not inherit from Document")
             except (ImportError, AttributeError):
                 # Import errors are caught by test_override_targets_are_importable_classes
                 pass
 
         if inheritance_errors:
-            self.fail(
-                "Override classes with incorrect inheritance:\n"
-                + "\n".join(inheritance_errors)
-            )
+            self.fail("Override classes with incorrect inheritance:\n" + "\n".join(inheritance_errors))
 
     def test_payment_entry_override_exists(self):
         """Payment Entry override should be properly configured."""
@@ -801,10 +805,7 @@ class TestCronExpressionValidation(unittest.TestCase):
                 invalid_expressions.append(f"'{expression}': {error}")
 
         if invalid_expressions:
-            self.fail(
-                f"Invalid cron expressions (semantic validation):\n"
-                + "\n".join(invalid_expressions)
-            )
+            self.fail(f"Invalid cron expressions (semantic validation):\n" + "\n".join(invalid_expressions))
 
     def test_cron_uses_5_or_6_field_format(self):
         """Cron expressions should be 5- or 6-field (with or without seconds)."""
@@ -841,8 +842,7 @@ class TestCronExpressionValidation(unittest.TestCase):
         for expression, desc in invalid_cases:
             is_valid, _ = self._validate_cron_expression(expression)
             self.assertFalse(
-                is_valid,
-                f"Expected '{expression}' ({desc}) to be invalid, but it passed validation"
+                is_valid, f"Expected '{expression}' ({desc}) to be invalid, but it passed validation"
             )
 
 

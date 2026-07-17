@@ -117,9 +117,3 @@ def handle_join_chapter_request(context, chapter, member):
         frappe.log_error(f"Error in chapter join request: {str(e)}")
         context.join_error = str(e)
         frappe.msgprint(_("Error joining chapter: {0}").format(str(e)), indicator="red")
-
-
-def has_website_permission(doc, ptype, user, verbose=False):
-    """Check website permission for chapter join page"""
-    # Allow all logged-in users to access chapter join pages
-    return user != "Guest"

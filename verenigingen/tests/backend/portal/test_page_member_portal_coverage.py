@@ -11,7 +11,7 @@ Coverage focus:
   member record (graceful no_member_record), member with/without a volunteer.
 - helper functions: get_member_activity, get_quick_actions, get_payment_status,
   get_user_teams, is_user_board_member, get_member_chapter_info,
-  get_all_member_chapters, _build_chapter_info, has_website_permission.
+  get_all_member_chapters, _build_chapter_info.
 """
 
 import frappe
@@ -188,20 +188,6 @@ class TestMemberPortalPage(EnhancedTestCase):
         ctx = self._get_context_as(self.user_email)
         self.assertIsNone(ctx.volunteer)
         self.assertEqual(ctx.user_teams, [])
-
-    # ---- has_website_permission -----------------------------------------
-
-    def test_website_permission_denies_guest(self):
-        self.assertFalse(member_portal.has_website_permission(None, "read", "Guest"))
-
-    def test_website_permission_requires_member_email(self):
-        # The helper looks up Member by its `email` field. Assert against the
-        # member's *persisted* email — the factory may append a uniqueness suffix
-        # to the requested email (when the local part lacks a trailing digit), so
-        # self.user_email is not guaranteed to equal Member.email. Using
-        # self.member.email keeps this deterministic instead of flaky ~0.7%/run.
-        self.assertTrue(member_portal.has_website_permission(None, "read", self.member.email))
-        self.assertFalse(member_portal.has_website_permission(None, "read", "nobody-portal@test.invalid"))
 
     # ---- get_member_activity --------------------------------------------
 

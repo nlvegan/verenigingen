@@ -7,7 +7,6 @@ summary/recurring/recent helpers, get_donation_stats and the
 cancel/update input-validation guards. This module fills the REMAINING
 uncovered branches:
 
-- has_website_permission (guest / member / non-member)
 - get_donation_summary / get_recurring_donations / get_recent_donations
   exception path (missing member -> logged error, safe default returned)
 - is_recurring_donation_active future-cancellation-date branch
@@ -120,24 +119,6 @@ class TestPageManageDonationsCoverage(EnhancedTestCase):
         doc = frappe.get_doc(data)
         doc.insert(ignore_permissions=True)
         return doc
-
-    # ----- has_website_permission --------------------------------------
-
-    def test_website_permission_denies_guest(self):
-        from verenigingen.templates.pages.manage_donations import has_website_permission
-
-        self.assertFalse(has_website_permission(None, "read", "Guest"))
-
-    def test_website_permission_allows_member(self):
-        from verenigingen.templates.pages.manage_donations import has_website_permission
-
-        # The member's `user` is linked to self.user, so the user resolves to a member.
-        self.assertTrue(has_website_permission(None, "read", self.user))
-
-    def test_website_permission_denies_non_member(self):
-        from verenigingen.templates.pages.manage_donations import has_website_permission
-
-        self.assertFalse(has_website_permission(None, "read", "nobody-here@test.invalid"))
 
     # ----- helper exception/default paths ------------------------------
 

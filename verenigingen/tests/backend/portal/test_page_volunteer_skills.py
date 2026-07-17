@@ -129,6 +129,27 @@ class TestVolunteerSkillsPage(EnhancedTestCase):
         self.assertGreaterEqual(ctx["skills_stats"]["total_unique_skills"], 1)
         self.assertIsNone(ctx["search_results"])
 
+    def test_context_exposes_the_logo_variable_the_template_reads(self):
+        """skills.html renders the header logo from context.organization_logo.
+
+        It previously read `brand_logo`, which no controller in the app ever set
+        (every other page uses organization_logo). Jinja renders an undefined name
+        as falsy, so the logo silently never appeared and nothing failed. Assert on
+        the key's presence, not its value: it is None unless Brand Settings has a
+        logo configured, and the template guards with {% if %}.
+        """
+        with self.as_user(self.user_email):
+            ctx = {}
+            original = frappe.form_dict
+            frappe.form_dict = frappe._dict({})
+            try:
+                skills.get_context(ctx)
+            finally:
+                frappe.form_dict = original
+
+        self.assertIn("organization_logo", ctx)
+        self.assertNotIn("brand_logo", ctx)
+
     def test_board_member_search_filters_results(self):
         with self.as_user(self.user_email):
             ctx = {}

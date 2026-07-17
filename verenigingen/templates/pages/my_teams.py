@@ -116,14 +116,3 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     context.teams = list(teams_dict.values())
 
     return context
-
-
-def has_website_permission(doc: Any, ptype: str, user: str, verbose: bool = False) -> bool:
-    """Check website permission for my teams page"""
-    # Only logged-in users can access
-    if user == "Guest":
-        return False
-
-    # Check if user has a member record
-    member = frappe.db.get_value("Member", {"email": user})
-    return bool(member)

@@ -86,17 +86,6 @@ def get_context(context):
     return context
 
 
-def has_website_permission(doc, ptype, user, verbose=False):
-    """Check website permission for personal details page"""
-    # Only logged-in users can access
-    if user == "Guest":
-        return False
-
-    # Check if user has a member record
-    member = frappe.db.get_value("Member", {"email": user})
-    return bool(member)
-
-
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @self_service_api(operation_type=OperationType.MEMBER_DATA, implicit_allowed=True)
 def update_personal_details():

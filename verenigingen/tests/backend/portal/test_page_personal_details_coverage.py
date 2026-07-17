@@ -11,7 +11,6 @@ missing-first-name reject. This module fills the REMAINING uncovered surface:
 - get_field_label (known + fallback)
 - prepare_success_message (each change category)
 - track_changes (None/empty-string equivalence, no-diff, multi-field)
-- has_website_permission (guest / member / non-member)
 - log_personal_details_changes / apply_personal_details_changes via the
   whitelist endpoint hitting pronoun + preference + birth_date branches
 - update_personal_details validation throws: invalid name chars, invalid phone,
@@ -180,20 +179,6 @@ class TestPagePersonalDetailsBehavior(EnhancedTestCase):
             }
         ).insert(ignore_permissions=True)
         return nomember
-
-    # ----- has_website_permission --------------------------------------
-
-    def test_website_permission_denies_guest(self):
-        from verenigingen.templates.pages.personal_details import has_website_permission
-
-        self.assertFalse(has_website_permission(None, "read", "Guest"))
-
-    def test_website_permission_member_and_non_member(self):
-        from verenigingen.templates.pages.personal_details import has_website_permission
-
-        # has_website_permission keys on Member.email (not .user).
-        self.assertTrue(has_website_permission(None, "read", self.email))
-        self.assertFalse(has_website_permission(None, "read", "nobody@test.invalid"))
 
     # ----- track_changes edge cases ------------------------------------
 

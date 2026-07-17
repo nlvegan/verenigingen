@@ -24,11 +24,37 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
+@cached(ttl=300)  # Cache for 5 minutes
+def _fetch_chapter_member_emails(chapter_name: str) -> list:
+    """Return active member emails for a chapter. NO permission check - callers must gate.
+
+    Split out of get_chapter_member_emails so the cache holds only chapter-scoped data.
+    The access check must run on every call and therefore cannot live inside a cached
+    function; see the SECURITY note on the caller.
+    """
+    emails = frappe.db.sql(
+        """
+        SELECT DISTINCT m.email
+        FROM `tabChapter Member` cm
+        INNER JOIN `tabMember` m ON cm.member = m.name
+        WHERE cm.parent = %s
+        AND cm.enabled = 1
+        AND (cm.status = 'Active' OR cm.status IS NULL)
+        AND m.email IS NOT NULL
+        AND m.email != ''
+        ORDER BY m.email
+    """,
+        (chapter_name,),
+        as_list=True,
+    )
+
+    return [email[0] for email in emails if email[0]]
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)  # Member data access
 @handle_api_error
 @performance_monitor(threshold_ms=500)
-@cached(ttl=300)  # Cache for 5 minutes
 def get_chapter_member_emails(chapter_name: str):
     """
     Retrieve email addresses of all active chapter members.
@@ -56,10 +82,11 @@ def get_chapter_member_emails(chapter_name: str):
         ValidationError: If chapter_name is empty or invalid
 
     Security:
-        - Validates user has board access to the requested chapter
+        - Validates user has board access to the requested chapter, on EVERY call
         - Sanitizes input to prevent injection attacks
         - Uses high-security API decorators
-        - Caches results for performance (5-minute TTL)
+        - Only the chapter-scoped query is cached (see _fetch_chapter_member_emails);
+          the access check deliberately sits outside the cache
 
     Performance:
         - Optimized SQL query with proper joins
@@ -78,31 +105,22 @@ def get_chapter_member_emails(chapter_name: str):
 
     chapter_name = APIValidator.sanitize_text(chapter_name, max_length=100)
 
-    # Verify user has access to this chapter
+    # Verify user has access to this chapter.
+    #
+    # SECURITY: this must run on every call, so it cannot sit inside a cached function.
+    # @cached used to be the innermost decorator on this endpoint, which put this check
+    # inside the cache: a hit returned before it ran, and the cache key
+    # (performance_utils.py::cached) carries no user while CacheManager._cache is
+    # process-wide. Any caller clearing the HIGH tier - e.g. a board member of another
+    # chapter, who holds HIGH per authorization_policy.py - therefore read any warmed
+    # chapter's member emails for 5 minutes. Only the chapter-scoped query is cached now.
     from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
 
     user_chapters = get_user_board_chapters()
     if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):
         raise PermissionError("You don't have access to this chapter")
 
-    # Get active member emails
-    emails = frappe.db.sql(
-        """
-        SELECT DISTINCT m.email
-        FROM `tabChapter Member` cm
-        INNER JOIN `tabMember` m ON cm.member = m.name
-        WHERE cm.parent = %s
-        AND cm.enabled = 1
-        AND (cm.status = 'Active' OR cm.status IS NULL)
-        AND m.email IS NOT NULL
-        AND m.email != ''
-        ORDER BY m.email
-    """,
-        (chapter_name,),
-        as_list=True,
-    )
-
-    return [email[0] for email in emails if email[0]]
+    return _fetch_chapter_member_emails(chapter_name)
 
 
 @frappe.whitelist()

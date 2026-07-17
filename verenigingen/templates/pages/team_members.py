@@ -3,7 +3,7 @@ Team Members Portal Page
 Shows team members for a specific team that the user has access to
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import frappe
 from frappe import _
@@ -200,14 +200,3 @@ def _get_available_teams_for_user(user: str, member: str) -> list:
     )
 
     return teams
-
-
-def has_website_permission(doc: Any, ptype: str, user: str, verbose: bool = False) -> bool:
-    """Check website permission for team members page"""
-    # Only logged-in users can access
-    if user == "Guest":
-        return False
-
-    # Check if user has a member record
-    member = frappe.db.get_value("Member", {"user": user})
-    return bool(member)

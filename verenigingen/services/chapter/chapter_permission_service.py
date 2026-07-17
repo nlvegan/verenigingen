@@ -411,3 +411,94 @@ class ChapterPermissionService(StatelessService):
 def get_chapter_permission_service() -> ChapterPermissionService:
     """Get singleton instance of ChapterPermissionService."""
     return ChapterPermissionService()
+
+
+def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
+    """Chapters a user may act on in board-facing portal pages, with region and role.
+
+    Returns dicts carrying at least ``chapter_name`` and ``region``; the board-member path
+    additionally returns ``chapter_role``, ``from_date``, ``to_date`` and ``is_active``.
+
+    Admin *and staff* roles (``Roles.ADMIN_ROLES``) short-circuit to every chapter. This is
+    deliberately broader than ``get_permission_query_conditions()``, which grants all-chapter
+    visibility only to ``Roles.ADMIN_PAIR`` and restricts staff to published chapters. Keep
+    that difference in mind before reusing this for list-view permissions.
+
+    Previously duplicated in templates/pages/chapter_dashboard.py and
+    templates/pages/volunteer/skills.py, which had silently diverged on exactly this role set
+    (see docs/audits/2026-07-17-portal-pages-code-quality-audit.md, LIVE-1).
+
+    AUTHORIZATION SCOPE - read before widening the role set again.
+    This function is not merely a page helper. Nine whitelisted endpoints in
+    verenigingen/api/chapter_dashboard_api.py import it via templates.pages.chapter_dashboard
+    and take it as their chapter gate: get_chapter_member_emails, get_active_members_count,
+    get_pending_applications_count, get_board_members_count, get_new_members_count,
+    get_filed_expense_claims_count, get_approved_expense_claims_count,
+    get_volunteer_expenses_count and quick_approve_member - plus
+    chapter_dashboard.get_chapter_dashboard_data, which exposes financial_summary,
+    dues_payment_status, member_overview, pending_actions and board_documents for the chapter.
+    For the eight read endpoints it is the ONLY chapter check: the @high_security_api /
+    @standard_api decorators gate on tier, not chapter, and authorization_policy.py grants
+    Roles.VERENIGINGEN_STAFF the HIGH/MEDIUM/LOW levels - so for them what this returns is the
+    access-control decision.
+
+    Historical note - get_chapter_member_emails used to bypass this gate entirely. Its
+    decorator stack had @cached(ttl=300) innermost, so a cache hit returned before the body's
+    check ran, and the cache key (performance_utils.py::cached) carries no user while
+    CacheManager._cache is process-wide. Any caller clearing the HIGH tier therefore read any
+    warmed chapter's member emails for 5 minutes - demonstrated on production data with a board
+    member of another chapter (110 addresses). Fixed 2026-07-17 by caching only the
+    chapter-scoped query (_fetch_chapter_member_emails) and keeping the access check in the
+    whitelisted caller; regression-tested in tests/services/test_chapter_board_chapters.py.
+    Keep permission checks OUT of cached callables.
+
+    Staff being included here is therefore an explicit owner decision (2026-07-17): staff act
+    as read-only administrators over all chapters, including member email addresses via
+    get_chapter_member_emails. Mutating actions remain closed because they take a second gate -
+    quick_approve_member requires get_user_board_role().permissions.can_approve_members, and
+    get_user_board_role() has no staff branch, so it returns None for staff. That is a load-
+    bearing safety property; tests/services/test_chapter_board_chapters.py pins it.
+    """
+    from frappe.query_builder import DocType, Order
+
+    from verenigingen.utils.constants import Roles
+
+    if not user:
+        user = frappe.session.user
+
+    if any(role in Roles.ADMIN_ROLES for role in frappe.get_roles(user)):
+        chapters = frappe.get_all("Chapter", fields=["name", "region"], order_by="name")
+        return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
+
+    member = frappe.db.get_value("Member", {"email": user}, "name")
+    if not member:
+        return []
+
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+    if not volunteer:
+        return []
+
+    ChapterBoardMember = DocType("Chapter Board Member")
+    Chapter = DocType("Chapter")
+
+    try:
+        query = (
+            frappe.qb.from_(ChapterBoardMember)
+            .inner_join(Chapter)
+            .on(ChapterBoardMember.parent == Chapter.name)
+            .select(
+                ChapterBoardMember.parent.as_("chapter_name"),
+                Chapter.region,
+                ChapterBoardMember.chapter_role,
+                ChapterBoardMember.from_date,
+                ChapterBoardMember.to_date,
+                ChapterBoardMember.is_active,
+            )
+            .where((ChapterBoardMember.volunteer == volunteer) & (ChapterBoardMember.is_active == 1))
+            .orderby(ChapterBoardMember.from_date, order=Order.desc)
+            .distinct()
+        )
+        return query.run(as_dict=True)
+    except Exception as e:
+        frappe.log_error(f"Error fetching board chapters for volunteer {volunteer}: {str(e)}")
+        return []

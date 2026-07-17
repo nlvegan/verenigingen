@@ -2,14 +2,14 @@
 Chapter Board Dashboard - Simplified interface for chapter board members
 """
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.query_builder import DocType, Order
 from frappe.utils import now_datetime
 
+from verenigingen.services.chapter.chapter_permission_service import get_user_board_chapters
 from verenigingen.templates.pages import serialize_dates
 from verenigingen.utils.api_response import api_response_handler
 from verenigingen.utils.constants import Roles
@@ -105,57 +105,6 @@ def get_context(context):
             context["error_message"] = _("Error loading dashboard data. Please try again.")
 
     return context
-
-
-def get_user_board_chapters() -> List[Dict[str, Any]]:
-    """Get chapters where current user is a board member"""
-    user_email = frappe.session.user
-
-    # Admin users can see all chapters (published or not)
-    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
-    if any(role in frappe.get_roles() for role in admin_roles):
-        chapters = frappe.get_all("Chapter", fields=["name", "region"], order_by="name")
-        # Transform to match the structure expected by the rest of the code
-        return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
-
-    # Find member record for current user
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
-    if not member:
-        return []
-
-    # Find volunteer record linked to member
-    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-    if not volunteer:
-        return []
-
-    # Get chapters where this volunteer is a board member - modernized with Query Builder
-    ChapterBoardMember = DocType("Chapter Board Member")
-    Chapter = DocType("Chapter")
-
-    try:
-        query = (
-            frappe.qb.from_(ChapterBoardMember)
-            .inner_join(Chapter)
-            .on(ChapterBoardMember.parent == Chapter.name)
-            .select(
-                ChapterBoardMember.parent.as_("chapter_name"),
-                Chapter.region,
-                ChapterBoardMember.chapter_role,
-                ChapterBoardMember.from_date,
-                ChapterBoardMember.to_date,
-                ChapterBoardMember.is_active,
-            )
-            .where((ChapterBoardMember.volunteer == volunteer) & (ChapterBoardMember.is_active == 1))
-            .orderby(ChapterBoardMember.from_date, order=Order.desc)
-            .distinct()
-        )
-
-        board_chapters = query.run(as_dict=True)
-    except Exception as e:
-        frappe.log_error(f"Error fetching board chapters for volunteer {volunteer}: {str(e)}")
-        board_chapters = []
-
-    return board_chapters
 
 
 def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:

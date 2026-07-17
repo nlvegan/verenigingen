@@ -17,15 +17,11 @@ from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
     build_base_expense_context,
     get_approval_thresholds,
     get_expense_categories,
-    get_volunteer_expense_statistics,
-    get_volunteer_expenses_from_claims,
     get_volunteer_organizations,
     map_erpnext_status_to_volunteer_status,
-    validate_expense_data,
 )
-from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_current_user
+from verenigingen.utils.member_utils import get_volunteer_for_current_user
 from verenigingen.utils.security.api_security_framework import (
-    high_security_api,
     self_service_api,
     standard_api,
 )
@@ -41,44 +37,6 @@ def get_context(context):
 # =============================================================================
 # Admin API Endpoints
 # =============================================================================
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
-def create_volunteer_for_member(member_name: str):
-    """Create a volunteer record for an existing member (admin function)."""
-    if not frappe.has_permission("Volunteer", "create"):
-        frappe.throw(_("Insufficient permissions to create volunteer records"))
-
-    # Get member details
-    member = frappe.get_doc("Member", member_name)
-
-    # Check if volunteer already exists
-    existing_volunteer = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
-    if existing_volunteer:
-        frappe.throw(
-            _("Volunteer record already exists for member {0}: {1}").format(member_name, existing_volunteer)
-        )
-
-    # Create volunteer record
-    volunteer = frappe.get_doc(
-        {
-            "doctype": "Volunteer",
-            "volunteer_name": f"{member.first_name} {member.last_name}",
-            "email": member.email,
-            "member": member.name,
-            "status": "Active",
-            "start_date": frappe.utils.today(),
-        }
-    )
-
-    volunteer.insert()
-
-    return {
-        "success": True,
-        "volunteer_name": volunteer.name,
-        "message": _("Volunteer record created successfully for {0}").format(member.full_name),
-    }
 
 
 # =============================================================================

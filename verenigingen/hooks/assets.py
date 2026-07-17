@@ -10,7 +10,6 @@ These assets are loaded globally across the application:
 # CSS files loaded in Frappe Desk
 app_include_css = [
     "/assets/verenigingen/css/verenigingen_custom.css",
-    "/assets/verenigingen/css/volunteer_portal.css",
     "/assets/verenigingen/css/iban-validation.css",
     # Note: brand_colors.css loaded per-template to avoid 404 errors
 ]
