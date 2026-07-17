@@ -20,14 +20,12 @@ class TestSimplePortalControllers(EnhancedTestCase):
     # ------------------------------------------------------------------ #
     # Redirect controllers
     # ------------------------------------------------------------------ #
-    def test_addresses_redirects_to_my_addresses(self):
-        from verenigingen.templates.pages import addresses
-
-        context = frappe._dict()
-        with self.assertNoErrorLog():
-            addresses.get_context(context)
-        self.assertEqual(frappe.local.response.get("type"), "redirect")
-        self.assertEqual(frappe.local.response.get("location"), "/my_addresses")
+    # templates/pages/addresses.py was deleted: Frappe's router only registers routes for
+    # html/xml/js/css/md files (website/router.py::get_pages_from_path), so a .py-only page
+    # never had a route - get_pages() has no "addresses" entry. It also used the RPC-style
+    # frappe.local.response["type"], which does not redirect a page render at all (contrast
+    # the sibling test below, which correctly expects frappe.Redirect). /addresses itself
+    # still resolves: it is served by ERPNext's Web Form, not by that module.
 
     def test_financial_dashboard_redirects_to_payment_dashboard(self):
         from verenigingen.templates.pages import financial_dashboard
