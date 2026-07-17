@@ -11,7 +11,6 @@ import frappe
 
 from verenigingen.templates.pages import brand_management
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.constants import Roles
 
 
 class TestPageBrandManagement(EnhancedTestCase):

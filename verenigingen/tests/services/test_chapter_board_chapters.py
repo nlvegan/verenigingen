@@ -61,11 +61,24 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         chapter_doc.save(ignore_permissions=True)
 
         # Staff member who is deliberately NOT a board member anywhere.
+        #
+        # The role alone is not enough to model a real staff user: the API security
+        # framework authorizes on Frappe ROLE PROFILES, not roles
+        # (authorization_policy.ROLE_PROFILE_SECURITY_MAPPING keyed by profile name,
+        # resolved via AuthorizationEngine.get_user_role_profiles). Every enabled
+        # Verenigingen Staff user on production carries role_profile_name
+        # "Verenigingen Staff"; without it the @high_security_api endpoints deny with
+        # "Your profiles: none" and the staff-access tests below would pass for the
+        # wrong reason.
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
         self.staff_email = f"bc-staff-{run}@example.com"
         self.staff_member = self.create_test_member(
             first_name="Staff", last_name="Chapters", email=self.staff_email, birth_date="1986-01-01"
         )
         self.staff_member.db_set("user", self._ensure_user(self.staff_email, "Staff", "Verenigingen Staff"))
+        if frappe.db.exists("Role Profile", "Verenigingen Staff"):
+            assign_role_profile_to_user(self.staff_email, "Verenigingen Staff")
 
     def _ensure_user(self, email, first_name, extra_role=None):
         if not frappe.db.exists("User", email):
@@ -100,12 +113,14 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         """Verenigingen Staff short-circuits to every chapter.
 
         This is the behaviour that used to differ per page: staff saw all chapters
-        on /volunteer/skills and none on /chapter_dashboard.
+        on /volunteer/skills and none on /chapter_dashboard. Asserts the full count,
+        not just membership - a partial grant is also wrong.
         """
         with self.as_user(self.staff_email):
             chapters = get_user_board_chapters()
 
         self.assertIn(self.chapter.name, self._names(chapters))
+        self.assertEqual(len(chapters), frappe.db.count("Chapter"))
 
     def test_staff_result_is_not_limited_to_board_membership(self):
         """The staff grant must not fall through to the board-member walk.
@@ -138,14 +153,67 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         self.assertIs(skills_fn, get_user_board_chapters)
 
     # ------------------------------------------------------------------
+    # Authorization scope of the staff grant (owner decision, 2026-07-17)
+    # ------------------------------------------------------------------
+
+    def test_staff_may_read_chapter_member_emails(self):
+        """Staff act as read-only administrators over every chapter.
+
+        This helper is the SOLE chapter gate for eight whitelisted endpoints in
+        api/chapter_dashboard_api.py - the security decorators do not constrain
+        staff, since authorization_policy.py grants them HIGH/MEDIUM/LOW. Including
+        staff here therefore opens member-email access across all chapters. That is
+        an explicit decision; this test pins it so it cannot change by accident.
+        """
+        from verenigingen.api.chapter_dashboard_api import get_chapter_member_emails
+
+        with self.as_user(self.staff_email):
+            emails = get_chapter_member_emails(self.chapter.name)
+
+        self.assertIsInstance(emails, list)
+
+    def test_staff_may_not_approve_members(self):
+        """The safety property that keeps the staff grant read-only.
+
+        quick_approve_member takes a SECOND gate - get_user_board_role(), which has no
+        staff branch and returns None - so staff are denied despite seeing every
+        chapter. If someone ever adds staff to get_user_board_role's admin
+        short-circuit, this fails, and that is the point.
+
+        The denial is a RETURN value, not an exception: @handle_api_error converts the
+        frappe.throw into an OperationResult/dict. Asserting assertRaises here would
+        fail even though access is correctly denied.
+        """
+        from verenigingen.api.chapter_dashboard_api import quick_approve_member
+
+        with self.as_user(self.staff_email):
+            result = quick_approve_member(member_name=self.board_member.name, chapter_name=self.chapter.name)
+
+        payload = result.to_dict() if hasattr(result, "to_dict") else result
+        self.assertFalse(payload.get("success"))
+        self.assertIn("permission", str(payload).lower())
+
+    def test_staff_have_no_board_role(self):
+        """get_user_board_role() must stay staff-free - it is what denies mutations."""
+        from verenigingen.templates.pages.chapter_dashboard import get_user_board_role
+
+        with self.as_user(self.staff_email):
+            self.assertIsNone(get_user_board_role(self.chapter.name))
+
+    # ------------------------------------------------------------------
     # Behaviour preserved for everyone else
     # ------------------------------------------------------------------
 
     def test_board_member_sees_only_their_chapter(self):
+        """Exactly their own chapter - not a superset.
+
+        assertIn would pass if a bug handed board members every chapter, which is
+        the very failure this consolidation could introduce.
+        """
         with self.as_user(self.board_email):
             chapters = get_user_board_chapters()
 
-        self.assertIn(self.chapter.name, self._names(chapters))
+        self.assertEqual(self._names(chapters), {self.chapter.name})
 
     def test_board_member_rows_carry_role_fields(self):
         """chapter_dashboard.html reads more than chapter_name on the board path."""
@@ -180,6 +248,7 @@ class TestGetUserBoardChapters(EnhancedTestCase):
             chapters = get_user_board_chapters()
 
         self.assertIn(self.chapter.name, self._names(chapters))
+        self.assertEqual(len(chapters), frappe.db.count("Chapter"))
 
     def test_explicit_user_argument_is_honoured(self):
         """The helper resolves the passed user, not just the session user."""

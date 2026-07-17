@@ -421,13 +421,30 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
 
     Admin *and staff* roles (``Roles.ADMIN_ROLES``) short-circuit to every chapter. This is
     deliberately broader than ``get_permission_query_conditions()``, which grants all-chapter
-    visibility only to ``Roles.ADMIN_PAIR`` and restricts staff to published chapters: the
-    board-facing portal pages intentionally treat staff as administrators. Keep that
-    difference in mind before reusing this for list-view permissions.
+    visibility only to ``Roles.ADMIN_PAIR`` and restricts staff to published chapters. Keep
+    that difference in mind before reusing this for list-view permissions.
 
     Previously duplicated in templates/pages/chapter_dashboard.py and
     templates/pages/volunteer/skills.py, which had silently diverged on exactly this role set
     (see docs/audits/2026-07-17-portal-pages-code-quality-audit.md, LIVE-1).
+
+    AUTHORIZATION SCOPE - read before widening the role set again.
+    This function is not merely a page helper: it is the *sole* chapter authorization gate for
+    eight whitelisted endpoints in verenigingen/api/chapter_dashboard_api.py, which import it
+    via templates.pages.chapter_dashboard (get_chapter_member_emails, get_active_members_count,
+    get_pending_applications_count, get_board_members_count, get_new_members_count,
+    get_filed_expense_claims_count, get_approved_expense_claims_count,
+    get_volunteer_expenses_count) plus chapter_dashboard.get_chapter_dashboard_data. The
+    @high_security_api / @standard_api decorators do NOT constrain staff -
+    authorization_policy.py grants Roles.VERENIGINGEN_STAFF the HIGH/MEDIUM/LOW levels - so
+    whatever this returns *is* the access-control decision.
+
+    Staff being included here is therefore an explicit owner decision (2026-07-17): staff act
+    as read-only administrators over all chapters, including member email addresses via
+    get_chapter_member_emails. Mutating actions remain closed because they take a second gate -
+    quick_approve_member requires get_user_board_role().permissions.can_approve_members, and
+    get_user_board_role() has no staff branch, so it returns None for staff. That is a load-
+    bearing safety property; tests/services/test_chapter_board_chapters.py pins it.
     """
     from frappe.query_builder import DocType, Order
 

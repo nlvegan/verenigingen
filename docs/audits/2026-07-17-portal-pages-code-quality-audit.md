@@ -11,11 +11,43 @@ Item 1 was **retracted** (see DEAD-1). Items 10–20 remain open.
 
 LIVE-1 was resolved by owner decision: staff is granted all-chapter visibility on **both** pages
 (`Roles.ADMIN_ROLES`), consolidated into
-`services/chapter/chapter_permission_service.py::get_user_board_chapters()`. Note the deliberate
-tension this creates — `ChapterPermissionService.get_permission_query_conditions()` still restricts
-staff to published chapters in list views, and `chapter_dashboard.get_user_board_role()` still returns
-`None` for staff, so staff get the dashboard **read-only** (the template guards on
-`user_board_role`). Approval and board-management actions were not granted.
+`services/chapter/chapter_permission_service.py::get_user_board_chapters()`.
+
+**The blast radius of that decision is wider than this section originally stated, and the corrected
+scope was accepted by the owner on 2026-07-17.** An external review found that
+`verenigingen/api/chapter_dashboard_api.py` imports `get_user_board_chapters` from
+`templates.pages.chapter_dashboard` at ten call sites, so the consolidation silently re-pointed it at
+the staff-inclusive implementation. It is the **sole** chapter authorization gate for eight
+whitelisted endpoints — `get_chapter_member_emails`, `get_active_members_count`,
+`get_pending_applications_count`, `get_board_members_count`, `get_new_members_count`,
+`get_filed_expense_claims_count`, `get_approved_expense_claims_count`,
+`get_volunteer_expenses_count` — plus `chapter_dashboard.get_chapter_dashboard_data`. The security
+decorators do not constrain staff: `utils/security/authorization_policy.py:83` grants
+`VERENIGINGEN_STAFF` the HIGH/MEDIUM/LOW levels, so `@high_security_api(MEMBER_DATA)` passes and
+whatever this function returns *is* the access decision.
+
+Accepted position: **staff act as read-only administrators over all chapters, including member email
+addresses** via `get_chapter_member_emails`. Mutations stay closed because they take a second gate —
+`quick_approve_member` requires `get_user_board_role().permissions.can_approve_members`, and
+`get_user_board_role()` has no staff branch, so it returns `None`. That denial is a load-bearing
+safety property and is now pinned by `tests/services/test_chapter_board_chapters.py`.
+
+Two further tensions remain by design: `ChapterPermissionService.get_permission_query_conditions()`
+still restricts staff to published chapters in list views, and `chapter_dashboard.html:76` falls back
+to the literal label "Board Member" when `user_board_role` is `None`, so staff are labelled
+"Board Member" on every chapter — misleading, not a crash.
+
+**Correction to DEAD-3's count:** 10 whitelisted endpoints were deleted on this branch, not 6. The
+audit listed the six in the portal pages; the branch also removed four from
+`utils/portal_customization.py` (`setup_member_portal_menu`, `reset_portal_menu_to_member_only`,
+`analyze_current_portal_usage`, `get_clean_member_portal_menu`) as part of the inert portal-menu hook
+removal. All four were independently verified to have zero callers.
+
+**Known follow-up:** `verenigingen/fixtures/critical_operation_rule.json` still carries Critical
+Operation Rule records for all 10 deleted endpoints. They are inert (rules keyed by operation name
+that can no longer be invoked) but will be re-created on every migrate; removing the fixture rows does
+not delete already-imported records, so a patch is needed. Also `docs/remediation/
+HOOKS_SIMPLIFICATION_PLAN.md:193` still references the deleted `volunteer_portal.css`.
 
 ## Confidence markers
 
@@ -143,7 +175,7 @@ it were routed. The working pattern is `frappe.local.flags.redirect_location` + 
 (`payment_plans.py:21`, `volunteer/index.py:7`). ~11 LOC; `volunteer/index.py` is registered via its
 sibling `index.html` and is fine.
 
-### DEAD-2 — `has_website_permission()` is never called — **CONFIRMED** — ~92 LOC, 11 modules
+### DEAD-2 — `has_website_permission()` is never called — **CONFIRMED** — ~97 LOC, 10 modules
 
 Frappe resolves this hook **only** for doctype web views:
 - `frappe/__init__.py:652` calls it as a **Document method**;
@@ -157,7 +189,8 @@ Frappe resolves this hook **only** for doctype web views:
 
 Sites: `brand_management.py:43`, `sepa_reconciliation_dashboard.py:27`, `team_members.py:205`,
 `my_teams.py:121`, `chapter_join.py:122`, `personal_details.py:89`, `verenigingen/join_chapter.py:138`,
-`manage_donations.py:54`, `contact_request.py:66`, `member_portal.py:127`, `me.py:127`.
+`manage_donations.py:54`, `contact_request.py:66`, `member_portal.py:127`.
+(`me.py:127` is the same definition reached through the symlink — see DEAD-1.)
 
 **Not a security hole** — each `get_context` independently gates access. The dead functions merely
 duplicate the real gate.
