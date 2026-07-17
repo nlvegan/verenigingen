@@ -74,13 +74,21 @@ than the audit's optimistic ~80 rules; that is intentional and correct.
   import + `{{ brand.brand_css() }}`. Output identical; future macro edits reach them.
 
 ### C5 — TPL-4: restore `super()`
-- For each of the ~7 `base_portal.html` children overriding `head_include` without `super()`
-  (`address_change.html`, `my_dues_schedule.html`, `contact_request.html`, `my_teams.html`,
-  `membership_adjustment.html`, `volunteer/expenses.html`, `volunteer/dashboard.html`): add
-  `{{ super() }}` and delete the now-redundant compensating tailwind re-link. Per file, verify it
-  extends `base_portal.html` (so `super()` restores tailwind); any extending `web.html` directly keep
-  their own tailwind link. `super()` must be added **before** removing a link so tailwind is never
-  dropped.
+
+Investigation during planning showed the 7 candidates split into two cases (the audit's "they all
+re-link tailwind to compensate" was only half right):
+
+- **Case A — re-link tailwind, missing `super()`** (`address_change.html`, `contact_request.html`,
+  `my_teams.html`, `volunteer/dashboard.html`): these already have tailwind via their own `<link>`.
+  Fix = add `{{ super() }}` (which resolves to `{{ head_include or "" }}` + base_portal's tailwind
+  link — visually a no-op) and delete the child's own tailwind link so it loads once. **In scope.**
+- **Case B — override `head_include` with NO tailwind** (`my_dues_schedule.html` links only mobile CSS;
+  `membership_adjustment.html` has an empty block; `volunteer/expenses.html` loads external jQuery):
+  these currently render **without** tailwind. Adding `super()` restores tailwind they lack — a real
+  visual change on production pages. **Deferred** to a separate reviewed follow-up (needs per-page
+  before/after screenshots); NOT done in this slice.
+
+`super()` must be added **before** removing a link so tailwind is never dropped.
 
 ## Verification
 
