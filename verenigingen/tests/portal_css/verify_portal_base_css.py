@@ -26,6 +26,10 @@ PAGES = [
     ("address_change", "member"),
     ("contact_request", "member"),
     ("my_teams", "member"),
+    ("mollie_bulk_payment_creation", "admin"),
+    ("mollie_subscription_recreation", "admin"),
+    ("volunteer/expenses", "member"),
+    ("volunteer/expense_claim_new", "member"),
 ]
 
 # Framework/Bootstrap class names that must never appear in portal_base.css.
