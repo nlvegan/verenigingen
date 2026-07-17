@@ -16,21 +16,57 @@ LIVE-1 was resolved by owner decision: staff is granted all-chapter visibility o
 **The blast radius of that decision is wider than this section originally stated, and the corrected
 scope was accepted by the owner on 2026-07-17.** An external review found that
 `verenigingen/api/chapter_dashboard_api.py` imports `get_user_board_chapters` from
-`templates.pages.chapter_dashboard` at ten call sites, so the consolidation silently re-pointed it at
-the staff-inclusive implementation. It is the **sole** chapter authorization gate for eight
-whitelisted endpoints — `get_chapter_member_emails`, `get_active_members_count`,
+`templates.pages.chapter_dashboard` at **nine** call sites, so the consolidation silently re-pointed
+it at the staff-inclusive implementation. Eight are read endpoints for which it is the **only**
+chapter check — `get_chapter_member_emails`, `get_active_members_count`,
 `get_pending_applications_count`, `get_board_members_count`, `get_new_members_count`,
 `get_filed_expense_claims_count`, `get_approved_expense_claims_count`,
-`get_volunteer_expenses_count` — plus `chapter_dashboard.get_chapter_dashboard_data`. The security
-decorators do not constrain staff: `utils/security/authorization_policy.py:83` grants
-`VERENIGINGEN_STAFF` the HIGH/MEDIUM/LOW levels, so `@high_security_api(MEMBER_DATA)` passes and
-whatever this function returns *is* the access decision.
+`get_volunteer_expenses_count`; the ninth is `quick_approve_member`, which takes it as its *first*
+gate. Add `chapter_dashboard.get_chapter_dashboard_data`, which exposes `financial_summary`,
+`dues_payment_status` (per-member payment state), `member_overview`, `pending_actions` and
+`board_documents` for the selected chapter. The security decorators do not constrain staff:
+`utils/security/authorization_policy.py:83` grants `VERENIGINGEN_STAFF` the HIGH/MEDIUM/LOW levels,
+so `@high_security_api(MEMBER_DATA)` passes and for those eight endpoints what this function returns
+is the access decision.
 
-Accepted position: **staff act as read-only administrators over all chapters, including member email
-addresses** via `get_chapter_member_emails`. Mutations stay closed because they take a second gate —
-`quick_approve_member` requires `get_user_board_role().permissions.can_approve_members`, and
-`get_user_board_role()` has no staff branch, so it returns `None`. That denial is a load-bearing
-safety property and is now pinned by `tests/services/test_chapter_board_chapters.py`.
+Accepted position: **staff act as read-only administrators over all chapters** — member email
+addresses via `get_chapter_member_emails`, and the full dashboard payload above. Mutations stay
+closed because they take a second gate — `quick_approve_member` requires
+`get_user_board_role().permissions.can_approve_members`, and `get_user_board_role()` has no staff
+branch, so it returns `None`. That denial is a load-bearing safety property and is now pinned by
+`tests/services/test_chapter_board_chapters.py` (verified by mutation: adding staff to
+`get_user_board_role`'s short-circuit fails the test).
+
+### SEC-1 — `get_chapter_member_emails` leaks across chapters via a shared cache — **CONFIRMED, PRE-EXISTING, UNFIXED**
+
+Found by external review while checking the above; **not introduced by this branch**, and it means the
+staff grant is not the only way to read a chapter's member emails.
+
+`chapter_dashboard_api.py:32` applies `@cached(ttl=300)` as the **innermost** decorator, so a cache hit
+returns before the body's chapter check (`:84-86`) ever runs. The key
+(`utils/performance_utils.py:229`) is `f"{func.__module__}.{func.__name__}:{hash(str(args)+str(kwargs))}"`
+— **no user component** — and `CacheManager._cache` is a process-wide class attribute. The
+`@high_security_api` tier check still runs, but it gates on tier, not chapter.
+
+Consequence: once any authorized caller warms a chapter, **every user who clears the HIGH tier reads
+that chapter's member emails for 5 minutes**, including `Verenigingen Chapter Board Member`, who holds
+HIGH per `authorization_policy.py:88-91` — i.e. a board member of chapter Y reads chapter X's members.
+
+Demonstrated on production data with a board member who does not govern the target chapter:
+
+| cache state | result |
+|---|---|
+| cold | `dict` (OperationResult denial — correctly refused) |
+| warmed by Administrator | `list` of **110 member email addresses** |
+
+Scope is bounded: an AST sweep found this is the **only** whitelisted `@cached` endpoint with an
+in-body permission check and no `key_func`.
+
+Fix options: give the cache a user-scoped `key_func` (`lambda chapter_name:
+f"{frappe.session.user}:{chapter_name}"`), or drop `@cached` (the body is a single indexed query).
+Note `hash()` is `PYTHONHASHSEED`-randomised per process, so the cache is already incoherent across
+workers — an independent reason to question its value. **Owner decision required; left unfixed here
+because it is outside this branch's scope.**
 
 Two further tensions remain by design: `ChapterPermissionService.get_permission_query_conditions()`
 still restricts staff to published chapters in list views, and `chapter_dashboard.html:76` falls back

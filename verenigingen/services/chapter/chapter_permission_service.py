@@ -429,15 +429,28 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
     (see docs/audits/2026-07-17-portal-pages-code-quality-audit.md, LIVE-1).
 
     AUTHORIZATION SCOPE - read before widening the role set again.
-    This function is not merely a page helper: it is the *sole* chapter authorization gate for
-    eight whitelisted endpoints in verenigingen/api/chapter_dashboard_api.py, which import it
-    via templates.pages.chapter_dashboard (get_chapter_member_emails, get_active_members_count,
+    This function is not merely a page helper. Nine whitelisted endpoints in
+    verenigingen/api/chapter_dashboard_api.py import it via templates.pages.chapter_dashboard
+    and take it as their chapter gate: get_chapter_member_emails, get_active_members_count,
     get_pending_applications_count, get_board_members_count, get_new_members_count,
     get_filed_expense_claims_count, get_approved_expense_claims_count,
-    get_volunteer_expenses_count) plus chapter_dashboard.get_chapter_dashboard_data. The
-    @high_security_api / @standard_api decorators do NOT constrain staff -
-    authorization_policy.py grants Roles.VERENIGINGEN_STAFF the HIGH/MEDIUM/LOW levels - so
-    whatever this returns *is* the access-control decision.
+    get_volunteer_expenses_count and quick_approve_member - plus
+    chapter_dashboard.get_chapter_dashboard_data, which exposes financial_summary,
+    dues_payment_status, member_overview, pending_actions and board_documents for the chapter.
+    For the eight read endpoints it is the ONLY chapter check: the @high_security_api /
+    @standard_api decorators gate on tier, not chapter, and authorization_policy.py grants
+    Roles.VERENIGINGEN_STAFF the HIGH/MEDIUM/LOW levels - so for them what this returns is the
+    access-control decision.
+
+    EXCEPTION - get_chapter_member_emails is NOT reliably gated by this function.
+    Its decorator stack puts @cached(ttl=300) innermost (chapter_dashboard_api.py:32), so a
+    cache hit returns before the body's check ever runs, and the key
+    (performance_utils.py:229) contains no user. CacheManager._cache is a process-wide dict.
+    Once any authorized caller warms a chapter, every user who clears the HIGH tier reads that
+    chapter's member emails for 5 minutes without this function being consulted - demonstrated
+    on production data with a board member of another chapter. That is a PRE-EXISTING defect,
+    not a consequence of the staff grant; do not read this docstring as a claim that the
+    endpoint is safe.
 
     Staff being included here is therefore an explicit owner decision (2026-07-17): staff act
     as read-only administrators over all chapters, including member email addresses via

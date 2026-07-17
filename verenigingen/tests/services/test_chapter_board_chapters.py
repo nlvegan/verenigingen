@@ -77,8 +77,14 @@ class TestGetUserBoardChapters(EnhancedTestCase):
             first_name="Staff", last_name="Chapters", email=self.staff_email, birth_date="1986-01-01"
         )
         self.staff_member.db_set("user", self._ensure_user(self.staff_email, "Staff", "Verenigingen Staff"))
-        if frappe.db.exists("Role Profile", "Verenigingen Staff"):
-            assign_role_profile_to_user(self.staff_email, "Verenigingen Staff")
+        # Assert rather than `if exists`: a skipped assignment would leave the staff tests
+        # silently exercising a profile-less user, which the security framework denies for a
+        # reason unrelated to what they assert.
+        self.assertTrue(
+            frappe.db.exists("Role Profile", "Verenigingen Staff"),
+            "Role Profile 'Verenigingen Staff' must exist - the staff tests below depend on it",
+        )
+        assign_role_profile_to_user(self.staff_email, "Verenigingen Staff")
 
     def _ensure_user(self, email, first_name, extra_role=None):
         if not frappe.db.exists("User", email):
@@ -159,18 +165,40 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     def test_staff_may_read_chapter_member_emails(self):
         """Staff act as read-only administrators over every chapter.
 
-        This helper is the SOLE chapter gate for eight whitelisted endpoints in
-        api/chapter_dashboard_api.py - the security decorators do not constrain
-        staff, since authorization_policy.py grants them HIGH/MEDIUM/LOW. Including
-        staff here therefore opens member-email access across all chapters. That is
-        an explicit decision; this test pins it so it cannot change by accident.
+        This helper is the only chapter gate for eight whitelisted read endpoints in
+        api/chapter_dashboard_api.py - the security decorators gate on tier, not
+        chapter, and authorization_policy.py grants staff HIGH/MEDIUM/LOW. Including
+        staff here therefore opens member-email access across all chapters. That is an
+        explicit decision; this pins it so it cannot change by accident.
+
+        Asserts the seeded member's address is actually returned. `assertIsInstance(
+        ..., list)` would pass on an empty list from a chapter with no members, and so
+        would not demonstrate the exposure it claims to pin.
         """
         from verenigingen.api.chapter_dashboard_api import get_chapter_member_emails
+        from verenigingen.utils.performance_utils import CacheManager
+
+        # get_chapter_member_emails is @cached(ttl=300) with a user-agnostic key, so a
+        # warm entry from another test would return without consulting the gate and
+        # this test would pass without exercising staff access at all.
+        CacheManager._cache.clear()
+        CacheManager._cache_ttl.clear()
+
+        # The board fixture already registers this member as an active Chapter Member,
+        # so the chapter has a known address to find.
+        self.assertTrue(
+            frappe.db.exists(
+                "Chapter Member",
+                {"parent": self.chapter.name, "member": self.board_member.name, "enabled": 1},
+            ),
+            "fixture precondition: the board member must be an active chapter member",
+        )
 
         with self.as_user(self.staff_email):
             emails = get_chapter_member_emails(self.chapter.name)
 
         self.assertIsInstance(emails, list)
+        self.assertIn(self.board_email, emails)
 
     def test_staff_may_not_approve_members(self):
         """The safety property that keeps the staff grant read-only.
