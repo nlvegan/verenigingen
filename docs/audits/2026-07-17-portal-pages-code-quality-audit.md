@@ -37,7 +37,7 @@ branch, so it returns `None`. That denial is a load-bearing safety property and 
 `tests/services/test_chapter_board_chapters.py` (verified by mutation: adding staff to
 `get_user_board_role`'s short-circuit fails the test).
 
-### SEC-1 — `get_chapter_member_emails` leaks across chapters via a shared cache — **CONFIRMED, PRE-EXISTING, UNFIXED**
+### SEC-1 — `get_chapter_member_emails` leaked across chapters via a shared cache — **CONFIRMED, PRE-EXISTING, FIXED 2026-07-17**
 
 Found by external review while checking the above; **not introduced by this branch**, and it means the
 staff grant is not the only way to read a chapter's member emails.
@@ -62,11 +62,31 @@ Demonstrated on production data with a board member who does not govern the targ
 Scope is bounded: an AST sweep found this is the **only** whitelisted `@cached` endpoint with an
 in-body permission check and no `key_func`.
 
-Fix options: give the cache a user-scoped `key_func` (`lambda chapter_name:
-f"{frappe.session.user}:{chapter_name}"`), or drop `@cached` (the body is a single indexed query).
-Note `hash()` is `PYTHONHASHSEED`-randomised per process, so the cache is already incoherent across
-workers — an independent reason to question its value. **Owner decision required; left unfixed here
-because it is outside this branch's scope.**
+**Fix applied.** The query was split into a private `_fetch_chapter_member_emails(chapter_name)` that
+carries `@cached(ttl=300)`, while the whitelisted `get_chapter_member_emails` keeps the access check
+and calls it. A user-scoped `key_func` was considered and rejected: it would still cache *per user*
+(losing the hit rate the cache exists for) and would leave a 5-minute window in which revoked access
+still returns data. Caching chapter-scoped data while gating every call is strictly better — the
+general rule is **keep permission checks out of cached callables**.
+
+Verified:
+
+| | before fix | after fix |
+|---|---|---|
+| cold cache, unauthorized caller | denied | denied |
+| cache warmed by an authorized caller, then unauthorized caller | **110 emails** | denied |
+| authorized caller | 110 emails, 1 cache entry, second call hits cache | unchanged |
+
+Regression test: `tests/services/test_chapter_board_chapters.py::
+test_member_emails_are_not_served_from_another_users_warm_cache`. Mutation-verified — restoring
+`@cached` to the whitelisted function fails it with the leaked address in the assertion message.
+
+The probe needs a principal that clears the HIGH tier but holds no chapter rights: a plain member is
+refused at the tier gate and proves nothing. In production that is a board member of another chapter;
+the test sites have no `Verenigingen Chapter Board Member` role profile, and the Treasurer / National
+Board Member profiles both include the `Verenigingen Staff` role (so under the accepted staff grant
+they are administrators), hence the test uses `Verenigingen Webhook User`, which clears HIGH and
+grants no admin, staff or board role.
 
 Two further tensions remain by design: `ChapterPermissionService.get_permission_query_conditions()`
 still restricts staff to published chapters in list views, and `chapter_dashboard.html:76` falls back

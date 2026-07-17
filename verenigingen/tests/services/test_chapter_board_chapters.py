@@ -228,6 +228,58 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         with self.as_user(self.staff_email):
             self.assertIsNone(get_user_board_role(self.chapter.name))
 
+    def test_member_emails_are_not_served_from_another_users_warm_cache(self):
+        """A warm cache must not bypass the chapter check (SEC-1 regression).
+
+        get_chapter_member_emails once had @cached(ttl=300) as its INNERMOST decorator,
+        so a cache hit returned before the in-body chapter check ran. The cache key
+        carries no user and CacheManager._cache is process-wide, so once any authorized
+        caller warmed a chapter, every user clearing the HIGH tier read that chapter's
+        member emails for five minutes. Demonstrated on production data with a board
+        member of another chapter: 110 addresses.
+
+        The fix caches only the chapter-scoped query (_fetch_chapter_member_emails) and
+        keeps the access check in the whitelisted caller. This test warms the cache as an
+        authorized user, then asserts an unauthorized one is still refused.
+        """
+        from verenigingen.api.chapter_dashboard_api import get_chapter_member_emails
+        from verenigingen.utils.performance_utils import CacheManager
+
+        CacheManager._cache.clear()
+        CacheManager._cache_ttl.clear()
+
+        # Warm the cache as staff, who legitimately have access.
+        with self.as_user(self.staff_email):
+            warm = get_chapter_member_emails(self.chapter.name)
+        self.assertIn(self.board_email, warm)
+
+        # The probe must CLEAR the HIGH tier yet hold no chapter rights - otherwise
+        # @high_security_api refuses it before the chapter check and the cache bypass is
+        # never exercised (a plain member is rejected at the tier gate, so it proves
+        # nothing here). In production that principal is a board member of a DIFFERENT
+        # chapter, which is how this leak was demonstrated on real data; the test sites
+        # carry no "Verenigingen Chapter Board Member" role profile, and Treasurer /
+        # National Board Member both include the Verenigingen Staff role, which would make
+        # the probe an administrator. "Verenigingen Webhook User" clears HIGH
+        # (authorization_policy.py) and grants no admin, staff or board role.
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        outsider = f"bc-outsider-{frappe.generate_hash(length=8)}@example.com"
+        member = self.create_test_member(
+            first_name="Outsider", last_name="Chapters", email=outsider, birth_date="1991-01-01"
+        )
+        member.db_set("user", self._ensure_user(outsider, "Outsider"))
+        self.assertTrue(frappe.db.exists("Role Profile", "Verenigingen Webhook User"))
+        assign_role_profile_to_user(outsider, "Verenigingen Webhook User")
+
+        with self.as_user(outsider):
+            self.assertEqual(get_user_board_chapters(), [], "probe must hold no chapter rights")
+            result = get_chapter_member_emails(self.chapter.name)
+
+        self.assertNotIsInstance(
+            result, list, f"warm cache leaked emails to an unauthorized user: {result!r}"
+        )
+
     # ------------------------------------------------------------------
     # Behaviour preserved for everyone else
     # ------------------------------------------------------------------

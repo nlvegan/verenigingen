@@ -442,15 +442,15 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
     Roles.VERENIGINGEN_STAFF the HIGH/MEDIUM/LOW levels - so for them what this returns is the
     access-control decision.
 
-    EXCEPTION - get_chapter_member_emails is NOT reliably gated by this function.
-    Its decorator stack puts @cached(ttl=300) innermost (chapter_dashboard_api.py:32), so a
-    cache hit returns before the body's check ever runs, and the key
-    (performance_utils.py:229) contains no user. CacheManager._cache is a process-wide dict.
-    Once any authorized caller warms a chapter, every user who clears the HIGH tier reads that
-    chapter's member emails for 5 minutes without this function being consulted - demonstrated
-    on production data with a board member of another chapter. That is a PRE-EXISTING defect,
-    not a consequence of the staff grant; do not read this docstring as a claim that the
-    endpoint is safe.
+    Historical note - get_chapter_member_emails used to bypass this gate entirely. Its
+    decorator stack had @cached(ttl=300) innermost, so a cache hit returned before the body's
+    check ran, and the cache key (performance_utils.py::cached) carries no user while
+    CacheManager._cache is process-wide. Any caller clearing the HIGH tier therefore read any
+    warmed chapter's member emails for 5 minutes - demonstrated on production data with a board
+    member of another chapter (110 addresses). Fixed 2026-07-17 by caching only the
+    chapter-scoped query (_fetch_chapter_member_emails) and keeping the access check in the
+    whitelisted caller; regression-tested in tests/services/test_chapter_board_chapters.py.
+    Keep permission checks OUT of cached callables.
 
     Staff being included here is therefore an explicit owner decision (2026-07-17): staff act
     as read-only administrators over all chapters, including member email addresses via
