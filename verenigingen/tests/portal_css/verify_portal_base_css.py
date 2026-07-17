@@ -120,6 +120,8 @@ def run():
             errors.append(f"RENDER: {route} did not render a full page")
         if ok and not has_sheet:
             errors.append(f"INJECT: {route} missing {PORTAL_CSS_LINK}")
+        if ok and inline_wrap:
+            errors.append(f"WRAPPER: {route} still defines .wide-layout-wrapper inline")
 
     if errors:
         raise AssertionError("VERIFY FAILED:\n  " + "\n  ".join(errors))
