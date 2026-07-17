@@ -30,6 +30,13 @@ web_include_js = [
     "/assets/verenigingen/js/utils/operation-result-helpers.js",
 ]
 
+# CSS files loaded on web pages (www/ and templates/pages/).
+# NOTE: injected on EVERY website page — portal_base.css is bleed-safe by
+# construction (portal-unique class selectors only). See the file header.
+web_include_css = [
+    "/assets/verenigingen/css/portal_base.css",
+]
+
 # Email CSS - Frappe's premailer inlines these at send time
 # Uses literal hex values (not CSS variables) for email client compatibility
 # Path must be in /assets/ for premailer to find it

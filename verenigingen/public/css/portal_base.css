@@ -1,0 +1,61 @@
+/*
+ * portal_base.css — shared verenigingen portal styles.
+ *
+ * Injected on EVERY website page via the web_include_css hook. Therefore this
+ * file MUST contain ONLY verenigingen-portal-unique class selectors with
+ * byte-identical bodies lifted from the templates. Never add framework/
+ * Bootstrap names (.btn, .form-group, .alert, .card, .page-header, .hidden,
+ * .loading, ...), bare element selectors, or !important element overrides —
+ * they would restyle frappe's own website pages. See
+ * docs/superpowers/specs/2026-07-18-portal-base-css-design.md.
+ */
+
+/* Wide layout wrapper — breaks portal content out of Frappe's narrow container.
+   Canonical single definition; replaces 12 drifting inline copies. */
+.wide-layout-wrapper {
+    width: 90vw;
+    max-width: 1600px;
+    margin-left: calc(-45vw + 50% - 2.5vw);
+    margin-right: calc(-45vw + 50% + 2.5vw);
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+    .wide-layout-wrapper {
+        width: 95vw;
+        margin-left: calc(-47.5vw + 50% - 2.5vw);
+        margin-right: calc(-47.5vw + 50% + 2.5vw);
+        padding: 0 1rem;
+    }
+}
+
+/* Admin/debug console output (mollie_payments_debug, mollie_payment_processing,
+   ponto_api_debug). Byte-identical across all three. */
+.result-area {
+    background: #000;
+    color: #0f0;
+    border: 2px solid #000;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    max-height: 24rem;
+    overflow-y: auto;
+}
+
+/* NOTE: .form-grid intentionally NOT lifted here — frappe's own
+   website.bundle.css defines a .form-grid class (Web Form styling), so
+   including it here would bleed onto non-portal website pages. Its inline
+   copies remain in the templates; see task-1-report.md. */
+
+.api-mode-box {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 2px solid #000;
+    background: color-mix(in srgb, var(--brand-warning) 20%, transparent);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}

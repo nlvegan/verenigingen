@@ -22,6 +22,7 @@ from verenigingen.hooks.assets import (
     app_include_css,
     app_include_js,
     email_css,
+    web_include_css,
     web_include_js,
 )
 from verenigingen.hooks.doc_events import doc_events
