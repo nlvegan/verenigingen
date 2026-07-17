@@ -338,6 +338,15 @@ git commit -m "feat(portal): add web_include_css + bleed-safe portal_base.css wi
 **Interfaces:**
 - Consumes: harness from Task 1.
 
+**Margin unification note (surfaced by Task 1 review):** most inline copies use
+`margin: calc(-45vw + 50% - 2.5vw / + 2.5vw)`, but `mollie_bulk_payment_creation.html`,
+`board/document_browser.html`, and `board/document_upload.html` use the shorter
+`calc(-45vw + 50%)` (no `∓ 2.5vw`). Deleting all copies unifies them to the canonical margins — an
+intended consequence of the owner's "force uniform" decision, but it shifts those 3 pages'
+horizontal centering by ~2.5vw (on top of the max-width widening for the 2 board pages). This is a
+4th visually-changed page (`mollie_bulk_payment_creation`) beyond the documented widenings — it is
+covered by the Task 6 screenshot review.
+
 - [ ] **Step 1: Confirm the survivor count is 12 (13 minus the me.html symlink) before editing.**
 
 Run:
@@ -550,9 +559,10 @@ BASE = "https://veg11.veganisme.org"
 # (route, who) — widened pages, representative pages, a Case-A page, and guest bleed page
 TARGETS = [
     ("board/document_upload", "admin"), ("board/document_browser", "admin"),
-    ("ponto_api_debug", "admin"), ("member_portal", "member"),
-    ("chapter_dashboard", "admin"), ("volunteer/dashboard", "member"),
-    ("address_change", "member"), ("login", "guest"),
+    ("ponto_api_debug", "admin"), ("mollie_bulk_payment_creation", "admin"),
+    ("member_portal", "member"), ("chapter_dashboard", "admin"),
+    ("volunteer/dashboard", "member"), ("address_change", "member"),
+    ("login", "guest"),
 ]
 
 
