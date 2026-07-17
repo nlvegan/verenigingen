@@ -8,7 +8,7 @@ get_context() (reads the team from frappe.form_dict):
 - with no `team` param: shows the team selector + available_teams
 - with a `team` param: enforces access (team member / same-chapter / admin),
   otherwise raises PermissionError; on success exposes context.team_members
-- _get_available_teams_for_user and has_website_permission are exercised too.
+- _get_available_teams_for_user is exercised too.
 """
 
 import frappe
@@ -128,14 +128,3 @@ class TestTeamMembersPage(EnhancedTestCase):
     def test_available_teams_for_member(self):
         teams = team_members._get_available_teams_for_user(self.user_email, self.member.name)
         self.assertTrue(any(t.name == self.team.name for t in teams))
-
-    # ---- has_website_permission ----------------------------------------
-
-    def test_website_permission_denies_guest(self):
-        self.assertFalse(team_members.has_website_permission(None, "read", "Guest"))
-
-    def test_website_permission_requires_member(self):
-        # user with a member record (linked via `user`) is allowed
-        self.assertTrue(team_members.has_website_permission(None, "read", self.user_email))
-        # a user with no member record is denied
-        self.assertFalse(team_members.has_website_permission(None, "read", "nonexistent-user@test.invalid"))

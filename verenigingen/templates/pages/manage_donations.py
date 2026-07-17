@@ -5,16 +5,14 @@ Allows donors to view and manage their recurring donations
 
 import frappe
 from frappe import _
-from frappe.utils import add_months, flt, formatdate, getdate, today
+from frappe.utils import flt, today
 
 # Import standardized member utilities
 from verenigingen.utils.member_utils import (
     get_current_user_member_doc,
     get_current_user_member_name,
     get_current_user_member_name_required,
-    get_member_name_for_user,
     require_login,
-    validate_member_ownership,
 )
 
 # Import security framework for proper API protection
@@ -49,17 +47,6 @@ def get_context(context):
     context.recent_donations = get_recent_donations(context.member.name, limit=10)
 
     return context
-
-
-def has_website_permission(doc, ptype, user, verbose=False):
-    """Check website permission for manage donations page"""
-    # Only logged-in users can access
-    if user == "Guest":
-        return False
-
-    # Check if user has a member record
-    member = get_member_name_for_user(user)
-    return bool(member)
 
 
 def get_donation_summary(member_name):

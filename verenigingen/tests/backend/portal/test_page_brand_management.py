@@ -4,7 +4,7 @@ Tests for the /brand_management page controller
 
 This is an admin-only page (Roles.ADMIN_PAIR = System Manager / Verenigingen
 Administrator) that surfaces the active Brand Settings and the Owl Theme
-integration status. It also exposes has_website_permission for route gating.
+integration status.
 """
 
 import frappe
@@ -37,23 +37,3 @@ class TestPageBrandManagement(EnhancedTestCase):
         with self.as_role("Verenigingen Member"):
             with self.assertRaises(frappe.PermissionError):
                 brand_management.get_context(frappe._dict())
-
-    def test_has_website_permission_guest_denied(self):
-        """Guests cannot access the page."""
-        self.assertFalse(brand_management.has_website_permission(None, "read", "Guest"))
-
-    def test_has_website_permission_admin_allowed(self):
-        """A user holding an ADMIN_PAIR role passes the website permission check."""
-        user = self.create_test_user(
-            f"brandmgmt.admin.{frappe.generate_hash(length=6)}@test.invalid",
-            roles=[Roles.VERENIGINGEN_ADMIN],
-        )
-        self.assertTrue(brand_management.has_website_permission(None, "read", user.name))
-
-    def test_has_website_permission_plain_user_denied(self):
-        """A logged-in user without an admin role is denied."""
-        user = self.create_test_user(
-            f"brandmgmt.plain.{frappe.generate_hash(length=6)}@test.invalid",
-            roles=["Verenigingen Member"],
-        )
-        self.assertFalse(brand_management.has_website_permission(None, "read", user.name))

@@ -208,9 +208,3 @@ class TestPageChapterJoin(EnhancedTestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row.enabled, 0)
         self.assertEqual(row.status, "Inactive")
-
-    def test_has_website_permission_guest_denied(self):
-        from verenigingen.templates.pages.chapter_join import has_website_permission
-
-        self.assertFalse(has_website_permission(None, "read", "Guest"))
-        self.assertTrue(has_website_permission(None, "read", self.user))

@@ -124,17 +124,6 @@ def get_context(context):
     return context
 
 
-def has_website_permission(doc, ptype, user, verbose=False):
-    """Check website permission for member portal page"""
-    # Only logged-in users can access
-    if user == "Guest":
-        return False
-
-    # Check if user has a member record
-    member = frappe.db.get_value("Member", {"email": user})
-    return bool(member)
-
-
 def get_member_activity(member_name):
     """Get recent activity for member"""
     activities = []

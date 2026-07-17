@@ -192,8 +192,3 @@ class TestPageContactRequest(EnhancedTestCase):
                     submit_contact_request()
             finally:
                 frappe.form_dict = frappe._dict()
-
-    def test_has_website_permission_guest_denied(self):
-        from verenigingen.templates.pages.contact_request import has_website_permission
-
-        self.assertFalse(has_website_permission(None, "read", "Guest"))

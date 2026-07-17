@@ -411,3 +411,64 @@ class ChapterPermissionService(StatelessService):
 def get_chapter_permission_service() -> ChapterPermissionService:
     """Get singleton instance of ChapterPermissionService."""
     return ChapterPermissionService()
+
+
+def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
+    """Chapters a user may act on in board-facing portal pages, with region and role.
+
+    Returns dicts carrying at least ``chapter_name`` and ``region``; the board-member path
+    additionally returns ``chapter_role``, ``from_date``, ``to_date`` and ``is_active``.
+
+    Admin *and staff* roles (``Roles.ADMIN_ROLES``) short-circuit to every chapter. This is
+    deliberately broader than ``get_permission_query_conditions()``, which grants all-chapter
+    visibility only to ``Roles.ADMIN_PAIR`` and restricts staff to published chapters: the
+    board-facing portal pages intentionally treat staff as administrators. Keep that
+    difference in mind before reusing this for list-view permissions.
+
+    Previously duplicated in templates/pages/chapter_dashboard.py and
+    templates/pages/volunteer/skills.py, which had silently diverged on exactly this role set
+    (see docs/audits/2026-07-17-portal-pages-code-quality-audit.md, LIVE-1).
+    """
+    from frappe.query_builder import DocType, Order
+
+    from verenigingen.utils.constants import Roles
+
+    if not user:
+        user = frappe.session.user
+
+    if any(role in Roles.ADMIN_ROLES for role in frappe.get_roles(user)):
+        chapters = frappe.get_all("Chapter", fields=["name", "region"], order_by="name")
+        return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
+
+    member = frappe.db.get_value("Member", {"email": user}, "name")
+    if not member:
+        return []
+
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+    if not volunteer:
+        return []
+
+    ChapterBoardMember = DocType("Chapter Board Member")
+    Chapter = DocType("Chapter")
+
+    try:
+        query = (
+            frappe.qb.from_(ChapterBoardMember)
+            .inner_join(Chapter)
+            .on(ChapterBoardMember.parent == Chapter.name)
+            .select(
+                ChapterBoardMember.parent.as_("chapter_name"),
+                Chapter.region,
+                ChapterBoardMember.chapter_role,
+                ChapterBoardMember.from_date,
+                ChapterBoardMember.to_date,
+                ChapterBoardMember.is_active,
+            )
+            .where((ChapterBoardMember.volunteer == volunteer) & (ChapterBoardMember.is_active == 1))
+            .orderby(ChapterBoardMember.from_date, order=Order.desc)
+            .distinct()
+        )
+        return query.run(as_dict=True)
+    except Exception as e:
+        frappe.log_error(f"Error fetching board chapters for volunteer {volunteer}: {str(e)}")
+        return []

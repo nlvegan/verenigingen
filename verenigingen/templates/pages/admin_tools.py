@@ -743,64 +743,10 @@ def execute_admin_tool(method, args=None):
         # Validate the function has the whitelist decorator
         is_whitelisted = getattr(func, "__func_is_whitelisted__", False)
 
-        # For functions that are explicitly in our ALLOWED_ADMIN_METHODS list,
-        # we can be more forgiving if the whitelist attribute is missing
-        # since we've already validated they should be accessible
-        method_explicitly_allowed = method in ALLOWED_ADMIN_METHODS
-
-        if not is_whitelisted and not method_explicitly_allowed:
-            # Enhanced debug information to understand the issue
-            debug_info = {
-                "method": method,
-                "function_name": func.__name__,
-                "has_whitelisted_attr": hasattr(func, "__func_is_whitelisted__"),
-                "whitelisted_value": getattr(func, "__func_is_whitelisted__", None),
-                "has_wrapped": hasattr(func, "__wrapped__"),
-                "all_attrs": [
-                    attr
-                    for attr in dir(func)
-                    if not attr.startswith("__") or attr == "__func_is_whitelisted__"
-                ],
-            }
-
-            # Check wrapped function if exists
-            if hasattr(func, "__wrapped__"):
-                wrapped = func.__wrapped__
-                debug_info.update(
-                    {
-                        "wrapped_name": wrapped.__name__,
-                        "wrapped_has_whitelisted": hasattr(wrapped, "__func_is_whitelisted__"),
-                        "wrapped_whitelisted_value": getattr(wrapped, "__func_is_whitelisted__", None),
-                    }
-                )
-
-                # Check deep wrapped
-                if hasattr(wrapped, "__wrapped__"):
-                    deep_wrapped = wrapped.__wrapped__
-                    debug_info.update(
-                        {
-                            "deep_wrapped_name": deep_wrapped.__name__,
-                            "deep_wrapped_has_whitelisted": hasattr(deep_wrapped, "__func_is_whitelisted__"),
-                            "deep_wrapped_whitelisted_value": getattr(
-                                deep_wrapped, "__func_is_whitelisted__", None
-                            ),
-                        }
-                    )
-
-            frappe.log_error(
-                f"Whitelist validation failed for {method}. Debug info: {debug_info}",
-                "Admin Tools Whitelist Debug",
-            )
-            frappe.throw(
-                _(
-                    "Method is not properly whitelisted and not in allowed methods list - see error log for details"
-                ),
-                frappe.PermissionError,
-            )
-
-        # Additional logging for methods that bypass whitelist validation due to explicit allowance
-        elif not is_whitelisted and method_explicitly_allowed:
-            # This is acceptable - method is pre-approved in ALLOWED_ADMIN_METHODS
+        # `method` is guaranteed to be in ALLOWED_ADMIN_METHODS by the guard above, which
+        # throws otherwise - that allow-list is the real gate. A missing whitelist attribute
+        # is therefore tolerated and only logged.
+        if not is_whitelisted:
             frappe.logger("verenigingen.admin_tools").info(
                 f"Method {method} allowed via ALLOWED_ADMIN_METHODS list (whitelist attribute: {is_whitelisted})"
             )

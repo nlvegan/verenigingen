@@ -1,14 +1,18 @@
 import frappe
 from frappe import _
 
+from verenigingen.services.chapter.chapter_permission_service import get_user_board_chapters
 from verenigingen.utils.member_utils import require_login
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
     """Get context for volunteer skills browse page - restricted to chapter board members"""
     require_login()
 
+    # skills.html renders the header logo; every other page exposes it as organization_logo
+    from verenigingen.verenigingen.doctype.brand_settings.brand_settings import get_organization_logo
+
+    context["organization_logo"] = get_organization_logo()
     context["no_cache"] = 1
     context["show_sidebar"] = True
     context["title"] = _("Skills Directory")
@@ -61,47 +65,6 @@ def get_context(context):
             context["search_error"] = _("An error occurred while searching. Please try again.")
 
     return context
-
-
-def get_user_board_chapters():
-    """Get chapters where current user is a board member - copied from chapter_dashboard.py"""
-    from verenigingen.utils.constants import Roles
-
-    user_email = frappe.session.user
-
-    # Admin users and staff can see all chapters
-    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF]
-    if any(role in frappe.get_roles() for role in admin_roles):
-        chapters = frappe.get_all("Chapter", fields=["name", "region"], order_by="name")
-        return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
-
-    # Find member record for current user
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
-    if not member:
-        return []
-
-    # Find volunteer record linked to member
-    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-    if not volunteer:
-        return []
-
-    # Get chapters where this volunteer is a board member
-    board_chapters = frappe.db.sql(
-        """
-        SELECT DISTINCT
-            cbm.parent as chapter_name,
-            c.region
-        FROM `tabChapter Board Member` cbm
-        INNER JOIN `tabChapter` c ON cbm.parent = c.name
-        WHERE cbm.volunteer = %(volunteer)s
-        AND cbm.is_active = 1
-        ORDER BY c.name
-    """,
-        {"volunteer": volunteer},
-        as_dict=True,
-    )
-
-    return board_chapters
 
 
 def get_chapter_member_ids(chapter_names):
@@ -271,21 +234,3 @@ def get_skills_statistics(member_ids=None):
             "total_skill_entries": 0,
             "skill_categories": 0,
         }
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def search_skills(skill_name: str = "", category="", min_level=""):
-    """API endpoint for skills search (can be called via AJAX)"""
-    from verenigingen.verenigingen.doctype.volunteer.volunteer import search_volunteers_by_skill
-
-    try:
-        results = search_volunteers_by_skill(
-            skill_name=skill_name,
-            category=category if category else None,
-            min_level=int(min_level) if min_level.isdigit() else None,
-        )
-        return {"success": True, "results": results, "count": len(results)}
-    except Exception as e:
-        frappe.log_error(f"Error in skills search API: {str(e)}")
-        return {"success": False, "error": str(e), "results": [], "count": 0}

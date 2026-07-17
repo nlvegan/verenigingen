@@ -38,15 +38,3 @@ def get_context(context):
     context.owl_theme_status = check_owl_theme_integration()
 
     return context
-
-
-def has_website_permission(doc, ptype, user, verbose=False):
-    """Check website permission for brand management page"""
-    # Only logged-in users can access
-    if user == "Guest":
-        return False
-
-    # Check admin roles
-    admin_roles = Roles.ADMIN_PAIR
-    user_roles = frappe.get_roles(user)
-    return any(role in user_roles for role in admin_roles)

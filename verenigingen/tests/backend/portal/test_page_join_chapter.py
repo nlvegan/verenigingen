@@ -197,9 +197,3 @@ class TestPageJoinChapter(EnhancedTestCase):
         self.assertTrue(
             frappe.db.exists("Chapter Member", {"member": self.member.name, "parent": self.chapter.name})
         )
-
-    def test_has_website_permission(self):
-        from verenigingen.templates.pages.verenigingen.join_chapter import has_website_permission
-
-        self.assertFalse(has_website_permission(None, "read", "Guest"))
-        self.assertTrue(has_website_permission(None, "read", self.user))

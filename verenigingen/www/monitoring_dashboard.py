@@ -418,48 +418,6 @@ def get_executive_summary():
         return {"error": str(e)}
 
 
-# ===== DETAILED REPORTS =====
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.REPORTING)
-def get_detailed_analytics_report():
-    """Get detailed analytics report (full report)."""
-    try:
-        from verenigingen.utils.analytics_engine import AnalyticsEngine
-
-        return AnalyticsEngine().generate_insights_report()
-    except Exception as e:
-        frappe.log_error(f"Error getting detailed analytics report: {str(e)}")
-        return {"error": str(e)}
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
-def get_performance_optimization_report():
-    """Get detailed performance optimization report."""
-    try:
-        from verenigingen.utils.analytics_engine import AnalyticsEngine
-
-        return AnalyticsEngine().get_performance_recommendations()
-    except Exception as e:
-        frappe.log_error(f"Error getting performance optimization report: {str(e)}")
-        return {"error": str(e)}
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
-def get_compliance_audit_report():
-    """Get detailed compliance audit report."""
-    try:
-        from verenigingen.utils.analytics_engine import AnalyticsEngine
-
-        return AnalyticsEngine().identify_compliance_gaps()
-    except Exception as e:
-        frappe.log_error(f"Error getting compliance audit report: {str(e)}")
-        return {"error": str(e)}
-
-
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def refresh_advanced_dashboard_data():

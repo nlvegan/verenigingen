@@ -140,23 +140,6 @@ def validate_contribution_amount(
     )
 
 
-@frappe.whitelist()
-@public_api
-def calculate_suggested_contribution(
-    membership_type_name: str, monthly_income, payment_interval: str = "monthly"
-):
-    """Calculate suggested contribution based on income"""
-    if not membership_type_name or not monthly_income:
-        return {"error": "Membership type and monthly income are required"}
-
-    service = get_membership_application_service()
-    return service.calculate_income_contribution(
-        membership_type_name,
-        monthly_income,
-        interval=payment_interval,
-    )
-
-
 # Add route configuration
 no_cache = 1
 sitemap = 0  # Don't include in sitemap
