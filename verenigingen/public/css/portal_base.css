@@ -48,7 +48,8 @@
 /* NOTE: .form-grid intentionally NOT lifted here — frappe's own
    website.bundle.css defines a .form-grid class (Web Form styling), so
    including it here would bleed onto non-portal website pages. Its inline
-   copies remain in the templates; see task-1-report.md. */
+   copies remain in the templates; see
+   docs/superpowers/specs/2026-07-18-portal-base-css-design.md. */
 
 .api-mode-box {
     margin-top: 1rem;

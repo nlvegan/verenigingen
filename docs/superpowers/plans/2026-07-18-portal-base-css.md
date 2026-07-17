@@ -345,7 +345,9 @@ git commit -m "feat(portal): add web_include_css + bleed-safe portal_base.css wi
 intended consequence of the owner's "force uniform" decision, but it shifts those 3 pages'
 horizontal centering by ~2.5vw (on top of the max-width widening for the 2 board pages). This is a
 4th visually-changed page (`mollie_bulk_payment_creation`) beyond the documented widenings — it is
-covered by the Task 6 screenshot review.
+covered by the Task 6 screenshot review. `mollie_payment_processing.html` and
+`mollie_payments_debug.html` used `padding:0` on the wrapper; consolidation adds the canonical
+`padding:0 2rem` — a minor inset on those 2 admin/debug pages, within the uniform decision.
 
 - [ ] **Step 1: Confirm the survivor count is 12 (13 minus the me.html symlink) before editing.**
 

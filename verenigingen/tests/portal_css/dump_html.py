@@ -5,11 +5,13 @@ import frappe
 from frappe.utils import get_html_for_route
 
 OUT = "/tmp/portal_css_shots"
+# Site-specific — dev screenshot helper only, not used by the verify harness or CI.
 BASE = "https://veg11.veganisme.org"
 # (route, who) — widened pages, representative pages, a Case-A page, and guest bleed page
 TARGETS = [
     ("board/document_upload", "admin"), ("board/document_browser", "admin"),
     ("ponto_api_debug", "admin"), ("mollie_bulk_payment_creation", "admin"),
+    ("mollie_payments_debug", "admin"),
     ("member_portal", "member"), ("chapter_dashboard", "admin"),
     ("volunteer/dashboard", "member"), ("address_change", "member"),
     ("login", "guest"),

@@ -7,9 +7,10 @@ Addresses portal-pages audit item TPL-1 (infrastructure slice), TPL-3, and TPL-4
 
 There is **no `web_include_css` hook** in verenigingen, so every website/portal page hand-rolls its
 own CSS inside a `<style>` block. 56 templates carry inline styles; many rules are duplicated across
-≥3 templates, and `.wide-layout-wrapper` is defined 10 times in **mutually incompatible** widths
-(`max-width` = `1600px` ×7, `1400px` ×2, `1200px` ×1) — the same class yields a different layout
-width depending on which page you are on. Two admin-tool families also hand-copy the brand-css
+≥3 templates, and `.wide-layout-wrapper` is defined 12 times (12 inline copies across 12 files;
+`me.html` shares `member_portal.html`'s copy via symlink rather than a 13th copy) in **mutually
+incompatible** widths (`max-width` = `1600px` ×9, `1400px` ×2, `1200px` ×1) — the same class yields
+a different layout width depending on which page you are on. Two admin-tool families also hand-copy the brand-css
 `<link>` instead of the shared macro (TPL-3), and 7 `base_portal.html` children override
 `head_include` without `super()`, discarding the base tailwind link and then re-linking it (TPL-4).
 
@@ -18,7 +19,7 @@ width depending on which page you are on. Two admin-tool families also hand-copy
 1. **Scope = infrastructure slice + related CSS fixes**, not the full ~1,500–2,000 LOC TPL-1 lift.
    Establish the hook + a shared sheet, resolve the confirmed `.wide-layout-wrapper` conflict, lift
    only the safe shared rules, and fold in TPL-3 and TPL-4.
-2. **`.wide-layout-wrapper` resolves to a single `max-width:1600px`.** All 10 inline copies are
+2. **`.wide-layout-wrapper` resolves to a single `max-width:1600px`.** All 12 inline copies are
    deleted, including the 3 narrower outliers. `board/document_upload` (1200→1600),
    `board/document_browser` and `ponto_api_debug` (1400→1600) become wider — an accepted, intended
    visual change.
@@ -52,8 +53,8 @@ than the audit's optimistic ~80 rules; that is intentional and correct.
 
 ### C2 — `.wide-layout-wrapper`
 - Canonical definition (base rule + its media-query variant) in `portal_base.css`, `max-width:1600px`.
-- Delete all 10 inline definitions (incl. the media-query-only variants in `volunteer/dashboard.html`
-  and `volunteer/expense_claim_new.html`).
+- Delete all 12 inline definitions (incl. the media-query-only variants in `volunteer/dashboard.html`
+  and `volunteer/expense_claim_new.html`; `me.html` shares `member_portal.html`'s copy via symlink).
 
 ### C3 — lift safe shared rules
 - Candidate portal-unique selectors duplicated ≥3×: `.status-badge`, `.timeline-item`, `.btn-brutal`

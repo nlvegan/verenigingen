@@ -124,7 +124,7 @@ def run():
     for route, who in PAGES:
         try:
             html = _render_with_user(route, who)
-            ok = "<head" in html.lower() and len(html) > 2000
+            ok = "<head" in html.lower() and len(html) > 2000 and 'class="error-page"' not in html
         except Exception as e:  # noqa: BLE001
             print(f"{route:32} {'ERR':>3}  ({type(e).__name__}: {e})")
             errors.append(f"RENDER: {route} raised {type(e).__name__}: {e}")
