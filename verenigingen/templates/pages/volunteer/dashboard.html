@@ -3,29 +3,10 @@
 {% block title %}{{ _("Volunteer Dashboard") }}{% endblock %}
 
 {% block head_include %}
-<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{{ super() }}
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
 <style>
-    /* Wide layout wrapper - breaks out of Frappe container */
-    .wide-layout-wrapper {
-        width: 90vw;
-        max-width: 1600px;
-        margin-left: calc(-45vw + 50% - 2.5vw);
-        margin-right: calc(-45vw + 50% + 2.5vw);
-        padding: 0 2rem;
-        box-sizing: border-box;
-    }
-
-    @media (max-width: 1200px) {
-        .wide-layout-wrapper {
-            width: 95vw;
-            margin-left: calc(-47.5vw + 50% - 2.5vw);
-            margin-right: calc(-47.5vw + 50% + 2.5vw);
-            padding: 0 1rem;
-        }
-    }
-
     .volunteer-dashboard {
         max-width: 1200px;
         margin: 0 auto;

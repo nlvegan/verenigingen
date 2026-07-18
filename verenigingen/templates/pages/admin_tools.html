@@ -3,7 +3,8 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block head_include %}
-<link href="/css/brand_colors.css?v={{ frappe.utils.now() }}" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 {% endblock %}
 
 {% block page_content %}
@@ -239,7 +240,7 @@
 
 <style>
 /* ==========================================================================
-   BRUTALIST ADMIN TOOLS - Uses Brand Colors from /css/brand_colors.css
+   BRUTALIST ADMIN TOOLS - Uses Brand Colors (see brand_css macro)
    ========================================================================== */
 
 /* Base Page */

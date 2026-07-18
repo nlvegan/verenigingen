@@ -3,7 +3,7 @@
 {% block title %}{{ _("My Teams") }}{% endblock %}
 
 {% block head_include %}
-<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{{ super() }}
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
 <style>
