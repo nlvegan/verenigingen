@@ -13,7 +13,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     high_security_api,
 )
-from verenigingen.utils.settings_utils import get_mollie_days_back_limit, populate_mollie_context
+from verenigingen.utils.settings_utils import populate_mollie_context
 from verenigingen.verenigingen_payments.mollie.services import bulk_payment_admin_service
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     user_has_any_role,
@@ -831,36 +831,12 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
 
     Security: POST-only to prevent accidental heavy API operations
     """
-    try:
-        if not has_mollie_debug_access():
-            frappe.throw(_("Access denied"))
-
-        # Validate parameters - get max limit from Mollie Settings
-        max_days_back = get_mollie_days_back_limit()
-
-        try:
-            days_back = int(days_back)
-            if days_back < 1 or days_back > max_days_back:
-                days_back = 30
-        except (ValueError, TypeError):
-            days_back = 30
-
-        try:
-            max_payments = int(max_payments)
-            if max_payments < 250 or max_payments > 10000:
-                max_payments = 5000
-        except (ValueError, TypeError):
-            max_payments = 5000
-
-        service = MollieDebugService()
-        return service.bulk_retrieve_all_member_payments(days_back, max_payments, payment_status_filter)
-
-    except Exception as e:
-        frappe.log_error(
-            message=f"Bulk retrieve member payments error: {str(e)}",
-            title="Bulk retrieve member payments error",
-        )
-        return {"error": str(e)}
+    return bulk_payment_admin_service.bulk_retrieve_all_member_payments(
+        days_back,
+        max_payments,
+        payment_status_filter,
+        access_check=has_mollie_debug_access,
+    )
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])

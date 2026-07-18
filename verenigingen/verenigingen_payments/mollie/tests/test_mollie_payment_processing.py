@@ -647,9 +647,12 @@ class TestBulkRetrieve(_PageTest):
         from verenigingen.templates.pages import mollie_payment_processing as pp
 
         # days_back out of range -> 30; max_payments out of range -> 5000;
-        # unknown retrieval_mode -> 'customer' (delegates to the service, which
-        # we stub to capture the clamped args).
-        with patch(f"{PAGE}.MollieDebugService") as MockSvc:
+        # unknown retrieval_mode -> 'customer' (delegates to the consolidated
+        # bulk_payment_admin_service, which builds its own MollieDebugService
+        # via a fresh function-level import from the source module rather
+        # than the page module's symbol - so we patch it there to capture
+        # the clamped args).
+        with patch("verenigingen.services.mollie_debug_service.MollieDebugService") as MockSvc:
             MockSvc.return_value.bulk_retrieve_all_member_payments.return_value = {"ok": True}
             result = pp.bulk_retrieve_all_member_payments(
                 days_back=999999,

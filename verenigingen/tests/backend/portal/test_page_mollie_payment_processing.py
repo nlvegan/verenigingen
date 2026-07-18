@@ -237,14 +237,28 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
                 page.bulk_retrieve_all_member_payments()
 
     def test_bulk_retrieve_admin_default_mode_passes_through(self):
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """``bulk_retrieve_all_member_payments`` now delegates to the consolidated
+        ``bulk_payment_admin_service``, which builds its own ``MollieDebugService``
+        via a fresh function-level import rather than the page module's symbol -
+        so in addition to ``_patch_service()`` (which still covers every other
+        endpoint on this page) we patch the class at its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.bulk_retrieve_return = {"customers": [], "api_calls_made": 1}
             result = page.bulk_retrieve_all_member_payments()
         self.assertEqual(result, {"customers": [], "api_calls_made": 1})
 
     def test_bulk_retrieve_clamps_invalid_params_and_coerces_mode(self):
         """days_back=0 is coerced to 30, an unknown retrieval_mode falls back to 'customer'."""
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.bulk_retrieve_return = {"ok": True}
             result = page.bulk_retrieve_all_member_payments(
                 days_back=0, max_payments=10, retrieval_mode="bogus"
