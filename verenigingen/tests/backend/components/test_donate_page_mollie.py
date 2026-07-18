@@ -318,7 +318,7 @@ class TestDonatePageMollie(EnhancedTestCase):
         form_data = frappe._dict({"donor_email": donor.donor_email, "donor_name": donor.donor_name})
 
         with patch(_CPS_PATH, _FakeCompletePaymentService):
-            result = donate.process_mollie_payment(donation, form_data)
+            result = get_public_donation_service().process_mollie_payment(donation, form_data)
 
         self.assertEqual(result["status"], "redirect_required")
         self.assertEqual(result["payment_id"], "tr_fake_single")
@@ -339,7 +339,7 @@ class TestDonatePageMollie(EnhancedTestCase):
             }
         )
         with patch(_CPS_PATH, _FakeCompletePaymentService):
-            result = donate.process_mollie_payment(donation, form_data)
+            result = get_public_donation_service().process_mollie_payment(donation, form_data)
 
         self.assertEqual(result["status"], "subscription_redirect_required")
         self.assertEqual(_FakeCompletePaymentService.last_method, "recurring")
@@ -349,7 +349,7 @@ class TestDonatePageMollie(EnhancedTestCase):
         donor, donation = self._make_draft_mollie_donation()
 
         with patch(_CPS_PATH, _RaisingCompletePaymentService):
-            result = donate.process_mollie_payment(donation, frappe._dict())
+            result = get_public_donation_service().process_mollie_payment(donation, frappe._dict())
 
         self.assertEqual(result["status"], "error")
         self.assertIn("message", result)

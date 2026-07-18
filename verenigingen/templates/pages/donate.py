@@ -43,7 +43,6 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
 )
 from verenigingen.utils.validation_utilities import QueryBuilder
-from verenigingen.verenigingen_payments.hooks import PaymentHook
 
 
 def get_context(context):
@@ -352,333 +351,32 @@ def process_payment_method(donation, form_data):
     """
     Process payment based on selected method using PaymentHook.
 
-    This function delegates to the unified PaymentHook service while maintaining
-    backward compatibility with the existing response format.
+    Thin delegate to PublicDonationService.process_payment_method — see that
+    method for the actual implementation.
     """
-    payment_method = form_data.payment_method
-
-    # Map form payment method names to PaymentHook method IDs
-    method_mapping = {
-        "Bank Transfer": PaymentHook.BANK_TRANSFER,
-        "SEPA Direct Debit": PaymentHook.SEPA,
-        "Mollie": PaymentHook.MOLLIE,
-        "Ponto": PaymentHook.PONTO,
-        "Cash": PaymentHook.CASH,
-    }
-
-    hook_method = method_mapping.get(payment_method)
-    if not hook_method:
-        return {"status": "pending", "message": _("Payment method not yet implemented")}
-
-    # Update donation's mode_of_payment before processing
-    donation.mode_of_payment = payment_method
-    try:
-        get_public_donation_service()._save_donation_as_system_user(
-            donation,
-            "save",
-            "public_donation_payment_update",
-            f"Update donation {donation.name} with {payment_method} payment method",
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update donation payment method: {str(e)}",
-            "Donation Payment Method Update Error",
-        )
-        return {
-            "status": "error",
-            "message": _("Failed to process payment method"),
-            "info": _("Please try again or contact support"),
-        }
-
-    # Build payer info from form data
-    payer_info = {
-        "email": form_data.get("donor_email"),
-        "name": form_data.get("donor_name"),
-        "iban": form_data.get("donor_iban"),
-        "account_holder": form_data.get("account_holder") or form_data.get("donor_name"),
-    }
-
-    # Determine if recurring
-    is_recurring = form_data.get("is_recurring") or form_data.get("donation_type") == "Recurring"
-    interval = form_data.get("subscription_interval") or form_data.get("recurring_interval")
-
-    # Build redirect URLs
-    redirect_urls = {
-        "success": form_data.get("success_url") or "/donation-success",
-        "cancel": form_data.get("cancel_url") or "/donate",
-    }
-
-    # Call PaymentHook
-    result = PaymentHook.initiate_payment(
-        method=hook_method,
-        amount=float(donation.amount),
-        reference_doctype="Donation",
-        reference_name=donation.name,
-        payer_info=payer_info,
-        redirect_urls=redirect_urls,
-        recurring=is_recurring,
-        interval=interval,
-    )
-
-    # Convert PaymentHook response to backward-compatible format
-    return _convert_payment_hook_response(result)
+    return get_public_donation_service().process_payment_method(donation, form_data)
 
 
 def _convert_payment_hook_response(result: dict) -> dict:
     """
     Convert PaymentHook response format to backward-compatible format.
 
-    PaymentHook returns:
-        {"success": True, "action": "redirect", "data": {...}, "payment_id": "...", "message": "..."}
-
-    Old format expected:
-        {"status": "redirect_required", "payment_url": "...", "message": "..."}
+    Thin delegate to PublicDonationService._convert_payment_hook_response — see
+    that method for the actual implementation.
     """
-    from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentAction
-
-    if not result.get("success"):
-        return {
-            "status": "error",
-            "message": result.get("message", _("Payment processing failed")),
-            "info": _("Please try again or contact support"),
-        }
-
-    action = result.get("action")
-    data = result.get("data", {})
-
-    # Map actions back to old status values
-    if action == PaymentAction.REDIRECT:
-        return {
-            "status": "redirect_required",
-            "payment_url": data.get("url"),
-            "checkout_url": data.get("url"),  # Alias for compatibility
-            "payment_id": result.get("payment_id"),
-            "expires_at": data.get("expires_at"),
-            "message": result.get("message"),
-        }
-
-    elif action == PaymentAction.MANDATE_FORM:
-        return {
-            "status": "mandate_required",
-            "mandate_id": data.get("mandate_id"),
-            "collection_date": data.get("collection_date"),
-            "next_step": "sepa_mandate_form",
-            "message": result.get("message"),
-            "info": _("You will be redirected to set up a SEPA mandate"),
-        }
-
-    elif action == PaymentAction.SHOW_INSTRUCTIONS:
-        # Could be bank transfer or cash
-        if data.get("bank_details"):
-            return {
-                "status": "awaiting_transfer",
-                "bank_details": data.get("bank_details"),
-                "payment_reference": data.get("payment_reference"),
-                "instructions": data.get("instructions"),
-                "message": result.get("message"),
-            }
-        else:
-            return {
-                "status": "cash_pending",
-                "reference": data.get("reference"),
-                "instructions": data.get("instructions"),
-                "contact_email": data.get("contact_email"),
-                "office_hours": data.get("office_hours"),
-                "message": result.get("message"),
-            }
-
-    # Fallback
-    return {
-        "status": "pending",
-        "message": result.get("message", _("Payment initiated")),
-        "data": data,
-    }
-
-
-def process_bank_transfer(donation, form_data):
-    """Handle bank transfer payment"""
-    donation.mode_of_payment = "Bank Transfer"
-    try:
-        get_public_donation_service()._save_donation_as_system_user(
-            donation,
-            "save",
-            "public_donation_payment_update",
-            f"Update donation {donation.name} with Bank Transfer payment method",
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update donation with payment method: {str(e)}",
-            "Donation Payment Method Update Error",
-        )
-        return {
-            "status": "error",
-            "message": _("Failed to process payment method"),
-            "info": _("Please try again or contact support"),
-        }
-
-    from verenigingen.utils.settings_utils import get_payments_settings, get_verenigingen_settings
-
-    settings = get_verenigingen_settings()
-    if not settings:
-        frappe.throw(_("Unable to load system settings"), frappe.ValidationError)
-    payments_settings = get_payments_settings()
-    company = frappe.get_doc("Company", settings.company)
-
-    # Generate payment reference
-    payment_reference = f"DON-{donation.name}"
-
-    # Get bank details from payments settings
-    bank_details = {
-        "account_holder": company.company_name,
-        "iban": getattr(payments_settings, "company_iban", "NL00 BANK 0000 0000 00"),
-        "bic": getattr(payments_settings, "company_bic", "BANKBIC2A"),
-        "reference": payment_reference,
-        "amount": donation.amount,
-    }
-
-    return {
-        "status": "awaiting_transfer",
-        "message": _("Please transfer the amount to our bank account"),
-        "bank_details": bank_details,
-        "instructions": _("Include the reference number in your transfer description"),
-    }
-
-
-def process_sepa_direct_debit(donation, form_data):
-    """Handle SEPA direct debit setup"""
-    donation.mode_of_payment = "SEPA Direct Debit"
-    try:
-        get_public_donation_service()._save_donation_as_system_user(
-            donation,
-            "save",
-            "public_donation_payment_update",
-            f"Update donation {donation.name} with SEPA Direct Debit payment method",
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update donation with payment method: {str(e)}",
-            "Donation Payment Method Update Error",
-        )
-        return {
-            "status": "error",
-            "message": _("Failed to process payment method"),
-            "info": _("Please try again or contact support"),
-        }
-
-    # Would integrate with existing SEPA mandate system
-    return {
-        "status": "mandate_required",
-        "message": _("SEPA mandate setup required"),
-        "next_step": "sepa_mandate_form",
-        "info": _("You will be redirected to set up a SEPA mandate for future collections"),
-    }
+    return get_public_donation_service()._convert_payment_hook_response(result)
 
 
 def process_mollie_payment(donation, form_data):
-    """Handle Mollie payment using the enhanced service layer architecture"""
-    try:
-        from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
-            CompletePaymentService,
-        )
+    """Handle Mollie payment using the enhanced service layer architecture.
 
-        donation.mode_of_payment = "Mollie"
-        try:
-            get_public_donation_service()._save_donation_as_system_user(
-                donation,
-                "save",
-                "public_donation_payment_update",
-                f"Update donation {donation.name} with Mollie payment method",
-            )
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to update donation with payment method: {str(e)}",
-                "Donation Payment Method Update Error",
-            )
-            return {
-                "status": "error",
-                "message": _("Failed to process payment method"),
-                "info": _("Please try again or contact support"),
-            }
-
-        # Initialize enhanced payment service
-        payment_service = CompletePaymentService()
-
-        # Prepare form data for the new service
-        payment_form_data = {
-            "amount": str(donation.amount),
-            "currency": "EUR",
-            "return_url": f"{frappe.utils.get_url()}/donate?donation_id={donation.name}",
-            "description": f"Donation to {frappe.get_single('Verenigingen Settings').company_name or frappe.get_value('Company', frappe.db.get_single_value('Verenigingen Settings', 'company'), 'company_name') or 'organization'}",
-        }
-
-        # Add payment method preference if specified
-        if form_data.get("payment_method_preference"):
-            payment_form_data["method"] = form_data["payment_method_preference"]
-
-        # Check if this is a recurring donation (subscription)
-        is_recurring = form_data.get("donation_status") == "Recurring"
-
-        if is_recurring:
-            # For recurring donations, use the dedicated recurring payment method that follows legacy pattern
-            payment_form_data.update(
-                {
-                    "donor_email": form_data.get("email", ""),
-                    "donor_name": f"{form_data.get('first_name', '')} {form_data.get('last_name', '')}".strip(),
-                    "subscription_interval": form_data.get("recurring_interval", "1 month"),
-                    "locale": "nl_NL",
-                }
-            )
-
-            # Use the new recurring payment method that creates customer first
-            result = payment_service.create_recurring_donation_payment(donation, payment_form_data)
-        else:
-            # Create single payment using enhanced service
-            result = payment_service.create_donation_payment(donation, payment_form_data)
-
-        return result
-
-    except Exception as e:
-        frappe.log_error(
-            f"Enhanced Mollie payment processing error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
-            "Enhanced Mollie Payment Error",
-        )
-        return {
-            "status": "error",
-            "message": _("Payment provider temporarily unavailable"),
-            "info": _("Please try again later or use a different payment method"),
-        }
+    Thin delegate to PublicDonationService.process_mollie_payment — see that
+    method for the actual implementation.
+    """
+    return get_public_donation_service().process_mollie_payment(donation, form_data)
 
 
 # process_mollie_subscription function removed - now handled by MolliePaymentService
-
-
-def process_cash_payment(donation, form_data):
-    """Handle cash payment"""
-    donation.mode_of_payment = "Cash"
-    try:
-        get_public_donation_service()._save_donation_as_system_user(
-            donation,
-            "save",
-            "public_donation_payment_update",
-            f"Update donation {donation.name} with Cash payment method",
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update donation with payment method: {str(e)}",
-            "Donation Payment Method Update Error",
-        )
-        return {
-            "status": "error",
-            "message": _("Failed to process payment method"),
-            "info": _("Please try again or contact support"),
-        }
-
-    return {
-        "status": "cash_pending",
-        "message": _("Cash payment registered"),
-        "info": _("Please bring the cash to our office or pay at our next event"),
-        "contact_info": _("Contact us for payment arrangements"),
-    }
 
 
 @frappe.whitelist()

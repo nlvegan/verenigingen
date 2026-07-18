@@ -121,40 +121,8 @@ class TestGuestDonationFlow(EnhancedTestCase):
         self.assertEqual(donation.status, "Promised")
 
     # ------------------------------------------------------------------
-    # Payment method saves as Guest (parameterized)
+    # Payment method saves as Guest
     # ------------------------------------------------------------------
-
-    def test_guest_payment_method_saves(self):
-        """REGRESSION: All payment processing functions can save as guest.
-
-        Before the fix, the secure_document_operation save inside each payment
-        processor raised PermissionError for guests.
-        """
-        from verenigingen.templates.pages.donate import (
-            process_bank_transfer,
-            process_cash_payment,
-            process_sepa_direct_debit,
-        )
-
-        test_cases = [
-            ("Bank Transfer", process_bank_transfer, "awaiting_transfer"),
-            ("Cash", process_cash_payment, "cash_pending"),
-            ("SEPA Direct Debit", process_sepa_direct_debit, "mandate_required"),
-        ]
-
-        for payment_method, process_func, expected_status in test_cases:
-            with self.subTest(payment_method=payment_method):
-                frappe.set_user("Guest")
-                _donor, donation, form_data = self._create_guest_donation(payment_method)
-
-                result = process_func(donation, form_data)
-
-                self.assertNotEqual(
-                    result.get("status"),
-                    "error",
-                    f"{payment_method} should not fail with permission error: {result}",
-                )
-                self.assertEqual(result.get("status"), expected_status)
 
     def test_guest_process_mollie_saves_payment_method(self):
         """REGRESSION: process_mollie_payment can save donation as guest.
