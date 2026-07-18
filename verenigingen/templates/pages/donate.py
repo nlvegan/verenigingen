@@ -33,9 +33,6 @@ from frappe.utils import flt
 from verenigingen.services.donation.public_donation_service import (
     get_public_donation_service,
 )
-from verenigingen.utils.secure_operations import (
-    secure_document_operation,
-)
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -59,52 +56,11 @@ def get_context(context):
         try:
             donation = frappe.get_doc("Donation", donation_id)
             context.donation_result = donation
-
-            # Determine payment status for display
-            if donation.paid:
-                context.payment_status = "success"
-                context.title = _("Donation Successful")
-            else:
-                # Check actual payment status from Mollie if payment_id exists
-                if donation.payment_id:
-                    # Check payment status from Mollie to get real status
-                    try:
-                        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
-
-                        client = MollieClient()
-                        payment = client.get_payment(donation.payment_id)
-
-                        if hasattr(payment, "status"):
-                            mollie_status = payment.status
-                        elif isinstance(payment, dict):
-                            mollie_status = payment.get("status", "unknown")
-                        else:
-                            mollie_status = "unknown"
-
-                        if mollie_status == "paid":
-                            context.payment_status = "success"
-                            context.title = _("Payment Successful")
-                            context.payment_pending_webhook = True  # Webhook hasn't processed yet
-                        elif mollie_status in ["open", "pending"]:
-                            context.payment_status = "pending"
-                            context.title = _("Payment Pending")
-                        elif mollie_status in ["failed", "canceled", "expired"]:
-                            context.payment_status = "failed"
-                            context.title = _("Payment Failed")
-                        else:
-                            context.payment_status = "pending"
-                            context.title = _("Payment Status Unknown")
-
-                    except Exception as e:
-                        frappe.log_error(
-                            f"Failed to check Mollie payment status for {donation.payment_id}: {str(e)}"
-                        )
-                        context.payment_status = "pending"
-                        context.title = _("Payment Status Unknown")
-                else:
-                    context.payment_status = "pending"
-                    context.title = _("Payment Pending")
-
+            status = get_public_donation_service().resolve_return_payment_status(donation)
+            context.payment_status = status["payment_status"]
+            context.title = status["title"]
+            if status.get("payment_pending_webhook"):
+                context.payment_pending_webhook = True
         except frappe.DoesNotExistError:
             frappe.log_error(f"Donation {donation_id} not found on return from payment")
             context.payment_status = "error"
@@ -222,106 +178,24 @@ def submit_donation(**kwargs):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_donation_status(donation_id):
-    """Get donation status for tracking"""
-    if not donation_id:
-        return {"error": "Donation ID required"}
-
-    donation = frappe.get_doc("Donation", donation_id)
-
-    return {
-        "donation_id": donation.name,
-        "amount": donation.amount,
-        "status": "Paid" if donation.paid else "Pending",
-        "payment_method": donation.mode_of_payment,
-        # Donation has no "date" field; the actual fieldname is "donation_date".
-        # Accessing donation.date raised AttributeError and crashed this endpoint.
-        "date": donation.donation_date,
-        "purpose": (
-            donation.get_earmarking_summary()
-            if hasattr(donation, "get_earmarking_summary")
-            else donation.donation_purpose_type
-        ),
-    }
+    """Get donation status for tracking (delegates to PublicDonationService)."""
+    return get_public_donation_service().get_donation_status_data(donation_id)
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def mark_donation_paid(donation_id, payment_reference: str | None = None):
-    """Mark donation as paid (for manual processing)"""
-    if not frappe.has_permission("Donation", "write"):
-        return {"error": "Insufficient permissions"}
-
-    donation = frappe.get_doc("Donation", donation_id)
-    donation.paid = 1
-    donation.payment_id = payment_reference or f"MANUAL-{frappe.utils.now()}"
-
-    if hasattr(donation, "create_payment_entry"):
-        donation.create_payment_entry()
-
-    # Use secure operation for saving
-    result = secure_document_operation(
-        operation="save",
-        doc=donation,
-        justification=f"Mark donation {donation_id} as paid - manual payment processing",
-        required_permissions=["Donation:write"],
-    )
-
-    if not result.success:
-        return {"error": f"Failed to mark donation as paid: {'; '.join(result.errors)}"}
-
-    return {"success": True, "message": "Donation marked as paid"}
+    """Mark donation as paid (delegates to PublicDonationService)."""
+    return get_public_donation_service().mark_donation_paid_impl(donation_id, payment_reference)
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.FINANCIAL)
 def retry_payment(donation_id):
-    """Retry payment for a failed donation by redirecting to Mollie payment page"""
-    try:
-        if not donation_id:
-            frappe.throw(_("Donation ID is required"))
-
-        # Get the donation record
-        donation = frappe.get_doc("Donation", donation_id)
-
-        # Check if donation exists and belongs to current user (or allow public retry)
-        if not donation:
-            frappe.throw(_("Donation not found"))
-
-        # Only allow retry for unpaid donations with payment method Mollie
-        if donation.paid:
-            frappe.throw(_("This donation has already been paid"))
-
-        if donation.mode_of_payment != "Mollie":
-            frappe.throw(_("Payment retry is only available for Mollie payments"))
-
-        # Get the donor information for payment retry
-        donor = frappe.get_doc("Donor", donation.donor)
-
-        # Prepare form data for retry (similar to original payment creation)
-        form_data = {
-            "amount": str(donation.amount),
-            "currency": "EUR",
-            "return_url": f"{frappe.utils.get_url()}/donate?donation_id={donation.name}",
-            "donor_name": donor.donor_name,
-            "donor_email": donor.donor_email,
-            "payment_method": "Mollie",
-            "donation_status": donation.status,
-        }
-
-        # Process the retry payment using the same method as original submission
-        payment_result = get_public_donation_service().process_mollie_payment(donation, form_data)
-
-        # If successful, redirect to payment URL
-        if payment_result.get("status") == "redirect_required":
-            payment_url = payment_result.get("payment_url") or payment_result.get("checkout_url")
-            if payment_url:
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = payment_url
-                return
-
-        # If redirect failed, return error
-        frappe.throw(_("Failed to create retry payment. Please try again or contact support."))
-
-    except Exception as e:
-        frappe.log_error(f"Payment retry error for donation {donation_id}: {str(e)}", "Payment Retry Error")
-        frappe.throw(_("Unable to retry payment. Please try again or contact support."))
+    """Retry payment for a failed donation by redirecting to Mollie payment page."""
+    payment_url = get_public_donation_service().retry_payment_impl(donation_id)
+    if payment_url:
+        frappe.local.response["type"] = "redirect"
+        frappe.local.response["location"] = payment_url
+        return
+    frappe.throw(_("Failed to create retry payment. Please try again or contact support."))
