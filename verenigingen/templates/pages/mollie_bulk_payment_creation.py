@@ -190,6 +190,27 @@ def validate_csv_members(
         service = MollieDebugService()
         validation_results = []
 
+        # Prefetch all members referenced in the CSV in a single query, instead of
+        # issuing one frappe.db.get_value() lookup per row (N+1 for large CSVs).
+        customer_ids = list(
+            {row.get("customer_id", "").strip() for row in all_rows if row.get("customer_id", "").strip()}
+        )
+        members_by_customer_id = {}
+        if customer_ids:
+            for m in frappe.get_all(
+                "Member",
+                filters={"mollie_customer_id": ["in", customer_ids]},
+                fields=[
+                    "name",
+                    "member_id",
+                    "full_name",
+                    "status",
+                    "mollie_mandate_id",
+                    "mollie_customer_id",
+                ],
+            ):
+                members_by_customer_id[m.mollie_customer_id] = m
+
         for row in all_rows:
             customer_id = row.get("customer_id", "").strip()
             if not customer_id:
@@ -243,13 +264,8 @@ def validate_csv_members(
             if has_description_column and row.get("description"):
                 result["description"] = row["description"].strip()[:140]  # Mollie limit
 
-            # Look up member by Mollie customer ID
-            member = frappe.db.get_value(
-                "Member",
-                {"mollie_customer_id": customer_id},
-                ["name", "member_id", "full_name", "status", "mollie_mandate_id"],
-                as_dict=True,
-            )
+            # Look up member by Mollie customer ID (prefetched above)
+            member = members_by_customer_id.get(customer_id)
 
             if not member:
                 result["status"] = "error"

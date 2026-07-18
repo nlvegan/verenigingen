@@ -180,9 +180,11 @@ def _get_available_teams_for_user(user: str, member: str) -> list:
         fields=["parent"],
     )
 
-    for cm in chapter_teams:
-        chapter_name = cm.parent
-        chapter_team_names = frappe.get_all("Team", filters={"chapter": chapter_name}, pluck="name")
+    # Batch-fetch teams for all of the member's chapters in one query instead of
+    # issuing a separate frappe.get_all() per chapter.
+    chapter_names = list({cm.parent for cm in chapter_teams})
+    if chapter_names:
+        chapter_team_names = frappe.get_all("Team", filters={"chapter": ["in", chapter_names]}, pluck="name")
         team_names.extend(chapter_team_names)
 
     # Remove duplicates

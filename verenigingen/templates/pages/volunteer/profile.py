@@ -113,11 +113,15 @@ def get_volunteer_organizations(volunteer_name):
         )
 
         for cm in chapter_members:
-            chapter_info = frappe.db.get_value("Chapter", cm.parent, ["name"], as_dict=True)
-            if chapter_info:
-                chapter_info["chapter_name"] = chapter_info["name"]
-                chapter_info["join_date"] = cm.chapter_join_date
-                organizations["chapters"].append(chapter_info)
+            # cm.parent IS the Chapter's name (Chapter Member rows are parented by
+            # the Chapter), so no lookup is needed to obtain the Chapter's name.
+            organizations["chapters"].append(
+                {
+                    "name": cm.parent,
+                    "chapter_name": cm.parent,
+                    "join_date": cm.chapter_join_date,
+                }
+            )
 
     # Get teams where volunteer is active
     team_members = frappe.get_all(
@@ -127,11 +131,15 @@ def get_volunteer_organizations(volunteer_name):
     )
 
     for tm in team_members:
-        team_info = frappe.db.get_value("Team", tm.parent, ["name"], as_dict=True)
-        if team_info:
-            team_info["team_name"] = team_info["name"]
-            team_info["role"] = tm.role_type
-            team_info["joined_date"] = tm.from_date
-            organizations["teams"].append(team_info)
+        # tm.parent IS the Team's name (Team Member rows are parented by the
+        # Team), so no lookup is needed to obtain the Team's name.
+        organizations["teams"].append(
+            {
+                "name": tm.parent,
+                "team_name": tm.parent,
+                "role": tm.role_type,
+                "joined_date": tm.from_date,
+            }
+        )
 
     return organizations
