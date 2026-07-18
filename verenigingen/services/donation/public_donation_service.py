@@ -300,6 +300,120 @@ class PublicDonationService(StatelessService):
             "data": data,
         }
 
+    def submit(self, form_data):
+        """Process donation form submission (moved from donate.py:submit_donation).
+
+        Orchestrates validation, donor resolution, and payment-method dispatch
+        (Mollie payment-first flow vs. traditional create-then-pay flow) for
+        the public donation form endpoint.
+        """
+        try:
+            required_fields = ["donor_name", "donor_email", "amount", "payment_method"]
+            for field in required_fields:
+                if not form_data.get(field):
+                    return {"success": False, "message": _("Missing required field: {0}").format(field)}
+
+            # Validate email format
+            import re
+
+            email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+            if not re.match(email_pattern, form_data.donor_email):
+                return {"success": False, "message": _("Invalid email address")}
+
+            # Validate amount
+            amount = flt(form_data.amount)
+            if amount <= 0:
+                return {"success": False, "message": _("Donation amount must be greater than zero")}
+
+            # Create or get donor
+            from verenigingen.services.donation.donor_service import get_donation_donor_service
+
+            donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
+            if not donor:
+                return {"success": False, "message": _("Failed to create donor record")}
+
+            # For Mollie payments: payment-first flow (no donation created yet)
+            if form_data.get("payment_method") == "Mollie":
+                try:
+                    # Create draft donation (not submitted) with metadata for payment
+                    donation = self.create_donation(donor, form_data, draft=True)
+                    if not donation:
+                        return {"success": False, "message": _("Failed to create donation record")}
+
+                    # Process Mollie payment (creates payment, donation will be submitted by webhook)
+                    payment_result = self.process_mollie_payment(donation, form_data)
+
+                    # Wrap result in expected format for frontend
+                    if payment_result.get("status") in [
+                        "redirect_required",
+                        "subscription_redirect_required",
+                    ]:
+                        return {
+                            "success": True,
+                            "donation_id": donation.name,
+                            "payment_info": payment_result,
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "message": payment_result.get("message", _("Payment setup failed")),
+                            "info": payment_result.get("info", _("Please try again")),
+                        }
+
+                except Exception as e:
+                    frappe.log_error(
+                        f"Mollie payment processing error for donation {donation.name if 'donation' in locals() else 'unknown'}: {str(e)}",
+                        "Mollie Payment Error",
+                    )
+                    return {
+                        "success": False,
+                        "message": _("Payment setup temporarily unavailable"),
+                        "info": _("Please try again or contact support"),
+                    }
+
+            # For non-Mollie payments: traditional flow (create donation then process payment)
+            else:
+                # Create donation
+                donation = self.create_donation(donor, form_data, draft=False)
+                if not donation:
+                    return {"success": False, "message": _("Failed to create donation record")}
+
+                # Process payment based on method
+                try:
+                    payment_result = self.process_payment_method(donation, form_data)
+                except Exception:
+                    # Return partial success response - donation created but payment setup failed
+                    return {
+                        "success": False,  # Overall process failed due to payment setup
+                        "donation_created": True,  # But donation record was created
+                        "donation_id": donation.name,
+                        "message": _("Donation record created but payment setup failed"),
+                        "payment_info": {
+                            "status": "error",
+                            "message": "Payment setup failed. Please try again or contact support.",
+                            "info": "Your donation is recorded, but payment needs to be completed separately",
+                        },
+                    }
+
+            return {
+                "success": True,
+                "donation_created": True,
+                "donation_id": donation.name,
+                "message": _("Donation submitted successfully"),
+                "payment_info": payment_result,
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Donation submission error: {str(e)}", "Donation Form Error")
+            import traceback
+
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": _("An error occurred while processing your donation. Please try again."),
+                "debug_error": str(e),
+            }
+
     def process_mollie_payment(self, donation, form_data):
         """Handle Mollie payment using the enhanced service layer architecture"""
         try:
