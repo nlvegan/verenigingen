@@ -19,6 +19,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.settings_utils import populate_mollie_context
+from verenigingen.verenigingen_payments.mollie.services.shared.csv_utils import sanitize_csv_field
 
 # Configuration constants
 MAX_CSV_SIZE = 1024 * 1024  # 1MB limit for CSV uploads
@@ -55,29 +56,6 @@ def has_admin_access():
     ]
     user_roles = frappe.get_roles(frappe.session.user)
     return any(role in allowed_roles for role in user_roles)
-
-
-def sanitize_csv_field(value: str) -> str:
-    """
-    Sanitize CSV field to prevent CSV injection attacks.
-
-    Args:
-        value: Field value to sanitize
-
-    Returns:
-        str: Sanitized value safe for CSV output
-    """
-    if not value:
-        return value
-
-    value_str = str(value)
-
-    # Prevent CSV injection by escaping formula indicators
-    dangerous_chars = ("=", "+", "-", "@", "\t", "\r")
-    if value_str.startswith(dangerous_chars):
-        return "'" + value_str
-
-    return value_str
 
 
 @frappe.whitelist(allow_guest=False)

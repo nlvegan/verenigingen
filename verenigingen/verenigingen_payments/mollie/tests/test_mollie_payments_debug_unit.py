@@ -39,6 +39,11 @@ from verenigingen.templates.pages import mollie_payments_debug as mpd
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 _SERVICE = "verenigingen.templates.pages.mollie_payments_debug.MollieDebugService"
+# bulk_process_member_payments now delegates to bulk_payment_admin_service, which
+# builds its own MollieDebugService via a fresh function-level import from the
+# source module rather than the page's symbol - so those two tests patch here
+# instead of via _SERVICE (which still covers every other endpoint on this page).
+_BULK_SERVICE = "verenigingen.services.mollie_debug_service.MollieDebugService"
 _CHECKER = "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.BulkPaymentChecker"
 # Two real-looking Mollie payment IDs (tr_ + 10 alphanumerics) that pass the validator.
 _PID_A = "tr_WDqYK6vllg"
@@ -177,8 +182,12 @@ class TestBatchProcessDuesPayments(EnhancedTestCase):
 
     def test_html_escaped_json_is_unescaped_and_processed(self):
         # Simulate form data where the JSON was HTML-escaped.
+        # batch_process_dues_payments now delegates to bulk_payment_admin_service,
+        # which builds its own MollieDebugService via a fresh function-level
+        # import from the source module rather than this page's symbol - so
+        # patch it there (_BULK_SERVICE), not via _SERVICE.
         escaped = html.escape(json.dumps([_PID_A, _PID_B]))
-        with patch(_SERVICE) as MockSvc:
+        with patch(_BULK_SERVICE) as MockSvc:
             svc = MockSvc.return_value
             svc.batch_process_dues_payments.return_value = {"processed": 2}
             result = mpd.batch_process_dues_payments(payment_ids=escaped)
@@ -187,7 +196,9 @@ class TestBatchProcessDuesPayments(EnhancedTestCase):
         self.assertEqual(result["processed"], 2)
 
     def test_rate_limit_blocks_second_call(self):
-        with patch(_SERVICE) as MockSvc:
+        # See test_html_escaped_json_is_unescaped_and_processed: patch the
+        # source-module symbol (_BULK_SERVICE), not the page symbol (_SERVICE).
+        with patch(_BULK_SERVICE) as MockSvc:
             svc = MockSvc.return_value
             svc.batch_process_dues_payments.return_value = {"processed": 1}
             first = mpd.batch_process_dues_payments(payment_ids=json.dumps([_PID_A]))
@@ -250,7 +261,7 @@ class TestBulkProcessMemberPayments(EnhancedTestCase):
         super().tearDown()
 
     def test_small_batch_runs_synchronously(self):
-        with patch(_SERVICE) as MockSvc:
+        with patch(_BULK_SERVICE) as MockSvc:
             svc = MockSvc.return_value
             svc.bulk_process_member_payments.return_value = {"processed": 2}
             result = mpd.bulk_process_member_payments(payment_ids=json.dumps([_PID_A, _PID_B]), docstatus=0)
@@ -271,7 +282,7 @@ class TestBulkProcessMemberPayments(EnhancedTestCase):
         self.assertEqual(mock_enqueue.call_count, 2)
 
     def test_invalid_docstatus_falls_back_to_draft(self):
-        with patch(_SERVICE) as MockSvc:
+        with patch(_BULK_SERVICE) as MockSvc:
             svc = MockSvc.return_value
             svc.bulk_process_member_payments.return_value = {"processed": 1}
             mpd.bulk_process_member_payments(payment_ids=json.dumps([_PID_A]), docstatus=5)

@@ -505,7 +505,11 @@ class TestBatchProcessDuesValidation(_PageTest):
         ids = json_dumps([_VALID_PID_1])
         # Stub the service so the first call succeeds and SETs the cooldown key;
         # only the rate-limit behaviour is under test here.
-        with patch(f"{PAGE}.MollieDebugService") as MockSvc:
+        # ``batch_process_dues_payments`` now delegates to the consolidated
+        # bulk_payment_admin_service, which builds its own MollieDebugService
+        # via a fresh function-level import from the source module rather
+        # than this page's symbol - so patch it there instead of via PAGE.
+        with patch("verenigingen.services.mollie_debug_service.MollieDebugService") as MockSvc:
             MockSvc.return_value.batch_process_dues_payments.return_value = {"processed": 1}
             first = pp.batch_process_dues_payments(payment_ids=ids)
             second = pp.batch_process_dues_payments(payment_ids=ids)
@@ -535,10 +539,14 @@ class TestBulkProcessBatching(_PageTest):
         self.assertEqual(result["total_payments"], 250)
         self.assertEqual(mock_enqueue.call_count, 3)
         # Verify the worker function and batch sizes passed to enqueue.
+        # ``bulk_process_member_payments`` now delegates to the consolidated
+        # bulk_payment_admin_service, so the enqueue target is the service's
+        # dotted path rather than this page's (a back-compat shim still lives
+        # at the old path for in-flight jobs queued before this refactor).
         first_call = mock_enqueue.call_args_list[0]
         self.assertEqual(
             first_call.args[0],
-            f"{PAGE}.process_payment_batch_job",
+            "verenigingen.verenigingen_payments.mollie.services.bulk_payment_admin_service.process_payment_batch_job",
         )
         self.assertEqual(len(first_call.kwargs["payment_ids"]), 100)
         last_call = mock_enqueue.call_args_list[-1]
@@ -548,7 +556,11 @@ class TestBulkProcessBatching(_PageTest):
         from verenigingen.templates.pages import mollie_payment_processing as pp
 
         ids = json_dumps([_VALID_PID_1, _VALID_PID_2])
-        with patch(f"{PAGE}.MollieDebugService") as MockSvc:
+        # ``bulk_process_member_payments`` now delegates to
+        # bulk_payment_admin_service, which builds its own MollieDebugService
+        # via a fresh function-level import from the source module rather
+        # than this page's symbol - so patch it there instead of via PAGE.
+        with patch("verenigingen.services.mollie_debug_service.MollieDebugService") as MockSvc:
             MockSvc.return_value.bulk_process_member_payments.return_value = {"processed": 2}
             with patch(f"{PAGE}.frappe.enqueue") as mock_enqueue:
                 result = pp.bulk_process_member_payments(payment_ids=ids)
@@ -639,9 +651,12 @@ class TestBulkRetrieve(_PageTest):
         from verenigingen.templates.pages import mollie_payment_processing as pp
 
         # days_back out of range -> 30; max_payments out of range -> 5000;
-        # unknown retrieval_mode -> 'customer' (delegates to the service, which
-        # we stub to capture the clamped args).
-        with patch(f"{PAGE}.MollieDebugService") as MockSvc:
+        # unknown retrieval_mode -> 'customer' (delegates to the consolidated
+        # bulk_payment_admin_service, which builds its own MollieDebugService
+        # via a fresh function-level import from the source module rather
+        # than the page module's symbol - so we patch it there to capture
+        # the clamped args).
+        with patch("verenigingen.services.mollie_debug_service.MollieDebugService") as MockSvc:
             MockSvc.return_value.bulk_retrieve_all_member_payments.return_value = {"ok": True}
             result = pp.bulk_retrieve_all_member_payments(
                 days_back=999999,

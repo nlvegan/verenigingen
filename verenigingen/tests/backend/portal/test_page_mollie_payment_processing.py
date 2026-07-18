@@ -174,7 +174,18 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
                 page.retrieve_customer_payments_for_processing("cst_x")
 
     def test_retrieve_customer_payments_admin_passes_through_service(self):
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """``retrieve_customer_payments_for_processing`` now delegates to the
+        consolidated ``bulk_payment_admin_service``, which builds its own
+        ``MollieDebugService`` via a fresh function-level import rather than the
+        page module's symbol - so in addition to ``_patch_service()`` (which
+        still covers every other endpoint on this page) we patch the class at
+        its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.retrieve_customer_payments_return = {"payments": ["tr_1"]}
             result = page.retrieve_customer_payments_for_processing("cst_y", limit=10)
         self.assertEqual(result, {"payments": ["tr_1"]})
@@ -207,7 +218,17 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
         self.assertIn("more than 50", result["error"])
 
     def test_batch_dues_happy_path_passes_through_service(self):
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """``batch_process_dues_payments`` now delegates to the consolidated
+        ``bulk_payment_admin_service``, which builds its own ``MollieDebugService``
+        via a fresh function-level import rather than the page module's symbol -
+        so in addition to ``_patch_service()`` (which still covers every other
+        endpoint on this page) we patch the class at its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             self._clear_rate_limit()
             FakeMollieService.batch_process_dues_return = {"processed": 1, "ok": True}
             result = page.batch_process_dues_payments(json.dumps([VALID_ID]), customer_id="cst_z")
@@ -216,7 +237,11 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
 
     def test_batch_dues_rate_limit_blocks_second_call(self):
         """Two consecutive calls as the same user: the second hits the nx cache lock."""
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             self._clear_rate_limit()
             first = page.batch_process_dues_payments(json.dumps([VALID_ID]))
             second = page.batch_process_dues_payments(json.dumps([VALID_ID]))
@@ -237,14 +262,28 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
                 page.bulk_retrieve_all_member_payments()
 
     def test_bulk_retrieve_admin_default_mode_passes_through(self):
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """``bulk_retrieve_all_member_payments`` now delegates to the consolidated
+        ``bulk_payment_admin_service``, which builds its own ``MollieDebugService``
+        via a fresh function-level import rather than the page module's symbol -
+        so in addition to ``_patch_service()`` (which still covers every other
+        endpoint on this page) we patch the class at its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.bulk_retrieve_return = {"customers": [], "api_calls_made": 1}
             result = page.bulk_retrieve_all_member_payments()
         self.assertEqual(result, {"customers": [], "api_calls_made": 1})
 
     def test_bulk_retrieve_clamps_invalid_params_and_coerces_mode(self):
         """days_back=0 is coerced to 30, an unknown retrieval_mode falls back to 'customer'."""
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.bulk_retrieve_return = {"ok": True}
             result = page.bulk_retrieve_all_member_payments(
                 days_back=0, max_payments=10, retrieval_mode="bogus"
@@ -292,8 +331,19 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
         self.assertIn("Invalid Mollie payment ID", result["error"])
 
     def test_bulk_process_happy_path_coerces_docstatus_and_passes_through(self):
-        """An invalid docstatus is coerced to 0 and the service sentinel is returned."""
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """An invalid docstatus is coerced to 0 and the service sentinel is returned.
+
+        ``bulk_process_member_payments`` now delegates to the consolidated
+        ``bulk_payment_admin_service``, which builds its own ``MollieDebugService``
+        via a fresh function-level import rather than the page module's symbol -
+        so in addition to ``_patch_service()`` (which still covers every other
+        endpoint on this page) we patch the class at its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.bulk_process_return = {"created": 1}
             result = page.bulk_process_member_payments(json.dumps([VALID_ID]), docstatus=99)
         self.assertEqual(result, {"created": 1})

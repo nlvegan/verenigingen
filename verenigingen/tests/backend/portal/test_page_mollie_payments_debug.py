@@ -496,7 +496,18 @@ class TestPageMolliePaymentsDebug(EnhancedTestCase):
         self.assertEqual(result["customer_id"], "cst_x")
 
     def test_retrieve_customer_payments_admin_passthrough(self):
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """``retrieve_customer_payments_for_processing`` now delegates to the
+        consolidated ``bulk_payment_admin_service``, which builds its own
+        ``MollieDebugService`` via a fresh function-level import rather than the
+        page module's symbol - so in addition to ``_patch_service()`` (which
+        still covers every other endpoint on this page) we patch the class at
+        its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieDebugService),
+        ):
             result = page.retrieve_customer_payments_for_processing("cst_x", limit=10)
         self.assertEqual(result["_fake"], "retrieve_customer_payments_for_processing")
         self.assertEqual(result["customer_id"], "cst_x")
@@ -508,8 +519,19 @@ class TestPageMolliePaymentsDebug(EnhancedTestCase):
         self.assertIn("error", result)
 
     def test_batch_process_dues_payments_admin_passthrough(self):
-        """Admin happy path; clear the per-user rate-limit cache key first."""
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """Admin happy path; clear the per-user rate-limit cache key first.
+
+        ``batch_process_dues_payments`` now delegates to the consolidated
+        ``bulk_payment_admin_service``, which builds its own ``MollieDebugService``
+        via a fresh function-level import rather than the page module's symbol -
+        so in addition to ``_patch_service()`` (which still covers every other
+        endpoint on this page) we patch the class at its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieDebugService),
+        ):
             # Rate-limit key is per session user; clear it under the scratch user.
             frappe.cache().delete_value(f"dues_batch_limit:{frappe.session.user}")
             result = page.batch_process_dues_payments([self.VALID_PAYMENT_ID], customer_id="cst_x")
