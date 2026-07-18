@@ -58,31 +58,44 @@ the page endpoints.
 
 ### Thin page endpoints (both admin pages)
 
-Each of the 5 whitelisted endpoints on each page becomes a thin wrapper:
+Each of the 5 whitelisted endpoints on each page becomes a thin wrapper that
+**injects its page-local access-check callable** into the service function:
 
 ```python
 @frappe.whitelist(allow_guest=False, methods=["POST"])   # exact original decorator kept
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def bulk_process_member_payments(payment_ids, docstatus=0, payment_modes=None, create_bank_transactions=None):
-    if not has_mollie_debug_access():                     # page-local access check kept
-        frappe.throw(_("Access denied"), frappe.PermissionError)   # match the original throw exactly
     return bulk_payment_admin_service.bulk_process_member_payments(
-        payment_ids, docstatus, payment_modes, create_bank_transactions
+        payment_ids, docstatus, payment_modes, create_bank_transactions,
+        access_check=has_mollie_debug_access,   # processing passes has_payment_processing_access
     )
 ```
 
-- `@frappe.whitelist()` MUST stay OUTERMOST; keep the EXACT original decorator args (`allow_guest=False`, `methods=["POST"]` where present) and the exact original access-denied throw for each function.
+**Why inject the check rather than do it in the wrapper (BEHAVIOR-CRITICAL):** in the
+originals the access check sits INSIDE the function's `try`, and the outer
+`except Exception as e:` catches the `frappe.throw(_("Access denied"))`, logs it, and
+**returns `{"error": "Access denied", ...}` (HTTP 200)** — access-denial is a returned
+error dict, not a raised exception. If the wrapper did the check and threw before
+delegating, that would become a raised `ValidationError` (different HTTP behavior and
+no error dict) — a behavior change. So the service function keeps the check as its
+first in-`try` step, calling the injected `access_check()`; each wrapper passes its
+own page function (`has_mollie_debug_access` / `has_payment_processing_access`). The
+access-denied throw stays exactly `frappe.throw(_("Access denied"))`.
+
+- `@frappe.whitelist()` MUST stay OUTERMOST; keep the EXACT original decorator args (`allow_guest=False`, `methods=["POST"]` where present).
 - Dotted paths unchanged: `verenigingen.templates.pages.mollie_payments_debug.<fn>` and `...mollie_payment_processing.<fn>` both still resolve — page JS untouched.
 - The `mollie_payment_processing.bulk_retrieve_all_member_payments` wrapper passes `retrieval_mode` through; the `mollie_payments_debug` wrapper does NOT expose `retrieval_mode` (its JS never sends it), so it delegates with the default `"customer"` — **exactly preserving debug's current behavior**.
 
 ### Error-contract boundary (F10 — required)
 
 Each function's `try/except … frappe.log_error(...) → return {"error": …}` block moves
-**with the body, as one unit, into the service function**. The page wrapper is ONLY
-`access-check → delegate` — it must NOT add its own `try/except` around the delegate
-(a second layer would double-wrap and change the error shape/message the JS depends
-on). The exception boundary lives in exactly one place: the moved service body, with
-every `frappe.log_error` title/message preserved verbatim.
+**with the body, as one unit, into the service function** — INCLUDING the in-`try`
+access check (now `if not access_check(): frappe.throw(_("Access denied"))`, using the
+injected callable). The page wrapper is ONLY `return service.fn(..., access_check=page_fn)`
+— it must NOT add its own `try/except` or its own access check (that would double-wrap
+or change the caught-error-dict behavior described above). The exception boundary lives
+in exactly one place: the moved service body, with every `frappe.log_error` title/message
+and the `{"error": ...}` return shape preserved verbatim.
 
 ### Batch-job compatibility shims (F8 — required, deploy-safety)
 
