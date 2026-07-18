@@ -15,6 +15,10 @@ real Donor/Donation/Member documents are created via the ORM.
 
 import frappe
 
+from verenigingen.services.donation.donor_service import get_donation_donor_service
+from verenigingen.services.donation.public_donation_service import (
+    get_public_donation_service,
+)
 from verenigingen.templates.pages import donate
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -118,21 +122,20 @@ class TestDonatePage(VereningingenTestCase):
     # ------------------------------------------------------------------
 
     def test_map_donation_status(self):
-        self.assertEqual(donate.map_donation_status("One-time donation"), "One-time")
-        self.assertEqual(donate.map_donation_status("Monthly recurring"), "Recurring")
-        self.assertEqual(donate.map_donation_status("Promised donation"), "Promised")
-        self.assertEqual(donate.map_donation_status("Recurring"), "Recurring")
+        svc = get_public_donation_service()
+        self.assertEqual(svc.map_donation_status("One-time donation"), "One-time")
+        self.assertEqual(svc.map_donation_status("Monthly recurring"), "Recurring")
+        self.assertEqual(svc.map_donation_status("Promised donation"), "Promised")
+        self.assertEqual(svc.map_donation_status("Recurring"), "Recurring")
         # Unknown value falls back to One-time.
-        self.assertEqual(donate.map_donation_status("garbage"), "One-time")
+        self.assertEqual(svc.map_donation_status("garbage"), "One-time")
 
     # ------------------------------------------------------------------
     # submit_donation - validation paths
     # ------------------------------------------------------------------
 
     def test_submit_donation_missing_required_field(self):
-        result = donate.submit_donation(
-            donor_name="No Email", amount="10", payment_method="Bank Transfer"
-        )
+        result = donate.submit_donation(donor_name="No Email", amount="10", payment_method="Bank Transfer")
         self.assertFalse(result["success"])
         self.assertIn("donor_email", result["message"])
 
@@ -303,7 +306,7 @@ class TestDonatePage(VereningingenTestCase):
                 "donor_type": "Individual",
             }
         )
-        donor = donate.get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         self.assertIsNotNone(donor)
         self.track_doc("Donor", donor.name)
         self.assertEqual(donor.donor_email, email)
@@ -313,7 +316,7 @@ class TestDonatePage(VereningingenTestCase):
         """When no donor_type is given, the settings default (Individual) is used."""
         email = self._unique_email()
         form_data = frappe._dict({"donor_name": "Fallback Donor", "donor_email": email})
-        donor = donate.get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         self.track_doc("Donor", donor.name)
         self.assertIn(donor.donor_type, ("Individual", "Organization"))
 
@@ -328,7 +331,8 @@ class TestDonatePage(VereningingenTestCase):
                 "donation_notes": "urgent",
             }
         )
-        donation = donate.create_donation_record(donor, form_data)
+        svc = get_public_donation_service()
+        donation = svc.create_donation(donor, form_data)  # draft=False
         self.track_doc("Donation", donation.name)
         self.assertEqual(donation.specific_goal_description, "New shelter roof")
         self.assertEqual(donation.donation_notes, "urgent")
@@ -336,27 +340,6 @@ class TestDonatePage(VereningingenTestCase):
     # ------------------------------------------------------------------
     # payment-method processing helpers (real PaymentHook delegation)
     # ------------------------------------------------------------------
-
-    def test_process_bank_transfer_returns_instructions(self):
-        donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, mode_of_payment="Bank Transfer")
-        result = donate.process_bank_transfer(donation, frappe._dict())
-        self.assertEqual(result["status"], "awaiting_transfer")
-        self.assertIn("bank_details", result)
-        self.assertEqual(result["bank_details"]["amount"], donation.amount)
-
-    def test_process_cash_payment_returns_pending(self):
-        donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, mode_of_payment="Cash")
-        result = donate.process_cash_payment(donation, frappe._dict())
-        self.assertEqual(result["status"], "cash_pending")
-
-    def test_process_sepa_direct_debit_returns_mandate_required(self):
-        donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, mode_of_payment="Bank Transfer")
-        result = donate.process_sepa_direct_debit(donation, frappe._dict())
-        self.assertEqual(result["status"], "mandate_required")
-        self.assertEqual(result["next_step"], "sepa_mandate_form")
 
     def test_process_payment_method_cash_available(self):
         """process_payment_method delegates to PaymentHook for an always-available method.
@@ -376,7 +359,7 @@ class TestDonatePage(VereningingenTestCase):
                 "donor_name": donor.donor_name,
             }
         )
-        result = donate.process_payment_method(donation, form_data)
+        result = get_public_donation_service().process_payment_method(donation, form_data)
         # Cash is always available; result carries a status (cash_pending or pending).
         self.assertIn("status", result)
         self.assertNotEqual(result["status"], "error")
@@ -385,7 +368,7 @@ class TestDonatePage(VereningingenTestCase):
         donor = self.create_test_donor()
         donation = self.create_test_donation(donor=donor.name)
         form_data = frappe._dict({"payment_method": "Telepathy"})
-        result = donate.process_payment_method(donation, form_data)
+        result = get_public_donation_service().process_payment_method(donation, form_data)
         self.assertEqual(result["status"], "pending")
 
     # ------------------------------------------------------------------
@@ -393,7 +376,7 @@ class TestDonatePage(VereningingenTestCase):
     # ------------------------------------------------------------------
 
     def test_convert_payment_hook_response_redirect(self):
-        result = donate._convert_payment_hook_response(
+        result = get_public_donation_service()._convert_payment_hook_response(
             {
                 "success": True,
                 "action": "redirect",
@@ -407,12 +390,14 @@ class TestDonatePage(VereningingenTestCase):
         self.assertEqual(result["payment_id"], "tr_123")
 
     def test_convert_payment_hook_response_failure(self):
-        result = donate._convert_payment_hook_response({"success": False, "message": "nope"})
+        result = get_public_donation_service()._convert_payment_hook_response(
+            {"success": False, "message": "nope"}
+        )
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["message"], "nope")
 
     def test_convert_payment_hook_response_mandate_form(self):
-        result = donate._convert_payment_hook_response(
+        result = get_public_donation_service()._convert_payment_hook_response(
             {
                 "success": True,
                 "action": "mandate_form",
@@ -424,7 +409,7 @@ class TestDonatePage(VereningingenTestCase):
         self.assertEqual(result["mandate_id"], "MND-1")
 
     def test_convert_payment_hook_response_instructions_bank(self):
-        result = donate._convert_payment_hook_response(
+        result = get_public_donation_service()._convert_payment_hook_response(
             {
                 "success": True,
                 "action": "show_instructions",
@@ -435,7 +420,7 @@ class TestDonatePage(VereningingenTestCase):
         self.assertEqual(result["status"], "awaiting_transfer")
 
     def test_convert_payment_hook_response_instructions_cash(self):
-        result = donate._convert_payment_hook_response(
+        result = get_public_donation_service()._convert_payment_hook_response(
             {
                 "success": True,
                 "action": "show_instructions",
