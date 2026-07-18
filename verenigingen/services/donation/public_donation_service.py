@@ -122,10 +122,15 @@ class PublicDonationService(StatelessService):
                 ),
             )
         except Exception as e:
-            frappe.log_error(
-                message=f"Failed to create donation record: {str(e)}",
-                title="Donation Creation Security",
-            )
+            if draft:
+                frappe.log_error(
+                    f"Failed to create draft donation: {str(e)}", "Public Donation - Draft Creation Error"
+                )
+            else:
+                frappe.log_error(
+                    message=f"Failed to create donation record: {str(e)}",
+                    title="Donation Creation Security",
+                )
             frappe.throw(_("Unable to process donation: Failed to create donation record"))
 
         if draft:
