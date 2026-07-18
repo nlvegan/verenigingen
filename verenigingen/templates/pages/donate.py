@@ -320,86 +320,16 @@ def submit_donation(**kwargs):
 
 
 def get_or_create_donor(form_data):
-    """Get existing donor or create new one"""
-    # Check if donor exists by email
-    existing_donor = frappe.db.get_value("Donor", {"donor_email": form_data.donor_email})
+    """Get existing donor or create new one.
 
-    if existing_donor:
-        # Update existing donor with any new information
-        donor_doc = frappe.get_doc("Donor", existing_donor)
-        if form_data.get("donor_phone") and not donor_doc.phone:
-            donor_doc.phone = form_data.donor_phone
+    Thin delegate to DonationDonorService.get_or_create_from_public_form —
+    see that method for the actual implementation. Kept as a delegate (not
+    removed) so any remaining internal caller keeps working; it is fully
+    removed once ``submit_donation`` moves to the service layer.
+    """
+    from verenigingen.services.donation.donor_service import get_donation_donor_service
 
-            # PUBLIC DONATION FLOW: Use secure context for updating donor records
-            try:
-                system_user = get_system_user_for_operation("public_donation_donor_update")
-                with secure_user_context(
-                    system_user, f"Updating donor phone for public donation: {existing_donor}"
-                ):
-                    donor_doc.save()
-                    frappe.db.commit()
-                frappe.logger().info(
-                    f"Updated donor {existing_donor} with phone information from public donation form"
-                )
-            except Exception as e:
-                frappe.log_error(
-                    f"Failed to update donor information: {str(e)}", "Public Donation - Donor Update Error"
-                )
-                # Continue with donation processing even if phone update fails
-        return donor_doc
-    else:
-        # Create new donor with explicit donor type fallback
-        from verenigingen.utils.settings_utils import get_verenigingen_settings
-
-        settings = get_verenigingen_settings()
-        if not settings:
-            frappe.throw(_("Unable to load system settings"), frappe.ValidationError)
-        donor_type = form_data.get("donor_type")
-        if not donor_type:
-            donor_type = getattr(settings, "default_donor_type", None)
-
-        # Ensure donor_type is not None (fallback to Individual)
-        if not donor_type:
-            donor_type = "Individual"
-
-        donor_doc = frappe.new_doc("Donor")
-        donor_doc.update(
-            {
-                "donor_name": form_data.donor_name,
-                "donor_email": form_data.donor_email,
-                "phone": form_data.get("donor_phone", ""),
-                "address": form_data.get("donor_address", ""),
-                "donor_type": donor_type,
-                "contact_person": form_data.donor_name,  # Use same name as contact person
-                "donor_category": "Regular Donor",  # Default category
-            }
-        )
-
-        # PUBLIC DONATION FLOW: Use configured system user for creating public donation records
-        # This ensures proper permissions and ownership using the secure operations framework
-        try:
-            system_user = get_system_user_for_operation("public_donation_donor_creation")
-            with secure_user_context(
-                system_user, f"Creating donor for public donation: {form_data.donor_email}"
-            ):
-                donor_doc.insert()
-                frappe.db.commit()
-
-                # Set owner to system user for consistent ownership
-                frappe.db.set_value("Donor", donor_doc.name, "owner", system_user)
-                frappe.db.commit()
-
-            frappe.logger().info(
-                f"Created donor record for public donation: {form_data.donor_name} ({form_data.donor_email})"
-            )
-            return donor_doc
-
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to create donor record for public donation: {str(e)}",
-                "Public Donation - Donor Creation Error",
-            )
-            frappe.throw(_("Unable to process donation: Failed to create donor record"))
+    return get_donation_donor_service(None).get_or_create_from_public_form(form_data)
 
 
 def create_draft_donation_for_payment(donor, form_data):

@@ -44,13 +44,11 @@ class TestGuestDonationFlow(EnhancedTestCase):
 
     def _create_guest_donation(self, payment_method="Bank Transfer"):
         """Create a donor and donation as Guest, returning (donor, donation)."""
-        from verenigingen.templates.pages.donate import (
-            create_donation_record,
-            get_or_create_donor,
-        )
+        from verenigingen.services.donation.donor_service import get_donation_donor_service
+        from verenigingen.templates.pages.donate import create_donation_record
 
         form_data = frappe._dict(self._make_form_data(payment_method=payment_method))
-        donor = get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         donation = create_donation_record(donor, form_data)
         return donor, donation, form_data
 
@@ -109,15 +107,13 @@ class TestGuestDonationFlow(EnhancedTestCase):
 
     def test_guest_create_draft_donation_for_mollie(self):
         """REGRESSION: create_draft_donation_for_payment works for guest user."""
-        from verenigingen.templates.pages.donate import (
-            create_draft_donation_for_payment,
-            get_or_create_donor,
-        )
+        from verenigingen.services.donation.donor_service import get_donation_donor_service
+        from verenigingen.templates.pages.donate import create_draft_donation_for_payment
 
         frappe.set_user("Guest")
 
         form_data = frappe._dict(self._make_form_data(payment_method="Mollie"))
-        donor = get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         donation = create_draft_donation_for_payment(donor, form_data)
 
         self.assertIsNotNone(donation)
@@ -154,7 +150,8 @@ class TestGuestDonationFlow(EnhancedTestCase):
                 result = process_func(donation, form_data)
 
                 self.assertNotEqual(
-                    result.get("status"), "error",
+                    result.get("status"),
+                    "error",
                     f"{payment_method} should not fail with permission error: {result}",
                 )
                 self.assertEqual(result.get("status"), expected_status)
@@ -166,16 +163,16 @@ class TestGuestDonationFlow(EnhancedTestCase):
         If Mollie is not configured, the save should still succeed and the
         function returns an error from the Mollie API, not a permission error.
         """
+        from verenigingen.services.donation.donor_service import get_donation_donor_service
         from verenigingen.templates.pages.donate import (
             create_draft_donation_for_payment,
-            get_or_create_donor,
             process_mollie_payment,
         )
 
         frappe.set_user("Guest")
 
         form_data = frappe._dict(self._make_form_data(payment_method="Mollie"))
-        donor = get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         donation = create_draft_donation_for_payment(donor, form_data)
 
         result = process_mollie_payment(donation, form_data)
@@ -198,12 +195,12 @@ class TestGuestDonationFlow(EnhancedTestCase):
 
     def test_guest_get_or_create_donor_new(self):
         """Guest user can create a new donor."""
-        from verenigingen.templates.pages.donate import get_or_create_donor
+        from verenigingen.services.donation.donor_service import get_donation_donor_service
 
         frappe.set_user("Guest")
 
         form_data = frappe._dict(self._make_form_data())
-        donor = get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
 
         self.assertIsNotNone(donor)
         self.assertEqual(donor.donor_name, form_data.donor_name)
@@ -211,13 +208,14 @@ class TestGuestDonationFlow(EnhancedTestCase):
 
     def test_guest_get_or_create_donor_existing(self):
         """Guest user reuses existing donor by email."""
-        from verenigingen.templates.pages.donate import get_or_create_donor
+        from verenigingen.services.donation.donor_service import get_donation_donor_service
 
         form_data = frappe._dict(self._make_form_data())
 
         frappe.set_user("Guest")
-        donor1 = get_or_create_donor(form_data)
-        donor2 = get_or_create_donor(form_data)
+        service = get_donation_donor_service(None)
+        donor1 = service.get_or_create_from_public_form(form_data)
+        donor2 = service.get_or_create_from_public_form(form_data)
 
         self.assertEqual(donor1.name, donor2.name)
 

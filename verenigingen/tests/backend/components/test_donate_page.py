@@ -15,6 +15,7 @@ real Donor/Donation/Member documents are created via the ORM.
 
 import frappe
 
+from verenigingen.services.donation.donor_service import get_donation_donor_service
 from verenigingen.services.donation.public_donation_service import (
     get_public_donation_service,
 )
@@ -134,9 +135,7 @@ class TestDonatePage(VereningingenTestCase):
     # ------------------------------------------------------------------
 
     def test_submit_donation_missing_required_field(self):
-        result = donate.submit_donation(
-            donor_name="No Email", amount="10", payment_method="Bank Transfer"
-        )
+        result = donate.submit_donation(donor_name="No Email", amount="10", payment_method="Bank Transfer")
         self.assertFalse(result["success"])
         self.assertIn("donor_email", result["message"])
 
@@ -307,7 +306,7 @@ class TestDonatePage(VereningingenTestCase):
                 "donor_type": "Individual",
             }
         )
-        donor = donate.get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         self.assertIsNotNone(donor)
         self.track_doc("Donor", donor.name)
         self.assertEqual(donor.donor_email, email)
@@ -317,7 +316,7 @@ class TestDonatePage(VereningingenTestCase):
         """When no donor_type is given, the settings default (Individual) is used."""
         email = self._unique_email()
         form_data = frappe._dict({"donor_name": "Fallback Donor", "donor_email": email})
-        donor = donate.get_or_create_donor(form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
         self.track_doc("Donor", donor.name)
         self.assertIn(donor.donor_type, ("Individual", "Organization"))
 

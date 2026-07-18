@@ -13,7 +13,11 @@ from frappe.utils import flt, validate_email_address
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import (
+    get_system_user_for_operation,
+    secure_document_operation,
+    secure_user_context,
+)
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -156,24 +160,117 @@ class DonationDonorService(StatelessService):
             # Update existing donor information if needed
             return self._update_existing_donor(existing_donor, donor_name, phone)
 
-        # Create new donor
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = donor_name
-        donor.donor_email = email
-        donor.donor_type = donor_type or self._get_default_donor_type()
-
-        if phone:
-            donor.phone = phone
-
-        # Set defaults for new donors
-        donor.anbi_consent = 0  # Require explicit consent
+        # Create new donor.
+        # Set defaults for new donors: anbi_consent=0 (require explicit consent).
         # Note: privacy_consent and donor_status fields don't exist on Donor DocType
         # Privacy is handled through the donation process itself
+        donor = self._build_new_donor(
+            donor_name=donor_name,
+            email=email,
+            donor_type=donor_type or self._get_default_donor_type(),
+            phone=phone,
+            anbi_consent=0,
+        )
 
         donor.insert()
 
         self.logger.info(f"Created donor {donor.name} from donation data")
         return donor.name
+
+    def _build_new_donor(
+        self,
+        *,
+        donor_name: str,
+        email: str,
+        donor_type: str,
+        phone: Optional[str] = None,
+        address: Optional[str] = None,
+        contact_person: Optional[str] = None,
+        donor_category: Optional[str] = None,
+        anbi_consent: Optional[int] = None,
+    ):
+        """Construct (not insert) a new Donor doc. Each caller passes exactly the
+        fields its flow set historically — do not default-fill divergent fields."""
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = donor_name
+        donor.donor_email = email
+        donor.donor_type = donor_type
+        if phone:
+            donor.phone = phone
+        if address is not None:
+            donor.address = address
+        if contact_person is not None:
+            donor.contact_person = contact_person
+        if donor_category is not None:
+            donor.donor_category = donor_category
+        if anbi_consent is not None:
+            donor.anbi_consent = anbi_consent
+        return donor
+
+    def get_or_create_from_public_form(self, form_data):
+        """Get existing donor or create one from the public donation web form.
+
+        Returns the donor DOCUMENT (not the name), matching the donate.py contract.
+        Uses the public-donation secure_user_context framework for guest writes.
+        """
+        existing_donor = get_donor_by_email(form_data.donor_email)
+        if existing_donor:
+            if form_data.get("donor_phone") and not existing_donor.phone:
+                existing_donor.phone = form_data.donor_phone
+                try:
+                    system_user = get_system_user_for_operation("public_donation_donor_update")
+                    with secure_user_context(
+                        system_user, f"Updating donor phone for public donation: {existing_donor.name}"
+                    ):
+                        existing_donor.save()
+                        frappe.db.commit()
+                    frappe.logger().info(
+                        f"Updated donor {existing_donor.name} with phone information from public donation form"
+                    )
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to update donor information: {str(e)}",
+                        "Public Donation - Donor Update Error",
+                    )
+            return existing_donor
+
+        from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+        settings = get_verenigingen_settings()
+        if not settings:
+            frappe.throw(_("Unable to load system settings"), frappe.ValidationError)
+        donor_type = (
+            form_data.get("donor_type") or getattr(settings, "default_donor_type", None) or "Individual"
+        )
+
+        donor_doc = self._build_new_donor(
+            donor_name=form_data.donor_name,
+            email=form_data.donor_email,
+            donor_type=donor_type,
+            phone=form_data.get("donor_phone", ""),
+            address=form_data.get("donor_address", ""),
+            contact_person=form_data.donor_name,
+            donor_category="Regular Donor",
+        )
+        try:
+            system_user = get_system_user_for_operation("public_donation_donor_creation")
+            with secure_user_context(
+                system_user, f"Creating donor for public donation: {form_data.donor_email}"
+            ):
+                donor_doc.insert()
+                frappe.db.commit()
+                frappe.db.set_value("Donor", donor_doc.name, "owner", system_user)
+                frappe.db.commit()
+            frappe.logger().info(
+                f"Created donor record for public donation: {form_data.donor_name} ({form_data.donor_email})"
+            )
+            return donor_doc
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to create donor record for public donation: {str(e)}",
+                "Public Donation - Donor Creation Error",
+            )
+            frappe.throw(_("Unable to process donation: Failed to create donor record"))
 
     def update_donor_donation_history(self, donor_name: str) -> None:
         """Update donor's donation history with this donation"""
