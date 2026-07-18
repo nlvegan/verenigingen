@@ -571,9 +571,8 @@ def is_user_board_member():
 
     user_email = frappe.session.user
 
-    # Admin users have board access
-    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
-    if any(role in frappe.get_roles() for role in admin_roles):
+    # Admin users have board access (staff excluded — this is a board-membership check)
+    if any(role in frappe.get_roles() for role in Roles.ADMIN_PAIR):
         return True
 
     # Find member record for current user
