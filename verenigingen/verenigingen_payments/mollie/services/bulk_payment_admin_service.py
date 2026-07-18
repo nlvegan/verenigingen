@@ -4,9 +4,11 @@ Shared Mollie admin bulk-processing service.
 Holds the bulk-processing core (`bulk_process_member_payments` and its
 background-job worker `process_payment_batch_job`), the bulk-retrieval core
 (`bulk_retrieve_all_member_payments` and its `_retrieve_global_payments_with_orphans`
-helper), extracted from the two duplicated page controllers
-`mollie_payments_debug.py` and `mollie_payment_processing.py`. Both pages'
-whitelisted endpoints now delegate here as thin wrappers.
+helper), and the two-stage dues payment processing core
+(`retrieve_customer_payments_for_processing` and `batch_process_dues_payments`),
+extracted from the two duplicated page controllers `mollie_payments_debug.py`
+and `mollie_payment_processing.py`. Both pages' whitelisted endpoints now
+delegate here as thin wrappers.
 
 The access check is injected by each page wrapper via the keyword-only
 `access_check` parameter (`has_mollie_debug_access` for the debug page,
@@ -523,3 +525,108 @@ def process_payment_batch_job(batch_num, payment_ids, docstatus, payment_modes, 
         payment_modes=payment_modes,
         job_id=tracking_id,  # Pass as job_id to the service method
     )
+
+
+def retrieve_customer_payments_for_processing(customer_id, limit=250, *, access_check):
+    """
+    Retrieve all payment transactions for a customer ID with processing status.
+
+    This is Phase 1 of the two-stage dues payment processing:
+    - Retrieves all payments for the customer
+    - Checks which payments are already processed (have Payment Entry)
+    - Identifies payment type (dues vs donation)
+    - Finds associated member for dues payments
+    - Returns list with processable flag for UI selection
+
+    Args:
+        customer_id: Mollie customer ID
+        limit: Maximum number of payments to retrieve (default: 250)
+        access_check: Callable invoked to check caller access; injected by the calling page wrapper.
+
+    Security: POST-only to prevent CSRF attacks on financial operations
+    """
+    try:
+        if not access_check():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        service = MollieDebugService()
+        return service.retrieve_customer_payments_for_processing(customer_id, int(limit))
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Mollie retrieve customer payments error: {str(e)}",
+            title="Mollie retrieve customer payments error",
+        )
+        return {"error": str(e), "customer_id": customer_id}
+
+
+def batch_process_dues_payments(payment_ids, customer_id=None, *, access_check):
+    """
+    Process selected membership dues payments in batch.
+
+    This is Phase 2 of the two-stage dues payment processing:
+    - Takes list of payment IDs selected by user
+    - Creates Payment Entry for each dues payment
+    - Uses proper idempotency checks
+    - Returns detailed results for each payment
+
+    Args:
+        payment_ids: JSON string or list of Mollie payment IDs
+        customer_id: Optional customer ID for context
+        access_check: Callable invoked to check caller access; injected by the calling page wrapper.
+
+    Security: POST-only to prevent CSRF attacks on financial operations
+    """
+    try:
+        if not access_check():
+            frappe.throw(_("Access denied"))
+
+        # Parse payment_ids if it's a JSON string - use Frappe's secure parser
+        if isinstance(payment_ids, str):
+            import html
+
+            try:
+                # Decode HTML entities first (form data may be HTML-escaped)
+                payment_ids_decoded = html.unescape(payment_ids)
+                payment_ids = frappe.parse_json(payment_ids_decoded)
+            except (ValueError, TypeError) as e:
+                frappe.throw(_("Invalid JSON format for payment_ids: {0}").format(str(e)))
+
+        if not payment_ids or not isinstance(payment_ids, list):
+            frappe.throw(_("Invalid payment_ids - must be a list"))
+
+        # Validate each payment ID format to prevent injection attacks
+        try:
+            validate_mollie_payment_ids(payment_ids)
+        except ValueError as e:
+            frappe.throw(str(e))
+
+        # Enforce maximum batch size
+        MAX_BATCH_SIZE = 50
+        if len(payment_ids) > MAX_BATCH_SIZE:
+            frappe.throw(
+                _(
+                    f"Cannot process more than {MAX_BATCH_SIZE} payments at once. Please process in smaller batches."
+                )
+            )
+
+        # Rate limiting: 1 minute cooldown between batch operations (atomic operation)
+        cache_key = f"dues_batch_limit:{frappe.session.user}"
+        lock_acquired = frappe.cache().set(cache_key, "1", ex=60, nx=True)
+        if not lock_acquired:
+            remaining_ttl = frappe.cache().ttl(cache_key)
+            frappe.throw(_("Please wait {0} seconds before next batch operation").format(remaining_ttl or 60))
+
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        service = MollieDebugService()
+        return service.batch_process_dues_payments(payment_ids, customer_id)
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Mollie batch process dues payments error: {str(e)}",
+            title="Mollie batch process dues payments error",
+        )
+        return {"error": str(e), "payment_ids": payment_ids}

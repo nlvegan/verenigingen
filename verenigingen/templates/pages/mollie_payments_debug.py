@@ -499,19 +499,9 @@ def retrieve_customer_payments_for_processing(customer_id, limit=250):
 
     Security: POST-only to prevent CSRF attacks on financial operations
     """
-    try:
-        if not has_mollie_debug_access():
-            frappe.throw(_("Access denied"))
-
-        service = MollieDebugService()
-        return service.retrieve_customer_payments_for_processing(customer_id, int(limit))
-
-    except Exception as e:
-        frappe.log_error(
-            message=f"Mollie retrieve customer payments error: {str(e)}",
-            title="Mollie retrieve customer payments error",
-        )
-        return {"error": str(e), "customer_id": customer_id}
+    return bulk_payment_admin_service.retrieve_customer_payments_for_processing(
+        customer_id, limit, access_check=has_mollie_debug_access
+    )
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
@@ -532,55 +522,9 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
 
     Security: POST-only to prevent CSRF attacks on financial operations
     """
-    try:
-        if not has_mollie_debug_access():
-            frappe.throw(_("Access denied"))
-
-        # Parse payment_ids if it's a JSON string - use Frappe's secure parser
-        if isinstance(payment_ids, str):
-            import html
-
-            try:
-                # Decode HTML entities first (form data may be HTML-escaped)
-                payment_ids_decoded = html.unescape(payment_ids)
-                payment_ids = frappe.parse_json(payment_ids_decoded)
-            except (ValueError, TypeError) as e:
-                frappe.throw(_("Invalid JSON format for payment_ids: {0}").format(str(e)))
-
-        if not payment_ids or not isinstance(payment_ids, list):
-            frappe.throw(_("Invalid payment_ids - must be a list"))
-
-        # Validate each payment ID format to prevent injection attacks
-        try:
-            validate_mollie_payment_ids(payment_ids)
-        except ValueError as e:
-            frappe.throw(str(e))
-
-        # Enforce maximum batch size
-        MAX_BATCH_SIZE = 50
-        if len(payment_ids) > MAX_BATCH_SIZE:
-            frappe.throw(
-                _(
-                    f"Cannot process more than {MAX_BATCH_SIZE} payments at once. Please process in smaller batches."
-                )
-            )
-
-        # Rate limiting: 1 minute cooldown between batch operations (atomic operation)
-        cache_key = f"dues_batch_limit:{frappe.session.user}"
-        lock_acquired = frappe.cache().set(cache_key, "1", ex=60, nx=True)
-        if not lock_acquired:
-            remaining_ttl = frappe.cache().ttl(cache_key)
-            frappe.throw(_("Please wait {0} seconds before next batch operation").format(remaining_ttl or 60))
-
-        service = MollieDebugService()
-        return service.batch_process_dues_payments(payment_ids, customer_id)
-
-    except Exception as e:
-        frappe.log_error(
-            message=f"Mollie batch process dues payments error: {str(e)}",
-            title="Mollie batch process dues payments error",
-        )
-        return {"error": str(e), "payment_ids": payment_ids}
+    return bulk_payment_admin_service.batch_process_dues_payments(
+        payment_ids, customer_id, access_check=has_mollie_debug_access
+    )
 
 
 # Balance Transaction Processing API Endpoints
