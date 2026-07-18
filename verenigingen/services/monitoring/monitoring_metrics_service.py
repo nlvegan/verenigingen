@@ -241,9 +241,14 @@ class MonitoringMetricsService:
             return 0
 
     def _get_background_job_count(self) -> int:
-        """Get background job queue length."""
+        """Get background job queue length.
+
+        RQ Job is a virtual DocType backed by Redis (no `tabRQ Job` table), so a raw
+        `frappe.db.count` issues SQL against a missing table and errors. Query through the
+        ORM instead, which dispatches to the virtual DocType controller.
+        """
         try:
-            return frappe.db.count("RQ Job", {"status": "queued"})
+            return len(frappe.get_all("RQ Job", filters={"status": "queued"}, fields=["name"]))
         except Exception as e:
             frappe.log_error(
                 message=f"Error counting background jobs: {str(e)}",
