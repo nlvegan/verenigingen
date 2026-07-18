@@ -28,6 +28,10 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.services.donation.donor_service import get_donation_donor_service
+from verenigingen.services.donation.public_donation_service import (
+    get_public_donation_service,
+)
 from verenigingen.templates.pages import donate
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -90,8 +94,7 @@ class _RaisingCompletePaymentService:
 
 # Path where process_mollie_payment imports CompletePaymentService (local import).
 _CPS_PATH = (
-    "verenigingen.verenigingen_payments.mollie.services."
-    "complete_payment_service.CompletePaymentService"
+    "verenigingen.verenigingen_payments.mollie.services." "complete_payment_service.CompletePaymentService"
 )
 # Path where get_context imports MollieClient (local import).
 _MOLLIE_CLIENT_PATH = "verenigingen.verenigingen_payments.mollie.core.client.MollieClient"
@@ -159,9 +162,7 @@ class TestDonatePageMollie(EnhancedTestCase):
         self.assertEqual(donation.docstatus, 0)  # draft until webhook submits it
 
         # Real donor matched on the submitted email.
-        self.assertEqual(
-            frappe.db.get_value("Donor", donation.donor, "donor_email"), email
-        )
+        self.assertEqual(frappe.db.get_value("Donor", donation.donor, "donor_email"), email)
 
         # Redirect metadata surfaced to the frontend.
         payment_info = result["payment_info"]
@@ -304,8 +305,8 @@ class TestDonatePageMollie(EnhancedTestCase):
                 "donation_purpose_type": "General",
             }
         )
-        donor = donate.get_or_create_donor(form_data)
-        donation = donate.create_draft_donation_for_payment(donor, form_data)
+        donor = get_donation_donor_service(None).get_or_create_from_public_form(form_data)
+        donation = get_public_donation_service().create_donation(donor, form_data, draft=True)
         self.track_doc("Donation", donation.name)
         self.track_doc("Donor", donor.name)
         return donor, donation

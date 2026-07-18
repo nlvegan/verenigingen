@@ -28,15 +28,13 @@ User Experience:
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt
 
 from verenigingen.services.donation.public_donation_service import (
     get_public_donation_service,
 )
 from verenigingen.utils.secure_operations import (
-    get_system_user_for_operation,
     secure_document_operation,
-    secure_user_context,
 )
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -333,148 +331,21 @@ def get_or_create_donor(form_data):
 
 
 def create_draft_donation_for_payment(donor, form_data):
-    """Create draft donation record for payment-first flow (not submitted until webhook)"""
-    from verenigingen.utils.settings_utils import get_verenigingen_settings
+    """Create draft donation record for payment-first flow (not submitted until webhook).
 
-    settings = get_verenigingen_settings()
-    if not settings:
-        frappe.throw(
-            _("Verenigingen Settings not configured. Please run app installation setup."),
-            frappe.ValidationError,
-        )
-
-    # Determine purpose and earmarking
-    purpose_type = form_data.get("donation_purpose_type", "General")
-
-    donation_doc = frappe.new_doc("Donation")
-    donation_data = {
-        "company": settings.company,
-        "donor": donor.name,
-        "donation_date": getdate(),
-        "amount": flt(form_data.amount),
-        "mode_of_payment": form_data.get("payment_method"),
-        "status": "Promised",  # All Mollie payments start as promised until payment confirmation
-        "donation_purpose_type": purpose_type,
-        "donation_notes": form_data.get("donation_notes", ""),
-        "paid": 0,  # Will be marked paid by webhook
-    }
-
-    # Set purpose-specific fields based on purpose type
-    if purpose_type == "Campaign" and form_data.get("campaign_reference"):
-        donation_data["campaign"] = form_data["campaign_reference"]
-    elif purpose_type == "Chapter" and form_data.get("chapter_reference"):
-        donation_data["chapter_reference"] = form_data["chapter_reference"]
-    elif purpose_type == "Specific Goal" and form_data.get("specific_goal_description"):
-        donation_data["specific_goal_description"] = form_data["specific_goal_description"]
-
-    donation_doc.update(donation_data)
-
-    # Validate the donation
-    donation_doc.validate()
-
-    # PUBLIC DONATION FLOW: Save as DRAFT using secure context (webhook will submit after payment)
-    try:
-        system_user = get_system_user_for_operation("public_donation_draft_creation")
-        with secure_user_context(
-            system_user, f"Creating draft donation for public donation: {donor.donor_email}"
-        ):
-            donation_doc.flags.ignore_mandatory = False  # Keep data validation
-            donation_doc.insert()
-            frappe.db.commit()
-
-        frappe.logger().info(
-            f"Created draft donation for public donation: {donor.donor_name} amount €{form_data.amount}"
-        )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to create draft donation: {str(e)}", "Public Donation - Draft Creation Error"
-        )
-        frappe.throw(_("Unable to process donation: Failed to create donation record"))
-
-    return donation_doc
+    Thin delegate to PublicDonationService.create_donation(draft=True) — see
+    that method for the actual implementation.
+    """
+    return get_public_donation_service().create_donation(donor, form_data, draft=True)
 
 
 def create_donation_record(donor, form_data):
-    """Create donation record"""
-    from verenigingen.utils.settings_utils import get_verenigingen_settings
+    """Create donation record.
 
-    settings = get_verenigingen_settings()
-    if not settings:
-        frappe.throw(
-            _("Verenigingen Settings not configured. Please run app installation setup."),
-            frappe.ValidationError,
-        )
-
-    # Determine purpose and earmarking
-    purpose_type = form_data.get("donation_purpose_type", "General")
-
-    donation_doc = frappe.new_doc("Donation")
-    donation_data = {
-        "company": settings.company,
-        "donor": donor.name,
-        "donation_date": getdate(),
-        "amount": flt(form_data.amount),
-        # Set mode_of_payment from form data - it's a required field
-        "mode_of_payment": form_data.get("payment_method"),
-        "status": get_public_donation_service().map_donation_status(
-            form_data.get("donation_status", "One-time")
-        ),
-        "donation_purpose_type": purpose_type,
-        "donation_notes": form_data.get("donation_notes", ""),
-        "paid": 0,  # Will be marked paid after payment processing
-    }
-
-    # Set purpose-specific fields based on purpose type
-    if purpose_type == "Campaign" and form_data.get("campaign_reference"):
-        campaign_ref = form_data.get("campaign_reference")
-        # Only set campaign field if it's a valid Donation Campaign
-        if frappe.db.exists("Donation Campaign", campaign_ref):
-            donation_data["campaign"] = campaign_ref
-        else:
-            # If campaign doesn't exist, combine it with user notes for visibility
-            # This preserves user intent while keeping the notes field primarily for user content
-            user_notes = donation_data.get("donation_notes", "")
-            if user_notes:
-                donation_data["donation_notes"] = f"Campaign: {campaign_ref}\n\n{user_notes}"
-            else:
-                donation_data["donation_notes"] = f"Campaign: {campaign_ref}"
-
-    if purpose_type == "Chapter" and form_data.get("chapter_reference"):
-        donation_data["chapter_reference"] = form_data.get("chapter_reference")
-
-    if purpose_type == "Specific Goal":
-        # For specific goals, save the goal description in its proper field
-        if form_data.get("specific_goal_description"):
-            donation_data["specific_goal_description"] = form_data.get("specific_goal_description")
-
-        # The donation_notes field already contains user's additional notes from form_data
-        # No need to manipulate it further - it stays as-is for user notes
-
-    donation_doc.update(donation_data)
-
-    # Handle ANBI agreement if provided
-    if form_data.get("anbi_agreement_number"):
-        donation_doc.anbi_agreement_number = form_data.anbi_agreement_number
-        donation_doc.anbi_agreement_date = getdate(form_data.get("anbi_agreement_date", getdate()))
-
-    try:
-        get_public_donation_service()._save_donation_as_system_user(
-            donation_doc,
-            "insert",
-            "public_donation_creation",
-            f"Creating donation for public donation: {donor.donor_email} amount €{form_data.amount}",
-        )
-    except Exception as e:
-        frappe.log_error(
-            message=f"Failed to create donation record: {str(e)}",
-            title="Donation Creation Security",
-        )
-        frappe.throw(_("Unable to process donation: Failed to create donation record"))
-
-    # Donation records are no longer submittable - they remain as saved documents
-    # Payment processing will update the donation with payment details via webhook
-
-    return donation_doc
+    Thin delegate to PublicDonationService.create_donation(draft=False) — see
+    that method for the actual implementation.
+    """
+    return get_public_donation_service().create_donation(donor, form_data, draft=False)
 
 
 def process_payment_method(donation, form_data):

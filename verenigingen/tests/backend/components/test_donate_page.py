@@ -331,7 +331,8 @@ class TestDonatePage(VereningingenTestCase):
                 "donation_notes": "urgent",
             }
         )
-        donation = donate.create_donation_record(donor, form_data)
+        svc = get_public_donation_service()
+        donation = svc.create_donation(donor, form_data)  # draft=False
         self.track_doc("Donation", donation.name)
         self.assertEqual(donation.specific_goal_description, "New shelter roof")
         self.assertEqual(donation.donation_notes, "urgent")
