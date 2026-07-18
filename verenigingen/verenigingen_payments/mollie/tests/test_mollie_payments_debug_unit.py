@@ -182,8 +182,12 @@ class TestBatchProcessDuesPayments(EnhancedTestCase):
 
     def test_html_escaped_json_is_unescaped_and_processed(self):
         # Simulate form data where the JSON was HTML-escaped.
+        # batch_process_dues_payments now delegates to bulk_payment_admin_service,
+        # which builds its own MollieDebugService via a fresh function-level
+        # import from the source module rather than this page's symbol - so
+        # patch it there (_BULK_SERVICE), not via _SERVICE.
         escaped = html.escape(json.dumps([_PID_A, _PID_B]))
-        with patch(_SERVICE) as MockSvc:
+        with patch(_BULK_SERVICE) as MockSvc:
             svc = MockSvc.return_value
             svc.batch_process_dues_payments.return_value = {"processed": 2}
             result = mpd.batch_process_dues_payments(payment_ids=escaped)
@@ -192,7 +196,9 @@ class TestBatchProcessDuesPayments(EnhancedTestCase):
         self.assertEqual(result["processed"], 2)
 
     def test_rate_limit_blocks_second_call(self):
-        with patch(_SERVICE) as MockSvc:
+        # See test_html_escaped_json_is_unescaped_and_processed: patch the
+        # source-module symbol (_BULK_SERVICE), not the page symbol (_SERVICE).
+        with patch(_BULK_SERVICE) as MockSvc:
             svc = MockSvc.return_value
             svc.batch_process_dues_payments.return_value = {"processed": 1}
             first = mpd.batch_process_dues_payments(payment_ids=json.dumps([_PID_A]))

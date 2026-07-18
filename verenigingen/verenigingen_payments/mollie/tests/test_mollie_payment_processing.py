@@ -505,7 +505,11 @@ class TestBatchProcessDuesValidation(_PageTest):
         ids = json_dumps([_VALID_PID_1])
         # Stub the service so the first call succeeds and SETs the cooldown key;
         # only the rate-limit behaviour is under test here.
-        with patch(f"{PAGE}.MollieDebugService") as MockSvc:
+        # ``batch_process_dues_payments`` now delegates to the consolidated
+        # bulk_payment_admin_service, which builds its own MollieDebugService
+        # via a fresh function-level import from the source module rather
+        # than this page's symbol - so patch it there instead of via PAGE.
+        with patch("verenigingen.services.mollie_debug_service.MollieDebugService") as MockSvc:
             MockSvc.return_value.batch_process_dues_payments.return_value = {"processed": 1}
             first = pp.batch_process_dues_payments(payment_ids=ids)
             second = pp.batch_process_dues_payments(payment_ids=ids)
