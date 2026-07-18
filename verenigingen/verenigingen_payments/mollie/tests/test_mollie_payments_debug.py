@@ -46,7 +46,11 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 # binding is resolved at call time and patching here intercepts it.
 _BAL = "verenigingen.verenigingen_payments.api.balance_transaction_processing"
 _CHECKER = "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.BulkPaymentChecker"
-_SERVICE = "verenigingen.templates.pages.mollie_payments_debug.MollieDebugService"
+# process_payment_batch_job is now a back-compat shim delegating to
+# bulk_payment_admin_service.process_payment_batch_job, which builds its own
+# MollieDebugService via a fresh function-level import from the source module
+# rather than this page's symbol - so patch it there, not via the page.
+_SERVICE = "verenigingen.services.mollie_debug_service.MollieDebugService"
 
 _PID_A = "tr_WDqYK6vllg"
 _PID_B = "tr_AbCdEfGhIj"

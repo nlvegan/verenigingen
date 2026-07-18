@@ -535,10 +535,14 @@ class TestBulkProcessBatching(_PageTest):
         self.assertEqual(result["total_payments"], 250)
         self.assertEqual(mock_enqueue.call_count, 3)
         # Verify the worker function and batch sizes passed to enqueue.
+        # ``bulk_process_member_payments`` now delegates to the consolidated
+        # bulk_payment_admin_service, so the enqueue target is the service's
+        # dotted path rather than this page's (a back-compat shim still lives
+        # at the old path for in-flight jobs queued before this refactor).
         first_call = mock_enqueue.call_args_list[0]
         self.assertEqual(
             first_call.args[0],
-            f"{PAGE}.process_payment_batch_job",
+            "verenigingen.verenigingen_payments.mollie.services.bulk_payment_admin_service.process_payment_batch_job",
         )
         self.assertEqual(len(first_call.kwargs["payment_ids"]), 100)
         last_call = mock_enqueue.call_args_list[-1]
@@ -548,7 +552,11 @@ class TestBulkProcessBatching(_PageTest):
         from verenigingen.templates.pages import mollie_payment_processing as pp
 
         ids = json_dumps([_VALID_PID_1, _VALID_PID_2])
-        with patch(f"{PAGE}.MollieDebugService") as MockSvc:
+        # ``bulk_process_member_payments`` now delegates to
+        # bulk_payment_admin_service, which builds its own MollieDebugService
+        # via a fresh function-level import from the source module rather
+        # than this page's symbol - so patch it there instead of via PAGE.
+        with patch("verenigingen.services.mollie_debug_service.MollieDebugService") as MockSvc:
             MockSvc.return_value.bulk_process_member_payments.return_value = {"processed": 2}
             with patch(f"{PAGE}.frappe.enqueue") as mock_enqueue:
                 result = pp.bulk_process_member_payments(payment_ids=ids)

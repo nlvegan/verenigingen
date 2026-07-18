@@ -292,8 +292,19 @@ class TestPageMolliePaymentProcessing(EnhancedTestCase):
         self.assertIn("Invalid Mollie payment ID", result["error"])
 
     def test_bulk_process_happy_path_coerces_docstatus_and_passes_through(self):
-        """An invalid docstatus is coerced to 0 and the service sentinel is returned."""
-        with self.as_role(Roles.VERENIGINGEN_ADMIN), self._patch_service():
+        """An invalid docstatus is coerced to 0 and the service sentinel is returned.
+
+        ``bulk_process_member_payments`` now delegates to the consolidated
+        ``bulk_payment_admin_service``, which builds its own ``MollieDebugService``
+        via a fresh function-level import rather than the page module's symbol -
+        so in addition to ``_patch_service()`` (which still covers every other
+        endpoint on this page) we patch the class at its source module too.
+        """
+        with (
+            self.as_role(Roles.VERENIGINGEN_ADMIN),
+            self._patch_service(),
+            patch("verenigingen.services.mollie_debug_service.MollieDebugService", FakeMollieService),
+        ):
             FakeMollieService.bulk_process_return = {"created": 1}
             result = page.bulk_process_member_payments(json.dumps([VALID_ID]), docstatus=99)
         self.assertEqual(result, {"created": 1})
