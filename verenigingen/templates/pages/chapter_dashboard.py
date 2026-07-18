@@ -111,9 +111,8 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
     """Get user's board role for specific chapter"""
     user_email = frappe.session.user
 
-    # Admin users have full access
-    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
-    if any(role in frappe.get_roles() for role in admin_roles):
+    # Admin users have full access (staff excluded — this gate authorizes board mutations)
+    if any(role in frappe.get_roles() for role in Roles.ADMIN_PAIR):
         return {
             "role": "System Administrator",
             "permissions": {
