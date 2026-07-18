@@ -194,8 +194,5 @@ def mark_donation_paid(donation_id, payment_reference: str | None = None):
 def retry_payment(donation_id):
     """Retry payment for a failed donation by redirecting to Mollie payment page."""
     payment_url = get_public_donation_service().retry_payment_impl(donation_id)
-    if payment_url:
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = payment_url
-        return
-    frappe.throw(_("Failed to create retry payment. Please try again or contact support."))
+    frappe.local.response["type"] = "redirect"
+    frappe.local.response["location"] = payment_url

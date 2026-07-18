@@ -509,8 +509,10 @@ class PublicDonationService(StatelessService):
     def retry_payment_impl(self, donation_id):
         """Retry payment for a failed donation (moved from donate.py:retry_payment).
 
-        Returns the payment_url on success, or None if no redirect was
-        obtained (the caller throws the generic "failed to retry" error).
+        Returns the payment_url on success; raises otherwise (the outer
+        except wraps every failure, including "no redirect obtained", into
+        the generic "Unable to retry payment" error, matching the original
+        endpoint's behavior).
         """
         try:
             if not donation_id:
@@ -553,7 +555,8 @@ class PublicDonationService(StatelessService):
                 if payment_url:
                     return payment_url
 
-            return None
+            # If redirect failed, raise so the except below wraps it consistently
+            frappe.throw(_("Failed to create retry payment. Please try again or contact support."))
 
         except Exception as e:
             frappe.log_error(
