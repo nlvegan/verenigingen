@@ -48,14 +48,17 @@ class TestPageDonate(EnhancedTestCase):
     # ----- map_donation_status (pure) ----------------------------------
 
     def test_map_donation_status(self):
-        from verenigingen.templates.pages.donate import map_donation_status
+        from verenigingen.services.donation.public_donation_service import (
+            get_public_donation_service,
+        )
 
-        self.assertEqual(map_donation_status("One-time donation"), "One-time")
-        self.assertEqual(map_donation_status("Monthly recurring"), "Recurring")
-        self.assertEqual(map_donation_status("Promised donation"), "Promised")
-        self.assertEqual(map_donation_status("Recurring"), "Recurring")
+        svc = get_public_donation_service()
+        self.assertEqual(svc.map_donation_status("One-time donation"), "One-time")
+        self.assertEqual(svc.map_donation_status("Monthly recurring"), "Recurring")
+        self.assertEqual(svc.map_donation_status("Promised donation"), "Promised")
+        self.assertEqual(svc.map_donation_status("Recurring"), "Recurring")
         # Unknown values fall back to One-time.
-        self.assertEqual(map_donation_status("garbage value"), "One-time")
+        self.assertEqual(svc.map_donation_status("garbage value"), "One-time")
 
     # ----- get_context --------------------------------------------------
 

@@ -30,6 +30,9 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.services.donation.public_donation_service import (
+    get_public_donation_service,
+)
 from verenigingen.utils.secure_operations import (
     get_system_user_for_operation,
     secure_document_operation,
@@ -316,29 +319,6 @@ def submit_donation(**kwargs):
         }
 
 
-def _save_donation_as_system_user(doc, operation, operation_context, description):
-    """Save or insert a donation/donor document using system user context.
-
-    PUBLIC DONATION FLOW: Guests lack roles in ESCALATION_ALLOWED_ROLES so
-    secure_document_operation(allow_system_user=True) fails for them.  This
-    helper switches to the configured system user via secure_user_context()
-    instead — the same pattern used for donor creation elsewhere in this file.
-
-    Args:
-        doc: Document to save/insert.
-        operation: "insert" or "save".
-        operation_context: Context key for get_system_user_for_operation().
-        description: Human-readable description for the audit trail.
-
-    Raises:
-        Exception: Re-raises after logging so callers can handle it.
-    """
-    system_user = get_system_user_for_operation(operation_context)
-    with secure_user_context(system_user, description):
-        getattr(doc, operation)()
-        frappe.db.commit()
-
-
 def get_or_create_donor(form_data):
     """Get existing donor or create new one"""
     # Check if donor exists by email
@@ -506,7 +486,9 @@ def create_donation_record(donor, form_data):
         "amount": flt(form_data.amount),
         # Set mode_of_payment from form data - it's a required field
         "mode_of_payment": form_data.get("payment_method"),
-        "status": map_donation_status(form_data.get("donation_status", "One-time")),
+        "status": get_public_donation_service().map_donation_status(
+            form_data.get("donation_status", "One-time")
+        ),
         "donation_purpose_type": purpose_type,
         "donation_notes": form_data.get("donation_notes", ""),
         "paid": 0,  # Will be marked paid after payment processing
@@ -546,7 +528,7 @@ def create_donation_record(donor, form_data):
         donation_doc.anbi_agreement_date = getdate(form_data.get("anbi_agreement_date", getdate()))
 
     try:
-        _save_donation_as_system_user(
+        get_public_donation_service()._save_donation_as_system_user(
             donation_doc,
             "insert",
             "public_donation_creation",
@@ -590,7 +572,7 @@ def process_payment_method(donation, form_data):
     # Update donation's mode_of_payment before processing
     donation.mode_of_payment = payment_method
     try:
-        _save_donation_as_system_user(
+        get_public_donation_service()._save_donation_as_system_user(
             donation,
             "save",
             "public_donation_payment_update",
@@ -716,7 +698,7 @@ def process_bank_transfer(donation, form_data):
     """Handle bank transfer payment"""
     donation.mode_of_payment = "Bank Transfer"
     try:
-        _save_donation_as_system_user(
+        get_public_donation_service()._save_donation_as_system_user(
             donation,
             "save",
             "public_donation_payment_update",
@@ -765,7 +747,7 @@ def process_sepa_direct_debit(donation, form_data):
     """Handle SEPA direct debit setup"""
     donation.mode_of_payment = "SEPA Direct Debit"
     try:
-        _save_donation_as_system_user(
+        get_public_donation_service()._save_donation_as_system_user(
             donation,
             "save",
             "public_donation_payment_update",
@@ -800,7 +782,7 @@ def process_mollie_payment(donation, form_data):
 
         donation.mode_of_payment = "Mollie"
         try:
-            _save_donation_as_system_user(
+            get_public_donation_service()._save_donation_as_system_user(
                 donation,
                 "save",
                 "public_donation_payment_update",
@@ -873,7 +855,7 @@ def process_cash_payment(donation, form_data):
     """Handle cash payment"""
     donation.mode_of_payment = "Cash"
     try:
-        _save_donation_as_system_user(
+        get_public_donation_service()._save_donation_as_system_user(
             donation,
             "save",
             "public_donation_payment_update",
@@ -1004,16 +986,3 @@ def retry_payment(donation_id):
     except Exception as e:
         frappe.log_error(f"Payment retry error for donation {donation_id}: {str(e)}", "Payment Retry Error")
         frappe.throw(_("Unable to retry payment. Please try again or contact support."))
-
-
-def map_donation_status(status_value):
-    """Map form donation status to DocType status values"""
-    status_mapping = {
-        "One-time donation": "One-time",
-        "Monthly recurring": "Recurring",
-        "Promised donation": "Promised",
-        "One-time": "One-time",  # Direct mapping
-        "Recurring": "Recurring",  # Direct mapping
-        "Promised": "Promised",  # Direct mapping
-    }
-    return status_mapping.get(status_value, "One-time")

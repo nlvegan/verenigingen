@@ -15,6 +15,9 @@ real Donor/Donation/Member documents are created via the ORM.
 
 import frappe
 
+from verenigingen.services.donation.public_donation_service import (
+    get_public_donation_service,
+)
 from verenigingen.templates.pages import donate
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -118,12 +121,13 @@ class TestDonatePage(VereningingenTestCase):
     # ------------------------------------------------------------------
 
     def test_map_donation_status(self):
-        self.assertEqual(donate.map_donation_status("One-time donation"), "One-time")
-        self.assertEqual(donate.map_donation_status("Monthly recurring"), "Recurring")
-        self.assertEqual(donate.map_donation_status("Promised donation"), "Promised")
-        self.assertEqual(donate.map_donation_status("Recurring"), "Recurring")
+        svc = get_public_donation_service()
+        self.assertEqual(svc.map_donation_status("One-time donation"), "One-time")
+        self.assertEqual(svc.map_donation_status("Monthly recurring"), "Recurring")
+        self.assertEqual(svc.map_donation_status("Promised donation"), "Promised")
+        self.assertEqual(svc.map_donation_status("Recurring"), "Recurring")
         # Unknown value falls back to One-time.
-        self.assertEqual(donate.map_donation_status("garbage"), "One-time")
+        self.assertEqual(svc.map_donation_status("garbage"), "One-time")
 
     # ------------------------------------------------------------------
     # submit_donation - validation paths
