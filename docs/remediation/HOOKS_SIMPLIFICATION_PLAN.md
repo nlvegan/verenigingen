@@ -190,7 +190,8 @@ commands = [
 
 app_include_css = [
     "/assets/verenigingen/css/verenigingen_custom.css",
-    "/assets/verenigingen/css/volunteer_portal.css",
+    # volunteer_portal.css removed in PR #152 (dead wiring — a Desk bundle
+    # entry targeting website-portal classes); do not re-add.
     "/assets/verenigingen/css/iban-validation.css",
 ]
 
