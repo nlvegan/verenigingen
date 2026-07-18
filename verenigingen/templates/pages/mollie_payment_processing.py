@@ -6,7 +6,10 @@ Streamlined interface for processing Mollie payments as membership dues and bank
 import frappe
 from frappe import _
 
-from verenigingen.services.mollie_debug_service import MollieDebugService
+# NOTE: MollieDebugService is no longer used directly in this page body (all
+# endpoints delegate to bulk_payment_admin_service), but the shared test helper
+# `_patch_service()` patches this module symbol, so the import must remain.
+from verenigingen.services.mollie_debug_service import MollieDebugService  # noqa: F401
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
