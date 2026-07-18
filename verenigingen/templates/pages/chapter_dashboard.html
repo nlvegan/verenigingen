@@ -20,7 +20,7 @@
             {{ date_val.strftime(format) }}
         {%- endif -%}
     {%- else -%}
-        Recently
+        {{ _("Recently") }}
     {%- endif -%}
 {%- endmacro %}
 
@@ -38,10 +38,10 @@
 <div class="wide-layout-wrapper min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
     {% if error_message %}
         <div class="bg-danger-100 border-2 border-danger-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
-            <h4 class="text-2xl font-semibold text-danger-800 mb-4">Access Denied</h4>
+            <h4 class="text-2xl font-semibold text-danger-800 mb-4">{{ _("Access Denied") }}</h4>
             <p class="text-lg text-danger-700">{{ error_message }}</p>
             {% if user_roles %}
-                <small class="text-gray-600">Your current roles: {{ ", ".join(user_roles) }}</small>
+                <small class="text-gray-600">{{ _("Your current roles:") }} {{ ", ".join(user_roles) }}</small>
             {% endif %}
         </div>
     {% elif has_data %}
@@ -51,20 +51,20 @@
                 <div>
                     <h1 class="text-3xl font-bold m-0 flex items-center gap-2">
                         <span class="text-4xl"><i class="fa fa-institution"></i></span>
-                        <span>{{ (selected_chapter.upper() if selected_chapter else 'CHAPTER')|e }} CHAPTER</span>
+                        <span>{{ (selected_chapter.upper() if selected_chapter else 'CHAPTER')|e }} {{ _("CHAPTER") }}</span>
                     </h1>
                     <div class="mt-2">
                         <span class="bg-white text-primary-700 px-3 py-1 rounded-full text-sm font-semibold mr-2">
-                            {{ user_board_role.role if user_board_role else 'Board Member' }}
+                            {{ user_board_role.role if user_board_role else _('Board Member') }}
                         </span>
                         {% if user_board_role and user_board_role.since %}
-                            <span class="text-sm text-white" style="opacity: 0.9;">Since {{ format_date(user_board_role.since, '%B %Y') }}</span>
+                            <span class="text-sm text-white" style="opacity: 0.9;">{{ _("Since") }} {{ format_date(user_board_role.since, '%B %Y') }}</span>
                         {% endif %}
                     </div>
                 </div>
                 <div class="text-left md:text-right text-white">
                     <div class="text-sm mb-2" style="opacity: 0.9;">
-                        Last Updated: {{ format_datetime(dashboard_data.last_updated) if dashboard_data and dashboard_data.last_updated else 'N/A' }}
+                        {{ _("Last Updated:") }} {{ format_datetime(dashboard_data.last_updated) if dashboard_data and dashboard_data.last_updated else _('N/A') }}
                     </div>
                 </div>
             </div>
@@ -76,9 +76,9 @@
                 <div class="text-5xl mb-3"><i class="fa fa-users"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
-                    <p class="mt-1 text-gray-600 font-medium mb-0">Active Members</p>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Active Members") }}</p>
                     {% if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members and dashboard_data.key_metrics.members.new_this_month > 0 %}
-                        <small class="text-xs font-semibold uppercase tracking-wide text-success-600">+{{ dashboard_data.key_metrics.members.new_this_month }} this month</small>
+                        <small class="text-xs font-semibold uppercase tracking-wide text-success-600">+{{ dashboard_data.key_metrics.members.new_this_month }} {{ _("this month") }}</small>
                     {% endif %}
                 </div>
             </div>
@@ -87,11 +87,11 @@
                 <div class="text-5xl mb-3"><i class="fa fa-hourglass-half"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
-                    <p class="mt-1 text-gray-600 font-medium mb-0">Pending Applications</p>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Pending Applications") }}</p>
                     {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
                         {% set overdue_count = dashboard_data.pending_actions.membership_applications | selectattr('is_overdue') | list | length %}
                         {% if overdue_count > 0 %}
-                            <small class="text-xs font-semibold uppercase tracking-wide text-danger-600">{{ overdue_count }} overdue</small>
+                            <small class="text-xs font-semibold uppercase tracking-wide text-danger-600">{{ overdue_count }} {{ _("overdue") }}</small>
                         {% endif %}
                     {% endif %}
                 </div>
@@ -101,8 +101,8 @@
                 <div class="text-5xl mb-3"><i class="fa fa-money"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
-                    <p class="mt-1 text-gray-600 font-medium mb-0">Pending Expenses</p>
-                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ dashboard_data.key_metrics.expenses.pending_count if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} claims</small>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Pending Expenses") }}</p>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ dashboard_data.key_metrics.expenses.pending_count if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }} {{ _("claims") }}</small>
                 </div>
             </div>
 
@@ -110,8 +110,8 @@
                 <div class="text-5xl mb-3"><i class="fa fa-check-circle"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
-                    <p class="mt-1 text-gray-600 font-medium mb-0">Approved Expenses</p>
-                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">Year to Date</small>
+                    <p class="mt-1 text-gray-600 font-medium mb-0">{{ _("Approved Expenses") }}</p>
+                    <small class="text-xs font-semibold uppercase tracking-wide text-gray-600">{{ _("Year to Date") }}</small>
                 </div>
             </div>
         </div>
@@ -122,24 +122,24 @@
                 <!-- Member Management Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow duration-300">
                     <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-primary-50 border-primary-200">
-                        <h3 class="flex items-center m-0 text-lg font-semibold text-primary-600"><i class="fa fa-users"></i> Members</h3>
+                        <h3 class="flex items-center m-0 text-lg font-semibold text-primary-600"><i class="fa fa-users"></i> {{ _("Members") }}</h3>
                         <div class="flex gap-2">
                             <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm" onclick="viewAllMembers()">
-                                <i class="fa fa-list mr-1"></i> View All
+                                <i class="fa fa-list mr-1"></i> {{ _("View All") }}
                             </button>
                             <a href="/app/event-contact-campaign?chapter={{ chapter_name|urlencode|e }}" class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm no-underline">
-                                <i class="fa fa-bullhorn mr-1"></i> Contact Campaigns
+                                <i class="fa fa-bullhorn mr-1"></i> {{ _("Contact Campaigns") }}
                             </a>
                         </div>
                     </div>
                     <div class="px-6 pb-6">
                         {% if dashboard_data and dashboard_data.member_overview and dashboard_data.member_overview.recent_members %}
-                            <h4 class="text-lg font-semibold text-gray-800 mb-3">Active Members ({{ dashboard_data.member_overview.recent_members|length }})</h4>
+                            <h4 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Active Members") }} ({{ dashboard_data.member_overview.recent_members|length }})</h4>
                             <div class="mb-4 relative">
                                 <input
                                     type="text"
                                     id="memberSearchInput"
-                                    placeholder="Search members..."
+                                    placeholder="{{ _('Search members...') }}"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                     onkeyup="filterMembers()"
                                 >
@@ -152,14 +152,14 @@
                                             <a href="/app/member/{{ member.member }}" class="flex flex-wrap items-center gap-3 no-underline">
                                                 <strong class="text-gray-900 flex-shrink-0 hover:text-primary-600">{{ member.full_name }}</strong>
                                                 {% if member.status == 'Pending' %}
-                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-warning-100 text-warning-700">Pending</span>
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-warning-100 text-warning-700">{{ _("Pending") }}</span>
                                                 {% elif member.enabled == 0 %}
-                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-danger-100 text-danger-700">Quit</span>
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-danger-100 text-danger-700">{{ _("Quit") }}</span>
                                                 {% else %}
-                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-success-100 text-success-700">Active</span>
+                                                    <span class="inline-block px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-success-100 text-success-700">{{ _("Active") }}</span>
                                                 {% endif %}
                                                 <small class="text-gray-500 text-xs ml-auto">
-                                                    Joined {{ format_date(member.chapter_join_date) }}
+                                                    {{ _("Joined") }} {{ format_date(member.chapter_join_date) }}
                                                 </small>
                                             </a>
                                         </li>
@@ -176,16 +176,16 @@
                 {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.total_pending > 0 %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-danger-500">
                     <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                        <h3 class="m-0 text-lg font-semibold text-gray-800"><i class="fa fa-exclamation-triangle"></i> Requires Your Attention</h3>
+                        <h3 class="m-0 text-lg font-semibold text-gray-800"><i class="fa fa-exclamation-triangle"></i> {{ _("Requires Your Attention") }}</h3>
                         <div class="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                            {{ dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0 }} items
+                            {{ dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0 }} {{ _("items") }}
                         </div>
                     </div>
                     <div class="px-6 pb-6">
                         <!-- Pending Member Applications -->
                         {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
                             <div class="mb-6 last:mb-0">
-                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-plus-circle"></i> New Member Applications ({{ dashboard_data.pending_actions.membership_applications|length if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications else 0 }})</h4>
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-plus-circle"></i> {{ _("New Member Applications") }} ({{ dashboard_data.pending_actions.membership_applications|length if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications else 0 }})</h4>
                                 <ul class="list-none p-0 m-0 space-y-3">
                                     {% for app in dashboard_data.pending_actions.membership_applications %}
                                         <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-danger-50 border-l-4 border-danger-500' if app.is_overdue else 'bg-gray-50' }}">
@@ -193,16 +193,16 @@
                                                 <a href="/app/member/{{ app.member }}" class="text-gray-900 text-base font-bold hover:text-primary-600 no-underline">
                                                     {{ app.full_name }}
                                                 </a>
-                                                <small class="text-gray-600 text-sm">Applied {{ app.days_pending }} days ago</small>
+                                                <small class="text-gray-600 text-sm">{{ _("Applied {0} days ago").format(app.days_pending) }}</small>
                                                 {% if app.is_overdue %}
-                                                    <span class="inline-block bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold mt-1 self-start">OVERDUE</span>
+                                                    <span class="inline-block bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold mt-1 self-start">{{ _("OVERDUE") }}</span>
                                                 {% endif %}
                                             </div>
                                             {% if user_board_role and user_board_role.permissions.can_approve_members %}
                                                 <div class="flex gap-2 flex-shrink-0">
                                                     <button class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg transition-all"
                                                             onclick="reviewMember('{{ app.member }}')">
-                                                        <i class="fa fa-eye mr-1"></i> Review Application
+                                                        <i class="fa fa-eye mr-1"></i> {{ _("Review Application") }}
                                                     </button>
                                                 </div>
                                             {% endif %}
@@ -215,7 +215,7 @@
                         <!-- Pending Expense Approvals -->
                         {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.expense_approvals %}
                             <div class="mb-6 last:mb-0">
-                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-money"></i> Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-money"></i> {{ _("Expense Approvals") }} ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
                                 <ul class="list-none p-0 m-0 space-y-3">
                                     {% for expense in dashboard_data.pending_actions.expense_approvals %}
                                         <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-gray-50">
@@ -231,7 +231,7 @@
                                             {% if user_board_role and user_board_role.permissions.can_approve_expenses %}
                                                 <div class="flex gap-2 flex-shrink-0">
                                                     <a href="/app/expense-claim/{{ expense.name }}" class="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg transition-all no-underline">
-                                                        <i class="fa fa-eye mr-1"></i> Review Expense
+                                                        <i class="fa fa-eye mr-1"></i> {{ _("Review Expense") }}
                                                     </a>
                                                 </div>
                                             {% endif %}
@@ -248,11 +248,11 @@
                 <!-- Board Information Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-secondary-50 border-secondary-200">
-                        <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-user-circle"></i> Board Members</h3>
+                        <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-user-circle"></i> {{ _("Board Members") }}</h3>
                         {% if user_board_role and user_board_role.permissions.can_manage_board %}
                             <div class="flex gap-2">
                                 <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="manageBoardMembers()">
-                                    <i class="fa fa-cog mr-1"></i> Manage
+                                    <i class="fa fa-cog mr-1"></i> {{ _("Manage") }}
                                 </button>
                             </div>
                         {% endif %}
@@ -266,17 +266,17 @@
                                             <strong class="text-gray-900">{{ board_member.volunteer_name }}</strong>
                                             <span class="text-gray-600 font-normal">({{ board_member.role }})</span>
                                             {% if board_member.is_current_user %}
-                                                <span class="inline-block bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">YOU</span>
+                                                <span class="inline-block bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">{{ _("YOU") }}</span>
                                             {% endif %}
                                         </div>
                                         <small class="text-gray-500 text-xs ml-auto">
-                                            Since {{ format_date(board_member.from_date, '%B %Y') if board_member.from_date else 'Unknown' }}
+                                            {{ _("Since") }} {{ format_date(board_member.from_date, '%B %Y') if board_member.from_date else _('Unknown') }}
                                         </small>
                                     </li>
                                 {% endfor %}
                             </ul>
                         {% else %}
-                            <p class="text-center text-gray-600 italic my-4">No board members found.</p>
+                            <p class="text-center text-gray-600 italic my-4">{{ _("No board members found.") }}</p>
                         {% endif %}
                     </div>
                 </div>
@@ -290,10 +290,10 @@
             {% if user_board_role and user_board_role.permissions.can_view_finances %}
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
                 <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-accent-50 border-accent-200">
-                    <h3 class="m-0 text-lg font-semibold text-accent-600"><i class="fa fa-money"></i> Chapter Finances</h3>
+                    <h3 class="m-0 text-lg font-semibold text-accent-600"><i class="fa fa-money"></i> {{ _("Chapter Finances") }}</h3>
                     <div class="flex gap-2">
                         <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
-                            <i class="fa fa-chart-bar mr-1"></i> Reports
+                            <i class="fa fa-chart-bar mr-1"></i> {{ _("Reports") }}
                         </button>
                     </div>
                 </div>
@@ -301,58 +301,58 @@
                     {% if dashboard_data and dashboard_data.financial_summary %}
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div class="bg-gray-50 rounded-lg p-4">
-                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">This Month</h4>
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">{{ _("This Month") }}</h4>
                             <ul class="list-none p-0 m-0 space-y-3">
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Expenses Submitted:</span>
+                                    <span class="text-gray-600">{{ _("Expenses Submitted:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Expenses Approved:</span>
+                                    <span class="text-gray-600">{{ _("Expenses Approved:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Pending Approval:</span>
+                                    <span class="text-gray-600">{{ _("Pending Approval:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00" }}</strong>
                                 </li>
                             </ul>
                         </div>
 
                         <div class="bg-gray-50 rounded-lg p-4">
-                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Year to Date</h4>
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">{{ _("Year to Date") }}</h4>
                             <ul class="list-none p-0 m-0 space-y-3">
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Total Expenses:</span>
+                                    <span class="text-gray-600">{{ _("Total Expenses:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Average per Claim:</span>
+                                    <span class="text-gray-600">{{ _("Average per Claim:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00" }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Total Claims:</span>
+                                    <span class="text-gray-600">{{ _("Total Claims:") }}</span>
                                     <strong class="text-gray-900">{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
-                                    <span class="text-gray-600">Purchase Invoices:</span>
+                                    <span class="text-gray-600">{{ _("Purchase Invoices:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.purchase_invoices) if dashboard_data.financial_summary.ytd and dashboard_data.financial_summary.ytd.purchase_invoices else "0.00" }}</strong>
                                 </li>
                             </ul>
                         </div>
 
                         <div class="bg-gray-50 rounded-lg p-4">
-                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Dues Income (YTD)</h4>
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">{{ _("Dues Income (YTD)") }}</h4>
                             <ul class="list-none p-0 m-0 space-y-3">
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Total Dues Collected:</span>
+                                    <span class="text-gray-600">{{ _("Total Dues Collected:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_gross) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm">
-                                    <span class="text-gray-600">Chapter Portion:</span>
+                                    <span class="text-gray-600">{{ _("Chapter Portion:") }}</span>
                                     <strong class="text-gray-900">€{{ "%.2f"|format(dashboard_data.financial_summary.dues_income.ytd_chapter) if dashboard_data.financial_summary.dues_income else "0.00" }}</strong>
                                 </li>
                                 <li class="flex justify-between text-sm pt-3 border-t border-gray-300">
-                                    <span class="text-gray-600">Unpaid dues invoices:</span>
+                                    <span class="text-gray-600">{{ _("Unpaid dues invoices:") }}</span>
                                     <strong class="{% if dashboard_data.dues_payment_status.all_outstanding > 0 %}text-yellow-600{% else %}text-gray-900{% endif %}">
                                         {{ dashboard_data.dues_payment_status.all_outstanding if dashboard_data.dues_payment_status else 0 }}
                                         (€{{ "%.2f"|format(dashboard_data.dues_payment_status.all_outstanding_amount) if dashboard_data.dues_payment_status else "0.00" }})
@@ -363,7 +363,7 @@
                     </div>
                     {% else %}
                     <div>
-                        <p class="text-center text-gray-600 italic my-4">Financial data is not available at this time.</p>
+                        <p class="text-center text-gray-600 italic my-4">{{ _("Financial data is not available at this time.") }}</p>
                     </div>
                     {% endif %}
                 </div>
@@ -374,71 +374,71 @@
             {% if user_board_role and user_board_role.permissions.can_view_finances and dashboard_data.dues_payment_status %}
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
                 <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
-                    <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-credit-card"></i> Dues Payment Status</h3>
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-credit-card"></i> {{ _("Dues Payment Status") }}</h3>
                 </div>
                         <div class="p-6">
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=0"
                                class="text-center p-4 bg-success-50 rounded-lg border border-success-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Up to Date:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Up to Date:") }}</span>
                                 <span class="text-3xl font-bold text-success-600">{{ dashboard_data.dues_payment_status.up_to_date }}</span>
-                                <span class="block text-xs text-gray-500 mt-1">Members with current coverage</span>
+                                <span class="block text-xs text-gray-500 mt-1">{{ _("Members with current coverage") }}</span>
                             </a>
                             <a href="/app/query-report/Members Without Active Memberships?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-primary-50 rounded-lg border border-primary-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">No Dues Schedule set:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("No Dues Schedule set:") }}</span>
                                 <span class="text-3xl font-bold text-primary-600">{{ dashboard_data.dues_payment_status.no_active_membership }}</span>
-                                <span class="block text-xs text-gray-500 mt-1">Members who don't pay any dues.</span>
+                                <span class="block text-xs text-gray-500 mt-1">{{ _("Members who don't pay any dues.") }}</span>
                             </a>
                             <a href="/app/query-report/Overdue Member Payments?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Members with unpaid dues:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Members with unpaid dues:") }}</span>
                                 <span class="text-3xl font-bold text-yellow-600">{{ dashboard_data.dues_payment_status.unpaid }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.unpaid_amount) }}</span>
                             </a>
                             <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}&show_only_gaps=1"
                                class="text-center p-4 bg-warning-50 rounded-lg border border-warning-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Lapsed:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Lapsed:") }}</span>
                                 <span class="text-3xl font-bold text-warning-600">{{ dashboard_data.dues_payment_status.lapsed }}</span>
-                                <span class="block text-xs text-gray-500 mt-1">Coverage Expired</span>
+                                <span class="block text-xs text-gray-500 mt-1">{{ _("Coverage Expired") }}</span>
                             </a>
                             <a href="/app/sales-invoice?status=Overdue&custom_member_chapter={{ chapter_name|urlencode|e }}&is_membership_invoice=1"
                                class="text-center p-4 bg-danger-50 rounded-lg border border-danger-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Overdue:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Overdue:") }}</span>
                                 <span class="text-3xl font-bold text-danger-600">{{ dashboard_data.dues_payment_status.overdue }}</span>
                                 <span class="block text-xs text-gray-500 mt-1">€{{ "%.2f"|format(dashboard_data.dues_payment_status.total_overdue_amount) }}</span>
                             </a>
                             <a href="/app/query-report/Members Without Payment Info?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-orange-50 rounded-lg border border-orange-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Missing Payment Info:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Missing Payment Info:") }}</span>
                                 <span class="text-3xl font-bold text-orange-600">{{ dashboard_data.dues_payment_status.missing_payment_info }}</span>
-                                <span class="block text-xs text-gray-500 mt-1">No Mollie/SEPA/Bank Transfer</span>
+                                <span class="block text-xs text-gray-500 mt-1">{{ _("No Mollie/SEPA/Bank Transfer") }}</span>
                             </a>
                             <a href="/app/query-report/Membership Dues Coverage Analysis?chapter={{ chapter_name|urlencode|e }}"
                                class="text-center p-4 bg-gray-50 rounded-lg border border-gray-200 hover:shadow-md transition-shadow cursor-pointer no-underline">
-                                <span class="block text-sm text-gray-600 mb-2 font-medium">Total Members:</span>
+                                <span class="block text-sm text-gray-600 mb-2 font-medium">{{ _("Total Members:") }}</span>
                                 <span class="text-3xl font-bold text-gray-700">{{ dashboard_data.dues_payment_status.total_members }}</span>
                             </a>
                         </div>
 
                         {% if dashboard_data.dues_payment_status.overdue > 0 %}
                         <div class="bg-gray-50 rounded-lg p-4">
-                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">Overdue Breakdown</h4>
+                            <h4 class="m-0 mb-4 text-base font-semibold text-gray-800">{{ _("Overdue Breakdown") }}</h4>
                             <div class="grid grid-cols-4 gap-4">
                                 <div class="text-center">
-                                    <span class="block text-xs text-gray-600 mb-1">0-30 days:</span>
+                                    <span class="block text-xs text-gray-600 mb-1">{{ _("0-30 days:") }}</span>
                                     <strong class="text-lg text-yellow-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_under_30_days }}</strong>
                                 </div>
                                 <div class="text-center">
-                                    <span class="block text-xs text-gray-600 mb-1">30-60 days:</span>
+                                    <span class="block text-xs text-gray-600 mb-1">{{ _("30-60 days:") }}</span>
                                     <strong class="text-lg text-warning-600">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_30_days }}</strong>
                                 </div>
                                 <div class="text-center">
-                                    <span class="block text-xs text-gray-600 mb-1">60-90 days:</span>
+                                    <span class="block text-xs text-gray-600 mb-1">{{ _("60-90 days:") }}</span>
                                     <strong class="text-lg text-danger-500">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_60_days }}</strong>
                                 </div>
                                 <div class="text-center">
-                                    <span class="block text-xs text-gray-600 mb-1">90+ days:</span>
+                                    <span class="block text-xs text-gray-600 mb-1">{{ _("90+ days:") }}</span>
                                     <strong class="text-lg text-danger-700">{{ dashboard_data.dues_payment_status.overdue_breakdown.overdue_90_plus_days }}</strong>
                                 </div>
                             </div>
@@ -452,7 +452,7 @@
             {% if dashboard_data.recent_activity %}
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
                 <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
-                    <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-clipboard"></i> Recent Activity</h3>
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-clipboard"></i> {{ _("Recent Activity") }}</h3>
                 </div>
                 <div class="p-6">
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -483,9 +483,9 @@
                 {% if dashboard_data.board_documents and dashboard_data.board_documents.total_count > 0 %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div class="px-6 py-4 border-b bg-primary-50 border-primary-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                        <h3 class="m-0 text-lg font-semibold text-primary-600"><i class="fa fa-file-text-o"></i>Chapter Documents</h3>
+                        <h3 class="m-0 text-lg font-semibold text-primary-600"><i class="fa fa-file-text-o"></i>{{ _("Chapter Documents") }}</h3>
                         <div class="bg-primary-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                            {{ dashboard_data.board_documents.total_count }} documents
+                            {{ dashboard_data.board_documents.total_count }} {{ _("documents") }}
                         </div>
                     </div>
                     <div class="p-6">
@@ -511,7 +511,7 @@
                                                 {% for year, docs in years_dict.items() %}
                                                     {% set doc_count.total = doc_count.total + docs|length %}
                                                 {% endfor %}
-                                                <span class="text-sm text-gray-500 font-normal">({{ doc_count.total }} documents)</span>
+                                                <span class="text-sm text-gray-500 font-normal">({{ doc_count.total }} {{ _("documents") }})</span>
                                             </h4>
                                             <i class="fa fa-chevron-down text-gray-500 transition-transform" id="icon-folder-{{ doc_type|replace(' ', '-')|lower }}"></i>
                                         </button>
@@ -547,11 +547,11 @@
                                                                         </div>
                                                                         <div class="flex flex-col md:items-end gap-1">
                                                                             <small class="text-gray-500 text-xs">
-                                                                                Uploaded: {{ format_date(doc.upload_date) }}
+                                                                                {{ _("Uploaded:") }} {{ format_date(doc.upload_date) }}
                                                                             </small>
                                                                             {% if doc.uploaded_by %}
                                                                                 <small class="text-gray-400 text-xs">
-                                                                                    By: {{ doc.uploaded_by }}
+                                                                                    {{ _("By:") }} {{ doc.uploaded_by }}
                                                                                 </small>
                                                                             {% endif %}
                                                                         </div>
@@ -570,7 +570,7 @@
 
                         <div class="mt-6 pt-6 border-t border-gray-200">
                             <a href="/board/document_upload?org_type=Chapter&org_name={{ chapter_name|urlencode }}" class="inline-flex items-center justify-center px-4 py-2 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm no-underline">
-                                <i class="fa fa-upload mr-2"></i> Upload New Document
+                                <i class="fa fa-upload mr-2"></i> {{ _("Upload New Document") }}
                             </a>
                         </div>
                     </div>
@@ -583,8 +583,8 @@
 
     {% else %}
         <div class="bg-warning-100 border border-warning-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
-            <h4 class="text-2xl font-semibold text-warning-800 mb-4">Dashboard Unavailable</h4>
-            <p class="text-lg text-warning-700">Unable to load dashboard data at this time. Please try again later.</p>
+            <h4 class="text-2xl font-semibold text-warning-800 mb-4">{{ _("Dashboard Unavailable") }}</h4>
+            <p class="text-lg text-warning-700">{{ _("Unable to load dashboard data at this time. Please try again later.") }}</p>
         </div>
     {% endif %}
 </div>
@@ -593,7 +593,7 @@
 <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" style="display: none;">
     <div class="bg-white p-8 rounded-xl text-center">
         <i class="fa fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
-        <p class="text-gray-700">Loading...</p>
+        <p class="text-gray-700">{{ _("Loading...") }}</p>
     </div>
 </div>
 
@@ -919,7 +919,7 @@
                 const msg = document.createElement('li');
                 msg.id = 'noMembersFound';
                 msg.className = 'text-center text-gray-500 italic py-4';
-                msg.textContent = 'No members found matching "' + filter + '"';
+                msg.textContent = __('No members found matching "{0}"', [filter]);
                 memberList.appendChild(msg);
             }
         } else if (noResultsMsg) {

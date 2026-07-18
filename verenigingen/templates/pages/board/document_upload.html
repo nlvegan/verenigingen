@@ -82,7 +82,7 @@
 <div class="wide-layout-wrapper min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
     {% if error_message %}
         <div class="bg-danger-100 border-2 border-danger-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
-            <h4 class="text-2xl font-semibold text-danger-800 mb-4">Access Restricted</h4>
+            <h4 class="text-2xl font-semibold text-danger-800 mb-4">{{ _("Access Restricted") }}</h4>
             <p class="text-lg text-danger-700">{{ error_message }}</p>
         </div>
     {% elif has_organizations %}
@@ -91,9 +91,9 @@
             <div class="bg-primary-600 text-white px-8 py-6 mb-8 shadow-lg rounded-xl">
                 <h1 class="text-3xl font-bold m-0 flex items-center gap-3">
                     <span class="text-4xl"><i class="fa fa-file-text-o"></i></span>
-                    <span>Upload Documents</span>
+                    <span>{{ _("Upload Documents") }}</span>
                 </h1>
-                <p class="mt-2 text-primary-100">Upload documents to your chapters, teams, or movements</p>
+                <p class="mt-2 text-primary-100">{{ _("Upload documents to your chapters, teams, or movements") }}</p>
             </div>
 
             <!-- Main Content Grid -->
@@ -102,31 +102,31 @@
                 <div class="lg:col-span-2">
                     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                         <div class="px-6 py-4 border-b bg-gray-50">
-                            <h3 class="m-0 text-lg font-semibold text-gray-800">Upload New Document</h3>
+                            <h3 class="m-0 text-lg font-semibold text-gray-800">{{ _("Upload New Document") }}</h3>
                         </div>
                         <div class="p-6">
                             <!-- Organization Selection -->
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
-                                        Organization Type <span class="text-danger-500">*</span>
+                                        {{ _("Organization Type") }} <span class="text-danger-500">*</span>
                                     </label>
                                     <select v-model="form.organizationType" @change="onOrganizationTypeChange"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                                        <option value="">Select type...</option>
-                                        <option value="Chapter" v-if="organizations.chapters.length > 0">Chapter</option>
-                                        <option value="Team" v-if="organizations.teams.length > 0">Team</option>
-                                        <option value="Movement" v-if="organizations.movements.length > 0">Movement</option>
+                                        <option value="">{{ _("Select type...") }}</option>
+                                        <option value="Chapter" v-if="organizations.chapters.length > 0">{{ _("Chapter") }}</option>
+                                        <option value="Team" v-if="organizations.teams.length > 0">{{ _("Team") }}</option>
+                                        <option value="Movement" v-if="organizations.movements.length > 0">{{ _("Movement") }}</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
-                                        Organization <span class="text-danger-500">*</span>
+                                        {{ _("Organization") }} <span class="text-danger-500">*</span>
                                     </label>
                                     <select v-model="form.organizationName" @change="loadOrganizationDocuments"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                             :disabled="!form.organizationType">
-                                        <option value="">Select organization...</option>
+                                        <option value="">{{ _("Select organization...") }}</option>
                                         <option v-for="org in currentOrganizations" :key="org.name" :value="org.name">
                                             [[ org.display_name ]]
                                         </option>
@@ -138,20 +138,20 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
-                                        Document Name <span class="text-danger-500">*</span>
+                                        {{ _("Document Name") }} <span class="text-danger-500">*</span>
                                     </label>
                                     <input type="text" v-model="form.documentName"
-                                           placeholder="e.g., Board Minutes January 2025"
+                                           placeholder="{{ _('e.g., Board Minutes January 2025') }}"
                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                                    <p class="text-xs text-gray-500 mt-1">Include the year in the name for automatic organization</p>
+                                    <p class="text-xs text-gray-500 mt-1">{{ _("Include the year in the name for automatic organization") }}</p>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
-                                        Document Type <span class="text-danger-500">*</span>
+                                        {{ _("Document Type") }} <span class="text-danger-500">*</span>
                                     </label>
                                     <select v-model="form.documentType"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                                        <option value="">Select type...</option>
+                                        <option value="">{{ _("Select type...") }}</option>
                                         <option v-for="cat in categories" :key="cat.name" :value="cat.name">
                                             [[ cat.icon ]] [[ cat.name ]]
                                         </option>
@@ -162,18 +162,18 @@
                             <!-- Description -->
                             <div class="mb-6">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">
-                                    Description <span class="text-gray-400">(optional)</span>
+                                    {{ _("Description") }} <span class="text-gray-400">({{ _("optional") }})</span>
                                 </label>
                                 <textarea v-model="form.description" rows="2"
-                                          placeholder="Brief description of the document..."
+                                          placeholder="{{ _('Brief description of the document...') }}"
                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"></textarea>
                             </div>
 
                             <!-- File Upload -->
                             <div class="mb-6">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Document Files <span class="text-danger-500">*</span>
-                                    <span class="text-gray-400 font-normal ml-2">(select multiple files at once)</span>
+                                    {{ _("Document Files") }} <span class="text-danger-500">*</span>
+                                    <span class="text-gray-400 font-normal ml-2">({{ _("select multiple files at once") }})</span>
                                 </label>
                                 <div class="drop-zone"
                                      :class="{'drag-over': isDragging, 'has-file': form.files.length > 0}"
@@ -186,17 +186,17 @@
 
                                     <div v-if="form.files.length === 0" class="text-gray-500">
                                         <i class="fa fa-cloud-upload text-4xl mb-3 block text-gray-400"></i>
-                                        <p class="font-medium">Drop files here or click to browse</p>
-                                        <p class="text-sm text-gray-400 mt-1">PDF, Word, Excel, PowerPoint, Images (max 10MB each)</p>
+                                        <p class="font-medium">{{ _("Drop files here or click to browse") }}</p>
+                                        <p class="text-sm text-gray-400 mt-1">{{ _("PDF, Word, Excel, PowerPoint, Images (max 10MB each)") }}</p>
                                     </div>
 
                                     <div v-else class="text-left" @click.stop>
                                         <div class="flex items-center justify-between mb-3">
                                             <span class="text-success-600 font-medium">
-                                                <i class="fa fa-check-circle"></i> [[ form.files.length ]] file[[ form.files.length > 1 ? 's' : '' ]] selected
+                                                <i class="fa fa-check-circle"></i> [[ selectedFilesLabel ]]
                                             </span>
                                             <button @click="clearAllFiles" class="text-danger-500 hover:text-danger-700 text-sm">
-                                                <i class="fa fa-times"></i> Clear all
+                                                <i class="fa fa-times"></i> {{ _("Clear all") }}
                                             </button>
                                         </div>
                                         <div class="file-list">
@@ -210,7 +210,7 @@
                                             </div>
                                         </div>
                                         <button @click="$refs.fileInput.click()" class="mt-3 text-primary-600 hover:text-primary-700 text-sm">
-                                            <i class="fa fa-plus"></i> Add more files
+                                            <i class="fa fa-plus"></i> {{ _("Add more files") }}
                                         </button>
                                     </div>
                                 </div>
@@ -220,14 +220,14 @@
                             <div class="flex justify-end gap-3">
                                 <button @click="clearForm" type="button"
                                         class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
-                                    Clear Form
+                                    {{ _("Clear Form") }}
                                 </button>
                                 <button @click="uploadDocument" type="button"
                                         :disabled="!isFormValid || isUploading"
                                         class="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                                     <i v-if="isUploading" class="fa fa-spinner fa-spin"></i>
                                     <i v-else class="fa fa-upload"></i>
-                                    [[ isUploading ? 'Uploading...' : 'Upload Document' ]]
+                                    [[ uploadButtonLabel ]]
                                 </button>
                             </div>
                         </div>
@@ -238,7 +238,7 @@
                 <div class="lg:col-span-1">
                     <div class="bg-white rounded-xl shadow-sm overflow-hidden sticky top-4">
                         <div class="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
-                            <h3 class="m-0 text-lg font-semibold text-gray-800">Existing Documents</h3>
+                            <h3 class="m-0 text-lg font-semibold text-gray-800">{{ _("Existing Documents") }}</h3>
                             <span v-if="existingDocumentsCount > 0" class="bg-primary-100 text-primary-700 px-2 py-1 rounded-full text-xs font-semibold">
                                 [[ existingDocumentsCount ]]
                             </span>
@@ -246,17 +246,17 @@
                         <div class="p-4 max-h-[60vh] overflow-y-auto">
                             <div v-if="!form.organizationName" class="text-center text-gray-500 py-8">
                                 <i class="fa fa-folder-open text-3xl mb-3 block text-gray-300"></i>
-                                <p>Select an organization to view documents</p>
+                                <p>{{ _("Select an organization to view documents") }}</p>
                             </div>
 
                             <div v-else-if="isLoadingDocuments" class="text-center py-8">
                                 <i class="fa fa-spinner fa-spin text-2xl text-primary-500"></i>
-                                <p class="text-gray-500 mt-2">Loading documents...</p>
+                                <p class="text-gray-500 mt-2">{{ _("Loading documents...") }}</p>
                             </div>
 
                             <div v-else-if="existingDocumentsCount === 0" class="text-center text-gray-500 py-8">
                                 <i class="fa fa-file-o text-3xl mb-3 block text-gray-300"></i>
-                                <p>No documents uploaded yet</p>
+                                <p>{{ _("No documents uploaded yet") }}</p>
                             </div>
 
                             <div v-else class="document-tree">
@@ -300,7 +300,7 @@
         </div>
     {% else %}
         <div class="bg-warning-100 border border-warning-300 rounded-lg p-8 text-center max-w-2xl mx-auto">
-            <h4 class="text-2xl font-semibold text-warning-800 mb-4">No Organizations Available</h4>
+            <h4 class="text-2xl font-semibold text-warning-800 mb-4">{{ _("No Organizations Available") }}</h4>
             <p class="text-lg text-warning-700">{{ error_message }}</p>
         </div>
     {% endif %}
@@ -310,7 +310,7 @@
 <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" style="display: none;">
     <div class="bg-white p-8 rounded-xl text-center min-w-80">
         <i class="fa fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
-        <p class="text-gray-700 mb-2" id="upload-status">Uploading documents...</p>
+        <p class="text-gray-700 mb-2" id="upload-status">{{ _("Uploading documents...") }}</p>
         <p class="text-sm text-gray-500 mb-3" id="upload-filename"></p>
         <div class="progress-bar mb-2">
             <div class="progress-fill" id="upload-progress-bar" style="width: 0%"></div>
@@ -375,6 +375,16 @@ createApp({
                    form.value.organizationName &&
                    form.value.documentType &&
                    form.value.files.length > 0;
+        });
+
+        // Translated labels (computed here, not inside [[ ]] templates, since Vue's
+        // in-template expression sandbox does not expose the global __() translator)
+        const selectedFilesLabel = computed(() => {
+            return __('{0} file(s) selected', [form.value.files.length]);
+        });
+
+        const uploadButtonLabel = computed(() => {
+            return isUploading.value ? __('Uploading...') : __('Upload Document');
         });
 
         // Methods
@@ -471,26 +481,26 @@ createApp({
             files.forEach(file => {
                 // Validate size
                 if (file.size > maxSize) {
-                    errors.push(`${file.name}: exceeds 10MB limit`);
+                    errors.push(__('{0}: exceeds 10MB limit', [file.name]));
                     return;
                 }
 
                 // Validate extension
                 const ext = '.' + file.name.split('.').pop().toLowerCase();
                 if (!allowedExtensions.includes(ext)) {
-                    errors.push(`${file.name}: file type not allowed`);
+                    errors.push(__('{0}: file type not allowed', [file.name]));
                     return;
                 }
 
                 // Validate MIME type (defense in depth)
                 if (file.type && !allowedMimeTypes.includes(file.type)) {
-                    errors.push(`${file.name}: invalid file format detected`);
+                    errors.push(__('{0}: invalid file format detected', [file.name]));
                     return;
                 }
 
                 // Check for duplicate
                 if (form.value.files.some(f => f.name === file.name)) {
-                    errors.push(`${file.name}: already added`);
+                    errors.push(__('{0}: already added', [file.name]));
                     return;
                 }
 
@@ -597,7 +607,7 @@ createApp({
                 const progressPercent = Math.round((i / totalFiles) * 100);
                 document.getElementById('upload-progress-bar').style.width = progressPercent + '%';
                 document.getElementById('upload-filename').textContent = file.name;
-                document.getElementById('upload-counter').textContent = `File ${i + 1} of ${totalFiles}`;
+                document.getElementById('upload-counter').textContent = __('File {0} of {1}', [i + 1, totalFiles]);
 
                 // Derive document name from filename (remove extension)
                 const documentName = file.name.replace(/\.[^/.]+$/, '');
@@ -622,14 +632,14 @@ createApp({
                     } else {
                         results.failed.push({
                             name: file.name,
-                            error: response.message?.message || 'Unknown error'
+                            error: response.message?.message || __('Unknown error')
                         });
                     }
                 } catch (error) {
                     console.error(`Upload failed for ${file.name}:`, error);
                     results.failed.push({
                         name: file.name,
-                        error: 'Network or server error'
+                        error: __('Network or server error')
                     });
                 }
             }
@@ -653,7 +663,7 @@ createApp({
                 frappe.msgprint({
                     title: __('Partial Success'),
                     indicator: 'orange',
-                    message: `${results.success.length} uploaded, ${results.failed.length} failed:<br><br>${failedNames}`
+                    message: __('{0} uploaded, {1} failed:', [results.success.length, results.failed.length]) + '<br><br>' + failedNames
                 });
                 // Remove successful files from form, keep failed ones
                 // Must filter both arrays together to maintain index alignment
@@ -715,6 +725,8 @@ createApp({
             expandedYears,
             currentOrganizations,
             isFormValid,
+            selectedFilesLabel,
+            uploadButtonLabel,
             onOrganizationTypeChange,
             loadOrganizationDocuments,
             handleFileSelect,

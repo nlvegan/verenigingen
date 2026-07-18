@@ -1,16 +1,16 @@
 {% extends "templates/web.html" %}
 
-{% block title %}Mollie Subscription Audit{% endblock %}
+{% block title %}{{ _("Mollie Subscription Audit") }}{% endblock %}
 
 {% block page_content %}
 <div class="container mt-4">
-    <h1>Mollie Subscription Audit</h1>
-    <p class="text-muted">Identify orphaned subscriptions and data integrity issues between Mollie and Member records.</p>
+    <h1>{{ _("Mollie Subscription Audit") }}</h1>
+    <p class="text-muted">{{ _("Identify orphaned subscriptions and data integrity issues between Mollie and Member records.") }}</p>
 
     <div class="card mb-4">
         <div class="card-body">
             <button class="btn btn-primary" id="run-audit-btn" onclick="runAudit()">
-                <i class="fa fa-search"></i> Run Audit
+                <i class="fa fa-search"></i> {{ _("Run Audit") }}
             </button>
 
             <div id="progress-container" style="display:none;" class="mt-3">
@@ -26,19 +26,19 @@
     <!-- Webhook URL Management Section -->
     <div class="card mb-4">
         <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="fa fa-link"></i> Webhook URL Management</h5>
+            <h5 class="mb-0"><i class="fa fa-link"></i> {{ _("Webhook URL Management") }}</h5>
         </div>
         <div class="card-body">
-            <p class="text-muted mb-3">Update webhook URLs for active subscriptions to ensure payment notifications are received correctly.</p>
+            <p class="text-muted mb-3">{{ _("Update webhook URLs for active subscriptions to ensure payment notifications are received correctly.") }}</p>
 
             <div class="row mb-3">
                 <div class="col-md-8">
-                    <label for="webhook-url-input" class="form-label"><strong>New Webhook URL</strong></label>
+                    <label for="webhook-url-input" class="form-label"><strong>{{ _("New Webhook URL") }}</strong></label>
                     <div class="input-group">
                         <input type="text" class="form-control" id="webhook-url-input"
                                placeholder="https://..." readonly>
                         <button class="btn btn-outline-secondary" type="button" onclick="loadDefaultWebhook()">
-                            <i class="fa fa-refresh"></i> Load Default
+                            <i class="fa fa-refresh"></i> {{ _("Load Default") }}
                         </button>
                     </div>
                     <small class="text-muted" id="webhook-mode-info"></small>
@@ -47,7 +47,7 @@
                     <label class="form-label">&nbsp;</label>
                     <div>
                         <button class="btn btn-info" id="fetch-subs-btn" onclick="fetchActiveSubscriptions()">
-                            <i class="fa fa-download"></i> Fetch Active Subscriptions
+                            <i class="fa fa-download"></i> {{ _("Fetch Active Subscriptions") }}
                         </button>
                     </div>
                 </div>
@@ -66,11 +66,11 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div>
                         <input type="checkbox" id="select-all-subs" onchange="toggleAllSubscriptions(this)">
-                        <label for="select-all-subs" class="mb-0 ml-1">Select All</label>
-                        <span class="badge badge-info ml-2" id="webhook-subs-count">0</span> subscriptions
+                        <label for="select-all-subs" class="mb-0 ml-1">{{ _("Select All") }}</label>
+                        <span class="badge badge-info ml-2" id="webhook-subs-count">0</span> {{ _("subscriptions") }}
                     </div>
                     <button class="btn btn-success" id="update-webhooks-btn" onclick="updateSelectedWebhooks()" disabled>
-                        <i class="fa fa-save"></i> Update Selected Webhooks
+                        <i class="fa fa-save"></i> {{ _("Update Selected Webhooks") }}
                     </button>
                 </div>
 
@@ -79,11 +79,11 @@
                         <thead class="thead-light sticky-top">
                             <tr>
                                 <th style="width: 40px;"></th>
-                                <th>Member</th>
-                                <th>Subscription ID</th>
-                                <th>Amount</th>
-                                <th>Current Webhook URL</th>
-                                <th>Status</th>
+                                <th>{{ _("Member") }}</th>
+                                <th>{{ _("Subscription ID") }}</th>
+                                <th>{{ _("Amount") }}</th>
+                                <th>{{ _("Current Webhook URL") }}</th>
+                                <th>{{ _("Status") }}</th>
                             </tr>
                         </thead>
                         <tbody id="webhook-subs-table">
@@ -92,7 +92,7 @@
                 </div>
 
                 <div id="webhook-errors-container" style="display:none;" class="mt-3">
-                    <h6 class="text-danger"><i class="fa fa-exclamation-triangle"></i> Fetch Errors</h6>
+                    <h6 class="text-danger"><i class="fa fa-exclamation-triangle"></i> {{ _("Fetch Errors") }}</h6>
                     <div id="webhook-errors-list" class="small text-danger"></div>
                 </div>
             </div>
@@ -100,7 +100,7 @@
             <!-- Update Results -->
             <div id="webhook-results-container" style="display:none;" class="mt-3">
                 <div class="alert alert-info">
-                    <h6><i class="fa fa-check-circle"></i> Update Results</h6>
+                    <h6><i class="fa fa-check-circle"></i> {{ _("Update Results") }}</h6>
                     <div id="webhook-results-summary"></div>
                 </div>
                 <div id="webhook-results-details" class="small"></div>
@@ -111,37 +111,37 @@
     <!-- Summary Section -->
     <div id="summary-section" style="display:none;" class="card mb-4">
         <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="fa fa-chart-bar"></i> Summary</h5>
+            <h5 class="mb-0"><i class="fa fa-chart-bar"></i> {{ _("Summary") }}</h5>
         </div>
         <div class="card-body">
             <div class="row">
                 <div class="col-md-3">
                     <div class="text-center">
                         <h3 id="total-subs" class="mb-0">-</h3>
-                        <small class="text-muted">Total Subscriptions</small>
+                        <small class="text-muted">{{ _("Total Subscriptions") }}</small>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="text-center">
                         <h3 id="active-subs" class="mb-0">-</h3>
-                        <small class="text-muted">Active Subscriptions</small>
+                        <small class="text-muted">{{ _("Active Subscriptions") }}</small>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="text-center">
                         <h3 id="mollie-issues" class="mb-0 text-danger">-</h3>
-                        <small class="text-muted">Mollie-Side Issues</small>
+                        <small class="text-muted">{{ _("Mollie-Side Issues") }}</small>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="text-center">
                         <h3 id="db-issues" class="mb-0 text-warning">-</h3>
-                        <small class="text-muted">Database-Side Issues</small>
+                        <small class="text-muted">{{ _("Database-Side Issues") }}</small>
                     </div>
                 </div>
             </div>
             <div class="mt-3">
-                <span class="badge badge-info" id="test-mode-badge">Test Mode</span>
+                <span class="badge badge-info" id="test-mode-badge">{{ _("Test Mode") }}</span>
                 <span class="text-muted" id="timestamp"></span>
             </div>
         </div>
@@ -149,17 +149,17 @@
 
     <!-- Mollie-Side Issues Header -->
     <div id="mollie-issues-header" style="display:none;" class="mb-3">
-        <h4 class="text-danger"><i class="fa fa-cloud"></i> Mollie-Side Issues</h4>
-        <p class="text-muted">Subscriptions in Mollie that need to be addressed</p>
+        <h4 class="text-danger"><i class="fa fa-cloud"></i> {{ _("Mollie-Side Issues") }}</h4>
+        <p class="text-muted">{{ _("Subscriptions in Mollie that need to be addressed") }}</p>
     </div>
 
     <!-- No Member Match (Orphaned Subscriptions) -->
     <div id="no-member-match-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-danger text-white">
-            <h5 class="mb-0"><i class="fa fa-exclamation-triangle"></i> No Member Match
+            <h5 class="mb-0"><i class="fa fa-exclamation-triangle"></i> {{ _("No Member Match") }}
                 <span class="badge badge-light" id="no-member-match-count">0</span>
             </h5>
-            <small>Subscription exists in Mollie but no Member found by subscription ID or customer ID</small>
+            <small>{{ _("Subscription exists in Mollie but no Member found by subscription ID or customer ID") }}</small>
         </div>
         <div class="card-body" id="no-member-match-list"></div>
     </div>
@@ -167,10 +167,10 @@
     <!-- Customer but Wrong Subscription -->
     <div id="customer-wrong-sub-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="fa fa-user-times"></i> Customer but Wrong Subscription
+            <h5 class="mb-0"><i class="fa fa-user-times"></i> {{ _("Customer but Wrong Subscription") }}
                 <span class="badge badge-dark" id="customer-wrong-sub-count">0</span>
             </h5>
-            <small>Customer ID matches a Member but subscription ID doesn't match</small>
+            <small>{{ _("Customer ID matches a Member but subscription ID doesn't match") }}</small>
         </div>
         <div class="card-body" id="customer-wrong-sub-list"></div>
     </div>
@@ -178,10 +178,10 @@
     <!-- Deleted Member Subscriptions -->
     <div id="deleted-member-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-secondary text-white">
-            <h5 class="mb-0"><i class="fa fa-trash"></i> Deleted Member Subscriptions
+            <h5 class="mb-0"><i class="fa fa-trash"></i> {{ _("Deleted Member Subscriptions") }}
                 <span class="badge badge-light" id="deleted-member-count">0</span>
             </h5>
-            <small>Active Mollie subscriptions for Members that were deleted from database</small>
+            <small>{{ _("Active Mollie subscriptions for Members that were deleted from database") }}</small>
         </div>
         <div class="card-body" id="deleted-member-list"></div>
     </div>
@@ -189,27 +189,27 @@
     <!-- Status Mismatches -->
     <div id="status-mismatch-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="fa fa-sync-alt"></i> Status Mismatches
+            <h5 class="mb-0"><i class="fa fa-sync-alt"></i> {{ _("Status Mismatches") }}
                 <span class="badge badge-light" id="status-mismatch-count">0</span>
             </h5>
-            <small>Member exists but status conflicts with Mollie</small>
+            <small>{{ _("Member exists but status conflicts with Mollie") }}</small>
         </div>
         <div class="card-body" id="status-mismatch-list"></div>
     </div>
 
     <!-- Database-Side Issues Header -->
     <div id="db-issues-header" style="display:none;" class="mb-3 mt-4">
-        <h4 class="text-warning"><i class="fa fa-database"></i> Database-Side Issues</h4>
-        <p class="text-muted">Members with invalid subscription claims</p>
+        <h4 class="text-warning"><i class="fa fa-database"></i> {{ _("Database-Side Issues") }}</h4>
+        <p class="text-muted">{{ _("Members with invalid subscription claims") }}</p>
     </div>
 
     <!-- Subscription Not in Mollie -->
     <div id="sub-not-in-mollie-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="fa fa-unlink"></i> Subscription Not in Mollie
+            <h5 class="mb-0"><i class="fa fa-unlink"></i> {{ _("Subscription Not in Mollie") }}
                 <span class="badge badge-dark" id="sub-not-in-mollie-count">0</span>
             </h5>
-            <small>Members claiming active subscriptions that don't exist in Mollie</small>
+            <small>{{ _("Members claiming active subscriptions that don't exist in Mollie") }}</small>
         </div>
         <div class="card-body" id="sub-not-in-mollie-list"></div>
     </div>
@@ -217,10 +217,10 @@
     <!-- Incomplete Mollie Data -->
     <div id="incomplete-data-section" style="display:none;" class="card mb-3">
         <div class="card-header bg-secondary text-white">
-            <h5 class="mb-0"><i class="fa fa-question-circle"></i> Incomplete Mollie Data
+            <h5 class="mb-0"><i class="fa fa-question-circle"></i> {{ _("Incomplete Mollie Data") }}
                 <span class="badge badge-light" id="incomplete-data-count">0</span>
             </h5>
-            <small>Members with active subscription status but missing customer/subscription IDs</small>
+            <small>{{ _("Members with active subscription status but missing customer/subscription IDs") }}</small>
         </div>
         <div class="card-body" id="incomplete-data-list"></div>
     </div>
@@ -235,7 +235,7 @@ function runAudit() {
 
     btn.disabled = true;
     progress.style.display = 'block';
-    progressText.textContent = 'Connecting to Mollie API...';
+    progressText.textContent = __('Connecting to Mollie API...');
     progressBar.style.width = '10%';
 
     // Hide previous results and headers
@@ -258,9 +258,9 @@ function runAudit() {
                 displayResults(r.message.data);
             } else {
                 frappe.msgprint({
-                    title: 'Error',
+                    title: __('Error'),
                     indicator: 'red',
-                    message: r.message?.error_message || r.message?.error || 'Audit failed'
+                    message: r.message?.error_message || r.message?.error || __('Audit failed')
                 });
             }
         }
@@ -287,9 +287,9 @@ function displayResults(data) {
     document.getElementById('active-subs').textContent = summary.active_mollie_subscriptions;
     document.getElementById('mollie-issues').textContent = mollieIssueCount;
     document.getElementById('db-issues').textContent = dbIssueCount;
-    document.getElementById('test-mode-badge').textContent = data.test_mode ? 'Test Mode' : 'Live Mode';
+    document.getElementById('test-mode-badge').textContent = data.test_mode ? __('Test Mode') : __('Live Mode');
     document.getElementById('test-mode-badge').className = data.test_mode ? 'badge badge-info' : 'badge badge-success';
-    document.getElementById('timestamp').textContent = 'Last run: ' + data.timestamp;
+    document.getElementById('timestamp').textContent = __('Last run: {0}', [data.timestamp]);
     document.getElementById('summary-section').style.display = 'block';
 
     // Show headers if there are issues
@@ -356,15 +356,15 @@ function renderMollieSubscription(sub) {
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         <h6 class="mb-1"><code>${escapeHtml(sub.subscription_id)}</code></h6>
-                        <p class="mb-1 small"><strong>Customer ID:</strong> <code>${escapeHtml(sub.customer_id)}</code></p>
-                        <p class="mb-1 small"><strong>Customer Name (Mollie):</strong> ${escapeHtml(sub.customer_name_mollie || 'Unknown')}</p>
+                        <p class="mb-1 small"><strong>${__('Customer ID:')}</strong> <code>${escapeHtml(sub.customer_id)}</code></p>
+                        <p class="mb-1 small"><strong>${__('Customer Name (Mollie):')}</strong> ${escapeHtml(sub.customer_name_mollie || __('Unknown'))}</p>
                     </div>
                     <div class="text-right">
                         <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span>
                     </div>
                 </div>
-                <p class="mb-1 small"><strong>Amount:</strong> €${escapeHtml(sub.amount)} every ${escapeHtml(sub.interval)}</p>
-                <p class="mb-1 small"><strong>Next Payment:</strong> ${escapeHtml(sub.next_payment_date || 'N/A')}</p>
+                <p class="mb-1 small"><strong>${__('Amount:')}</strong> €${escapeHtml(sub.amount)} ${__('every')} ${escapeHtml(sub.interval)}</p>
+                <p class="mb-1 small"><strong>${__('Next Payment:')}</strong> ${escapeHtml(sub.next_payment_date || __('N/A'))}</p>
                 ${sub.description ? `<p class="mb-0 small text-muted">${escapeHtml(sub.description)}</p>` : ''}
                 ${sub.note ? `<p class="mb-0 small text-info"><em>${escapeHtml(sub.note)}</em></p>` : ''}
             </div>
@@ -379,15 +379,15 @@ function renderMollieSubscriptionWithMember(sub) {
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         <h6 class="mb-1"><code>${escapeHtml(sub.subscription_id)}</code></h6>
-                        <p class="mb-1 small"><strong>Customer ID:</strong> <code>${escapeHtml(sub.customer_id)}</code></p>
+                        <p class="mb-1 small"><strong>${__('Customer ID:')}</strong> <code>${escapeHtml(sub.customer_id)}</code></p>
                     </div>
                     <div class="text-right">
                         <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span>
                     </div>
                 </div>
-                <p class="mb-1 small"><strong>Matched Member:</strong> <a href="/app/member/${escapeHtml(sub.member_id)}">${escapeHtml(sub.member_name_db || sub.member_id)}</a></p>
-                <p class="mb-1 small"><strong>Member's Subscription ID:</strong> <code>${escapeHtml(sub.member_subscription_id || 'None')}</code></p>
-                <p class="mb-1 small"><strong>Amount:</strong> €${escapeHtml(sub.amount)} every ${escapeHtml(sub.interval)}</p>
+                <p class="mb-1 small"><strong>${__('Matched Member:')}</strong> <a href="/app/member/${escapeHtml(sub.member_id)}">${escapeHtml(sub.member_name_db || sub.member_id)}</a></p>
+                <p class="mb-1 small"><strong>${__('Member\'s Subscription ID:')}</strong> <code>${escapeHtml(sub.member_subscription_id || __('None'))}</code></p>
+                <p class="mb-1 small"><strong>${__('Amount:')}</strong> €${escapeHtml(sub.amount)} ${__('every')} ${escapeHtml(sub.interval)}</p>
                 ${sub.note ? `<p class="mb-0 small text-warning"><em>${escapeHtml(sub.note)}</em></p>` : ''}
             </div>
         </div>
@@ -401,14 +401,14 @@ function renderDeletedMemberSubscription(sub) {
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         <h6 class="mb-1"><code>${escapeHtml(sub.subscription_id)}</code></h6>
-                        <p class="mb-1 small"><strong>Deleted Member:</strong> ${escapeHtml(sub.deleted_member_id)}</p>
+                        <p class="mb-1 small"><strong>${__('Deleted Member:')}</strong> ${escapeHtml(sub.deleted_member_id)}</p>
                     </div>
                     <div class="text-right">
-                        <span class="badge badge-danger">Deleted</span>
+                        <span class="badge badge-danger">${__('Deleted')}</span>
                     </div>
                 </div>
-                <p class="mb-1 small"><strong>Amount:</strong> €${escapeHtml(sub.amount)} every ${escapeHtml(sub.interval)}</p>
-                <p class="mb-1 small"><strong>Next Payment:</strong> ${escapeHtml(sub.next_payment_date || 'N/A')}</p>
+                <p class="mb-1 small"><strong>${__('Amount:')}</strong> €${escapeHtml(sub.amount)} ${__('every')} ${escapeHtml(sub.interval)}</p>
+                <p class="mb-1 small"><strong>${__('Next Payment:')}</strong> ${escapeHtml(sub.next_payment_date || __('N/A'))}</p>
                 ${sub.note ? `<p class="mb-0 small text-danger"><em>${escapeHtml(sub.note)}</em></p>` : ''}
             </div>
         </div>
@@ -422,15 +422,15 @@ function renderStatusMismatch(item) {
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         <h6 class="mb-1"><a href="/app/member/${escapeHtml(item.member_id)}">${escapeHtml(item.member_name_db || item.member_id)}</a></h6>
-                        <p class="mb-1 small"><strong>Subscription ID:</strong> <code>${escapeHtml(item.subscription_id)}</code></p>
+                        <p class="mb-1 small"><strong>${__('Subscription ID:')}</strong> <code>${escapeHtml(item.subscription_id)}</code></p>
                     </div>
                 </div>
                 ${item.issue === 'customer_id_mismatch' ? `
-                    <p class="mb-1 small text-warning"><strong>Issue:</strong> Customer ID mismatch</p>
-                    <p class="mb-1 small">Member: <code>${escapeHtml(item.member_customer_id || 'None')}</code> | Mollie: <code>${escapeHtml(item.customer_id)}</code></p>
+                    <p class="mb-1 small text-warning"><strong>${__('Issue:')}</strong> ${__('Customer ID mismatch')}</p>
+                    <p class="mb-1 small">${__('Member:')} <code>${escapeHtml(item.member_customer_id || __('None'))}</code> | ${__('Mollie:')} <code>${escapeHtml(item.customer_id)}</code></p>
                 ` : `
-                    <p class="mb-1 small"><strong>Mollie Status:</strong> <span class="badge badge-info">${escapeHtml(item.mollie_status)}</span></p>
-                    <p class="mb-1 small"><strong>Member Status:</strong> <span class="badge badge-secondary">${escapeHtml(item.member_subscription_status)}</span></p>
+                    <p class="mb-1 small"><strong>${__('Mollie Status:')}</strong> <span class="badge badge-info">${escapeHtml(item.mollie_status)}</span></p>
+                    <p class="mb-1 small"><strong>${__('Member Status:')}</strong> <span class="badge badge-secondary">${escapeHtml(item.member_subscription_status)}</span></p>
                 `}
             </div>
         </div>
@@ -442,9 +442,9 @@ function renderMemberWithInvalidSub(item) {
         <div class="card mb-2">
             <div class="card-body py-2">
                 <h6 class="mb-1"><a href="/app/member/${escapeHtml(item.member_id)}">${escapeHtml(item.member_name_db || item.member_id)}</a></h6>
-                <p class="mb-1 small"><strong>Claimed Subscription ID:</strong> <code>${escapeHtml(item.mollie_subscription_id)}</code></p>
-                <p class="mb-1 small"><strong>Customer ID:</strong> <code>${escapeHtml(item.mollie_customer_id || 'None')}</code></p>
-                <p class="mb-1 small"><strong>Member Subscription Status:</strong> <span class="badge badge-warning">${escapeHtml(item.subscription_status)}</span></p>
+                <p class="mb-1 small"><strong>${__('Claimed Subscription ID:')}</strong> <code>${escapeHtml(item.mollie_subscription_id)}</code></p>
+                <p class="mb-1 small"><strong>${__('Customer ID:')}</strong> <code>${escapeHtml(item.mollie_customer_id || __('None'))}</code></p>
+                <p class="mb-1 small"><strong>${__('Member Subscription Status:')}</strong> <span class="badge badge-warning">${escapeHtml(item.subscription_status)}</span></p>
                 ${item.note ? `<p class="mb-0 small text-muted"><em>${escapeHtml(item.note)}</em></p>` : ''}
             </div>
         </div>
@@ -456,9 +456,9 @@ function renderMemberWithIncompleteData(item) {
         <div class="card mb-2">
             <div class="card-body py-2">
                 <h6 class="mb-1"><a href="/app/member/${escapeHtml(item.member_id)}">${escapeHtml(item.member_name_db || item.member_id)}</a></h6>
-                <p class="mb-1 small"><strong>Customer ID:</strong> ${item.mollie_customer_id === 'Missing' ? '<span class="text-danger">Missing</span>' : `<code>${escapeHtml(item.mollie_customer_id)}</code>`}</p>
-                <p class="mb-1 small"><strong>Subscription ID:</strong> ${item.mollie_subscription_id === 'Missing' ? '<span class="text-danger">Missing</span>' : `<code>${escapeHtml(item.mollie_subscription_id)}</code>`}</p>
-                <p class="mb-1 small"><strong>Member Subscription Status:</strong> <span class="badge badge-warning">${escapeHtml(item.subscription_status)}</span></p>
+                <p class="mb-1 small"><strong>${__('Customer ID:')}</strong> ${item.mollie_customer_id === 'Missing' ? `<span class="text-danger">${__('Missing')}</span>` : `<code>${escapeHtml(item.mollie_customer_id)}</code>`}</p>
+                <p class="mb-1 small"><strong>${__('Subscription ID:')}</strong> ${item.mollie_subscription_id === 'Missing' ? `<span class="text-danger">${__('Missing')}</span>` : `<code>${escapeHtml(item.mollie_subscription_id)}</code>`}</p>
+                <p class="mb-1 small"><strong>${__('Member Subscription Status:')}</strong> <span class="badge badge-warning">${escapeHtml(item.subscription_status)}</span></p>
                 ${item.note ? `<p class="mb-0 small text-muted"><em>${escapeHtml(item.note)}</em></p>` : ''}
             </div>
         </div>
@@ -485,12 +485,12 @@ function loadDefaultWebhook() {
                 document.getElementById('webhook-url-input').value = data.webhook_url || '';
                 document.getElementById('webhook-url-input').readOnly = false;
                 document.getElementById('webhook-mode-info').textContent =
-                    `${data.mode_label} mode webhook URL from Mollie Settings`;
+                    __('{0} mode webhook URL from Mollie Settings', [data.mode_label]);
             } else {
                 frappe.msgprint({
-                    title: 'Error',
+                    title: __('Error'),
                     indicator: 'red',
-                    message: r.message?.error_message || 'Failed to load default webhook URL'
+                    message: r.message?.error_message || __('Failed to load default webhook URL')
                 });
             }
         }
@@ -506,7 +506,7 @@ function fetchActiveSubscriptions() {
     btn.disabled = true;
     progressContainer.style.display = 'block';
     progressBar.style.width = '0%';
-    progressText.textContent = 'Starting...';
+    progressText.textContent = __('Starting...');
 
     // Hide previous results
     document.getElementById('webhook-subs-container').style.display = 'none';
@@ -534,13 +534,13 @@ function fetchActiveSubscriptions() {
                     document.getElementById('webhook-url-input').value = data.default_webhook_url || '';
                     document.getElementById('webhook-url-input').readOnly = false;
                     document.getElementById('webhook-mode-info').textContent =
-                        `${data.test_mode ? 'Test' : 'Live'} mode webhook URL from Mollie Settings`;
+                        __('{0} mode webhook URL from Mollie Settings', [data.test_mode ? __('Test') : __('Live')]);
                 }
             } else {
                 frappe.msgprint({
-                    title: 'Error',
+                    title: __('Error'),
                     indicator: 'red',
-                    message: r.message?.error_message || 'Failed to fetch subscriptions'
+                    message: r.message?.error_message || __('Failed to fetch subscriptions')
                 });
             }
         }
@@ -576,8 +576,8 @@ function displaySubscriptionTable(data) {
                 <td><code class="small">${escapeHtml(sub.subscription_id)}</code></td>
                 <td>${escapeHtml(sub.amount)}</td>
                 <td class="small ${webhookMismatch ? 'text-danger' : 'text-success'}">
-                    ${sub.current_webhook_url ? escapeHtml(sub.current_webhook_url.substring(0, 50)) + '...' : '<em>None</em>'}
-                    ${webhookMismatch ? '<i class="fa fa-exclamation-triangle text-warning ml-1" title="Differs from default"></i>' : ''}
+                    ${sub.current_webhook_url ? escapeHtml(sub.current_webhook_url.substring(0, 50)) + '...' : `<em>${__('None')}</em>`}
+                    ${webhookMismatch ? `<i class="fa fa-exclamation-triangle text-warning ml-1" title="${__('Differs from default')}"></i>` : ''}
                 </td>
                 <td><span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span></td>
             </tr>
@@ -625,12 +625,12 @@ function updateUpdateButtonState() {
 function updateSelectedWebhooks() {
     const webhookUrl = document.getElementById('webhook-url-input').value;
     if (!webhookUrl) {
-        frappe.msgprint({title: 'Error', indicator: 'red', message: 'Please enter a webhook URL'});
+        frappe.msgprint({title: __('Error'), indicator: 'red', message: __('Please enter a webhook URL')});
         return;
     }
 
     if (!webhookUrl.startsWith('https://')) {
-        frappe.msgprint({title: 'Error', indicator: 'red', message: 'Webhook URL must use HTTPS'});
+        frappe.msgprint({title: __('Error'), indicator: 'red', message: __('Webhook URL must use HTTPS')});
         return;
     }
 
@@ -645,13 +645,13 @@ function updateSelectedWebhooks() {
     });
 
     if (selectedSubs.length === 0) {
-        frappe.msgprint({title: 'Error', indicator: 'red', message: 'No subscriptions selected'});
+        frappe.msgprint({title: __('Error'), indicator: 'red', message: __('No subscriptions selected')});
         return;
     }
 
     // Confirm action
     frappe.confirm(
-        `Update webhook URL for ${selectedSubs.length} subscription(s)?<br><br><code>${escapeHtml(webhookUrl)}</code>`,
+        __('Update webhook URL for {0} subscription(s)?', [selectedSubs.length]) + `<br><br><code>${escapeHtml(webhookUrl)}</code>`,
         () => {
             executeWebhookUpdate(selectedSubs, webhookUrl);
         }
@@ -667,7 +667,7 @@ function executeWebhookUpdate(subscriptions, webhookUrl) {
     btn.disabled = true;
     progressContainer.style.display = 'block';
     progressBar.style.width = '0%';
-    progressText.textContent = 'Updating webhooks...';
+    progressText.textContent = __('Updating webhooks...');
 
     // Listen for progress updates
     frappe.realtime.on('webhook_update_progress', (data) => {
@@ -691,9 +691,9 @@ function executeWebhookUpdate(subscriptions, webhookUrl) {
                 fetchActiveSubscriptions();
             } else {
                 frappe.msgprint({
-                    title: 'Error',
+                    title: __('Error'),
                     indicator: 'red',
-                    message: r.message?.error_message || 'Failed to update webhooks'
+                    message: r.message?.error_message || __('Failed to update webhooks')
                 });
             }
 
@@ -708,15 +708,15 @@ function displayUpdateResults(data) {
     const details = document.getElementById('webhook-results-details');
 
     summary.innerHTML = `
-        <strong>Total:</strong> ${data.summary.total} |
-        <strong class="text-success">Success:</strong> ${data.summary.success} |
-        <strong class="text-danger">Errors:</strong> ${data.summary.errors}
+        <strong>${__('Total:')}</strong> ${data.summary.total} |
+        <strong class="text-success">${__('Success:')}</strong> ${data.summary.success} |
+        <strong class="text-danger">${__('Errors:')}</strong> ${data.summary.errors}
     `;
 
     // Show error details if any
     const errorResults = data.results.filter(r => r.status === 'error');
     if (errorResults.length > 0) {
-        details.innerHTML = '<h6 class="mt-2">Errors:</h6>' +
+        details.innerHTML = `<h6 class="mt-2">${__('Errors:')}</h6>` +
             errorResults.map(r =>
                 `<div class="text-danger">${escapeHtml(r.subscription_id)}: ${escapeHtml(r.error)}</div>`
             ).join('');
