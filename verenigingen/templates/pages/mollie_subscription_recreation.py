@@ -22,6 +22,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
 )
 from verenigingen.utils.settings_utils import populate_mollie_context
+from verenigingen.verenigingen_payments.mollie.services.shared.csv_utils import sanitize_csv_field
 
 # Configuration constants
 MAX_CSV_SIZE = 1024 * 1024  # 1MB limit for CSV uploads
@@ -149,29 +150,6 @@ def parse_amount_string(amount_str) -> float:
         return float(amount_str)
     except (ValueError, IndexError, AttributeError):
         return 0.0
-
-
-def sanitize_csv_field(value: str) -> str:
-    """
-    Sanitize CSV field to prevent CSV injection attacks.
-
-    Args:
-        value: Field value to sanitize
-
-    Returns:
-        str: Sanitized value safe for CSV output
-    """
-    if not value:
-        return value
-
-    value_str = str(value)
-
-    # Prevent CSV injection by escaping formula indicators
-    dangerous_chars = ("=", "+", "-", "@", "\t", "\r")
-    if value_str.startswith(dangerous_chars):
-        return "'" + value_str  # Prefix with single quote to force text interpretation
-
-    return value_str
 
 
 def sanitize_description(description: Optional[str]) -> str:
