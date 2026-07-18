@@ -24,9 +24,13 @@ verenigingen.utils.escapeHtml = function (str) {
 	if (str == null) {
 		return '';
 	}
-	const div = document.createElement('div');
-	div.textContent = String(str);
-	return div.innerHTML;
+	// Escape quotes too, so output is safe in attribute contexts (e.g. value="...").
+	return String(str)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
 };
 
 /**

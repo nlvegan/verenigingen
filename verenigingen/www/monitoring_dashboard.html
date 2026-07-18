@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}System Monitoring Dashboard{% endblock %}
+{% block title %}{{ _("System Monitoring Dashboard") }}{% endblock %}
 
 {% block head_include %}
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -118,70 +118,70 @@
 {% block content %}
 <div class="monitoring-dashboard">
     <button class="btn btn-primary refresh-button" onclick="refreshDashboard()">
-        <i class="fa fa-refresh"></i> Refresh
+        <i class="fa fa-refresh"></i> {{ _("Refresh") }}
     </button>
 
     <div class="container-fluid">
         <h1 class="mb-4">
-            <i class="fa fa-dashboard"></i> System Monitoring Dashboard
-            <small class="text-muted">Real-time System Health</small>
+            <i class="fa fa-dashboard"></i> {{ _("System Monitoring Dashboard") }}
+            <small class="text-muted">{{ _("Real-time System Health") }}</small>
         </h1>
 
         <!-- System Metrics Overview -->
-        <h2 class="section-header">System Metrics</h2>
+        <h2 class="section-header">{{ _("System Metrics") }}</h2>
         <div class="row" id="system-metrics">
             {% if system_metrics and not system_metrics.error %}
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
-                    <div class="metric-label">Active Members</div>
+                    <div class="metric-label">{{ _("Active Members") }}</div>
                     <div class="metric-number status-good">{{ system_metrics.members.active }}</div>
-                    <small>Total: {{ system_metrics.members.total }}</small>
+                    <small>{{ _("Total:") }} {{ system_metrics.members.total }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
-                    <div class="metric-label">Volunteers</div>
+                    <div class="metric-label">{{ _("Volunteers") }}</div>
                     <div class="metric-number status-info">{{ system_metrics.volunteers.active }}</div>
-                    <small>of {{ system_metrics.volunteers.total }}</small>
+                    <small>{{ _("of") }} {{ system_metrics.volunteers.total }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
-                    <div class="metric-label">SEPA Mandates</div>
+                    <div class="metric-label">{{ _("SEPA Mandates") }}</div>
                     <div class="metric-number status-info">{{ system_metrics.sepa.active_mandates }}</div>
-                    <small>{{ system_metrics.sepa.recent_batches }} recent batches</small>
+                    <small>{{ _("{0} recent batches").format(system_metrics.sepa.recent_batches) }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
-                    <div class="metric-label">Errors (24h)</div>
+                    <div class="metric-label">{{ _("Errors (24h)") }}</div>
                     <div class="metric-number {% if system_metrics.errors.last_24h > 10 %}status-danger{% elif system_metrics.errors.last_24h > 5 %}status-warning{% else %}status-good{% endif %}">
                         {{ system_metrics.errors.last_24h }}
                     </div>
-                    <small>{{ system_metrics.errors.last_hour }} in last hour</small>
+                    <small>{{ _("{0} in last hour").format(system_metrics.errors.last_hour) }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
-                    <div class="metric-label">Invoices</div>
+                    <div class="metric-label">{{ _("Invoices") }}</div>
                     <div class="metric-number status-info">{{ system_metrics.invoices.paid }}</div>
-                    <small>{{ system_metrics.invoices.draft }} draft, {{ system_metrics.invoices.submitted }} submitted</small>
+                    <small>{{ _("{0} draft, {1} submitted").format(system_metrics.invoices.draft, system_metrics.invoices.submitted) }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
-                    <div class="metric-label">Pending Payments</div>
+                    <div class="metric-label">{{ _("Pending Payments") }}</div>
                     <div class="metric-number {% if system_metrics.sepa.pending_payments > 5 %}status-warning{% else %}status-good{% endif %}">
                         {{ system_metrics.sepa.pending_payments }}
                     </div>
-                    <small>Payment entries</small>
+                    <small>{{ _("Payment entries") }}</small>
                 </div>
             </div>
             {% else %}
             <div class="col-12">
                 <div class="alert alert-danger">
                     <i class="fa fa-exclamation-triangle"></i>
-                    Failed to load system metrics: {{ system_metrics.error if system_metrics.error else "Unknown error" }}
+                    {{ _("Failed to load system metrics:") }} {{ system_metrics.error if system_metrics.error else _("Unknown error") }}
                 </div>
             </div>
             {% endif %}
@@ -189,19 +189,19 @@
 
         <!-- Active Alerts Section -->
         {% if alerts %}
-        <h2 class="section-header">Active Alerts</h2>
+        <h2 class="section-header">{{ _("Active Alerts") }}</h2>
         <div class="row mb-4">
             <div class="col-12">
                 <div class="metric-card">
                     <table class="table table-sm alert-table">
                         <thead>
                             <tr>
-                                <th>Type</th>
-                                <th>Severity</th>
-                                <th>Message</th>
-                                <th>Status</th>
-                                <th>Time</th>
-                                <th>Actions</th>
+                                <th>{{ _("Type") }}</th>
+                                <th>{{ _("Severity") }}</th>
+                                <th>{{ _("Message") }}</th>
+                                <th>{{ _("Status") }}</th>
+                                <th>{{ _("Time") }}</th>
+                                <th>{{ _("Actions") }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -210,7 +210,7 @@
                                 <td>{{ alert.alert_type }}</td>
                                 <td>
                                     <span class="alert-badge alert-{{ (alert.severity or 'low').lower() }}">
-                                        {{ alert.severity or 'Unknown' }}
+                                        {{ alert.severity or _('Unknown') }}
                                     </span>
                                 </td>
                                 <td>{{ alert.message[:100] if alert.message else '' }}{% if alert.message and alert.message|length > 100 %}...{% endif %}</td>
@@ -219,11 +219,11 @@
                                 <td>
                                     {% if alert.status == "Active" %}
                                     <button class="btn btn-sm btn-warning" onclick="acknowledgeAlert('{{ alert.name }}')">
-                                        Acknowledge
+                                        {{ _("Acknowledge") }}
                                     </button>
                                     {% endif %}
                                     <button class="btn btn-sm btn-success" onclick="resolveAlert('{{ alert.name }}')">
-                                        Resolve
+                                        {{ _("Resolve") }}
                                     </button>
                                 </td>
                             </tr>
@@ -236,7 +236,7 @@
         {% endif %}
 
         <!-- Recent Errors Section -->
-        <h2 class="section-header">Recent Errors (Last 24 Hours)</h2>
+        <h2 class="section-header">{{ _("Recent Errors (Last 24 Hours)") }}</h2>
         <div class="row mb-4">
             <div class="col-12">
                 <div class="metric-card">
@@ -244,10 +244,10 @@
                     <table class="table table-striped error-table">
                         <thead>
                             <tr>
-                                <th style="width: 50%;">Error Summary</th>
-                                <th>Count</th>
-                                <th>Latest</th>
-                                <th>First Seen</th>
+                                <th style="width: 50%;">{{ _("Error Summary") }}</th>
+                                <th>{{ _("Count") }}</th>
+                                <th>{{ _("Latest") }}</th>
+                                <th>{{ _("First Seen") }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -268,7 +268,7 @@
                     {% else %}
                     <div class="text-center text-muted py-4">
                         <i class="fa fa-check-circle fa-3x mb-3"></i>
-                        <p>No errors in the last 24 hours</p>
+                        <p>{{ _("No errors in the last 24 hours") }}</p>
                     </div>
                     {% endif %}
                 </div>
@@ -276,7 +276,7 @@
         </div>
 
         <!-- Audit Activity Section -->
-        <h2 class="section-header">SEPA Audit Activity (Last 7 Days)</h2>
+        <h2 class="section-header">{{ _("SEPA Audit Activity (Last 7 Days)") }}</h2>
         <div class="row mb-4">
             <div class="col-12">
                 <div class="metric-card">
@@ -284,11 +284,11 @@
                     <table class="table table-hover audit-table">
                         <thead>
                             <tr>
-                                <th>Process Type</th>
-                                <th>Action</th>
-                                <th>Compliance Status</th>
-                                <th>Count</th>
-                                <th>Latest</th>
+                                <th>{{ _("Process Type") }}</th>
+                                <th>{{ _("Action") }}</th>
+                                <th>{{ _("Compliance Status") }}</th>
+                                <th>{{ _("Count") }}</th>
+                                <th>{{ _("Latest") }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -298,7 +298,7 @@
                                 <td>{{ audit.action }}</td>
                                 <td>
                                     <span class="compliance-status compliance-{{ (audit.compliance_status or 'pending').lower() }}">
-                                        {{ audit.compliance_status or 'Unknown' }}
+                                        {{ audit.compliance_status or _('Unknown') }}
                                     </span>
                                 </td>
                                 <td>{{ audit.count }}</td>
@@ -310,7 +310,7 @@
                     {% else %}
                     <div class="text-center text-muted py-4">
                         <i class="fa fa-clock-o fa-3x mb-3"></i>
-                        <p>No SEPA audit activity in the last 7 days</p>
+                        <p>{{ _("No SEPA audit activity in the last 7 days") }}</p>
                     </div>
                     {% endif %}
                 </div>
@@ -319,30 +319,30 @@
 
         <!-- Performance Metrics Section -->
         {% if performance_metrics and not performance_metrics.error %}
-        <h2 class="section-header">Performance Metrics</h2>
+        <h2 class="section-header">{{ _("Performance Metrics") }}</h2>
         <div class="row mb-4">
             <div class="col-md-4">
                 <div class="metric-card">
-                    <h5><i class="fa fa-database"></i> Database</h5>
-                    <p><strong>Tables:</strong> {{ performance_metrics.database.total_tables }}</p>
-                    <p><strong>Error Logs:</strong> {{ performance_metrics.database.error_logs_size }}</p>
-                    <p><strong>Recent Query Issues:</strong> {{ performance_metrics.database.recent_queries }}</p>
+                    <h5><i class="fa fa-database"></i> {{ _("Database") }}</h5>
+                    <p><strong>{{ _("Tables:") }}</strong> {{ performance_metrics.database.total_tables }}</p>
+                    <p><strong>{{ _("Error Logs:") }}</strong> {{ performance_metrics.database.error_logs_size }}</p>
+                    <p><strong>{{ _("Recent Query Issues:") }}</strong> {{ performance_metrics.database.recent_queries }}</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="metric-card">
-                    <h5><i class="fa fa-users"></i> System</h5>
-                    <p><strong>Active Users:</strong> {{ performance_metrics.system.active_users }}</p>
-                    <p><strong>Background Jobs:</strong> {{ performance_metrics.system.background_jobs }}</p>
-                    <p><strong>Cache Status:</strong> {{ performance_metrics.system.cache_status }}</p>
+                    <h5><i class="fa fa-users"></i> {{ _("System") }}</h5>
+                    <p><strong>{{ _("Active Users:") }}</strong> {{ performance_metrics.system.active_users }}</p>
+                    <p><strong>{{ _("Background Jobs:") }}</strong> {{ performance_metrics.system.background_jobs }}</p>
+                    <p><strong>{{ _("Cache Status:") }}</strong> {{ performance_metrics.system.cache_status }}</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="metric-card">
-                    <h5><i class="fa fa-line-chart"></i> Business</h5>
-                    <p><strong>Daily Transactions:</strong> {{ performance_metrics.business.daily_transactions }}</p>
-                    <p><strong>Payment Success Rate:</strong> {{ performance_metrics.business.payment_success_rate }}%</p>
-                    <p><strong>Member Growth Today:</strong> {{ performance_metrics.business.member_growth.today }}</p>
+                    <h5><i class="fa fa-line-chart"></i> {{ _("Business") }}</h5>
+                    <p><strong>{{ _("Daily Transactions:") }}</strong> {{ performance_metrics.business.daily_transactions }}</p>
+                    <p><strong>{{ _("Payment Success Rate:") }}</strong> {{ performance_metrics.business.payment_success_rate }}%</p>
+                    <p><strong>{{ _("Member Growth Today:") }}</strong> {{ performance_metrics.business.member_growth.today }}</p>
                 </div>
             </div>
         </div>
@@ -351,7 +351,7 @@
 </div>
 
 <div class="auto-refresh-status" id="refresh-status">
-    Auto-refresh: ON (5 min)
+    {{ _("Auto-refresh: ON (5 min)") }}
 </div>
 
 <script>
@@ -361,7 +361,7 @@ let refreshEnabled = true;
 function refreshDashboard() {
     const btn = document.querySelector('.refresh-button');
     const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa fa-spin fa-spinner"></i> Refreshing...';
+    btn.innerHTML = '<i class="fa fa-spin fa-spinner"></i> ' + __('Refreshing...');
     btn.disabled = true;
 
     frappe.call({
@@ -371,10 +371,10 @@ function refreshDashboard() {
             const data = unwrapOperationResult(r.message);
             if (data && !data.error) {
                 updateDashboardData(data);
-                showNotification('Dashboard refreshed successfully', 'success');
+                showNotification(__('Dashboard refreshed successfully'), 'success');
             } else {
-                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
-                showNotification('Failed to refresh dashboard: ' + errorMsg, 'error');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Unknown error'));
+                showNotification(__('Failed to refresh dashboard: {0}', [errorMsg]), 'error');
             }
         },
         always: function() {
@@ -392,7 +392,7 @@ function updateDashboardData(data) {
 
     // Update timestamp
     document.getElementById('refresh-status').innerHTML =
-        `Last updated: ${new Date().toLocaleTimeString()} - Auto-refresh: ${refreshEnabled ? 'ON' : 'OFF'} (5 min)`;
+        __('Last updated: {0} - Auto-refresh: {1} (5 min)', [new Date().toLocaleTimeString(), refreshEnabled ? __('ON') : __('OFF')]);
 }
 
 function updateSystemMetrics(metrics) {
@@ -409,10 +409,10 @@ function acknowledgeAlert(alertName) {
             // Handle OperationResult format
             const data = unwrapOperationResult(r.message);
             if (data && data.status === 'success') {
-                showNotification('Alert acknowledged', 'success');
+                showNotification(__('Alert acknowledged'), 'success');
                 refreshDashboard();
             } else {
-                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to acknowledge alert');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Failed to acknowledge alert'));
                 showNotification(errorMsg, 'error');
             }
         }
@@ -427,10 +427,10 @@ function resolveAlert(alertName) {
             // Handle OperationResult format
             const data = unwrapOperationResult(r.message);
             if (data && data.status === 'success') {
-                showNotification('Alert resolved', 'success');
+                showNotification(__('Alert resolved'), 'success');
                 refreshDashboard();
             } else {
-                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Failed to resolve alert');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Failed to resolve alert'));
                 showNotification(errorMsg, 'error');
             }
         }
@@ -470,7 +470,7 @@ function toggleAutoRefresh() {
     }
 
     document.getElementById('refresh-status').innerHTML =
-        `Auto-refresh: ${refreshEnabled ? 'ON' : 'OFF'} (5 min)`;
+        __('Auto-refresh: {0} (5 min)', [refreshEnabled ? __('ON') : __('OFF')]);
 }
 
 function startAutoRefresh() {
@@ -488,7 +488,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add click handler for refresh status
     document.getElementById('refresh-status').addEventListener('click', toggleAutoRefresh);
     document.getElementById('refresh-status').style.cursor = 'pointer';
-    document.getElementById('refresh-status').title = 'Click to toggle auto-refresh';
+    document.getElementById('refresh-status').title = __('Click to toggle auto-refresh');
 });
 
 // Test monitoring system
@@ -499,11 +499,11 @@ function testMonitoringSystem() {
             // Handle OperationResult format
             const data = unwrapOperationResult(r.message);
             if (data && data.status === 'success') {
-                showNotification('Test alert created successfully', 'success');
+                showNotification(__('Test alert created successfully'), 'success');
                 setTimeout(refreshDashboard, 1000);
             } else {
-                const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
-                showNotification('Failed to create test alert: ' + errorMsg, 'error');
+                const errorMsg = verenigingen.utils.getErrorMessage(r.message, __('Unknown error'));
+                showNotification(__('Failed to create test alert: {0}', [errorMsg]), 'error');
             }
         }
     });
@@ -516,7 +516,7 @@ document.addEventListener('DOMContentLoaded', function() {
     testBtn.style.position = 'fixed';
     testBtn.style.top = '70px';
     testBtn.style.right = '20px';
-    testBtn.innerHTML = '<i class="fa fa-test"></i> Test System';
+    testBtn.innerHTML = '<i class="fa fa-test"></i> ' + __('Test System');
     testBtn.onclick = testMonitoringSystem;
     document.body.appendChild(testBtn);
 });
