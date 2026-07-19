@@ -9,5 +9,4 @@ Components:
 - service_factory.py: Service instantiation and dependency injection
 - service_config.py: Configuration management
 - service_metrics.py: Performance monitoring and metrics
-- service_testing.py: Testing framework for services
 """
