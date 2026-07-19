@@ -195,6 +195,22 @@ because the 8 move to a new file/class, their old baseline ids simply disappear
 (the methods no longer exist there) and the new in-process ids must **not** be
 added to the baseline (they pass). Prune the 22 Class B/C ids explicitly.
 
+### CI outcome — 29 of 30 reclaimed; 1 stays baselined
+
+CI (PR #165) surfaced one remaining failure the local runs did not:
+`test_integrated_security_payment_system.test_performance_under_integrated_load`.
+Its auth blocker IS fixed (its body now runs), but the body has a **pre-existing,
+non-auth CI fragility**: it builds Sales Invoices in a loop, and
+`Member.add_invoice_to_payment_history` issues a `frappe.db.commit()` mid-loop
+(`payment_mixin.py:~50`) that, under CI's transaction/isolation timing, drops the
+setUp-created `TEST-MEMBERSHIP` item so the 2nd invoice save fails with
+`LinkValidationError`. It passes locally. This is unrelated to the Role-Profile
+work and a separate rabbit hole, so this single test is **re-added to
+`known_test_failures.txt`** (it was never green in CI — status quo preserved).
+Net: 30 targeted → 29 genuinely reclaimed, 1 kept baselined (auth-fixed,
+tracked for a follow-up on the commit-mid-loop test fragility). Baseline: 62 →
+33.
+
 ## Verification
 
 1. Run all 6 (now 7) modules on `test_site_1`; confirm 30 targeted tests green.
