@@ -302,13 +302,26 @@ def nuke_all_financial_data(confirm="NO"):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def nuke_gl_entries_older_than(minutes=30):
+def nuke_gl_entries_older_than(minutes=30, confirm="NO"):
     """
     Delete GL entries older than specified minutes
 
     Args:
         minutes: Number of minutes to keep (default 30)
+        confirm: Must be "YES_DELETE_GL_ENTRIES" to proceed
+
+    Guarded like nuke_all_financial_data: this permanently deletes GL entries
+    and has no per-entry undo, so a mistaken small ``minutes`` (e.g. 0) would
+    wipe essentially all of them. Require an explicit confirmation token before
+    touching the database.
     """
+
+    if confirm != "YES_DELETE_GL_ENTRIES":
+        return {
+            "error": "Safety check failed",
+            "message": "To proceed, call with confirm='YES_DELETE_GL_ENTRIES'",
+            "warning": "This will permanently delete GL entries older than the cutoff!",
+        }
 
     from frappe.utils import add_to_date, now_datetime
 

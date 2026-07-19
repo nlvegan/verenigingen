@@ -111,30 +111,6 @@ record_operation("my_service", "my_operation", duration, success=True)
 health = get_service_health("my_service")
 ```
 
-### Testing Framework (`service_testing.py`)
-
-Standardized testing patterns for services:
-
-- **`ServiceTestCase`**: Base test class with common setup
-- **`ServicePerformanceTest`**: Performance testing utilities
-- **`ServiceIntegrationTest`**: Integration testing with real dependencies
-- **`MockServiceFactory`**: Mock factory for isolated testing
-
-#### Example Usage
-
-```python
-from verenigingen.services.infrastructure.service_testing import ServiceTestCase
-
-class TestMyService(ServiceTestCase):
-    def setUp(self):
-        super().setUp()
-        self.service = self.register_test_service("my_service", MyServiceClass)
-
-    def test_operation(self):
-        result = self.service.my_operation(param=123)
-        self.assert_service_result(result, success=True, has_data=True)
-```
-
 ## Service Development Guidelines
 
 ### 1. Service Class Design
@@ -202,23 +178,23 @@ def monitored_operation(self, data: Dict) -> Dict:
 
 ### 5. Testing
 
-Write comprehensive tests using the testing framework:
+Write comprehensive tests against real dependencies using the app's standard
+test base, `EnhancedTestCase` (mocking business logic is blocked by the
+`test-quality-enforcer` hook):
 
 ```python
-class TestMyService(ServiceTestCase):
+from verenigingen.services.infrastructure.service_factory import get_service
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestMyService(EnhancedTestCase):
     def setUp(self):
         super().setUp()
-        self.service = self.register_test_service("my_service", MyService)
+        self.service = get_service("my_service")
 
     def test_successful_operation(self):
         result = self.service.my_operation(valid_data)
-        self.assert_service_result(result, success=True)
-        self.assert_performance_within_limits(self.service)
-
-    def test_error_handling(self):
-        with self.simulate_database_error():
-            result = self.service.my_operation(data)
-            self.assert_service_result(result, success=False, has_errors=True)
+        self.assertTrue(result["success"])
 ```
 
 ## API Integration

@@ -42,6 +42,14 @@ coverage:
 ignore:
   - "**/test_*.py"
   - "**/tests/**"
+  # Dev / ops / diagnostic tooling invoked by hand (bench console, bench
+  # execute, bench CLI) or gated to developer mode — never on the production
+  # request or scheduler path, and not meaningfully unit-testable. Counting it
+  # drags the production denominator down and hides real coverage, so excluding
+  # it keeps the number honest.
+  - "verenigingen/debug_coverage.py"           # dev-only coverage-analysis diagnostics; no importers
+  - "verenigingen/utils/api_endpoint_optimizer.py"  # source rewriter; whitelisted endpoint is @development_only_api
+  - "verenigingen/commands/**"                 # bench CLI commands (wired via the `commands` hook, not the request path)
 
 flags:
   python:
