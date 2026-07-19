@@ -482,7 +482,7 @@ function load_unpaid_invoices(frm) {
 		primary_action_label: __('Load Invoices'),
 		primary_action(values) {
 			frappe.call({
-				method: 'verenigingen.api.sepa_batch_ui.load_unpaid_invoices',
+				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.load_unpaid_invoices',
 				args: values,
 				callback(r) {
 					// Unwrap OperationResult format

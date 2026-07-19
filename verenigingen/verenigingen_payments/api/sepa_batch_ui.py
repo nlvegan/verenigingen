@@ -43,12 +43,22 @@ def load_unpaid_invoices(date_range="overdue", membership_type: str | None = Non
     elif date_range == "due_this_month":
         filters["due_date"] = ["between", [today(), add_days(today(), 30)]]
 
-    # Add membership type filter if specified
+    # Add membership type filter if specified.
+    #
+    # Invoices link to their billing schedule via `membership_dues_schedule_display`
+    # (Sales Invoice has no `membership` field - filtering on it raised
+    # DataError: "Field not permitted in query: membership", so this filter never
+    # worked). The Membership Dues Schedule carries `membership_type`, so resolve
+    # the type to its schedules and constrain the invoice query on that link.
+    # A type with no matching schedules returns nothing, rather than silently
+    # falling through and loading every unpaid invoice into the batch selector.
     if membership_type:
-        # Get memberships of this type
-        memberships = frappe.get_all("Membership", filters={"membership_type": membership_type}, pluck="name")
-        if memberships:
-            filters["membership"] = ["in", memberships]
+        schedules = frappe.get_all(
+            "Membership Dues Schedule", filters={"membership_type": membership_type}, pluck="name"
+        )
+        if not schedules:
+            return []
+        filters["membership_dues_schedule_display"] = ["in", schedules]
 
     # Get invoices
     invoices = frappe.get_all(
