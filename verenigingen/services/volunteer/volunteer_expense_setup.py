@@ -103,10 +103,17 @@ def create_default_cost_center(company):
     Moved from expense page template for better code organization.
     """
     try:
-        cost_center_name = f"Volunteer Expenses - {company}"
-
-        if frappe.db.exists("Cost Center", cost_center_name):
-            return cost_center_name
+        # Resolve by (cost_center_name, company), NOT by a reconstructed name string.
+        # ERPNext autonames Cost Centers as "<cost_center_name> - <company abbr>"
+        # (and may append a number), so building "Volunteer Expenses - <company>"
+        # from the full company name produced a name that never exists — the check
+        # always missed, the function recreated every call, and it returned a
+        # non-existent name. Look up the real record instead.
+        existing = frappe.db.get_value(
+            "Cost Center", {"cost_center_name": "Volunteer Expenses", "company": company}, "name"
+        )
+        if existing:
+            return existing
 
         # Find parent cost center
         parent_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 1}, "name")
@@ -136,8 +143,13 @@ def create_default_cost_center(company):
             frappe.logger().error("Failed to create default cost center: %s", "; ".join(center_result.errors))
             return get_fallback_cost_center()
 
-        frappe.logger().info("Created default cost center: %s", cost_center_name)
-        return cost_center_name
+        # Return the ACTUAL name ERPNext assigned (with the company abbr), not a
+        # reconstructed string.
+        created_name = cost_center_doc.name or frappe.db.get_value(
+            "Cost Center", {"cost_center_name": "Volunteer Expenses", "company": company}, "name"
+        )
+        frappe.logger().info("Created default cost center: %s", created_name)
+        return created_name
 
     except Exception as e:
         frappe.log_error(
@@ -151,10 +163,13 @@ def get_organization_cost_center(company=None):
     if not company:
         company = frappe.db.get_single_value("Global Defaults", "default_company")
 
-    # Try to find existing volunteer expense cost center
-    cost_center_name = f"Volunteer Expenses - {company}"
-    if frappe.db.exists("Cost Center", cost_center_name):
-        return cost_center_name
+    # Try to find existing volunteer expense cost center by field (the record's
+    # real name uses the company abbr, not the full company name).
+    existing = frappe.db.get_value(
+        "Cost Center", {"cost_center_name": "Volunteer Expenses", "company": company}, "name"
+    )
+    if existing:
+        return existing
 
     # If not found, create it
     return create_default_cost_center(company)
