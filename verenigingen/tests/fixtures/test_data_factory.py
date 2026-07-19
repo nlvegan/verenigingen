@@ -252,8 +252,18 @@ class CoreTestDataFactory:
                 region.insert(ignore_permissions=True)
                 self.track_doc("Region", region.name)
                 return region
-            except frappe.exceptions.DuplicateEntryError:
-                region_code = _random_code()  # lost the exists()->insert() race; retry
+            except (frappe.exceptions.DuplicateEntryError, frappe.exceptions.ValidationError) as e:
+                # region_code uniqueness surfaces as a ValidationError from the Region
+                # controller (validate, pre-DB: "Region Code X already exists") and as
+                # DuplicateEntryError from the DB unique index (the exists()->insert()
+                # race). Only retry a uniqueness collision; re-raise anything else,
+                # e.g. the controller's format error ("must be 2-5 ...").
+                is_uniqueness = isinstance(e, frappe.exceptions.DuplicateEntryError) or (
+                    "already exists" in str(e).lower()
+                )
+                if not is_uniqueness:
+                    raise
+                region_code = _random_code()
         raise RuntimeError("create_test_region: could not allocate a unique region_code")
 
     def get_or_create_test_region(self):

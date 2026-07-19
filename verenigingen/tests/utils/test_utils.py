@@ -180,6 +180,10 @@ class TestDataFactory:
         # state, then force the caller's desired status with a direct DB write
         # (which skips workflow validation). The returned member ends up in the
         # requested state, so callers are unaffected; this only removes the crash.
+        # NOTE: forcing the status via db.set_value bypasses document hooks, so the
+        # Pending->Approved status-change EVENTS (which drive background jobs) are
+        # NOT emitted. A test needing real approval side-effects must drive an
+        # actual approval flow rather than this factory.
         desired_status = member_data.get("application_status")
         if desired_status and desired_status != "Pending":
             member.application_status = "Pending"

@@ -183,10 +183,16 @@ def get_fallback_cost_center():
         if cost_center:
             return cost_center
 
-        # Create minimal cost center if none exists
+        # No non-group cost center existed above; try the standard "Main" one,
+        # resolved by field (its real name uses the company abbr, not the full
+        # company name — the same reconstruction bug this module previously had).
         company = frappe.db.get_single_value("Global Defaults", "default_company")
         if company:
-            return f"Main - {company}"
+            main = frappe.db.get_value(
+                "Cost Center", {"cost_center_name": "Main", "company": company}, "name"
+            )
+            if main:
+                return main
 
     except Exception:
         pass
