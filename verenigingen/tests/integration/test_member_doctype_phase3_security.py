@@ -23,6 +23,7 @@ from frappe.utils import today, add_days
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 import unittest
 
 
@@ -63,11 +64,15 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             birth_date=add_days(today(), -365 * 30)  # 30 years old
         )
         
-        # Create admin user for secure operations
+        # Create admin user for secure operations. The APISecurityFramework
+        # authorizes on Role Profiles, not bare roles, so grant the profile
+        # matching this user's roles to reach CRITICAL/HIGH endpoints.
+        admin_roles = ["System Manager", "HR Manager", "Verenigingen Administrator"]
         self.admin_user = self.create_test_user_with_roles(
             email=f"admin.phase3.{unique_id}@example.com",
-            roles=["System Manager", "HR Manager", "Verenigingen Administrator"]
+            roles=admin_roles,
         )
+        grant_matching_role_profiles(self.admin_user.email, admin_roles)
 
     def test_create_customer_method_security(self):
         """Test that create_customer() method works securely without permission bypasses"""

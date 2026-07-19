@@ -92,55 +92,100 @@ The 3 **non-failing**, genuinely HTTP-only methods to preserve:
 
 ## Design
 
-### Part 1 — Factory support for Role-Profile assignment (fixes B + C)
+> **Revised after SWE review (2026-07-20).** The review found an existing,
+> already-merged helper that does exactly the proposed Part-1 work, corrected
+> the `OperationResult` return-type assumption, distinguished the two denial
+> mechanisms, and flagged the stale branch/baseline. Changes folded in below;
+> this supersedes the earlier "opt-in factory flag" decision (the mechanism
+> already exists, so no factory change is needed).
 
-Add a shared helper in `verenigingen/tests/fixtures/enhanced_test_factory.py`
-that, given a created user and their roles, assigns every Frappe **Role
-Profile** whose name matches one of the user's roles *and* appears in
-`ROLE_PROFILE_SECURITY_MAPPING`. It writes **both** the v16 `role_profiles`
-child table and the legacy `role_profile_name` link (the engine reads both) and
-invalidates the auth cache for the user
-(`get_authorization_engine().invalidate_user_cache(email)`).
+### Part 1 — Assign Role Profiles via the existing helper (fixes B + C)
 
-Wire it into both `create_test_user` and `create_user_with_roles` behind an
-**opt-in flag** `with_role_profiles=False` (default off). **Decision: opt-in,
-not default-on** — the helpers have hundreds of callers; opt-in contains risk to
-exactly the 6 files we intend to change and keeps each test explicit about the
-privilege it grants. The 6 affected files pass `with_role_profiles=True`.
+Reuse the existing, precedented helper
+`verenigingen/tests/fixtures/role_profile_helper.py::grant_matching_role_profiles(email, roles)`
+(merged `3b8569e0`, already used in 9 files). It assigns every Frappe Role
+Profile whose name matches one of the user's roles, writing **both** the v16
+`role_profiles` child table and the legacy `role_profile_name` link, then
+invalidates the auth cache. Its docstring documents the exact RBAC-preservation
+property we rely on (low-tier roles map to low-tier profiles and stay correctly
+denied).
 
-Cache note: users are created fresh in `setUp` before any auth call, so the
-versioned profile cache is cold; explicit invalidation is belt-and-suspenders
-for tests that create a user and immediately assert.
+Call it in each affected file's `setUp`, immediately after each user is
+created, passing that user's `roles` — mirroring
+`verenigingen/tests/sepa/test_sepa_security_comprehensive.py:288-290`. This
+touches only the 5 in-process files (+ the new suspension file), never the
+factory, so the ~hundreds of other factory callers are untouched by
+construction.
+
+Files creating users via `create_test_user_with_roles` (thin wrapper →
+`create_user_with_roles`): `test_sepa_mandate_authentication_security`,
+`test_authentication_flows`, `test_api_authentication_decorators_integration`,
+`test_member_doctype_phase3_security`. `test_integrated_security_payment_system`
+uses `create_test_user`. No file creates users by any other path — the helper
+call reaches every failing user context.
 
 ### Part 2 — Convert the 8 HTTP suspension tests to in-process (Class A)
 
 **Decision: split into a new file.** Create
 `verenigingen/tests/integration/test_suspension_api_integration.py` holding the
-8 converted tests as in-process calls:
+8 converted tests as in-process calls. Users created via the factory + Part 1
+helper.
+
+**Return-type (corrected by review):** every suspension endpoint is wrapped by
+`api_security_framework` (`critical_api`/`high_security_api`/…), whose success
+path returns `result.to_dict(scrub_sensitive=True)` — a **plain dict**, even
+in-process. So assert on the dict, not an object:
 
 ```python
 with self.as_user(self.admin_user.email):
-    result = suspension_api.suspend_member(member_name=..., suspension_reason=...)
-self.assertTrue(result.success)   # OperationResult
+    result = suspension_api.suspend_member(member_name=m, suspension_reason="…")
+self.assertTrue(result["success"])          # dict, NOT result.success
 ```
 
-Admin/limited users created via the Part 1 factory (`with_role_profiles=True`).
-RBAC assertions (`test_suspension_permissions_http_real_rbac`) use an
-admin-profile user (allowed) and a low-tier user (denied), which the 1:1
-role→profile derivation makes correct.
+**Two distinct denial mechanisms (corrected by review):**
+- **Security-level denial** (wrong Role Profile tier) — the wrapper's
+  `validate_authentication` **raises** `frappe.PermissionError`/`VPermissionError`
+  before the function body runs. Test with `assertRaises`:
+  ```python
+  low_user = self.create_test_user_with_roles(roles=["Verenigingen Member"])  # real low tier, not "Guest"
+  grant_matching_role_profiles(low_user.email, ["Verenigingen Member"])
+  with self.as_user(low_user.email), self.assertRaises(frappe.PermissionError):
+      suspension_api.suspend_member(member_name=m, suspension_reason="…")
+  ```
+- **In-body business denial** (`can_terminate_member`, `suspension_api.py:64-71`)
+  — returns `OperationResult.fail(..., error_code="PERMISSION_DENIED")`, i.e. a
+  dict with `success=False`. Assert on `result["success"] is False` /
+  `result["error"]`.
 
-Leave the 3 HTTP-only tests in the existing
-`test_suspension_api_http_integration.py` under their current skip guard —
-honest "HTTP/CSRF layer not covered in CI" rather than faking it in-process.
-Both files can share a small setUp mixin if the scaffolding overlap is
-meaningful; otherwise duplicate the minimal member/user setup.
+**Real assertions (review finding):** the current 8 HTTP methods are
+near-tautological (`print("✅ …")` with no `else`/`self.fail`;
+`test_suspension_permissions_http_real_rbac` has no failure path at all). The
+converted tests MUST assert real outcomes (`assertTrue(result["success"])`,
+`assertRaises`, state checks like member `status`/`docstatus`), not carry over
+print-and-pass.
 
-Once the 8 methods are removed from the HTTP file, its `_authenticate_session`
-default-credential helper is used only by whatever of the 3 remaining HTTP tests
-still call it — out of scope to remove (credentials are dead deleted-site
-artifacts, see session notes), but note it in the plan.
+**Recalibrate `assertQueryCount`:** the HTTP baselines (400–500) assume network
+round-trips; in-process calls issue far fewer queries. Re-measure and set tight
+realistic caps, or drop the wrapper where it adds nothing.
+
+**Delete the emptied class:** the 8 tests live in class
+`TestSuspensionAPIHTTPIntegration`; the 3 HTTP-only tests live in a *separate*
+class `TestSuspensionAPISecurityHTTPIntegration` (own `setUp`, doesn't call
+`_authenticate_session`). After moving the 8, `TestSuspensionAPIHTTPIntegration`
+has zero `test_*` methods → **delete the class** (and its now-unused
+`setUp`/`_authenticate_session`/`_get_csrf_token`). Keep
+`TestSuspensionAPISecurityHTTPIntegration` (the 3 HTTP-only tests) under its skip
+guard — honest "HTTP/CSRF layer not covered in CI." Removing that class also
+removes the dead hardcoded-credential `_authenticate_session` in this file (the
+other copy in `test_payment_processing_http_integration.py` is untouched / out
+of scope).
 
 ### Part 3 — Re-arm the gate
+
+**Prerequisite (review finding): branch must be current with `origin/develop`
+before editing the baseline** — the branch originally forked pre-#163 and
+carried the stale 2208-line file. Done: rebased onto `origin/develop`
+(`0ea6141f`), baseline now the fresh 62-line file.
 
 Remove the 30 now-passing entries from
 `verenigingen/tests/known_test_failures.txt`. The Class A entries are keyed to

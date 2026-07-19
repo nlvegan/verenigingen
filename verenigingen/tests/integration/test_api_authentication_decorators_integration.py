@@ -32,6 +32,7 @@ import frappe
 from frappe.utils import now_datetime, add_days, getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.member_utils import (
     get_current_user_member_name,
     get_current_user_member_doc,
@@ -71,64 +72,39 @@ class TestAPIAuthenticationDecoratorsIntegration(EnhancedTestCase):
         self.original_user = frappe.session.user
 
     def _create_api_test_users(self):
-        """Create test users for API authentication scenarios"""
+        """Create test users for API authentication scenarios.
+
+        Each user is granted the Role Profile(s) matching its roles. The custom
+        APISecurityFramework authorizes on Role Profiles, not bare roles, so a
+        user with roles but no profile is capped at MEDIUM and denied
+        HIGH/CRITICAL endpoints. Matching-name profiles restore the tier the
+        role name implies while low-tier roles stay correctly denied, preserving
+        both the allow and deny assertions in this suite.
+        """
+        # (key, email, roles) -- role names map 1:1 to Role Profile names.
+        specs = [
+            ("admin", "admin.api@test.verenigingen.invalid",
+             ["System Manager", "Verenigingen Administrator"], "Administrator"),
+            ("manager", "manager.api@test.verenigingen.invalid",
+             ["Verenigingen Staff"], "Manager"),
+            ("staff", "staff.api@test.verenigingen.invalid",
+             ["Verenigingen Staff"], "Staff"),
+            ("member_full", "member.full.api@test.verenigingen.invalid",
+             ["Verenigingen Member"], "Member Full"),
+            ("member_financial", "member.financial.api@test.verenigingen.invalid",
+             ["Verenigingen Member"], "Member Financial"),
+            ("member_basic", "member.basic.api@test.verenigingen.invalid",
+             ["Verenigingen Member"], "Member Basic"),
+            ("volunteer", "volunteer.api@test.verenigingen.invalid",
+             ["Verenigingen Volunteer", "Verenigingen Member"], "Volunteer"),
+        ]
+
         users = {}
-
-        # System administrator
-        users["admin"] = self.create_test_user_with_roles(
-            email="admin.api@test.verenigingen.invalid",
-            roles=["System Manager", "Verenigingen Administrator"],
-            first_name="API",
-            last_name="Administrator",
-        )
-
-        # Association manager
-        users["manager"] = self.create_test_user_with_roles(
-            email="manager.api@test.verenigingen.invalid",
-            roles=["Verenigingen Staff", "Verenigingen Staff"],
-            first_name="API",
-            last_name="Manager",
-        )
-
-        # Staff member
-        users["staff"] = self.create_test_user_with_roles(
-            email="staff.api@test.verenigingen.invalid",
-            roles=["Verenigingen Staff"],
-            first_name="API",
-            last_name="Staff",
-        )
-
-        # Regular member with full profile
-        users["member_full"] = self.create_test_user_with_roles(
-            email="member.full.api@test.verenigingen.invalid",
-            roles=["Verenigingen Member"],
-            first_name="API",
-            last_name="Member Full",
-        )
-
-        # Member with financial data access
-        users["member_financial"] = self.create_test_user_with_roles(
-            email="member.financial.api@test.verenigingen.invalid",
-            roles=["Verenigingen Member"],
-            first_name="API",
-            last_name="Member Financial",
-        )
-
-        # Basic member with minimal access
-        users["member_basic"] = self.create_test_user_with_roles(
-            email="member.basic.api@test.verenigingen.invalid",
-            roles=["Verenigingen Member"],
-            first_name="API",
-            last_name="Member Basic",
-        )
-
-        # Volunteer with dual access
-        users["volunteer"] = self.create_test_user_with_roles(
-            email="volunteer.api@test.verenigingen.invalid",
-            roles=["Verenigingen Volunteer", "Verenigingen Member"],
-            first_name="API",
-            last_name="Volunteer",
-        )
+        for key, email, roles, last_name in specs:
+            users[key] = self.create_test_user_with_roles(
+                email=email, roles=roles, first_name="API", last_name=last_name,
+            )
+            grant_matching_role_profiles(email, roles)
 
         return users
 
