@@ -32,8 +32,6 @@ Fixed during this sweep:
       nothing. Removed; real validation is SEPAInputValidator.validate_batch_creation_params.
 """
 
-import unittest
-
 import frappe
 from frappe.utils import add_days, getdate, today
 
@@ -90,6 +88,16 @@ class SepaBatchUITestBase(EnhancedTestCase):
         """True if result is the OperationResult.to_dict() failure shape."""
         return isinstance(result, dict) and result.get("success") is False and "error" in result
 
+    @staticmethod
+    def _membership_type(chain):
+        """The (unique-per-chain) membership type of a _build_member_with_invoice result.
+
+        The factory assigns a distinct membership type per chain, so filtering
+        load_unpaid_invoices by this value isolates a test from unpaid invoices
+        left behind by other tests on a shared site.
+        """
+        return frappe.db.get_value("Membership Dues Schedule", chain["schedule"].name, "membership_type")
+
 
 class TestLoadUnpaidInvoices(SepaBatchUITestBase):
     def test_returns_list_for_valid_range(self):
@@ -98,7 +106,13 @@ class TestLoadUnpaidInvoices(SepaBatchUITestBase):
 
     def test_loaded_invoice_has_member_and_mandate_fields(self):
         data = self._build_member_with_invoice(first_name="LoadHit")
-        result = ui.load_unpaid_invoices(date_range="all", limit=500)
+        # Scope to this chain's (unique) membership type so the assertion is
+        # isolated from unpaid invoices left by other tests: order-by-due-date +
+        # limit=500 otherwise drops the fresh invoice once a shared site
+        # accumulates >500 unpaid invoices.
+        result = ui.load_unpaid_invoices(
+            date_range="all", membership_type=self._membership_type(data), limit=500
+        )
         self.assertIsInstance(result, list)
         match = next((r for r in result if r.get("invoice") == data["invoice"].name), None)
         self.assertIsNotNone(match, "freshly created unpaid invoice should be loaded")
@@ -124,15 +138,82 @@ class TestLoadUnpaidInvoices(SepaBatchUITestBase):
         result = ui.load_unpaid_invoices(limit=-5)
         self.assertTrue(self._is_error_result(result))
 
-    def test_membership_type_filter_with_no_memberships_returns_empty(self):
-        # A membership type with zero memberships leaves the filter unconstrained-by-membership;
-        # the call must still succeed and return a list.
-        result = ui.load_unpaid_invoices(date_range="all", membership_type="__nonexistent_mt__", limit=10)
+    def test_membership_type_filter_with_no_matching_schedules_returns_empty(self):
+        # A membership type with zero dues schedules must return NOTHING, not fall
+        # through and load every unpaid invoice into the batch selector. Pre-fix,
+        # a no-match type took the `if memberships:` false branch and left the query
+        # unconstrained (loading all unpaid invoices).
+        #
+        # Build a real unpaid invoice FIRST so this test can't pass green by luck on
+        # an empty site: pre-fix, the unconstrained fall-through would surface this
+        # very invoice; post-fix it is correctly excluded and the result is [].
+        self._build_member_with_invoice(first_name="NoMatch")
+        result = ui.load_unpaid_invoices(date_range="all", membership_type="__nonexistent_mt__", limit=500)
+        # Reverted fall-through would surface the just-built unpaid invoice; the fix
+        # excludes it. assertEqual([]) therefore fails on revert regardless of site state.
+        self.assertEqual(result, [])
+
+    def test_membership_type_filter_includes_matching_excludes_other(self):
+        """membership_type constrains invoices to schedules of that type.
+
+        Covers the (previously broken) membership_type branch, which now resolves
+        the type -> its Membership Dues Schedules -> Sales Invoices via
+        membership_dues_schedule_display. (Sales Invoice has no `membership`
+        field, so the old `filters["membership"]` raised
+        DataError: "Field not permitted in query: membership".) Two chains with
+        distinct types: the filtered type is included, the other excluded.
+        """
+        chain_a = self._build_member_with_invoice(first_name="TypeFilterA")
+        chain_b = self._build_member_with_invoice(first_name="TypeFilterB")
+        type_a = self._membership_type(chain_a)
+        type_b = self._membership_type(chain_b)
+        self.assertNotEqual(type_a, type_b, "factory should assign a unique type per chain")
+
+        result = ui.load_unpaid_invoices(date_range="all", membership_type=type_a, limit=500)
         self.assertIsInstance(result, list)
+        names = {r.get("invoice") for r in result}
+        self.assertIn(chain_a["invoice"].name, names, "invoice of the filtered type must be included")
+        self.assertNotIn(chain_b["invoice"].name, names, "invoice of a different type must be excluded")
 
     def test_due_this_week_range_succeeds(self):
         result = ui.load_unpaid_invoices(date_range="due_this_week", limit=10)
         self.assertIsInstance(result, list)
+
+    def test_due_this_month_window_includes_mid_month_excludes_within_week(self):
+        """date_range='due_this_month' selects invoices due within ~30 days.
+
+        Covers the previously-untested due_this_month branch AND pins the window
+        boundary against a real invoice: one due in 15 days is inside the month
+        window (today..+30) but outside the week window (today..+7). This is a
+        financial-correctness guard - a regression in the window would pull the
+        wrong invoices into a direct-debit batch.
+        """
+        data = self._build_member_with_invoice(first_name="MonthWin")
+        invoice_name = data["invoice"].name
+        # Scope to this chain's unique membership type so the window assertions are
+        # isolated from other tests' unpaid invoices on a shared site.
+        membership_type = self._membership_type(data)
+        # Submitted invoice: set due_date directly. 15 days out lands inside the
+        # month window but beyond the 7-day week window. Status stays Unpaid/Overdue
+        # (both are in the selector filter), so the date window is what's under test.
+        frappe.db.set_value("Sales Invoice", invoice_name, "due_date", add_days(today(), 15))
+
+        in_month = ui.load_unpaid_invoices(
+            date_range="due_this_month", membership_type=membership_type, limit=500
+        )
+        self.assertIsInstance(in_month, list)
+        self.assertTrue(
+            any(r.get("invoice") == invoice_name for r in in_month),
+            "invoice due in 15 days must appear in the due_this_month window",
+        )
+
+        in_week = ui.load_unpaid_invoices(
+            date_range="due_this_week", membership_type=membership_type, limit=500
+        )
+        self.assertFalse(
+            any(r.get("invoice") == invoice_name for r in in_week),
+            "invoice due in 15 days must NOT appear in the 7-day due_this_week window",
+        )
 
     def test_limit_zero_should_be_rejected(self):
         """limit=0 is an invalid limit and must be rejected.
