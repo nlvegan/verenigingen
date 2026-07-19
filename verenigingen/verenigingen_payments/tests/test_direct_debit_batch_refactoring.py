@@ -242,8 +242,6 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         """Test that original API endpoints still work after refactoring"""
         # Test the whitelisted API methods
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
-            create_enhanced_dues_batch,
-            generate_direct_debit_batch,
             get_dues_collection_preview,
         )
 

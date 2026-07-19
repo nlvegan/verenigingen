@@ -28,9 +28,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 # Import API methods to test
 from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
-    create_direct_debit_batch_for_unpaid_memberships,
     create_enhanced_dues_batch,
-    generate_direct_debit_batch,
     get_dues_collection_preview,
     mark_invoices_as_paid,
     process_batch,
@@ -74,26 +72,6 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
                 frappe.delete_doc("Direct Debit Batch", self.test_batch.name, force=True)
             except:
                 pass
-
-    def test_generate_direct_debit_batch_api(self):
-        """Test generate_direct_debit_batch API endpoint"""
-        try:
-            # Test with default date
-            result = generate_direct_debit_batch()
-
-            # Should return None or batch name
-            self.assertIsInstance(result, (str, type(None)))
-
-            # Test with specific date
-            test_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-            result = generate_direct_debit_batch(date=test_date)
-
-            # Should handle the date parameter
-            self.assertIsInstance(result, (str, type(None)))
-
-        except Exception as e:
-            # API might fail due to missing data, but should not crash
-            self.assertIsInstance(e, (frappe.ValidationError, frappe.DoesNotExistError))
 
     def test_create_enhanced_dues_batch_api(self):
         """Test create_enhanced_dues_batch API endpoint"""
@@ -176,39 +154,6 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
             # Expected to fail due to missing invoices or permissions
             self.assertIsInstance(e, (frappe.ValidationError, frappe.PermissionError))
 
-    def test_create_direct_debit_batch_for_unpaid_memberships_api(self):
-        """create_direct_debit_batch_for_unpaid_memberships() catches every internal
-        exception itself (returns None on failure), so it never actually raises to
-        the caller -- the outer try/except here was unreachable dead test code that
-        could mask a real failure silently. Instead of a shape-only isinstance check,
-        assert the real invariant: the batch this API creates (if any) must be
-        consistent with what the production selector (get_unpaid_membership_invoices)
-        reports right now -- same invoice count, same total amount, and the batch
-        document genuinely exists.
-        """
-        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
-            get_unpaid_membership_invoices,
-        )
-
-        expected_invoices = get_unpaid_membership_invoices()
-
-        result = create_direct_debit_batch_for_unpaid_memberships()
-
-        if not expected_invoices:
-            self.assertIsNone(result, "No unpaid membership invoices exist; batch should not be created")
-            return
-
-        self.assertIsInstance(result, str)
-        self.assertTrue(frappe.db.exists("Direct Debit Batch", result))
-        self._track_test_document("Direct Debit Batch", result)
-        batch_doc = frappe.get_doc("Direct Debit Batch", result)
-        self.assertEqual(batch_doc.entry_count, len(expected_invoices))
-        self.assertAlmostEqual(
-            batch_doc.total_amount,
-            sum(inv["amount"] for inv in expected_invoices),
-            places=2,
-        )
-
     def test_api_security_decorators_preserved(self):
         """Test that @critical_api security decorators are preserved after refactoring.
 
@@ -219,13 +164,11 @@ class TestDirectDebitBatchAPIRegression(EnhancedTestCase):
         """
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             create_enhanced_dues_batch,
-            generate_direct_debit_batch,
             mark_invoices_as_paid,
             process_batch,
         )
 
         critical_functions = [
-            generate_direct_debit_batch,
             process_batch,
             mark_invoices_as_paid,
             create_enhanced_dues_batch,
@@ -426,13 +369,11 @@ class TestAPISecurityCompliance(unittest.TestCase):
         """
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             create_enhanced_dues_batch,
-            generate_direct_debit_batch,
             mark_invoices_as_paid,
             process_batch,
         )
 
         critical_apis = [
-            generate_direct_debit_batch,
             process_batch,
             mark_invoices_as_paid,
             create_enhanced_dues_batch,

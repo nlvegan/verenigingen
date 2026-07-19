@@ -58,3 +58,4 @@ verenigingen.patches.v2_2.split_dd_batch_scheme_and_sequence
 verenigingen.patches.v1_0.seed_data_retention_category_policies
 verenigingen.patches.v15_0.add_procurios_membership_id_field
 verenigingen.patches.v2_2.remove_dead_portal_critical_operation_rules
+verenigingen.patches.v2_2.remove_dead_dd_batch_critical_operation_rules
