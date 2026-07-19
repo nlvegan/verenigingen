@@ -171,8 +171,9 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         self.assertTrue(result["success"], msg=result)
         data = result["data"]
         self.assertIn("member_status", data)
-        self.assertIn("has_user_account", data)
         self.assertIn("active_teams", data)
+        # member_with_user has a linked user account, so the preview must say so.
+        self.assertTrue(data["has_user_account"], msg=data)
 
     def test_user_suspension_integration(self):
         """suspend_user=True disables the linked user; unsuspend re-enables it."""
@@ -222,11 +223,13 @@ class TestSuspensionAPIIntegration(EnhancedTestCase):
         self.assertEqual(self.test_member.status, "Active")
 
         # Admin passes the security wrapper and the business permission check.
+        # Assert the actual verdict, not just that the (LOW-tier) endpoint ran.
         with self.as_user(self.admin_user.email):
             allowed = suspension_api.can_suspend_member(
                 member_name=self.test_member.name
             )
         self.assertTrue(allowed["success"], msg=allowed)
+        self.assertTrue(allowed["data"]["can_suspend"], msg=allowed)
 
     def test_suspension_error_handling(self):
         """Handled validation failures return structured error dicts, not crashes."""

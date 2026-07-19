@@ -21,6 +21,13 @@ def grant_matching_role_profiles(email, roles):
         email: User to assign profiles to.
         roles: A role name (str) or iterable of role names. Names without a
             same-named Role Profile are ignored.
+
+    Caveat: saving a User with role_profiles triggers Frappe's
+    populate_role_profile_roles, which RESYNCS user.roles to the union of the
+    assigned profiles' roles. Any bare role the caller set that has no matching
+    Role Profile (e.g. "HR Manager", "Accounts Manager") is dropped unless it is
+    already contained in one of the matched profiles. Grant profiles whose roles
+    cover everything the test needs.
     """
     names = [roles] if isinstance(roles, str) else list(roles)
     profiles = [r for r in names if frappe.db.exists("Role Profile", r)]
