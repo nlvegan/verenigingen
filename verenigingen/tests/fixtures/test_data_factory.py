@@ -224,27 +224,37 @@ class CoreTestDataFactory:
         """Create a test region required for chapter creation"""
         seq = self._get_next_sequence("region")
         region_name = f"Test Region {seq} - {self.test_run_id}"
-        region_code = f"TR{seq}"
 
-        # Ensure region code is unique and fits 2-5 char validation
-        region_code = region_code[:5]
-        while frappe.db.exists("Region", {"region_code": region_code}):
-            seq = self._get_next_sequence("region_collision")
-            region_code = f"TR{seq}"[:5]
+        # region_code is UNIQUE and capped at 5 chars ([A-Z0-9]{2,5}). The old
+        # `f"TR{seq}"[:5]` truncated (TR913 and TR9130 both -> "TR913"), so distinct
+        # sequences collided; the persistent test site also carries codes from prior
+        # runs, and parallel shards race between exists() and insert(). Prefer the
+        # sequence code, but fall back to a random 5-char code and catch the TOCTOU
+        # DuplicateEntry so a colliding code never aborts the whole test.
+        def _random_code():
+            return ("R" + frappe.generate_hash(length=4)).upper()[:5]
+
+        region_code = f"TR{seq}"[:5]
+        if frappe.db.exists("Region", {"region_code": region_code}):
+            region_code = _random_code()
 
         defaults = {
             "region_name": region_name,
-            "region_code": region_code,
             "country": "Netherlands",
             "is_active": 1,
             "description": f"Test region created for automated testing - {self.test_run_id}",
         }
         defaults.update(kwargs)
 
-        region = frappe.get_doc({"doctype": "Region", **defaults})
-        region.insert(ignore_permissions=True)
-        self.track_doc("Region", region.name)
-        return region
+        for _attempt in range(20):
+            region = frappe.get_doc({"doctype": "Region", "region_code": region_code, **defaults})
+            try:
+                region.insert(ignore_permissions=True)
+                self.track_doc("Region", region.name)
+                return region
+            except frappe.exceptions.DuplicateEntryError:
+                region_code = _random_code()  # lost the exists()->insert() race; retry
+        raise RuntimeError("create_test_region: could not allocate a unique region_code")
 
     def get_or_create_test_region(self):
         """Get cached test region or create new one"""
