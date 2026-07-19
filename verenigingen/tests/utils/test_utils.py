@@ -171,9 +171,29 @@ class TestDataFactory:
             "application_status": kwargs.get("application_status", "Approved"),
             "member_since": kwargs.get("member_since", frappe.utils.today())}
         member_data.update(kwargs)
-        
+
         member = frappe.get_doc(member_data)
-        member.insert()
+        # application_status is the Member workflow's state field, and frappe's
+        # validate_workflow forbids inserting DIRECTLY into a non-initial state
+        # (e.g. "Approved") — it throws WorkflowPermissionError "transition not
+        # allowed from Pending to Approved". Insert in the initial "Pending"
+        # state, then force the caller's desired status with a direct DB write
+        # (which skips workflow validation). The returned member ends up in the
+        # requested state, so callers are unaffected; this only removes the crash.
+        # NOTE: forcing the status via db.set_value bypasses document hooks, so the
+        # Pending->Approved status-change EVENTS (which drive background jobs) are
+        # NOT emitted. A test needing real approval side-effects must drive an
+        # actual approval flow rather than this factory.
+        desired_status = member_data.get("application_status")
+        if desired_status and desired_status != "Pending":
+            member.application_status = "Pending"
+            member.insert()
+            frappe.db.set_value(
+                "Member", member.name, "application_status", desired_status, update_modified=False
+            )
+            member.reload()
+        else:
+            member.insert()
         return member
 
     @staticmethod
