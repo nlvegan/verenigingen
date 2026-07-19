@@ -547,12 +547,11 @@ class TestSequenceTypeDerivationBranches(_SEPASeqBase):
         """A real Direct Debit Batch row declaring RCUR for a brand-new mandate must
         be flagged Critical by validate_sequence_types (expected FRST, actual RCUR).
 
-        NOTE: the scheduled create_direct_debit_batch_for_unpaid_memberships() sets
-        the batch-level sequence_type to RCUR but leaves each invoice ROW's
-        sequence_type UNSET, so validate_sequence_types auto-assigns the derived FRST
-        per row and never flags a critical error via that entry point. This test
-        therefore drives validate_sequence_types directly with an explicit (wrong)
-        RCUR row, which is the branch that actually guards SEPA compliance."""
+        NOTE: batch generation sets the batch-level sequence_type to RCUR but leaves
+        each invoice ROW's sequence_type UNSET, so validate_sequence_types auto-assigns
+        the derived FRST per row and never flags a critical error via that entry point.
+        This test therefore drives validate_sequence_types directly with an explicit
+        (wrong) RCUR row, which is the branch that actually guards SEPA compliance."""
         member = self._sepa.create_test_member(first_name="RcurFirstUse")
         customer = self._sepa.create_test_customer(customer_name=f"Cust {member.full_name}")
         member.db_set("customer", customer.name)

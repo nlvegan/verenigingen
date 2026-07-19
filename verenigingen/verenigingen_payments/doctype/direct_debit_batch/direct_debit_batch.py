@@ -392,37 +392,6 @@ def get_bic_from_iban(iban):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def generate_direct_debit_batch(date=None):
-    """
-    Create a direct debit batch for unpaid membership invoices
-    This can be called via JS or scheduled jobs
-    """
-    try:
-        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
-            create_direct_debit_batch,
-        )
-
-        batch = create_direct_debit_batch(date)
-
-        if batch:
-            frappe.msgprint(
-                _("SEPA Direct Debit Batch {0} created with {1} entries").format(
-                    batch.name, batch.entry_count
-                )
-            )
-            return batch.name
-        else:
-            frappe.msgprint(_("No eligible invoices found for direct debit"))
-            return None
-    except Exception as e:
-        frappe.log_error(
-            f"Error generating direct debit batch: {str(e)}", "SEPA Direct Debit Batch Generation Error"
-        )
-        frappe.throw(_("Error generating direct debit batch: {0}").format(str(e)))
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
 def process_batch(batch_name: str):
     """Process a direct debit batch"""
     try:
@@ -465,69 +434,6 @@ def mark_invoices_as_paid(batch_name: str):
             "SEPA Direct Debit Payment Error",
         )
         frappe.throw(_("Error marking invoices as paid: {0}").format(str(e)))
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def create_direct_debit_batch_for_unpaid_memberships():
-    """
-    Create a batch for direct debit payments for unpaid memberships
-    This is meant to be scheduled daily via hooks.py
-    """
-    try:
-        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
-            get_unpaid_membership_invoices,
-        )
-
-        # Get all unpaid invoices for memberships with SEPA Direct Debit payment method
-        unpaid_invoices = get_unpaid_membership_invoices()
-
-        if not unpaid_invoices:
-            frappe.logger().info("No unpaid membership invoices found for direct debit")
-            return None
-
-        # Create a new batch
-        batch = frappe.new_doc("Direct Debit Batch")
-        batch.batch_date = frappe.utils.today()
-        batch.batch_description = f"Membership payments batch - {frappe.utils.today()}"
-        batch.batch_type = "CORE"  # SEPA scheme
-        batch.sequence_type = "RCUR"  # Recurring direct debit (SeqTp)
-        batch.currency = "EUR"  # Default currency
-
-        # Add invoices to batch
-        for invoice in unpaid_invoices:
-            batch.append(
-                "invoices",
-                {
-                    "invoice": invoice["invoice"],
-                    "membership": invoice["membership"],
-                    "member": invoice["member"],
-                    "member_name": invoice["member_name"],
-                    "amount": invoice["amount"],
-                    "currency": invoice["currency"],
-                    "bank_account": invoice["bank_account"],
-                    "iban": invoice["iban"],
-                    "mandate_reference": invoice["mandate_reference"],
-                    "status": "Pending",
-                },
-            )
-
-        # Calculate totals
-        batch.total_amount = sum(invoice["amount"] for invoice in unpaid_invoices)
-        batch.entry_count = len(unpaid_invoices)
-
-        # Save the batch
-        batch.insert()
-
-        frappe.logger().info(f"Created direct debit batch {batch.name} with {batch.entry_count} invoices")
-
-        return batch.name
-    except Exception as e:
-        frappe.log_error(
-            f"Error creating direct debit batch for unpaid memberships: {str(e)}",
-            "SEPA Direct Debit Batch Creation Error",
-        )
-        return None
 
 
 @frappe.whitelist()

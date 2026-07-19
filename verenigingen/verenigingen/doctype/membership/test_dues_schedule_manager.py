@@ -1,17 +1,11 @@
 """
 Integration tests for verenigingen/verenigingen/doctype/membership/dues_schedule_manager.py
 
-This module is core billing logic that bridges Membership records, their
-Membership Dues Schedule, the customer's Sales Invoices and SEPA Direct Debit
-batches. The tests below build REAL documents (no mocking of business logic)
-and assert real money behaviour: invoice payment-status propagation, payment
-history aggregation, and the guard branches of the two whitelisted SEPA helpers.
-
-Several characterization tests document genuine production defects discovered
-while writing these tests (see CHARACTERIZED BUG markers). Where the correct
-behaviour is unambiguous the production code is fixed and the corrected
-behaviour asserted; where money semantics are ambiguous the current behaviour
-is pinned and FLAGGED rather than guessed.
+This module bridges Membership records, their Membership Dues Schedule and the
+customer's Sales Invoices. The tests below build REAL documents (no mocking of
+business logic) and assert real money behaviour: invoice payment-status
+propagation (sync_membership_with_dues_schedule) and payment history
+aggregation (get_membership_payment_history).
 """
 
 import frappe
@@ -19,11 +13,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
-    add_to_direct_debit_batch,
-    create_direct_debit_batch,
-    get_member_bank_details,
     get_membership_payment_history,
-    get_unpaid_membership_invoices,
     sync_membership_with_dues_schedule,
 )
 
@@ -70,28 +60,6 @@ class TestDuesScheduleManager(EnhancedTestCase):
         if outstanding is not None:
             kwargs["outstanding_amount"] = outstanding
         return self.create_test_sales_invoice(member.customer, **kwargs)
-
-    def _set_member_payment_method(self, member, mode):
-        """Persist a payment method on the member (privileged helper)."""
-        member.payment_method = mode
-        member.save()
-        member.reload()
-
-    # ------------------------------------------------------------------
-    # get_member_bank_details  (documented placeholder)
-    # ------------------------------------------------------------------
-    def test_get_member_bank_details_returns_empty_placeholder(self):
-        """get_member_bank_details is an unimplemented placeholder returning {}.
-
-        It is consumed by create_direct_debit_batch as the *only* source of bank
-        details, so its empty return means create_direct_debit_batch can never
-        produce entries (asserted separately below). Pin the behaviour so a
-        future real implementation is a deliberate, test-visible change.
-        """
-        member, _membership, _schedule = self._make_member_with_membership()
-        self.assertEqual(get_member_bank_details(member.name), {})
-        # Also robust to a non-existent member name.
-        self.assertEqual(get_member_bank_details("does-not-exist"), {})
 
     # ------------------------------------------------------------------
     # sync_membership_with_dues_schedule
@@ -198,85 +166,3 @@ class TestDuesScheduleManager(EnhancedTestCase):
         self.assertEqual(entry["status"], invoice.status)
         # No payment entries linked yet.
         self.assertEqual(entry["payments"], [])
-
-    # ------------------------------------------------------------------
-    # create_direct_debit_batch
-    # ------------------------------------------------------------------
-    def test_create_direct_debit_batch_returns_none_when_no_eligible(self):
-        """No SEPA members / no bank details -> no batch created.
-
-        get_member_bank_details() is an empty placeholder, so even a SEPA member
-        with an unpaid invoice yields no batch entries. This documents that
-        create_direct_debit_batch is effectively inert in production.
-        """
-        member, _membership, _schedule = self._make_member_with_membership(payment_method="SEPA Direct Debit")
-        # An unpaid invoice exists for a SEPA member ...
-        self._make_invoice(member, grand_total=50.0)
-        # ... but bank details are empty -> no batch.
-        self.assertIsNone(create_direct_debit_batch())
-
-    def test_create_direct_debit_batch_skips_non_sepa_members(self):
-        member, _membership, _schedule = self._make_member_with_membership(payment_method="Bank Transfer")
-        self._make_invoice(member, grand_total=50.0)
-        self.assertIsNone(create_direct_debit_batch())
-
-    # ------------------------------------------------------------------
-    # get_unpaid_membership_invoices (whitelisted)
-    # ------------------------------------------------------------------
-    def test_get_unpaid_membership_invoices_empty_when_no_schedules(self):
-        """When the SEPA selector finds no eligible invoices it returns []."""
-        # Bank-transfer member with an unpaid invoice -> excluded (non-SEPA).
-        member, _membership, _schedule = self._make_member_with_membership(payment_method="Bank Transfer")
-        self._make_invoice(member, grand_total=50.0)
-        self.assertEqual(get_unpaid_membership_invoices(), [])
-
-    def test_get_unpaid_membership_invoices_excludes_members_without_mandate(self):
-        """SEPA member with an unpaid invoice but no mandate_reference -> excluded.
-
-        Member has no mandate_reference field at all, so the iban+mandate guard
-        can never pass: this selector returns nothing for real members.
-        """
-        member, _membership, _schedule = self._make_member_with_membership(payment_method="SEPA Direct Debit")
-        self._make_invoice(member, grand_total=50.0)
-        result = get_unpaid_membership_invoices()
-        member_names = [r["member"] for r in result]
-        self.assertNotIn(member.name, member_names)
-
-    # ------------------------------------------------------------------
-    # add_to_direct_debit_batch (whitelisted, critical)
-    # ------------------------------------------------------------------
-    def test_add_to_direct_debit_batch_requires_dues_schedule(self):
-        """Membership without a dues schedule is rejected before any field read."""
-        member = self.create_test_member(first_name="DDBNo", last_name="Sched")
-        self.link_member_to_customer(member)
-        membership = self.create_test_membership(
-            member_name=member.name, membership_type_name=self.membership_type.name
-        )
-        sched = frappe.db.get_value("Membership Dues Schedule", {"membership": membership.name}, "name")
-        if sched:
-            self._delete_schedule(sched)
-
-        with self.assertRaises(frappe.ValidationError):
-            add_to_direct_debit_batch(membership.name)
-
-    def test_add_to_direct_debit_batch_unpaid_amount_field(self):
-        """add_to_direct_debit_batch reads membership.unpaid_amount.
-
-        CHARACTERIZED BUG: Membership has no `unpaid_amount` field (verified
-        against the doctype JSON and Custom Field table). After the dues-schedule
-        guard passes, the code does `if membership.unpaid_amount <= 0:`. On a
-        real Membership document this attribute does not exist, so the access
-        raises AttributeError (the membership cannot be added to a batch and the
-        user sees an opaque server error rather than a clean message).
-
-        This test pins the current broken behaviour. Money semantics are
-        ambiguous here (what *is* a membership's unpaid amount now that it is
-        tracked on Sales Invoices, not the Membership?) so the fix is FLAGGED for
-        review rather than guessed.
-        """
-        member, membership, _schedule = self._make_member_with_membership(payment_method="SEPA Direct Debit")
-        # Confirm the field genuinely does not exist on the membership.
-        self.assertIsNone(membership.meta.get_field("unpaid_amount"))
-
-        with self.assertRaises((AttributeError, TypeError)):
-            add_to_direct_debit_batch(membership.name)
