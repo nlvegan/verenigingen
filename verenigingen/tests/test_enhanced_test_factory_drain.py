@@ -187,6 +187,112 @@ class TestFactoryUniqueSuffixIsProcessGlobal(EnhancedTestCase):
         )
 
 
+class TestFinancialBatchQueueIsolation(EnhancedTestCase):
+    """Regression: FinancialHistoryBatchProcessor keeps a PROCESS-GLOBAL,
+    class-level ``_payment_queue`` / ``_expense_queue``. A prior test can leave a
+    dangling entry (its member/invoice were rolled back at tearDown, but the
+    in-memory queue entry survives). The next test's first
+    ``add_invoice_to_payment_history()`` drains the queue INLINE via
+    ``_maybe_process_batches()``; processing the stale entry raises
+    DoesNotExistError inside ``_process_member_payment_batch``, whose
+    ``except`` clause issues a *transaction-wide* ``frappe.db.rollback()`` that
+    wipes the CURRENT test's uncommitted setUp data (e.g. the TEST-MEMBERSHIP
+    item) -> LinkValidationError on the next invoice save.
+
+    This was the sole test still baselined after issue #162
+    (test_performance_under_integrated_load): local-green / CI-red because it
+    only reproduces when another batch-processor test runs first in the same
+    process. Several tests (test_invoice_events_coverage,
+    test_volunteer_expenses_history_restore, ...) worked around it by clearing
+    the queues in their own setUp/tearDown; EnhancedTestCase now resets them
+    centrally so the footgun cannot bite any future test.
+    """
+
+    @staticmethod
+    def _batch():
+        from verenigingen.utils.financial_history_batch_processor import (
+            FinancialHistoryBatchProcessor,
+        )
+
+        return FinancialHistoryBatchProcessor
+
+    @staticmethod
+    def _queue_depth(queue):
+        return sum(len(entries) for entries in queue.values())
+
+    def test_reset_clears_stale_batch_queue_entries(self):
+        """The per-method reset empties both class-level queues."""
+        BP = self._batch()
+        BP._payment_queue["STALE-MEMBER"]["STALE-INVOICE"] = {
+            "operation": "add_update",
+            "timestamp": frappe.utils.now(),
+            "data": {},
+        }
+        BP._expense_queue["STALE-MEMBER"]["STALE-EXPENSE"] = {
+            "operation": "add_update",
+            "timestamp": frappe.utils.now(),
+            "data": {},
+        }
+
+        self._reset_financial_history_batch_queue()
+
+        self.assertEqual(
+            self._queue_depth(BP._payment_queue),
+            0,
+            "stale payment-queue entries must be cleared by the reset",
+        )
+        self.assertEqual(
+            self._queue_depth(BP._expense_queue),
+            0,
+            "stale expense-queue entries must be cleared by the reset",
+        )
+
+    def test_setup_starts_each_method_with_an_empty_queue(self):
+        """By the time a test body runs, setUp has drained any contamination a
+        prior method left, so no dangling entry can be processed inline here."""
+        BP = self._batch()
+        self.assertEqual(self._queue_depth(BP._payment_queue), 0)
+        self.assertEqual(self._queue_depth(BP._expense_queue), 0)
+
+    def test_reset_neutralises_stale_entry_so_inline_drain_is_a_no_op(self):
+        """After the reset, an inline batch drain must NOT wipe the caller's
+        uncommitted work. Injects a dangling (nonexistent-member) entry exactly
+        as a rolled-back prior test would, then confirms an uncommitted marker
+        row survives the drain."""
+        BP = self._batch()
+        marker = f"BatchIsoProbe-{self.uid}"
+        frappe.get_doc(
+            {
+                "doctype": "Item",
+                "item_code": marker,
+                "item_name": marker,
+                "item_group": "All Item Groups",
+                "stock_uom": "Nos",
+                "is_stock_item": 0,
+            }
+        ).insert(ignore_permissions=True)
+        self.track_doc("Item", marker)
+        self.assertTrue(frappe.db.exists("Item", marker), "precondition: marker present")
+
+        # Contamination a prior rolled-back test would have left behind.
+        BP._payment_queue["NONEXISTENT-MEMBER-XYZ"]["FAKE-INVOICE"] = {
+            "operation": "add_update",
+            "timestamp": frappe.utils.now(),
+            "data": {},
+        }
+        BP._last_processed.clear()  # ensure the drain is not throttled
+
+        # The per-method reset removes the contamination before it can be drained.
+        self._reset_financial_history_batch_queue()
+        BP._maybe_process_batches()
+
+        self.assertTrue(
+            frappe.db.exists("Item", marker),
+            "caller's uncommitted work must survive; a stale queue entry must "
+            "never trigger a transaction-wide rollback",
+        )
+
+
 class TestCapturedInsertDrain(EnhancedTestCase):
     """Regression: committed records created via RAW frappe inserts (not the
     factory) must be drained at tearDown, so they don't leak into later tests

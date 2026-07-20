@@ -1903,6 +1903,15 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # the proxy at the start of each test makes form_dict reads order-independent.
         frappe.form_dict = frappe.local("form_dict")
 
+        # BATCH-QUEUE ISOLATION: reset the FinancialHistoryBatchProcessor's
+        # PROCESS-GLOBAL, class-level payment/expense queues. They are drained
+        # inline by add_invoice_to_payment_history() -> _maybe_process_batches(),
+        # and a dangling entry left by a prior (rolled-back) test would be
+        # processed against a now-missing Member, whose except-clause issues a
+        # transaction-wide frappe.db.rollback() that wipes THIS test's
+        # uncommitted setUp data. See TestFinancialBatchQueueIsolation.
+        self._reset_financial_history_batch_queue()
+
         # CLEANUP: Remove stale test data from previous test runs
         # Only run once per test class (not per method) to avoid timeout
         if not hasattr(self.__class__, "_cleanup_done"):
@@ -2122,6 +2131,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # idempotent backstop.
         self._uninstall_insert_capture()
 
+        # BATCH-QUEUE ISOLATION: drop any financial-history operations this test
+        # queued but did not drain, so they can't be processed inline against
+        # rolled-back data in a later test (see setUp for the full rationale).
+        self._reset_financial_history_batch_queue()
+
         # EMAIL MOCKING CLEANUP: Stop all email patches
         try:
             # Stop comprehensive email patches
@@ -2190,6 +2204,31 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # LAST: warn (default) or fail (VERENIGINGEN_FAIL_ON_ERROR_LOG=1) on captured
         # Error Logs. Done after cleanup so a raise here never skips teardown.
         self._finalize_error_log_check()
+
+    def _reset_financial_history_batch_queue(self):
+        """Clear the FinancialHistoryBatchProcessor's process-global queues.
+
+        The processor batches payment/expense-history updates in class-level
+        dicts that persist across test methods in the same process. Entries
+        reference Members/invoices by name; after a test's transaction is rolled
+        back those names no longer exist, but the queue entries do. Because
+        ``add_invoice_to_payment_history()`` drains the queue INLINE, the next
+        test to queue anything processes the dangling entry, hits
+        DoesNotExistError, and the processor's transaction-wide
+        ``frappe.db.rollback()`` wipes that test's own uncommitted setUp data.
+        Resetting the queues per method makes the failure impossible.
+
+        Guarded so a failure here never breaks the test lifecycle.
+        """
+        try:
+            from verenigingen.utils.financial_history_batch_processor import (
+                FinancialHistoryBatchProcessor,
+            )
+
+            FinancialHistoryBatchProcessor._payment_queue.clear()
+            FinancialHistoryBatchProcessor._expense_queue.clear()
+        except Exception as e:  # pragma: no cover - defensive
+            frappe.logger().warning(f"Financial batch queue reset failed: {e}")
 
     def _drain_tracked_documents(self):
         """Delete factory-tracked documents that survived per-method rollback.
