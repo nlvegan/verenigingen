@@ -507,18 +507,31 @@ class OptimizedMemberQueries:
 
             frappe.db.release_savepoint(savepoint)
 
-        except Exception as e:
+        except Exception:
             # Roll back ONLY this member's delete/insert (savepoint) — NOT the
             # caller's request transaction. Do NOT commit here: this runs inside a
             # document submit hook, so committing would prematurely persist the
-            # whole submit. The error log written after the savepoint rollback
-            # lives in the request transaction and persists with it.
-            frappe.db.rollback(save_point=savepoint)
-            frappe.log_error(
-                f"Failed to update payment history for member {member_name}: {str(e)}\n"
-                f"Traceback: {frappe.get_traceback()}",
-                "Payment History Bulk Update Error",
-            )
+            # whole submit.
+            #
+            # Both the rollback and the logging are best-effort and MUST NOT mask
+            # the original exception: a genuine InnoDB deadlock rolls the whole
+            # transaction back server-side and destroys this savepoint, so
+            # `rollback(save_point=...)` would itself raise "SAVEPOINT does not
+            # exist" (MySQL 1305). Swallowing that keeps the original
+            # QueryDeadlockError intact so execute_with_deadlock_retry (the caller)
+            # can classify and retry it.
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                pass  # deadlock already rolled the whole txn back; nothing to undo
+            try:
+                frappe.log_error(
+                    f"Failed to update payment history for member {member_name}:\n"
+                    f"{frappe.get_traceback()}",
+                    "Payment History Bulk Update Error",
+                )
+            except Exception as log_error:
+                frappe.logger().error(f"Could not log payment-history bulk error: {log_error}")
             raise
 
     @staticmethod

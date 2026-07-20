@@ -577,3 +577,78 @@ class TestBulkUpdateTransactionSafety(EnhancedTestCase):
             "scope its own work in a savepoint and never commit/rollback the "
             "request-level transaction",
         )
+
+    def test_destroyed_savepoint_does_not_mask_original_error(self):
+        """On a genuine deadlock InnoDB rolls the whole txn back server-side and
+        destroys the savepoint, so rollback(save_point=...) itself raises MySQL
+        1305. That must NOT replace the original exception — execute_with_deadlock_retry
+        (the caller) needs the real QueryDeadlockError to classify + retry."""
+        from unittest.mock import patch
+
+        member = self.create_test_member(
+            first_name="OptTxn",
+            last_name="Deadlock",
+            email="opttxn.deadlock@test.invalid",
+        )
+
+        real_rollback = frappe.db.rollback
+
+        def fake_rollback(*args, save_point=None, **kwargs):
+            if save_point:
+                # Simulate the savepoint already destroyed by a server-side rollback.
+                raise Exception("(1305, 'SAVEPOINT member_payment_history_bulk does not exist')")
+            return real_rollback(*args, save_point=save_point, **kwargs)
+
+        self.expectErrorLog("Payment History Bulk Update Error")
+        with patch(
+            "verenigingen.utils.payment_history_builder.build_payment_history_entry_from_query",
+            side_effect=RuntimeError("original-deadlock-ish-error"),
+        ):
+            with patch.object(frappe.db, "rollback", side_effect=fake_rollback):
+                # The ORIGINAL RuntimeError must propagate, not the 1305 substitute.
+                with self.assertRaises(RuntimeError):
+                    OptimizedMemberQueries._update_member_payment_history_bulk(
+                        member.name, [{"invoice_name": "INV-IRRELEVANT"}]
+                    )
+
+    def test_error_after_delete_restores_members_existing_history(self):
+        """The savepoint's core job: if bulk_insert fails AFTER the delete, the
+        member's pre-existing payment_history rows must be restored (rolled back
+        to the savepoint), not left wiped."""
+        from unittest.mock import patch
+
+        member = self.create_test_member(
+            first_name="OptTxn",
+            last_name="AfterDelete",
+            email="opttxn.afterdelete@test.invalid",
+        )
+
+        # Pre-seed one existing Member Payment History row (in this txn).
+        frappe.db.sql(
+            """INSERT INTO `tabMember Payment History`
+               (name, parent, parenttype, parentfield, idx, creation, modified, owner, modified_by)
+               VALUES (%s, %s, 'Member', 'payment_history', 1, NOW(), NOW(), 'Administrator', 'Administrator')""",
+            (frappe.generate_hash(length=10), member.name),
+        )
+        before = frappe.db.count("Member Payment History", {"parent": member.name})
+        self.assertEqual(before, 1, "precondition: one existing history row")
+
+        self.expectErrorLog("Payment History Bulk Update Error")
+        # build succeeds (returns a record) so the method reaches delete + insert;
+        # bulk_insert then raises -> savepoint must undo the delete.
+        with patch(
+            "verenigingen.utils.payment_history_builder.build_payment_history_entry_from_query",
+            return_value={"invoice": "NEW-INV", "posting_date": None},
+        ), patch(
+            "verenigingen.utils.optimized_queries.frappe.db.bulk_insert",
+            side_effect=RuntimeError("insert boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                OptimizedMemberQueries._update_member_payment_history_bulk(
+                    member.name, [{"invoice_name": "NEW-INV"}]
+                )
+
+        after = frappe.db.count("Member Payment History", {"parent": member.name})
+        self.assertEqual(
+            after, 1, "savepoint must restore the pre-existing history row after the failed insert"
+        )
