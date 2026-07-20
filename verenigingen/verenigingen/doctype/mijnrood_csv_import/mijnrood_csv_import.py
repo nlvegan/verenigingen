@@ -757,7 +757,7 @@ class MijnroodCSVImport(Document):
                             "processed_records": tracker_doc.processed_records,
                             "successful_records": tracker_doc.successful_records,
                             "failed_records": tracker_doc.failed_records,
-                            "retry_queue": tracker_doc.retry_queue,
+                            "retry_queue": tracker_doc.get_retry_requests(),
                         }
                     ]
                 except Exception as e:
@@ -909,19 +909,11 @@ class MijnroodCSVImport(Document):
             # Get the tracker document
             tracker = frappe.get_doc("Bulk Operation Tracker", self.bulk_operation_tracker)
 
-            # Check if there are failed items to retry
-            if not tracker.retry_queue:
+            # Failed requests to retry are derived from ACR status (#172).
+            retry_items = tracker.get_retry_requests()
+            if not retry_items:
                 frappe.msgprint(_("No failed account creation requests to retry"))
                 return {"success": False, "message": "No failed items"}
-
-            # Parse retry queue (it's stored as JSON)
-            import json
-
-            retry_items = (
-                json.loads(tracker.retry_queue)
-                if isinstance(tracker.retry_queue, str)
-                else tracker.retry_queue
-            )
 
             if not retry_items:
                 frappe.msgprint(_("No failed account creation requests to retry"))

@@ -2,11 +2,12 @@
 # See license.txt
 """Tests for the Bulk Operation Tracker controller.
 
-Exercises the real, pure-computation controller branches (no business logic is
-mocked): ``validate`` total-batches derivation, ``get_progress_percentage``,
-the ``_complete_operation`` status logic, and the ``get_retry_requests`` JSON
-parsing (including the corrupted-JSON fallback). A create+persist+reload
-roundtrip pins that ``validate`` runs and its computed values survive.
+Exercises the real controller branches (no business logic mocked): ``validate``
+total-batches derivation, ``get_progress_percentage``, the atomic
+``update_progress`` counter/completion path, the ACR-derived retry list / error
+summary / read-time rate & ETA, the ``clear_retry_queue`` cancel behaviour, and
+the bounded save-conflict backoff (all #172). A create+persist+reload roundtrip
+pins that ``validate`` runs and its computed values survive.
 """
 
 from unittest.mock import patch
@@ -150,8 +151,9 @@ class TestBulkOperationTracker(EnhancedTestCase):
                 raise frappe.TimestampMismatchError("forced conflict")
             return real_save(doc, *a, **k)
 
-        with patch.object(type(tracker), "save", flaky_save), patch(
-            "time.sleep", side_effect=lambda s: sleeps.append(s)
+        with (
+            patch.object(type(tracker), "save", flaky_save),
+            patch("time.sleep", side_effect=lambda s: sleeps.append(s)),
         ):
             result = secure_operations.secure_document_operation(
                 operation="save",
@@ -195,9 +197,32 @@ class TestBulkOperationTracker(EnhancedTestCase):
         self.assertGreater(t.get_processing_rate(), 0)
         self.assertTrue(t.get_estimated_completion())
 
-    def test_concurrent_update_progress_is_atomic_no_timestamp_conflict(self):
-        """Two batches loaded at the same version both fold in without a
-        TimestampMismatchError, and counters end up correct (issue #172)."""
+    def test_clear_retry_queue_cancels_failed_acrs(self):
+        """clear_retry_queue moves Failed ACRs to Cancelled so the derived retry
+        list empties and the scheduler stops re-attempting them (#172, S3)."""
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=1, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        m = self.create_test_member(first_name="Clr", last_name="X", birth_date="1990-01-01")
+        acr = self._make_acr(m, tracker.name, status="Failed", failure_reason="x")
+        self.assertEqual(tracker.get_retry_requests(), [acr])
+
+        cancelled = tracker.clear_retry_queue()
+        self.assertEqual(cancelled, 1)
+        self.assertEqual(tracker.get_retry_requests(), [])
+        self.assertEqual(frappe.db.get_value("Account Creation Request", acr, "status"), "Cancelled")
+
+    def test_update_progress_folds_stale_copies_without_conflict(self):
+        """Two doc copies loaded at the SAME version both fold their batch in
+        without a TimestampMismatchError, and the counters are correct (#172).
+
+        This proves the increments are applied DB-side (SET x = x + n) rather than
+        driven by the stale in-memory copies — the old save() path would raise on
+        the second write. (True parallel-connection safety comes from the InnoDB
+        row lock on the single UPDATE; this test exercises the stale-copy path,
+        not two live connections.)
+        """
         tracker = BulkOperationTracker.create_tracker(
             operation_type="Account Creation", total_records=100, batch_size=25
         )
@@ -213,7 +238,8 @@ class TestBulkOperationTracker(EnhancedTestCase):
         self.assertEqual(fresh.current_batch, 2)  # GREATEST(1, 2)
 
     def test_update_progress_marks_complete_once_when_total_reached(self):
-        """The batch that pushes processed >= total flips status exactly once."""
+        """The batch that pushes processed >= total flips status exactly once;
+        a later completing call must NOT rewrite the terminal state (#172)."""
         tracker = BulkOperationTracker.create_tracker(
             operation_type="Account Creation", total_records=50, batch_size=25
         )
@@ -227,6 +253,14 @@ class TestBulkOperationTracker(EnhancedTestCase):
         self.assertEqual(fresh.processed_records, 50)
         self.assertEqual(fresh.status, "Completed")
         self.assertTrue(fresh.completed_at)
+        won_at = fresh.completed_at
+
+        # Once-ness: a further update_progress after completion must not re-stamp
+        # completed_at (the conditional WHERE excludes already-terminal rows).
+        c = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        c.update_progress(3, {"completed": 0, "failed": 0})
+        again = frappe.db.get_value("Bulk Operation Tracker", tracker.name, "completed_at")
+        self.assertEqual(str(again), str(won_at), "completion must be stamped exactly once")
 
     def test_update_progress_completion_marks_failed_when_no_success(self):
         """All-failed batch completion sets status 'Failed'."""

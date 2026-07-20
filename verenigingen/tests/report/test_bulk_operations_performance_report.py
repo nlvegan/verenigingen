@@ -11,8 +11,6 @@ column structure, the data rows, the date filters, the summary, the chart and
 the empty-result branches.
 """
 
-import json
-
 import frappe
 from frappe.utils import add_days, add_to_date, now_datetime, today
 
@@ -41,15 +39,11 @@ class TestBulkOperationsPerformanceReport(VereningingenTestCase):
     ):
         """Create a real Bulk Operation Tracker row (auto-cleaned).
 
-        ``retry_queue`` is JSON-encoded; ``retry_queue_raw`` is stored verbatim
-        (used to exercise the malformed-JSON tolerance branch)."""
+        The report derives retry_queue_count from linked Failed Account Creation
+        Requests and the processing rate from started_at + processed_records
+        (#172); ``retry_queue``/``retry_queue_raw`` are accepted only to express
+        *how many* failed requests to seed (list length; raw string => 0)."""
         started = started or add_to_date(now_datetime(), hours=-2)
-        if retry_queue_raw is not None:
-            retry_queue_value = retry_queue_raw
-        elif retry_queue is not None:
-            retry_queue_value = json.dumps(retry_queue)
-        else:
-            retry_queue_value = None
         tracker = frappe.get_doc(
             {
                 "doctype": "Bulk Operation Tracker",
@@ -58,17 +52,39 @@ class TestBulkOperationsPerformanceReport(VereningingenTestCase):
                 "total_records": total,
                 "successful_records": successful,
                 "failed_records": failed,
+                "processed_records": (successful or 0) + (failed or 0),
                 "started_at": started,
                 "completed_at": completed,
-                "processing_rate_per_minute": rate,
                 "batch_size": 50,
                 "total_batches": 1,
-                "retry_queue": retry_queue_value,
             }
         )
         tracker.insert(ignore_permissions=True)
         self.track_doc("Bulk Operation Tracker", tracker.name)
+
+        # Seed Failed ACRs so the derived retry_queue_count reflects reality.
+        n_failed = len(retry_queue) if isinstance(retry_queue, list) else 0
+        for _i in range(n_failed):
+            self._make_failed_acr(tracker.name)
         return tracker
+
+    def _make_failed_acr(self, tracker_name):
+        """Insert a Failed Account Creation Request linked to a tracker."""
+        member = self.create_test_member(first_name="Rpt", last_name="Fail", birth_date="1990-01-01")
+        acr = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": member.email or f"{member.name}@example.invalid",
+                "full_name": member.full_name or member.name,
+                "bulk_operation_tracker": tracker_name,
+            }
+        )
+        acr.insert(ignore_permissions=True)  # before_insert forces status 'Requested'
+        self.track_doc("Account Creation Request", acr.name)
+        frappe.db.set_value("Account Creation Request", acr.name, "status", "Failed", update_modified=False)
+        return acr.name
 
     # ------------------------------------------------------------- columns
 
@@ -163,9 +179,7 @@ class TestBulkOperationsPerformanceReport(VereningingenTestCase):
         recent = self._make_tracker(started=add_to_date(now_datetime(), days=-1))
 
         with self.assertNoErrorLog():
-            _columns, data, _n1, _n2, _summary = report.execute(
-                {"from_date": add_days(today(), -10)}
-            )
+            _columns, data, _n1, _n2, _summary = report.execute({"from_date": add_days(today(), -10)})
         names = {r["name"] for r in data}
         self.assertIn(recent.name, names)
         self.assertNotIn(old.name, names, "trackers before from_date are excluded")
@@ -175,9 +189,7 @@ class TestBulkOperationsPerformanceReport(VereningingenTestCase):
         recent = self._make_tracker(started=now_datetime())
 
         with self.assertNoErrorLog():
-            _columns, data, _n1, _n2, _summary = report.execute(
-                {"to_date": add_days(today(), -10)}
-            )
+            _columns, data, _n1, _n2, _summary = report.execute({"to_date": add_days(today(), -10)})
         names = {r["name"] for r in data}
         self.assertIn(old.name, names)
         self.assertNotIn(recent.name, names, "trackers after to_date are excluded")

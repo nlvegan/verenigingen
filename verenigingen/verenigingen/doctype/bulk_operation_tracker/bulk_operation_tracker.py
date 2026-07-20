@@ -12,6 +12,21 @@ from frappe.utils import cint, flt, now, now_datetime
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
+def compute_processing_rate(started_at, processed_records) -> float:
+    """Records/minute given a start time and processed count (0.0 if N/A).
+
+    Shared by BulkOperationTracker.get_processing_rate and the performance
+    report / monitor so they all derive the same live rate at read-time (#172),
+    instead of reading a stored field the atomic per-batch path never updates.
+    """
+    if not started_at or cint(processed_records) <= 0:
+        return 0.0
+    elapsed_minutes = (now_datetime() - frappe.utils.get_datetime(started_at)).total_seconds() / 60
+    if elapsed_minutes <= 0:
+        return 0.0
+    return flt(processed_records / elapsed_minutes, 2)
+
+
 class BulkOperationTracker(Document):
     """DocType for tracking the progress of large bulk operations like account creation."""
 
@@ -45,14 +60,10 @@ class BulkOperationTracker(Document):
         """Records/minute so far, computed at read-time from started_at + progress.
 
         Pure (no mutation) so it stays fresh even though the atomic per-batch
-        update_progress path (#172) no longer runs validate().
+        update_progress path (#172) no longer runs validate(). Shared with the
+        performance report / monitor via the module-level compute_processing_rate.
         """
-        if not self.started_at or cint(self.processed_records) <= 0:
-            return 0.0
-        elapsed_minutes = (now_datetime() - frappe.utils.get_datetime(self.started_at)).total_seconds() / 60
-        if elapsed_minutes <= 0:
-            return 0.0
-        return flt(self.processed_records / elapsed_minutes, 2)
+        return compute_processing_rate(self.started_at, self.processed_records)
 
     def get_estimated_completion(self):
         """Estimated completion datetime, computed at read-time (None if N/A)."""
@@ -160,7 +171,7 @@ class BulkOperationTracker(Document):
                 modified_by   = %(user)s
             WHERE name = %(name)s
               AND processed_records >= total_records
-              AND status = 'Processing'
+              AND status NOT IN ('Completed', 'Failed')
             """,
             {"now": now(), "user": frappe.session.user, "name": self.name},
         )
@@ -223,15 +234,25 @@ class BulkOperationTracker(Document):
         )
         return [f"{r.name}: {r.failure_reason or 'Unknown error'}" for r in rows]
 
-    def clear_retry_queue(self):
-        """No-op kept for API compatibility.
+    def clear_retry_queue(self) -> int:
+        """Stop retries by marking this tracker's Failed ACRs as Cancelled.
 
-        The retry list is derived from ACR status (#172); there is no stored queue
-        to clear. Requests leave the retry set by being re-processed successfully.
+        The retry list derives from ACR ``status='Failed'`` (#172), so the way to
+        abandon retries is to move those requests to a terminal ``Cancelled``
+        state — they then drop out of get_retry_requests() and the scheduler will
+        not re-attempt them. Returns the number of requests cancelled.
         """
-        frappe.logger().info(
-            f"clear_retry_queue() is a no-op for {self.name}: retry list derives from ACR status"
-        )
+        failed = self.get_retry_requests()
+        if failed:
+            frappe.db.set_value(
+                "Account Creation Request",
+                {"name": ["in", failed]},
+                "status",
+                "Cancelled",
+                update_modified=False,
+            )
+        frappe.logger().info(f"clear_retry_queue: cancelled {len(failed)} failed requests for {self.name}")
+        return len(failed)
 
     @staticmethod
     def create_tracker(
@@ -305,7 +326,7 @@ def get_active_operations():
     if not frappe.has_permission("Bulk Operation Tracker", "read"):
         frappe.throw(_("Insufficient permissions"))
 
-    return frappe.get_all(
+    operations = frappe.get_all(
         "Bulk Operation Tracker",
         filters={"status": ["in", ["Queued", "Processing"]]},
         fields=[
@@ -318,10 +339,18 @@ def get_active_operations():
             "current_batch",
             "total_batches",
             "started_at",
-            "estimated_completion",
         ],
         order_by="creation desc",
     )
+    # Rate/ETA are derived live (#172): the stored fields are not written per batch.
+    for op in operations:
+        rate = compute_processing_rate(op.started_at, op.processed_records)
+        op["processing_rate"] = rate
+        op["estimated_completion"] = None
+        if op.status == "Processing" and rate > 0 and cint(op.processed_records) < cint(op.total_records):
+            remaining = cint(op.total_records) - cint(op.processed_records)
+            op["estimated_completion"] = now_datetime() + timedelta(minutes=remaining / rate)
+    return operations
 
 
 @frappe.whitelist()
