@@ -10,6 +10,8 @@ Tests the payment_history_validator.py scheduled task functionality
 with realistic data generation and edge case coverage.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import add_days, now_datetime, today
 
@@ -155,21 +157,37 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
                 f"Invoice {invoice.name} should not be in payment history initially",
             )
 
-        # Run validation and repair
-        result = validate_and_repair_payment_history()
+        # Run validation and repair. The validator now reconciles against
+        # source-of-truth and drives the real drain job
+        # (background_jobs.drain_member_payment_history) once per member with a
+        # gap, instead of the old circular member_doc.add_invoice_to_payment_history()
+        # re-enqueue. Capture the frappe.enqueue call to prove it targets the
+        # right job/member, then invoke the drain function directly (as the
+        # worker would) to observe the row actually land.
+        calls = []
+        with patch(
+            "verenigingen.utils.payment_history_validator.frappe.enqueue",
+            side_effect=lambda *a, **k: calls.append(k),
+        ):
+            result = validate_and_repair_payment_history()
 
         # Verify repair was successful
         self.assertTrue(result["success"], "Validation and repair should succeed")
         self.assertGreater(result["repaired"], 0, "Some entries should be repaired")
         self.assertEqual(result["errors"], 0, "No repair errors should occur")
 
-        # The validator repairs by queuing batched payment-history updates; flush the
-        # batch so the persisted rows are observable, then reload the member.
-        from verenigingen.utils.financial_history_batch_processor import (
-            FinancialHistoryBatchProcessor,
+        job_ids = [k.get("job_id") for k in calls]
+        self.assertIn(
+            f"fin_history_payment_{repair_test_member.name}",
+            job_ids,
+            "Repair should enqueue the real drain job for the member with the gap",
         )
 
-        FinancialHistoryBatchProcessor.force_process_all()
+        # Simulate the worker draining the enqueued job.
+        from verenigingen.utils.background_jobs import drain_member_payment_history
+
+        drain_member_payment_history(repair_test_member.name, repair_test_member.customer)
+
         repair_test_member.reload()
         final_payment_history = [entry.invoice for entry in repair_test_member.payment_history]
 
