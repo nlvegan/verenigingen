@@ -140,31 +140,12 @@ def update_member_expense_history_with_retry(expense_claim_name, member_name, at
 
 def schedule_member_expense_history_removal(doc, method=None):
     """
-    Schedule removal of expense from member history using the new batching system.
-
-    UPDATED: Now uses the 10s batching system for consistency.
+    No-op: removal is now owned by expense_handlers.on_expense_claim_cancel,
+    which enqueues the same drain job with the same job_id (so a duplicate
+    enqueue from here would only collapse via deduplicate anyway). Kept
+    defined so the on_cancel hook wiring in hooks/doc_events.py stays valid.
     """
-    if doc.doctype != "Expense Claim":
-        return
-
-    if not doc.employee:
-        return
-
-    volunteer_record = frappe.db.get_value(
-        "Volunteer", {"employee_id": doc.employee}, ["name", "member"], as_dict=True
-    )
-
-    if not volunteer_record or not volunteer_record.member:
-        return
-
-    # FIXED: Use new batching system for removal as well
-    from verenigingen.utils.financial_history_batch_processor import queue_expense_removal
-
-    queue_expense_removal(volunteer_record.member, doc.name)
-
-    frappe.logger("delayed_expense_hooks").info(
-        f"Queued expense history removal for member {volunteer_record.member}, expense {doc.name} (batching system)"
-    )
+    return
 
 
 def remove_member_expense_history_with_retry(expense_claim_name, member_name):

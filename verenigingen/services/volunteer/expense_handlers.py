@@ -108,10 +108,21 @@ def on_expense_claim_cancel(doc, method=None):
         if not member_name:
             return
 
-        # Queue removal from member expense history
-        from verenigingen.utils.financial_history_batch_processor import queue_expense_removal
-
-        queue_expense_removal(member_name, doc.name)
+        # Defer the batch-processor drain to a worker job so it runs outside
+        # the cancel transaction (see design/financial-history-hook-transaction-safety).
+        # Same job_id shape as the add-path enqueue; deduplicate collapses any
+        # duplicate enqueue from delayed_expense_hooks.schedule_member_expense_history_removal.
+        frappe.enqueue(
+            "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
+            queue="short",
+            job_id=f"fin_history_expense_{member_name}_{doc.name}",
+            deduplicate=True,
+            enqueue_after_commit=True,
+            timeout=300,
+            member=member_name,
+            expense=doc.name,
+            operation="remove",
+        )
 
         frappe.logger().info(
             f"Queued expense history removal for member {member_name} from cancelled expense claim {doc.name}"

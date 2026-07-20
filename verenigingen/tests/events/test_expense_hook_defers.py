@@ -6,17 +6,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestExpenseHookDefers(EnhancedTestCase):
-    def _patch_lookup(self, member):
-        # Stub the Volunteer->member resolution so the test needs no HR fixtures.
-        return patch(
-            "verenigingen.services.volunteer.expense_handlers.frappe.db.get_value",
-            side_effect=lambda dt, *a, **k: (
-                {"Volunteer": "VOL-X"}.get(dt, member)
-                if dt == "Volunteer" and "employee_id" in str(a)
-                else member
-            ),
-        )
-
     def test_submit_handler_enqueues_add_and_no_inline_process(self):
         from verenigingen.services.volunteer import expense_handlers
 
@@ -42,3 +31,21 @@ class TestExpenseHookDefers(EnhancedTestCase):
         self.assertTrue(k.get("enqueue_after_commit"))
         self.assertTrue(k.get("deduplicate"))
         self.assertEqual(k.get("job_id"), "fin_history_expense_MEMBER-X_EXP-1")
+
+    def test_cancel_handler_enqueues_remove_once(self):
+        from verenigingen.services.volunteer import expense_handlers
+
+        doc = frappe._dict(doctype="Expense Claim", name="EXP-2", employee="EMP-1")
+        calls = []
+        with patch(
+            "verenigingen.services.volunteer.expense_handlers.frappe.db.get_value",
+            return_value="MEMBER-Y",
+        ), patch(
+            "verenigingen.services.volunteer.expense_handlers.frappe.enqueue",
+            side_effect=lambda *a, **k: calls.append(k),
+        ):
+            expense_handlers.on_expense_claim_cancel(doc)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].get("operation"), "remove")
+        self.assertEqual(calls[0].get("job_id"), "fin_history_expense_MEMBER-Y_EXP-2")
