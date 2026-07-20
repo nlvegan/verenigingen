@@ -121,15 +121,17 @@ def _emit_invoice_event(event_name, event_data):
                 members = [{"name": member_name}] if member_name else []
 
                 for member in members:
-                    # Use member-specific job name to serialize updates
-                    # The dedupe key ensures only one job per member runs at a time
+                    # Use a member-specific job_id to serialize updates: the
+                    # deduplicate flag ensures only one job per member is queued
+                    # at a time, and enqueue_after_commit defers dispatch until
+                    # the enclosing transaction actually commits.
                     frappe.enqueue(
                         method=subscriber,
                         queue="short",
-                        job_name=f"payment_history_update_{member['name']}",
-                        dedupe=True,  # This prevents multiple jobs for same member
+                        job_id=f"payment_history_update_{member['name']}",
+                        deduplicate=True,  # This prevents multiple jobs for same member
+                        enqueue_after_commit=True,  # Defer dispatch until the transaction commits
                         timeout=300,  # 5 minutes timeout
-                        delay=2,  # Add 2-second delay to allow transaction commit
                         **{  # Separate method arguments from enqueue parameters
                             "event_name": event_name,
                             "event_data": event_data,
@@ -140,7 +142,9 @@ def _emit_invoice_event(event_name, event_data):
                 frappe.enqueue(
                     method=subscriber,
                     queue="short",
-                    job_name=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
+                    job_id=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
+                    deduplicate=True,
+                    enqueue_after_commit=True,
                     **{
                         "event_name": event_name,
                         "event_data": event_data,
@@ -151,7 +155,9 @@ def _emit_invoice_event(event_name, event_data):
             frappe.enqueue(
                 method=subscriber,
                 queue="short",
-                job_name=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
+                job_id=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
+                deduplicate=True,
+                enqueue_after_commit=True,
                 **{
                     "event_name": event_name,
                     "event_data": event_data,
