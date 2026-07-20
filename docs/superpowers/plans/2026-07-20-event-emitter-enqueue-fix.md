@@ -1,10 +1,34 @@
 # event_emitter.py enqueue-semantics fix — investigation & plan (issue #168)
 
 **Date:** 2026-07-20
-**Status:** Investigated; ready to implement as its own small PR
+**Status:** IMPLEMENTED in PR #171 — see the superseded note below.
 **Issue:** https://github.com/nlvegan/verenigingen/issues/168
 **Origin:** follow-up to PR #167 (financial-history hook transaction-safety), where an
 out-of-scope change to `event_emitter.py` was reverted.
+
+> ## ⚠️ SUPERSEDED IN PART — implemented as PR #171
+>
+> This plan was implemented, **except that `enqueue_after_commit=True` was deliberately
+> dropped** (Tasks 1/3 describe adding it; the final code does not). During CI the added
+> `enqueue_after_commit=True` was found to cause a **reproducible order-dependence
+> lock-timeout** against the threaded `test_bulk_account_creation` suite in the
+> shared-process shard, and it also **escapes the emitter wrappers' "never block the
+> transaction" try/except guard** (it defers dispatch past the guarded region to
+> commit-time). Root-caused with `scripts/testing/order_dependence_detector.py`: on develop
+> the same event-prefix + bulk victim = 0 lock-timeouts; adding only `enqueue_after_commit`
+> = 61; removing just that line = 0.
+>
+> **What shipped in #171:** per-subscriber `job_id` + `deduplicate=True`, dropped no-op
+> `job_name`/`dedupe`/`delay` (and the dead `delay` param + its `approval_events.py` caller),
+> and the team-events bulk-guard parity (Task 2). The read-stale race that
+> `enqueue_after_commit` would have guarded is low-frequency (§4) and handled by idempotent,
+> retrying subscribers, so it was left as-is. §7's open follow-up (the bulk-ACR flow's own
+> lock fragility) remains the real still-unidentified concern the CI failure surfaced.
+>
+> Read §5 (Implementation) and §2's "corrected" claim with this note in mind: §2 argued the
+> #167 lock-timeouts were *wrongly* attributed to `enqueue_after_commit` — that argument was
+> itself wrong (it reasoned about member-creation, but the polluter is the event-**coverage**
+> tests running earlier in the shard).
 
 This doc combines what was learned during the #167 session with an independent
 code+runtime investigation (full report was `.superpowers/sdd/issue-168-investigation.md`).
