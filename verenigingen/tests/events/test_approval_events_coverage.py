@@ -187,7 +187,20 @@ class TestApprovalEventsCoverage(EnhancedTestCase):
         self.assertEqual(calls, [("probe_event", {"member": "M-1"})])
 
     def test_emit_event_enqueues_when_not_sync(self):
-        """Outside sync mode the subscriber is enqueued (not called inline)."""
+        """Outside sync mode the subscriber is enqueued (not called inline).
+
+        job_name/delay are no longer passed to frappe.enqueue: neither is a real
+        Frappe v16 enqueue parameter (they silently leaked into **kwargs). Real
+        dedup is handled by deduplicate=True with a per-subscriber job_id (see
+        test_emit_event_enqueues_one_job_per_subscriber for the collapse
+        regression that guards against).
+
+        enqueue_after_commit is deliberately NOT set on this generic fan-out
+        emitter: deferring dispatch to commit-time escapes the wrappers'
+        try/except guard and triggers an order-dependence lock-timeout in the
+        shared-process test shard (see #168 / event_emitter.py comment). This
+        test locks that decision in.
+        """
         calls = []
         path = f"{__name__}._enqueue_probe"
         globals()["_enqueue_probe"] = lambda **kw: calls.append(kw)
@@ -197,18 +210,52 @@ class TestApprovalEventsCoverage(EnhancedTestCase):
 
         def fake_enqueue(method=None, **kw):
             enqueued["method"] = method
+            enqueued["job_id"] = kw.get("job_id")
+            enqueued["deduplicate"] = kw.get("deduplicate")
+            enqueued["enqueue_after_commit"] = kw.get("enqueue_after_commit")
             enqueued["job_name"] = kw.get("job_name")
             enqueued["delay"] = kw.get("delay")
 
         ee.frappe.enqueue, saved = fake_enqueue, ee.frappe.enqueue
         try:
-            emit_event("evt", {"member": "M-9"}, [path], entity_key="member", job_prefix="px", delay=5)
+            emit_event("evt", {"member": "M-9"}, [path], entity_key="member", job_prefix="px")
         finally:
             ee.frappe.enqueue = saved
         self.assertEqual(calls, [])  # NOT called inline
         self.assertEqual(enqueued["method"], path)
-        self.assertEqual(enqueued["job_name"], "px_evt_M-9")
-        self.assertEqual(enqueued["delay"], 5)
+        self.assertEqual(enqueued["job_id"], f"px_evt_M-9_{path}")
+        self.assertTrue(enqueued["deduplicate"])
+        self.assertIsNone(enqueued["enqueue_after_commit"])  # deliberately not deferred; see #168
+        self.assertIsNone(enqueued["job_name"])
+        self.assertIsNone(enqueued["delay"])
+
+    def test_emit_event_enqueues_one_job_per_subscriber(self):
+        """Regression guard: multiple subscribers of one event must each get a
+        DISTINCT job_id. Before the fix, job_id was
+        f"{job_prefix}_{event_name}_{entity_name}" -- identical for every
+        subscriber -- so with deduplicate=True all subscribers but one
+        collapsed onto a single job and silently never ran."""
+        path_a = f"{__name__}._multi_probe_a"
+        path_b = f"{__name__}._multi_probe_b"
+        globals()["_multi_probe_a"] = lambda **kw: None
+        globals()["_multi_probe_b"] = lambda **kw: None
+        enqueue_calls = []
+
+        import verenigingen.events.event_emitter as ee
+
+        def fake_enqueue(method=None, **kw):
+            enqueue_calls.append({"method": method, "job_id": kw.get("job_id")})
+
+        ee.frappe.enqueue, saved = fake_enqueue, ee.frappe.enqueue
+        try:
+            emit_event("evt", {"member": "M-9"}, [path_a, path_b], entity_key="member", job_prefix="px")
+        finally:
+            ee.frappe.enqueue = saved
+
+        self.assertEqual(len(enqueue_calls), 2)  # one enqueue call per subscriber
+        job_ids = [c["job_id"] for c in enqueue_calls]
+        self.assertEqual(len(job_ids), len(set(job_ids)), "job_ids must be distinct per subscriber")
+        self.assertEqual(job_ids, [f"px_evt_M-9_{path_a}", f"px_evt_M-9_{path_b}"])
 
     # ====================================================================
     # handle_customer_creation

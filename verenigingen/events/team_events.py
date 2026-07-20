@@ -31,6 +31,11 @@ def emit_team_membership_changed(team_name, membership_data):
         team_name (str): Team document name
         membership_data (dict): Contains volunteer, action, role, old_role, etc.
     """
+
+    # Skip during bulk operations to prevent event flood (parity with member/chapter)
+    if getattr(frappe.flags, "bulk_team_operations", False) or getattr(frappe.flags, "in_bulk_import", False):
+        return
+
     event_data = {"team": team_name, **membership_data, "timestamp": frappe.utils.now()}
 
     frappe.logger("events").info(f"Emitting team_membership_changed event for {team_name}")
@@ -54,6 +59,11 @@ def emit_team_settings_changed(team_name, settings_data):
         team_name (str): Team document name
         settings_data (dict): Contains changed fields and their values
     """
+
+    # Skip during bulk operations to prevent event flood (parity with member/chapter)
+    if getattr(frappe.flags, "bulk_team_operations", False) or getattr(frappe.flags, "in_bulk_import", False):
+        return
+
     event_data = {"team": team_name, **settings_data, "timestamp": frappe.utils.now()}
 
     frappe.logger("events").info(f"Emitting team_settings_changed event for {team_name}")
@@ -77,6 +87,11 @@ def emit_team_leadership_changed(team_name, leadership_data):
         team_name (str): Team document name
         leadership_data (dict): Contains old_lead, new_lead, reason, etc.
     """
+
+    # Skip during bulk operations to prevent event flood (parity with member/chapter)
+    if getattr(frappe.flags, "bulk_team_operations", False) or getattr(frappe.flags, "in_bulk_import", False):
+        return
+
     event_data = {"team": team_name, **leadership_data, "timestamp": frappe.utils.now()}
 
     frappe.logger("events").info(f"Emitting team_leadership_changed event for {team_name}")
@@ -100,6 +115,7 @@ def _emit_team_event(event_name, event_data):
         _get_team_event_subscribers(event_name),
         entity_key="team",
         job_prefix="team",
+        bulk_flag="bulk_team_operations",
     )
 
 

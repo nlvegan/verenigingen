@@ -191,6 +191,44 @@ class TestTeamEventsCoverage(EnhancedTestCase):
             frappe.db.count("Error Log"), before, "emitter should log the swallowed dispatch failure"
         )
 
+    # ===================================== bulk-operation guard (parity with member/chapter)
+    def test_team_emitters_skipped_during_bulk_import(self):
+        """Bulk team operations must not flood the event bus.
+
+        member_events/chapter_events both short-circuit their emit_* wrappers
+        under in_bulk_import / bulk_*_operations so a bulk load doesn't queue a
+        large after-commit closure set. team_events lacked this guard; assert it
+        now has parity by confirming dispatch is skipped entirely.
+        """
+        saved = getattr(frappe.flags, "in_bulk_import", False)
+        frappe.flags.in_bulk_import = True
+        try:
+            with patch.object(te, "_emit_team_event") as mock_emit:
+                te.emit_team_membership_changed("T-1", {"volunteer": "V-1", "action": "added"})
+                te.emit_team_settings_changed("T-1", {"foo": "bar"})
+                te.emit_team_leadership_changed("T-1", {"new_lead": "V-2"})
+            mock_emit.assert_not_called()
+        finally:
+            frappe.flags.in_bulk_import = saved
+
+    def test_team_dispatch_forwards_bulk_flag_to_emitter(self):
+        """team dispatch forwards a bulk_flag so subscribers receive is_bulk_import
+        (parity with member_events/chapter_events)."""
+        captured = {}
+        import verenigingen.events.event_emitter as ee
+
+        def fake_emit(event_name, event_data, subscribers, **kw):
+            captured.update(kw)
+
+        ee.emit_event, saved = fake_emit, ee.emit_event
+        try:
+            te.emit_team_membership_changed("T-1", {"volunteer": "V-1", "action": "added"})
+        finally:
+            ee.emit_event = saved
+        self.assertEqual(captured.get("bulk_flag"), "bulk_team_operations")
+        self.assertEqual(captured.get("entity_key"), "team")
+        self.assertEqual(captured.get("job_prefix"), "team")
+
     # ===================================== handle_assignment_history_updates
     def test_assignment_history_added_creates_active_row(self):
         member, _ = self._make_member_with_email("hist-add")

@@ -85,7 +85,6 @@ def _emit_approval_event(event_name, event_data):
         _get_approval_event_subscribers(event_name),
         entity_key="member",
         job_prefix="approval",
-        delay=2,  # Allow main transaction to commit first
     )
 
 
