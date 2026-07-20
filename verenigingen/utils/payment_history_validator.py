@@ -7,7 +7,7 @@ to ensure invoices generated through bulk operations are properly synced.
 
 Key Features:
 - Detects invoices missing from payment history
-- Automatically repairs missing entries using atomic operations
+- Automatically enqueues per-member drain jobs to repair missing entries
 - Provides detailed logging and reporting
 - Designed to catch edge cases where bulk payment history updates fail
 """
@@ -27,7 +27,7 @@ def validate_and_repair_payment_history():
 
     This function:
     1. Checks for recent invoices missing from payment history
-    2. Automatically repairs missing entries
+    2. Enqueues a per-member drain job (deduplicated by job_id) for each member with a gap
     3. Logs detailed information for monitoring
     4. Returns summary statistics
 
@@ -38,7 +38,9 @@ def validate_and_repair_payment_history():
         # Check invoices from the last 7 days to catch any missed entries
         cutoff_date = add_days(today(), -7)
 
-        # Get all submitted invoices that should be in payment history
+        # Single batched query: every in-window submitted, member-linked invoice,
+        # LEFT JOINed against Member Payment History so "missing from payment
+        # history" is a plain NULL check -- no per-invoice get_value/get_doc calls.
         recent_invoices = frappe.db.sql(
             """
             SELECT
@@ -51,9 +53,13 @@ def validate_and_repair_payment_history():
                 si.creation,
                 si.modified,
                 m.name as member_name,
-                m.full_name as member_full_name
+                mph.name as history_row
             FROM `tabSales Invoice` si
             LEFT JOIN `tabMember` m ON si.customer = m.customer
+            LEFT JOIN `tabMember Payment History` mph
+                ON mph.parenttype = 'Member'
+                AND mph.parent = m.name
+                AND mph.invoice = si.name
             WHERE si.creation >= %s
             AND si.docstatus = 1
             AND m.name IS NOT NULL
@@ -67,61 +73,52 @@ def validate_and_repair_payment_history():
             f"Validating payment history for {len(recent_invoices)} recent invoices"
         )
 
-        # Check which invoices are missing from payment history
-        missing_invoices = []
-        validated_count = 0
-
-        for invoice_data in recent_invoices:
-            # Check if this invoice exists in the member's payment history
-            existing = frappe.db.get_value(
-                "Member Payment History",
-                {"parent": invoice_data.member_name, "invoice": invoice_data.invoice_name},
-                "name",
-            )
-
-            if not existing:
-                missing_invoices.append(invoice_data)
-            else:
-                validated_count += 1
+        # Partition on the pre-joined NULL check -- no further queries needed.
+        missing_invoices = [row for row in recent_invoices if not row.history_row]
+        validated_count = len(recent_invoices) - len(missing_invoices)
 
         # Log summary statistics
         frappe.logger("payment_history_validator").info(
             f"Payment history validation: {validated_count} verified, {len(missing_invoices)} missing"
         )
 
-        # Repair missing entries
+        # Reconcile against source-of-truth: drive the real drain job once per
+        # member with a gap (deduplicated by job_id), instead of the circular
+        # member_doc.add_invoice_to_payment_history() re-enqueue, which merely
+        # re-queues through the batch processor and always returns True without
+        # verifying a row ever lands.
+        members_with_gaps = {}
+        for invoice_data in missing_invoices:
+            members_with_gaps.setdefault(invoice_data.member_name, invoice_data.customer)
+
         success_count = 0
         error_count = 0
 
-        for invoice_data in missing_invoices:
+        for member_name, customer in members_with_gaps.items():
             try:
-                # Get the member document
-                member_doc = frappe.get_doc("Member", invoice_data.member_name)
-
-                # Use the atomic add method to prevent conflicts
-                member_doc.add_invoice_to_payment_history(invoice_data.invoice_name)
+                frappe.enqueue(
+                    "verenigingen.utils.background_jobs.drain_member_payment_history",
+                    queue="short",
+                    job_id=f"fin_history_payment_{member_name}",
+                    deduplicate=True,
+                    member=member_name,
+                    customer=customer,
+                )
 
                 success_count += 1
                 frappe.logger("payment_history_validator").info(
-                    f"Repaired payment history: Added {invoice_data.invoice_name} for {invoice_data.member_full_name}"
+                    f"Queued payment history drain for member {member_name}"
                 )
 
             except Exception as e:
                 error_count += 1
                 frappe.logger("payment_history_validator").error(
-                    f"Failed to repair payment history for {invoice_data.invoice_name} (member: {invoice_data.member_full_name}): {e}"
+                    f"Failed to queue payment history drain for member {member_name}: {e}"
                 )
                 frappe.log_error(
-                    f"Payment history repair failed for invoice {invoice_data.invoice_name}, member {invoice_data.member_name}: {str(e)}",
+                    f"Payment history repair failed for member {member_name}: {str(e)}",
                     "Payment History Validator Error",
                 )
-
-        # Commit successful repairs
-        if success_count > 0:
-            frappe.db.commit()
-            frappe.logger("payment_history_validator").info(
-                f"Payment history validation complete: {success_count} repairs committed"
-            )
 
         # Create alert if significant issues found
         if len(missing_invoices) > 10:  # Alert threshold

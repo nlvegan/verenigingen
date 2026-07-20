@@ -22,14 +22,16 @@ product is broken. Two hardening techniques (mirrored from
 1. ``self.assertNoErrorLog()`` around happy / no-op paths — ``frappe.log_error``
    commits independently of the test transaction, so a swallowed exception flips
    a silent green pass into a real failure.
-2. Real side-effect assertions — the batch-processor queue call (captured at its
-   source as an infra boundary), the EmailService send boundary, the resolved
-   recipient/subject/notification_key.
+2. Real side-effect assertions — the deferred ``frappe.enqueue`` call (captured
+   at its use site in ``expense_handlers`` as an infra boundary; the drain job
+   runs outside the submit/cancel transaction, see
+   design/financial-history-hook-transaction-safety), the EmailService send
+   boundary, the resolved recipient/subject/notification_key.
 
-The EmailService factory and the batch-processor queue functions are the ONLY
-boundaries patched (never product logic). Patching the email factory also
-bypasses the test-site "email disabled" short-circuit so the handler's reaching
-of the send boundary is observable.
+The EmailService factory and ``frappe.enqueue`` are the ONLY boundaries patched
+(never product logic). Patching the email factory also bypasses the test-site
+"email disabled" short-circuit so the handler's reaching of the send boundary
+is observable.
 
 This module is distinct from ``tests/events/test_expense_events_coverage.py``,
 which covers the separate ``events/`` emitter+subscriber chain, not these
@@ -46,8 +48,7 @@ from verenigingen.services.volunteer import expense_handlers as eh
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 EMAIL_FACTORY = "verenigingen.services.communication.email_service.get_email_service"
-QUEUE_UPDATE = "verenigingen.utils.financial_history_batch_processor.queue_expense_update"
-QUEUE_REMOVAL = "verenigingen.utils.financial_history_batch_processor.queue_expense_removal"
+ENQUEUE = "verenigingen.services.volunteer.expense_handlers.frappe.enqueue"
 
 
 class TestExpenseHandlersCoverage(EnhancedTestCase):
@@ -185,37 +186,45 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
     # update_member_expense_history
     # ==================================================================
     def test_update_history_queues_for_volunteer_claim(self):
-        """A claim whose employee -> volunteer -> member resolves queues an update."""
+        """A claim whose employee -> volunteer -> member resolves enqueues the
+        deferred drain job (see design/financial-history-hook-transaction-safety)."""
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
 
-        with patch(QUEUE_UPDATE) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 eh.update_member_expense_history(ec)
-            q.assert_called_once_with(member.name, ec.name)
+            q.assert_called_once()
+            kwargs = q.call_args.kwargs
+            self.assertEqual(kwargs.get("member"), member.name)
+            self.assertEqual(kwargs.get("expense"), ec.name)
+            self.assertEqual(kwargs.get("operation"), "add")
+            self.assertEqual(kwargs.get("job_id"), f"fin_history_expense_{member.name}_{ec.name}_add")
+            self.assertTrue(kwargs.get("deduplicate"))
+            self.assertTrue(kwargs.get("enqueue_after_commit"))
 
     def test_update_history_no_employee_noop(self):
-        """No employee on the claim -> early return, no queue, no error."""
+        """No employee on the claim -> early return, no enqueue, no error."""
         fake = frappe._dict(name="EC-noemp", employee=None)
-        with patch(QUEUE_UPDATE) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 self.assertIsNone(eh.update_member_expense_history(fake))
             q.assert_not_called()
 
     def test_update_history_employee_not_volunteer_noop(self):
-        """An employee with no linked Volunteer -> early return, no queue."""
+        """An employee with no linked Volunteer -> early return, no enqueue."""
         company = self._company()
         if not company:
             self.skipTest("No Company")
         emp = self._make_employee(company)  # no Volunteer points at this employee
         ec = self._make_expense_claim(emp, company)
-        with patch(QUEUE_UPDATE) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 eh.update_member_expense_history(ec)
             q.assert_not_called()
 
     def test_update_history_volunteer_without_member_noop(self):
-        """Volunteer exists but is not linked to a Member -> early return, no queue."""
+        """Volunteer exists but is not linked to a Member -> early return, no enqueue."""
         company = self._company()
         if not company:
             self.skipTest("No Company")
@@ -226,17 +235,17 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         emp = self._make_employee(company)
         frappe.db.set_value("Volunteer", volunteer.name, "employee_id", emp.name, update_modified=False)
         ec = self._make_expense_claim(emp, company)
-        with patch(QUEUE_UPDATE) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 eh.update_member_expense_history(ec)
             q.assert_not_called()
 
     def test_update_history_swallows_and_logs_on_failure(self):
-        """If queue_expense_update raises, the handler logs and does NOT propagate."""
+        """If enqueuing raises, the handler logs and does NOT propagate."""
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
         self.expectErrorLog("Expense History Queue Error")
-        with patch(QUEUE_UPDATE, side_effect=RuntimeError("boom")):
+        with patch(ENQUEUE, side_effect=RuntimeError("boom")):
             # Must NOT raise — the expense-claim submission must not fail.
             self.assertIsNone(eh.update_member_expense_history(ec))
 
@@ -246,14 +255,19 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
     def test_cancel_queues_removal_for_volunteer_claim(self):
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
-        with patch(QUEUE_REMOVAL) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 eh.on_expense_claim_cancel(ec)
-            q.assert_called_once_with(member.name, ec.name)
+            q.assert_called_once()
+            kwargs = q.call_args.kwargs
+            self.assertEqual(kwargs.get("member"), member.name)
+            self.assertEqual(kwargs.get("expense"), ec.name)
+            self.assertEqual(kwargs.get("operation"), "remove")
+            self.assertEqual(kwargs.get("job_id"), f"fin_history_expense_{member.name}_{ec.name}_remove")
 
     def test_cancel_no_employee_noop(self):
         fake = frappe._dict(name="EC-noemp", employee=None)
-        with patch(QUEUE_REMOVAL) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 self.assertIsNone(eh.on_expense_claim_cancel(fake))
             q.assert_not_called()
@@ -264,7 +278,7 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
             self.skipTest("No Company")
         emp = self._make_employee(company)
         ec = self._make_expense_claim(emp, company)
-        with patch(QUEUE_REMOVAL) as q:
+        with patch(ENQUEUE) as q:
             with self.assertNoErrorLog():
                 eh.on_expense_claim_cancel(ec)
             q.assert_not_called()
@@ -273,7 +287,7 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_expense_claim(emp, company)
         self.expectErrorLog("Expense History Removal Error")
-        with patch(QUEUE_REMOVAL, side_effect=RuntimeError("boom")):
+        with patch(ENQUEUE, side_effect=RuntimeError("boom")):
             self.assertIsNone(eh.on_expense_claim_cancel(ec))
 
     # ==================================================================

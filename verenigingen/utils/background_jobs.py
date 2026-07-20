@@ -792,38 +792,44 @@ def execute_member_payment_history_update_sync(member_name: str, payment_entry: 
 
 
 def queue_member_payment_history_update_handler(doc, method=None):
-    """
-    Event handler for payment entry changes - queues background job
+    """Payment Entry hook: enqueue a per-member payment-history drain job.
 
-    This replaces the synchronous update_member_payment_history in hooks.py
+    Deferred via enqueue_after_commit so the batch processor's commit/rollback
+    never runs inside the Payment Entry submit transaction.
     """
     try:
         if doc.party_type != "Customer":
             return
-
-        # Get all members for this customer
         members = frappe.get_all("Member", filters={"customer": doc.party}, fields=["name"])
-
-        # FIXED: Use unified batching system instead of separate BackgroundJobManager
-        from verenigingen.utils.financial_history_batch_processor import queue_payment_update
-
         for member_doc in members:
-            # Find related invoices that need updating due to this payment
-            invoices = frappe.get_all(
-                "Sales Invoice", filters={"customer": doc.party, "docstatus": 1}, fields=["name"]
+            frappe.enqueue(
+                "verenigingen.utils.background_jobs.drain_member_payment_history",
+                queue="short",
+                job_id=f"fin_history_payment_{member_doc.name}",
+                deduplicate=True,
+                enqueue_after_commit=True,
+                timeout=300,
+                member=member_doc.name,
+                customer=doc.party,
             )
-
-            # Queue updates for all affected invoices
-            for invoice in invoices:
-                queue_payment_update(member_doc.name, invoice.name)
-
-            frappe.logger("payment_history").info(
-                f"Queued payment history updates for member {member_doc.name} - {len(invoices)} invoices affected by payment {doc.name} (batching system)"
-            )
-
     except Exception as e:
-        frappe.log_error(f"Failed to queue payment history updates for payment {doc.name}: {e}")
+        frappe.log_error(f"Failed to enqueue payment history update for payment {doc.name}: {e}")
         # Don't raise - we don't want to block the payment entry submission
+
+
+def drain_member_payment_history(member, customer):
+    """Worker job: queue the customer's submitted invoices for `member` and drain."""
+    from verenigingen.utils.financial_history_batch_processor import (
+        FinancialHistoryBatchProcessor,
+        queue_payment_update,
+    )
+
+    invoices = frappe.get_all(
+        "Sales Invoice", filters={"customer": customer, "docstatus": 1}, fields=["name"]
+    )
+    for invoice in invoices:
+        queue_payment_update(member, invoice.name)
+    FinancialHistoryBatchProcessor.force_process_all()
 
 
 def queue_expense_event_processing_handler(doc, method=None):

@@ -124,8 +124,14 @@ scheduler_events = {
     # NOTE: must be nested inside scheduler_events under the "cron" key — a
     # sibling module-level `cron` variable is not read by Frappe's sync_jobs.
     "cron": {
-        # Financial history batch processing - every 30 seconds (reduced from 10s to cut scheduler overhead)
-        "*/30 * * * * *": [
+        # Financial history batch processing - safety-net sweep every 5 minutes.
+        # Prompt updates now flow via RQ from the doc-event hooks; this cron
+        # only catches anything the hook path missed. (Previously
+        # "*/30 * * * * *" was parsed by croniter as a 6-field expression --
+        # i.e. minutes {0,30} -- not "every 30 seconds" as intended, and
+        # Frappe's scheduler tick is 240s anyway, so it never ran as often as
+        # the comment claimed.)
+        "*/5 * * * *": [
             "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing"
         ],
         # MijnRood sync - poll remote DB for member changes every 15 minutes

@@ -141,10 +141,47 @@ class TestInvoiceEventsCoverage(EnhancedTestCase):
 
         self.assertEqual(len(calls), 1, f"expected one enqueue, got {calls}")
         kw = calls[0]
-        self.assertEqual(kw.get("job_name"), f"payment_history_update_{member.name}")
-        self.assertTrue(kw.get("dedupe"), "member payment-history job must be dedupe'd")
+        self.assertEqual(kw.get("job_id"), f"payment_history_update_{member.name}")
+        self.assertTrue(kw.get("deduplicate"), "member payment-history job must be deduplicate'd")
+        self.assertTrue(kw.get("enqueue_after_commit"), "job must be deferred until commit")
         self.assertTrue(kw.get("method", "").endswith("payment_history_subscriber.handle_invoice_submitted"))
         self.assertEqual(kw.get("event_data", {}).get("invoice"), invoice.name)
+
+    def test_invoice_event_enqueues_with_real_dedup_params(self):
+        """emit_invoice_submitted must enqueue with job_id + deduplicate +
+        enqueue_after_commit, not the no-op delay/dedupe/job_name kwargs."""
+        from unittest.mock import patch
+
+        from verenigingen.events import invoice_events
+
+        captured = {}
+
+        def fake_enqueue(method, **kwargs):
+            captured["method"] = method
+            captured["kwargs"] = kwargs
+
+        # Force the member-resolution branch to actually fire the enqueue
+        # (a real DB lookup for "SOME-CUST" would resolve to no member and
+        # leave `captured` empty, making the assertions below vacuous).
+        with (
+            patch(
+                "verenigingen.utils.financial_utils.get_member_for_customer",
+                return_value="SOME-MEMBER",
+            ),
+            patch("verenigingen.events.invoice_events.frappe.enqueue", side_effect=fake_enqueue),
+        ):
+            invoice_events._emit_invoice_event(
+                "invoice_submitted",
+                {"customer": "SOME-CUST", "invoice": "SI-X"},
+            )
+        self.assertTrue(captured, "enqueue must have fired for a resolved member")
+        # If a member resolves, an enqueue happened; assert param hygiene when it did.
+        if captured:
+            assert "delay" not in captured["kwargs"], "delay is a no-op kwarg"
+            assert "dedupe" not in captured["kwargs"], "dedupe is not a real param"
+            assert captured["kwargs"].get("deduplicate") is True
+            assert captured["kwargs"].get("enqueue_after_commit") is True
+            assert captured["kwargs"].get("job_id")
 
     def test_emit_submitted_customer_with_no_member_enqueues_nothing(self):
         """Characterization: a customer NOT linked to any Member dispatches ZERO
