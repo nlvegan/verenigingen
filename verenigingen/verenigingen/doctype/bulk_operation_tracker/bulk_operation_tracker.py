@@ -1,8 +1,7 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
-import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List, Optional
 
 import frappe
@@ -35,39 +34,33 @@ class BulkOperationTracker(Document):
                     ).format(self.total_batches, calculated_batches, self.total_records, self.batch_size)
                 )
 
-        # Calculate processing rate if we have timing data
-        self._calculate_processing_rate()
+        # Snapshot rate/ETA into the stored fields at create/start time. The hot
+        # per-batch path uses the read-time getters instead (#172).
+        self.processing_rate_per_minute = self.get_processing_rate()
+        estimated = self.get_estimated_completion()
+        if estimated:
+            self.estimated_completion = estimated
 
-        # Calculate estimated completion if operation is in progress
-        self._calculate_estimated_completion()
+    def get_processing_rate(self) -> float:
+        """Records/minute so far, computed at read-time from started_at + progress.
 
-    def _calculate_processing_rate(self):
-        """Calculate the processing rate per minute based on current progress."""
-        if not self.started_at or self.processed_records <= 0:
-            return
+        Pure (no mutation) so it stays fresh even though the atomic per-batch
+        update_progress path (#172) no longer runs validate().
+        """
+        if not self.started_at or cint(self.processed_records) <= 0:
+            return 0.0
+        elapsed_minutes = (now_datetime() - frappe.utils.get_datetime(self.started_at)).total_seconds() / 60
+        if elapsed_minutes <= 0:
+            return 0.0
+        return flt(self.processed_records / elapsed_minutes, 2)
 
-        start_time = frappe.utils.get_datetime(self.started_at)
-        current_time = now_datetime()
-
-        elapsed_minutes = (current_time - start_time).total_seconds() / 60
-
-        if elapsed_minutes > 0:
-            self.processing_rate_per_minute = flt(self.processed_records / elapsed_minutes, 2)
-
-    def _calculate_estimated_completion(self):
-        """Calculate estimated completion time based on current processing rate."""
-        if (
-            self.status == "Processing"
-            and self.processing_rate_per_minute
-            and self.processing_rate_per_minute > 0
-            and self.processed_records < self.total_records
-        ):
-            remaining_records = self.total_records - self.processed_records
-            estimated_minutes = remaining_records / self.processing_rate_per_minute
-
-            current_time = now_datetime()
-            estimated_completion = current_time + timedelta(minutes=estimated_minutes)
-            self.estimated_completion = estimated_completion
+    def get_estimated_completion(self):
+        """Estimated completion datetime, computed at read-time (None if N/A)."""
+        rate = self.get_processing_rate()
+        if not (self.status == "Processing" and rate > 0 and self.processed_records < self.total_records):
+            return None
+        remaining = self.total_records - self.processed_records
+        return now_datetime() + timedelta(minutes=remaining / rate)
 
     def start_operation(self):
         """Mark operation as started and record start time."""
@@ -146,29 +139,6 @@ class BulkOperationTracker(Document):
             f"Bulk operation {self.name} progress: batch {batch_number}/{self.total_batches}, "
             f"processed {self.processed_records}/{self.total_records}"
         )
-
-    def _update_batch_details(self, batch_number: int, batch_results: Dict):
-        """Update the batch details JSON with results from completed batch."""
-        try:
-            # Parse existing batch details or create new
-            batch_details = json.loads(self.batch_details) if self.batch_details else []
-
-            # Add this batch's results
-            batch_info = {
-                "batch_number": batch_number,
-                "completed_at": now(),
-                "successful": batch_results.get("completed", 0),
-                "failed": batch_results.get("failed", 0),
-                "total": batch_results.get("total_requests", 0),
-                "errors_count": len(batch_results.get("errors", [])),
-            }
-
-            batch_details.append(batch_info)
-            self.batch_details = json.dumps(batch_details, indent=2)
-
-        except json.JSONDecodeError:
-            # Initialize if JSON is corrupted
-            self.batch_details = json.dumps([batch_info], indent=2)
 
     def _complete_operation_if_done(self):
         """Atomically mark the operation complete exactly once.
@@ -374,8 +344,8 @@ def get_operation_progress(tracker_name: str) -> Dict:
         "failed_records": tracker.failed_records,
         "current_batch": tracker.current_batch,
         "total_batches": tracker.total_batches,
-        "processing_rate": tracker.processing_rate_per_minute,
-        "estimated_completion": tracker.estimated_completion,
+        "processing_rate": tracker.get_processing_rate(),
+        "estimated_completion": tracker.get_estimated_completion(),
         "started_at": tracker.started_at,
         "completed_at": tracker.completed_at,
         "retry_queue_count": len(tracker.get_retry_requests()),

@@ -9,7 +9,6 @@ failed requests with exponential backoff.
 Author: Verenigingen Development Team
 """
 
-import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -32,11 +31,14 @@ def process_retry_queues():
         frappe.logger().info("Starting scheduled retry queue processing")
 
         # Get all bulk operation trackers with retry queues
+        # Retry candidates are completed operations that had failures. The retry
+        # list itself derives from linked ACR status (#172), so we filter on
+        # failed_records rather than a stored retry_queue blob.
         trackers_with_retries = frappe.get_all(
             "Bulk Operation Tracker",
             filters={
                 "status": ["in", ["Completed", "Failed"]],  # Only completed operations
-                "retry_queue": ["!=", ""],  # Have retry items
+                "failed_records": [">", 0],  # Had failures -> may have retryable ACRs
             },
             fields=["name", "operation_type", "failed_records", "creation"],
             order_by="creation desc",
@@ -120,19 +122,14 @@ def process_single_retry_queue(tracker_name: str) -> Dict:
                 failed_requests.extend(batch)
                 continue
 
-        # Update tracker retry queue - remove successful requests
+        # No stored retry queue to update (#172): successfully retried ACRs flip
+        # out of status='Failed' during processing, so they drop out of the
+        # derived retry list automatically. Nothing to write on the tracker row.
         remaining_failed = [req for req in retry_requests if req in failed_requests]
-
-        if len(remaining_failed) < len(retry_requests):
-            # Some requests succeeded - update retry queue
-            tracker.retry_queue = json.dumps(remaining_failed, indent=2) if remaining_failed else ""
-            # Security: Background batch retry processor - system operation
-            tracker.save(ignore_permissions=True)
-
-            frappe.logger().info(
-                f"Updated retry queue for {tracker_name}: {len(succeeded_requests)} succeeded, "
-                f"{len(remaining_failed)} remaining failed"
-            )
+        frappe.logger().info(
+            f"Retry pass for {tracker_name}: {len(succeeded_requests)} succeeded, "
+            f"{len(remaining_failed)} remaining failed"
+        )
 
         return {
             "processed": len(retry_requests),
@@ -222,7 +219,7 @@ def get_retry_queue_status():
 
     trackers = frappe.get_all(
         "Bulk Operation Tracker",
-        filters={"retry_queue": ["!=", ""]},
+        filters={"failed_records": [">", 0]},  # retry list derives from ACR status (#172)
         fields=["name", "operation_type", "total_records", "failed_records", "completed_at", "creation"],
         order_by="creation desc",
     )

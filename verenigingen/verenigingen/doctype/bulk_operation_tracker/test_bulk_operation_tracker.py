@@ -9,6 +9,8 @@ parsing (including the corrupted-JSON fallback). A create+persist+reload
 roundtrip pins that ``validate`` runs and its computed values survive.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -102,6 +104,96 @@ class TestBulkOperationTracker(EnhancedTestCase):
         self.assertEqual(tracker.get_retry_requests(), [failed])
         summary = tracker.get_error_summary()
         self.assertTrue(any("boom-1" in line for line in summary))
+
+    def test_retry_processor_discovers_trackers_by_failed_records(self):
+        """bulk_retry_processor must find trackers via failed_records (the retry
+        list is derived now), not the never-written retry_queue field (#172)."""
+        from verenigingen.utils import bulk_retry_processor as brp
+
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=1, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        frappe.db.set_value(
+            "Bulk Operation Tracker",
+            tracker.name,
+            {"failed_records": 1, "status": "Completed", "completed_at": frappe.utils.now()},
+            update_modified=False,
+        )
+        m = self.create_test_member(first_name="Rp", last_name="X", birth_date="1990-01-01")
+        self._make_acr(m, tracker.name, status="Failed", failure_reason="retry-me")
+
+        # Tests run as Administrator (break-glass for @critical_api), so no explicit
+        # user switch is needed to call the admin endpoint.
+        result = brp.get_retry_queue_status()
+        rows = result.get("data", result.get("message", result)) if isinstance(result, dict) else result
+        by_name = {r["tracker_name"]: r for r in rows}
+        self.assertIn(tracker.name, by_name)
+        self.assertEqual(by_name[tracker.name]["retry_queue_count"], 1)
+
+    def test_tracker_save_conflict_uses_bounded_short_backoff(self):
+        """A tracker save conflict retries with a short, bounded sleep — the old
+        32s lock-holding backoff amplifier is gone (#172)."""
+        from verenigingen.utils import secure_operations
+
+        tracker = self._make_tracker(status="Processing")
+        sleeps = []
+        calls = {"n": 0}
+        real_save = type(tracker).save
+
+        def flaky_save(doc, *a, **k):
+            # Force 3 consecutive conflicts (== new max_retries). The OLD policy's
+            # 3rd-retry backoff already exceeds the bound (base 4 + jitter), so an
+            # unbounded/32s-style policy is detectable; the new bounded one is not.
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                raise frappe.TimestampMismatchError("forced conflict")
+            return real_save(doc, *a, **k)
+
+        with patch.object(type(tracker), "save", flaky_save), patch(
+            "time.sleep", side_effect=lambda s: sleeps.append(s)
+        ):
+            result = secure_operations.secure_document_operation(
+                operation="save",
+                doc=tracker,
+                justification="Test bounded backoff on tracker save conflict for issue 172",
+                required_permissions=["Bulk Operation Tracker:write"],
+            )
+        self.assertTrue(result.success)
+        self.assertTrue(sleeps, "expected at least one retry sleep")
+        self.assertTrue(all(s <= 3.0 for s in sleeps), f"backoff not bounded: {sleeps}")
+
+    def test_update_progress_does_not_write_batch_details_blob(self):
+        """The contended per-batch batch_details JSON write is gone (#172)."""
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=25, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        frappe.db.set_value("Bulk Operation Tracker", tracker.name, "status", "Processing")
+        tracker.update_progress(1, {"completed": 25, "failed": 0})
+        self.assertFalse(frappe.db.get_value("Bulk Operation Tracker", tracker.name, "batch_details"))
+
+    def test_processing_rate_and_eta_computed_at_read_time(self):
+        """Rate/ETA are derived from started_at + processed_records at read-time,
+        since update_progress no longer runs validate() (#172)."""
+        from frappe.utils import add_to_date
+
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=100, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        frappe.db.set_value(
+            "Bulk Operation Tracker",
+            tracker.name,
+            {"status": "Processing", "started_at": add_to_date(frappe.utils.now(), minutes=-2)},
+            update_modified=False,
+        )
+        t = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        t.update_progress(1, {"completed": 50, "failed": 0})
+        t.reload()
+        # 50 records over ~2 minutes -> ~25/min, and a future ETA.
+        self.assertGreater(t.get_processing_rate(), 0)
+        self.assertTrue(t.get_estimated_completion())
 
     def test_concurrent_update_progress_is_atomic_no_timestamp_conflict(self):
         """Two batches loaded at the same version both fold in without a
