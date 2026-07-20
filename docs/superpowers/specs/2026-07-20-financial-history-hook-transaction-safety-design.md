@@ -1,7 +1,9 @@
 # Financial-history hook transaction-safety redesign
 
 **Date:** 2026-07-20
-**Status:** Design approved; pending SWE review + implementation plan
+**Status:** Design approved; revised after SWE review (enqueue-parameter
+corrections, bounded Part 3 scan, test-audit prerequisite); pending user review →
+implementation plan
 **Related:** PR #166 (test-isolation fix for the same subsystem), issue #162 follow-up
 
 ## Problem
@@ -38,16 +40,24 @@ not realize it drains inline.
 
 The Sales Invoice path (`events/subscribers/payment_history_subscriber.py`) is
 **not** affected because it is already dispatched via `frappe.enqueue`
-(`events/invoice_events.py:126`, `delay=2`, `dedupe=True`, per-member
-`job_name`), so its inline drain happens inside a dedicated worker job.
+(`events/invoice_events.py:126`), so its inline drain happens inside a dedicated
+worker job rather than the request transaction. (Its enqueue call passes
+`delay=2` / `dedupe=True` / `job_name=...`, which — see "enqueue-parameter
+correctness" below — are non-functional in this Frappe version; the path works
+anyway because the enqueue itself succeeds and the worker is a separate process.)
 
 ### Two pre-existing bugs surfaced during review
 
 1. **The catch-all cron does not run every 30s.** `hooks/scheduler.py:128`
-   registers `"*/30 * * * * *"` intending every-30-seconds. It is a 6-field
-   expression parsed as minute ∈ {0,30} (not sub-minute), and Frappe's scheduler
-   tick is 240s (`frappe/utils/scheduler.py` `DEFAULT_SCHEDULER_TICK`), which
-   floors any cadence at ~4 minutes. Real drain cadence ≈ 4 minutes.
+   registers `"*/30 * * * * *"` intending every-30-seconds. croniter (with the
+   default `second_at_beginning=False`) parses the 6 fields as
+   `[minute, hour, day, month, weekday, second]`, so `minute="*/30"` restricts it
+   to minutes {0, 30} and the trailing `second="*"` is unconstrained — the job is
+   "due" on every second of minute :00 and :30 and **never during the other 58
+   minutes**. Combined with the 240s scheduler tick, real behavior is bursty and
+   tick-phase-dependent (verified empirically): it can go unfired for ~28-30
+   minutes, then fire on every tick landing inside a 1-minute window — not a
+   uniform cadence.
 
 2. **The "repair" / "self-heal" jobs are circular.** `validate_and_repair_payment_history`
    (`utils/payment_history_validator.py:102`) and
@@ -67,8 +77,9 @@ was considered and **rejected** after review:
 
 - **Self-heal remains false** — the repair jobs still re-enqueue, so a Redis-down
   drop is unrecovered while reporting success (bug #2 above).
-- **Latency** — scheduler-only draining floors freshness at ~4 minutes (bug #1),
-  vs ~2s for RQ `delay=2`.
+- **Latency** — scheduler-only draining makes freshness bursty and up to ~30 min
+  (bug #1), vs a couple seconds for an RQ worker picking up an
+  `enqueue_after_commit` job.
 - **Worse test isolation** — a shared Redis hash keyed only by `{db_name}`
   (`frappe/utils/redis_wrapper.py:52`) has no worker axis. Tests call
   `force_process_all()` explicitly (`tests/payment/test_payment_history_race_condition.py`,
@@ -87,23 +98,44 @@ Three independent parts, shipped as separate commits/PRs.
 
 ### Part 1 — Enqueue-per-hook (the fix)
 
-Convert each of the five Class-A handlers to defer via `frappe.enqueue`, exactly
-mirroring the proven Sales Invoice path. Each handler resolves its member(s)
-cheaply (the lightweight lookups it already does) and enqueues a per-member drain
-job:
+Convert each of the five Class-A handlers to defer via `frappe.enqueue`. Each
+handler resolves its member(s) cheaply (the lightweight lookups it already does)
+and enqueues a per-member drain job:
 
 ```python
 frappe.enqueue(
     "verenigingen.<...>.<drain_fn>",
     queue="short",
-    job_name=f"fin_history_payment_{member}",   # per-member coalescing
-    dedupe=True,
+    job_id=f"fin_history_payment_{member}",       # real per-member dedup key
+    deduplicate=True,                             # coalesce concurrent submits
+    enqueue_after_commit=True,                    # enqueue only after the submit commits
     timeout=300,
-    delay=2,                                      # let the submit commit first
     member=member,
     invoice=invoice,                              # or expense / removal args
 )
 ```
+
+**Enqueue-parameter correctness (verified against Frappe v16.19).** The Sales
+Invoice path (`events/invoice_events.py:126`) and `events/event_emitter.py:63`
+use `delay=2` + `dedupe=True` + `job_name=...`, all of which are **non-functional
+in this Frappe version** and must NOT be copied:
+- `frappe.enqueue` has no `delay` parameter — it leaks into `**kwargs` and is
+  passed to the target function as a literal kwarg (crashing any drain fn without
+  a `**kwargs` catch-all). Use `enqueue_after_commit=True` instead: a real
+  parameter that enqueues the job only after the current transaction commits —
+  the exact "let the submit commit first" guarantee (and stronger than a timing
+  race). This also means a rolled-back submit enqueues nothing.
+- Deduplication requires `job_id=<str>` + `deduplicate=True` (Frappe throws if
+  `deduplicate` is set without `job_id`). `dedupe` is not a parameter (leaks into
+  kwargs); `job_name` is deprecated and cosmetic (never a coalescing key). The
+  correct pattern already exists in this repo
+  (`patches/v2_2/resync_stuck_mollie_amendment_syncs.py:68`,
+  `.../contribution_amendment_request.py:433`).
+
+Because the Sales Invoice / event_emitter paths carry the same latent no-op
+(they survive only on worker-dequeue timing), the plan should also correct those
+two call sites to `job_id`+`deduplicate`+`enqueue_after_commit` (small, same
+edit) so the new code isn't modeled on a broken template.
 
 The enqueued drain function's body is the **current handler body minus the
 enqueue** — it re-derives what to queue from the member/doc it was passed (the
@@ -126,12 +158,17 @@ harmless once confined to worker jobs, and replacing it is separable debt.
 
 **Handler notes:**
 - Payment Entry handler loops a customer's submitted invoices; enqueue **one job
-  per member** (dedup by `job_name`), not one per invoice, to bound job count.
-  The drain job re-derives the invoice list.
+  per member** (dedup by `job_id=f"fin_history_payment_{member}"`), not one per
+  invoice, to bound job count. The drain job re-derives the invoice list.
 - The two Expense Claim `on_cancel` handlers (`expense_handlers.on_expense_claim_cancel`
-  and `delayed_expense_hooks.schedule_member_expense_history_removal`) overlap;
-  the plan must avoid double-processing — prefer a single enqueue per (member,
-  expense, operation).
+  and `delayed_expense_hooks.schedule_member_expense_history_removal`) both fire
+  on the same event (`hooks/doc_events.py:194-197`) and today collapse to one dict
+  key; with real `deduplicate` + `job_id` they coalesce to a single enqueued job.
+  The plan should still converge them to a single enqueue per (member, expense,
+  operation) rather than rely on dedup.
+- Drain functions take explicit named parameters only (member/invoice/expense) —
+  no stray kwargs — which is safe now that no non-parameter (`delay`/`dedupe`)
+  leaks through the enqueue call.
 - Errors resolving the member stay caught-and-logged (never fail the submit),
   as today.
 
@@ -144,24 +181,30 @@ periodic safety net, so a few-minute cadence is appropriate.
 
 ### Part 3 — Make the catch-all reconcile source-of-truth
 
-Give the **scheduled** payment catch-all a real reconciliation, mirroring the
-existing expense one:
+Give the **scheduled** payment catch-all a real reconciliation:
 
-- Add a payment-side `_get_pending_invoices()` analogue: submitted Sales Invoices
-  (docstatus 1) for members whose `payment_history` row for that invoice is
-  missing, resolved member-by-customer.
-- The scheduled sweep enqueues per-member drain jobs (Part 1's mechanism) for the
-  pending set, instead of the current re-enqueue-everything behavior.
-- Whitelisted repair endpoints (`validate_and_repair_payment_history`) route
-  through the same reconciliation so their reported counts reflect real work.
-
-The expense catch-all (`_get_pending_expense_claims`) already reconciles
-source-of-truth and is the template; Part 3 brings the payment side to parity.
+- The current `validate_and_repair_payment_history` (`utils/payment_history_validator.py:23-42`,
+  wired hourly at `hooks/scheduler.py:87`) is circular (it re-enqueues and counts
+  that as "repaired" without verifying a row landed — bug #2) — **but it already
+  bounds its scan to a 7-day window** (`cutoff_date = add_days(today(), -7)`,
+  `WHERE si.creation >= %s`). Preserve that bounded window; the fix is to make it
+  **reconcile source-of-truth** (find submitted Sales Invoices in-window whose
+  member `payment_history` row is missing, resolved member-by-customer) and drive
+  Part 1's per-member drain jobs, verifying the row lands — not to re-enqueue
+  blindly.
+- **Do NOT mirror the expense template's scan shape.** `_get_pending_expense_claims`
+  (`services/volunteer/expense_history_batch_processor.py:88`) does an *unbounded*
+  `frappe.get_all("Expense Claim", {"docstatus": 1})` full-table scan + per-row
+  N+1. Sales Invoices are far higher-volume in a dues-billing org and this runs
+  hourly, so porting the unbounded pattern would be a scalability regression vs.
+  today. Keep the existing bounded-window approach.
+- Reuse `_is_claim_in_member_history`-style existence checks, but batch the
+  "already in history" lookup (single query over the window) rather than per-row.
 
 ## Testing
 
 - **Part 1:** for each of the 5 handlers, patch `frappe.enqueue` and assert it is
-  called once per affected member with the expected `job_name` / args, and that
+  called once per affected member with the expected `job_id` / args, and that
   the handler performs **no** inline processing/commit (assert the batch
   processor's per-member processing is not invoked and no history row is written
   synchronously within the hook). Mirror the existing invoice-path handler tests.
@@ -175,11 +218,20 @@ source-of-truth and is the template; Part 3 brings the payment side to parity.
 - **Regression:** PR #166's `TestFinancialBatchQueueIsolation` and the
   `_reset_financial_history_batch_queue()` hook remain valid unchanged — the
   in-memory queue + inline drain still exist, now triggered from worker jobs.
-- Existing tests that rely on inline draining without `force_process_all()`
-  (`tests/payment/test_invoice_generation_and_payment_history_sync.py`,
-  `tests/payment/test_regression_payment_history_draft_status.py`) must be
-  re-checked; if any drove a Class-A hook synchronously and asserted immediate
-  history, update them to drive the drain job (or call `force_process_all()`).
+- **Test-breakage audit is a plan prerequisite (not the two files first named).**
+  `frappe.enqueue(is_async=True)` genuinely defers to Redis in tests
+  (`call_directly` is only true for `now=True` or `not is_async and in_test`,
+  `background_jobs.py:143`), so once Part 1 ships nothing auto-drains in a test
+  process. A grep for `.submit()` + `payment_history`/`volunteer_expenses`
+  assertions outside the `force_process_all()` callers yields ~20 candidate files
+  (e.g. `test_event_driven_payment_history.py`, `test_payment_entry_cleanup.py`,
+  `test_member_history_update_service_realdb.py`, `test_financial_workflows.py`,
+  `test_member_lifecycle_complete.py`). Many likely use an escape hatch
+  (`member.load_payment_history()` → `refresh_member_financial_history_optimized`,
+  a synchronous rebuild that bypasses the queue) and are unaffected. Before
+  writing the plan, do a real audit — e.g. stub the 5 handlers to no-op and run
+  the payment/expense/volunteer test dirs — to enumerate the actual breakers, and
+  fix each to drive the drain job or call `force_process_all()`.
 
 ## Risks & mitigations
 
@@ -188,7 +240,7 @@ source-of-truth and is the template; Part 3 brings the payment side to parity.
   and process when workers return; the Part 3 sweep is the backstop. Acceptable,
   and no worse than the existing invoice path.
 - **Double-processing across overlapping expense handlers:** addressed by
-  per-(member, expense, operation) enqueue + `dedupe`/`job_name`.
+  per-(member, expense, operation) enqueue + `deduplicate`/`job_id`.
 - **Test-mode enqueue:** in tests, `frappe.enqueue` may run inline or be a no-op
   depending on config; tests assert on the enqueue call, and the drain is
   exercised directly, so behavior is deterministic regardless.
