@@ -521,3 +521,59 @@ class TestQueryCacheAndDropIns(EnhancedTestCase):
         result = optimize_member_payment_history_update(pe.name)
         self.assertTrue(result["success"])
         self.assertIn("No members found", result["message"])
+
+
+class TestBulkUpdateTransactionSafety(EnhancedTestCase):
+    """``OptimizedMemberQueries._update_member_payment_history_bulk`` runs inside
+    Payment Entry / Sales Invoice submit hooks (via
+    ``performance_event_handlers.on_member_payment_update``). On error it must
+    scope its own delete/insert in a SAVEPOINT and re-raise — it must never
+    ``frappe.db.commit()`` or ``frappe.db.rollback()`` the caller's request
+    transaction (that prematurely commits the document submit or wipes it).
+    """
+
+    def test_bulk_update_error_does_not_commit_caller_transaction(self):
+        from unittest.mock import patch
+
+        member = self.create_test_member(
+            first_name="OptTxn",
+            last_name="Safety",
+            email="opttxn.safety@test.invalid",
+        )
+
+        # Uncommitted sibling work in the SAME transaction (stands in for the
+        # document submit that this hook runs inside).
+        marker = f"OptTxnProbe-{self.uid}"
+        frappe.get_doc(
+            {
+                "doctype": "Item",
+                "item_code": marker,
+                "item_name": marker,
+                "item_group": "All Item Groups",
+                "stock_uom": "Nos",
+                "is_stock_item": 0,
+            }
+        ).insert(ignore_permissions=True)
+        self.track_doc("Item", marker)
+        self.assertTrue(frappe.db.exists("Item", marker), "precondition: marker present")
+
+        # Force an error partway through the bulk update (the builder raises).
+        self.expectErrorLog("Payment History Bulk Update Error")
+        with patch(
+            "verenigingen.utils.payment_history_builder.build_payment_history_entry_from_query",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                OptimizedMemberQueries._update_member_payment_history_bulk(
+                    member.name, [{"invoice_name": "INV-IRRELEVANT"}]
+                )
+
+        # The bulk update must NOT have committed the caller's transaction on
+        # error. Simulate the request rolling back (as a later hook error would):
+        frappe.db.rollback()
+        self.assertFalse(
+            frappe.db.exists("Item", marker),
+            "the bulk update committed the caller's transaction on error; it must "
+            "scope its own work in a savepoint and never commit/rollback the "
+            "request-level transaction",
+        )

@@ -434,6 +434,12 @@ class OptimizedMemberQueries:
         processed_invoices = set()
         validation_failures = []
 
+        # Scope this member's delete/insert in a savepoint so a failure rolls back
+        # ONLY this member's work — never the caller's request transaction. This
+        # runs inside Payment Entry / Sales Invoice submit hooks (via
+        # on_member_payment_update); Frappe manages the request-level transaction.
+        savepoint = "member_payment_history_bulk"
+        frappe.db.savepoint(savepoint)
         try:
             # ✅ FIX: Build all records first, collecting validation failures
             for row in payment_data:
@@ -499,22 +505,20 @@ class OptimizedMemberQueries:
                     user="Administrator",
                 )
 
+            frappe.db.release_savepoint(savepoint)
+
         except Exception as e:
-            # ✅ FIX: Log error in separate transaction BEFORE rollback
-            error_msg = f"Failed to update payment history for member {member_name}: {str(e)}\n"
-            error_msg += f"Traceback: {frappe.get_traceback()}"
-
-            try:
-                # Commit error log before rolling back main transaction
-                frappe.log_error(error_msg, "Payment History Bulk Update Error")
-                frappe.db.commit()  # Commit the error log
-            except Exception as log_error:
-                # If error logging fails, at least print to console
-                frappe.logger().error(f"Could not log error: {log_error}")
-                frappe.logger().error(error_msg)
-
-            # Now rollback the main transaction
-            frappe.db.rollback()
+            # Roll back ONLY this member's delete/insert (savepoint) — NOT the
+            # caller's request transaction. Do NOT commit here: this runs inside a
+            # document submit hook, so committing would prematurely persist the
+            # whole submit. The error log written after the savepoint rollback
+            # lives in the request transaction and persists with it.
+            frappe.db.rollback(save_point=savepoint)
+            frappe.log_error(
+                f"Failed to update payment history for member {member_name}: {str(e)}\n"
+                f"Traceback: {frappe.get_traceback()}",
+                "Payment History Bulk Update Error",
+            )
             raise
 
     @staticmethod
