@@ -20,6 +20,7 @@ import frappe
 from frappe.utils import add_days, now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.payment_history_validator import validate_and_repair_payment_history
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -62,15 +63,19 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
         # needs an accounting role ("Accounts Manager"); Customer/Member read on
         # this app is restricted to "Verenigingen Staff" (the app customises the
         # Customer DocPerms), so include both alongside the admin roles.
+        admin_roles = [
+            "System Manager",
+            "Verenigingen Administrator",
+            "Accounts Manager",
+            "Verenigingen Staff",
+        ]
         self.test_user = self.create_test_user(
             "integration.admin@example.com",
-            roles=[
-                "System Manager",
-                "Verenigingen Administrator",
-                "Accounts Manager",
-                "Verenigingen Staff",
-            ],
+            roles=admin_roles,
         )
+        # APISecurityFramework authorizes on Role Profiles, not bare roles; grant
+        # the profile matching these roles so CRITICAL/HIGH endpoints are reachable.
+        grant_matching_role_profiles(self.test_user.email, admin_roles)
 
         # Company whose receivable currency matches the EUR invoices these tests build.
         from verenigingen.tests.support.sepa_test_company import get_eur_test_company

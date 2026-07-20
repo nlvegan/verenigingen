@@ -8,7 +8,6 @@ from frappe.utils import today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import handle_api_error
-from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_utils import performance_monitor
 
@@ -427,25 +426,19 @@ def bulk_suspend_members(
         if not suspension_reason:
             return OperationResult.fail(_("suspension_reason is required"), error_code="INVALID_INPUT")
 
-        # Use BatchProcessor for optimized processing
-        batch_processor = BatchProcessor(batch_size=50, parallel_workers=2)
+        from verenigingen.permissions import can_terminate_member
+        from verenigingen.utils.boolean_utils import cbool
+        from verenigingen.utils.termination_integration import suspend_member_safe
 
         def process_member_suspension(member_name):
-            """Process single member suspension with error handling"""
+            """Suspend a single member, returning a per-member result dict."""
             try:
-                # Check permissions for each member
-                from verenigingen.permissions import can_terminate_member
-
                 if not can_terminate_member(member_name):
                     return {
                         "member": member_name,
-                        "status": "failed",
+                        "success": False,
                         "error": "No permission to suspend this member",
                     }
-
-                # Suspend the member
-                from verenigingen.utils.boolean_utils import cbool
-                from verenigingen.utils.termination_integration import suspend_member_safe
 
                 suspend_result = suspend_member_safe(
                     member_name=member_name,
@@ -457,36 +450,32 @@ def bulk_suspend_members(
                 if suspend_result.get("success"):
                     return {
                         "member": member_name,
-                        "status": "success",
+                        "success": True,
                         "actions": suspend_result.get("actions_taken", []),
                     }
-                else:
-                    return {
-                        "member": member_name,
-                        "status": "failed",
-                        "error": suspend_result.get("error", "Unknown error"),
-                    }
-
+                return {
+                    "member": member_name,
+                    "success": False,
+                    "error": suspend_result.get("error", "Unknown error"),
+                }
             except Exception as e:
-                return {"member": member_name, "status": "failed", "error": str(e)}
+                return {"member": member_name, "success": False, "error": str(e)}
 
-        # Process in batches
-        batch_results = batch_processor.process_in_batches(
-            member_list, process_member_suspension, context={"suspension_reason": suspension_reason}
-        )
-
-        # Aggregate results
+        # Process members serially. The previous implementation used
+        # BatchProcessor, whose ThreadPoolExecutor runs each member in a worker
+        # thread -- but frappe.local (session, db connection) is thread-local and
+        # unbound in those threads, so every suspension raised "object is not
+        # bound" and bulk suspension could never succeed. Member-suspension
+        # volumes don't warrant threading; a serial loop is correct and reuses
+        # the per-member logic.
+        details = [process_member_suspension(m) for m in member_list]
+        successful = sum(1 for d in details if d.get("success"))
         results = {
-            "successful": batch_results["successful"],
-            "failed": batch_results["failed"],
-            "details": [],
-            "batch_stats": batch_results["batch_stats"],
+            "successful": successful,
+            "failed": len(details) - successful,
+            "total": len(details),
+            "details": details,
         }
-
-        # Extract details from batch results
-        for batch_stat in batch_results["batch_stats"]:
-            if "results" in batch_stat:
-                results["details"].extend(batch_stat["results"])
 
         # Show summary message
         if results["successful"] > 0:

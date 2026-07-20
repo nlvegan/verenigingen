@@ -26,6 +26,7 @@ import frappe
 from frappe.utils import add_days, getdate, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.utils.member_utils import (
     get_current_user_member_name,
     get_member_name_for_user,
@@ -126,6 +127,13 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
             first_name="Orphaned",
             last_name="User",
         )
+
+        # The APISecurityFramework authorizes on Role Profiles, not bare roles:
+        # a user with roles but no matching profile is capped at MEDIUM and denied
+        # HIGH/CRITICAL endpoints. Grant each user the profile matching its roles
+        # (1:1 by name) so allow-paths work while low-tier users stay denied.
+        for u in users.values():
+            grant_matching_role_profiles(u.email, [r.role for r in u.roles])
 
         return users
 
