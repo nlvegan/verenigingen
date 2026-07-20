@@ -27,10 +27,7 @@ def emit_event(
         entity_key: Key in event_data used for the job_name suffix
             (e.g. "member", "chapter", "team").
         job_prefix: Prefix for the job_name (e.g. "member", "approval").
-        delay: Unused. Retained for signature compatibility with existing
-            callers (e.g. approval_events.py passes delay=2); dispatch
-            timing is now handled by enqueue_after_commit=True below,
-            which defers the job until the enclosing transaction commits.
+        delay: Seconds to delay the enqueue (default 1).
         bulk_flag: Optional frappe.flags attribute name that, together with
             ``in_bulk_import``, is forwarded as ``is_bulk_import`` kwarg
             to subscribers so they can skip heavy work during bulk ops.
@@ -44,7 +41,7 @@ def emit_event(
         )
         extra_kwargs["is_bulk_import"] = is_bulk_import
 
-    # Test affordance: subscribers are normally enqueued after commit, so they do NOT run
+    # Test affordance: subscribers are normally enqueued with a delay, so they do NOT run
     # inline even under frappe.in_test (which only short-circuits is_async=False jobs).
     # Integration tests that need to assert on a subscriber's side effects can set
     # frappe.flags.run_events_synchronously to execute the real subscriber code inline.
@@ -62,10 +59,10 @@ def emit_event(
         frappe.enqueue(
             method=subscriber,
             queue="short",
-            job_id=f"{job_prefix}_{event_name}_{entity_name}_{subscriber}",
-            deduplicate=True,
-            enqueue_after_commit=True,
+            job_name=f"{job_prefix}_{event_name}_{entity_name}",
+            dedupe=True,
             timeout=300,
+            delay=delay,
             **extra_kwargs,
             **{"event_name": event_name, "event_data": event_data},
         )
