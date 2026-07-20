@@ -480,7 +480,7 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
             q.assert_called_once_with(
                 "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
                 queue="short",
-                job_id=f"fin_history_expense_{member.name}_{ec.name}",
+                job_id=f"fin_history_expense_{member.name}_{ec.name}_add",
                 deduplicate=True,
                 enqueue_after_commit=True,
                 timeout=300,

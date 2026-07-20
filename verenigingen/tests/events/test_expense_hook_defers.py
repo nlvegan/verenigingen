@@ -30,7 +30,7 @@ class TestExpenseHookDefers(EnhancedTestCase):
         self.assertEqual(k.get("operation"), "add")
         self.assertTrue(k.get("enqueue_after_commit"))
         self.assertTrue(k.get("deduplicate"))
-        self.assertEqual(k.get("job_id"), "fin_history_expense_MEMBER-X_EXP-1")
+        self.assertEqual(k.get("job_id"), "fin_history_expense_MEMBER-X_EXP-1_add")
 
     def test_cancel_handler_enqueues_remove_once(self):
         from verenigingen.services.volunteer import expense_handlers
@@ -48,7 +48,7 @@ class TestExpenseHookDefers(EnhancedTestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0].get("operation"), "remove")
-        self.assertEqual(calls[0].get("job_id"), "fin_history_expense_MEMBER-Y_EXP-2")
+        self.assertEqual(calls[0].get("job_id"), "fin_history_expense_MEMBER-Y_EXP-2_remove")
 
     def test_update_after_submit_handler_enqueues_add(self):
         from verenigingen.events import delayed_expense_hooks

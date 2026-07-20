@@ -62,7 +62,7 @@ def emit_event(
         frappe.enqueue(
             method=subscriber,
             queue="short",
-            job_id=f"{job_prefix}_{event_name}_{entity_name}",
+            job_id=f"{job_prefix}_{event_name}_{entity_name}_{subscriber}",
             deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,

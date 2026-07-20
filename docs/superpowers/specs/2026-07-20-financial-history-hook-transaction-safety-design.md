@@ -253,3 +253,16 @@ Give the **scheduled** payment catch-all a real reconciliation:
   pre-existing parallel write path this redesign does not touch.
 - Converting `_process_member_*`'s commit/rollback to savepoints (unnecessary
   once these run only in dedicated worker/scheduler jobs).
+- **KNOWN-REMAINING (follow-up): a second, independent synchronous payment-history
+  path.** Payment Entry `on_submit` and Sales Invoice `on_submit`
+  (`hooks/doc_events.py:138,163`) also fire
+  `performance_event_handlers.on_member_payment_update` →
+  `OptimizedMemberQueries.bulk_update_payment_history`, whose error path does a
+  transaction-wide `frappe.db.commit()` then `frappe.db.rollback()`
+  (`utils/optimized_queries.py:510,517`) **inside the submit transaction** — the
+  same class of hazard this redesign removes from the batch-processor path, but a
+  different mechanism. This redesign does **not** touch it, so the "no
+  transaction-wide commit/rollback in submit hooks" objective is achieved only for
+  the `FinancialHistoryBatchProcessor` path. Follow-up: wrap that error-path
+  commit/rollback in a savepoint (or defer it), and reconcile the two parallel
+  payment-history mechanisms.

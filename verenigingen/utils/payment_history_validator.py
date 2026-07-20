@@ -7,7 +7,7 @@ to ensure invoices generated through bulk operations are properly synced.
 
 Key Features:
 - Detects invoices missing from payment history
-- Automatically repairs missing entries using atomic operations
+- Automatically enqueues per-member drain jobs to repair missing entries
 - Provides detailed logging and reporting
 - Designed to catch edge cases where bulk payment history updates fail
 """
@@ -27,7 +27,7 @@ def validate_and_repair_payment_history():
 
     This function:
     1. Checks for recent invoices missing from payment history
-    2. Automatically repairs missing entries
+    2. Enqueues a per-member drain job (deduplicated by job_id) for each member with a gap
     3. Logs detailed information for monitoring
     4. Returns summary statistics
 
@@ -53,7 +53,6 @@ def validate_and_repair_payment_history():
                 si.creation,
                 si.modified,
                 m.name as member_name,
-                m.full_name as member_full_name,
                 mph.name as history_row
             FROM `tabSales Invoice` si
             LEFT JOIN `tabMember` m ON si.customer = m.customer

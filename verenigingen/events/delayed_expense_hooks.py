@@ -39,7 +39,7 @@ def schedule_member_expense_history_update(doc, method=None):
     frappe.enqueue(
         "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
         queue="short",
-        job_id=f"fin_history_expense_{volunteer_record.member}_{doc.name}",
+        job_id=f"fin_history_expense_{volunteer_record.member}_{doc.name}_add",
         deduplicate=True,
         enqueue_after_commit=True,
         timeout=300,

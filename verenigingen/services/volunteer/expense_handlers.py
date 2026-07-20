@@ -48,7 +48,7 @@ def update_member_expense_history(doc, method=None):
         frappe.enqueue(
             "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
             queue="short",
-            job_id=f"fin_history_expense_{member_name}_{doc.name}",
+            job_id=f"fin_history_expense_{member_name}_{doc.name}_add",
             deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,
@@ -115,7 +115,7 @@ def on_expense_claim_cancel(doc, method=None):
         frappe.enqueue(
             "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
             queue="short",
-            job_id=f"fin_history_expense_{member_name}_{doc.name}",
+            job_id=f"fin_history_expense_{member_name}_{doc.name}_remove",
             deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,
