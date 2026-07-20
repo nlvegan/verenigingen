@@ -170,43 +170,6 @@ class BulkOperationTracker(Document):
             # Initialize if JSON is corrupted
             self.batch_details = json.dumps([batch_info], indent=2)
 
-    def _update_retry_queue(self, failed_requests: List[str]):
-        """Update the retry queue with failed request names."""
-        try:
-            # Parse existing retry queue or create new
-            retry_queue = json.loads(self.retry_queue) if self.retry_queue else []
-
-            # Add failed requests to retry queue
-            retry_queue.extend(failed_requests)
-
-            # Remove duplicates while preserving order
-            seen = set()
-            unique_retry_queue = []
-            for request in retry_queue:
-                if request not in seen:
-                    seen.add(request)
-                    unique_retry_queue.append(request)
-
-            self.retry_queue = json.dumps(unique_retry_queue, indent=2)
-
-        except json.JSONDecodeError:
-            # Initialize if JSON is corrupted
-            self.retry_queue = json.dumps(failed_requests, indent=2)
-
-    def _update_error_summary(self, new_errors: List[str]):
-        """Update error summary with new errors, maintaining a reasonable size."""
-        current_errors = self.error_summary.split("\n") if self.error_summary else []
-
-        # Add new errors
-        current_errors.extend(new_errors)
-
-        # Limit to last 100 errors to prevent overwhelming storage
-        if len(current_errors) > 100:
-            current_errors = current_errors[-100:]
-            current_errors.insert(0, f"[Showing last 100 errors - total errors: {self.failed_records}]")
-
-        self.error_summary = "\n".join(current_errors)
-
     def _complete_operation_if_done(self):
         """Atomically mark the operation complete exactly once.
 
@@ -266,28 +229,39 @@ class BulkOperationTracker(Document):
         return flt((self.processed_records / self.total_records) * 100, 2)
 
     def get_retry_requests(self) -> List[str]:
-        """Get list of request names that need retry processing."""
-        try:
-            return json.loads(self.retry_queue) if self.retry_queue else []
-        except json.JSONDecodeError:
-            return []
+        """Request names needing retry, derived from the linked Account Creation
+        Requests (their ``status`` is the single source of truth — #172).
 
-    def clear_retry_queue(self):
-        """Clear the retry queue after successful retry processing."""
-        self.retry_queue = ""
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        retry_clear_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification="Clear retry queue after successful retry processing",
-            required_permissions=["Bulk Operation Tracker:write"],
+        A retried-and-fixed request flips out of ``status='Failed'`` on its own,
+        so nothing has to mutate a stored queue.
+        """
+        return frappe.get_all(
+            "Account Creation Request",
+            filters={"bulk_operation_tracker": self.name, "status": "Failed"},
+            pluck="name",
+            order_by="creation",
         )
 
-        if not retry_clear_result.success:
-            frappe.logger().error(f"Failed to clear retry queue: {'; '.join(retry_clear_result.errors)}")
-            # Don't throw as this is cleanup operation
+    def get_error_summary(self, limit: int = 100) -> List[str]:
+        """Human-readable failure lines, derived from the failed linked ACRs."""
+        rows = frappe.get_all(
+            "Account Creation Request",
+            filters={"bulk_operation_tracker": self.name, "status": "Failed"},
+            fields=["name", "failure_reason"],
+            order_by="creation",
+            limit=limit,
+        )
+        return [f"{r.name}: {r.failure_reason or 'Unknown error'}" for r in rows]
+
+    def clear_retry_queue(self):
+        """No-op kept for API compatibility.
+
+        The retry list is derived from ACR status (#172); there is no stored queue
+        to clear. Requests leave the retry set by being re-processed successfully.
+        """
+        frappe.logger().info(
+            f"clear_retry_queue() is a no-op for {self.name}: retry list derives from ACR status"
+        )
 
     @staticmethod
     def create_tracker(
@@ -405,4 +379,5 @@ def get_operation_progress(tracker_name: str) -> Dict:
         "started_at": tracker.started_at,
         "completed_at": tracker.completed_at,
         "retry_queue_count": len(tracker.get_retry_requests()),
+        "error_summary": "\n".join(tracker.get_error_summary()),
     }

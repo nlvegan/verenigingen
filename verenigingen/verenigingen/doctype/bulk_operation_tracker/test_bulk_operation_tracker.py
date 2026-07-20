@@ -65,7 +65,44 @@ class TestBulkOperationTracker(EnhancedTestCase):
         self.assertEqual(doc.total_batches, 4)
         self.assertEqual(frappe.db.get_value("Bulk Operation Tracker", doc.name, "total_batches"), 4)
 
+    def _make_acr(self, member, tracker_name, status="Failed", failure_reason=None):
+        """Insert a minimal Account Creation Request linked to a tracker."""
+        acr = frappe.get_doc(
+            {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": member.email or f"{member.name}@example.invalid",
+                "full_name": member.full_name or member.name,
+                "bulk_operation_tracker": tracker_name,
+            }
+        )
+        acr.insert(ignore_permissions=True)  # before_insert forces status='Requested'
+        self.factory.track_document("Account Creation Request", acr.name)
+        # Set the terminal status directly (bypasses the before_insert override).
+        frappe.db.set_value(
+            "Account Creation Request",
+            acr.name,
+            {"status": status, "failure_reason": failure_reason},
+            update_modified=False,
+        )
+        return acr.name
+
     # ---------------------------------------------------------------- #172
+    def test_get_retry_requests_derives_from_failed_acrs(self):
+        """Retry list is the Failed ACRs linked to the tracker (ACR is source of truth)."""
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=2, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        m1 = self.create_test_member(first_name="Rq1", last_name="X", birth_date="1990-01-01")
+        m2 = self.create_test_member(first_name="Rq2", last_name="Y", birth_date="1990-01-01")
+        failed = self._make_acr(m1, tracker.name, status="Failed", failure_reason="boom-1")
+        self._make_acr(m2, tracker.name, status="Completed")
+        self.assertEqual(tracker.get_retry_requests(), [failed])
+        summary = tracker.get_error_summary()
+        self.assertTrue(any("boom-1" in line for line in summary))
+
     def test_concurrent_update_progress_is_atomic_no_timestamp_conflict(self):
         """Two batches loaded at the same version both fold in without a
         TimestampMismatchError, and counters end up correct (issue #172)."""
