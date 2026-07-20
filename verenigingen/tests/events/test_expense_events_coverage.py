@@ -475,6 +475,15 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
             q.assert_called_once_with(member.name, ec.name)
 
     def test_schedule_removal_volunteer_queues_remove_operation(self):
+        """schedule_member_expense_history_removal is now an intentional no-op.
+
+        Removal ownership moved to expense_handlers.on_expense_claim_cancel, which
+        enqueues the drain_member_expense_history(..., operation="remove") job
+        itself (see test_expense_hook_defers.test_cancel_handler_enqueues_remove_once).
+        This delayed-hook entrypoint is kept defined only so the on_cancel hook
+        wiring in hooks/doc_events.py stays valid; it must NOT also queue a
+        removal, or the two paths would race/duplicate.
+        """
         from unittest.mock import patch
 
         member, volunteer, emp, company = self._make_volunteer_member_employee()
@@ -486,7 +495,7 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
                 deh.schedule_member_expense_history_removal(
                     frappe._dict(doctype="Expense Claim", employee=emp.name, name=ec.name)
                 )
-            q.assert_called_once_with(member.name, ec.name)
+            q.assert_not_called()
 
     def test_update_with_retry_missing_claim_returns_quietly(self):
         """update_member_expense_history_with_retry no-ops if the claim is gone."""
