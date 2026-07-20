@@ -94,62 +94,53 @@ class BulkOperationTracker(Document):
         frappe.logger().info(f"Bulk operation {self.name} started: {self.operation_type}")
 
     def update_progress(self, batch_number: int, batch_results: Dict):
-        """
-        Update progress based on batch completion results.
+        """Atomically fold one batch's results into the tracker counters.
+
+        Uses a single ``UPDATE ... SET x = x + n`` rather than a
+        load -> mutate -> save() round-trip so overlapping batch completions
+        cannot raise ``TimestampMismatchError``, lose increments, or hold a row
+        lock across a retry-sleep. See issue #172.
+
+        Per-request detail (retry list, error summary) is NOT stored here — it is
+        derived at read-time from the linked Account Creation Request rows, which
+        are the single source of truth (see get_retry_requests/get_error_summary).
 
         Args:
-            batch_number: The batch number that completed (1-indexed)
-            batch_results: Dictionary with batch results containing:
-                - completed: number of successful records
-                - failed: number of failed records
-                - errors: list of error messages
+            batch_number: The batch number that completed (1-indexed).
+            batch_results: dict with ``completed`` and ``failed`` counts.
         """
-        # Update batch progress
-        self.current_batch = batch_number
+        inc_success = cint(batch_results.get("completed", 0))
+        inc_failed = cint(batch_results.get("failed", 0))
+        inc_processed = inc_success + inc_failed
 
-        # Update record counts
-        batch_successful = batch_results.get("completed", 0)
-        batch_failed = batch_results.get("failed", 0)
-
-        self.successful_records += batch_successful
-        self.failed_records += batch_failed
-        self.processed_records = self.successful_records + self.failed_records
-
-        # Store batch details
-        self._update_batch_details(batch_number, batch_results)
-
-        # Update retry queue if there are failures
-        if batch_failed > 0 and batch_results.get("failed_requests"):
-            self._update_retry_queue(batch_results["failed_requests"])
-
-        # Update error summary
-        if batch_results.get("errors"):
-            self._update_error_summary(batch_results["errors"])
-
-        # Check if operation is complete
-        if self.processed_records >= self.total_records:
-            self._complete_operation()
-        else:
-            # Recalculate estimates
-            self.validate()
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        progress_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Update bulk operation progress - batch {batch_number}/{self.total_batches}",
-            required_permissions=["Bulk Operation Tracker:write"],
+        frappe.db.sql(
+            """
+            UPDATE `tabBulk Operation Tracker`
+            SET successful_records = successful_records + %(s)s,
+                failed_records     = failed_records + %(f)s,
+                processed_records  = processed_records + %(p)s,
+                current_batch      = GREATEST(current_batch, %(batch)s),
+                modified           = %(now)s,
+                modified_by        = %(user)s
+            WHERE name = %(name)s
+            """,
+            {
+                "s": inc_success,
+                "f": inc_failed,
+                "p": inc_processed,
+                "batch": cint(batch_number),
+                "now": now(),
+                "user": frappe.session.user,
+                "name": self.name,
+            },
         )
 
-        if not progress_result.success:
-            frappe.logger().error(
-                f"Failed to update bulk operation progress: {'; '.join(progress_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to update bulk operation progress: {0}").format("; ".join(progress_result.errors))
-            )
+        # Single-winner completion: only the batch that pushes processed >= total
+        # while the operation is still Processing flips the status.
+        self._complete_operation_if_done()
+
+        # Keep the in-memory doc consistent for callers that read counters after.
+        self.reload()
 
         frappe.logger().info(
             f"Bulk operation {self.name} progress: batch {batch_number}/{self.total_batches}, "
@@ -216,19 +207,29 @@ class BulkOperationTracker(Document):
 
         self.error_summary = "\n".join(current_errors)
 
-    def _complete_operation(self):
-        """Mark operation as completed and record completion time."""
-        if self.failed_records > 0:
-            self.status = "Completed" if self.successful_records > 0 else "Failed"
-        else:
-            self.status = "Completed"
+    def _complete_operation_if_done(self):
+        """Atomically mark the operation complete exactly once.
 
-        self.completed_at = now()
-        self.current_batch = self.total_batches
-
-        frappe.logger().info(
-            f"Bulk operation {self.name} completed: {self.successful_records} successful, "
-            f"{self.failed_records} failed out of {self.total_records} total"
+        The conditional WHERE (``processed_records >= total_records AND status =
+        'Processing'``) means only the batch that crosses the finish line writes
+        the terminal status — concurrent batches match zero rows. Status logic
+        lives in the SQL CASE so it stays a single atomic statement.
+        """
+        frappe.db.sql(
+            """
+            UPDATE `tabBulk Operation Tracker`
+            SET status = CASE
+                    WHEN failed_records > 0 AND successful_records = 0 THEN 'Failed'
+                    ELSE 'Completed' END,
+                completed_at  = %(now)s,
+                current_batch = total_batches,
+                modified      = %(now)s,
+                modified_by   = %(user)s
+            WHERE name = %(name)s
+              AND processed_records >= total_records
+              AND status = 'Processing'
+            """,
+            {"now": now(), "user": frappe.session.user, "name": self.name},
         )
 
     def mark_failed(self, error_message: str):

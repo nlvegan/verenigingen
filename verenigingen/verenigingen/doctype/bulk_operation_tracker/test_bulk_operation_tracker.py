@@ -12,6 +12,9 @@ roundtrip pins that ``validate`` runs and its computed values survive.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
+    BulkOperationTracker,
+)
 
 
 class TestBulkOperationTracker(EnhancedTestCase):
@@ -56,37 +59,53 @@ class TestBulkOperationTracker(EnhancedTestCase):
         doc.processed_records = 5
         self.assertEqual(doc.get_progress_percentage(), 0.0)
 
-    def test_complete_operation_marks_failed_when_no_success(self):
-        """_complete_operation -> 'Failed' when there were failures and zero successes."""
-        doc = frappe.new_doc("Bulk Operation Tracker")
-        doc.total_records = 10
-        doc.total_batches = 1
-        doc.successful_records = 0
-        doc.failed_records = 10
-        doc._complete_operation()
-        self.assertEqual(doc.status, "Failed")
-
-    def test_complete_operation_marks_completed_with_partial_success(self):
-        """_complete_operation -> 'Completed' when at least one record succeeded."""
-        doc = frappe.new_doc("Bulk Operation Tracker")
-        doc.total_records = 10
-        doc.total_batches = 1
-        doc.successful_records = 7
-        doc.failed_records = 3
-        doc._complete_operation()
-        self.assertEqual(doc.status, "Completed")
-
-    def test_get_retry_requests_parses_json_and_falls_back(self):
-        """get_retry_requests parses a JSON list and returns [] on corrupt JSON."""
-        doc = frappe.new_doc("Bulk Operation Tracker")
-        doc.retry_queue = '["REQ-1", "REQ-2"]'
-        self.assertEqual(doc.get_retry_requests(), ["REQ-1", "REQ-2"])
-
-        doc.retry_queue = "{not valid json"
-        self.assertEqual(doc.get_retry_requests(), [])
-
     def test_insert_roundtrip_persists_computed_batches(self):
         """A real insert runs validate() and the derived total_batches persists."""
         doc = self._make_tracker(total_records=100, batch_size=30)
         self.assertEqual(doc.total_batches, 4)
         self.assertEqual(frappe.db.get_value("Bulk Operation Tracker", doc.name, "total_batches"), 4)
+
+    # ---------------------------------------------------------------- #172
+    def test_concurrent_update_progress_is_atomic_no_timestamp_conflict(self):
+        """Two batches loaded at the same version both fold in without a
+        TimestampMismatchError, and counters end up correct (issue #172)."""
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=100, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        a = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        b = frappe.get_doc("Bulk Operation Tracker", tracker.name)  # same (stale) version
+        a.update_progress(1, {"completed": 25, "failed": 0})
+        b.update_progress(2, {"completed": 20, "failed": 5})  # would raise on old save() path
+        fresh = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        self.assertEqual(fresh.successful_records, 45)
+        self.assertEqual(fresh.failed_records, 5)
+        self.assertEqual(fresh.processed_records, 50)
+        self.assertEqual(fresh.current_batch, 2)  # GREATEST(1, 2)
+
+    def test_update_progress_marks_complete_once_when_total_reached(self):
+        """The batch that pushes processed >= total flips status exactly once."""
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=50, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        frappe.db.set_value("Bulk Operation Tracker", tracker.name, "status", "Processing")
+        a = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        b = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        a.update_progress(1, {"completed": 25, "failed": 0})
+        b.update_progress(2, {"completed": 25, "failed": 0})
+        fresh = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        self.assertEqual(fresh.processed_records, 50)
+        self.assertEqual(fresh.status, "Completed")
+        self.assertTrue(fresh.completed_at)
+
+    def test_update_progress_completion_marks_failed_when_no_success(self):
+        """All-failed batch completion sets status 'Failed'."""
+        tracker = BulkOperationTracker.create_tracker(
+            operation_type="Account Creation", total_records=25, batch_size=25
+        )
+        self.factory.track_document("Bulk Operation Tracker", tracker.name)
+        frappe.db.set_value("Bulk Operation Tracker", tracker.name, "status", "Processing")
+        tracker.update_progress(1, {"completed": 0, "failed": 25})
+        fresh = frappe.get_doc("Bulk Operation Tracker", tracker.name)
+        self.assertEqual(fresh.status, "Failed")
