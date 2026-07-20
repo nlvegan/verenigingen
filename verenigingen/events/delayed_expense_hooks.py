@@ -34,17 +34,22 @@ def schedule_member_expense_history_update(doc, method=None):
     if not volunteer_record or not volunteer_record.member:
         return
 
-    # FIXED: Use new batching system directly (eliminates 15s delay + 10s batch = 25s total)
-    from verenigingen.utils.financial_history_batch_processor import queue_expense_update
-
-    queue_expense_update(volunteer_record.member, doc.name)
-
-    frappe.logger("delayed_expense_hooks").info(
-        f"Queued expense history update for member {volunteer_record.member}, expense {doc.name} (batching system)"
+    # Enqueue a per-member ADD drain job instead of processing inline, so the
+    # history update happens outside the Expense Claim save transaction.
+    frappe.enqueue(
+        "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
+        queue="short",
+        job_id=f"fin_history_expense_{volunteer_record.member}_{doc.name}",
+        deduplicate=True,
+        enqueue_after_commit=True,
+        timeout=300,
+        member=volunteer_record.member,
+        expense=doc.name,
+        operation="add",
     )
 
     frappe.logger("delayed_expense_hooks").info(
-        f"Scheduled delayed expense history update for member {volunteer_record.member}, expense {doc.name}"
+        f"Queued expense history update for member {volunteer_record.member}, expense {doc.name}"
     )
 
 
