@@ -434,6 +434,12 @@ class OptimizedMemberQueries:
         processed_invoices = set()
         validation_failures = []
 
+        # Scope this member's delete/insert in a savepoint so a failure rolls back
+        # ONLY this member's work — never the caller's request transaction. This
+        # runs inside Payment Entry / Sales Invoice submit hooks (via
+        # on_member_payment_update); Frappe manages the request-level transaction.
+        savepoint = "member_payment_history_bulk"
+        frappe.db.savepoint(savepoint)
         try:
             # ✅ FIX: Build all records first, collecting validation failures
             for row in payment_data:
@@ -499,22 +505,33 @@ class OptimizedMemberQueries:
                     user="Administrator",
                 )
 
-        except Exception as e:
-            # ✅ FIX: Log error in separate transaction BEFORE rollback
-            error_msg = f"Failed to update payment history for member {member_name}: {str(e)}\n"
-            error_msg += f"Traceback: {frappe.get_traceback()}"
+            frappe.db.release_savepoint(savepoint)
 
+        except Exception:
+            # Roll back ONLY this member's delete/insert (savepoint) — NOT the
+            # caller's request transaction. Do NOT commit here: this runs inside a
+            # document submit hook, so committing would prematurely persist the
+            # whole submit.
+            #
+            # Both the rollback and the logging are best-effort and MUST NOT mask
+            # the original exception: a genuine InnoDB deadlock rolls the whole
+            # transaction back server-side and destroys this savepoint, so
+            # `rollback(save_point=...)` would itself raise "SAVEPOINT does not
+            # exist" (MySQL 1305). Swallowing that keeps the original
+            # QueryDeadlockError intact so execute_with_deadlock_retry (the caller)
+            # can classify and retry it.
             try:
-                # Commit error log before rolling back main transaction
-                frappe.log_error(error_msg, "Payment History Bulk Update Error")
-                frappe.db.commit()  # Commit the error log
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                pass  # deadlock already rolled the whole txn back; nothing to undo
+            try:
+                frappe.log_error(
+                    f"Failed to update payment history for member {member_name}:\n"
+                    f"{frappe.get_traceback()}",
+                    "Payment History Bulk Update Error",
+                )
             except Exception as log_error:
-                # If error logging fails, at least print to console
-                frappe.logger().error(f"Could not log error: {log_error}")
-                frappe.logger().error(error_msg)
-
-            # Now rollback the main transaction
-            frappe.db.rollback()
+                frappe.logger().error(f"Could not log payment-history bulk error: {log_error}")
             raise
 
     @staticmethod
