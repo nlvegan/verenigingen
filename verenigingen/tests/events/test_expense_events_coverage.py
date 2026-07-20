@@ -452,27 +452,42 @@ class TestExpenseEventsCoverage(EnhancedTestCase):
         with self.assertNoErrorLog():
             self.assertIsNone(deh.schedule_member_expense_history_update(fake))
 
-    def test_schedule_update_volunteer_queues_batch_operation(self):
-        """A volunteer expense routes into the batch processor via queue_expense_update.
+    def test_schedule_update_volunteer_enqueues_add_drain_job(self):
+        """A volunteer expense no longer routes into the batch processor inline.
 
-        The hook imports queue_expense_update lazily from
-        ``financial_history_batch_processor``; we patch that function at its source
-        (an infra boundary, not business logic) to capture the routed call. We do
-        NOT inspect the live class queue because queue_expense_operation calls
-        _maybe_process_batches() which can immediately flush it -- a timing flake.
+        schedule_member_expense_history_update now defers the history write
+        outside the Expense Claim save transaction by enqueuing the shared
+        drain_member_expense_history job (operation="add") rather than calling
+        queue_expense_update() directly. We patch frappe.enqueue at its use site
+        in delayed_expense_hooks (an infra boundary, not business logic) and
+        assert the routed job args, mirroring
+        test_schedule_removal_volunteer_queues_remove_operation below and
+        test_expense_hook_defers.test_update_after_submit_handler_enqueues_add
+        (which covers the same behavior with fabricated ids; this test keeps
+        the real volunteer/member/expense setup for an end-to-end check).
         """
         from unittest.mock import patch
 
         member, volunteer, emp, company = self._make_volunteer_member_employee()
         ec = self._make_draft_expense_claim(emp, company)
 
-        target = "verenigingen.utils.financial_history_batch_processor.queue_expense_update"
+        target = "verenigingen.events.delayed_expense_hooks.frappe.enqueue"
         with patch(target) as q:
             with self.assertNoErrorLog():
                 deh.schedule_member_expense_history_update(
                     frappe._dict(doctype="Expense Claim", employee=emp.name, name=ec.name)
                 )
-            q.assert_called_once_with(member.name, ec.name)
+            q.assert_called_once_with(
+                "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
+                queue="short",
+                job_id=f"fin_history_expense_{member.name}_{ec.name}",
+                deduplicate=True,
+                enqueue_after_commit=True,
+                timeout=300,
+                member=member.name,
+                expense=ec.name,
+                operation="add",
+            )
 
     def test_schedule_removal_volunteer_queues_remove_operation(self):
         """schedule_member_expense_history_removal is now an intentional no-op.
