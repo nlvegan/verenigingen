@@ -281,12 +281,15 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         update_permission_property("Payment Entry", role, 0, "create", 1)
 
         # has_permission() reads the role rows off the *cached* Payment Entry meta
-        # (get_role_permissions -> doctype_meta.permissions). In a shared-process
-        # parallel shard the meta can already be cached from an earlier sibling
-        # test, so the freshly granted Custom DocPerm is invisible until the meta
-        # cache is refreshed -- an order-dependent failure of the guard below.
-        # Force a clean reload so the grant is deterministically visible.
-        frappe.clear_cache(doctype="Payment Entry")
+        # (Meta.set_custom_permissions rebuilds meta.permissions from Custom DocPerm
+        # only at Meta construction; get_meta then caches it). In a shared-process
+        # parallel shard the meta can already be cached (from an earlier sibling
+        # that committed Custom DocPerm) BEFORE this role's grant is inserted, so
+        # the fresh Custom DocPerm is invisible to the guard below -- an
+        # order-dependent failure. frappe.clear_cache(doctype=...) is not enough
+        # here (it failed to bust the cache in CI); force a rebuild that reads the
+        # current Custom DocPerm and OVERWRITES the cached meta.
+        frappe.get_meta("Payment Entry", cached=False)
 
     def test_create_permission_denied_raises_permission_error(self):
         """A user lacking Payment Entry CREATE is refused at the create gate
