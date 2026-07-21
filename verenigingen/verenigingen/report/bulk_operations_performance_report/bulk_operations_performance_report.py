@@ -77,8 +77,8 @@ def get_data(filters):
         f"""
         SELECT
             name, operation_type, total_records, successful_records, failed_records,
-            started_at, completed_at, processing_rate_per_minute, status,
-            current_batch, total_batches, retry_queue
+            processed_records, started_at, completed_at, status,
+            current_batch, total_batches
         FROM `tabBulk Operation Tracker`
         WHERE operation_type = 'Account Creation'
         {date_condition}
@@ -101,16 +101,17 @@ def get_data(filters):
         if tracker.total_records > 0:
             success_rate = (tracker.successful_records / tracker.total_records) * 100
 
-        # Count retry queue items
-        retry_queue_count = 0
-        if tracker.retry_queue:
-            try:
-                import json
+        # Retry count + processing rate are derived from live data (#172): the
+        # stored retry_queue blob / processing_rate_per_minute field are no longer
+        # written on the atomic per-batch path, so reading them would show 0.
+        from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
+            compute_processing_rate,
+        )
 
-                retry_items = json.loads(tracker.retry_queue)
-                retry_queue_count = len(retry_items) if isinstance(retry_items, list) else 0
-            except:
-                pass
+        retry_queue_count = frappe.db.count(
+            "Account Creation Request",
+            {"bulk_operation_tracker": tracker.name, "status": "Failed"},
+        )
 
         data.append(
             {
@@ -123,7 +124,9 @@ def get_data(filters):
                 "successful_records": tracker.successful_records or 0,
                 "failed_records": tracker.failed_records or 0,
                 "success_rate": flt(success_rate, 2),
-                "processing_rate_per_minute": tracker.processing_rate_per_minute or 0,
+                "processing_rate_per_minute": compute_processing_rate(
+                    tracker.started_at, tracker.processed_records
+                ),
                 "status": tracker.status,
                 "retry_queue_count": retry_queue_count,
             }

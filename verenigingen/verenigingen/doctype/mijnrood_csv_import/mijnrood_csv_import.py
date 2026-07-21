@@ -757,7 +757,7 @@ class MijnroodCSVImport(Document):
                             "processed_records": tracker_doc.processed_records,
                             "successful_records": tracker_doc.successful_records,
                             "failed_records": tracker_doc.failed_records,
-                            "retry_queue": tracker_doc.retry_queue,
+                            "retry_queue": tracker_doc.get_retry_requests(),
                         }
                     ]
                 except Exception as e:
@@ -909,37 +909,20 @@ class MijnroodCSVImport(Document):
             # Get the tracker document
             tracker = frappe.get_doc("Bulk Operation Tracker", self.bulk_operation_tracker)
 
-            # Check if there are failed items to retry
-            if not tracker.retry_queue:
-                frappe.msgprint(_("No failed account creation requests to retry"))
-                return {"success": False, "message": "No failed items"}
-
-            # Parse retry queue (it's stored as JSON)
-            import json
-
-            retry_items = (
-                json.loads(tracker.retry_queue)
-                if isinstance(tracker.retry_queue, str)
-                else tracker.retry_queue
-            )
-
+            # Failed requests to retry are derived from ACR status (#172): the
+            # returned names are already the tracker's Failed ACRs.
+            retry_items = tracker.get_retry_requests()
             if not retry_items:
                 frappe.msgprint(_("No failed account creation requests to retry"))
                 return {"success": False, "message": "No failed items"}
 
-            # Get member names from failed ACRs
+            # Resolve the member (source_record) behind each Failed ACR.
             failed_acrs = frappe.get_all(
                 "Account Creation Request",
-                filters={"name": ["in", retry_items], "status": "Failed"},
+                filters={"name": ["in", retry_items]},
                 fields=["source_record"],
                 limit=1000,
             )
-
-            if not failed_acrs:
-                frappe.msgprint(_("No failed account creation requests to retry"))
-                return {"success": False, "message": "No failed ACRs found"}
-
-            # Extract member names
             member_names = [acr.source_record for acr in failed_acrs if acr.source_record]
 
             if not member_names:

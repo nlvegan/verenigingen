@@ -480,9 +480,10 @@ class TestMijnroodRetryAccountCreations(_BaseMijnroodPipelineTest):
         self.assertFalse(result["success"])
         self.assertEqual(result["message"], "No failed items")
 
-    def test_retry_with_queue_but_no_matching_failed_acrs(self):
-        """retry_queue references ACR names that don't exist/aren't Failed =>
-        'No failed ACRs found'."""
+    def test_retry_with_no_failed_acrs(self):
+        """The retry list derives from ACR status (#172): a tracker with no
+        Failed Account Creation Requests => 'No failed items' (the stored
+        retry_queue blob is ignored)."""
         tracker = self._make_tracker(retry_queue=json.dumps(["ACR-NONEXISTENT-0001"]))
         doc = self._make_import_doc(
             [{"Voornaam": "Stale", "Achternaam": "Queue", "E-mailadres": _unique_email()}],
@@ -490,7 +491,7 @@ class TestMijnroodRetryAccountCreations(_BaseMijnroodPipelineTest):
         )
         result = doc.retry_failed_account_creations()
         self.assertFalse(result["success"])
-        self.assertEqual(result["message"], "No failed ACRs found")
+        self.assertEqual(result["message"], "No failed items")
 
 
 class TestMijnroodRetryVolunteerCreations(_BaseMijnroodPipelineTest):

@@ -143,6 +143,7 @@ class TestBulkAccountCreationErrorHandling(EnhancedTestCase):
         # the member-domain masters here; otherwise the queue call fails with
         # "Unable to queue bulk account creation. Please contact support".
         from verenigingen.tests.setup import ensure_member_test_masters
+
         ensure_member_test_masters()
 
     def test_validation_errors(self):
@@ -253,6 +254,11 @@ class TestBulkAccountCreationErrorHandling(EnhancedTestCase):
         tracker = frappe.get_doc("Bulk Operation Tracker", tracker_name)
         tracker.update_progress(1, batch_results)
 
+        # Retry list is derived from ACR status (#172): mark the two failed
+        # requests as Failed so they surface in the derived retry list.
+        for req in request_names[:2]:
+            frappe.db.set_value("Account Creation Request", req, "status", "Failed", update_modified=False)
+
         retry_queue = tracker.get_retry_requests()
         self.assertEqual(len(retry_queue), 2)
         self.assertIn(request_names[0], retry_queue)
@@ -316,28 +322,15 @@ class TestBulkOperationTrackerFunctionality(EnhancedTestCase):
         tracker.processed_records = 200
         tracker.status = "Processing"
 
-        tracker._calculate_processing_rate()
+        # Rate/ETA are derived at read-time now (#172) — pure getters, no mutation.
+        rate = tracker.get_processing_rate()
+        self.assertAlmostEqual(rate, 20.0, delta=2.0)
+        self.assertIsNotNone(tracker.get_estimated_completion())
 
-        self.assertIsNotNone(tracker.processing_rate_per_minute)
-        self.assertAlmostEqual(tracker.processing_rate_per_minute, 20.0, delta=2.0)
-
-        tracker._calculate_estimated_completion()
-        self.assertIsNotNone(tracker.estimated_completion)
-
-    def test_error_summary_management(self):
-        """Test error summary size management."""
-        tracker = BulkOperationTracker.create_tracker(
-            operation_type="Account Creation",
-            total_records=200,
-            batch_size=50,
-        )
-
-        errors = [f"Error {i}: Test error message" for i in range(150)]
-        tracker._update_error_summary(errors)
-
-        error_lines = tracker.error_summary.split("\n")
-        self.assertLessEqual(len(error_lines), 101)
-        self.assertIn("[Showing last 100 errors", tracker.error_summary)
+    # test_error_summary_management removed (#172): the old _update_error_summary
+    # truncation is gone; error summary now derives from linked ACR failure_reason
+    # and is covered by test_bulk_operation_tracker.test_get_retry_requests_derives_from_failed_acrs
+    # (which asserts get_error_summary surfaces the ACR failure reason).
 
 
 class TestDutchBusinessLogicValidation(EnhancedTestCase):

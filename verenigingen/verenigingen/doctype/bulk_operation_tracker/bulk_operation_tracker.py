@@ -1,8 +1,7 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
-import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List, Optional
 
 import frappe
@@ -11,6 +10,21 @@ from frappe.model.document import Document
 from frappe.utils import cint, flt, now, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
+
+def compute_processing_rate(started_at, processed_records) -> float:
+    """Records/minute given a start time and processed count (0.0 if N/A).
+
+    Shared by BulkOperationTracker.get_processing_rate and the performance
+    report / monitor so they all derive the same live rate at read-time (#172),
+    instead of reading a stored field the atomic per-batch path never updates.
+    """
+    if not started_at or cint(processed_records) <= 0:
+        return 0.0
+    elapsed_minutes = (now_datetime() - frappe.utils.get_datetime(started_at)).total_seconds() / 60
+    if elapsed_minutes <= 0:
+        return 0.0
+    return flt(processed_records / elapsed_minutes, 2)
 
 
 class BulkOperationTracker(Document):
@@ -35,39 +49,29 @@ class BulkOperationTracker(Document):
                     ).format(self.total_batches, calculated_batches, self.total_records, self.batch_size)
                 )
 
-        # Calculate processing rate if we have timing data
-        self._calculate_processing_rate()
+        # Snapshot rate/ETA into the stored fields at create/start time. The hot
+        # per-batch path uses the read-time getters instead (#172).
+        self.processing_rate_per_minute = self.get_processing_rate()
+        estimated = self.get_estimated_completion()
+        if estimated:
+            self.estimated_completion = estimated
 
-        # Calculate estimated completion if operation is in progress
-        self._calculate_estimated_completion()
+    def get_processing_rate(self) -> float:
+        """Records/minute so far, computed at read-time from started_at + progress.
 
-    def _calculate_processing_rate(self):
-        """Calculate the processing rate per minute based on current progress."""
-        if not self.started_at or self.processed_records <= 0:
-            return
+        Pure (no mutation) so it stays fresh even though the atomic per-batch
+        update_progress path (#172) no longer runs validate(). Shared with the
+        performance report / monitor via the module-level compute_processing_rate.
+        """
+        return compute_processing_rate(self.started_at, self.processed_records)
 
-        start_time = frappe.utils.get_datetime(self.started_at)
-        current_time = now_datetime()
-
-        elapsed_minutes = (current_time - start_time).total_seconds() / 60
-
-        if elapsed_minutes > 0:
-            self.processing_rate_per_minute = flt(self.processed_records / elapsed_minutes, 2)
-
-    def _calculate_estimated_completion(self):
-        """Calculate estimated completion time based on current processing rate."""
-        if (
-            self.status == "Processing"
-            and self.processing_rate_per_minute
-            and self.processing_rate_per_minute > 0
-            and self.processed_records < self.total_records
-        ):
-            remaining_records = self.total_records - self.processed_records
-            estimated_minutes = remaining_records / self.processing_rate_per_minute
-
-            current_time = now_datetime()
-            estimated_completion = current_time + timedelta(minutes=estimated_minutes)
-            self.estimated_completion = estimated_completion
+    def get_estimated_completion(self):
+        """Estimated completion datetime, computed at read-time (None if N/A)."""
+        rate = self.get_processing_rate()
+        if not (self.status == "Processing" and rate > 0 and self.processed_records < self.total_records):
+            return None
+        remaining = self.total_records - self.processed_records
+        return now_datetime() + timedelta(minutes=remaining / rate)
 
     def start_operation(self):
         """Mark operation as started and record start time."""
@@ -94,141 +98,82 @@ class BulkOperationTracker(Document):
         frappe.logger().info(f"Bulk operation {self.name} started: {self.operation_type}")
 
     def update_progress(self, batch_number: int, batch_results: Dict):
-        """
-        Update progress based on batch completion results.
+        """Atomically fold one batch's results into the tracker counters.
+
+        Uses a single ``UPDATE ... SET x = x + n`` rather than a
+        load -> mutate -> save() round-trip so overlapping batch completions
+        cannot raise ``TimestampMismatchError``, lose increments, or hold a row
+        lock across a retry-sleep. See issue #172.
+
+        Per-request detail (retry list, error summary) is NOT stored here — it is
+        derived at read-time from the linked Account Creation Request rows, which
+        are the single source of truth (see get_retry_requests/get_error_summary).
 
         Args:
-            batch_number: The batch number that completed (1-indexed)
-            batch_results: Dictionary with batch results containing:
-                - completed: number of successful records
-                - failed: number of failed records
-                - errors: list of error messages
+            batch_number: The batch number that completed (1-indexed).
+            batch_results: dict with ``completed`` and ``failed`` counts.
         """
-        # Update batch progress
-        self.current_batch = batch_number
+        inc_success = cint(batch_results.get("completed", 0))
+        inc_failed = cint(batch_results.get("failed", 0))
+        inc_processed = inc_success + inc_failed
 
-        # Update record counts
-        batch_successful = batch_results.get("completed", 0)
-        batch_failed = batch_results.get("failed", 0)
-
-        self.successful_records += batch_successful
-        self.failed_records += batch_failed
-        self.processed_records = self.successful_records + self.failed_records
-
-        # Store batch details
-        self._update_batch_details(batch_number, batch_results)
-
-        # Update retry queue if there are failures
-        if batch_failed > 0 and batch_results.get("failed_requests"):
-            self._update_retry_queue(batch_results["failed_requests"])
-
-        # Update error summary
-        if batch_results.get("errors"):
-            self._update_error_summary(batch_results["errors"])
-
-        # Check if operation is complete
-        if self.processed_records >= self.total_records:
-            self._complete_operation()
-        else:
-            # Recalculate estimates
-            self.validate()
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        progress_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Update bulk operation progress - batch {batch_number}/{self.total_batches}",
-            required_permissions=["Bulk Operation Tracker:write"],
+        frappe.db.sql(
+            """
+            UPDATE `tabBulk Operation Tracker`
+            SET successful_records = successful_records + %(s)s,
+                failed_records     = failed_records + %(f)s,
+                processed_records  = processed_records + %(p)s,
+                current_batch      = GREATEST(current_batch, %(batch)s),
+                modified           = %(now)s,
+                modified_by        = %(user)s
+            WHERE name = %(name)s
+            """,
+            {
+                "s": inc_success,
+                "f": inc_failed,
+                "p": inc_processed,
+                "batch": cint(batch_number),
+                "now": now(),
+                "user": frappe.session.user,
+                "name": self.name,
+            },
         )
 
-        if not progress_result.success:
-            frappe.logger().error(
-                f"Failed to update bulk operation progress: {'; '.join(progress_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to update bulk operation progress: {0}").format("; ".join(progress_result.errors))
-            )
+        # Single-winner completion: only the batch that pushes processed >= total
+        # while the operation is still Processing flips the status.
+        self._complete_operation_if_done()
+
+        # Keep the in-memory doc consistent for callers that read counters after.
+        self.reload()
 
         frappe.logger().info(
             f"Bulk operation {self.name} progress: batch {batch_number}/{self.total_batches}, "
             f"processed {self.processed_records}/{self.total_records}"
         )
 
-    def _update_batch_details(self, batch_number: int, batch_results: Dict):
-        """Update the batch details JSON with results from completed batch."""
-        try:
-            # Parse existing batch details or create new
-            batch_details = json.loads(self.batch_details) if self.batch_details else []
+    def _complete_operation_if_done(self):
+        """Atomically mark the operation complete exactly once.
 
-            # Add this batch's results
-            batch_info = {
-                "batch_number": batch_number,
-                "completed_at": now(),
-                "successful": batch_results.get("completed", 0),
-                "failed": batch_results.get("failed", 0),
-                "total": batch_results.get("total_requests", 0),
-                "errors_count": len(batch_results.get("errors", [])),
-            }
-
-            batch_details.append(batch_info)
-            self.batch_details = json.dumps(batch_details, indent=2)
-
-        except json.JSONDecodeError:
-            # Initialize if JSON is corrupted
-            self.batch_details = json.dumps([batch_info], indent=2)
-
-    def _update_retry_queue(self, failed_requests: List[str]):
-        """Update the retry queue with failed request names."""
-        try:
-            # Parse existing retry queue or create new
-            retry_queue = json.loads(self.retry_queue) if self.retry_queue else []
-
-            # Add failed requests to retry queue
-            retry_queue.extend(failed_requests)
-
-            # Remove duplicates while preserving order
-            seen = set()
-            unique_retry_queue = []
-            for request in retry_queue:
-                if request not in seen:
-                    seen.add(request)
-                    unique_retry_queue.append(request)
-
-            self.retry_queue = json.dumps(unique_retry_queue, indent=2)
-
-        except json.JSONDecodeError:
-            # Initialize if JSON is corrupted
-            self.retry_queue = json.dumps(failed_requests, indent=2)
-
-    def _update_error_summary(self, new_errors: List[str]):
-        """Update error summary with new errors, maintaining a reasonable size."""
-        current_errors = self.error_summary.split("\n") if self.error_summary else []
-
-        # Add new errors
-        current_errors.extend(new_errors)
-
-        # Limit to last 100 errors to prevent overwhelming storage
-        if len(current_errors) > 100:
-            current_errors = current_errors[-100:]
-            current_errors.insert(0, f"[Showing last 100 errors - total errors: {self.failed_records}]")
-
-        self.error_summary = "\n".join(current_errors)
-
-    def _complete_operation(self):
-        """Mark operation as completed and record completion time."""
-        if self.failed_records > 0:
-            self.status = "Completed" if self.successful_records > 0 else "Failed"
-        else:
-            self.status = "Completed"
-
-        self.completed_at = now()
-        self.current_batch = self.total_batches
-
-        frappe.logger().info(
-            f"Bulk operation {self.name} completed: {self.successful_records} successful, "
-            f"{self.failed_records} failed out of {self.total_records} total"
+        The conditional WHERE (``processed_records >= total_records AND status =
+        'Processing'``) means only the batch that crosses the finish line writes
+        the terminal status — concurrent batches match zero rows. Status logic
+        lives in the SQL CASE so it stays a single atomic statement.
+        """
+        frappe.db.sql(
+            """
+            UPDATE `tabBulk Operation Tracker`
+            SET status = CASE
+                    WHEN failed_records > 0 AND successful_records = 0 THEN 'Failed'
+                    ELSE 'Completed' END,
+                completed_at  = %(now)s,
+                current_batch = total_batches,
+                modified      = %(now)s,
+                modified_by   = %(user)s
+            WHERE name = %(name)s
+              AND processed_records >= total_records
+              AND status NOT IN ('Completed', 'Failed')
+            """,
+            {"now": now(), "user": frappe.session.user, "name": self.name},
         )
 
     def mark_failed(self, error_message: str):
@@ -265,28 +210,49 @@ class BulkOperationTracker(Document):
         return flt((self.processed_records / self.total_records) * 100, 2)
 
     def get_retry_requests(self) -> List[str]:
-        """Get list of request names that need retry processing."""
-        try:
-            return json.loads(self.retry_queue) if self.retry_queue else []
-        except json.JSONDecodeError:
-            return []
+        """Request names needing retry, derived from the linked Account Creation
+        Requests (their ``status`` is the single source of truth — #172).
 
-    def clear_retry_queue(self):
-        """Clear the retry queue after successful retry processing."""
-        self.retry_queue = ""
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        retry_clear_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification="Clear retry queue after successful retry processing",
-            required_permissions=["Bulk Operation Tracker:write"],
+        A retried-and-fixed request flips out of ``status='Failed'`` on its own,
+        so nothing has to mutate a stored queue.
+        """
+        return frappe.get_all(
+            "Account Creation Request",
+            filters={"bulk_operation_tracker": self.name, "status": "Failed"},
+            pluck="name",
+            order_by="creation",
         )
 
-        if not retry_clear_result.success:
-            frappe.logger().error(f"Failed to clear retry queue: {'; '.join(retry_clear_result.errors)}")
-            # Don't throw as this is cleanup operation
+    def get_error_summary(self, limit: int = 100) -> List[str]:
+        """Human-readable failure lines, derived from the failed linked ACRs."""
+        rows = frappe.get_all(
+            "Account Creation Request",
+            filters={"bulk_operation_tracker": self.name, "status": "Failed"},
+            fields=["name", "failure_reason"],
+            order_by="creation",
+            limit=limit,
+        )
+        return [f"{r.name}: {r.failure_reason or 'Unknown error'}" for r in rows]
+
+    def clear_retry_queue(self) -> int:
+        """Stop retries by marking this tracker's Failed ACRs as Cancelled.
+
+        The retry list derives from ACR ``status='Failed'`` (#172), so the way to
+        abandon retries is to move those requests to a terminal ``Cancelled``
+        state — they then drop out of get_retry_requests() and the scheduler will
+        not re-attempt them. Returns the number of requests cancelled.
+        """
+        failed = self.get_retry_requests()
+        if failed:
+            frappe.db.set_value(
+                "Account Creation Request",
+                {"name": ["in", failed]},
+                "status",
+                "Cancelled",
+                update_modified=False,
+            )
+        frappe.logger().info(f"clear_retry_queue: cancelled {len(failed)} failed requests for {self.name}")
+        return len(failed)
 
     @staticmethod
     def create_tracker(
@@ -360,7 +326,7 @@ def get_active_operations():
     if not frappe.has_permission("Bulk Operation Tracker", "read"):
         frappe.throw(_("Insufficient permissions"))
 
-    return frappe.get_all(
+    operations = frappe.get_all(
         "Bulk Operation Tracker",
         filters={"status": ["in", ["Queued", "Processing"]]},
         fields=[
@@ -373,10 +339,18 @@ def get_active_operations():
             "current_batch",
             "total_batches",
             "started_at",
-            "estimated_completion",
         ],
         order_by="creation desc",
     )
+    # Rate/ETA are derived live (#172): the stored fields are not written per batch.
+    for op in operations:
+        rate = compute_processing_rate(op.started_at, op.processed_records)
+        op["processing_rate"] = rate
+        op["estimated_completion"] = None
+        if op.status == "Processing" and rate > 0 and cint(op.processed_records) < cint(op.total_records):
+            remaining = cint(op.total_records) - cint(op.processed_records)
+            op["estimated_completion"] = now_datetime() + timedelta(minutes=remaining / rate)
+    return operations
 
 
 @frappe.whitelist()
@@ -399,9 +373,10 @@ def get_operation_progress(tracker_name: str) -> Dict:
         "failed_records": tracker.failed_records,
         "current_batch": tracker.current_batch,
         "total_batches": tracker.total_batches,
-        "processing_rate": tracker.processing_rate_per_minute,
-        "estimated_completion": tracker.estimated_completion,
+        "processing_rate": tracker.get_processing_rate(),
+        "estimated_completion": tracker.get_estimated_completion(),
         "started_at": tracker.started_at,
         "completed_at": tracker.completed_at,
         "retry_queue_count": len(tracker.get_retry_requests()),
+        "error_summary": "\n".join(tracker.get_error_summary()),
     }

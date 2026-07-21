@@ -379,9 +379,15 @@ def _execute_document_operation(
         # Flags like ignore_version should already be set by caller if needed
         # Just call save() and let Frappe respect the flags
 
-        # Higher retry count for high-contention documents during bulk operations
-        # Bulk Operation Tracker sees extreme concurrent access during parallel batch processing
-        max_retries = 10 if doc.doctype == "Bulk Operation Tracker" else 5
+        # Monitoring/tracking doctypes tolerate stale reads and can retry a few
+        # times on a concurrent-update conflict. The Bulk Operation Tracker's hot
+        # per-batch path no longer uses save() (atomic SQL — issue #172), so the
+        # previous 10-retry / 32s-cap backoff is gone: holding a row lock across a
+        # multi-second sleep is what pushed OTHER writers past
+        # innodb_lock_wait_timeout and produced (1205) errors. A short, bounded
+        # retry is enough for the remaining single writes (start/complete/mark_failed).
+        tolerant = doc.doctype in ["Bulk Operation Tracker", "API Audit Log"]
+        max_retries = 3 if tolerant else 5
         retry_count = 0
 
         while retry_count <= max_retries:
@@ -392,60 +398,48 @@ def _execute_document_operation(
                 retry_count += 1
                 increment_metric("retries")  # Track retry attempts for observability
 
-                # Handle concurrent updates gracefully for monitoring/tracking DocTypes
-                # These are non-critical updates that can tolerate stale data
-                if doc.doctype in ["Bulk Operation Tracker", "API Audit Log"]:
-                    if retry_count <= max_retries:
-                        frappe.logger().warning(
-                            f"Timestamp mismatch on {doc.doctype} {doc.name} (attempt {retry_count}/{max_retries}) "
-                            f"during concurrent updates, reloading and retrying"
-                        )
-                        try:
-                            doc.reload()
-                        except Exception as reload_error:
-                            frappe.logger().error(
-                                f"Failed to reload {doc.doctype} {doc.name} after timestamp mismatch: {reload_error}"
-                            )
-                            raise frappe.ValidationError(
-                                f"Document {doc.doctype} {doc.name} could not be reloaded after concurrent update"
-                            ) from reload_error
-
-                        # Exponential backoff with jitter for bulk operations
-                        # Standard: Retry 1: ~1s, Retry 2: ~2s, Retry 3: ~4s, Retry 4: ~8s, Retry 5: ~16s
-                        # Bulk Operation Tracker gets extended backoff to handle extreme contention
-                        import random
-                        import time
-
-                        if doc.doctype == "Bulk Operation Tracker":
-                            # More aggressive backoff with higher jitter for high-contention tracker
-                            # Prevents synchronized retry storms when many batches complete simultaneously
-                            base_delay = min(2 ** (retry_count - 1), 32)  # Cap at 32s
-                            jitter = random.uniform(0, base_delay)  # Full jitter (0-100%)
-                        else:
-                            base_delay = 2 ** (retry_count - 1)  # 1, 2, 4, 8, 16 seconds
-                            jitter = random.uniform(0, 0.5 * base_delay)  # Add up to 50% jitter
-
-                        sleep_time = base_delay + jitter
-
-                        frappe.logger().info(
-                            f"Waiting {sleep_time:.1f}s before retry {retry_count}/{max_retries} for {doc.doctype} {doc.name}"
-                        )
-                        time.sleep(sleep_time)
-                    else:
-                        # Max retries exceeded - log and fail
-                        frappe.logger().error(
-                            f"Max retries ({max_retries}) exceeded for {doc.doctype} {doc.name} due to persistent timestamp conflicts"
-                        )
-                        raise frappe.ValidationError(
-                            f"Document {doc.doctype} {doc.name} has persistent concurrent update conflicts. "
-                            f"Failed after {max_retries} retry attempts."
-                        ) from e
-                else:
+                if not tolerant:
                     # For critical documents, re-raise immediately with context
                     raise frappe.ValidationError(
                         f"Document {doc.doctype} {doc.name} was modified by another process. "
                         f"Please reload and try again."
                     ) from e
+
+                if retry_count > max_retries:
+                    frappe.logger().error(
+                        f"Max retries ({max_retries}) exceeded for {doc.doctype} {doc.name} "
+                        f"due to persistent timestamp conflicts"
+                    )
+                    raise frappe.ValidationError(
+                        f"Document {doc.doctype} {doc.name} has persistent concurrent update conflicts. "
+                        f"Failed after {max_retries} retry attempts."
+                    ) from e
+
+                frappe.logger().warning(
+                    f"Timestamp mismatch on {doc.doctype} {doc.name} (attempt {retry_count}/{max_retries}) "
+                    f"during concurrent updates, reloading and retrying"
+                )
+                try:
+                    doc.reload()
+                except Exception as reload_error:
+                    frappe.logger().error(
+                        f"Failed to reload {doc.doctype} {doc.name} after timestamp mismatch: {reload_error}"
+                    )
+                    raise frappe.ValidationError(
+                        f"Document {doc.doctype} {doc.name} could not be reloaded after concurrent update"
+                    ) from reload_error
+
+                # Short, bounded backoff with jitter — capped so no writer holds a
+                # lock long enough to time out other writers (issue #172).
+                import random
+                import time
+
+                base_delay = min(2 ** (retry_count - 1), 2)  # cap at 2s
+                sleep_time = base_delay + random.uniform(0, 0.5 * base_delay)  # <= 3s
+                frappe.logger().info(
+                    f"Waiting {sleep_time:.1f}s before retry {retry_count}/{max_retries} for {doc.doctype} {doc.name}"
+                )
+                time.sleep(sleep_time)
     elif operation == "update_child_table":
         # Specialized operation for child table updates that need to bypass
         # specific problematic validations while maintaining security

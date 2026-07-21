@@ -39,9 +39,9 @@ def collect_performance_metrics() -> Dict:
                 "total_records",
                 "successful_records",
                 "failed_records",
+                "processed_records",
                 "started_at",
                 "completed_at",
-                "processing_rate_per_minute",
                 "status",
                 "current_batch",
                 "total_batches",
@@ -86,12 +86,20 @@ def collect_performance_metrics() -> Dict:
         ]
 
         if completed_trackers:
-            # Average processing rate
-            rates = [
-                t.get("processing_rate_per_minute", 0)
-                for t in completed_trackers
-                if t.get("processing_rate_per_minute", 0) > 0
-            ]
+            # Average processing rate, derived from timing (#172): the stored
+            # processing_rate_per_minute field is no longer written per batch.
+            from frappe.utils import cint, get_datetime
+
+            rates = []
+            for t in completed_trackers:
+                elapsed_min = (
+                    get_datetime(t["completed_at"]) - get_datetime(t["started_at"])
+                ).total_seconds() / 60
+                processed = cint(t.get("processed_records")) or (
+                    cint(t.get("successful_records")) + cint(t.get("failed_records"))
+                )
+                if elapsed_min > 0 and processed > 0:
+                    rates.append(processed / elapsed_min)
             if rates:
                 metrics["average_processing_rate"] = flt(sum(rates) / len(rates), 2)
 
