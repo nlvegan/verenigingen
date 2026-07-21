@@ -170,8 +170,12 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         # Get initial payment history count
         initial_count = len(self.member.payment_history) if hasattr(self.member, "payment_history") else 0
 
-        # Submit the invoice (this should trigger payment history sync)
+        # Submit the invoice. Payment-history population now runs via the async
+        # post-commit path (the redundant synchronous on_submit rebuild was
+        # removed), so drive it explicitly to assert the resulting end state.
         invoice.submit()
+        self.member.reload()
+        self.member.load_payment_history()
 
         # Refresh member to get updated payment history
         self.member.reload()
@@ -219,7 +223,10 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
 
         # If invoice was auto-submitted, verify payment history sync
         if invoice.docstatus == 1:
-            # Refresh member payment history
+            # Payment-history population runs via the async post-commit path now;
+            # drive it explicitly before asserting the invoice landed in history.
+            self.member.reload()
+            self.member.load_payment_history()
             self.member.reload()
 
             # Check that invoice appears in payment history

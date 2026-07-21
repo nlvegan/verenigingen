@@ -458,14 +458,10 @@ def get_cache_status():
     """Get current cache status and invalidation statistics"""
 
     try:
-        from verenigingen.utils.performance_integration import EnhancedQueryCache
-
-        cache_stats = EnhancedQueryCache.get_cache_statistics()
         invalidation_stats = CacheInvalidationManager.get_cache_invalidation_stats()
 
         return {
             "success": True,
-            "cache_performance": cache_stats,
             "invalidation_stats": invalidation_stats,
             "timestamp": now(),
         }

@@ -55,13 +55,11 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
     def _clear_history_rows(self, invoice_names):
         """Delete payment-history rows for the given invoices to leave genuine gaps.
 
-        Submitting a membership Sales Invoice auto-syncs the member's payment history
-        synchronously via the on_submit performance handler
-        (verenigingen.utils.performance_event_handlers.on_member_payment_update ->
-        OptimizedMemberQueries.bulk_update_payment_history). That handler REBUILDS the
-        member's whole payment history from all their invoices, so deleting one row
-        between submits is undone by the next submit. Therefore callers must submit
-        ALL invoices first, then call this once to remove the gap rows.
+        Payment-history population on Sales Invoice submit now runs only via the
+        async batch/drain path (the synchronous on_submit rebuild was removed),
+        which does not run inline in tests. This delete stays as a defensive
+        guarantee that these invoices are genuine gaps regardless of any batch
+        timing.
 
         We also drop any still-queued batch adds for these invoices so the batch
         processor cannot re-materialize them. We do NOT flush the batch processor:
@@ -90,8 +88,14 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             invoice.submit()
             test_invoices.append(invoice)
 
-            # Add to payment history using the atomic method
-            member.add_invoice_to_payment_history(invoice.name)
+            # Populate and persist the member's payment history. Invoice submit no
+            # longer rebuilds payment history synchronously (that redundant on_submit
+            # hook was removed); load_payment_history() rebuilds from the member's
+            # invoices and saves without an explicit commit, so it is safe inside the
+            # test transaction. (add_invoice_to_payment_history only QUEUES an async
+            # batch update, which does not run inline in tests.)
+            member.reload()
+            member.load_payment_history()
 
         # Run validation
         result = validate_and_repair_payment_history()
@@ -206,32 +210,36 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             customer=complete_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -1)
         )
         complete_invoice.submit()
-        complete_member.add_invoice_to_payment_history(complete_invoice.name)
+        # Populate + persist (see test_validation_with_complete_payment_history for
+        # why load_payment_history() is used instead of the async queue helper).
+        complete_member.reload()
+        complete_member.load_payment_history()
 
-        # Member 2: Missing payment history (should be repaired)
+        # Member 2: Missing payment history (should be repaired). Submit but never
+        # populate, so it stays a genuine gap.
         missing_member = self.test_members[1]
         missing_invoice = self.create_test_sales_invoice(
             customer=missing_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -2)
         )
         missing_invoice.submit()
 
-        # Member 3: Multiple invoices with partial payment history
+        # Member 3: partial history -- invoice1 present, invoice2 a gap. Populate
+        # after submitting invoice1 only; invoice2 is submitted afterwards and left
+        # unpopulated (invoice submit no longer auto-rebuilds payment history).
         partial_member = self.test_members[2]
         partial_invoice1 = self.create_test_sales_invoice(
             customer=partial_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -3)
         )
         partial_invoice1.submit()
+        partial_member.reload()
+        partial_member.load_payment_history()
+
         partial_invoice2 = self.create_test_sales_invoice(
             customer=partial_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -4)
         )
         partial_invoice2.submit()
 
-        # complete_invoice and partial_invoice1 were submitted normally, so the
-        # on_submit handler already persisted their entries synchronously — the
-        # validator will see them as validated.
-        partial_member.add_invoice_to_payment_history(partial_invoice1.name)
-
-        # Clear the auto-synced rows for the two intended gaps AFTER all submits.
+        # Defensively ensure the two intended gaps have no history rows.
         self._clear_history_rows([missing_invoice.name, partial_invoice2.name])
 
         # Run validation

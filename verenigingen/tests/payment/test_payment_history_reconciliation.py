@@ -111,13 +111,12 @@ class TestPaymentHistoryReconciliation(EnhancedTestCase):
         member = self._make_member_with_customer("missing")
         invoice = self._build_secured_invoice(member.customer, 42.0)
 
-        # Submitting a membership Sales Invoice auto-syncs the member's payment
-        # history synchronously via the on_submit performance handler
-        # (performance_event_handlers.on_member_payment_update ->
-        # OptimizedMemberQueries.bulk_update_payment_history). Clear that row so
-        # this invoice is a genuine gap for the reconciliation to find (mirrors
-        # test_payment_history_validator.py's established _clear_history_rows
-        # pattern).
+        # Defensively clear any payment_history row for this invoice so it is a
+        # genuine gap for the reconciliation to find. Payment-history population on
+        # Sales Invoice submit now runs only via the async batch/drain path (the
+        # synchronous on_submit rebuild was removed), which does not run inline in
+        # tests -- but keep this delete so the test does not depend on that timing
+        # (mirrors test_payment_history_validator.py's _clear_history_rows pattern).
         frappe.db.delete("Member Payment History", {"invoice": invoice.name})
 
         from verenigingen.utils import payment_history_validator
