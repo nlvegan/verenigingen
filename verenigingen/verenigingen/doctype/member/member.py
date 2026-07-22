@@ -819,14 +819,6 @@ class Member(
 
         return get_member_fee_change_history_service().update_fee_change_in_history(self, schedule_data)
 
-    def _update_donation_history(self):
-        """Update donation history - delegates to MemberHistoryUpdateService."""
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._update_donation_history(self)
-
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):
