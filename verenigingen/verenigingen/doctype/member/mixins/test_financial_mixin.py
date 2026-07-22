@@ -155,7 +155,11 @@ class TestFinancialMixin(EnhancedTestCase):
         self.assertEqual(summary["unpaid_invoices"], 1)
         self.assertEqual(summary["membership_invoices"], 1)
         self.assertEqual(summary["regular_invoices"], 1)
-        self.assertEqual(summary["donations"], 1)
+        # payment_history is invoice-only now; the summary no longer breaks
+        # out a "donations" (or "unreconciled_payments") counter -- those
+        # transaction types are never produced by the loader.
+        self.assertNotIn("donations", summary)
+        self.assertNotIn("unreconciled_payments", summary)
 
     def test_financial_summary_includes_sepa_mandate_details(self):
         """When a member has an active mandate the summary embeds its id/status."""

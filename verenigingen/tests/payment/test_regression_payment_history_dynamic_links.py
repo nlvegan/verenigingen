@@ -53,7 +53,7 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
             "invoice_status": "Unpaid",
-            "payment_status": "Unpaid",
+            "docstatus": 1,
         }
 
         entry = PaymentHistoryEntryBuilder.build_from_query_row(query_row)
@@ -71,7 +71,8 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 0.00,
-            "payment_status": "Paid",
+            "invoice_status": "Paid",
+            "docstatus": 1,
             "payment_entry": "ACC-PAY-2025-00001",
         }
 
@@ -90,7 +91,8 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
-            "payment_status": "Unpaid",
+            "invoice_status": "Unpaid",
+            "docstatus": 1,
             # No payment_entry
         }
 
@@ -109,7 +111,8 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
-            "payment_status": "Unpaid",
+            "invoice_status": "Unpaid",
+            "docstatus": 1,
             "sepa_mandate": "SEPA-2025-00001",
         }
 
@@ -128,7 +131,8 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
-            "payment_status": "Unpaid",
+            "invoice_status": "Unpaid",
+            "docstatus": 1,
             # No sepa_mandate
         }
 
@@ -149,12 +153,18 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
         - sepa_mandate_doctype (when applicable)
         """
         # Test invoice_doctype is present in both
+        # is_membership_invoice/membership mirror what build_from_invoice_doc
+        # would read off the invoice doc (getattr(..., "is_membership_invoice", 0)
+        # / getattr(..., "membership", None)) so both builders see the same classifier.
         query_row = {
             "invoice_name": "ACC-SINV-2025-00006",
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
-            "payment_status": "Unpaid",
+            "invoice_status": "Unpaid",
+            "docstatus": 1,
+            "is_membership_invoice": 0,
+            "membership": None,
         }
 
         query_entry = PaymentHistoryEntryBuilder.build_from_query_row(query_row)
@@ -186,7 +196,7 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
             "invoice_status": "Unpaid",
-            "payment_status": "Unpaid",
+            "docstatus": 1,
         }
 
         entry = PaymentHistoryEntryBuilder.build_from_query_row(query_row)
@@ -216,7 +226,8 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 0.00,
-            "payment_status": "Paid",
+            "invoice_status": "Paid",
+            "docstatus": 1,
             "payment_entry": "ACC-PAY-2025-00002",
             "sepa_mandate": "SEPA-2025-00002",
         }
@@ -247,10 +258,49 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "posting_date": "2025-01-15",
             "grand_total": 25.00,
             "outstanding_amount": 25.00,
-            "payment_status": "Unpaid",
+            "invoice_status": "Unpaid",
+            "docstatus": 1,
         }
 
         entry = PaymentHistoryEntryBuilder.build_from_query_row(query_row)
         is_valid, errors = PaymentHistoryEntryBuilder.validate_entry(entry)
 
         self.assertTrue(is_valid, f"Entry validation failed with errors: {errors}")
+
+    def test_query_row_classifies_membership_by_boolean_not_link(self):
+        """is_membership_invoice=1 with no membership link -> Membership Invoice, no reference."""
+        row = {
+            "invoice_name": "SI-TEST-1",
+            "is_membership_invoice": 1,
+            "membership": None,
+            "posting_date": "2026-01-01",
+            "due_date": "2026-01-31",
+            "grand_total": 100.0,
+            "outstanding_amount": 100.0,
+            "invoice_status": "Unpaid",
+            "docstatus": 1,
+            "paid_amount": 0,
+        }
+        entry = PaymentHistoryEntryBuilder.build_from_query_row(row)
+        self.assertEqual(entry["transaction_type"], "Membership Invoice")
+        self.assertIsNone(entry["reference_doctype"])
+        self.assertIsNone(entry["reference_name"])
+        self.assertEqual(entry["payment_status"], "Unpaid")
+
+    def test_query_row_membership_reference_when_link_present(self):
+        row = {
+            "invoice_name": "SI-TEST-2",
+            "is_membership_invoice": 1,
+            "membership": "MEM-0001",
+            "posting_date": "2026-01-01",
+            "grand_total": 100.0,
+            "outstanding_amount": 0.0,
+            "invoice_status": "Paid",
+            "docstatus": 1,
+            "paid_amount": 100.0,
+        }
+        entry = PaymentHistoryEntryBuilder.build_from_query_row(row)
+        self.assertEqual(entry["transaction_type"], "Membership Invoice")
+        self.assertEqual(entry["reference_doctype"], "Membership")
+        self.assertEqual(entry["reference_name"], "MEM-0001")
+        self.assertEqual(entry["payment_status"], "Paid")

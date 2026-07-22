@@ -90,6 +90,11 @@ def create_membership_invoice_with_amount(member, membership, amount):
         # queries used by reconciliation (invoice_matcher) and reporting
         # (background_jobs), even though they set the `member` link.
         "is_membership_invoice": 1,
+        # Link the invoice to the Membership record (Link(Membership) custom
+        # field on Sales Invoice). Consistent with the dues generator
+        # (services/billing/invoice_generator.py), and required for the
+        # membership -> invoices lookup (membership.get_membership_invoices).
+        "membership": membership.name,
         "posting_date": today(),
         "due_date": add_days(today(), 14),
         "custom_coverage_start_date": period_start,  # Set coverage period start

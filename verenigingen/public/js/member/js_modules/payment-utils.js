@@ -107,7 +107,6 @@ function refresh_membership_dues_info(frm) {
 			// Show detailed message
 			const message = `<div>Financial history refreshed:<br>
                 ${stats.invoices + stats.membership_invoices} invoices (${stats.membership_invoices} membership, ${stats.paid} paid, ${stats.unpaid} unpaid, ${stats.overdue} overdue)<br>
-                ${stats.unreconciled} unreconciled payments, ${stats.donations} linked to donations<br>
                 Total: ${format_currency(stats.total_amount)}, Outstanding: ${format_currency(stats.outstanding)}</div>`;
 
 			frappe.show_alert(
@@ -126,8 +125,6 @@ function calculate_financial_stats(records) {
 		total: records.length,
 		invoices: 0,
 		membership_invoices: 0,
-		unreconciled: 0,
-		donations: 0,
 		paid: 0,
 		unpaid: 0,
 		overdue: 0,
@@ -157,10 +154,6 @@ function calculate_financial_stats(records) {
 			} else if (['Unpaid', 'Partially Paid'].includes(record.payment_status)) {
 				stats.unpaid++;
 			}
-		} else if (record.transaction_type === 'Donation Payment') {
-			stats.donations++;
-		} else if (record.transaction_type === 'Unreconciled Payment') {
-			stats.unreconciled++;
 		}
 	});
 

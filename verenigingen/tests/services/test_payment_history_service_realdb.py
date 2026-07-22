@@ -14,8 +14,10 @@ type, unreconciled-payment handling).
 Covered branches:
 - load_payment_history_batched: invoices found -> entry built; reconciled
   payment marks status Paid + reconciled=1; unpaid invoice marks Unpaid;
-  unreconciled standalone Payment Entry added as its own row; donation-linked
-  payment classified as "Donation Payment".
+  payment_history is invoice-only -- a standalone Payment Entry with no
+  invoice allocation never produces its own row (no "Unreconciled Payment" /
+  "Donation Payment" phantom rows; production has produced zero of these
+  ever, since the real flow is always SI first -> PE at reconciliation).
 - refresh_financial_history: atomic refresh returns stats; cleanup removes
   rows referencing deleted invoices.
 - build_payment_history_entry: builds from a real Sales Invoice document.
@@ -125,6 +127,29 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row.transaction_type, "Membership Invoice")
 
+    def test_membership_invoice_without_link_classified_by_boolean(self):
+        """is_membership_invoice (boolean) classifies the row even with no membership link."""
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        # No membership link set on the invoice.
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        rows = [r for r in self.member.payment_history if r.invoice == inv.name]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].transaction_type, "Membership Invoice")
+        self.assertIsNone(rows[0].reference_name)
+
+    def test_membership_reference_persists_and_flows_to_history(self):
+        """With the membership field present, a linked membership becomes the row reference."""
+        membership = self.create_test_membership(member=self.member.name)
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        frappe.db.set_value("Sales Invoice", inv.name, "membership", membership.name)
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        row = next(r for r in self.member.payment_history if r.invoice == inv.name)
+        self.assertEqual(row.transaction_type, "Membership Invoice")
+        self.assertEqual(row.reference_doctype, "Membership")
+        self.assertEqual(row.reference_name, membership.name)
+
     def _make_standalone_payment(self, reference_no="STANDALONE-PHS", amount=17.0):
         """Build a submitted, customer-linked Payment Entry with no invoice allocation.
 
@@ -158,19 +183,34 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         self.track_doc("Payment Entry", pe.name)
         return pe
 
-    def test_unreconciled_payment_added_as_standalone_row(self):
-        """A Payment Entry on the customer with no invoice ref becomes an Unreconciled row."""
+    def test_standalone_payment_produces_no_row(self):
+        """payment_history is invoice-only: a Payment Entry with no invoice ref
+        (previously turned into a standalone "Unreconciled Payment" row) now adds
+        nothing to the child table."""
         pe = self._make_standalone_payment()
 
         result = self.service.load_payment_history_batched(self.member)
         self.assertTrue(result.success)
-        self.assertGreaterEqual(result.data["unreconciled_payments"], 1)
+        self.assertNotIn("unreconciled_payments", result.data)
 
-        standalone = [r for r in self.member.payment_history if r.payment_entry == pe.name and not r.invoice]
-        self.assertEqual(len(standalone), 1)
-        self.assertEqual(standalone[0].transaction_type, "Unreconciled Payment")
-        self.assertEqual(standalone[0].payment_status, "Paid")
-        self.assertEqual(float(standalone[0].amount), 17.0)
+        matching = [r for r in self.member.payment_history if r.payment_entry == pe.name]
+        self.assertEqual(matching, [])
+        types = {r.transaction_type for r in self.member.payment_history}
+        self.assertNotIn("Unreconciled Payment", types)
+        self.assertNotIn("Donation Payment", types)
+
+    def test_no_pe_based_rows_are_emitted(self):
+        """payment_history is invoice-only; standalone Payment Entries never add rows."""
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        self._pay_invoice(inv)  # creates a PE referencing the SI
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        types = {r.transaction_type for r in self.member.payment_history}
+        self.assertNotIn("Unreconciled Payment", types)
+        self.assertNotIn("Donation Payment", types)
+        # The reconciling PE marks the invoice row Paid, it does not add its own row.
+        self.assertTrue(all(r.invoice for r in self.member.payment_history))
+        self.assertEqual(len(self.member.payment_history), 1)
 
     # ---- refresh_financial_history ----
 
@@ -211,6 +251,45 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         entry = self.service.build_payment_history_entry(invoice, member_doc=self.member)
         self.assertEqual(entry["invoice"], invoice.name)
         self.assertEqual(float(entry["amount"]), float(invoice.grand_total))
+
+    # ---- get_financial_summary ----
+
+    def test_financial_summary_has_no_phantom_counters(self):
+        """get_financial_summary no longer advertises the removed phantom-row
+        counters ("donations" / "unreconciled_payments"), since payment_history
+        is invoice-only and those transaction types are never produced."""
+        self._make_submitted_invoice(is_membership_invoice=1)
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        summary = self.member.get_financial_summary()
+        self.assertNotIn("donations", summary)
+        self.assertNotIn("unreconciled_payments", summary)
+        self.assertIn("membership_invoices", summary)
+
+    # ---- background_jobs delegation (Task 4) ----
+
+    def test_refresh_optimized_uses_service_invoice_only(self):
+        """refresh_member_financial_history_optimized delegates row construction to
+        the service -- the persisted payment_history is invoice-only, with no
+        drifted "Unreconciled Payment" rows from the old inline rebuild.
+
+        A standalone (unallocated) Payment Entry is deliberately added alongside
+        the invoice: the old inline `load_payment_history_batch_optimized` body
+        turned exactly this shape into a phantom "Unreconciled Payment" row, so
+        without it this test would pass under both the old and new code and
+        would not actually catch a regression back to the inline rebuild.
+        """
+        from verenigingen.utils.background_jobs import refresh_member_financial_history_optimized
+
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        self._make_standalone_payment()
+        self.member.reload()
+        result = refresh_member_financial_history_optimized(self.member)
+        self.assertEqual(result["status"], "completed")
+        self.member.reload()
+        types = {r.transaction_type for r in self.member.payment_history}
+        self.assertNotIn("Unreconciled Payment", types)
+        self.assertTrue(any(r.invoice == inv.name for r in self.member.payment_history))
 
 
 class TestPaymentCoverageServiceRealDB(EnhancedTestCase):

@@ -101,12 +101,11 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
         self.assertTrue(frappe.db.exists("Sales Invoice", invoice.name))
         self.assertEqual(invoice.docstatus, 1)
         self.assertEqual(invoice.member, member.name)
-        # Guard: Sales Invoice has no `membership` field (only `member` +
-        # `is_membership_invoice` are the membership-link custom fields). A dead
-        # "membership" invoice_data key used to be set here and silently dropped;
-        # it was removed. This assertion pins the schema assumption so the dead
-        # key cannot quietly reappear.
-        self.assertFalse(frappe.get_meta("Sales Invoice").has_field("membership"))
+        # Sales Invoice now has a `membership` Link(Membership) custom field
+        # (added so the dues generator's / this path's assignment persists).
+        # This path links the invoice to the Membership record.
+        self.assertTrue(frappe.get_meta("Sales Invoice").has_field("membership"))
+        self.assertEqual(invoice.membership, membership.name)
         self.assertEqual(invoice.customer, member.customer)
         self.assertEqual(invoice.is_membership_invoice, 1)
         # Rate flows through from the amount we passed.
