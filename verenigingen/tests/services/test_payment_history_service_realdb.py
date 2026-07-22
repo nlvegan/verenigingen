@@ -125,6 +125,17 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row.transaction_type, "Membership Invoice")
 
+    def test_membership_invoice_without_link_classified_by_boolean(self):
+        """is_membership_invoice (boolean) classifies the row even with no membership link."""
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        # No membership link set on the invoice.
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        rows = [r for r in self.member.payment_history if r.invoice == inv.name]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].transaction_type, "Membership Invoice")
+        self.assertIsNone(rows[0].reference_name)
+
     def _make_standalone_payment(self, reference_no="STANDALONE-PHS", amount=17.0):
         """Build a submitted, customer-linked Payment Entry with no invoice allocation.
 

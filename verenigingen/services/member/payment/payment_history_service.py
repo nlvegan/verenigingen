@@ -46,7 +46,7 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.payment.payment_coverage_service import get_payment_coverage_service
-from verenigingen.utils import batch_fetch_with_chunking, determine_payment_status
+from verenigingen.utils import batch_fetch_with_chunking
 from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
@@ -194,7 +194,7 @@ class PaymentHistoryService(StatelessService):
                     entry = self._build_entry_from_invoice(
                         member_doc, invoice, payment_cache, default_mandate
                     )
-                    member_doc.append("payment_history", entry.to_dict())
+                    member_doc.append("payment_history", entry)
                     success_count += 1
                 except Exception as e:
                     error_count += 1
@@ -249,6 +249,12 @@ class PaymentHistoryService(StatelessService):
             "status",
             "docstatus",
             "is_membership_invoice",
+            # NOTE: no real "membership" column exists on Sales Invoice (only
+            # "member" and "membership_dues_schedule_display" do; confirmed
+            # against frappe.db.get_table_columns). The canonical row's
+            # "membership" key is populated via invoice.get("membership") in
+            # _build_entry_from_invoice, which safely resolves to None since
+            # the key is absent from this query's frappe._dict rows.
         ]
 
         # Check for coverage custom fields
@@ -346,11 +352,14 @@ class PaymentHistoryService(StatelessService):
         invoice: Any,
         payment_cache: PaymentDataCache,
         default_mandate: Optional[Any],
-    ) -> PaymentHistoryEntry:
+    ) -> Dict[str, Any]:
         """
         Build a payment history entry from invoice data.
 
-        Uses cached payment data to avoid database queries.
+        Uses cached payment data to avoid database queries. Assembles the
+        canonical row dict and delegates classification/status derivation to
+        PaymentHistoryEntryBuilder.build_from_query_row so this batch path
+        produces byte-identical rows to the incremental (single-invoice) path.
 
         Args:
             member_doc: Member document
@@ -359,93 +368,60 @@ class PaymentHistoryService(StatelessService):
             default_mandate: Default SEPA mandate (if any)
 
         Returns:
-            PaymentHistoryEntry object
+            Payment history entry dict (already builder-shaped; append directly).
         """
-        # Determine transaction type
-        transaction_type = "Membership Invoice" if invoice.is_membership_invoice else "Regular Invoice"
-
-        # Get payment data from cache
         payment_refs = payment_cache.payment_refs_by_invoice.get(invoice.name, [])
-
-        payment_status = "Unpaid"
-        payment_date = None
-        payment_entry = None
-        payment_method = None
+        payment_date = payment_entry = payment_method = None
         paid_amount = 0.0
         reconciled = 0
 
         if payment_refs:
-            # Track reconciled payments
             for pe_ref in payment_refs:
                 payment_cache.reconciled_payments.append(pe_ref.parent)
-                allocated_amount = pe_ref.allocated_amount or 0
-                if allocated_amount < 0:
-                    self.logger.error(
-                        f"Negative allocated amount in payment entry {pe_ref.parent}: {allocated_amount}"
-                    )
-                paid_amount += float(allocated_amount)
-
-            # Get most recent payment from cache
-            payment_entry_names = [ref.parent for ref in payment_refs]
-            relevant_payments = [
-                payment_cache.payments_by_name[name]
-                for name in payment_entry_names
-                if name in payment_cache.payments_by_name
+                paid_amount += float(pe_ref.allocated_amount or 0)
+            relevant = [
+                payment_cache.payments_by_name[r.parent]
+                for r in payment_refs
+                if r.parent in payment_cache.payments_by_name
             ]
-
-            if relevant_payments:
-                most_recent = max(relevant_payments, key=lambda p: p.posting_date)
+            if relevant:
+                most_recent = max(relevant, key=lambda p: p.posting_date)
                 payment_entry = most_recent.name
                 payment_date = most_recent.posting_date
                 payment_method = most_recent.mode_of_payment
                 reconciled = 1
 
-        # Determine payment status (shared utility also checks outstanding_amount <= 0)
-        payment_status = determine_payment_status(invoice, paid_amount)
-
-        # Get mandate info
-        has_mandate = 0
-        sepa_mandate = None
-        mandate_status = None
-        mandate_reference = None
-
-        if default_mandate:
-            has_mandate = 1
-            sepa_mandate = default_mandate.name
-            mandate_status = default_mandate.status
-            mandate_reference = getattr(default_mandate, "mandate_id", None)
-
-        # Get coverage dates using service
         coverage = self._coverage_service.get_coverage_for_invoice(member_doc.name, invoice.name, invoice)
-
-        # Validate coverage
         if not self._coverage_service.validate_coverage_period(coverage, invoice.name):
             coverage.start_date = None
             coverage.end_date = None
 
-        return PaymentHistoryEntry(
-            invoice=invoice.name,
-            posting_date=invoice.posting_date,
-            due_date=invoice.due_date,
-            coverage_start_date=coverage.start_date,
-            coverage_end_date=coverage.end_date,
-            transaction_type=transaction_type,
-            reference_doctype=None,
-            reference_name=None,
-            amount=invoice.grand_total,
-            outstanding_amount=invoice.outstanding_amount,
-            status=invoice.status,
-            payment_status=payment_status,
-            payment_date=payment_date,
-            payment_entry=payment_entry,
-            payment_method=payment_method,
-            paid_amount=paid_amount,
-            reconciled=reconciled,
-            has_mandate=has_mandate,
-            sepa_mandate=sepa_mandate,
-            mandate_status=mandate_status,
-            mandate_reference=mandate_reference,
-        )
+        has_mandate = 1 if default_mandate else 0
+        row = {
+            "invoice_name": invoice.name,
+            "is_membership_invoice": invoice.get("is_membership_invoice"),
+            "membership": invoice.get("membership"),
+            "posting_date": invoice.posting_date,
+            "due_date": invoice.due_date,
+            "grand_total": invoice.grand_total,
+            "outstanding_amount": invoice.outstanding_amount,
+            "invoice_status": invoice.status,
+            "docstatus": invoice.docstatus,
+            "coverage_start_date": coverage.start_date,
+            "coverage_end_date": coverage.end_date,
+            "paid_amount": paid_amount,
+            "reconciled": reconciled,
+            "payment_entry": payment_entry,
+            "payment_date": payment_date,
+            "payment_method": payment_method,
+            "has_mandate": has_mandate,
+            "sepa_mandate": default_mandate.name if default_mandate else None,
+            "mandate_status": default_mandate.status if default_mandate else None,
+            "mandate_reference": getattr(default_mandate, "mandate_id", None) if default_mandate else None,
+        }
+        from verenigingen.utils.payment_history_builder import PaymentHistoryEntryBuilder
+
+        return PaymentHistoryEntryBuilder.build_from_query_row(row)
 
     def _add_unreconciled_payments(self, member_doc: "Document", reconciled_payments: List[str]) -> int:
         """
