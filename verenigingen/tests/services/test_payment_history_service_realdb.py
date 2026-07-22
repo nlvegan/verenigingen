@@ -252,6 +252,31 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         self.assertEqual(entry["invoice"], invoice.name)
         self.assertEqual(float(entry["amount"]), float(invoice.grand_total))
 
+    # ---- background_jobs delegation (Task 4) ----
+
+    def test_refresh_optimized_uses_service_invoice_only(self):
+        """refresh_member_financial_history_optimized delegates row construction to
+        the service -- the persisted payment_history is invoice-only, with no
+        drifted "Unreconciled Payment" rows from the old inline rebuild.
+
+        A standalone (unallocated) Payment Entry is deliberately added alongside
+        the invoice: the old inline `load_payment_history_batch_optimized` body
+        turned exactly this shape into a phantom "Unreconciled Payment" row, so
+        without it this test would pass under both the old and new code and
+        would not actually catch a regression back to the inline rebuild.
+        """
+        from verenigingen.utils.background_jobs import refresh_member_financial_history_optimized
+
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        self._make_standalone_payment()
+        self.member.reload()
+        result = refresh_member_financial_history_optimized(self.member)
+        self.assertEqual(result["status"], "completed")
+        self.member.reload()
+        types = {r.transaction_type for r in self.member.payment_history}
+        self.assertNotIn("Unreconciled Payment", types)
+        self.assertTrue(any(r.invoice == inv.name for r in self.member.payment_history))
+
 
 class TestPaymentCoverageServiceRealDB(EnhancedTestCase):
     """Real-DB coverage extraction priority/fallback."""
