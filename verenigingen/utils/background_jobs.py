@@ -330,6 +330,23 @@ def execute_member_payment_history_update(
 
         return result
 
+    except frappe.DoesNotExistError:
+        # A member that no longer exists when this async job runs is a benign race,
+        # not a failure: in the async-only payment-history flow the enqueuing request
+        # may have rolled back (or the member was deleted) between enqueue and
+        # execution. Skip quietly -- do NOT frappe.log_error() and do NOT re-raise.
+        # Re-raising would both be re-logged by the worker's execute_job wrapper and,
+        # for jobs that leak out of a rolled-back test onto a real worker, drop an
+        # Error Log into whatever unrelated test's assertNoErrorLog() window it lands
+        # in. (This path is only reached via the test-only queue helper /
+        # retry_job_execution; production populates payment history via
+        # drain_member_payment_history.)
+        skip_msg = f"Skipped payment history update for missing member {member_name}"
+        frappe.logger("payment_history").info(skip_msg)
+        if job_name:
+            BackgroundJobManager.update_job_status(job_name, "Skipped", {"reason": skip_msg})
+        return {"status": "skipped", "reason": "member_not_found"}
+
     except Exception as e:
         error_msg = f"Failed to update payment history for {member_name}: {e}"
         frappe.log_error(error_msg)

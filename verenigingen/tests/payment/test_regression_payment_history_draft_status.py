@@ -105,9 +105,13 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
             
             # If invoice is submitted, payment history should sync without error
             if invoice.docstatus == 1:
-                # Refresh member to get updated payment history
+                # Payment-history population runs via the async post-commit path now
+                # (the synchronous on_submit rebuild was removed), so drive it
+                # explicitly before asserting the invoice landed in history.
                 member.reload()
-                
+                member.load_payment_history()
+                member.reload()
+
                 # Check payment history was updated
                 final_count = len(member.payment_history) if hasattr(member, 'payment_history') else 0
                 self.assertGreaterEqual(final_count, initial_count,

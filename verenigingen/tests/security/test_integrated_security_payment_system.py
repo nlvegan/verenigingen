@@ -145,10 +145,11 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
         @standard_api(operation_type=OperationType.MEMBER_DATA)
         def process_member_payment_history(member_name, invoice_name):
             member = frappe.get_doc("Member", member_name)
-            # add_invoice_to_payment_history() queues a batched (10s) update, which
-            # won't appear synchronously; rebuild the history directly so the entry
-            # is present immediately for the assertions below.
-            member.refresh_financial_history()
+            # add_invoice_to_payment_history() and refresh_financial_history() only
+            # *queue* an async batch update, which won't appear synchronously;
+            # load_payment_history() rebuilds from the member's invoices and saves
+            # in-place, so the entry is present immediately for the assertions below.
+            member.load_payment_history()
             return {"status": "processed", "member": member_name, "invoice": invoice_name}
 
         # Step 3: Run validation and repair
@@ -288,6 +289,15 @@ class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
 
             self.assertEqual(bulk_result["status"], "bulk_completed")
             self.assertEqual(bulk_result["invoice_count"], 9)  # 3 members * 3 invoices
+
+            # Bulk processing defers payment-history population to the async
+            # batch/drain path (add_invoice_to_payment_history only queues, and the
+            # synchronous on_submit rebuild was removed), so nothing lands inline.
+            # Drive the synchronous rebuild for each member to reach the post-drain
+            # end state before running the safety-net validator.
+            for member in self.test_members:
+                member.reload()
+                member.load_payment_history()
 
             # Run validation to catch any issues
             validation_result = validate_bulk_results()

@@ -135,7 +135,6 @@ doc_events = {
             "verenigingen.utils.background_jobs.queue_expense_event_processing_handler",
             "verenigingen.utils.background_jobs.queue_donor_auto_creation_handler",
             "verenigingen.utils.cache_invalidation.on_document_submit",
-            "verenigingen.utils.performance_event_handlers.on_member_payment_update",
         ],
         "on_cancel": [
             "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
@@ -160,7 +159,6 @@ doc_events = {
         "on_submit": [
             "verenigingen.events.invoice_events.emit_invoice_submitted",
             "verenigingen.utils.cache_invalidation.on_document_submit",
-            "verenigingen.utils.performance_event_handlers.on_member_payment_update",
         ],
         "on_update_after_submit": [
             "verenigingen.events.invoice_events.emit_invoice_updated_after_submit",

@@ -338,9 +338,11 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
     def test_data_consistency_after_operations(self):
         """Test data consistency after payment operations"""
         # Create invoice and add to payment history. Payment history only tracks
-        # submitted invoices, so submit it. add_invoice_to_payment_history() now
-        # *queues* a batched (10s) update, so it won't appear synchronously --
-        # rebuild the history directly via refresh_financial_history() instead.
+        # submitted invoices, so submit it. Both add_invoice_to_payment_history()
+        # and refresh_financial_history() merely *queue* an async batch update
+        # (they do not persist synchronously), so drive the synchronous rebuild
+        # via load_payment_history(), which rebuilds from the member's invoices
+        # and saves in-place -- test-safe (no explicit commit).
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             posting_date=today(),
@@ -349,7 +351,8 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
         if invoice.docstatus == 0:
             invoice.submit()
 
-        self.test_member.refresh_financial_history()
+        self.test_member.reload()
+        self.test_member.load_payment_history()
 
         # Reload member and verify consistency
         self.test_member.reload()

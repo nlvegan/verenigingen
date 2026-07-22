@@ -295,17 +295,24 @@ class TestExecuteExpenseEventProcessing(EnhancedTestCase):
 
 
 class TestExecuteMemberPaymentHistoryUpdate(EnhancedTestCase):
-    def test_missing_member_raises_and_marks_failed(self):
+    def test_missing_member_skips_gracefully(self):
+        """A member that no longer exists is a benign race in the async-only flow:
+        the job skips quietly -- no raise, no Error Log, job marked Skipped. This
+        keeps jobs that leak out of a rolled-back test (onto a real CI worker) from
+        dropping Error Logs into unrelated tests' assertNoErrorLog() guards."""
         job_name = f"pmh_missing_{int(time.time()*1000)}"
         BackgroundJobManager.create_job_status_record(
             job_name=job_name, job_type="member_payment_history_update", status="Queued"
         )
 
-        with self.assertRaises(frappe.DoesNotExistError):
-            execute_member_payment_history_update(member_name="MEMBER-DOES-NOT-EXIST", job_name=job_name)
+        with self.assertNoErrorLog():
+            result = execute_member_payment_history_update(
+                member_name="MEMBER-DOES-NOT-EXIST", job_name=job_name
+            )
 
+        self.assertEqual(result.get("status"), "skipped")
         status = BackgroundJobManager.get_job_status(job_name)
-        self.assertEqual(status["status"], "Failed")
+        self.assertEqual(status["status"], "Skipped")
 
     def test_full_rebuild_path_updates_status_to_completed(self):
         """No payment_entry arg -> full optimized rebuild branch, job Completed."""

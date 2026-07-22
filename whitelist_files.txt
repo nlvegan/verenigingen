@@ -400,7 +400,6 @@
 ./verenigingen/utils/performance_dashboard.py
 ./verenigingen/utils/performance/data_retention.py
 ./verenigingen/utils/performance_event_handlers.py
-./verenigingen/utils/performance_integration.py
 ./verenigingen/utils/performance_test_20250801.py
 ./verenigingen/utils/portal_customization.py
 ./verenigingen/utils/project_permissions.py
