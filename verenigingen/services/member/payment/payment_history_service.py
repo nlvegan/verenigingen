@@ -203,21 +203,15 @@ class PaymentHistoryService(StatelessService):
                     )
                     continue
 
-            # Add unreconciled payments
-            unreconciled_count = self._add_unreconciled_payments(
-                member_doc, payment_cache.reconciled_payments
-            )
-
             self._end_operation("load_payment_history_batched", start_time, success=True)
 
             return OperationResult.ok(
                 {
-                    "entries_loaded": success_count + unreconciled_count,
+                    "entries_loaded": success_count,
                     "invoices_processed": success_count,
-                    "unreconciled_payments": unreconciled_count,
                     "errors": error_count,
                 },
-                message=f"Loaded {success_count} invoice entries and {unreconciled_count} unreconciled payments",
+                message=f"Loaded {success_count} invoice entries",
             )
 
         except Exception as e:
@@ -422,86 +416,6 @@ class PaymentHistoryService(StatelessService):
 
         return PaymentHistoryEntryBuilder.build_from_query_row(row)
 
-    def _add_unreconciled_payments(self, member_doc: "Document", reconciled_payments: List[str]) -> int:
-        """
-        Add unreconciled payments to payment history.
-
-        Args:
-            member_doc: Member document
-            reconciled_payments: List of already reconciled payment entry names
-
-        Returns:
-            Number of unreconciled payments added
-        """
-        if not member_doc.customer:
-            return 0
-
-        unreconciled_payments = frappe.get_all(
-            "Payment Entry",
-            filters={
-                "party_type": "Customer",
-                "party": member_doc.customer,
-                "docstatus": 1,
-                "name": ["not in", reconciled_payments or [""]],
-            },
-            fields=[
-                "name",
-                "posting_date",
-                "paid_amount",
-                "mode_of_payment",
-                "status",
-                "reference_no",
-                "reference_date",
-            ],
-            order_by="posting_date desc",
-        )
-
-        count = 0
-        for payment in unreconciled_payments:
-            donation = None
-            if payment.reference_no:
-                donations = frappe.get_all(
-                    "Donation",
-                    filters={"payment_id": payment.reference_no},
-                    fields=["name"],
-                )
-                if donations:
-                    donation = donations[0].name
-
-            transaction_type = "Unreconciled Payment"
-            reference_doctype = None
-            reference_name = None
-            notes = "Payment without matching invoice"
-
-            if donation:
-                transaction_type = "Donation Payment"
-                reference_doctype = "Donation"
-                reference_name = donation
-                notes = "Payment linked to donation"
-
-            entry = PaymentHistoryEntry(
-                invoice=None,
-                posting_date=payment.posting_date,
-                due_date=None,
-                transaction_type=transaction_type,
-                reference_doctype=reference_doctype,
-                reference_name=reference_name,
-                amount=payment.paid_amount,
-                outstanding_amount=0,
-                status="N/A",
-                payment_status="Paid",
-                payment_date=payment.posting_date,
-                payment_entry=payment.name,
-                payment_method=payment.mode_of_payment,
-                paid_amount=payment.paid_amount,
-                reconciled=0,
-                notes=notes,
-            )
-            member_doc.append("payment_history", entry.to_dict())
-            count += 1
-
-        return count
-
     def refresh_financial_history(self, member_doc: "Document") -> OperationResult[Dict[str, Any]]:
         """
         Atomic financial history refresh with integrity checking.
@@ -542,9 +456,9 @@ class PaymentHistoryService(StatelessService):
 
             return OperationResult.ok(
                 {
-                    "payment_history_count": len(member_doc.payment_history)
-                    if hasattr(member_doc, "payment_history")
-                    else 0,
+                    "payment_history_count": (
+                        len(member_doc.payment_history) if hasattr(member_doc, "payment_history") else 0
+                    ),
                     "added_entries": added_count,
                     "removed_entries": cleanup_stats["removed"],
                     "cleanup_details": cleanup_stats,
