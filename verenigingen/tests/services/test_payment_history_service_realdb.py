@@ -136,6 +136,18 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         self.assertEqual(rows[0].transaction_type, "Membership Invoice")
         self.assertIsNone(rows[0].reference_name)
 
+    def test_membership_reference_persists_and_flows_to_history(self):
+        """With the membership field present, a linked membership becomes the row reference."""
+        membership = self.create_test_membership(member=self.member.name)
+        inv = self._make_submitted_invoice(is_membership_invoice=1)
+        frappe.db.set_value("Sales Invoice", inv.name, "membership", membership.name)
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        row = next(r for r in self.member.payment_history if r.invoice == inv.name)
+        self.assertEqual(row.transaction_type, "Membership Invoice")
+        self.assertEqual(row.reference_doctype, "Membership")
+        self.assertEqual(row.reference_name, membership.name)
+
     def _make_standalone_payment(self, reference_no="STANDALONE-PHS", amount=17.0):
         """Build a submitted, customer-linked Payment Entry with no invoice allocation.
 

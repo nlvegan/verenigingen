@@ -249,21 +249,20 @@ class PaymentHistoryService(StatelessService):
             "status",
             "docstatus",
             "is_membership_invoice",
-            # NOTE: no real "membership" column exists on Sales Invoice (only
-            # "member" and "membership_dues_schedule_display" do; confirmed
-            # against frappe.db.get_table_columns). The canonical row's
-            # "membership" key is populated via invoice.get("membership") in
-            # _build_entry_from_invoice, which safely resolves to None since
-            # the key is absent from this query's frappe._dict rows.
         ]
 
-        # Check for coverage custom fields
+        # Check for coverage custom fields (and the membership reference link,
+        # which is also a Custom Field added via fixtures — see
+        # "Sales Invoice-membership" in custom_field.json). Guarding with
+        # has_column keeps this query safe on sites that haven't migrated yet.
         coverage_fields = []
         try:
             if frappe.db.has_column("Sales Invoice", "custom_coverage_start_date"):
                 coverage_fields.append("custom_coverage_start_date")
             if frappe.db.has_column("Sales Invoice", "custom_coverage_end_date"):
                 coverage_fields.append("custom_coverage_end_date")
+            if frappe.db.has_column("Sales Invoice", "membership"):
+                coverage_fields.append("membership")
         except Exception as e:
             self.logger.warning(f"Error checking for coverage fields: {str(e)}")
 
