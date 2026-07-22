@@ -157,10 +157,6 @@ function calculate_financial_stats(records) {
 			} else if (['Unpaid', 'Partially Paid'].includes(record.payment_status)) {
 				stats.unpaid++;
 			}
-		} else if (record.transaction_type === 'Donation Payment') {
-			stats.donations++;
-		} else if (record.transaction_type === 'Unreconciled Payment') {
-			stats.unreconciled++;
 		}
 	});
 

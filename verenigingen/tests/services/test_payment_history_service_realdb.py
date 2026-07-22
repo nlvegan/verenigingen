@@ -252,6 +252,20 @@ class TestPaymentHistoryServiceRealDB(EnhancedTestCase):
         self.assertEqual(entry["invoice"], invoice.name)
         self.assertEqual(float(entry["amount"]), float(invoice.grand_total))
 
+    # ---- get_financial_summary ----
+
+    def test_financial_summary_has_no_phantom_counters(self):
+        """get_financial_summary no longer advertises the removed phantom-row
+        counters ("donations" / "unreconciled_payments"), since payment_history
+        is invoice-only and those transaction types are never produced."""
+        self._make_submitted_invoice(is_membership_invoice=1)
+        self.member.reload()
+        self.service.load_payment_history_batched(self.member)
+        summary = self.member.get_financial_summary()
+        self.assertNotIn("donations", summary)
+        self.assertNotIn("unreconciled_payments", summary)
+        self.assertIn("membership_invoices", summary)
+
     # ---- background_jobs delegation (Task 4) ----
 
     def test_refresh_optimized_uses_service_invoice_only(self):

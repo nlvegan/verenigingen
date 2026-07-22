@@ -146,10 +146,6 @@ class FinancialMixin:
                 "regular_invoices": len(
                     [p for p in payment_history if p.transaction_type == "Regular Invoice"]
                 ),
-                "donations": len([p for p in payment_history if p.transaction_type == "Donation Payment"]),
-                "unreconciled_payments": len(
-                    [p for p in payment_history if p.transaction_type == "Unreconciled Payment"]
-                ),
             }
 
             # Add SEPA mandate details if available
