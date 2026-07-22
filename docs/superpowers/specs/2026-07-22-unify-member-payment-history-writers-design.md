@@ -102,6 +102,25 @@ Changes:
 - Rewire the `load_payment_history()` mixin so the single service
   implementation is the one that runs.
 
+Rationale for choosing the service over the `background_jobs` implementation
+(they are near-duplicates today, so one must win):
+
+1. **Correctness gain, not a lateral move.** The service derives coverage dates
+   through `PaymentCoverageService` (dues-schedule overrides + validation); the
+   `background_jobs` version only reads the raw `custom_coverage_*` fields and so
+   silently drops schedule-derived coverage. Consolidating onto the service
+   *improves* coverage-date accuracy.
+2. **Separation of concerns.** `background_jobs.py` should own job orchestration
+   (enqueue / cache / save / status); the service should own row content. The
+   only reason a full rebuild leaked into `background_jobs` is that boundary was
+   never drawn.
+3. **Convention.** This app homes business logic in `services/`.
+
+Cost: `load_payment_history()` is currently wired to the `background_jobs` path,
+so we rewire it — a change to a hot path, but a cheap one. "It is the currently
+wired one" is the only argument for keeping `background_jobs` canonical, and it
+is an accident of history.
+
 ### Workstream 3 — Unify onto the shared builder (anti-divergence core)
 
 - The canonical rebuild builds invoice rows via
@@ -114,18 +133,33 @@ Changes:
   up to parity.
 - Collapse the **three** membership-detection signals to one. Today
   `build_from_invoice_doc` uses `invoice_doc.membership`; `build_from_query_row`
-  uses `row.membership_id`; the rebuilds use `is_membership_invoice`. Canonical
-  signal = the **`membership` link field** on the Sales Invoice, because the
-  Membership-Invoice row needs the membership *name* for its
-  `reference_name`/`reference_doctype` link (the `is_membership_invoice` boolean
-  alone cannot supply it). The rebuild's batch query must therefore select the
-  invoice's `membership` field and feed it to `build_from_query_row` as
-  `membership_id`, so both builder methods derive `transaction_type` and the
-  Membership reference from the same source. Verify at implementation time that
-  `membership` is populated whenever `is_membership_invoice` is set (they should
-  be set together at invoice creation); if any invoice has the boolean but not
-  the link, reconcile that at the source rather than re-introducing a second
-  signal.
+  uses `row.membership_id`; the rebuilds use `is_membership_invoice`.
+
+  **Verified** (`services/billing/invoice_generator.py:686-694`): the dues
+  generator sets `is_membership_invoice = 1` **unconditionally**, but sets
+  `invoice.membership = member_doc.current_membership_plan` only **when
+  `current_membership_plan` is truthy**. So the two are *not* guaranteed to be
+  set together — a membership invoice can exist with the boolean set but no
+  `membership` link.
+
+  Decision (split classifier from reference):
+  - **`is_membership_invoice` (the reliable, unconditional boolean) classifies
+    the row type** — `transaction_type = "Membership Invoice"` if set, else
+    `"Regular Invoice"`. Both builder methods use this one signal.
+  - **The `membership` link only supplies the reference** — when present, set
+    `reference_doctype = "Membership"`, `reference_name = invoice.membership`;
+    when absent, leave the reference blank but keep the row classified as a
+    Membership Invoice.
+
+  The rebuild's batch query selects both `is_membership_invoice` and
+  `membership` and feeds them to `build_from_query_row`.
+
+  **Intended behavior change:** `build_from_invoice_doc` today classifies purely
+  on `invoice_doc.membership`, so a membership invoice lacking the link is
+  currently mislabelled "Regular Invoice". Under this decision it correctly
+  becomes "Membership Invoice" (with no Membership reference). This is a
+  deliberate fix, not a regression — call it out in the plan and cover it with a
+  test.
 
 Outcome: incremental (`build_from_invoice_doc`) and rebuild
 (`build_from_query_row`) provably produce the same row for the same invoice.
