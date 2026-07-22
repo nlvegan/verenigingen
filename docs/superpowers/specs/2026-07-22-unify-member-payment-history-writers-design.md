@@ -59,14 +59,27 @@ lifetime. They are dead code.
 
 ## Goal
 
-Both writers track the **same record types** by construction. Concretely:
+The **three writers in scope** — the incremental batch processor, the `on_load`
+service rebuild, and the `load_payment_history()` rebuild — track the **same
+record types** by construction. Concretely:
 
-1. `payment_history` contains **invoice rows only** (Membership Invoice / Regular
-   Invoice), each with PE-derived payment status.
+1. Through those three writers, `payment_history` holds **invoice rows only**
+   (Membership Invoice / Regular Invoice), each with PE-derived payment status.
 2. The dead PE-based row-type logic is removed.
 3. The two full rebuilds are collapsed into one implementation.
 4. Incremental and rebuild both build rows through the single
    `PaymentHistoryEntryBuilder`, so they cannot diverge again.
+
+**Scope caveat (found in final review):** a *fourth* writer,
+`MemberHistoryUpdateService` (reachable from Member-controller
+`_update_dues_payment_history` / `_update_invoice_payment_history`, surfaced by a
+Member-form button), still rebuilds `payment_history` independently — it writes
+standalone `"Membership Dues Payment"` (PE-based) rows and builds its invoice
+rows with its own logic, bypassing `PaymentHistoryEntryBuilder`. So "invoice-only
+by construction" holds for the three unified writers, **not globally**: whichever
+path last wrote a member's table determines whether dues-payment rows are
+present. Folding (or retiring) `MemberHistoryUpdateService` is deliberately out of
+scope here — see Out of scope.
 
 ## Design
 
@@ -203,6 +216,12 @@ Real-DB integration tests (no business-logic mocks, per project rules):
 
 ## Out of scope
 
+- **`MemberHistoryUpdateService`** (the fourth `payment_history` writer,
+  button-triggered via Member-controller delegates) — it still emits
+  `"Membership Dues Payment"` rows and builds invoice rows outside the shared
+  builder. Reconciling it onto `PaymentHistoryEntryBuilder` (or retiring it) is
+  tracked as follow-up; it is the "multiple payment-history mechanisms" tech-debt
+  thread, not part of this refactor.
 - Bank-transaction / Journal-Entry donation tracking in the member ledger —
   donations belong on the Donor record.
 - Volunteer expenses (`volunteer_expenses`) — a separate child table, written
