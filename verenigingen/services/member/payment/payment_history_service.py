@@ -324,18 +324,38 @@ class PaymentHistoryService(StatelessService):
 
     def _get_default_mandate(self, member_doc: "Document") -> Optional[Any]:
         """
-        Get the default SEPA mandate for a member.
+        Get the default SEPA mandate for a member, for payment-history display.
+
+        NOTE: Queries directly with a used_for_memberships=1 filter rather than
+        delegating to member_doc.get_default_sepa_mandate() /
+        SEPAMandateManager.get_default_mandate(). Those generic helpers pick the
+        single most-recently-created ACTIVE mandate with NO purpose filter at
+        all, which could disagree with the incremental writer
+        (PaymentHistoryEntryBuilder.build_from_invoice_doc, which already
+        filters on used_for_memberships=1) whenever a member has a newer
+        donation-only mandate (used_for_memberships=0) alongside an older
+        membership-capable one. Mirroring the incremental filter here keeps the
+        two payment-history writers in parity — see
+        test_payment_history_writer_parity.py.
 
         Args:
             member_doc: Member document
 
         Returns:
-            Default mandate document or None
+            Default membership-capable mandate document or None
         """
         try:
-            if hasattr(member_doc, "get_default_sepa_mandate"):
-                return member_doc.get_default_sepa_mandate()
-            return None
+            mandate_name = frappe.db.get_value(
+                "SEPA Mandate",
+                {
+                    "member": member_doc.name,
+                    "status": "Active",
+                    "is_active": 1,
+                    "used_for_memberships": 1,
+                },
+                "name",
+            )
+            return frappe.get_doc("SEPA Mandate", mandate_name) if mandate_name else None
         except Exception:
             return None
 
