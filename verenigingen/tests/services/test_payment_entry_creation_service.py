@@ -324,30 +324,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         role = self._make_deskless_role_without_perms()
         self._grant_payment_entry_create(role)
         restricted_user = self._make_user_with_roles([role])
-        # TEMP DIAGNOSTIC (order-dependence in CI shard 10) -- remove after root-cause.
-        try:
-            _roles = frappe.get_roles(restricted_user)
-            _cdp = frappe.get_all(
-                "Custom DocPerm",
-                filters={"parent": "Payment Entry", "role": role},
-                fields=["role", "read", "create", "submit", "permlevel", "if_owner"],
-            )
-            _meta_rows = [
-                (p.role, p.get("create"), p.permlevel, p.get("if_owner"))
-                for p in frappe.get_meta("Payment Entry").permissions
-                if p.role == role
-            ]
-            _all_cdp = frappe.db.count("Custom DocPerm", {"parent": "Payment Entry"})
-            print(
-                f"[PECS-DIAG] role={role!r} role_exists={frappe.db.exists('Role', role)} "
-                f"user_roles_has_role={role in _roles} n_user_roles={len(_roles)} "
-                f"custom_docperm_for_role={_cdp} meta_perm_rows_for_role={_meta_rows} "
-                f"total_PE_custom_docperm={_all_cdp} "
-                f"has_create={frappe.has_permission('Payment Entry', 'create', user=restricted_user)}",
-                flush=True,
-            )
-        except Exception as _diag_e:  # noqa: BLE001
-            print(f"[PECS-DIAG] diagnostic error: {_diag_e}", flush=True)
         # Guards: this user HAS create but LACKS submit.
         self.assertTrue(frappe.has_permission("Payment Entry", "create", user=restricted_user))
         self.assertFalse(frappe.has_permission("Payment Entry", "submit", user=restricted_user))
