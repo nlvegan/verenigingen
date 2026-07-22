@@ -16,12 +16,14 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import frappe
+
 from verenigingen.services.member.payment import (
     get_payment_coverage_service,
     get_payment_history_service,
 )
 from verenigingen.services.member.payment.payment_coverage_service import CoveragePeriod
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils import determine_payment_status
 
 
 class TestCoveragePeriod(EnhancedTestCase):
@@ -204,21 +206,24 @@ class TestPaymentHistoryEntryBuilding(EnhancedTestCase):
         self.service = get_payment_history_service()
 
     def test_determine_payment_status_draft(self):
-        """Test payment status for draft invoice"""
-        invoice = MagicMock()
-        invoice.docstatus = 0
-        invoice.status = "Draft"
-
-        # The service determines status based on docstatus first
-        self.assertEqual(invoice.docstatus, 0)
+        """A draft invoice (docstatus 0) resolves to 'Draft' before any other rule."""
+        invoice = frappe._dict(docstatus=0, status="Draft", outstanding_amount=25.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=0), "Draft")
 
     def test_determine_payment_status_paid(self):
-        """Test payment status for paid invoice"""
-        invoice = MagicMock()
-        invoice.docstatus = 1
-        invoice.status = "Paid"
+        """A submitted invoice with zero outstanding resolves to 'Paid'."""
+        invoice = frappe._dict(docstatus=1, status="Paid", outstanding_amount=0.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=25.0), "Paid")
 
-        self.assertEqual(invoice.status, "Paid")
+    def test_determine_payment_status_partially_paid(self):
+        """A partial payment against an open invoice resolves to 'Partially Paid'."""
+        invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=15.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=10.0), "Partially Paid")
+
+    def test_determine_payment_status_unpaid(self):
+        """A submitted, unpaid invoice with no payment resolves to 'Unpaid'."""
+        invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=25.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=0), "Unpaid")
 
 
 if __name__ == "__main__":

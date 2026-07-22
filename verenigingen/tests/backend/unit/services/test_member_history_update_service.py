@@ -14,11 +14,11 @@ Migration Status: ✅ COMPLETE (2025-11-24)
 """
 
 import frappe
-from frappe.utils import random_string, today, add_days
+from frappe.utils import random_string
+
 from verenigingen.services.member.history.member_history_update_service import MemberHistoryUpdateService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils import determine_payment_status
-import unittest
 
 
 class TestMemberHistoryUpdateService(EnhancedTestCase):
@@ -33,11 +33,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_incremental_update_history_tables_returns_operation_result(self):
         """Test incremental history update returns OperationResult"""
         unique_email = f"history.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="History",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="History", last_name="Test", email=unique_email)
 
         result = self.service.incremental_update_history_tables(member)
 
@@ -52,11 +48,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_incremental_update_with_no_history_returns_success(self):
         """Test incremental update with member having no history"""
         unique_email = f"nohistory.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="NoHistory",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="NoHistory", last_name="Test", email=unique_email)
 
         result = self.service.incremental_update_history_tables(member)
 
@@ -69,11 +61,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_incremental_update_with_customer_includes_invoices(self):
         """Test incremental update with customer includes invoice history"""
         unique_email = f"customer.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Customer",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Customer", last_name="Test", email=unique_email)
 
         # Create customer for member
         if not member.customer:
@@ -94,11 +82,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         """Test that incremental update never throws exceptions"""
         # Create a member with potential issues
         unique_email = f"exception.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Exception",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Exception", last_name="Test", email=unique_email)
 
         # Should always return OperationResult
         result = self.service.incremental_update_history_tables(member)
@@ -108,11 +92,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_refresh_fee_change_history_returns_operation_result(self):
         """Test fee change history refresh returns OperationResult"""
         unique_email = f"feehistory.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="FeeHistory",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="FeeHistory", last_name="Test", email=unique_email)
 
         result = self.service.refresh_fee_change_history(member.name)
 
@@ -126,11 +106,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_refresh_fee_change_history_with_no_changes(self):
         """Test refresh fee history when no changes needed"""
         unique_email = f"nochanges.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="NoChanges",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="NoChanges", last_name="Test", email=unique_email)
 
         result = self.service.refresh_fee_change_history(member.name)
 
@@ -159,11 +135,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_incremental_update_result_data_structure(self):
         """Test that incremental update returns correct data structure"""
         unique_email = f"structure.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Structure",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Structure", last_name="Test", email=unique_email)
 
         result = self.service.incremental_update_history_tables(member)
 
@@ -184,11 +156,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_refresh_fee_history_result_contains_metadata(self):
         """Test that fee history refresh includes all expected metadata"""
         unique_email = f"metadata.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Metadata",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Metadata", last_name="Test", email=unique_email)
 
         result = self.service.refresh_fee_change_history(member.name)
 
@@ -202,7 +170,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
             "dues_schedules_found",
             "removed_entries",
             "cleanup_details",
-            "method"
+            "method",
         ]
         for field in expected_fields:
             self.assertIn(field, result.data, f"Missing expected field: {field}")
@@ -210,11 +178,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_incremental_update_handles_member_with_donor(self):
         """Test incremental update with member having donor link"""
         unique_email = f"donor.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Donor",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Donor", last_name="Test", email=unique_email)
 
         # Create a donor with same email
         donor = frappe.new_doc("Donor")
@@ -232,11 +196,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
     def test_incremental_update_preserves_existing_history(self):
         """Test that incremental update preserves valid existing history"""
         unique_email = f"preserve.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Preserve",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Preserve", last_name="Test", email=unique_email)
 
         # Run update twice - should preserve history
         result1 = self.service.incremental_update_history_tables(member)
@@ -255,11 +215,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         This prevents duplicate representation of the same payment.
         """
         unique_email = f"nodupe.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="NoDupe",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="NoDupe", last_name="Test", email=unique_email)
 
         # Ensure customer exists for member (factory may auto-create)
         if not member.customer:
@@ -268,9 +224,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
 
         # Create a Sales Invoice for this member using factory method
         invoice = self.create_test_sales_invoice(
-            customer=member.name,  # Factory resolves member to customer
-            rate=25.0,
-            submit=True
+            customer=member.name, rate=25.0, submit=True  # Factory resolves member to customer
         )
 
         # Verify invoice is still unpaid (test isolation check)
@@ -286,16 +240,20 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
                 party=member.customer,
                 paid_amount=25.0,
                 custom_member=member.name,
-                references=[{
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": invoice.name,
-                    "allocated_amount": 25.0,
-                }],
-                submit=True
+                references=[
+                    {
+                        "reference_doctype": "Sales Invoice",
+                        "reference_name": invoice.name,
+                        "allocated_amount": 25.0,
+                    }
+                ],
+                submit=True,
             )
         except frappe.exceptions.ValidationError as e:
             if "already been fully paid" in str(e):
-                self.skipTest(f"Invoice {invoice.name} got paid by external mechanism - test environment issue")
+                self.skipTest(
+                    f"Invoice {invoice.name} got paid by external mechanism - test environment issue"
+                )
             raise
 
         # Run incremental update
@@ -307,14 +265,14 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
 
         # Count how many times this payment entry appears in history
         payment_entry_occurrences = [
-            row for row in (member.payment_history or [])
-            if row.payment_entry == payment_entry.name
+            row for row in (member.payment_history or []) if row.payment_entry == payment_entry.name
         ]
 
         # The payment entry should appear ONCE (via the invoice row), not twice
         self.assertEqual(
-            len(payment_entry_occurrences), 1,
-            f"Payment Entry {payment_entry.name} appears {len(payment_entry_occurrences)} times, expected 1"
+            len(payment_entry_occurrences),
+            1,
+            f"Payment Entry {payment_entry.name} appears {len(payment_entry_occurrences)} times, expected 1",
         )
 
         # The single occurrence should be on an invoice row (reconciled)
@@ -324,19 +282,17 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         # It should NOT be a standalone "Membership Dues Payment" type
         self.assertNotEqual(occurrence.transaction_type, "Membership Dues Payment")
 
-    def test_unreconciled_payment_creates_standalone_row(self):
-        """Test that unreconciled payment entries create standalone history rows.
+    def test_unreconciled_payment_does_not_create_standalone_row(self):
+        """A Payment Entry not reconciled to any invoice must NOT create a
+        payment_history row.
 
-        When a Payment Entry is NOT reconciled with any invoice:
-        - A "Membership Dues Payment" row should be created
-        - reconciled should be 0
+        The rebuild is invoice-only (delegated to PaymentHistoryService /
+        PaymentHistoryEntryBuilder): standalone "Membership Dues Payment" rows are
+        no longer produced. Such payments in practice reconcile against an invoice
+        and surface on that invoice's row instead.
         """
         unique_email = f"unreconciled.test.{random_string(8).lower()}@example.com"
-        member = self.create_test_member(
-            first_name="Unreconciled",
-            last_name="Test",
-            email=unique_email
-        )
+        member = self.create_test_member(first_name="Unreconciled", last_name="Test", email=unique_email)
 
         # Ensure customer exists for member
         if not member.customer:
@@ -349,7 +305,7 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
             paid_amount=25.0,
             custom_member=member.name,
             # No references - this is an unreconciled payment
-            submit=True
+            submit=True,
         )
 
         # Run incremental update
@@ -359,34 +315,22 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         # Reload member to get updated history
         member.reload()
 
-        # Find the payment entry in history
+        # The unreconciled payment must NOT appear as a history row.
         payment_rows = [
-            row for row in (member.payment_history or [])
-            if row.payment_entry == payment_entry.name
+            row for row in (member.payment_history or []) if row.payment_entry == payment_entry.name
         ]
+        self.assertEqual(payment_rows, [])
 
-        # Should have exactly one entry
-        self.assertEqual(len(payment_rows), 1)
-
-        # Should be a standalone "Membership Dues Payment" row
-        row = payment_rows[0]
-        self.assertEqual(row.transaction_type, "Membership Dues Payment")
-        self.assertEqual(row.reconciled, 0)
-        self.assertIsNone(row.invoice)  # No invoice linked
+        # And no standalone dues rows exist at all.
+        dues_rows = [
+            row for row in (member.payment_history or []) if row.transaction_type == "Membership Dues Payment"
+        ]
+        self.assertEqual(dues_rows, [])
 
 
-class TestInvoiceHistoryHelpers(EnhancedTestCase):
-    """Unit tests for static helpers extracted from _update_invoice_payment_history.
-
-    These are pure functions with no database dependencies — tests use
-    lightweight mock objects (frappe._dict) instead of real documents.
-    """
-
-    def setUp(self):
-        super().setUp()
-        self.service = MemberHistoryUpdateService()
-
-    # -- _determine_payment_status --
+class TestDeterminePaymentStatus(EnhancedTestCase):
+    """Coverage for the shared determine_payment_status util used by the payment
+    history builder. Pure function — tests pass frappe._dict invoice stubs (no DB)."""
 
     def test_determine_payment_status_draft(self):
         invoice = frappe._dict(docstatus=0, status="Draft", outstanding_amount=100, grand_total=100)
@@ -417,93 +361,13 @@ class TestInvoiceHistoryHelpers(EnhancedTestCase):
         invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=100, grand_total=100)
         self.assertEqual(determine_payment_status(invoice, 0), "Unpaid")
 
-    # -- _resolve_payment_entry --
-
-    def test_resolve_payment_entry_empty_refs(self):
-        entry, date, method, reconciled = self.service._resolve_payment_entry([], {})
-        self.assertIsNone(entry)
-        self.assertEqual(reconciled, 0)
-
-    def test_resolve_payment_entry_single_ref(self):
-        refs = [frappe._dict(parent="PE-001", allocated_amount=100)]
-        entries_data = {
-            "PE-001": frappe._dict(name="PE-001", posting_date="2025-06-01", mode_of_payment="Bank Transfer"),
-        }
-        entry, date, method, reconciled = self.service._resolve_payment_entry(refs, entries_data)
-        self.assertEqual(entry, "PE-001")
-        self.assertEqual(str(date), "2025-06-01")
-        self.assertEqual(method, "Bank Transfer")
-        self.assertEqual(reconciled, 1)
-
-    def test_resolve_payment_entry_picks_most_recent(self):
-        refs = [
-            frappe._dict(parent="PE-001", allocated_amount=50),
-            frappe._dict(parent="PE-002", allocated_amount=50),
-        ]
-        entries_data = {
-            "PE-001": frappe._dict(name="PE-001", posting_date="2025-01-01", mode_of_payment="Cash"),
-            "PE-002": frappe._dict(name="PE-002", posting_date="2025-06-01", mode_of_payment="Wire"),
-        }
-        entry, date, method, reconciled = self.service._resolve_payment_entry(refs, entries_data)
-        self.assertEqual(entry, "PE-002")
-        self.assertEqual(method, "Wire")
-
-    def test_resolve_payment_entry_missing_entry_data(self):
-        """Refs pointing to entries not in prefetched data should be skipped"""
-        refs = [frappe._dict(parent="PE-GONE", allocated_amount=100)]
-        entry, date, method, reconciled = self.service._resolve_payment_entry(refs, {})
-        self.assertIsNone(entry)
-        self.assertEqual(reconciled, 0)
-
-    # -- _build_invoice_history_row --
-
-    def test_build_invoice_history_row_membership(self):
-        invoice = frappe._dict(
-            name="INV-001",
-            posting_date="2025-01-15",
-            due_date="2025-02-15",
-            grand_total=120,
-            outstanding_amount=0,
-            status="Paid",
-            custom_coverage_start_date="2025-01-01",
-            custom_coverage_end_date="2025-12-31",
-            is_membership_invoice=True,
-        )
-        row = self.service._build_invoice_history_row(
-            invoice, "PE-001", "2025-01-20", "Bank Transfer", 120, 1, "Paid"
-        )
-        self.assertEqual(row["invoice"], "INV-001")
-        self.assertEqual(row["transaction_type"], "Membership Invoice")
-        self.assertEqual(row["paid_amount"], 120)
-        self.assertEqual(row["reconciled"], 1)
-        self.assertEqual(row["coverage_start_date"], "2025-01-01")
-        self.assertIsNone(row["reference_doctype"])
-
-    def test_build_invoice_history_row_regular(self):
-        invoice = frappe._dict(
-            name="INV-002",
-            posting_date="2025-03-01",
-            due_date="2025-04-01",
-            grand_total=50,
-            outstanding_amount=50,
-            status="Unpaid",
-            custom_coverage_start_date=None,
-            custom_coverage_end_date=None,
-            is_membership_invoice=False,
-        )
-        row = self.service._build_invoice_history_row(
-            invoice, None, None, None, 0, 0, "Unpaid"
-        )
-        self.assertEqual(row["transaction_type"], "Regular Invoice")
-        self.assertIsNone(row["payment_entry"])
-        self.assertEqual(row["reconciled"], 0)
-
 
 def run_tests():
     """Helper function to run tests from console"""
     frappe.flags.in_test = True
     import unittest
+
     suite = unittest.TestSuite()
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberHistoryUpdateService))
-    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestInvoiceHistoryHelpers))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestDeterminePaymentStatus))
     unittest.TextTestRunner(verbosity=2).run(suite)
