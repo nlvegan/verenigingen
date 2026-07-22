@@ -275,16 +275,24 @@ class DuesScheduleHealthManager:
                     "Member", member_name, "next_invoice_date", dues_schedule.next_invoice_date
                 )
 
-                # Add fee change history entry
+                # Add fee change history entry via the canonical writer (dedup,
+                # billing-frequency validation, old_dues_rate default, 50-row cap).
+                from verenigingen.services.member.history.member_fee_change_history_service import (
+                    get_member_fee_change_history_service,
+                )
+
                 member_doc = frappe.get_doc("Member", member_name)
-                fee_change = member_doc.append("fee_change_history", {})
-                fee_change.change_date = frappe.utils.now()
-                fee_change.dues_schedule = dues_schedule.name
-                fee_change.billing_frequency = billing_frequency
-                fee_change.new_dues_rate = dues_data["dues_rate"]
-                fee_change.change_type = "Schedule Created"
-                fee_change.reason = f"Reconstructed from {dues_data['source']}"
-                fee_change.changed_by = frappe.session.user
+                get_member_fee_change_history_service().add_fee_change_to_history(
+                    member_doc,
+                    {
+                        "name": dues_schedule.name,
+                        "billing_frequency": billing_frequency,
+                        "dues_rate": dues_data["dues_rate"],
+                        "change_type": "Schedule Created",
+                        "reason": f"Reconstructed from {dues_data['source']}",
+                        "changed_by": frappe.session.user,
+                    },
+                )
                 member_doc.save()
 
                 self.results["schedules_created"] += 1

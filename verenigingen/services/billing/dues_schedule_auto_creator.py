@@ -403,9 +403,9 @@ def _send_enhanced_summary_email(main_result, retry_result):
             "payment_date": str(today()),
             "payment_method": "Scheduled Task",
             "action_required": message,
-            "next_steps": "Review any errors in the system logs."
-            if total_errors > 0
-            else "No action required.",
+            "next_steps": (
+                "Review any errors in the system logs." if total_errors > 0 else "No action required."
+            ),
             "company": get_mollie_config().get_default_company(),
         }
 
@@ -517,9 +517,9 @@ def send_summary_email(created_count, error_count, total_found):
             "payment_date": str(today()),
             "payment_method": "Scheduled Task",
             "action_required": message,
-            "next_steps": "Review any errors in the system logs."
-            if error_count > 0
-            else "No action required.",
+            "next_steps": (
+                "Review any errors in the system logs." if error_count > 0 else "No action required."
+            ),
             "company": get_mollie_config().get_default_company(),
         }
 
@@ -735,16 +735,24 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                     "Member", member.member_name, "next_invoice_date", dues_schedule.next_invoice_date
                 )
 
-                # Add fee change history entry
+                # Add fee change history entry via the canonical writer (dedup,
+                # billing-frequency validation, old_dues_rate default, 50-row cap).
+                from verenigingen.services.member.history.member_fee_change_history_service import (
+                    get_member_fee_change_history_service,
+                )
+
                 member_doc = frappe.get_doc("Member", member.member_name)
-                fee_change = member_doc.append("fee_change_history", {})
-                fee_change.change_date = frappe.utils.now()
-                fee_change.dues_schedule = dues_schedule.name
-                fee_change.billing_frequency = dues_schedule.billing_frequency
-                fee_change.new_dues_rate = dues_schedule.dues_rate
-                fee_change.change_type = "Schedule Created"
-                fee_change.reason = f"Auto-created from membership type {member.membership_type}"
-                fee_change.changed_by = frappe.session.user
+                get_member_fee_change_history_service().add_fee_change_to_history(
+                    member_doc,
+                    {
+                        "name": dues_schedule.name,
+                        "billing_frequency": dues_schedule.billing_frequency,
+                        "dues_rate": dues_schedule.dues_rate,
+                        "change_type": "Schedule Created",
+                        "reason": f"Auto-created from membership type {member.membership_type}",
+                        "changed_by": frappe.session.user,
+                    },
+                )
                 member_doc.save()
 
             except Exception as sync_error:
@@ -872,9 +880,11 @@ def _send_summary_email(result):
             "payment_date": str(today()),
             "payment_method": "Manual Admin Action",
             "action_required": message,
-            "next_steps": f"Review any errors ({result['error_count']}) in the system logs."
-            if result["error_count"] > 0
-            else "No action required.",
+            "next_steps": (
+                f"Review any errors ({result['error_count']}) in the system logs."
+                if result["error_count"] > 0
+                else "No action required."
+            ),
             "company": get_mollie_config().get_default_company(),
         }
 

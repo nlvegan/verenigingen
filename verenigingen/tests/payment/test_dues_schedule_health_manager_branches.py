@@ -242,10 +242,13 @@ class TestReconstructDuesSchedule(EnhancedTestCase):
         self.assertEqual(member_doc.current_dues_schedule, schedule_name)
         self.assertEqual(member_doc.dues_rate, 36.0)
 
-        # Fee history row recorded.
+        # Fee history row recorded via the canonical writer (which the reconstruct
+        # path now delegates to). old_dues_rate is populated (defaults to 0) rather
+        # than left NULL as the former direct-append bypass did.
         history = [h for h in member_doc.fee_change_history if h.change_type == "Schedule Created"]
         self.assertTrue(history)
         self.assertEqual(history[-1].dues_schedule, schedule_name)
+        self.assertEqual(history[-1].old_dues_rate, 0)
 
         # Results counters reflect the creation.
         self.assertGreaterEqual(self.manager.results["schedules_created"], 1)
