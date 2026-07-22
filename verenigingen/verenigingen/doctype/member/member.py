@@ -827,22 +827,6 @@ class Member(
 
         return get_member_history_update_service()._update_donation_history(self)
 
-    def _update_dues_payment_history(self):
-        """Rebuild membership dues payment history - delegates to MemberHistoryUpdateService"""
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._update_dues_payment_history(self)
-
-    def _update_invoice_payment_history(self):
-        """Rebuild membership invoice payment history - delegates to MemberHistoryUpdateService"""
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._update_invoice_payment_history(self)
-
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):

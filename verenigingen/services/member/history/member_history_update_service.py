@@ -10,17 +10,14 @@ including donations, payments, invoices, volunteer expenses, and fee changes.
 Extracted from member.py:
 - incremental_update_history_tables() - orchestration (lines 2676-2759, 84 LOC)
 - _update_donation_history() - uses DonationHistoryManager (14 LOC)
-- _update_dues_payment_history() - payment entries (lines 2403-2490, 88 LOC)
-- _update_invoice_payment_history() - sales invoices (lines 2492-2672, 180 LOC)
 - refresh_fee_change_history() - fee history refresh (lines 3143-3327, 185 LOC)
 
-Total: ~641 LOC of business logic now in service layer
-
 Architecture:
-- Self-contained static methods (minimal member method dependencies)
+- Self-contained methods (minimal member method dependencies)
 - Uses existing managers: DonationHistoryManager, HistoryIntegrityManager
+- Payment history rebuild delegates to PaymentHistoryService so every
+  payment_history writer routes through the single PaymentHistoryEntryBuilder
 - Coordinates all history updates with proper flags and error handling
-- Optimized queries to avoid N+1 problems
 - Secure operations with permission validation for fee history updates
 
 ERROR HANDLING PATTERN: OperationResult Pattern
@@ -44,43 +41,23 @@ External Service Dependencies:
 - DonationHistoryManager - Donation history synchronization
 - HistoryIntegrityManager - Cleanup of broken expense entries
 - sync_donor_history() - Donor history updates
-- MemberMembershipService - Active membership queries (extracted 2025-11-20)
+- PaymentHistoryService - Unified invoice-based payment_history rebuild
 - secure_document_operation - Secure document updates with permission validation
 - cleanup_member_history - History integrity checking and cleanup
 
 See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.utils import determine_payment_status
 from verenigingen.utils.error_codes import log_operation_error
 from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
-
-
-@dataclass
-class PaymentReferenceCache:
-    """
-    Cached payment reference data shared between history update methods.
-
-    This cache is populated once per history rebuild and passed to both
-    _update_dues_payment_history() and _update_invoice_payment_history()
-    to avoid redundant database queries.
-
-    Query Reduction: ~4 queries → 2 queries (50% reduction)
-    """
-
-    member_invoice_names: List[str] = field(default_factory=list)
-    payment_refs_by_invoice: Dict[str, List[Any]] = field(default_factory=dict)
-    payment_entries_data: Dict[str, Any] = field(default_factory=dict)
-    reconciled_payment_entries: Set[str] = field(default_factory=set)
 
 
 class MemberHistoryUpdateService(StatelessService):
@@ -92,8 +69,7 @@ class MemberHistoryUpdateService(StatelessService):
     This service coordinates the rebuilding of all history-related child tables
     for a member, including:
     - Donation history (from Donor link)
-    - Dues payment history (from Payment Entries)
-    - Invoice payment history (from Sales Invoices)
+    - Payment history (invoices, via the unified PaymentHistoryService rebuild)
     - Volunteer expense history (from Employee link)
     """
 
@@ -105,9 +81,8 @@ class MemberHistoryUpdateService(StatelessService):
         """
         Rebuild payment history, donation history, and volunteer expense history tables.
 
-        Performs a FULL rebuild (no record limits) including:
-        - ALL Sales Invoices with coverage dates
-        - ALL Payment Entries (dues payments)
+        Performs a FULL rebuild including:
+        - Sales Invoices (invoice-based payment_history, via PaymentHistoryService)
         - ALL Donations
         - ALL Volunteer Expenses
 
@@ -152,8 +127,8 @@ class MemberHistoryUpdateService(StatelessService):
         elif results["donations"].get("error"):
             has_errors = True
 
-        # STEPS 3-5: Prefetch and update payment histories
-        payment_changes, pay_err = self._step_prefetch_and_update_payments(member_doc, results)
+        # STEPS 3-5: Rebuild invoice-based payment history via the unified builder
+        payment_changes, pay_err = self._step_rebuild_payment_history(member_doc, results)
         if payment_changes:
             changes_made = True
         if pay_err:
@@ -218,57 +193,65 @@ class MemberHistoryUpdateService(StatelessService):
             results["donations"]["error_code"] = "HIST_001"
         return False
 
-    def _step_prefetch_and_update_payments(self, member_doc: "Document", results: dict) -> tuple:
-        """STEPS 3-5: Prefetch payment references, update dues and invoice histories.
+    def _step_rebuild_payment_history(self, member_doc: "Document", results: dict) -> tuple:
+        """STEPS 3-5: Rebuild invoice-based payment history via the unified builder.
+
+        Delegates to PaymentHistoryService.load_payment_history_batched — the same
+        invoice-only rebuild the async drain and background job use — so the
+        Member-form "Rebuild Payment History" button emits rows identical to every
+        other writer (Membership reference + SEPA-mandate fields).
+
+        This replaces the former hand-rolled _update_invoice_payment_history /
+        _update_dues_payment_history pair, whose invoice rows diverged from the
+        builder (they never set the Membership reference_doctype/reference_name nor
+        any SEPA-mandate fields) and which additionally emitted standalone
+        "Membership Dues Payment" rows from custom_member Payment Entries — a
+        row-type that does not occur in practice (payments reconcile against
+        invoices) and is now dropped, matching the invoice-only model the other
+        writers already enforce.
+
+        The service clears and rebuilds member_doc.payment_history in place without
+        saving; the orchestrator's _step_save_history_changes persists it.
 
         Returns:
             Tuple of (had_changes, had_errors)
         """
-        changes_made = False
-        has_errors = False
+        # dues_payments is retained in the result contract (the Member form JS reads
+        # data.dues_payments) but is always zero now that standalone dues rows are gone.
+        results["dues_payments"]["count"] = 0
 
-        # STEP 3: Prefetch payment reference data
-        payment_cache = None
+        if not member_doc.customer:
+            return False, False
+
+        from verenigingen.services.member.payment.payment_history_service import (
+            get_payment_history_service,
+        )
+
+        rows_before = len(member_doc.payment_history or [])
+
         try:
-            payment_cache = self._prefetch_payment_references(member_doc)
+            result = get_payment_history_service().load_payment_history_batched(member_doc)
         except Exception as e:
-            log_operation_error("HIST_002", f"member {member_doc.name}", e)
-            err_msg = f"Payment reference prefetch failed: {str(e)}"
-            for key in ("dues_payments", "invoices"):
-                results[key]["success"] = False
-                results[key]["error"] = err_msg
-                results[key]["error_code"] = "HIST_002"
+            log_operation_error("HIST_004", f"member {member_doc.name}", e)
+            results["invoices"]["success"] = False
+            results["invoices"]["error"] = str(e)
+            results["invoices"]["error_code"] = "HIST_004"
             return False, True
 
-        # STEP 4: Update dues payment history
-        if results["dues_payments"]["success"]:
-            try:
-                dues_changes = self._update_dues_payment_history(member_doc, payment_cache)
-                results["dues_payments"]["count"] = dues_changes
-                if dues_changes > 0:
-                    changes_made = True
-            except Exception as e:
-                log_operation_error("HIST_003", f"member {member_doc.name}", e)
-                results["dues_payments"]["success"] = False
-                results["dues_payments"]["error"] = str(e)
-                results["dues_payments"]["error_code"] = "HIST_003"
-                has_errors = True
+        if not result.success:
+            err_msg = "; ".join(result.errors) if result.errors else result.message
+            results["invoices"]["success"] = False
+            results["invoices"]["error"] = err_msg
+            results["invoices"]["error_code"] = "HIST_004"
+            return False, True
 
-        # STEP 5: Update invoice payment history
-        if results["invoices"]["success"]:
-            try:
-                invoice_changes = self._update_invoice_payment_history(member_doc, payment_cache)
-                results["invoices"]["count"] = invoice_changes
-                if invoice_changes > 0:
-                    changes_made = True
-            except Exception as e:
-                log_operation_error("HIST_004", f"member {member_doc.name}", e)
-                results["invoices"]["success"] = False
-                results["invoices"]["error"] = str(e)
-                results["invoices"]["error_code"] = "HIST_004"
-                has_errors = True
+        entries_loaded = result.data.get("entries_loaded", 0)
+        results["invoices"]["count"] = entries_loaded
 
-        return changes_made, has_errors
+        # The table was cleared and rebuilt: a save is warranted when rows were
+        # produced OR when previously-existing rows were cleared away.
+        changed = entries_loaded > 0 or rows_before > 0
+        return changed, False
 
     def _step_save_history_changes(self, member_doc: "Document", results: dict) -> bool:
         """Save member doc with history flags. Returns True if save failed."""
@@ -327,71 +310,6 @@ class MemberHistoryUpdateService(StatelessService):
             message=f"Incremental update: {summary}",
         )
 
-    def _prefetch_payment_references(self, member_doc: "Document") -> PaymentReferenceCache:
-        """
-        Prefetch payment reference data used by both dues and invoice history methods.
-
-        This method fetches all Payment Entry Reference data in bulk, avoiding
-        redundant queries when updating both dues payment history and invoice
-        payment history.
-
-        Args:
-            member_doc: Member document object
-
-        Returns:
-            PaymentReferenceCache: Cached data structure with:
-                - member_invoice_names: List of Sales Invoice names
-                - payment_refs_by_invoice: Dict mapping invoice -> payment refs
-                - payment_entries_data: Dict mapping payment entry name -> data
-                - reconciled_payment_entries: Set of reconciled payment entry names
-        """
-        cache = PaymentReferenceCache()
-
-        if not member_doc.customer:
-            return cache
-
-        # Get all Sales Invoices for this member's customer
-        cache.member_invoice_names = frappe.get_all(
-            "Sales Invoice",
-            filters={"customer": member_doc.customer, "docstatus": ["!=", 2]},
-            pluck="name",
-        )
-
-        if not cache.member_invoice_names:
-            return cache
-
-        # Get all payment references for these invoices in one query
-        payment_refs = frappe.get_all(
-            "Payment Entry Reference",
-            filters={
-                "reference_doctype": "Sales Invoice",
-                "reference_name": ["in", cache.member_invoice_names],
-            },
-            fields=["reference_name", "parent", "allocated_amount"],
-        )
-
-        # Group by invoice and collect unique payment entry names
-        all_payment_entry_names: Set[str] = set()
-        for ref in payment_refs:
-            if ref.reference_name not in cache.payment_refs_by_invoice:
-                cache.payment_refs_by_invoice[ref.reference_name] = []
-            cache.payment_refs_by_invoice[ref.reference_name].append(ref)
-            all_payment_entry_names.add(ref.parent)
-
-        # Build set of reconciled payment entries
-        cache.reconciled_payment_entries = all_payment_entry_names.copy()
-
-        # Get all unique payment entries in one query
-        if all_payment_entry_names:
-            payment_entries = frappe.get_all(
-                "Payment Entry",
-                filters={"name": ["in", list(all_payment_entry_names)], "docstatus": ["!=", 2]},
-                fields=["name", "posting_date", "mode_of_payment"],
-            )
-            cache.payment_entries_data = {pe.name: pe for pe in payment_entries}
-
-        return cache
-
     def _update_donation_history(self, member_doc: "Document") -> int:
         """Update donation history for a member using DonationHistoryManager.
 
@@ -404,324 +322,18 @@ class MemberHistoryUpdateService(StatelessService):
         Returns:
             int: Number of donation history changes (additions or removals)
         """
-        if not (hasattr(member_doc, "donor") and member_doc.donor):
+        if not (hasattr(member_doc, "donor") and member_doc.donor):  # ast-skip: dynamic attr
             return 0
 
         from verenigingen.utils.donation_history_manager import sync_donor_history
 
         # Sync uses the proper manager - check if it made changes
         original_donation_count = len(getattr(member_doc, "donation_history", []))
-        sync_donor_history(member_doc.donor)
+        sync_donor_history(member_doc.donor)  # ast-skip: dynamic attr
         # Reload to get updated donation history
         member_doc.reload()
         new_donation_count = len(getattr(member_doc, "donation_history", []))
         return abs(new_donation_count - original_donation_count)
-
-    @staticmethod
-    def _remove_stale_history_rows(member_doc, field_name, valid_names, filter_field, filter_value):
-        """Remove history rows whose reference is no longer in the valid set.
-
-        Args:
-            member_doc: Member document
-            field_name: Child table field (e.g. "payment_history")
-            valid_names: Set of currently valid reference names
-            filter_field: Row field to match against valid_names (e.g. "payment_entry")
-            filter_value: Tuple of (field, value) to narrow removal scope (e.g. ("transaction_type", "Membership Dues Payment"))
-
-        Returns:
-            int: Number of rows removed
-        """
-        rows = getattr(member_doc, field_name, None) or []
-        scope_field, scope_value = filter_value
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(rows)
-            if getattr(row, filter_field, None)
-            and getattr(row, filter_field) not in valid_names
-            and getattr(row, scope_field, None) == scope_value
-        ]
-        for idx in reversed(rows_to_remove):
-            rows.pop(idx)
-        return len(rows_to_remove)
-
-    @staticmethod
-    def _row_needs_update(existing_row, expected_row):
-        """Check if an existing history row differs from expected values."""
-        return any(
-            getattr(existing_row, field_name, None) != expected_value
-            for field_name, expected_value in expected_row.items()
-        )
-
-    def _update_or_add_history_row(self, member_doc, field_name, key, expected_row, existing_lookup):
-        """Update an existing history row or append a new one.
-
-        Args:
-            member_doc: Member document
-            field_name: Child table field name
-            key: Lookup key (e.g. payment entry name or invoice name)
-            expected_row: Dict of expected field values
-            existing_lookup: Dict mapping key -> existing row
-
-        Returns:
-            Tuple of (updated_count, added_count)
-        """
-        if key in existing_lookup:
-            existing_row = existing_lookup[key]
-            if self._row_needs_update(existing_row, expected_row):
-                for field_name_inner, expected_value in expected_row.items():
-                    setattr(existing_row, field_name_inner, expected_value)
-                return 1, 0
-            return 0, 0
-
-        try:
-            member_doc.append(field_name, expected_row)
-            return 0, 1
-        except Exception as e:
-            self.logger.error(f"Failed to append {key} for {member_doc.name}: {str(e)}")
-            return 0, 0
-
-    @staticmethod
-    def _build_dues_payment_row(payment):
-        """Build expected history row dict from an unreconciled Payment Entry."""
-        notes_parts = []
-        if payment.remarks:
-            notes_parts.append(payment.remarks)
-        if payment.reference_no:
-            notes_parts.append(f"Ref: {payment.reference_no}")
-
-        return {
-            "payment_entry": payment.name,
-            "payment_entry_doctype": "Payment Entry",
-            "transaction_type": "Membership Dues Payment",
-            "posting_date": payment.posting_date,
-            "payment_date": payment.posting_date,
-            "amount": payment.received_amount or payment.paid_amount,
-            "paid_amount": payment.received_amount or payment.paid_amount,
-            "payment_status": "Paid",
-            "payment_method": payment.mode_of_payment,
-            # NOTE: reference_name is a Dynamic Link field requiring reference_doctype.
-            # For dues payments, reference should link to Payment Entry (already in payment_entry field)
-            # or be empty. Do NOT store arbitrary strings like Mollie transaction IDs here.
-            "reference_doctype": None,
-            "reference_name": None,
-            "reconciled": 0,  # Unallocated payments are not reconciled
-            "notes": " | ".join(notes_parts) if notes_parts else "",
-        }
-
-    def _update_dues_payment_history(
-        self, member_doc: "Document", payment_cache: PaymentReferenceCache
-    ) -> int:
-        """
-        Rebuild membership dues payment history from Payment Entries with custom_member field
-        that are NOT already reconciled with the member's Sales Invoices.
-
-        Payment Entries that are reconciled with invoices are represented in the invoice
-        history rows (created by _update_invoice_payment_history). This method only creates
-        standalone rows for UNRECONCILED/UNALLOCATED payments.
-
-        Args:
-            member_doc: Member document object
-            payment_cache: Prefetched payment reference data from _prefetch_payment_references()
-
-        Returns:
-            int: Total number of changes (adds + updates + removals)
-        """
-        updated_count = 0
-        added_count = 0
-
-        # Get ALL dues payments (Payment Entries linked via custom_member) - full rebuild
-        current_payments = frappe.get_all(
-            "Payment Entry",
-            filters={
-                "custom_member": member_doc.name,
-                "docstatus": 1,  # Only submitted payment entries
-                "payment_type": "Receive",  # Only incoming payments
-            },
-            fields=[
-                "name",
-                "posting_date",
-                "paid_amount",
-                "received_amount",
-                "reference_no",
-                "reference_date",
-                "mode_of_payment",
-                "remarks",
-            ],
-            order_by="posting_date desc",
-        )
-
-        # Use cached reconciled payment entries to filter out payments already shown via invoices
-        unreconciled_payments = [
-            p for p in current_payments if p.name not in payment_cache.reconciled_payment_entries
-        ]
-
-        existing_payments = {row.payment_entry: row for row in (member_doc.payment_history or [])}
-        current_payment_names = {payment.name for payment in unreconciled_payments}
-
-        removed_count = self._remove_stale_history_rows(
-            member_doc,
-            "payment_history",
-            current_payment_names,
-            "payment_entry",
-            ("transaction_type", "Membership Dues Payment"),
-        )
-
-        for payment in unreconciled_payments:
-            expected_row = self._build_dues_payment_row(payment)
-            u, a = self._update_or_add_history_row(
-                member_doc, "payment_history", payment.name, expected_row, existing_payments
-            )
-            updated_count += u
-            added_count += a
-
-        return removed_count + updated_count + added_count
-
-    @staticmethod
-    def _resolve_payment_entry(payment_refs, payment_entries_data):
-        """Resolve the most recent payment entry from prefetched reference data.
-
-        Args:
-            payment_refs: List of payment reference dicts for an invoice
-            payment_entries_data: Dict mapping payment entry name → payment entry data
-
-        Returns:
-            Tuple of (payment_entry_name, payment_date, payment_method, reconciled)
-        """
-        if not payment_refs:
-            return None, None, None, 0
-
-        parent_names = [ref.parent for ref in payment_refs]
-        valid_payments = [payment_entries_data[name] for name in parent_names if name in payment_entries_data]
-
-        if not valid_payments:
-            return None, None, None, 0
-
-        most_recent = max(valid_payments, key=lambda p: p.posting_date)
-        return (
-            most_recent.name,
-            most_recent.posting_date,  # ast-skip: Payment Entry field
-            most_recent.mode_of_payment,  # ast-skip: Payment Entry field
-            1,
-        )
-
-    @staticmethod
-    def _build_invoice_history_row(
-        invoice, payment_entry, payment_date, payment_method, paid_amount, reconciled, payment_status
-    ):
-        """Build a payment history row dict from invoice and payment data.
-
-        Args:
-            invoice: Invoice dict with all required fields
-            payment_entry: Payment entry name or None
-            payment_date: Payment date or None
-            payment_method: Payment method string or None
-            paid_amount: Total paid amount
-            reconciled: 1 if reconciled, 0 otherwise
-            payment_status: Status string from _determine_payment_status
-
-        Returns:
-            Dict suitable for appending to member_doc.payment_history
-        """
-        return {
-            "invoice": invoice.name,
-            "invoice_doctype": "Sales Invoice",
-            "posting_date": invoice.posting_date,
-            "due_date": invoice.due_date,
-            "amount": invoice.grand_total,
-            "outstanding_amount": invoice.outstanding_amount,
-            "payment_status": payment_status,
-            "status": invoice.status,
-            "payment_date": payment_date,
-            "payment_entry": payment_entry,
-            "payment_method": payment_method,
-            "paid_amount": paid_amount,
-            "reconciled": reconciled,
-            "coverage_start_date": invoice.custom_coverage_start_date,
-            "coverage_end_date": invoice.custom_coverage_end_date,
-            "transaction_type": "Membership Invoice" if invoice.is_membership_invoice else "Regular Invoice",
-            "reference_doctype": None,
-            "reference_name": None,
-        }
-
-    def _process_single_invoice(self, member_doc, invoice, payment_cache, existing_invoices):
-        """Process a single invoice for history update. Returns (updated, added) counts."""
-        payment_refs = payment_cache.payment_refs_by_invoice.get(invoice.name, [])
-        paid_amount = sum(float(ref.allocated_amount or 0) for ref in payment_refs)
-
-        payment_entry, payment_date, payment_method, reconciled = self._resolve_payment_entry(
-            payment_refs, payment_cache.payment_entries_data
-        )
-        payment_status = determine_payment_status(invoice, paid_amount)
-        expected_row = self._build_invoice_history_row(
-            invoice, payment_entry, payment_date, payment_method, paid_amount, reconciled, payment_status
-        )
-
-        return self._update_or_add_history_row(
-            member_doc, "payment_history", invoice.name, expected_row, existing_invoices
-        )
-
-    def _update_invoice_payment_history(
-        self, member_doc: "Document", payment_cache: PaymentReferenceCache
-    ) -> int:
-        """
-        Rebuild membership invoice payment history from ALL Sales Invoices linked to member's customer.
-
-        Args:
-            member_doc: Member document object
-            payment_cache: Prefetched payment reference data from _prefetch_payment_references()
-
-        Returns:
-            int: Total number of changes (adds + updates + removals)
-        """
-        if not member_doc.customer:
-            return 0
-
-        updated_count = 0
-        added_count = 0
-
-        # Get ALL Sales Invoices for this member's customer - full rebuild
-        current_invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={
-                "customer": member_doc.customer,
-                "docstatus": ["!=", 2],  # Exclude cancelled
-            },
-            fields=[
-                "name",
-                "posting_date",
-                "due_date",
-                "grand_total",
-                "outstanding_amount",
-                "status",
-                "docstatus",
-                "custom_coverage_start_date",
-                "custom_coverage_end_date",
-                "is_membership_invoice",
-            ],
-            order_by="posting_date desc",
-        )
-
-        existing_invoices = {row.invoice: row for row in (member_doc.payment_history or []) if row.invoice}
-        current_invoice_names = {invoice.name for invoice in current_invoices}
-
-        removed_count = self._remove_stale_history_rows(
-            member_doc,
-            "payment_history",
-            current_invoice_names,
-            "invoice",
-            ("invoice_doctype", "Sales Invoice"),
-        )
-
-        for invoice in current_invoices:
-            try:
-                u, a = self._process_single_invoice(member_doc, invoice, payment_cache, existing_invoices)
-                updated_count += u
-                added_count += a
-            except Exception as e:
-                self.logger.error(f"Failed to process invoice {invoice.name} for {member_doc.name}: {str(e)}")
-                continue
-
-        return removed_count + updated_count + added_count
 
     @staticmethod
     def _process_fee_amendments(member_doc, applied_amendments, existing_entries_by_amendment):

@@ -4,16 +4,15 @@
 """
 Real-DB integration tests for MemberHistoryUpdateService.
 
-Covers the orchestration and the standalone row-building/diffing helpers that
-the existing suite did not exercise:
+Covers the history orchestration exposed by the Member-form "Rebuild Payment
+History" button:
 
 - incremental_update_history_tables: full rebuild against a member with real
-  Sales Invoices + a reconciled Payment Entry; returns OperationResult.ok and
-  populates payment_history rows.
-- _prefetch_payment_references: builds the reference cache from real refs.
-- _update_invoice_payment_history / _update_dues_payment_history: real rows.
-- _remove_stale_history_rows / _row_needs_update / _resolve_payment_entry /
-  _build_dues_payment_row / _build_invoice_history_row: pure logic on real data.
+  Sales Invoices; returns OperationResult.ok and populates payment_history.
+- The payment_history portion now delegates to
+  PaymentHistoryService.load_payment_history_batched (the single invoice-row
+  builder), so the rebuilt rows carry the Membership reference and SEPA-mandate
+  fields, and NO standalone "Membership Dues Payment" rows are produced.
 - refresh_fee_change_history: rebuilds fee_change_history from a real dues
   schedule and returns the documented OperationResult shape.
 """
@@ -22,15 +21,13 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.services.member.history.member_history_update_service import (
-    MemberHistoryUpdateService,
-    PaymentReferenceCache,
     get_member_history_update_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestMemberHistoryUpdateServiceRealDB(EnhancedTestCase):
-    """Exercise the history orchestration + helpers against real documents."""
+    """Exercise the history orchestration against real documents."""
 
     def setUp(self):
         super().setUp()
@@ -43,7 +40,9 @@ class TestMemberHistoryUpdateServiceRealDB(EnhancedTestCase):
 
     def _make_submitted_invoice(self, **kwargs):
         unique_series = f"THUS-{frappe.generate_hash(length=8).upper()}-.#####"
-        invoice = self.create_test_sales_invoice(self.member.name, naming_series=unique_series, **kwargs)
+        invoice = self.create_test_sales_invoice(
+            self.member.name, naming_series=unique_series, status="Draft", **kwargs
+        )
         invoice.submit()
         self.track_doc("Sales Invoice", invoice.name)
         return invoice
@@ -59,60 +58,72 @@ class TestMemberHistoryUpdateServiceRealDB(EnhancedTestCase):
         self.track_doc("Payment Entry", pe.name)
         return pe
 
+    def _link_membership(self, invoice_name, membership_name):
+        """Sales Invoice.membership is a read_only Custom Field; write it via
+        frappe.db.set_value (doc.save() silently drops read_only field changes)."""
+        frappe.db.set_value(
+            "Sales Invoice", invoice_name, "membership", membership_name, update_modified=False
+        )
+
     # ---- singleton / construction ----
 
     def test_service_singleton_and_name(self):
         self.assertEqual(self.service.service_name, "MemberHistoryUpdateService")
 
-    # ---- _prefetch_payment_references ----
+    # ---- incremental_update_history_tables (full orchestration) ----
 
-    def test_prefetch_no_customer_returns_empty_cache(self):
-        """A member with no customer yields an empty reference cache."""
-        bare = self.create_test_member(first_name="Bare", last_name="NoCust")
-        bare.customer = None
-        cache = self.service._prefetch_payment_references(bare)
-        self.assertIsInstance(cache, PaymentReferenceCache)
-        self.assertEqual(cache.member_invoice_names, [])
-
-    def test_prefetch_collects_reconciled_payment(self):
-        """Prefetch finds the invoice and its reconciled payment entry."""
+    def test_incremental_update_returns_ok(self):
+        """Full orchestration over a paid invoice succeeds and records the invoice row."""
         invoice = self._make_submitted_invoice()
-        pe = self._pay_invoice(invoice)
+        self._pay_invoice(invoice)
 
-        cache = self.service._prefetch_payment_references(self.member)
-        self.assertIn(invoice.name, cache.member_invoice_names)
-        self.assertIn(pe.name, cache.reconciled_payment_entries)
-        self.assertIn(invoice.name, cache.payment_refs_by_invoice)
+        result = self.service.incremental_update_history_tables(self.member)
+        self.assertTrue(result.success)
+        # The invoice row must be present after the rebuild.
+        self.member.reload()
+        invoice_rows = [r for r in (self.member.payment_history or []) if r.invoice == invoice.name]
+        self.assertEqual(len(invoice_rows), 1)
+        self.assertEqual(invoice_rows[0].reconciled, 1)
+        self.assertEqual(invoice_rows[0].payment_status, "Paid")
 
-    # ---- _update_invoice_payment_history ----
+    def test_incremental_update_no_invoices_ok_no_changes(self):
+        """A member with no financial activity returns ok with 'No changes'."""
+        result = self.service.incremental_update_history_tables(self.member)
+        self.assertTrue(result.success)
+        # dues_payments is retained in the contract but always zero now.
+        self.assertEqual(result.data["dues_payments"]["count"], 0)
 
-    def test_update_invoice_history_adds_row(self):
-        """Invoice history update appends a reconciled row for a paid invoice."""
-        invoice = self._make_submitted_invoice()
-        pe = self._pay_invoice(invoice)
-        cache = self.service._prefetch_payment_references(self.member)
+    def test_rebuild_emits_membership_reference_and_mandate(self):
+        """The rebuild flows the unified builder's Membership reference + SEPA-mandate
+        fields onto the row — the exact fields the removed hand-rolled invoice-row
+        builder never set (it hardcoded reference_doctype=None and omitted all mandate
+        fields), so clicking the button used to blank them."""
+        membership = self.create_test_membership(member=self.member.name)
+        invoice = self._make_submitted_invoice(is_membership_invoice=1)
+        self._link_membership(invoice.name, membership.name)
+        # A single active, membership-capable mandate.
+        mandate = self.create_test_sepa_mandate(
+            member_name=self.member.name, used_for_memberships=1, used_for_donations=0
+        )
+        self.track_doc("SEPA Mandate", mandate.name)
+        self.member.reload()
 
-        changes = self.service._update_invoice_payment_history(self.member, cache)
-        self.assertGreaterEqual(changes, 1)
+        result = self.service.incremental_update_history_tables(self.member)
+        self.assertTrue(result.success)
 
-        rows = [r for r in self.member.payment_history if r.invoice == invoice.name]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].reconciled, 1)
-        self.assertEqual(rows[0].payment_entry, pe.name)
-        self.assertEqual(rows[0].payment_status, "Paid")
+        self.member.reload()
+        row = next(r for r in (self.member.payment_history or []) if r.invoice == invoice.name)
+        self.assertEqual(row.transaction_type, "Membership Invoice")
+        self.assertEqual(row.reference_doctype, "Membership")
+        self.assertEqual(row.reference_name, membership.name)
+        self.assertEqual(row.has_mandate, 1)
+        self.assertEqual(row.sepa_mandate, mandate.name)
 
-    def test_update_invoice_history_no_customer_returns_zero(self):
-        """No customer -> invoice history update is a no-op returning 0."""
-        bare = self.create_test_member(first_name="Bare2", last_name="NoCust")
-        bare.customer = None
-        cache = PaymentReferenceCache()
-        self.assertEqual(self.service._update_invoice_payment_history(bare, cache), 0)
-
-    # ---- _update_dues_payment_history (unreconciled standalone payment) ----
-
-    def test_update_dues_history_adds_unreconciled_payment(self):
-        """A custom_member Payment Entry NOT tied to an invoice becomes a dues row."""
-        # Build a standalone Receive payment carrying custom_member.
+    def test_rebuild_is_invoice_only_no_standalone_dues_row(self):
+        """A custom_member Payment Entry NOT reconciled to an invoice must NOT
+        produce a standalone 'Membership Dues Payment' row — the rebuild is
+        invoice-only, matching every other payment_history writer."""
+        # Seed an invoice so we can borrow account fields for a standalone payment.
         seed_invoice = self._make_submitted_invoice()
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -139,106 +150,19 @@ class TestMemberHistoryUpdateServiceRealDB(EnhancedTestCase):
         pe.submit()
         self.track_doc("Payment Entry", pe.name)
 
-        # Empty cache -> this payment is NOT reconciled, so it must appear.
-        cache = PaymentReferenceCache()
-        changes = self.service._update_dues_payment_history(self.member, cache)
-        self.assertGreaterEqual(changes, 1)
-
-        rows = [r for r in self.member.payment_history if r.payment_entry == pe.name]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].transaction_type, "Membership Dues Payment")
-        self.assertEqual(rows[0].payment_status, "Paid")
-
-    # ---- incremental_update_history_tables (full orchestration) ----
-
-    def test_incremental_update_returns_ok(self):
-        """Full orchestration over a paid invoice succeeds and records invoice changes."""
-        invoice = self._make_submitted_invoice()
-        self._pay_invoice(invoice)
-
         result = self.service.incremental_update_history_tables(self.member)
         self.assertTrue(result.success)
-        # The invoice row must be present after the rebuild.
+
         self.member.reload()
-        invoice_rows = [r for r in (self.member.payment_history or []) if r.invoice == invoice.name]
-        self.assertEqual(len(invoice_rows), 1)
-
-    def test_incremental_update_no_invoices_ok_no_changes(self):
-        """A member with no financial activity returns ok with 'No changes'."""
-        result = self.service.incremental_update_history_tables(self.member)
-        self.assertTrue(result.success)
-
-    # ---- static helpers: pure logic ----
-
-    def test_row_needs_update_detects_diff(self):
-        """_row_needs_update is True when any expected field differs."""
-        row = frappe._dict(payment_status="Unpaid", amount=10.0)
-        self.assertTrue(MemberHistoryUpdateService._row_needs_update(row, {"payment_status": "Paid"}))
-        self.assertFalse(MemberHistoryUpdateService._row_needs_update(row, {"payment_status": "Unpaid"}))
-
-    def test_resolve_payment_entry_picks_most_recent(self):
-        """_resolve_payment_entry returns the latest posting_date payment."""
-        refs = [frappe._dict(parent="PE-A"), frappe._dict(parent="PE-B")]
-        data = {
-            "PE-A": frappe._dict(name="PE-A", posting_date="2024-01-01", mode_of_payment="Cash"),
-            "PE-B": frappe._dict(name="PE-B", posting_date="2024-06-01", mode_of_payment="Bank"),
-        }
-        name, date_, method, reconciled = MemberHistoryUpdateService._resolve_payment_entry(refs, data)
-        self.assertEqual(name, "PE-B")
-        self.assertEqual(method, "Bank")
-        self.assertEqual(reconciled, 1)
-
-    def test_resolve_payment_entry_empty_refs(self):
-        """No refs -> all-None, reconciled 0."""
-        result = MemberHistoryUpdateService._resolve_payment_entry([], {})
-        self.assertEqual(result, (None, None, None, 0))
-
-    def test_build_dues_payment_row_includes_notes(self):
-        """_build_dues_payment_row composes notes from remarks + reference_no."""
-        payment = frappe._dict(
-            name="PE-1",
-            remarks="Bank import",
-            reference_no="REF99",
-            posting_date="2024-03-01",
-            received_amount=20.0,
-            paid_amount=20.0,
-            mode_of_payment="Bank",
-        )
-        row = MemberHistoryUpdateService._build_dues_payment_row(payment)
-        self.assertEqual(row["transaction_type"], "Membership Dues Payment")
-        self.assertEqual(row["amount"], 20.0)
-        self.assertIn("Bank import", row["notes"])
-        self.assertIn("Ref: REF99", row["notes"])
-
-    def test_remove_stale_history_rows(self):
-        """_remove_stale_history_rows pops rows whose ref is no longer valid (scoped)."""
-        member = self.create_test_member(first_name="Stale", last_name="Rows")
-        member.append(
-            "payment_history",
-            {
-                "payment_entry": "PE-GONE",
-                "transaction_type": "Membership Dues Payment",
-                "amount": 1.0,
-            },
-        )
-        member.append(
-            "payment_history",
-            {
-                "payment_entry": "PE-KEEP",
-                "transaction_type": "Membership Dues Payment",
-                "amount": 1.0,
-            },
-        )
-        removed = MemberHistoryUpdateService._remove_stale_history_rows(
-            member,
-            "payment_history",
-            {"PE-KEEP"},
-            "payment_entry",
-            ("transaction_type", "Membership Dues Payment"),
-        )
-        self.assertEqual(removed, 1)
-        remaining = {r.payment_entry for r in member.payment_history}
-        self.assertEqual(remaining, {"PE-KEEP"})
+        dues_rows = [
+            r for r in (self.member.payment_history or []) if r.transaction_type == "Membership Dues Payment"
+        ]
+        self.assertEqual(dues_rows, [], "no standalone dues rows should be produced")
+        # The standalone PE must not appear as its own history row either.
+        standalone = [
+            r for r in (self.member.payment_history or []) if r.payment_entry == pe.name and not r.invoice
+        ]
+        self.assertEqual(standalone, [])
 
 
 class TestRefreshFeeChangeHistoryRealDB(EnhancedTestCase):

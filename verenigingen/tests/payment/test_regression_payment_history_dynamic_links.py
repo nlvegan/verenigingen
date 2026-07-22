@@ -142,20 +142,18 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
         self.assertIsNone(entry.get("sepa_mandate"))
         self.assertIsNone(entry.get("sepa_mandate_doctype"))
 
-    def test_build_from_invoice_doc_parity_with_query_row(self):
+    def test_query_row_entry_always_includes_dynamic_link_doctype_keys(self):
         """
-        Test that build_from_invoice_doc and build_from_query_row produce
-        entries with the same Dynamic Link fields.
+        build_from_query_row always emits every Dynamic Link *_doctype key, set to
+        None when its link is absent.
 
-        Both methods should include:
-        - invoice_doctype
-        - payment_entry_doctype (when applicable)
-        - sepa_mandate_doctype (when applicable)
+        This is the link-ABSENT complement to test_all_dynamic_link_fields_have_doctype_pair
+        (which covers the link-present case). Together they guarantee an appended row
+        never omits a Dynamic Link doctype pairing. (Cross-builder parity between
+        build_from_invoice_doc and build_from_query_row is covered separately in
+        test_payment_history_writer_parity.py::test_incremental_row_matches_rebuild_row.)
         """
-        # Test invoice_doctype is present in both
-        # is_membership_invoice/membership mirror what build_from_invoice_doc
-        # would read off the invoice doc (getattr(..., "is_membership_invoice", 0)
-        # / getattr(..., "membership", None)) so both builders see the same classifier.
+        # A bare invoice row: no payment_entry, no sepa_mandate.
         query_row = {
             "invoice_name": "ACC-SINV-2025-00006",
             "posting_date": "2025-01-15",
@@ -167,12 +165,16 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
             "membership": None,
         }
 
-        query_entry = PaymentHistoryEntryBuilder.build_from_query_row(query_row)
+        entry = PaymentHistoryEntryBuilder.build_from_query_row(query_row)
 
-        # Verify the key Dynamic Link fields exist
-        self.assertIn("invoice_doctype", query_entry)
-        self.assertIn("payment_entry_doctype", query_entry)
-        self.assertIn("sepa_mandate_doctype", query_entry)
+        # invoice link is present -> its doctype is set.
+        self.assertEqual(entry["invoice_doctype"], "Sales Invoice")
+        # The other Dynamic Link doctype keys must still exist, set to None (not absent),
+        # so append() never encounters a half-defined Dynamic Link.
+        self.assertIn("payment_entry_doctype", entry)
+        self.assertIsNone(entry["payment_entry_doctype"])
+        self.assertIn("sepa_mandate_doctype", entry)
+        self.assertIsNone(entry["sepa_mandate_doctype"])
 
     def test_member_save_with_payment_history_from_query_row(self):
         """
@@ -209,7 +211,7 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
         # The key assertion is that invoice_doctype is set when invoice is set
         self.assertTrue(
             entry.get("invoice") and entry.get("invoice_doctype"),
-            "invoice_doctype must be set when invoice is set"
+            "invoice_doctype must be set when invoice is set",
         )
 
     def test_all_dynamic_link_fields_have_doctype_pair(self):
@@ -246,7 +248,7 @@ class TestRegressionPaymentHistoryDynamicLinks(VereningingenTestCase):
                 self.assertEqual(
                     entry.get(doctype_field),
                     expected_doctype,
-                    f"{doctype_field} should be '{expected_doctype}' when {link_field} is set"
+                    f"{doctype_field} should be '{expected_doctype}' when {link_field} is set",
                 )
 
     def test_validation_entry_with_dynamic_links(self):
