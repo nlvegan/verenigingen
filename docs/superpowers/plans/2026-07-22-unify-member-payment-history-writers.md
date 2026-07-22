@@ -371,6 +371,95 @@ Claude-Session: https://claude.ai/code/session_014NZnxsmjTaNPUMQroLSFLu"
 
 ---
 
+## Task 2B: Add the Sales Invoice `membership` field and fetch it in the rebuild
+
+**Added mid-execution** (see spec "Correction discovered during implementation"): `Sales Invoice` has no `membership` field, so the Membership reference could never persist. Approved resolution: add the field (forward-only, no backfill).
+
+**Files:**
+- Modify: `verenigingen/fixtures/custom_field.json` (add one Sales Invoice field)
+- Modify: `verenigingen/services/member/payment/payment_history_service.py` (`_fetch_invoices` — add `membership` to the queried fields, guarded by `has_column`)
+- Test: `verenigingen/tests/services/test_payment_history_service_realdb.py`
+
+**Interfaces:**
+- Produces: a persisted `membership` Link(Membership) field on Sales Invoice; the rebuild's invoice query returns `membership`; `build_from_query_row` (Task 1) already turns it into `reference_doctype="Membership"`/`reference_name=<membership>`.
+
+- [ ] **Step 1: Add the custom field fixture**
+
+Add to `verenigingen/fixtures/custom_field.json` a full entry modelled on the existing `"Sales Invoice-is_membership_invoice"` entry (copy ALL its keys/defaults, changing only the fields below):
+
+```json
+{
+  "name": "Sales Invoice-membership",
+  "dt": "Sales Invoice",
+  "fieldname": "membership",
+  "fieldtype": "Link",
+  "label": "Membership",
+  "options": "Membership",
+  "insert_after": "is_membership_invoice",
+  "module": "Verenigingen",
+  "read_only": 1
+}
+```
+Keep every other key at the same default the sibling `is_membership_invoice` entry uses (docstatus, translatable, etc.). `read_only: 1` because the generator populates it, not the user.
+
+- [ ] **Step 2: Migrate the test site so the column exists**
+
+Run: `bench --site test_site_1 migrate`
+Then verify: `bench --site test_site_1 console` → `frappe.db.has_column("Sales Invoice", "membership")` returns `True`. Repeat migrate on any other test_site_N a test run will use.
+
+- [ ] **Step 3: Write the failing test** — the reference now flows end-to-end.
+
+```python
+def test_membership_reference_persists_and_flows_to_history(self):
+    """With the membership field present, a linked membership becomes the row reference."""
+    membership = self.create_test_membership(member=self.member.name)  # or the factory's equivalent
+    inv = self._make_submitted_invoice(is_membership_invoice=1)
+    frappe.db.set_value("Sales Invoice", inv.name, "membership", membership.name)
+    self.member.reload()
+    self.service.load_payment_history_batched(self.member)
+    row = next(r for r in self.member.payment_history if r.invoice == inv.name)
+    self.assertEqual(row.transaction_type, "Membership Invoice")
+    self.assertEqual(row.reference_doctype, "Membership")
+    self.assertEqual(row.reference_name, membership.name)
+```
+If the factory has no `create_test_membership`, create a minimal Membership doc inline in the test helper (real doc, no mock) and `track_doc` it. If setting `membership` via the field is blocked because it is read_only, use `frappe.db.set_value` as shown (bypasses the read-only UI guard for test setup).
+
+- [ ] **Step 4: Run test to verify it fails**
+
+Run: `bench --site test_site_1 run-tests --app verenigingen --module verenigingen.tests.services.test_payment_history_service_realdb`
+Expected: FAIL — `_fetch_invoices` does not yet select `membership`, so the builder receives `membership=None` and `reference_doctype` stays `None`.
+
+- [ ] **Step 5: Fetch `membership` in `_fetch_invoices`**
+
+In `payment_history_service.py._fetch_invoices`, following the existing `has_column` guard pattern used for the coverage fields, conditionally append `membership` to the queried fields:
+
+```python
+        if frappe.db.has_column("Sales Invoice", "membership"):
+            query_fields.append("membership")
+```
+(Place it alongside the coverage-field guard block so the query stays a single `frappe.get_all`.) The builder already maps `row.get("membership")` → the reference.
+
+- [ ] **Step 6: Run test to verify it passes**
+
+Run: `bench --site test_site_1 run-tests --app verenigingen --module verenigingen.tests.services.test_payment_history_service_realdb`
+Expected: PASS (new test + all pre-existing).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add verenigingen/fixtures/custom_field.json verenigingen/services/member/payment/payment_history_service.py verenigingen/tests/services/test_payment_history_service_realdb.py
+git commit -m "feat(payment-history): add persisted Sales Invoice membership link
+
+Sales Invoice had no membership field, so the dues generator's assignment
+never persisted. Add the Link(Membership) custom field (forward-only) and
+fetch it in the rebuild so the Membership reference is real and consistent
+across both writers.
+
+Claude-Session: https://claude.ai/code/session_014NZnxsmjTaNPUMQroLSFLu"
+```
+
+---
+
 ## Task 3: Delete the phantom PE row-types from the service
 
 **Files:**

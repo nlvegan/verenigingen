@@ -154,6 +154,23 @@ is an accident of history.
   The rebuild's batch query selects both `is_membership_invoice` and
   `membership` and feeds them to `build_from_query_row`.
 
+  **Correction discovered during implementation:** `Sales Invoice` has **no
+  `membership` field today** — no DB column and no Custom Field (only
+  `is_membership_invoice` exists). The dues generator's existing
+  `invoice.membership = member_doc.current_membership_plan` (invoice_generator.py)
+  therefore sets a transient attribute that never persists.
+  `Member.current_membership_plan` is a `Link` to **Membership**, so that
+  assignment is semantically correct — it just has nowhere to land.
+
+  **Resolution (approved):** *add* the field. Introduce a `membership`
+  `Link(Membership)` Custom Field on Sales Invoice via the app's
+  `verenigingen/fixtures/custom_field.json` fixtures. The generator's existing
+  assignment then persists, and both writers read one persisted field so the
+  reference is consistent by construction. **Forward-only — no backfill** of
+  existing invoices (they keep whatever reference they already have). The
+  rebuild query fetches `membership` guarded by `has_field`/`has_column` (test
+  sites gain the column on migrate).
+
   **Intended behavior change:** `build_from_invoice_doc` today classifies purely
   on `invoice_doc.membership`, so a membership invoice lacking the link is
   currently mislabelled "Regular Invoice". Under this decision it correctly
