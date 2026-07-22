@@ -57,16 +57,6 @@ class PaymentHistoryEntryBuilder:
         Returns:
             Dictionary with payment history entry data
         """
-        # Determine transaction type and reference
-        transaction_type = "Regular Invoice"
-        reference_doctype = None
-        reference_name = None
-
-        if hasattr(invoice_doc, "membership") and invoice_doc.membership:  # ast-skip: custom field
-            transaction_type = "Membership Invoice"
-            reference_doctype = "Membership"
-            reference_name = invoice_doc.membership  # ast-skip: custom field checked with hasattr
-
         # Find linked payment entries
         payment_entries = frappe.get_all(
             "Payment Entry Reference",
@@ -74,7 +64,6 @@ class PaymentHistoryEntryBuilder:
             fields=["parent", "allocated_amount"],
         )
 
-        payment_status = "Unpaid"
         payment_date = None
         payment_entry = None
         payment_method = None
@@ -101,19 +90,6 @@ class PaymentHistoryEntryBuilder:
                 payment_date = most_recent_payment[0].posting_date
                 payment_method = most_recent_payment[0].mode_of_payment
                 reconciled = 1
-
-        # Determine payment status
-        # ✅ FIX: Handle draft invoices explicitly
-        if invoice_doc.docstatus == 0:
-            payment_status = "Draft"
-        elif invoice_doc.status == "Paid" or invoice_doc.outstanding_amount <= 0:
-            payment_status = "Paid"
-        elif invoice_doc.status == "Overdue":
-            payment_status = "Overdue"
-        elif invoice_doc.status == "Cancelled":
-            payment_status = "Cancelled"
-        elif paid_amount > 0 and paid_amount < invoice_doc.grand_total:
-            payment_status = "Partially Paid"
 
         # Get coverage dates if available
         # ✅ FIX: Validate fields exist in DocType per CLAUDE.md guidelines
@@ -165,81 +141,90 @@ class PaymentHistoryEntryBuilder:
                 mandate_status = default_mandate.status
                 mandate_reference = default_mandate.mandate_id
 
-        # Build the entry dictionary
-        entry = {
-            "invoice": invoice_doc.name,
-            "invoice_doctype": "Sales Invoice",  # Required for Dynamic Link
+        row = {
+            "invoice_name": invoice_doc.name,
+            "is_membership_invoice": getattr(invoice_doc, "is_membership_invoice", 0),
+            "membership": getattr(invoice_doc, "membership", None),  # ast-skip: custom field
             "posting_date": invoice_doc.posting_date,
             "due_date": invoice_doc.due_date,
+            "grand_total": invoice_doc.grand_total,
+            "outstanding_amount": invoice_doc.outstanding_amount,
+            "invoice_status": invoice_doc.status,
+            "docstatus": invoice_doc.docstatus,
             "coverage_start_date": coverage_start_date,
             "coverage_end_date": coverage_end_date,
-            "transaction_type": transaction_type,
-            "reference_doctype": reference_doctype,
-            "reference_name": reference_name,
-            "amount": invoice_doc.grand_total,
-            "outstanding_amount": invoice_doc.outstanding_amount,
-            "status": invoice_doc.status,
-            "payment_status": payment_status,
-            "payment_date": payment_date,
-            "payment_entry": payment_entry,
-            "payment_entry_doctype": "Payment Entry" if payment_entry else None,  # Required for Dynamic Link
-            "payment_method": payment_method,
             "paid_amount": paid_amount,
             "reconciled": reconciled,
+            "payment_entry": payment_entry,
+            "payment_date": payment_date,
+            "payment_method": payment_method,
             "has_mandate": has_mandate,
             "sepa_mandate": sepa_mandate,
-            "sepa_mandate_doctype": "SEPA Mandate" if sepa_mandate else None,  # Required for Dynamic Link
             "mandate_status": mandate_status,
             "mandate_reference": mandate_reference,
         }
-
-        return entry
+        return PaymentHistoryEntryBuilder.build_from_query_row(row)
 
     @staticmethod
     def build_from_query_row(row: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Build a payment history entry from a database query row.
+        Build a payment history entry from a canonical row dict.
 
-        Used by optimized bulk queries where we already have the data
-        and don't need to fetch the full document.
-
-        Args:
-            row: Dictionary with invoice data from query
-
-        Returns:
-            Dictionary with payment history entry data
+        This is THE single invoice-row constructor. Callers (incremental builder
+        via build_from_invoice_doc, and the batch rebuild) assemble the canonical
+        row schema and pass it here so every writer emits identical rows.
         """
-        # Determine transaction type and reference
-        if row.get("membership_id"):
-            transaction_type = "Membership Invoice"
-            reference_doctype = "Membership"
-            reference_name = row["membership_id"]
-        else:
-            transaction_type = "Regular Invoice"
-            reference_doctype = "Sales Invoice"
-            reference_name = row["invoice_name"]
+        from verenigingen.utils import determine_payment_status
 
-        entry = {
+        # Classifier: the unconditionally-set boolean (NOT the conditional link).
+        is_membership = bool(row.get("is_membership_invoice"))
+        membership = row.get("membership")
+        transaction_type = "Membership Invoice" if is_membership else "Regular Invoice"
+        if is_membership and membership:
+            reference_doctype = "Membership"
+            reference_name = membership
+        else:
+            reference_doctype = None
+            reference_name = None
+
+        # Shared payment-status derivation (same util the service uses).
+        status_shim = frappe._dict(
+            docstatus=row.get("docstatus"),
+            status=row.get("invoice_status"),
+            outstanding_amount=flt(row.get("outstanding_amount")),
+            grand_total=flt(row.get("grand_total")),
+        )
+        payment_status = determine_payment_status(status_shim, flt(row.get("paid_amount", 0)))
+
+        payment_entry = row.get("payment_entry")
+        sepa_mandate = row.get("sepa_mandate")
+
+        return {
             "invoice": row["invoice_name"],
             "invoice_doctype": "Sales Invoice",  # Required for Dynamic Link
-            "posting_date": row["posting_date"],
+            "posting_date": row.get("posting_date"),
             "due_date": row.get("due_date"),
+            "coverage_start_date": row.get("coverage_start_date"),
+            "coverage_end_date": row.get("coverage_end_date"),
             "transaction_type": transaction_type,
             "reference_doctype": reference_doctype,
             "reference_name": reference_name,
-            "amount": flt(row["grand_total"]),
-            "outstanding_amount": flt(row["outstanding_amount"]),
+            "amount": flt(row.get("grand_total")),
+            "outstanding_amount": flt(row.get("outstanding_amount")),
             "status": row.get("invoice_status"),
-            "payment_status": row.get("payment_status", "Unpaid"),
+            "payment_status": payment_status,
             "payment_date": row.get("payment_date"),
-            "paid_amount": flt(row.get("allocated_amount", 0)),
-            "payment_entry": row.get("payment_entry"),
-            "payment_entry_doctype": "Payment Entry" if row.get("payment_entry") else None,
-            "sepa_mandate": row.get("sepa_mandate"),
-            "sepa_mandate_doctype": "SEPA Mandate" if row.get("sepa_mandate") else None,
+            "payment_entry": payment_entry,
+            "payment_entry_doctype": "Payment Entry" if payment_entry else None,
+            "payment_method": row.get("payment_method"),
+            "paid_amount": flt(row.get("paid_amount", 0)),
+            "reconciled": 1 if row.get("reconciled") else 0,
+            "has_mandate": 1 if row.get("has_mandate") else 0,
+            "sepa_mandate": sepa_mandate,
+            "sepa_mandate_doctype": "SEPA Mandate" if sepa_mandate else None,
+            "mandate_status": row.get("mandate_status"),
+            "mandate_reference": row.get("mandate_reference"),
         }
-
-        return entry
 
     @staticmethod
     def validate_entry(entry: Dict[str, Any]) -> tuple[bool, list[str]]:
