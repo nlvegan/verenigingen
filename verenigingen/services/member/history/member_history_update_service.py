@@ -9,7 +9,6 @@ including donations, payments, invoices, volunteer expenses, and fee changes.
 
 Extracted from member.py:
 - incremental_update_history_tables() - orchestration (lines 2676-2759, 84 LOC)
-- _update_donation_history() - uses DonationHistoryManager (14 LOC)
 - refresh_fee_change_history() - fee history refresh (lines 3143-3327, 185 LOC)
 
 Architecture:
@@ -309,31 +308,6 @@ class MemberHistoryUpdateService(StatelessService):
             results,
             message=f"Incremental update: {summary}",
         )
-
-    def _update_donation_history(self, member_doc: "Document") -> int:
-        """Update donation history for a member using DonationHistoryManager.
-
-        Synchronizes donation records from Donor document to member's donation_history
-        child table using the centralized DonationHistoryManager.
-
-        Args:
-            member_doc: Member document object
-
-        Returns:
-            int: Number of donation history changes (additions or removals)
-        """
-        if not (hasattr(member_doc, "donor") and member_doc.donor):  # ast-skip: dynamic attr
-            return 0
-
-        from verenigingen.utils.donation_history_manager import sync_donor_history
-
-        # Sync uses the proper manager - check if it made changes
-        original_donation_count = len(getattr(member_doc, "donation_history", []))
-        sync_donor_history(member_doc.donor)  # ast-skip: dynamic attr
-        # Reload to get updated donation history
-        member_doc.reload()
-        new_donation_count = len(getattr(member_doc, "donation_history", []))
-        return abs(new_donation_count - original_donation_count)
 
     @staticmethod
     def _process_fee_amendments(member_doc, applied_amendments, existing_entries_by_amendment):

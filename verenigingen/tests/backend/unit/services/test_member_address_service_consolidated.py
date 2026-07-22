@@ -25,6 +25,7 @@ class TestMemberAddressServiceExecuteUpdate(unittest.TestCase):
         from verenigingen.services.member.core.member_address_service import (
             get_member_address_service,
         )
+
         self.service = get_member_address_service()
 
     def test_execute_update_success(self):
@@ -33,9 +34,7 @@ class TestMemberAddressServiceExecuteUpdate(unittest.TestCase):
         mock_member.name = "MEM-001"
 
         with patch.object(
-            self.service,
-            "update_member_address_fields",
-            return_value=OperationResult.ok("fingerprint123")
+            self.service, "update_member_address_fields", return_value=OperationResult.ok("fingerprint123")
         ):
             # Should not raise
             self.service.execute_address_field_update(mock_member)
@@ -49,7 +48,7 @@ class TestMemberAddressServiceExecuteUpdate(unittest.TestCase):
         with patch.object(
             self.service,
             "update_member_address_fields",
-            return_value=OperationResult.fail("Normalization failed", errors=["Error 1"])
+            return_value=OperationResult.fail("Normalization failed", errors=["Error 1"]),
         ):
             self.service.execute_address_field_update(mock_member)
 
@@ -62,9 +61,7 @@ class TestMemberAddressServiceExecuteUpdate(unittest.TestCase):
         mock_member.name = "MEM-001"
 
         with patch.object(
-            self.service,
-            "update_member_address_fields",
-            side_effect=Exception("Database error")
+            self.service, "update_member_address_fields", side_effect=Exception("Database error")
         ):
             # Should not raise
             self.service.execute_address_field_update(mock_member)
@@ -80,6 +77,7 @@ class TestMemberAddressServiceGetOtherMembersSafe(unittest.TestCase):
         from verenigingen.services.member.core.member_address_service import (
             get_member_address_service,
         )
+
         self.service = get_member_address_service()
 
     def test_returns_members_on_success(self):
@@ -91,9 +89,7 @@ class TestMemberAddressServiceGetOtherMembersSafe(unittest.TestCase):
         expected_members = [{"name": "MEM-002", "full_name": "John Doe"}]
 
         with patch.object(
-            self.service,
-            "get_colocated_members",
-            return_value=OperationResult.ok(expected_members, count=1)
+            self.service, "get_colocated_members", return_value=OperationResult.ok(expected_members, count=1)
         ):
             result = self.service.get_other_members_at_address_safe(mock_member)
 
@@ -108,7 +104,7 @@ class TestMemberAddressServiceGetOtherMembersSafe(unittest.TestCase):
         with patch.object(
             self.service,
             "get_colocated_members",
-            return_value=OperationResult.fail("Query failed", errors=["Error"])
+            return_value=OperationResult.fail("Query failed", errors=["Error"]),
         ):
             result = self.service.get_other_members_at_address_safe(mock_member)
 
@@ -121,54 +117,11 @@ class TestMemberAddressServiceGetOtherMembersSafe(unittest.TestCase):
         mock_member.name = "MEM-001"
         mock_member.primary_address = "ADDR-001"
 
-        with patch.object(
-            self.service,
-            "get_colocated_members",
-            side_effect=Exception("Database error")
-        ):
+        with patch.object(self.service, "get_colocated_members", side_effect=Exception("Database error")):
             result = self.service.get_other_members_at_address_safe(mock_member)
 
         self.assertEqual(result, [])
         mock_frappe.log_error.assert_called()
-
-
-class TestMemberHistoryServiceDonationHistory(unittest.TestCase):
-    """Test _update_donation_history() method in MemberHistoryUpdateService"""
-
-    def setUp(self):
-        super().setUp()
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-        self.service = get_member_history_update_service()
-
-    def test_returns_zero_when_no_donor(self):
-        """Test that zero is returned when member has no donor"""
-        mock_member = MagicMock()
-        mock_member.donor = None
-
-        result = self.service._update_donation_history(mock_member)
-
-        self.assertEqual(result, 0)
-
-    @patch("verenigingen.utils.donation_history_manager.sync_donor_history")
-    def test_syncs_and_returns_change_count(self, mock_sync):
-        """Test that donation history is synced and change count returned"""
-        mock_member = MagicMock()
-        mock_member.donor = "DONOR-001"
-        mock_member.donation_history = [1, 2, 3]  # 3 items initially
-
-        # After reload, simulate 5 items
-        def reload_side_effect():
-            mock_member.donation_history = [1, 2, 3, 4, 5]
-
-        mock_member.reload.side_effect = reload_side_effect
-
-        result = self.service._update_donation_history(mock_member)
-
-        mock_sync.assert_called_once_with("DONOR-001")
-        mock_member.reload.assert_called_once()
-        self.assertEqual(result, 2)  # 5 - 3 = 2 changes
 
 
 if __name__ == "__main__":
