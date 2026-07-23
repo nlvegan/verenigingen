@@ -280,15 +280,20 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         add_permission("Payment Entry", role, 0)  # sets read=1
         update_permission_property("Payment Entry", role, 0, "create", 1)
 
-        # has_permission() reads the role rows off the *cached* Payment Entry meta
-        # (Meta.set_custom_permissions rebuilds meta.permissions from Custom DocPerm
-        # only at Meta construction; get_meta then caches it). In a shared-process
-        # parallel shard the meta can already be cached (from an earlier sibling
-        # that committed Custom DocPerm) BEFORE this role's grant is inserted, so
-        # the fresh Custom DocPerm is invisible to the guard below -- an
-        # order-dependent failure. frappe.clear_cache(doctype=...) is not enough
-        # here (it failed to bust the cache in CI); force a rebuild that reads the
-        # current Custom DocPerm and OVERWRITES the cached meta.
+        # has_permission() reads role rows off the *cached* Payment Entry meta AND
+        # memoises the computed result in the request-local role_permissions map
+        # (frappe.local.role_permissions), keyed by doctype. In a shared-process
+        # parallel shard both can be populated by an earlier sibling BEFORE this
+        # role's Custom DocPerm is inserted, so the fresh grant is invisible to the
+        # guard below -- an order-dependent failure that only shows up on certain
+        # shard compositions. Neither frappe.clear_cache(doctype=...) nor
+        # get_meta(cached=False) alone busted it in CI, because the stale answer was
+        # already memoised in role_permissions. Clear all three layers: the full
+        # cache, the request-local role_permissions memo, then force a meta rebuild
+        # that reads the current Custom DocPerm.
+        frappe.clear_cache()
+        if hasattr(frappe.local, "role_permissions"):
+            frappe.local.role_permissions = {}
         frappe.get_meta("Payment Entry", cached=False)
 
     def test_create_permission_denied_raises_permission_error(self):
