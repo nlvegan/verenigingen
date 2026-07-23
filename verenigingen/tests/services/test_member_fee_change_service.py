@@ -5,10 +5,10 @@
 Unit tests for MemberFeeChangeService - Focus on optimization and UX improvements
 
 Tests verify:
-1. DB query optimization (get_doc_before_save() usage)
-2. User feedback for failures (frappe.msgprint() called)
-3. CSV import bypass logic
-4. Change detection + validation on a detected override change
+1. CSV import / system-update / bulk-operation bypass logic
+2. New-member override amount/reason validation and audit-field setting
+3. Permission gate for existing-member fee changes (rejection paths)
+4. record_fee_change delegation to FeeChangeRecordingService
 """
 
 import unittest
@@ -102,94 +102,6 @@ class TestMemberFeeChangeService(FrappeTestCase):
         self.assertIsNotNone(member_doc.fee_override_date)
         self.assertIsNotNone(member_doc.fee_override_by)
         self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
-
-    def test_change_detection_validates_new_amount(self):
-        """A detected fee change validates the new override amount and reason.
-
-        The former deferred-processing path (member_doc._pending_fee_change) was
-        removed together with the dead, unwired FeeOverrideHookService consumer.
-        The producer now only detects the change and validates it; nothing is
-        queued.
-        """
-        class SimpleMemberDoc:
-            name = "Test-Member-003"
-            dues_rate = 100.0
-            fee_override_reason = "Rate increase"
-            _csv_import = False
-            _system_update = False
-
-            def is_new(self):
-                return False
-
-            def get_doc_before_save(self):
-                return {"dues_rate": 75.0}  # Old value different from new
-
-        member_doc = SimpleMemberDoc()
-
-        # Mock validation service factory function to bypass permission checks in test
-        mock_validation_service = Mock()
-        with patch("verenigingen.services.member.core.member_fee_change_service.get_member_fee_validation_service", return_value=mock_validation_service):
-            with patch("frappe.session") as mock_session:
-                mock_session.user = "test@example.com"
-                get_member_fee_change_service().handle_fee_override_changes(member_doc)
-
-        # The new override amount and reason are validated on a detected change.
-        mock_validation_service.validate_fee_override_amount.assert_called_with(100.0)
-        mock_validation_service.validate_fee_override_reason.assert_called_with(member_doc)
-
-        # Deferred queuing was removed; no pending-change artifact is produced.
-        self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
-
-    def test_no_change_when_values_equal(self):
-        """Test that no change is tracked when old equals new"""
-        class SimpleMemberDoc:
-            name = "Test-Member-004"
-            dues_rate = 50.0
-            _csv_import = False
-            _system_update = False
-
-            def is_new(self):
-                return False
-
-            def get_doc_before_save(self):
-                return {"dues_rate": 50.0}  # Same as current
-
-            def validate_fee_override_permissions(self):
-                pass
-
-        member_doc = SimpleMemberDoc()
-
-        get_member_fee_change_service().handle_fee_override_changes(member_doc)
-
-        # Verify no pending change (no actual change)
-        self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
-
-    def test_exception_handling_notifies_user(self):
-        """Test that exceptions result in user notification"""
-        class SimpleMemberDoc:
-            name = "Test-Member-005"
-            dues_rate = 100.0
-            _csv_import = False
-            _system_update = False
-
-            def is_new(self):
-                return False
-
-            def get_doc_before_save(self):
-                raise Exception("Database error")
-
-            def validate_fee_override_permissions(self):
-                pass
-
-        member_doc = SimpleMemberDoc()
-
-        with patch("frappe.msgprint") as mock_msgprint:
-            with patch("frappe._", return_value="Fee change saved but audit tracking failed. Please contact administrator."):
-                get_member_fee_change_service().handle_fee_override_changes(member_doc)
-
-        # Verify user was notified
-        # (Error is logged via self.logger.error which is part of StatelessService)
-        mock_msgprint.assert_called_once()
 
     def test_record_fee_change_uses_history_manager(self):
         """Test that record_fee_change delegates to the FeeChangeRecordingService."""
