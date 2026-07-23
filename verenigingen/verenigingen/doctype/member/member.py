@@ -37,7 +37,6 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.member.core.member_address_service import get_member_address_service
 from verenigingen.services.member.core.member_id_service import generate_application_id, generate_member_id
 from verenigingen.services.member.core.member_status_service import (
@@ -55,21 +54,9 @@ from verenigingen.services.member.utils.member_age_service import (
 from verenigingen.services.member.utils.membership_duration_service import (
     calculate_total_membership_days as calculate_duration_days,
 )
-from verenigingen.utils.address_matching.dutch_address_normalizer import (
-    AddressFingerprintCollisionHandler,
-    DutchAddressNormalizer,
-)
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_service import update_member_full_name, validate_member_name_fields
-from verenigingen.utils.dutch_name_utils import (
-    format_dutch_full_name,
-    get_full_last_name,
-    is_dutch_installation,
-)
-from verenigingen.utils.member_utils import get_active_membership_for_member, get_volunteer_for_member
 from verenigingen.utils.operation_result import OperationResult
-from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
