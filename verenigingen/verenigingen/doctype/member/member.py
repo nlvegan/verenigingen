@@ -922,18 +922,6 @@ def get_board_memberships(member_name: str):
     return get_chapter_management_service().get_board_memberships(member_name)
 
 
-def handle_fee_override_after_save(doc, method=None):
-    """
-    Hook function to handle fee override changes after save.
-
-    EXTRACTED: Delegates to FeeOverrideHookService for processing.
-    See services/member/financial/fee_override_hook_service.py for implementation.
-    """
-    from verenigingen.services.member.financial import handle_fee_override_after_save as _handle
-
-    _handle(doc, method)
-
-
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def assign_member_id(member_name: str):

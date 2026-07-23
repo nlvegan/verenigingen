@@ -8,7 +8,7 @@ Tests verify:
 1. DB query optimization (get_doc_before_save() usage)
 2. User feedback for failures (frappe.msgprint() called)
 3. CSV import bypass logic
-4. Deferred processing pattern
+4. Change detection + validation on a detected override change
 """
 
 import unittest
@@ -18,7 +18,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.member.core.member_fee_change_service import (
-    MemberFeeChangeService,
     get_member_fee_change_service,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -104,8 +103,14 @@ class TestMemberFeeChangeService(FrappeTestCase):
         self.assertIsNotNone(member_doc.fee_override_by)
         self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
 
-    def test_change_detection_creates_pending_change(self):
-        """Test that actual fee changes are queued for processing"""
+    def test_change_detection_validates_new_amount(self):
+        """A detected fee change validates the new override amount and reason.
+
+        The former deferred-processing path (member_doc._pending_fee_change) was
+        removed together with the dead, unwired FeeOverrideHookService consumer.
+        The producer now only detects the change and validates it; nothing is
+        queued.
+        """
         class SimpleMemberDoc:
             name = "Test-Member-003"
             dues_rate = 100.0
@@ -128,10 +133,12 @@ class TestMemberFeeChangeService(FrappeTestCase):
                 mock_session.user = "test@example.com"
                 get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
-        # Verify pending change was created
-        self.assertTrue(hasattr(member_doc, "_pending_fee_change"))
-        self.assertEqual(member_doc._pending_fee_change["old_amount"], 75.0)
-        self.assertEqual(member_doc._pending_fee_change["new_amount"], 100.0)
+        # The new override amount and reason are validated on a detected change.
+        mock_validation_service.validate_fee_override_amount.assert_called_with(100.0)
+        mock_validation_service.validate_fee_override_reason.assert_called_with(member_doc)
+
+        # Deferred queuing was removed; no pending-change artifact is produced.
+        self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
 
     def test_no_change_when_values_equal(self):
         """Test that no change is tracked when old equals new"""

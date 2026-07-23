@@ -9,17 +9,11 @@ Services:
 - MemberFeeCalculationService: Membership fee calculations
 - MemberFeeValidationService: Fee override validation
 - MemberItemService: Membership billing item management
-- FeeOverrideHookService: Fee override after-save hook handling
 """
 
 from verenigingen.services.member.financial.fee_change_recording_service import (
     FeeChangeRecordingService,
     get_fee_change_recording_service,
-)
-from verenigingen.services.member.financial.fee_override_hook_service import (
-    FeeOverrideHookService,
-    get_fee_override_hook_service,
-    handle_fee_override_after_save,
 )
 from verenigingen.services.member.financial.member_fee_calculation_service import (
     MemberFeeCalculationService,
@@ -43,7 +37,4 @@ __all__ = [
     "get_member_fee_validation_service",
     "MemberItemService",
     "get_member_item_service",
-    "FeeOverrideHookService",
-    "get_fee_override_hook_service",
-    "handle_fee_override_after_save",
 ]
