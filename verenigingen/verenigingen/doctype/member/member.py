@@ -31,14 +31,11 @@ Author: Verenigingen Development Team
 Last Updated: 2025-08-02
 """
 
-import random
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import date_diff, getdate, now, now_datetime, today
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.member.core.member_address_service import get_member_address_service
@@ -50,7 +47,6 @@ from verenigingen.services.member.core.member_status_service import (
     update_member_membership_status,
 )
 from verenigingen.services.member.utils.member_age_service import (
-    get_age_group,
     update_member_age_field,
     validate_member_age_requirements,
 )
@@ -83,7 +79,6 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 # Migrated from old security_decorators to new api_security_framework
-from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
 from verenigingen.verenigingen.doctype.member.mixins.expense_mixin import ExpenseMixin
 from verenigingen.verenigingen.doctype.member.mixins.financial_mixin import FinancialMixin
@@ -375,19 +370,6 @@ class Member(
 
         return force_assign_member_id(self)
 
-    def _guess_relationship(self, other_member):
-        """
-        Attempt to guess relationship based on name patterns and data.
-
-        EXTRACTED: Moved to MemberAddressService.guess_relationship()
-        for service layer separation and better testability.
-        """
-        return get_member_address_service().guess_relationship(self, other_member)
-
-    def _get_age_group(self, birth_date):
-        """Get age group for privacy-friendly display - delegated to member_age_service"""
-        return get_age_group(birth_date)
-
     # Member.approve_application removed in T4.1. It was a deprecated
     # whitelisted wrapper around MemberLifecycleService.approve_application
     # with no production callers. The canonical approval path lives at
@@ -520,28 +502,6 @@ class Member(
         )
 
         get_member_status_notification_service().send_status_change_notification(self, old_status, new_status)
-
-    def _unlink_from_customer(self):
-        """
-        Remove Member link from Customer's Dynamic Links table.
-
-        EXTRACTED: Moved to MemberCleanupService._unlink_member_from_customer()
-        for service layer separation.
-        """
-        from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
-
-        return get_member_cleanup_service()._unlink_member_from_customer(self)
-
-    def _unlink_from_address(self, address_name):
-        """
-        Remove Member link from Address's links table.
-
-        EXTRACTED: Moved to MemberCleanupService._unlink_member_from_address()
-        for service layer separation.
-        """
-        from verenigingen.services.member.lifecycle.member_cleanup_service import get_member_cleanup_service
-
-        return get_member_cleanup_service()._unlink_member_from_address(self, address_name)
 
     def calculate_age(self):
         """Calculate age based on birth_date field - delegated to member_age_service"""

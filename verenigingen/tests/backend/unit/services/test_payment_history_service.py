@@ -225,6 +225,21 @@ class TestPaymentHistoryEntryBuilding(EnhancedTestCase):
         invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=25.0, grand_total=25.0)
         self.assertEqual(determine_payment_status(invoice, paid_amount=0), "Unpaid")
 
+    def test_determine_payment_status_paid_by_outstanding(self):
+        """outstanding_amount <= 0 resolves to 'Paid' even when status isn't 'Paid'."""
+        invoice = frappe._dict(docstatus=1, status="Submitted", outstanding_amount=0.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=25.0), "Paid")
+
+    def test_determine_payment_status_overdue(self):
+        """An overdue invoice resolves to 'Overdue'."""
+        invoice = frappe._dict(docstatus=1, status="Overdue", outstanding_amount=25.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=0), "Overdue")
+
+    def test_determine_payment_status_cancelled(self):
+        """A cancelled invoice resolves to 'Cancelled'."""
+        invoice = frappe._dict(docstatus=1, status="Cancelled", outstanding_amount=25.0, grand_total=25.0)
+        self.assertEqual(determine_payment_status(invoice, paid_amount=0), "Cancelled")
+
 
 if __name__ == "__main__":
     unittest.main()
