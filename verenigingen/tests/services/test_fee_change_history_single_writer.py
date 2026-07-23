@@ -14,11 +14,6 @@ Historically several sites appended rows directly
 (`member_doc.append("fee_change_history", {...})`), producing divergent rows
 (e.g. missing old_dues_rate, no dedup). Those were routed through the service;
 this test fails if a new direct-append bypass is reintroduced in production code.
-
-NOTE: this guards the child-table append path only. The separate, still-unwired
-FeeOverrideHookService._update_fee_change_history (which writes malformed data to
-a non-existent column via raw SQL) is dead code tracked as its own follow-up and
-is intentionally out of this guard's scope.
 """
 
 import re

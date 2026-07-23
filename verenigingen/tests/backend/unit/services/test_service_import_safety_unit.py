@@ -49,8 +49,6 @@ class TestServiceImportSafety(unittest.TestCase):
         "verenigingen.services.member.lifecycle.member_before_save_service",
         "verenigingen.services.member.lifecycle.member_event_emission_service",
         "verenigingen.services.member.lifecycle.member_status_notification_service",
-        # Member services - financial
-        "verenigingen.services.member.financial.fee_override_hook_service",
         # Member services - payment
         "verenigingen.services.member.payment.payment_coverage_service",
         "verenigingen.services.member.payment.payment_history_service",

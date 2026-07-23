@@ -5,7 +5,6 @@
 Real-DB integration tests for the services/member/financial cluster:
 
 - FeeChangeRecordingService   (record dedup filters + real entry creation)
-- FeeOverrideHookService      (skip-processing guards + pending-change flow)
 - MemberFeeCalculationService (override precedence, template, none, display)
 - MemberItemService           (membership item get-or-create, item group)
 - MemberFeeValidationService  (amount/reason/permission validation)
@@ -21,9 +20,6 @@ from frappe.utils import flt
 from verenigingen.services.member.financial.fee_change_recording_service import (
     DEDUP_WINDOW_SECONDS,
     get_fee_change_recording_service,
-)
-from verenigingen.services.member.financial.fee_override_hook_service import (
-    get_fee_override_hook_service,
 )
 from verenigingen.services.member.financial.member_fee_calculation_service import (
     get_member_fee_calculation_service,
@@ -146,50 +142,6 @@ class TestFeeChangeRecordingServiceRealDB(EnhancedTestCase):
         self.member._system_update = True
         self.member.save()
         self.member.reload()
-
-
-class TestFeeOverrideHookServiceRealDB(EnhancedTestCase):
-    """should_skip_processing guards and pending-change processing flow."""
-
-    def setUp(self):
-        super().setUp()
-        self.service = get_fee_override_hook_service()
-        self.member = self.create_test_member(first_name="Hook", last_name="Fee")
-
-    def test_skip_processing_on_system_update_flag(self):
-        """_system_update flag short-circuits processing."""
-        self.member._system_update = True
-        self.assertTrue(self.service.should_skip_processing(self.member))
-
-    def test_skip_processing_on_csv_import_flag(self):
-        """_csv_import flag short-circuits processing."""
-        self.member._csv_import = True
-        self.assertTrue(self.service.should_skip_processing(self.member))
-
-    def test_skip_processing_on_bulk_flag(self):
-        """frappe.flags.bulk_member_operations short-circuits processing."""
-        original = getattr(frappe.flags, "bulk_member_operations", None)
-        frappe.flags.bulk_member_operations = True
-        try:
-            self.assertTrue(self.service.should_skip_processing(self.member))
-        finally:
-            frappe.flags.bulk_member_operations = original
-
-    def test_no_skip_for_clean_member(self):
-        """A plain member (no flags) is not skipped."""
-        # Ensure no leftover bulk flag from a sibling test.
-        frappe.flags.bulk_member_operations = False
-        self.assertFalse(self.service.should_skip_processing(self.member))
-
-    def test_process_pending_returns_false_without_pending_attr(self):
-        """No _pending_fee_change attribute -> process returns False (nothing to do)."""
-        self.assertFalse(self.service.process_pending_fee_change(self.member))
-
-    def test_handle_after_save_skips_when_flagged(self):
-        """handle_after_save respects should_skip_processing and does no work."""
-        self.member._system_update = True
-        # Should not raise even though no _pending_fee_change exists.
-        self.service.handle_after_save(self.member, method="on_update")
 
 
 class TestMemberFeeCalculationServiceRealDB(EnhancedTestCase):

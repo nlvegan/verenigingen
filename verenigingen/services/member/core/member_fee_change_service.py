@@ -8,7 +8,6 @@ This service handles fee override changes on Member records, including:
 - Detecting when membership fees are manually overridden
 - Permission validation for fee changes
 - Delegating fee change recording to FeeChangeRecordingService
-- Deferred processing to avoid save recursion
 
 NOTE: The record_fee_change() method is now a thin wrapper that delegates
 to FeeChangeRecordingService.record(). The new service provides smart
@@ -35,7 +34,7 @@ Dependencies:
 from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
-from frappe.utils import now, today
+from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.financial.member_fee_validation_service import (
@@ -54,7 +53,6 @@ class MemberFeeChangeService(StatelessService):
     - Detecting fee override changes with database comparison
     - Permission validation for fee changes
     - Recording changes to history
-    - Deferred processing to avoid save recursion
     - CSV import bypass for bulk operations
     """
 
@@ -67,13 +65,13 @@ class MemberFeeChangeService(StatelessService):
         Handle changes to membership fee override using amendment system with better atomicity.
 
         Detects changes to the dues_rate field by comparing current values with database
-        values. Validates permissions and records changes for deferred processing.
+        values. Validates permissions, override amount, and reason on a detected change.
 
         Args:
             member_doc: Member document instance
 
         Returns:
-            None - Sets _pending_fee_change on member_doc for deferred processing
+            None - Sets audit fields on member_doc when an override is added.
 
         Security:
             - Requires fee override permissions via validate_fee_override_permissions()
@@ -85,7 +83,7 @@ class MemberFeeChangeService(StatelessService):
             - Skips for CSV imports and system updates
             - Compares current vs database values to detect actual changes
             - Sets audit fields (fee_override_date, fee_override_by)
-            - Queues change for deferred processing to avoid save recursion
+            - Validates the new override amount and reason on change
         """
         # Skip all fee override handling for CSV imports and bulk operations
         csv_flag = getattr(member_doc, "_csv_import", False)
@@ -158,17 +156,6 @@ class MemberFeeChangeService(StatelessService):
             if new_amount:
                 get_member_fee_validation_service().validate_fee_override_amount(new_amount)
                 get_member_fee_validation_service().validate_fee_override_reason(member_doc)
-
-            # Store change data for deferred processing to avoid save recursion
-            member_doc._pending_fee_change = {
-                "old_amount": old_amount,
-                "new_amount": new_amount,
-                "reason": getattr(member_doc, "fee_override_reason", None) or "No reason provided",
-                "change_date": now(),
-                "changed_by": frappe.session.user if frappe.session.user else "Administrator",
-            }
-
-            self.logger.info(f"Queued fee override change for member {member_doc.name}")
 
         except Exception as e:
             # Log error for administrators

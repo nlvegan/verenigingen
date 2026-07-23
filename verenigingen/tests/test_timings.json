@@ -142,7 +142,6 @@
  "verenigingen.tests.backend.unit.services.test_donor_management_service": 8,
  "verenigingen.tests.backend.unit.services.test_email_compatibility": 3,
  "verenigingen.tests.backend.unit.services.test_email_configuration_service": 25,
- "verenigingen.tests.backend.unit.services.test_fee_override_hook_service": 8,
  "verenigingen.tests.backend.unit.services.test_field_sync_service": 7,
  "verenigingen.tests.backend.unit.services.test_member_address_service_consolidated": 4,
  "verenigingen.tests.backend.unit.services.test_member_before_save_service": 8,

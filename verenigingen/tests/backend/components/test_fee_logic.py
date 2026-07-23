@@ -136,7 +136,7 @@ def test_existing_member_fee_adjustment():
                     "birth_date": "1985-06-15",
                     "status": "Active"}
             )
-            member.insert(ignore_permissions=True)
+            member.insert()
             print(f"✅ Created existing member: {member.name} ({member.full_name})")
 
             # Now adjust their fee (this should trigger change tracking)
@@ -144,27 +144,24 @@ def test_existing_member_fee_adjustment():
             member.dues_rate = 125.0
             member.fee_override_reason = "Premium supporter upgrade"
 
-            # Save the member (this should trigger fee change tracking)
-            member.save(ignore_permissions=True)
+            # Save the member (this should trigger fee override validation)
+            member.save()
             print("✅ Fee adjustment saved")
 
-            # Check if change tracking was triggered correctly
-            if hasattr(member, "_pending_fee_change"):
-                pending_change = member._pending_fee_change
-                print("✅ Fee change tracking was triggered correctly")
-                print(f"   - Old amount: {pending_change.get('old_amount')}")
-                print(f"   - New amount: {pending_change.get('new_amount')}")
-                print(f"   - Reason: {pending_change.get('reason')}")
-                print(f"   - Changed by: {pending_change.get('changed_by')}")
-
-                # Verify the change data
-                if pending_change.get("new_amount") == 125.0:
-                    print("✅ New amount tracked correctly")
-                else:
-                    print(f"❌ Wrong new amount: expected 125.0, got {pending_change.get('new_amount')}")
-                    return False
+            # Verify the fee override was applied and audit fields set.
+            # (The former in-memory _pending_fee_change deferred-tracking path was
+            # removed together with the dead, unwired FeeOverrideHookService.)
+            member.reload()
+            if member.dues_rate == 125.0:
+                print("✅ New fee override amount persisted correctly")
             else:
-                print("❌ ERROR: Fee change tracking should have been triggered!")
+                print(f"❌ Wrong dues_rate: expected 125.0, got {member.dues_rate}")
+                return False
+
+            if member.fee_override_date and member.fee_override_by:
+                print("✅ Fee override audit fields set")
+            else:
+                print("❌ ERROR: Fee override audit fields were not set!")
                 return False
 
             # Check current member state
