@@ -18,7 +18,6 @@ from frappe.utils import random_string
 
 from verenigingen.services.member.history.member_history_update_service import MemberHistoryUpdateService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils import determine_payment_status
 
 
 class TestMemberHistoryUpdateService(EnhancedTestCase):
@@ -328,38 +327,10 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         self.assertEqual(dues_rows, [])
 
 
-class TestDeterminePaymentStatus(EnhancedTestCase):
-    """Coverage for the shared determine_payment_status util used by the payment
-    history builder. Pure function — tests pass frappe._dict invoice stubs (no DB)."""
-
-    def test_determine_payment_status_draft(self):
-        invoice = frappe._dict(docstatus=0, status="Draft", outstanding_amount=100, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 0), "Draft")
-
-    def test_determine_payment_status_paid_by_status(self):
-        invoice = frappe._dict(docstatus=1, status="Paid", outstanding_amount=0, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 100), "Paid")
-
-    def test_determine_payment_status_paid_by_outstanding(self):
-        """outstanding_amount <= 0 should return Paid even if status is not 'Paid'"""
-        invoice = frappe._dict(docstatus=1, status="Submitted", outstanding_amount=0, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 100), "Paid")
-
-    def test_determine_payment_status_overdue(self):
-        invoice = frappe._dict(docstatus=1, status="Overdue", outstanding_amount=100, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 0), "Overdue")
-
-    def test_determine_payment_status_cancelled(self):
-        invoice = frappe._dict(docstatus=1, status="Cancelled", outstanding_amount=100, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 0), "Cancelled")
-
-    def test_determine_payment_status_partially_paid(self):
-        invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=50, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 50), "Partially Paid")
-
-    def test_determine_payment_status_unpaid(self):
-        invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=100, grand_total=100)
-        self.assertEqual(determine_payment_status(invoice, 0), "Unpaid")
+# determine_payment_status coverage lives with the payment domain in
+# tests/backend/unit/services/test_payment_history_service.py
+# (TestPaymentHistoryEntryBuilding) — it is not a MemberHistoryUpdateService
+# method, so keeping its tests here duplicated that suite.
 
 
 def run_tests():
@@ -369,5 +340,4 @@ def run_tests():
 
     suite = unittest.TestSuite()
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberHistoryUpdateService))
-    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestDeterminePaymentStatus))
     unittest.TextTestRunner(verbosity=2).run(suite)
