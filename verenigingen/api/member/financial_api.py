@@ -33,9 +33,15 @@ def sync_member_dues_rate(member_name: str):
         schedule = repo.get_active_schedule(member_name, fields=["name", "dues_rate"])
 
         if schedule:
-            # Update member's dues_rate field
+            # Update member's dues_rate field. Member.dues_rate is a denormalized
+            # mirror of the authoritative dues-schedule rate, not a user fee
+            # override, so flag this as a system update: Member validate then skips
+            # fee-override permission/validation handling. Consistent with
+            # fee_change_tracking_service.update_member_dues_rate (the other
+            # dues_rate mirror writer).
             member_doc = frappe.get_doc("Member", member_name)
             member_doc.dues_rate = schedule.dues_rate
+            member_doc._system_update = True
             member_doc.save()
             return {
                 "success": True,
