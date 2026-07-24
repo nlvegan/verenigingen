@@ -62,28 +62,29 @@ class MemberFeeChangeService(StatelessService):
 
     def handle_fee_override_changes(self, member_doc: "Document") -> None:
         """
-        Handle changes to membership fee override using amendment system with better atomicity.
+        Enforce fee-override rules while a Member is saved.
 
-        Detects changes to the dues_rate field by comparing current values with database
-        values. Validates permissions, override amount, and reason on a detected change.
+        Runs during Member validate. For a new member carrying a dues_rate it
+        validates the override amount/reason and sets the audit fields; for an
+        existing member it only enforces the fee-override permission gate.
 
         Args:
             member_doc: Member document instance
 
         Returns:
-            None - Sets audit fields on member_doc when an override is added.
+            None - Sets audit fields on member_doc for a new override.
 
         Security:
             - Requires fee override permissions via validate_fee_override_permissions()
-            - Validates override amount and reason
+            - Validates override amount and reason for new members
             - Skips for CSV imports and bulk operations
 
         Business Logic:
-            - Skips for new documents (no change tracking on creation)
-            - Skips for CSV imports and system updates
-            - Compares current vs database values to detect actual changes
-            - Sets audit fields (fee_override_date, fee_override_by)
-            - Validates the new override amount and reason on change
+            - Skips for CSV imports, bulk operations, and system updates
+            - New members: validate the override amount/reason and set audit fields
+            - Existing members: permission gate only; dues_rate is a denormalized
+              mirror of the dues-schedule rate, so genuine fee changes
+              (amendments, dues-schedule edits) record history on their own paths
         """
         # Skip all fee override handling for CSV imports and bulk operations
         csv_flag = getattr(member_doc, "_csv_import", False)
@@ -122,52 +123,19 @@ class MemberFeeChangeService(StatelessService):
                     setattr(member_doc, "fee_override_by", frappe.session.user)
             return
 
-        # Get current and old values for existing documents
-        new_amount = member_doc.dues_rate
-        old_amount = None
-
-        try:
-            # Use Frappe's built-in change tracking instead of DB query for better performance
-            # get_doc_before_save() returns the document state before current changes
-            doc_before_save = member_doc.get_doc_before_save()
-            if doc_before_save:
-                old_amount = doc_before_save.get("dues_rate")
-            else:
-                # Fallback to DB query only if get_doc_before_save() unavailable
-                # (this can happen in some edge cases like background jobs)
-                db_result = frappe.db.get_value("Member", member_doc.name, "dues_rate")
-                old_amount = db_result if db_result is not None else None
-
-            # Check if values are actually different
-            if old_amount == new_amount:
-                return  # No change detected
-
-            # If we reach here, there's an actual change to process
-            self.logger.info(
-                f"Processing fee override change for member {member_doc.name}: {old_amount} -> {new_amount}"
-            )
-
-            # Set audit fields when adding or changing override
-            if new_amount and not old_amount:
-                member_doc.fee_override_date = today()
-                member_doc.fee_override_by = frappe.session.user
-
-            # Validate fee override using dedicated validation service (Phase 2D-2)
-            if new_amount:
-                get_member_fee_validation_service().validate_fee_override_amount(new_amount)
-                get_member_fee_validation_service().validate_fee_override_reason(member_doc)
-
-        except Exception as e:
-            # Log error for administrators
-            self.logger.error(f"Fee override tracking failed for member {member_doc.name}: {str(e)}")
-            # Notify user that audit tracking failed
-            frappe.msgprint(
-                frappe._("Fee change saved but audit tracking failed. Please contact administrator."),
-                indicator="orange",
-                alert=True,
-            )
-            # Don't fail the save operation - allow document to save even if tracking fails
-            return
+        # Existing members: the permission gate above is the only enforcement
+        # that applies here. `dues_rate` is a denormalized mirror of the active
+        # Membership Dues Schedule rate; genuine fee changes flow through the
+        # amendment / dues-schedule paths, which record fee_change_history and
+        # save with _system_update=True (skipped above).
+        #
+        # A former change-detection branch here re-validated the amount/reason
+        # whenever an existing member's dues_rate differed on save (reachable via
+        # api.member.financial_api.sync_member_dues_rate and raw REST edits). It
+        # was removed as redundant: it duplicated the gate's own old-vs-new
+        # detection, its amount check cannot fire on a non-negative synced rate,
+        # and its reason-required check spuriously blocked denormalization syncs
+        # that carry no fee_override_reason. The permission gate is retained.
 
     def record_fee_change(self, member_doc: "Document", change_data: Dict[str, Any]) -> Any:
         """
