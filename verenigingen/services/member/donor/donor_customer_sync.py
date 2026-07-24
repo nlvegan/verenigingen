@@ -5,6 +5,8 @@ This module handles automatic synchronization between Donor and Customer records
 to ensure consistent data across the nonprofit and accounting systems.
 """
 
+import sys
+
 import frappe
 from frappe.utils import now
 
@@ -31,21 +33,22 @@ def sync_donor_to_customer(doc, method=None):
     # Skip if we're in test context unless explicitly enabled
     if frappe.flags.get("in_test"):
         if not (hasattr(doc, "flags") and doc.flags.get("enable_customer_sync_in_test")):
-            if frappe.flags.get("in_test"):
-                print("🔄 Skipping donor→customer sync: in test context without enable flag")
+            frappe.logger("donor_customer_sync").debug(
+                "Skipping donor→customer sync: in test context without enable flag"
+            )
             return
 
     # Skip if we're in the middle of a customer save operation to prevent circular sync
     if getattr(frappe.local, "_customer_save_in_progress", False):
-        if frappe.flags.get("in_test"):
-            print("🔄 Skipping donor→customer sync: customer save in progress")
+        frappe.logger("donor_customer_sync").debug("Skipping donor→customer sync: customer save in progress")
         return
 
     # Prevent concurrent syncs for the same donor (race condition protection)
     sync_lock_key = f"_donor_sync_in_progress_{doc.name}"
     if getattr(frappe.local, sync_lock_key, False):
-        if frappe.flags.get("in_test"):
-            print(f"🔄 Skipping donor→customer sync: sync already in progress for {doc.name}")
+        frappe.logger("donor_customer_sync").debug(
+            f"Skipping donor→customer sync: sync already in progress for {doc.name}"
+        )
         return
 
     # Set lock
@@ -56,9 +59,7 @@ def sync_donor_to_customer(doc, method=None):
         # Always call sync to ensure customer data stays up to date
         # The sync_with_customer method handles its own optimization
 
-        # Debug logging during tests
-        if frappe.flags.get("in_test"):
-            print(f"🔄 Hook sync_donor_to_customer called for donor {doc.name}")
+        frappe.logger("donor_customer_sync").debug(f"Hook sync_donor_to_customer called for donor {doc.name}")
 
         doc.sync_with_customer()
 
@@ -72,9 +73,9 @@ def sync_donor_to_customer(doc, method=None):
                 "Donor",
                 doc.name,
                 {
-                    "customer": doc.customer,
-                    "customer_sync_status": doc.customer_sync_status,
-                    "last_customer_sync": doc.last_customer_sync,
+                    "customer": doc.customer,  # ast-skip: doc is the Donor; Donor.customer
+                    "customer_sync_status": doc.customer_sync_status,  # ast-skip: Donor field
+                    "last_customer_sync": doc.last_customer_sync,  # ast-skip: Donor field
                 },
                 update_modified=False,
             )
@@ -105,12 +106,12 @@ def sync_donor_to_customer(doc, method=None):
         try:
             frappe.log_error(error_message, "Donor-Customer Sync Hook Error")
         except Exception as log_error:
-            # Last resort: print to console if error logging fails
-            print(f"❌ Critical: Failed to log sync error: {str(log_error)}")
-            print(f"❌ Original sync error: {str(e)[:200]}")
+            # Last resort: write to stderr if Error Log itself fails (captured in
+            # worker error logs, unlike stdout).
+            print(f"Critical: Failed to log donor sync error: {str(log_error)}", file=sys.stderr)
+            print(f"Original sync error: {str(e)[:200]}", file=sys.stderr)
 
-        if frappe.flags.get("in_test"):
-            print(f"❌ Hook error for donor {doc.name}: {str(e)}")
+        frappe.logger("donor_customer_sync").debug(f"Hook error for donor {doc.name}: {str(e)}")
 
     finally:
         # Always release the lock
@@ -130,19 +131,14 @@ def sync_customer_to_donor(doc, method=None):
     if hasattr(doc, "flags") and doc.flags.get("from_donor_sync"):
         return
 
-    # Debug logging during tests
-    if frappe.flags.get("in_test"):
-        print(f"🔄 Hook sync_customer_to_donor called for customer {doc.name}")
-        print(f"   hasattr(doc, 'donor'): {hasattr(doc, 'donor')}")
-        if hasattr(doc, "donor"):
-            print(f"   doc.donor: {doc.donor}")
-        else:
-            print("   doc.donor: ATTRIBUTE_NOT_FOUND")
+    frappe.logger("donor_customer_sync").debug(
+        f"Hook sync_customer_to_donor called for customer {doc.name}; "
+        f"donor={getattr(doc, 'donor', 'ATTRIBUTE_NOT_FOUND')}"
+    )
 
     # Only sync if this customer has a donor reference
     if not hasattr(doc, "donor") or not doc.donor:
-        if frappe.flags.get("in_test"):
-            print("❌ Customer-to-donor sync skipped: no donor reference")
+        frappe.logger("donor_customer_sync").debug("Customer-to-donor sync skipped: no donor reference")
         return
 
     try:
@@ -177,11 +173,10 @@ def sync_customer_to_donor(doc, method=None):
 
         # Save if changes were made
         if changes_made:
-            if frappe.flags.get("in_test"):
-                print("📝 Customer→Donor changes detected, saving donor")
-                print(
-                    f"   Changes: name={donor_doc.donor_name}, email={donor_doc.donor_email}, phone={getattr(donor_doc, 'phone', None)}"
-                )
+            frappe.logger("donor_customer_sync").debug(
+                f"Customer→Donor changes detected, saving donor: name={donor_doc.donor_name}, "
+                f"email={donor_doc.donor_email}, phone={getattr(donor_doc, 'phone', None)}"
+            )
 
             # Set flag to prevent circular sync during donor save
             frappe.local._customer_save_in_progress = True
@@ -196,22 +191,19 @@ def sync_customer_to_donor(doc, method=None):
                 # Commit during tests to ensure visibility
                 if frappe.flags.get("in_test"):
                     frappe.db.commit()
-                    print("✅ Donor saved and committed after customer sync")
+                    frappe.logger("donor_customer_sync").debug(
+                        "Donor saved and committed after customer sync"
+                    )
             finally:
                 # Always clear the flag, even if save fails
                 frappe.local._customer_save_in_progress = False
 
             frappe.logger().info(f"Synced customer {doc.name} data back to donor {donor_name}")
         else:
-            if frappe.flags.get("in_test"):
-                print("⏭️ No changes detected for customer→donor sync")
+            frappe.logger("donor_customer_sync").debug("No changes detected for customer→donor sync")
 
     except Exception as e:
-        if frappe.flags.get("in_test"):
-            print(f"❌ Customer→Donor sync error: {str(e)}")
-            import traceback
-
-            traceback.print_exc()
+        frappe.logger("donor_customer_sync").debug(f"Customer→Donor sync error: {str(e)}")
         # Enhanced error logging with operational context
         error_context = {
             "customer_name": doc.name,
