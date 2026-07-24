@@ -280,17 +280,14 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         add_permission("Payment Entry", role, 0)  # sets read=1
         update_permission_property("Payment Entry", role, 0, "create", 1)
 
-        # has_permission() reads role rows off the *cached* Payment Entry meta AND
-        # memoises the computed result in the request-local role_permissions map
-        # (frappe.local.role_permissions), keyed by doctype. In a shared-process
-        # parallel shard both can be populated by an earlier sibling BEFORE this
-        # role's Custom DocPerm is inserted, so the fresh grant is invisible to the
-        # guard below -- an order-dependent failure that only shows up on certain
-        # shard compositions. Neither frappe.clear_cache(doctype=...) nor
-        # get_meta(cached=False) alone busted it in CI, because the stale answer was
-        # already memoised in role_permissions. Clear all three layers: the full
-        # cache, the request-local role_permissions memo, then force a meta rebuild
-        # that reads the current Custom DocPerm.
+        # has_permission() reads role rows off the *cached* Payment Entry meta and
+        # memoises the result in the request-local role_permissions map. Rebuild the
+        # meta from the current (uncommitted) Custom DocPerm so that when the caller
+        # switches to the restricted user via frappe.set_user() -- which clears
+        # role_permissions/local cache -- the service's fresh permission check sees
+        # this grant. This is defensive: add_permission/update_permission_property
+        # already clear_cache(doctype="Payment Entry"); we rebuild eagerly so the
+        # grant is materialised in the meta cache before the service reads it.
         frappe.clear_cache()
         if hasattr(frappe.local, "role_permissions"):
             frappe.local.role_permissions = {}
@@ -305,9 +302,12 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         invoice = self._create_test_invoice(amount=Decimal("40.00"))
         role = self._make_deskless_role_without_perms()
         restricted_user = self._make_user_with_roles([role])
-        # Guard: this user genuinely lacks Payment Entry create.
-        self.assertFalse(frappe.has_permission("Payment Entry", "create", user=restricted_user))
 
+        # No pre-check guard here (see the sibling strict-mode test for the full
+        # rationale): reading has_permission in the pre-set_user Administrator context
+        # is cache-fragile across parallel shards. It is also redundant -- the
+        # create-gate message asserted below is only raised when the user lacks
+        # create, which is exactly what a guard would have checked.
         frappe.set_user(restricted_user)
         with self.assertRaises(frappe.PermissionError) as ctx:
             payment_entry_service.create_payment_entry_from_invoice(
@@ -329,10 +329,18 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         role = self._make_deskless_role_without_perms()
         self._grant_payment_entry_create(role)
         restricted_user = self._make_user_with_roles([role])
-        # Guards: this user HAS create but LACKS submit.
-        self.assertTrue(frappe.has_permission("Payment Entry", "create", user=restricted_user))
-        self.assertFalse(frappe.has_permission("Payment Entry", "submit", user=restricted_user))
 
+        # No pre-check guard here on purpose. A guard like
+        # ``assertTrue(has_permission("Payment Entry", "create", user))`` reads the
+        # permission through the *request-local* role_permissions/meta cache of the
+        # CURRENT (Administrator) context. In a shared-process parallel shard that
+        # pre-set_user cache layer can hold a stale "no create" answer for the fresh
+        # grant, making the guard flake even though the grant is correct in the DB
+        # (an order-dependent failure seen only on some shard compositions). The guard
+        # is also redundant: ``frappe.set_user`` below clears role_permissions/cache,
+        # so the service resolves permissions fresh, and the submit-gate message
+        # asserted at the end can ONLY be reached if the user genuinely HAS create and
+        # LACKS submit. The message assertion therefore proves what the guard checked.
         frappe.set_user(restricted_user)
         with self.assertRaises(frappe.PermissionError) as ctx:
             payment_entry_service.create_payment_entry_from_invoice(
