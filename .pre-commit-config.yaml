@@ -141,6 +141,25 @@ repos:
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
 
+      - id: cache-guard-validator
+        name: 🧪 Test-Isolation Cache-Guard (advisory)
+        description: >-
+          Flags shard-order-fragile permission/role reads placed BEFORE a user
+          switch (frappe.set_user / self.as_user / self.as_role) in a test -- the
+          stale-cache pre-check-guard pattern that flaked CI in 5caed9e8. Advisory
+          (never blocks): remove --strict only after a validation cycle confirms a
+          near-zero false-positive rate. Suppress a real intentional case with a
+          trailing '# cache-guard-ok: baseline-intentional|false-positive|relocated-elsewhere'.
+        entry: python scripts/validation/cache_guard_validator.py
+        language: system
+        pass_filenames: true
+        files: '(^|/)test_.*\.py$'
+        stages: [pre-push]
+        # verbose: pre-commit hides stdout of PASSING hooks; an advisory (exit-0)
+        # hook would be invisible without this. Forces findings to always show.
+        verbose: true
+        exclude: '^(scripts/validation/tests/|archived_.*|archived_unused/|archived_deleted/)'
+
       - id: eslint
         name: 🔧 ESLint JavaScript validation
         # Check-only: report lint problems on the *staged* files and fail the

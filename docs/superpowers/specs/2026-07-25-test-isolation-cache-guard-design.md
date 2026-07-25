@@ -79,6 +79,18 @@ Key facts that reshaped the design (from skeptical review, verified):
 Rather than one perfectly-sound cross-function grant-tracking analyzer (which would itself be
 flaky and is over-engineered for a gate), split the work:
 
+> **As-built note.** The audit detector ships as
+> `scripts/validation/cache_guard_audit.py` (recall-favoring, Rules A/B/C). The
+> standing gate ships as `scripts/validation/cache_guard_validator.py` — renamed
+> from the spec's original `test_isolation_cache_guard_validator.py` because a
+> leading `test_` makes the Frappe/pytest runner try to collect the validator
+> itself as a test module. The audit found the real surface to be **3 lines in
+> `test_bank_transaction_reconciliation.py`** (all bucket-1, now fixed); the
+> broader `create_test_user`-as-grant surface (Rules B/C) was dominated by
+> false positives (custom `self.auth_manager.has_permission` calculators, not
+> Frappe's cache-backed check), so the canonical report used the strict
+> DocPerm/role-mutator grant set.
+
 ### 4.1 Audit detector (recall-favoring, human-triaged)
 
 - Python `ast`-based, **spans `setUp` + `test_*` methods of each `TestCase` class** (not
@@ -99,7 +111,7 @@ flaky and is over-engineered for a gate), split the work:
 
 ### 4.2 Standing gate (precision-favoring, advisory-first)
 
-- `scripts/validation/test_isolation_cache_guard_validator.py`, styled like the existing
+- `scripts/validation/cache_guard_validator.py`, styled like the existing
   `ast-field-analyzer` / `doctype-field-validator` hooks.
 - Deliberately **narrow** to the soundly-detectable shape: a cache-reading **assertion**
   that precedes the first invalidator **within a single function** (or reads the closing-scope
@@ -110,8 +122,22 @@ flaky and is over-engineered for a gate), split the work:
   taxonomy — `baseline-intentional` | `false-positive` | `relocated-elsewhere`. This lets us
   grep suppressions by class and periodically re-audit `false-positive` (analyzer bugs) and
   `baseline-intentional` (still arguably fragile) separately.
-- Ships with fixture unit tests: one offender, one suppressed, one legitimate-baseline, one
-  clean, one `with as_user` closing-scope case.
+- Ships with fixture unit tests (`scripts/validation/tests/test_cache_guard_validator.py`,
+  10 cases): offender via `set_user` and via `with as_user`, clean switch-then-read,
+  reader inside an `as_user` body, no-switch, nested-closure reader, valid/invalid
+  suppression reasons, setUp scanning, and a `try:`-block regression.
+- **As-built mechanics.** Detection is **call-granular** (compares the reader call's own
+  line against the first switch call's line), not statement-granular — a statement-line
+  comparison false-positives when a reader nested in a compound statement (`try:`/`if:`)
+  sits under a header line that precedes a switch also inside that block. Nested
+  function/lambda/class scopes are not descended into (closures are code-under-test run
+  later). Building the gate surfaced both of these as real bugs, caught by cross-checking
+  the gate against the independent audit detector on the live corpus. The advisory hook is
+  wired with `verbose: true` in `.pre-commit-config.yaml` because pre-commit hides the
+  stdout of passing (exit-0) hooks — without it an advisory gate would be silently
+  invisible. Corpus currently runs clean at `--strict` (0 findings), so the eventual flip
+  to blocking is a one-line change (drop nothing; add `--strict` to the entry, or set
+  `CACHE_GUARD_STRICT=1`).
 
 ## 5. Triage + fix strategy
 
