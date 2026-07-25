@@ -1153,6 +1153,37 @@ function formatSecurityResult(result) {
 function formatCleanupResult(result) {
     var html = '<h5 class="text-danger mb-3"><i class="fa fa-exclamation-triangle"></i> Cleanup Results</h5>';
 
+    var categories = ['members', 'memberships', 'dues_schedules', 'volunteers', 'sepa_mandates', 'payment_history', 'chapter_members', 'users', 'customers', 'donors', 'teams', 'chapters', 'sales_invoices', 'payment_entries', 'gl_entries', 'contacts', 'addresses', 'employees', 'account_creation_requests', 'user_permissions', 'docshares', 'dynamic_links', 'invoice_items', 'user_child_rows', 'customer_child_rows', 'contact_child_rows', 'member_child_rows'];
+    var categoryNames = {
+        'members': 'Members',
+        'memberships': 'Memberships',
+        'dues_schedules': 'Dues Schedules',
+        'volunteers': 'Volunteers',
+        'sepa_mandates': 'SEPA Mandates',
+        'payment_history': 'Payment History',
+        'chapter_members': 'Chapter Members',
+        'users': 'User Accounts',
+        'customers': 'Customer Records',
+        'donors': 'Donor Records',
+        'teams': 'Teams',
+        'chapters': 'Chapters',
+        'sales_invoices': 'Sales Invoices',
+        'payment_entries': 'Payment Entries',
+        'gl_entries': 'Ledger Entries',
+        'contacts': 'Contacts',
+        'addresses': 'Addresses',
+        'employees': 'Employees',
+        'account_creation_requests': 'Account Creation Requests',
+        'user_permissions': 'User Permissions',
+        'docshares': 'Document Shares',
+        'dynamic_links': 'Dynamic Links',
+        'invoice_items': 'Invoice Line Items',
+        'user_child_rows': 'User Child Rows',
+        'customer_child_rows': 'Customer Child Rows',
+        'contact_child_rows': 'Contact Child Rows',
+        'member_child_rows': 'Member Child Rows'
+    };
+
     if (result.dry_run) {
         html += '<div class="alert alert-info mb-3">';
         html += '<strong><i class="fa fa-info-circle"></i> DRY RUN:</strong> No actual deletions were performed.';
@@ -1201,19 +1232,6 @@ function formatCleanupResult(result) {
         html += '<h6 class="text-danger">Deletion Summary:</h6>';
         html += '<ul class="list-group mb-3">';
 
-        var categories = ['members', 'memberships', 'dues_schedules', 'volunteers', 'sepa_mandates', 'payment_history', 'chapter_members', 'users', 'customers', 'donors'];
-        var categoryNames = {
-            'members': 'Members',
-            'memberships': 'Memberships',
-            'dues_schedules': 'Dues Schedules',
-            'volunteers': 'Volunteers',
-            'sepa_mandates': 'SEPA Mandates',
-            'payment_history': 'Payment History',
-            'chapter_members': 'Chapter Members',
-            'users': 'User Accounts',
-            'customers': 'Customer Records',
-            'donors': 'Donor Records'
-        };
 
         categories.forEach(function(cat) {
             if (result[cat] && result[cat].deleted !== undefined) {
@@ -1249,7 +1267,7 @@ function formatCleanupResult(result) {
 
     // Show errors if any
     var hasErrors = false;
-    var errorCategories = ['members', 'memberships', 'dues_schedules', 'volunteers', 'sepa_mandates', 'payment_history', 'chapter_members', 'users', 'customers', 'donors'];
+    var errorCategories = categories;
 
     errorCategories.forEach(function(cat) {
         if (result[cat] && result[cat].errors && result[cat].errors.length > 0) {

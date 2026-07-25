@@ -454,7 +454,7 @@ def get_context(context):
         },
         {
             "title": "Cleanup ALL Test Data (DRY RUN)",
-            "description": "Preview cleanup of ALL test data: Teams, Chapters, Volunteers, Members with 'test' in name",
+            "description": "Preview cleanup of ALL test data: Members on test domains plus their Customers, Users, invoices, Teams, Chapters and Volunteers",
             "method": "verenigingen.utils.member_import_cleanup.cleanup_all_test_data",
             "icon": "fa fa-eye",
             "color": "brand-accent",
@@ -463,11 +463,11 @@ def get_context(context):
         },
         {
             "title": "Cleanup ALL Test Data (LIVE)",
-            "description": "Delete ALL test data: Teams, Chapters, Volunteers, Members where name contains 'test'",
+            "description": "Delete ALL test data: Members on test domains plus their Customers, Users, invoices, Teams, Chapters and Volunteers, and orphaned test debris",
             "method": "verenigingen.utils.member_import_cleanup.cleanup_all_test_data",
             "icon": "fa fa-trash",
             "color": "warning",
-            "warning": "This will permanently delete ALL test Teams, Chapters, Volunteers, and Members!",
+            "warning": "This will permanently delete ALL test Members, Customers, Users, invoices, Teams, Chapters and Volunteers! Run the DRY RUN first.",
             "args": {"dry_run": False},
             "formatter": "cleanup",
         },
