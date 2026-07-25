@@ -142,21 +142,22 @@ repos:
         exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
 
       - id: cache-guard-validator
-        name: 🧪 Test-Isolation Cache-Guard (advisory)
+        name: 🧪 Test-Isolation Cache-Guard (blocking)
         description: >-
           Flags shard-order-fragile permission/role reads placed BEFORE a user
           switch (frappe.set_user / self.as_user / self.as_role) in a test -- the
-          stale-cache pre-check-guard pattern that flaked CI in 5caed9e8. Advisory
-          (never blocks): remove --strict only after a validation cycle confirms a
-          near-zero false-positive rate. Suppress a real intentional case with a
+          stale-cache pre-check-guard pattern that flaked CI in 5caed9e8. Blocking
+          (--strict): the corpus is clean, so any new occurrence fails the push. Fix
+          by moving the read after the switch or deleting it if a post-switch
+          assertion already proves it. Suppress a genuinely intentional case with a
           trailing '# cache-guard-ok: baseline-intentional|false-positive|relocated-elsewhere'.
-        entry: python scripts/validation/cache_guard_validator.py
+        entry: python scripts/validation/cache_guard_validator.py --strict
         language: system
         pass_filenames: true
-        files: '(^|/)test_.*\.py$'
+        # Covers both test_*.py and *_test.py test modules.
+        files: '(^|/)(test_.*|.*_test)\.py$'
         stages: [pre-push]
-        # verbose: pre-commit hides stdout of PASSING hooks; an advisory (exit-0)
-        # hook would be invisible without this. Forces findings to always show.
+        # verbose: surface findings even on the rare passing run for visibility.
         verbose: true
         exclude: '^(scripts/validation/tests/|archived_.*|archived_unused/|archived_deleted/)'
 
