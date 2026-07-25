@@ -141,6 +141,26 @@ repos:
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
 
+      - id: cache-guard-validator
+        name: 🧪 Test-Isolation Cache-Guard (blocking)
+        description: >-
+          Flags shard-order-fragile permission/role reads placed BEFORE a user
+          switch (frappe.set_user / self.as_user / self.as_role) in a test -- the
+          stale-cache pre-check-guard pattern that flaked CI in 5caed9e8. Blocking
+          (--strict): the corpus is clean, so any new occurrence fails the push. Fix
+          by moving the read after the switch or deleting it if a post-switch
+          assertion already proves it. Suppress a genuinely intentional case with a
+          trailing '# cache-guard-ok: baseline-intentional|false-positive|relocated-elsewhere'.
+        entry: python scripts/validation/cache_guard_validator.py --strict
+        language: system
+        pass_filenames: true
+        # Covers both test_*.py and *_test.py test modules.
+        files: '(^|/)(test_.*|.*_test)\.py$'
+        stages: [pre-push]
+        # verbose: surface findings even on the rare passing run for visibility.
+        verbose: true
+        exclude: '^(scripts/validation/tests/|archived_.*|archived_unused/|archived_deleted/)'
+
       - id: eslint
         name: 🔧 ESLint JavaScript validation
         # Check-only: report lint problems on the *staged* files and fail the

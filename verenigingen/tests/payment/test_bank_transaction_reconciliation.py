@@ -1183,8 +1183,14 @@ class TestCreateReconciliationPermissions(BTRBase):
         }
         role = self._make_deskless_role_without_perms()
         restricted_user = self._make_user_with_roles([role])
-        # Guard: this user genuinely lacks Bank Transaction write.
-        self.assertFalse(frappe.has_permission("Bank Transaction", "write", user=restricted_user))
+        # No pre-check has_permission guard here on purpose. Reading has_permission in
+        # the pre-set_user (Administrator) context resolves through the request-local
+        # role_permissions/meta cache, which in a shared-process parallel shard can hold
+        # a stale answer for the freshly-granted role -- an order-dependent flake (cf.
+        # commit 5caed9e8). The guard is also redundant: the gate-496 message asserted
+        # below ("Insufficient permissions to update bank transactions") is only reached
+        # when the user genuinely lacks Bank Transaction write, which is exactly what a
+        # guard would have checked.
 
         # The caught denial is logged at bank_transaction_reconciliation.py:629, and —
         # because this user ALSO lacks BT write — the unreconciled-marking save fails
@@ -1224,9 +1230,15 @@ class TestCreateReconciliationPermissions(BTRBase):
         role = self._make_deskless_role_without_perms()
         self._grant_bank_transaction_write(role)
         restricted_user = self._make_user_with_roles([role])
-        # Guards: this user HAS Bank Transaction write but LACKS Payment Entry create.
-        self.assertTrue(frappe.has_permission("Bank Transaction", "write", user=restricted_user))
-        self.assertFalse(frappe.has_permission("Payment Entry", "create", user=restricted_user))
+        # No pre-check has_permission guards here on purpose (see the B1 sibling for the
+        # full shard-fragility rationale): reading has_permission in the pre-set_user
+        # (Administrator) context is cache-order-fragile across parallel shards. They are
+        # also redundant -- reaching the gate-499 message asserted below ("Insufficient
+        # permissions to create payment entries") requires PASSING the BT-write gate
+        # (proving the user HAS Bank Transaction write) and FAILING Payment Entry create
+        # (proving the user LACKS it), and the ``bt.status == "Unreconciled"`` check at
+        # the end independently re-proves the write grant. The downstream assertions
+        # therefore prove exactly what the guards checked.
 
         # The caught denial is logged at bank_transaction_reconciliation.py:629. Unlike
         # B1, the unreconciled-marking save SUCCEEDS here (user has BT write), so :644
