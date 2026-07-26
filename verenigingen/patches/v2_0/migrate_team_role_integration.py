@@ -58,8 +58,9 @@ def migrate_team_members_atomic(team_members, role_mapping):
     rollback_data = []
 
     try:
-        # Start atomic transaction
-        frappe.db.begin()
+        # Start atomic transaction. Safe: patches run under `bench migrate`,
+        # outside any request transaction.
+        frappe.db.begin()  # db-begin-ok: patch-context
 
         for member in team_members:
             try:

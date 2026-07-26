@@ -204,17 +204,22 @@ ensures compliance and forensic traceability of the clearing operation.
             "API Audit Log Cleared",
         )
 
-        # Begin transaction
-        frappe.db.begin()
+        # Persist the forensic record above (and flush any other pending work)
+        # before truncating. Deliberately NO frappe.db.begin(): the log_error()
+        # call always leaves a pending write, and START TRANSACTION on a
+        # transaction with pending writes raises ImplicitCommitError - so this
+        # endpoint could not succeed for any input.
+        frappe.db.commit()
 
         try:
             # Use TRUNCATE TABLE for maximum performance
             # TRUNCATE is faster than DELETE as it doesn't generate undo logs
-            # and doesn't fire triggers (which is fine for audit log cleanup)
-            frappe.db.sql("TRUNCATE TABLE `tabAPI Audit Log`")
+            # and doesn't fire triggers (which is fine for audit log cleanup).
+            # sql_ddl() is required: a raw TRUNCATE through frappe.db.sql() trips
+            # the same implicit-commit guard whenever writes are outstanding.
+            frappe.db.sql_ddl("TRUNCATE TABLE `tabAPI Audit Log`")
 
-            # Commit transaction
-            frappe.db.commit()
+            # No commit() needed - TRUNCATE is DDL and commits implicitly.
 
             # Log the clearing action (in addition to Error Log above)
             frappe.logger().warning(
@@ -228,11 +233,9 @@ ensures compliance and forensic traceability of the clearing operation.
             }
 
         except Exception as e:
-            # Rollback on error
-            frappe.db.rollback()
-            frappe.log_error(
-                f"Failed to clear audit logs (rolled back): {str(e)}", "API Audit Log Clear Error"
-            )
+            # No rollback: TRUNCATE is DDL, so a partial truncate cannot be
+            # undone. The forensic record was committed before the attempt.
+            frappe.log_error(f"Failed to clear audit logs: {str(e)}", "API Audit Log Clear Error")
             return {"success": False, "message": f"Failed to clear audit logs: {str(e)}", "deleted_count": 0}
 
     except Exception as e:

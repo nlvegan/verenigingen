@@ -250,12 +250,19 @@ class CompletePaymentService:
         if not frappe.db.exists(owner_doctype, owner_name):
             raise MollieValidationError(f"{owner_doctype} {owner_name} not found")
 
-        # begin()/commit() bracket the row lock; every exit path commits or
-        # rolls back so the lock is always released. The lock is held across
-        # the Mollie API calls below - that is intentional: it only ever
-        # blocks a concurrent create for the *same* owner, which is exactly
-        # the duplicate this prevents.
-        frappe.db.begin()
+        # The SELECT ... FOR UPDATE below takes the row lock inside the ambient
+        # request transaction; every exit path commits or rolls back so the lock
+        # is always released. The lock is held across the Mollie API calls below -
+        # that is intentional: it only ever blocks a concurrent create for the
+        # *same* owner, which is exactly the duplicate this prevents.
+        #
+        # Deliberately NO frappe.db.begin(): START TRANSACTION trips Frappe's
+        # implicit-commit guard (ImplicitCommitError) whenever the request has
+        # already written anything, and create_subscription() swallows that into
+        # a generic "Subscription creation failed" - so any caller that saved a
+        # document first failed 100% of the time. Do not convert to a savepoint
+        # either: releasing a savepoint does not free row locks, only
+        # commit/rollback does.
         try:
             owner = DocType(owner_doctype)
             locked_row = (

@@ -349,10 +349,12 @@ def retry_phantom_attachment(
                 if os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
 
-            # Update batch and log entry in transaction with lock
-            frappe.db.begin()
-
-            # Re-acquire lock to ensure consistency
+            # Update batch and log entry under the row lock. No frappe.db.begin()
+            # here, for the same reason as the top of this function - and it bites
+            # unconditionally at this point: attach_file_to_document() above
+            # inserted a File document, so the transaction always has pending
+            # writes and START TRANSACTION always raises ImplicitCommitError. The
+            # commit() below is what publishes the work and releases the lock.
             _acquire_row_lock(log_name)
 
             batch.db_set("sepa_file", file_url)
@@ -391,7 +393,13 @@ def retry_phantom_attachment(
         except Exception as e:
             # Update log entry with truncated failure message
             error_msg = _truncate_error_message(str(e))
-            frappe.db.begin()
+            # Discard whatever the failed attempt left pending (e.g. a File
+            # document inserted just before the failure) before recording the
+            # outcome, so the entry is not marked against half-written work.
+            # Again no frappe.db.begin(): rollback() has already ended the
+            # ambient transaction's pending work, and START TRANSACTION would
+            # raise the moment anything is pending.
+            frappe.db.rollback()
             try:
                 _acquire_row_lock(log_name)
                 frappe.db.set_value(

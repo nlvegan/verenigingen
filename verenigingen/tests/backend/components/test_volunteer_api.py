@@ -4,6 +4,7 @@ from datetime import timedelta
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.test_utils import TestDataFactory
 
@@ -44,6 +45,14 @@ class TestVolunteerAPI(VereningingenTestCase):
         # re-applying roles, so ensure the required role is present.
         if "Verenigingen Administrator" not in frappe.get_roles(self.test_user.name):
             self.test_user.add_roles("Verenigingen Administrator")
+
+        # AuthorizationPolicy caps a bare individual role at MEDIUM (Rule 5); the
+        # @high_security_api activity endpoints below need HIGH, which is grantable
+        # only through an assigned role PROFILE (Rule 4). TestDataFactory.create_test_user
+        # assigns bare roles only, so grant the matching profile here. The
+        # unauthorized user built in test_api_permissions is deliberately left
+        # profileless.
+        grant_matching_role_profiles(self.test_user.name, ["Verenigingen Administrator"])
 
     def tearDown(self):
         # Base class cleans up tracked docs (see track_doc calls in setUp);

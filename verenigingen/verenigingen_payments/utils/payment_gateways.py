@@ -1865,7 +1865,7 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         # point (authenticate/parse, find member, load gateway), and this function
         # only reads (fetch invoice, validate amount) before begin(), so begin()
         # does not implicitly commit any prior uncommitted write work.
-        frappe.db.begin()
+        frappe.db.begin()  # db-begin-ok: verified-clean-caller
         try:
             # IDEMPOTENCY / RACE PROTECTION: concurrent webhooks for the same Mollie
             # payment must not create duplicate Payment Entries. Serialise on the

@@ -216,3 +216,69 @@ class TestAPIAuditLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestClearAllAuditLogs(unittest.TestCase):
+    """
+    Tests for the ``clear_all_audit_logs`` endpoint behind the "Clear All Logs"
+    button in the API Audit Log list view.
+
+    This endpoint had no coverage and could not succeed for any input: it writes
+    a forensic Error Log record and then called ``frappe.db.begin()``, which
+    trips Frappe's implicit-commit guard once anything is pending.
+    """
+
+    def test_clear_all_audit_logs_empties_the_table(self):
+        """
+        The endpoint must actually clear the table and report success.
+
+        Regression: it always returned {"success": False, "message": "Failed to
+        clear audit logs: ..."} because the deliberate frappe.log_error() audit
+        record written immediately above counts as a pending write, so the
+        following START TRANSACTION raised ImplicitCommitError. The raw
+        "TRUNCATE TABLE" trips the same guard independently.
+        """
+        from verenigingen.verenigingen.doctype.api_audit_log.api_audit_log import clear_all_audit_logs
+
+        audit_doc = frappe.new_doc("API Audit Log")
+        audit_doc.update(
+            {
+                "event_id": "test_clear_all_001",
+                "timestamp": now(),
+                "event_type": "api_call_success",
+                "severity": "info",
+                "user": "Administrator",
+                "ip_address": "127.0.0.1",
+                "details": {"endpoint": "/api/test", "method": "GET"},
+            }
+        )
+        audit_doc.insert()
+        frappe.db.commit()
+        self.assertGreater(frappe.db.count("API Audit Log"), 0, "fixture row was not persisted")
+
+        result = clear_all_audit_logs()
+
+        self.assertTrue(result.get("success"), f"clear failed: {result.get('message')}")
+        # Assert the pre-existing entry is gone rather than count == 0: the
+        # @critical_api decorator writes its own audit row for this very call
+        # after the function body returns, so the table is legitimately non-empty.
+        self.assertFalse(
+            frappe.db.exists("API Audit Log", {"event_id": "test_clear_all_001"}),
+            "the entry that existed before the clear is still there",
+        )
+
+    def test_clear_all_audit_logs_survives_a_pending_write(self):
+        """
+        A caller that already wrote in the same request must still be able to
+        clear the logs - the original failure mode was triggered by exactly this.
+        """
+        from verenigingen.verenigingen.doctype.api_audit_log.api_audit_log import clear_all_audit_logs
+
+        frappe.db.set_value("User", "Administrator", "middle_name", "clear-logs-probe")
+        self.assertGreater(frappe.db.transaction_writes, 0, "expected a pending write")
+
+        result = clear_all_audit_logs()
+
+        self.assertTrue(result.get("success"), f"clear failed: {result.get('message')}")
+        frappe.db.set_value("User", "Administrator", "middle_name", None)
+        frappe.db.commit()

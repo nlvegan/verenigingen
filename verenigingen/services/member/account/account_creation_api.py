@@ -658,8 +658,10 @@ def process_bulk_account_creation_batch(
             frappe.flags.in_background_job = True
             frappe.flags.bulk_account_creation = True
 
-            # Start transaction for this request
-            frappe.db.begin()
+            # Start transaction for this request. Safe: this runs in a worker
+            # thread that called frappe.connect() itself six lines up, so the
+            # connection is fresh and transaction_writes is 0 by construction.
+            frappe.db.begin()  # db-begin-ok: own-connection
 
             try:
                 # Validate request exists before attempting to process
