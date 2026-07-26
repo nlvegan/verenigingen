@@ -49,7 +49,10 @@ def clear_all_versions():
     )
 
     total_count = total_result[0].total_count if total_result else 0
-    total_size = total_result[0].total_size if total_result else 0
+    # SUM() over an empty table returns NULL, so an already-cleared tabVersion
+    # gave total_size = None and the size arithmetic below raised TypeError -
+    # i.e. calling this endpoint twice in a row failed the second time.
+    total_size = (total_result[0].total_size if total_result else 0) or 0
 
     # Delete all versions using TRUNCATE for better performance.
     # TRUNCATE is faster than DELETE for clearing entire tables and bypasses

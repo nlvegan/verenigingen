@@ -157,27 +157,30 @@ def clear_all_deleted_documents() -> OperationResult[Dict[str, Any]]:
 
         # Note: OPTIMIZE TABLE not needed after TRUNCATE as it already rebuilds the table
 
+        # Read defensively: SQL aggregates over an already-empty table come back
+        # NULL, and formatting None with :,/:.2f raises TypeError -- which is
+        # exactly how clear_all_versions failed on a second consecutive call.
+        deleted_count = stats_before.get("total_deleted_documents") or 0
+        size_freed_mb = stats_before.get("storage_size_mb") or 0
+
         # Log the action
         frappe.logger("verenigingen.deleted_document_cleanup").warning(
             f"All deleted documents cleared by {frappe.session.user}: "
-            f"{stats_before['total_deleted_documents']:,} documents deleted, "
-            f"{stats_before['storage_size_mb']:.2f} MB freed"
+            f"{deleted_count:,} documents deleted, {size_freed_mb:.2f} MB freed"
         )
 
         data = {
             "success": True,
-            "deleted_count": stats_before["total_deleted_documents"],
-            "size_freed_mb": stats_before["storage_size_mb"],
-            "unique_doctypes": stats_before["unique_doctypes"],
-            "oldest_deletion": stats_before["oldest_deletion"],
-            "newest_deletion": stats_before["newest_deletion"],
+            "deleted_count": deleted_count,
+            "size_freed_mb": size_freed_mb,
+            "unique_doctypes": stats_before.get("unique_doctypes") or 0,
+            "oldest_deletion": stats_before.get("oldest_deletion"),
+            "newest_deletion": stats_before.get("newest_deletion"),
         }
 
         return OperationResult.ok(
             data,
-            message=_("Cleared {0} deleted documents, freed {1:.2f} MB").format(
-                stats_before["total_deleted_documents"], stats_before["storage_size_mb"]
-            ),
+            message=_("Cleared {0} deleted documents, freed {1:.2f} MB").format(deleted_count, size_freed_mb),
         )
 
     except Exception as e:
