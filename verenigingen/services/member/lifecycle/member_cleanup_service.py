@@ -25,7 +25,7 @@ Architecture:
 - SQL injection prevention via whitelisted table names
 
 Security:
-- Uses ignore_permissions=True for Customer/Address unlinking (justified: system operation)
+- Uses ignore_permissions for Customer/Address unlinking (justified: system operation)
 - Child table whitelist prevents SQL injection
 - Force deletion for cascade cleanup
 - Comprehensive error logging
@@ -149,7 +149,7 @@ class MemberCleanupService(StatelessService):
 
         Security:
             - Uses force=True for cascade deletion
-            - Uses ignore_permissions=True for Customer/Address unlinking (system operation)
+            - Uses ignore_permissions for Customer/Address unlinking (system operation)
             - Whitelisted child tables prevent SQL injection
             - Comprehensive error handling prevents partial cleanup
 
@@ -302,20 +302,26 @@ class MemberCleanupService(StatelessService):
 
         customer = frappe.get_doc("Customer", member_doc.customer)
 
-        # Clear custom_member field if it points to this member
-        if hasattr(customer, "custom_member") and customer.custom_member == member_doc.name:
-            customer.custom_member = None
+        # Clear the back-reference if it points at this member. The field is
+        # `member` (Custom Field "Customer-member"); there is no `custom_member`
+        # column on Customer, so the previous name made this branch dead and left
+        # every deleted member's Customer pointing at a row that no longer exists.
+        # No early return here: a Customer can carry BOTH the `member` field and a
+        # Dynamic Link row for the same Member, and returning after clearing the
+        # field would leave the link behind. That return was unreachable while this
+        # branch guarded on the non-existent `custom_member`; correcting the field
+        # name made it live, so it has to go.
+        cleared_field = customer.get("member") == member_doc.name
+        if cleared_field:
+            customer.member = None
             # GDPR Audit: Log permission bypass before execution
             self._log_permission_bypass_audit(
-                operation="clear_custom_member",
+                operation="clear_member_link",
                 doctype="Customer",
                 docname=member_doc.customer,
                 member_name=member_doc.name,
-                justification="System operation during member deletion - clearing custom_member link",
+                justification="System operation during member deletion - clearing member link",
             )
-            # Security: System cascade cleanup - audited via _log_permission_bypass_audit above
-            customer.save(ignore_permissions=True)
-            return
 
         # Also handle Dynamic Link entries if they exist (some ERPNext setups)
         # Use `or []` pattern because get() returns None if field exists but is None
@@ -338,6 +344,9 @@ class MemberCleanupService(StatelessService):
                 member_name=member_doc.name,
                 justification="System operation during member deletion - removing Dynamic Link entries",
             )
+
+        # Single save covers both the cleared `member` field and any removed links.
+        if cleared_field or links_to_remove:
             # Security: System cascade cleanup - audited via _log_permission_bypass_audit above
             customer.save(ignore_permissions=True)
 

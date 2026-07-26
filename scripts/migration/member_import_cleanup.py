@@ -85,41 +85,16 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     """
     Nuclear cleanup: Delete ALL members and their related records.
 
-    This function will delete records in the following phases:
+    Same deletion engine as cleanup_all_test_data() -- see _run_cleanup_phases()
+    for the phase-by-phase order and the mutual-link handling. The only
+    difference is the selection: every Member on the site, with no Team or
+    Chapter deleted outright (their member/board rows and chapter_head
+    back-references are still cleared).
 
-    PHASE 1: DYNAMIC LINKS CLEANUP (Critical for cascade)
-    - Dynamic Links from Members, Customers, Volunteers
-    - Chapter head references cleared
-    - Chapter Board Members deleted
-
-    PHASE 2: CUSTOMERS, CONTACTS, AND ADDRESSES
-    - Customer records (must be deleted BEFORE Contacts/Addresses that link to them)
-    - Contacts (with child tables: Contact Email, Contact Phone)
-    - Addresses (with Dynamic Links)
-
-    PHASE 3: TRACKING/ADMINISTRATIVE RECORDS
-    - Notification Settings (for member emails)
-    - API Audit Log entries (for member emails)
-    - Account Creation Requests
-    - Chapter Members (child table links)
-    - Sales Invoices (canceled if submitted, then deleted)
-
-    PHASE 4: FINANCIAL AND OPERATIONAL RECORDS
-    - Volunteers (with child tables)
-    - Member Payment History
-    - SEPA Mandates
-    - Contribution Amendment Requests
-    - Membership Dues Schedules
-    - Memberships
-    - Donors
-
-    PHASE 5: USER-RELATED RECORDS
-    - User Permissions
-    - Employee records
-    - User accounts
-
-    PHASE 6: FINAL CLEANUP
-    - Members (core records deleted last)
+    This previously carried its own ~950-line copy of the deletion logic whose
+    entire Customer phase was dead code: it guarded on a `custom_member` column
+    that does not exist on Customer, so has_column() returned False and no
+    Customer was ever deleted or unlinked.
 
     Args:
         confirm_nuclear_cleanup (bool): Must be True to proceed
@@ -128,909 +103,30 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     Returns:
         dict: Results of the cleanup operation
     """
-
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
     validate_nuclear_confirmation(confirm_nuclear_cleanup)
 
-    results = {
-        "dry_run": dry_run,
-        "total_records_affected": 0,
-        "members": {"count": 0, "deleted": 0, "errors": []},
-        "memberships": {"count": 0, "deleted": 0, "errors": []},
-        "dues_schedules": {"count": 0, "deleted": 0, "errors": []},
-        "amendment_requests": {"count": 0, "deleted": 0, "errors": []},
-        "account_creation_requests": {"count": 0, "deleted": 0, "errors": []},
-        "notification_settings": {"count": 0, "deleted": 0, "errors": []},
-        "api_audit_logs": {"count": 0, "deleted": 0, "errors": []},
-        "sales_invoices": {"count": 0, "deleted": 0, "errors": []},
-        "volunteers": {"count": 0, "deleted": 0, "errors": []},
-        "sepa_mandates": {"count": 0, "deleted": 0, "errors": []},
-        "payment_history": {"count": 0, "deleted": 0, "errors": []},
-        "chapter_members": {"count": 0, "deleted": 0, "errors": []},
-        "users": {"count": 0, "deleted": 0, "errors": []},
-        "customers": {"count": 0, "deleted": 0, "errors": []},
-        "donors": {"count": 0, "deleted": 0, "errors": []},
-        "addresses": {"count": 0, "deleted": 0, "errors": []},
-        "contacts": {"count": 0, "deleted": 0, "errors": []},
-        "other_related": {"count": 0, "deleted": 0, "errors": []},
-        "warnings": [],
-        "summary": "",
-    }
+    results = _new_cleanup_results(dry_run)
 
     try:
-        # Step 1: Get all members first
-        members = frappe.get_all("Member", fields=["name", "email", "first_name", "last_name"])
-        results["members"]["count"] = len(members)
-
+        members = frappe.get_all("Member", pluck="name")
         if not members:
             results["summary"] = "No members found to delete"
+            results["total_records_affected"] = 0
             return results
 
-        member_names = [m.name for m in members]
-        results["warnings"].append(f"Found {len(member_names)} members to process")
-
-        # Step 2: Find all related records that reference these members
-
-        # Memberships
-        try:
-            memberships = frappe.get_all(
-                "Membership", filters={"member": ["in", member_names]}, fields=["name"]
-            )
-            results["memberships"]["count"] = len(memberships)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Membership: {str(e)}")
-            memberships = []
-            results["memberships"]["count"] = 0
-
-        # Membership Dues Schedules (exclude templates)
-        try:
-            dues_schedules = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": ["in", member_names], "is_template": 0},
-                fields=["name"],
-            )
-            results["dues_schedules"]["count"] = len(dues_schedules)
-
-            # Also check if any templates are incorrectly linked to members (should never happen)
-            template_check = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": ["in", member_names], "is_template": 1},
-                fields=["name", "schedule_name"],
-            )
-            if template_check:
-                results["warnings"].append(
-                    f"⚠️ Found {len(template_check)} template schedules incorrectly linked to members - these will be preserved but should be cleaned up manually"
-                )
-        except Exception as e:
-            frappe.logger().error(f"Error querying Membership Dues Schedule: {str(e)}")
-            dues_schedules = []
-            results["dues_schedules"]["count"] = 0
-
-        # Contribution Amendment Requests
-        try:
-            amendment_requests = frappe.get_all(
-                "Contribution Amendment Request", filters={"member": ["in", member_names]}, fields=["name"]
-            )
-            results["amendment_requests"]["count"] = len(amendment_requests)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Contribution Amendment Request: {str(e)}")
-            amendment_requests = []
-            results["amendment_requests"]["count"] = 0
-
-        # Account Creation Requests (using Dynamic Link field)
-        try:
-            account_creation_requests = frappe.get_all(
-                "Account Creation Request",
-                filters={"request_type": "Member", "source_record": ["in", member_names]},
-                fields=["name"],
-            )
-            results["account_creation_requests"]["count"] = len(account_creation_requests)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Account Creation Request: {str(e)}")
-            account_creation_requests = []
-            results["account_creation_requests"]["count"] = 0
-
-        # Notification Settings (by member email - name field is the email)
-        notification_settings = []
-        try:
-            member_emails = [m["email"] for m in members if m.get("email")]
-            if member_emails:
-                placeholders = ", ".join(["%s"] * len(member_emails))
-                notification_settings = frappe.db.sql(
-                    f"""
-                    SELECT name FROM `tabNotification Settings`
-                    WHERE name IN ({placeholders})
-                """,
-                    member_emails,
-                    as_dict=True,
-                )
-            results["notification_settings"]["count"] = len(notification_settings)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Notification Settings: {str(e)}")
-            notification_settings = []
-            results["notification_settings"]["count"] = 0
-
-        # API Audit Log entries (by member email in user field)
-        api_audit_logs = []
-        try:
-            member_emails = [m["email"] for m in members if m.get("email")]
-            if member_emails:
-                placeholders = ", ".join(["%s"] * len(member_emails))
-                api_audit_logs = frappe.db.sql(
-                    f"""
-                    SELECT name FROM `tabAPI Audit Log`
-                    WHERE user IN ({placeholders})
-                """,
-                    member_emails,
-                    as_dict=True,
-                )
-            results["api_audit_logs"]["count"] = len(api_audit_logs)
-        except Exception as e:
-            frappe.logger().error(f"Error querying API Audit Log: {str(e)}")
-            api_audit_logs = []
-            results["api_audit_logs"]["count"] = 0
-
-        # Sales Invoices - comprehensive cleanup including application invoices
-        try:
-            sales_invoices = []
-
-            # Method 1: Get customer IDs for these members and find their invoices
-            customer_ids = []
-            if frappe.db.has_column("Customer", "custom_member") and member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                customers = frappe.db.sql(
-                    f"""
-                    SELECT name FROM `tabCustomer`
-                    WHERE custom_member IN ({placeholders})
-                """,
-                    member_names,
-                    as_dict=True,
-                )
-                customer_ids = [c.name for c in customers]
-
-            # Find ALL sales invoices for these customers (not just membership invoices)
-            # This prevents orphaned invoices when Customer records are deleted
-            if customer_ids:
-                placeholders = ", ".join(["%s"] * len(customer_ids))
-                sales_invoices_by_customer = frappe.db.sql(
-                    f"""
-                    SELECT name, docstatus FROM `tabSales Invoice`
-                    WHERE customer IN ({placeholders})
-                """,
-                    customer_ids,
-                    as_dict=True,
-                )
-                sales_invoices.extend(sales_invoices_by_customer)
-
-            # Method 2: Find application invoices by email (temporary customer during application)
-            # Use chunking to avoid overly large IN clauses that trigger debug logging
-            if member_names:
-                member_emails = [m["email"] for m in members if m.get("email")]
-                chunk_size = 100
-                for i in range(0, len(member_emails), chunk_size):
-                    chunk = member_emails[i : i + chunk_size]
-                    if chunk:
-                        placeholders = ", ".join(["%s"] * len(chunk))
-                        application_invoices = frappe.db.sql(
-                            f"""
-                            SELECT name, docstatus FROM `tabSales Invoice`
-                            WHERE customer IN ({placeholders})
-                            AND remarks LIKE '%application%'
-                            """,
-                            chunk,
-                            as_dict=True,
-                        )
-                        sales_invoices.extend(application_invoices)
-
-            # Method 3: Find invoices by remarks referencing member names
-            # Note: This is slow due to LIKE '%...%' not using indexes, so we limit to first 100 members
-            # and batch the queries to avoid timeouts
-            if member_names:
-                # Search for invoices with remarks containing member names (first 100 only)
-                for member_name in member_names[:100]:
-                    try:
-                        invoices_by_remarks = frappe.db.sql(
-                            """
-                            SELECT name, docstatus FROM `tabSales Invoice`
-                            WHERE remarks LIKE %s
-                            LIMIT 10
-                            """,
-                            (f"%{member_name}%",),
-                            as_dict=True,
-                        )
-                        sales_invoices.extend(invoices_by_remarks)
-                    except Exception as e:
-                        frappe.logger().warning(f"Error searching invoices by remarks for {member_name}: {e}")
-
-            # Remove duplicates
-            seen_invoices = set()
-            unique_invoices = []
-            for inv in sales_invoices:
-                if inv.name not in seen_invoices:
-                    seen_invoices.add(inv.name)
-                    unique_invoices.append(inv)
-
-            sales_invoices = unique_invoices
-            results["sales_invoices"]["count"] = len(sales_invoices)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Sales Invoice: {str(e)}")
-            sales_invoices = []
-            results["sales_invoices"]["count"] = 0
-
-        # Volunteers
-        try:
-            volunteers = frappe.get_all(
-                "Volunteer", filters={"member": ["in", member_names]}, fields=["name"]
-            )
-            results["volunteers"]["count"] = len(volunteers)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Volunteer: {str(e)}")
-            volunteers = []
-            results["volunteers"]["count"] = 0
-
-        # SEPA Mandates
-        try:
-            sepa_mandates = frappe.get_all(
-                "SEPA Mandate", filters={"member": ["in", member_names]}, fields=["name"]
-            )
-            results["sepa_mandates"]["count"] = len(sepa_mandates)
-        except Exception as e:
-            frappe.logger().error(f"Error querying SEPA Mandate: {str(e)}")
-            sepa_mandates = []
-            results["sepa_mandates"]["count"] = 0
-
-        # Member Payment History
-        try:
-            payment_history = frappe.get_all(
-                "Member Payment History", filters={"member": ["in", member_names]}, fields=["name"]
-            )
-            results["payment_history"]["count"] = len(payment_history)
-        except Exception as e:
-            frappe.logger().error(f"Error querying Member Payment History: {str(e)}")
-            payment_history = []
-            results["payment_history"]["count"] = 0
-
-        # Chapter Members (from Chapter doctype child table) - SECURE VERSION
-        if member_names:
-            placeholders = ", ".join(["%s"] * len(member_names))
-            chapter_members = frappe.db.sql(
-                f"""
-                SELECT cm.parent as chapter_name, cm.name as chapter_member_name, cm.member
-                FROM `tabChapter Member` cm
-                WHERE cm.member IN ({placeholders})
-            """,
-                member_names,
-                as_dict=True,
-            )
-        else:
-            chapter_members = []
-        results["chapter_members"]["count"] = len(chapter_members)
-
-        # Chapter Board Members (volunteer links in chapters)
-        chapter_board_members = []
-        if volunteers:
-            volunteer_names = [v.name for v in volunteers]
-            placeholders = ", ".join(["%s"] * len(volunteer_names))
-            chapter_board_members = frappe.db.sql(
-                f"""
-                SELECT cbm.parent as chapter_name, cbm.name as board_member_name, cbm.volunteer
-                FROM `tabChapter Board Member` cbm
-                WHERE cbm.volunteer IN ({placeholders})
-            """,
-                volunteer_names,
-                as_dict=True,
-            )
-        results["chapter_board_members"] = {"count": len(chapter_board_members), "deleted": 0, "errors": []}
-
-        # Chapters with chapter_head pointing to these members (need to clear the field)
-        chapters_with_head = []
-        if member_names:
-            placeholders = ", ".join(["%s"] * len(member_names))
-            chapters_with_head = frappe.db.sql(
-                f"""
-                SELECT name, chapter_head FROM `tabChapter`
-                WHERE chapter_head IN ({placeholders})
-            """,
-                member_names,
-                as_dict=True,
-            )
-        results["chapters_head_cleared"] = {"count": len(chapters_with_head), "cleared": 0, "errors": []}
-
-        # User accounts linked to members - query via Member.user field
-        users_with_member_links = []
-        try:
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                users_with_member_links = frappe.db.sql(
-                    f"""
-                    SELECT DISTINCT m.user as name
-                    FROM `tabMember` m
-                    WHERE m.name IN ({placeholders})
-                    AND m.user IS NOT NULL
-                    AND m.user != ''
-                """,
-                    member_names,
-                    as_dict=True,
-                )
-        except Exception as e:
-            frappe.logger().warning(f"Could not query User records: {str(e)}")
-        results["users"]["count"] = len(users_with_member_links)
-
-        # Employee records linked to these users
-        employees = []
-        if users_with_member_links:
-            try:
-                user_ids = [u.name for u in users_with_member_links]
-                placeholders = ", ".join(["%s"] * len(user_ids))
-                employees = frappe.db.sql(
-                    f"""
-                    SELECT name FROM `tabEmployee`
-                    WHERE user_id IN ({placeholders})
-                """,
-                    user_ids,
-                    as_dict=True,
-                )
-            except Exception as e:
-                frappe.logger().warning(f"Could not query Employee records: {str(e)}")
-        results["employees"] = {"count": len(employees), "deleted": 0, "errors": []}
-
-        # User Permission records for these employees
-        user_permissions = []
-        if employees:
-            try:
-                employee_ids = [e.name for e in employees]
-                placeholders = ", ".join(["%s"] * len(employee_ids))
-                user_permissions = frappe.db.sql(
-                    f"""
-                    SELECT name FROM `tabUser Permission`
-                    WHERE allow IN ({placeholders})
-                    AND for_value IN ({placeholders})
-                """,
-                    employee_ids + employee_ids,
-                    as_dict=True,
-                )
-            except Exception as e:
-                frappe.logger().warning(f"Could not query User Permission records: {str(e)}")
-        results["user_permissions"] = {"count": len(user_permissions), "deleted": 0, "errors": []}
-
-        # Customer records where member is linked - SECURE VERSION
-        # Only query if the custom field exists
-        customers_with_member_links = []
-        try:
-            if frappe.db.has_column("Customer", "custom_member") and member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                customers_with_member_links = frappe.db.sql(
-                    f"""
-                    SELECT name FROM `tabCustomer`
-                    WHERE custom_member IN ({placeholders})
-                """,
-                    member_names,
-                    as_dict=True,
-                )
-        except Exception as e:
-            frappe.logger().warning(f"Could not query Customer records: {str(e)}")
-        results["customers"]["count"] = len(customers_with_member_links)
-
-        # Donors where member is linked (check if Donor doctype exists first)
-        donors = []
-        if frappe.db.exists("DocType", "Donor"):
-            try:
-                donors = frappe.get_all("Donor", filters={"member": ["in", member_names]}, fields=["name"])
-            except Exception as e:
-                frappe.logger().warning(f"Could not query Donor records: {str(e)}")
-                donors = []
-        results["donors"]["count"] = len(donors)
-
-        # Addresses linked to Members via Dynamic Link
-        try:
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                addresses = frappe.db.sql(
-                    f"""
-                    SELECT DISTINCT dl.parent
-                    FROM `tabDynamic Link` dl
-                    WHERE dl.parenttype = 'Address'
-                    AND dl.link_doctype = 'Member'
-                    AND dl.link_name IN ({placeholders})
-                """,
-                    member_names,
-                    as_dict=True,
-                )
-                results["addresses"]["count"] = len(addresses)
-            else:
-                addresses = []
-        except Exception as e:
-            frappe.logger().warning(f"Could not query Address records: {str(e)}")
-            addresses = []
-            results["addresses"]["count"] = 0
-
-        # Contacts linked to Members via Dynamic Link
-        try:
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                contacts = frappe.db.sql(
-                    f"""
-                    SELECT DISTINCT dl.parent
-                    FROM `tabDynamic Link` dl
-                    WHERE dl.parenttype = 'Contact'
-                    AND dl.link_doctype = 'Member'
-                    AND dl.link_name IN ({placeholders})
-                """,
-                    member_names,
-                    as_dict=True,
-                )
-                results["contacts"]["count"] = len(contacts)
-            else:
-                contacts = []
-        except Exception as e:
-            frappe.logger().warning(f"Could not query Contact records: {str(e)}")
-            contacts = []
-            results["contacts"]["count"] = 0
-
-        # Calculate total affected records
-        results["total_records_affected"] = (
-            results["members"]["count"]
-            + results["memberships"]["count"]
-            + results["dues_schedules"]["count"]
-            + results["amendment_requests"]["count"]
-            + results["account_creation_requests"]["count"]
-            + results["notification_settings"]["count"]
-            + results["api_audit_logs"]["count"]
-            + results["sales_invoices"]["count"]
-            + results["volunteers"]["count"]
-            + results["sepa_mandates"]["count"]
-            + results["payment_history"]["count"]
-            + results["chapter_members"]["count"]
-            + results["chapter_board_members"]["count"]
-            + results["chapters_head_cleared"]["count"]
-            + results["users"]["count"]
-            + results["employees"]["count"]
-            + results["user_permissions"]["count"]
-            + results["customers"]["count"]
-            + results["donors"]["count"]
-            + results["addresses"]["count"]
-            + results["contacts"]["count"]
-        )
-
-        if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Would delete {results['total_records_affected']} total records across all related DocTypes"
-            return results
-
-        # Step 3: ACTUAL DELETION (in dependency order) - WITH TRANSACTION SAFETY
-        frappe.logger().info(f"Starting nuclear cleanup of {results['total_records_affected']} records")
-
-        # Begin atomic transaction - either all succeed or all rollback
-        frappe.db.begin()
-
-        try:
-            # ============================================================
-            # PHASE 1: CLEAN UP DYNAMIC LINKS FIRST (Critical for cascade)
-            # ============================================================
-            # Dynamic Links from Contacts/Addresses to Members must be removed
-            # BEFORE we can delete Contacts, Customers, or Members
-
-            frappe.logger().info("Phase 1: Cleaning up Dynamic Links...")
-
-            # Delete ALL Dynamic Links pointing to these members (from any doctype)
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                frappe.db.sql(
-                    f"""
-                    DELETE FROM `tabDynamic Link`
-                    WHERE link_doctype = 'Member'
-                    AND link_name IN ({placeholders})
-                    """,
-                    member_names,
-                )
-                frappe.logger().info("Deleted Dynamic Links to Members")
-
-            # Also clean up Dynamic Links pointing to the Customers we're about to delete
-            # This includes links FROM Contacts/Addresses TO Customers
-            if customers_with_member_links:
-                customer_names = [c.name for c in customers_with_member_links]
-                placeholders = ", ".join(["%s"] * len(customer_names))
-                frappe.db.sql(
-                    f"""
-                    DELETE FROM `tabDynamic Link`
-                    WHERE link_doctype = 'Customer'
-                    AND link_name IN ({placeholders})
-                    """,
-                    customer_names,
-                )
-                frappe.logger().info("Deleted Dynamic Links to Customers")
-
-            # Also find and clean up Addresses/Contacts linked to these Customers
-            # (not just Members) - they may have been created via Customer, not Member
-            if customers_with_member_links:
-                customer_names = [c.name for c in customers_with_member_links]
-                placeholders = ", ".join(["%s"] * len(customer_names))
-
-                # Find additional addresses linked to customers
-                customer_addresses = frappe.db.sql(
-                    f"""
-                    SELECT DISTINCT dl.parent
-                    FROM `tabDynamic Link` dl
-                    WHERE dl.parenttype = 'Address'
-                    AND dl.link_doctype = 'Customer'
-                    AND dl.link_name IN ({placeholders})
-                    """,
-                    customer_names,
-                    as_dict=True,
-                )
-                # Add to addresses list (will be deleted in Phase 2)
-                existing_address_parents = {a.parent for a in addresses}
-                for addr in customer_addresses:
-                    if addr.parent not in existing_address_parents:
-                        addresses.append(addr)
-                        existing_address_parents.add(addr.parent)
-                results["addresses"]["count"] = len(addresses)
-
-                # Find additional contacts linked to customers
-                customer_contacts = frappe.db.sql(
-                    f"""
-                    SELECT DISTINCT dl.parent
-                    FROM `tabDynamic Link` dl
-                    WHERE dl.parenttype = 'Contact'
-                    AND dl.link_doctype = 'Customer'
-                    AND dl.link_name IN ({placeholders})
-                    """,
-                    customer_names,
-                    as_dict=True,
-                )
-                # Add to contacts list (will be deleted in Phase 2)
-                existing_contact_parents = {c.parent for c in contacts}
-                for cont in customer_contacts:
-                    if cont.parent not in existing_contact_parents:
-                        contacts.append(cont)
-                        existing_contact_parents.add(cont.parent)
-                results["contacts"]["count"] = len(contacts)
-
-                frappe.logger().info(
-                    f"Found {len(customer_addresses)} additional addresses and "
-                    f"{len(customer_contacts)} additional contacts linked to Customers"
-                )
-
-            # Clean up Dynamic Links pointing to Volunteers we're about to delete
-            if volunteers:
-                volunteer_names = [v.name for v in volunteers]
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                frappe.db.sql(
-                    f"""
-                    DELETE FROM `tabDynamic Link`
-                    WHERE link_doctype = 'Volunteer'
-                    AND link_name IN ({placeholders})
-                    """,
-                    volunteer_names,
-                )
-                frappe.logger().info("Deleted Dynamic Links to Volunteers")
-
-            # Clear chapter_head references to members we're deleting
-            if chapters_with_head:
-                chapter_names = [c.name for c in chapters_with_head]
-                placeholders = ", ".join(["%s"] * len(chapter_names))
-                frappe.db.sql(
-                    f"UPDATE `tabChapter` SET chapter_head = NULL WHERE name IN ({placeholders})",
-                    chapter_names,
-                )
-                results["chapters_head_cleared"]["cleared"] = len(chapter_names)
-                frappe.logger().info(f"Cleared chapter_head references in {len(chapter_names)} chapters")
-
-            # Delete Chapter Board Members (volunteer links)
-            if chapter_board_members:
-                cbm_names = [cbm.board_member_name for cbm in chapter_board_members]
-                placeholders = ", ".join(["%s"] * len(cbm_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabChapter Board Member` WHERE name IN ({placeholders})",
-                    cbm_names,
-                )
-                results["chapter_board_members"]["deleted"] = len(cbm_names)
-                frappe.logger().info(f"Deleted {len(cbm_names)} Chapter Board Member records")
-
-            # ============================================================
-            # PHASE 2: DELETE CUSTOMERS, CONTACTS, AND ADDRESSES
-            # Order: Customers first (Contacts/Addresses may link to them)
-            # ============================================================
-            frappe.logger().info("Phase 2: Cleaning up Customers, Contacts and Addresses...")
-
-            # Delete Customers FIRST (before Contacts/Addresses that may link to them)
-            # Clear custom_member field first to break the link
-            if customers_with_member_links and frappe.db.has_column("Customer", "custom_member"):
-                customer_names = [c.name for c in customers_with_member_links]
-                placeholders = ", ".join(["%s"] * len(customer_names))
-                frappe.db.sql(
-                    f"UPDATE `tabCustomer` SET custom_member = NULL WHERE name IN ({placeholders})",
-                    customer_names,
-                )
-
-            # Now delete Customer records using direct SQL to avoid validation issues
-            for customer in customers_with_member_links:
-                try:
-                    # Delete any remaining child tables for this customer
-                    frappe.db.sql(
-                        "DELETE FROM `tabParty Account` WHERE parent = %s AND parenttype = 'Customer'",
-                        customer.name,
-                    )
-                    frappe.db.sql(
-                        "DELETE FROM `tabSales Team` WHERE parent = %s AND parenttype = 'Customer'",
-                        customer.name,
-                    )
-                    # Delete the customer
-                    frappe.db.sql("DELETE FROM `tabCustomer` WHERE name = %s", customer.name)
-                    results["customers"]["deleted"] += 1
-                except Exception as e:
-                    results["customers"]["errors"].append(f"{customer.name}: {str(e)}")
-
-            frappe.logger().info(f"Deleted {results['customers']['deleted']} Customer records")
-
-            # Delete Contacts (now safe after Customers deleted)
-            for contact in contacts:
-                try:
-                    # Delete Contact child tables first
-                    frappe.db.sql("DELETE FROM `tabContact Email` WHERE parent = %s", contact.parent)
-                    frappe.db.sql("DELETE FROM `tabContact Phone` WHERE parent = %s", contact.parent)
-                    frappe.db.sql(
-                        "DELETE FROM `tabDynamic Link` WHERE parent = %s AND parenttype = 'Contact'",
-                        contact.parent,
-                    )
-                    # Force delete using SQL to bypass any remaining validations
-                    frappe.db.sql("DELETE FROM `tabContact` WHERE name = %s", contact.parent)
-                    results["contacts"]["deleted"] += 1
-                except Exception as e:
-                    results["contacts"]["errors"].append(f"{contact.parent}: {str(e)}")
-
-            # Delete Addresses (now safe after Customers/Contacts deleted)
-            for address in addresses:
-                try:
-                    # Delete Address child tables (Dynamic Links)
-                    frappe.db.sql(
-                        "DELETE FROM `tabDynamic Link` WHERE parent = %s AND parenttype = 'Address'",
-                        address.parent,
-                    )
-                    frappe.db.sql("DELETE FROM `tabAddress` WHERE name = %s", address.parent)
-                    results["addresses"]["deleted"] += 1
-                except Exception as e:
-                    results["addresses"]["errors"].append(f"{address.parent}: {str(e)}")
-
-            # ============================================================
-            # PHASE 3: EARLY CLEANUP - Tracking/administrative records
-            # Security: All deletes protected by validate_cleanup_permissions() at entry
-            # ============================================================
-            frappe.logger().info("Phase 3: Cleaning up tracking records...")
-
-            # Delete Notification Settings (by member email)
-            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
-            for ns in notification_settings:
-                try:
-                    frappe.delete_doc("Notification Settings", ns.name, ignore_permissions=True, force=True)
-                    results["notification_settings"]["deleted"] += 1
-                except Exception as e:
-                    results["notification_settings"]["errors"].append(f"{ns.name}: {str(e)}")
-
-            # Delete API Audit Log entries (by member email)
-            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
-            for audit_log in api_audit_logs:
-                try:
-                    frappe.delete_doc("API Audit Log", audit_log.name, ignore_permissions=True, force=True)
-                    results["api_audit_logs"]["deleted"] += 1
-                except Exception as e:
-                    results["api_audit_logs"]["errors"].append(f"{audit_log.name}: {str(e)}")
-
-            # Delete Account Creation Requests (tracking records - delete early)
-            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
-            for acr in account_creation_requests:
-                try:
-                    frappe.delete_doc(
-                        "Account Creation Request", acr.name, ignore_permissions=True, force=True
-                    )
-                    results["account_creation_requests"]["deleted"] += 1
-                except Exception as e:
-                    results["account_creation_requests"]["errors"].append(f"{acr.name}: {str(e)}")
-
-            # Delete child table records (Chapter Members) - use direct SQL
-            frappe.logger().info(f"Cleaning up {len(chapter_members)} Chapter Member links...")
-            if chapter_members:
-                cm_names = [cm.chapter_member_name for cm in chapter_members]
-                placeholders = ", ".join(["%s"] * len(cm_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabChapter Member` WHERE name IN ({placeholders})",
-                    cm_names,
-                )
-                results["chapter_members"]["deleted"] = len(cm_names)
-
-            # Delete Sales Invoices (they depend on dues schedules and memberships)
-            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
-            frappe.logger().info(f"Cleaning up {len(sales_invoices)} Sales Invoices...")
-            for invoice in sales_invoices:
-                try:
-                    doc = frappe.get_doc("Sales Invoice", invoice.name)
-                    # Cancel if submitted
-                    if doc.docstatus == 1:
-                        doc.cancel()
-                    # Security: Import cleanup utility - deleting test/import data.
-                    # Protected by @critical_api decorator and validate_cleanup_permissions().
-                    frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True, force=True)
-                    results["sales_invoices"]["deleted"] += 1
-                except Exception as e:
-                    results["sales_invoices"]["errors"].append(f"{invoice.name}: {str(e)}")
-
-            # ============================================================
-            # PHASE 4: DELETE FINANCIAL AND OPERATIONAL RECORDS
-            # Security: All deletes protected by validate_cleanup_permissions() at entry
-            # ============================================================
-            frappe.logger().info("Phase 4: Cleaning up financial/operational records...")
-
-            # Delete dependent DocTypes (cancel submitted docs first)
-            # First handle Volunteers specially - delete their child tables first
-            if volunteers:
-                volunteer_names = [v.name for v in volunteers]
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                # Delete volunteer child tables
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})", volunteer_names
-                )
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})", volunteer_names
-                )
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})",
-                    volunteer_names,
-                )
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})",
-                    volunteer_names,
-                )
-                # Clear volunteer.member field to break the link
-                frappe.db.sql(
-                    f"UPDATE `tabVolunteer` SET member = NULL WHERE name IN ({placeholders})", volunteer_names
-                )
-                # Delete the volunteers
-                frappe.db.sql(f"DELETE FROM `tabVolunteer` WHERE name IN ({placeholders})", volunteer_names)
-                results["volunteers"]["deleted"] = len(volunteer_names)
-
-            # Now handle other doctypes
-            for doctype, records, result_key in [
-                ("Member Payment History", payment_history, "payment_history"),
-                ("SEPA Mandate", sepa_mandates, "sepa_mandates"),
-                ("Contribution Amendment Request", amendment_requests, "amendment_requests"),
-                ("Membership Dues Schedule", dues_schedules, "dues_schedules"),
-                ("Membership", memberships, "memberships"),
-                ("Donor", donors, "donors"),
-            ]:
-                if records:
-                    record_names = [r.name for r in records]
-                    placeholders = ", ".join(["%s"] * len(record_names))
-                    # For submittable doctypes, cancel them first
-                    if doctype in ["Membership"]:
-                        frappe.db.sql(
-                            f"UPDATE `tab{doctype}` SET docstatus = 2 WHERE docstatus = 1 AND name IN ({placeholders})",
-                            record_names,
-                        )
-                    # Delete the records
-                    frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE name IN ({placeholders})", record_names)
-                    results[result_key]["deleted"] = len(record_names)
-
-            # ============================================================
-            # PHASE 5: DELETE USER-RELATED RECORDS
-            # ============================================================
-            frappe.logger().info("Phase 5: Cleaning up User-related records...")
-
-            # Delete User Permissions first (they reference employees)
-            if user_permissions:
-                perm_names = [p.name for p in user_permissions]
-                placeholders = ", ".join(["%s"] * len(perm_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabUser Permission` WHERE name IN ({placeholders})",
-                    perm_names,
-                )
-                results["user_permissions"]["deleted"] = len(perm_names)
-
-            # Delete Employee records (they reference users) - clear user_id first
-            if employees:
-                employee_names = [e.name for e in employees]
-                placeholders = ", ".join(["%s"] * len(employee_names))
-                # Clear user_id to break link
-                frappe.db.sql(
-                    f"UPDATE `tabEmployee` SET user_id = NULL WHERE name IN ({placeholders})",
-                    employee_names,
-                )
-                # Delete employees
-                frappe.db.sql(
-                    f"DELETE FROM `tabEmployee` WHERE name IN ({placeholders})",
-                    employee_names,
-                )
-                results["employees"]["deleted"] = len(employee_names)
-
-            # Clear Member.user and Member.customer fields before deleting users
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                frappe.db.sql(
-                    f"UPDATE `tabMember` SET user = NULL, customer = NULL WHERE name IN ({placeholders})",
-                    member_names,
-                )
-
-            # Delete User accounts (filter out system users)
-            users_to_delete = [
-                u.name for u in users_with_member_links if u.name not in ["Administrator", "Guest"]
-            ]
-            if users_to_delete:
-                # Delete user-related child tables first
-                placeholders = ", ".join(["%s"] * len(users_to_delete))
-                frappe.db.sql(f"DELETE FROM `tabHas Role` WHERE parent IN ({placeholders})", users_to_delete)
-                frappe.db.sql(
-                    f"DELETE FROM `tabUser Email` WHERE parent IN ({placeholders})", users_to_delete
-                )
-                frappe.db.sql(
-                    f"DELETE FROM `tabUser Social Login` WHERE parent IN ({placeholders})", users_to_delete
-                )
-                frappe.db.sql(
-                    f"DELETE FROM `tabBlock Module` WHERE parent IN ({placeholders})", users_to_delete
-                )
-                frappe.db.sql(
-                    f"DELETE FROM `tabDefaultValue` WHERE parent IN ({placeholders})", users_to_delete
-                )
-                # Delete users
-                frappe.db.sql(f"DELETE FROM `tabUser` WHERE name IN ({placeholders})", users_to_delete)
-                results["users"]["deleted"] = len(users_to_delete)
-
-            # ============================================================
-            # PHASE 6: FINALLY DELETE MEMBERS (core records deleted last)
-            # ============================================================
-            frappe.logger().info("Phase 6: Cleaning up Member records...")
-
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                # Delete members (child tables cascade automatically in Frappe)
-                frappe.db.sql(f"DELETE FROM `tabMember` WHERE name IN ({placeholders})", member_names)
-                results["members"]["deleted"] = len(member_names)
-
-            # Commit all changes - transaction successful
-            frappe.db.commit()
-
-            total_deleted = (
-                results["members"]["deleted"]
-                + results["memberships"]["deleted"]
-                + results["dues_schedules"]["deleted"]
-                + results["amendment_requests"]["deleted"]
-                + results["account_creation_requests"]["deleted"]
-                + results["notification_settings"]["deleted"]
-                + results["api_audit_logs"]["deleted"]
-                + results["sales_invoices"]["deleted"]
-                + results["volunteers"]["deleted"]
-                + results["sepa_mandates"]["deleted"]
-                + results["payment_history"]["deleted"]
-                + results["chapter_members"]["deleted"]
-                + results["chapter_board_members"]["deleted"]
-                + results["chapters_head_cleared"]["cleared"]
-                + results["user_permissions"]["deleted"]
-                + results["employees"]["deleted"]
-                + results["users"]["deleted"]
-                + results["customers"]["deleted"]
-                + results["donors"]["deleted"]
-                + results["addresses"]["deleted"]
-                + results["contacts"]["deleted"]
-            )
-
-            results["summary"] = f"Successfully deleted {total_deleted} records. Nuclear cleanup complete."
-            frappe.logger().info(f"Nuclear member cleanup completed: {total_deleted} records deleted")
-
-        except Exception as e:
-            # CRITICAL: Rollback transaction on any error
-            frappe.db.rollback()
-            results["summary"] = f"TRANSACTION ROLLED BACK - Critical error during cleanup: {str(e)}"
-            results["transaction_rolled_back"] = True
-            frappe.log_error(
-                f"Nuclear member cleanup failed and rolled back: {str(e)}", "Member Import Cleanup Error"
-            )
-
+        sets = _resolve_sets_for_members(members)
+        results["warnings"].append(_describe_selection(sets))
     except Exception as e:
-        # Outer catch for any other errors
-        results["summary"] = f"Unexpected error during cleanup: {str(e)}"
-        frappe.log_error(f"Nuclear member cleanup unexpected error: {str(e)}", "Member Import Cleanup Error")
+        results["summary"] = f"Error: {str(e)}"
+        frappe.log_error(
+            f"Nuclear member cleanup error: {str(e)}\n{traceback.format_exc()}",
+            "Member Import Cleanup Error",
+        )
+        return results
 
-    return results
+    return _execute_cleanup(sets, results, dry_run, "records")
 
 
 @frappe.whitelist()
@@ -1151,36 +247,44 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
             # - Errors are tracked in results["orphaned_invoices"]["errors"] for review
             for invoice in orphaned_invoices:
                 try:
-                    # Step 1: Delete GL Entries (must be done before cancelling/deleting invoice)
-                    # frappe.db.sql returns affected row count as integer
-                    gl_count = frappe.db.sql(
-                        """
-                        DELETE FROM `tabGL Entry`
-                        WHERE voucher_type = 'Sales Invoice' AND voucher_no = %s
-                    """,
-                        invoice.name,
+                    # Steps 1-3: Drop the ledger trail before the invoice itself.
+                    #
+                    # Counted with an explicit SELECT rather than from the DELETE:
+                    # frappe.db.sql() returns the cursor's fetchall(), which for a
+                    # DELETE is always the empty tuple. The previous code did
+                    # `count = frappe.db.sql("DELETE ...")` then `count or 0`, so
+                    # all three of these totals were hard-wired to zero however
+                    # many rows were actually removed.
+                    results["gl_entries_deleted"] += _count_in(
+                        "GL Entry", "voucher_no", [invoice.name], "AND voucher_type = 'Sales Invoice'"
                     )
-                    results["gl_entries_deleted"] += gl_count or 0
+                    _delete_in("GL Entry", "voucher_no", [invoice.name], "AND voucher_type = 'Sales Invoice'")
 
-                    # Step 2: Delete Payment Ledger Entries
-                    pl_count = frappe.db.sql(
-                        """
-                        DELETE FROM `tabPayment Ledger Entry`
-                        WHERE voucher_type = 'Sales Invoice' AND voucher_no = %s
-                    """,
-                        invoice.name,
+                    results["payment_ledger_deleted"] += _count_in(
+                        "Payment Ledger Entry",
+                        "voucher_no",
+                        [invoice.name],
+                        "AND voucher_type = 'Sales Invoice'",
                     )
-                    results["payment_ledger_deleted"] += pl_count or 0
+                    _delete_in(
+                        "Payment Ledger Entry",
+                        "voucher_no",
+                        [invoice.name],
+                        "AND voucher_type = 'Sales Invoice'",
+                    )
 
-                    # Step 3: Delete Payment Entry References
-                    pr_count = frappe.db.sql(
-                        """
-                        DELETE FROM `tabPayment Entry Reference`
-                        WHERE reference_doctype = 'Sales Invoice' AND reference_name = %s
-                    """,
-                        invoice.name,
+                    results["payment_references_deleted"] += _count_in(
+                        "Payment Entry Reference",
+                        "reference_name",
+                        [invoice.name],
+                        "AND reference_doctype = 'Sales Invoice'",
                     )
-                    results["payment_references_deleted"] += pr_count or 0
+                    _delete_in(
+                        "Payment Entry Reference",
+                        "reference_name",
+                        [invoice.name],
+                        "AND reference_doctype = 'Sales Invoice'",
+                    )
 
                     # Step 4: Cancel if submitted (now safe since GL entries are gone)
                     if invoice.docstatus == 1:
@@ -1212,9 +316,9 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_schedules"]["errors"].append(f"{schedule.name}: {str(e)}")
 
             frappe.db.commit()
-            results[
-                "summary"
-            ] = f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
+            results["summary"] = (
+                f"Successfully deleted {results['orphaned_schedules']['deleted']} schedules and {results['orphaned_invoices']['deleted']} invoices (with {results['gl_entries_deleted']} GL entries, {results['payment_ledger_deleted']} payment ledger entries, {results['payment_references_deleted']} payment references)"
+            )
 
         except Exception as e:
             frappe.db.rollback()
@@ -1291,13 +395,13 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                 results["errors"].append(f"{chapter.name}: {str(e)}")
 
         if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
+            results["summary"] = (
+                f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
+            )
         else:
-            results[
-                "summary"
-            ] = f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+            results["summary"] = (
+                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+            )
             frappe.db.commit()
 
     except Exception as e:
@@ -1325,114 +429,63 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
         "dry_run": dry_run,
         "addresses": {"count": 0, "deleted": 0, "errors": []},
         "contacts": {"count": 0, "deleted": 0, "errors": []},
+        "preserved_shared": 0,
         "summary": "",
     }
 
     try:
-        # Find addresses linked to non-existent members
-        address_links = frappe.db.sql(
-            """
-            SELECT DISTINCT dl.parent
-            FROM `tabDynamic Link` dl
-            WHERE dl.parenttype = 'Address'
-            AND dl.link_doctype = 'Member'
-        """,
-            as_dict=True,
-        )
+        # Only parents whose links point EXCLUSIVELY at deleted Members may go.
+        #
+        # The previous implementation deleted a Contact/Address as soon as all of
+        # its *Member* links were dangling, without looking at its other links --
+        # so a Contact shared between a deleted Member and a live Customer was
+        # destroyed along with the live party's contact details. Reusing
+        # _exclusively_linked_parents() makes that structurally impossible.
+        dead_members = [r[0] for r in frappe.db.sql("""
+                SELECT DISTINCT dl.link_name
+                FROM `tabDynamic Link` dl
+                LEFT JOIN `tabMember` m ON dl.link_name = m.name
+                WHERE dl.link_doctype = 'Member' AND m.name IS NULL
+                """)]
 
-        orphaned_addresses = []
-        for link in address_links:
-            # Check if any member link still exists
-            member_links = frappe.db.sql(
-                """
-                SELECT link_name
-                FROM `tabDynamic Link`
-                WHERE parent = %s
-                AND parenttype = 'Address'
-                AND link_doctype = 'Member'
-            """,
-                link.parent,
-                as_dict=True,
-            )
+        doomed = {"Member": dead_members}
+        orphaned = {}
+        for parenttype, bucket in (("Address", "addresses"), ("Contact", "contacts")):
+            parents = _exclusively_linked_parents(parenttype, doomed) if dead_members else []
+            orphaned[parenttype] = parents
+            results[bucket]["count"] = len(parents)
 
-            all_orphaned = True
-            for ml in member_links:
-                if frappe.db.exists("Member", ml.link_name):
-                    all_orphaned = False
-                    break
-
-            if all_orphaned:
-                orphaned_addresses.append(link.parent)
-
-        results["addresses"]["count"] = len(orphaned_addresses)
-
-        # Find contacts linked to non-existent members
-        contact_links = frappe.db.sql(
-            """
-            SELECT DISTINCT dl.parent
-            FROM `tabDynamic Link` dl
-            WHERE dl.parenttype = 'Contact'
-            AND dl.link_doctype = 'Member'
-        """,
-            as_dict=True,
-        )
-
-        orphaned_contacts = []
-        for link in contact_links:
-            member_links = frappe.db.sql(
-                """
-                SELECT link_name
-                FROM `tabDynamic Link`
-                WHERE parent = %s
-                AND parenttype = 'Contact'
-                AND link_doctype = 'Member'
-            """,
-                link.parent,
-                as_dict=True,
-            )
-
-            all_orphaned = True
-            for ml in member_links:
-                if frappe.db.exists("Member", ml.link_name):
-                    all_orphaned = False
-                    break
-
-            if all_orphaned:
-                orphaned_contacts.append(link.parent)
-
-        results["contacts"]["count"] = len(orphaned_contacts)
+        results["preserved_shared"] = _count_shared_parents_with_dead_links(dead_members)
 
         if dry_run:
-            results[
-                "summary"
-            ] = f"DRY RUN: Would delete {len(orphaned_addresses)} addresses and {len(orphaned_contacts)} contacts"
+            results["summary"] = (
+                f"DRY RUN: Would delete {results['addresses']['count']} addresses and "
+                f"{results['contacts']['count']} contacts "
+                f"({results['preserved_shared']} shared with live records preserved)"
+            )
             return results
 
-        # Delete orphaned records
         # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
         frappe.db.begin()
 
         try:
-            for addr in orphaned_addresses:
-                try:
-                    # Security: Orphan address cleanup - see comment at line 1409.
-                    frappe.delete_doc("Address", addr, ignore_permissions=True, force=True)
-                    results["addresses"]["deleted"] += 1
-                except Exception as e:
-                    results["addresses"]["errors"].append(f"{addr}: {str(e)}")
+            for parenttype, bucket in (("Address", "addresses"), ("Contact", "contacts")):
+                for name in orphaned[parenttype]:
+                    try:
+                        frappe.delete_doc(parenttype, name, ignore_permissions=True, force=True)
+                        results[bucket]["deleted"] += 1
+                    except Exception as e:
+                        results[bucket]["errors"].append(f"{name}: {str(e)}")
 
-            # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-            for contact in orphaned_contacts:
-                try:
-                    frappe.delete_doc("Contact", contact, ignore_permissions=True, force=True)
-                    results["contacts"]["deleted"] += 1
-                except Exception as e:
-                    results["contacts"]["errors"].append(f"{contact}: {str(e)}")
+            # Shared parents keep their record but lose the dangling links.
+            _delete_in("Dynamic Link", "link_name", dead_members, "AND link_doctype = 'Member'")
 
             frappe.db.commit()
-            results[
-                "summary"
-            ] = f"Deleted {results['addresses']['deleted']} addresses and {results['contacts']['deleted']} contacts"
+            results["summary"] = (
+                f"Deleted {results['addresses']['deleted']} addresses and "
+                f"{results['contacts']['deleted']} contacts "
+                f"({results['preserved_shared']} shared with live records preserved)"
+            )
 
         except Exception as e:
             frappe.db.rollback()
@@ -1444,17 +497,973 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
     return results
 
 
+def _count_shared_parents_with_dead_links(dead_members):
+    """Contacts/Addresses holding a dangling Member link but also a live link.
+
+    These are preserved by cleanup_orphaned_addresses_and_contacts; only their
+    stale Dynamic Link rows are removed.
+    """
+    if not dead_members:
+        return 0
+    total = 0
+    for parenttype in ("Address", "Contact"):
+        candidates = set(
+            _pluck_in(
+                "Dynamic Link",
+                "link_name",
+                dead_members,
+                select="parent",
+                extra=f"AND parenttype = '{parenttype}' AND link_doctype = 'Member'",
+            )
+        )
+        exclusive = set(_exclusively_linked_parents(parenttype, {"Member": dead_members}))
+        total += len(candidates - exclusive)
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Test-data selectors
+#
+# Kept at module level so the patterns are greppable and unit-testable, and so
+# the counting (dry run) and deletion passes can never drift apart.
+#
+# MariaDB's default _ci collation already makes LIKE case-insensitive, so
+# '%test%' matches 'Test' and 'TEST' too -- the old '%Test%' OR '%TEST%'
+# branches were redundant and are gone.
+# ---------------------------------------------------------------------------
+
+# Reserved / factory-only email domains, matched as SUFFIXES on the whole
+# address rather than as '%@example.%'. Multi-label test hosts really occur
+# (perf@performance.example.com) and the '@'-anchored form misses them.
+TEST_EMAIL_PATTERNS = (
+    "%test%",
+    "%@test.%",
+    "%.invalid",
+    "%example.com",
+    "%example.org",
+    "%example.net",
+    "%example.test",
+    "%.test",
+    "%.local",
+)
+
+# ERPNext seeds its own '_Test *' party fixtures during before_tests. They are
+# framework bootstrap data, not Verenigingen test data, and removing them breaks
+# the next test run -- so the Customer name sweep explicitly spares them.
+FRAMEWORK_FIXTURE_PREFIX = "\\_Test%"
+
+# Child tables hanging off a Sales Invoice. Deleting the invoice by raw SQL does
+# not cascade, so every one of these has to go explicitly or it is orphaned.
+INVOICE_CHILD_TABLES = (
+    "Sales Invoice Item",
+    "Sales Taxes and Charges",
+    "Payment Schedule",
+    "Sales Invoice Advance",
+    "Sales Invoice Payment",
+)
+
+# Inbound Link fields that must be nulled on SURVIVING rows so a cleanup does not
+# manufacture the dangling references this module exists to remove. Keyed by the
+# set being deleted; each entry is (DocType, fieldname).
+#
+# Deliberately an explicit list rather than a reflective sweep over
+# _link_fields_to(): blanket-nulling every inbound Link would also blank
+# `Sales Order.customer`, `Item Price.customer` and similar on documents this
+# engine does NOT delete, corrupting them in a way that is worse than a dangling
+# reference. These are the fields that actually survive a cleanup and matter.
+# The round-trip test (a live run must leave scan_and_clear_broken_links clean)
+# is what catches additions to the schema.
+INBOUND_LINKS_TO_CLEAR = {
+    "members": (
+        ("Member", "chapter_assigned_by"),
+        ("Member", "reviewed_by"),
+        ("Member", "fee_override_by"),
+        ("MijnRood Sync Event", "linked_member"),
+        ("SEPA Operation Audit Log", "member"),
+    ),
+    "chapters": (
+        ("Member", "current_chapter"),
+        ("Chapter Membership History", "chapter_name"),
+        ("Sales Invoice", "custom_member_chapter"),
+        ("Chapter Join Request", "chapter"),
+        ("Event Contact Campaign", "chapter"),
+    ),
+    "customers": (
+        ("Member", "customer"),
+        ("Donor", "customer"),
+    ),
+}
+
+# `users` is handled REFLECTIVELY instead (see _clear_inbound_user_links): a
+# hand-written list demonstrably missed the long tail. A live run on real data
+# left 1,598 new dangling User references spread across audit/log tables --
+# Notification Log.for_user (873), Permission Log.changed_by (740), Access Log,
+# Activity Log, Workflow Action.completed_by, Communication.user and more.
+#
+# Reflection is safe for User specifically because inbound User links are actor
+# and audit fields, which are nullable by nature. It is NOT safe in general --
+# blanket-nulling inbound *Customer* links would blank `Sales Invoice.customer`
+# on invoices this engine does not delete, which is worse than a dangling ref --
+# so members/chapters/customers keep their explicit lists above.
+USER_LINK_CLEAR_SKIP = frozenset(
+    {
+        # Deleted outright by Phase 7, so nulling first is pointless churn.
+        ("User", "name"),
+        ("User Permission", "user"),
+        ("DocShare", "user"),
+    }
+)
+
+# Accounts no cleanup may ever delete, however they are reached. Frappe cannot
+# function without Administrator/Guest, and a Member row pointing at Administrator
+# is normal (the site owner is usually also a member).
+PROTECTED_USERS = frozenset({"Administrator", "Guest"})
+
+# Chunk size for IN (...) clauses. The orphan sweep can span >10k names and an
+# unbounded IN list both blows past max_allowed_packet and trips Frappe's slow
+# query logging.
+_IN_CHUNK = 200
+
+
+def _chunks(values, size=_IN_CHUNK):
+    """Yield successive slices of `values` small enough for an IN (...) clause."""
+    for i in range(0, len(values), size):
+        yield values[i : i + size]
+
+
+def _count_in(doctype, column, values, extra=""):
+    """COUNT rows of `doctype` whose `column` is in `values`."""
+    total = 0
+    for part in _chunks(values):
+        placeholders = ", ".join(["%s"] * len(part))
+        total += frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tab{doctype}` WHERE `{column}` IN ({placeholders}) {extra}", part
+        )[0][0]
+    return total
+
+
+def _delete_in(doctype, column, values, extra=""):
+    """DELETE rows of `doctype` whose `column` is in `values`."""
+    for part in _chunks(values):
+        placeholders = ", ".join(["%s"] * len(part))
+        frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE `{column}` IN ({placeholders}) {extra}", part)
+
+
+def _update_in(doctype, set_clause, column, values, extra=""):
+    """UPDATE rows of `doctype` whose `column` is in `values`."""
+    for part in _chunks(values):
+        placeholders = ", ".join(["%s"] * len(part))
+        frappe.db.sql(
+            f"UPDATE `tab{doctype}` SET {set_clause} WHERE `{column}` IN ({placeholders}) {extra}", part
+        )
+
+
+def _step(results, bucket, doctype, column, values, dry_run, extra=""):
+    """Count matching rows into `bucket`, then delete them unless this is a dry run.
+
+    Counting and deleting share one selector by construction, so the dry-run
+    preview reports the same rows the live run removes.
+
+    Error policy: a MISSING TABLE is tolerated (installs differ in which optional
+    DocTypes exist) and recorded; anything else re-raises on a live run so
+    _execute_cleanup rolls the whole transaction back.
+
+    Swallowing every error here would be actively harmful. These are raw
+    `DELETE FROM \\`tab...\\`` statements: they bypass Frappe's
+    check_if_doc_is_linked, and MariaDB defines no foreign keys on these tables,
+    so nothing downstream ever "refuses" to delete. A failed child-table step
+    followed by a successful parent delete and a commit is precisely how the
+    dangling-reference debris this module exists to remove gets manufactured.
+    """
+    if not values:
+        return
+    try:
+        count = _count_in(doctype, column, values, extra)
+        results[bucket]["count"] += count
+        if not dry_run:
+            _delete_in(doctype, column, values, extra)
+            results[bucket]["deleted"] += count
+    except Exception as e:
+        results[bucket]["errors"].append(f"{doctype}.{column}: {e}")
+        if not _is_missing_table(e):
+            raise
+
+
+def _is_missing_table(exc):
+    """True for "table doesn't exist" / "unknown column" -- optional DocTypes."""
+    message = str(exc).lower()
+    return "doesn't exist" in message or "unknown column" in message
+
+
+def _pluck_in(doctype, column, values, select="name", extra=""):
+    """Return distinct non-empty `select` values for rows matching `column` IN values."""
+    found = []
+    for part in _chunks(values):
+        placeholders = ", ".join(["%s"] * len(part))
+        found.extend(
+            row[0]
+            for row in frappe.db.sql(
+                f"SELECT DISTINCT `{select}` FROM `tab{doctype}` "
+                f"WHERE `{column}` IN ({placeholders}) {extra}",
+                part,
+            )
+        )
+    return sorted({value for value in found if value})
+
+
+def _test_member_clause(alias="m"):
+    """Return (sql_predicate, params) selecting factory-generated Members.
+
+    Member.name is always 'Assoc-Member-YYYY-MM-#####', so the previous
+    `name LIKE '%test%' OR first_name LIKE '%test%'` selector matched zero rows
+    in practice -- the factories put their marker in last_name/full_name or in
+    the email domain, never in the autoname or the first name.
+    """
+    clauses = [f"{alias}.last_name LIKE %s", f"{alias}.full_name LIKE %s"]
+    params = ["%test%", "%test%"]
+    for pattern in TEST_EMAIL_PATTERNS:
+        clauses.append(f"{alias}.email LIKE %s")
+        params.append(pattern)
+    return "(" + " OR ".join(clauses) + ")", params
+
+
+def _test_user_clause(alias="u"):
+    """Return (sql_predicate, params) selecting Users on reserved test domains.
+
+    Deliberately does NOT match on first_name: that adds ~300 rows on a real
+    site with genuine false-positive risk ('Testa'), and the domain patterns
+    already cover every factory-created account.
+    """
+    clauses = []
+    params = []
+    for pattern in TEST_EMAIL_PATTERNS[1:]:  # skip bare '%test%' -- too broad for logins
+        clauses.append(f"{alias}.name LIKE %s")
+        params.append(pattern)
+    predicate = "(" + " OR ".join(clauses) + f") AND {alias}.name NOT IN ('Administrator', 'Guest')"
+    return predicate, params
+
+
+def _resolve_sets_for_members(members, extra_volunteers=(), teams=(), chapters=()):
+    """Expand a Member list into every dependent record set the phases need.
+
+    Shared by all three cleanup entry points (test-data, nuclear, email-pattern),
+    which previously each hand-rolled their own -- and disagreed, because only one
+    of them looked at both sides of the Member <-> Customer link.
+
+    Args:
+        members: Member names driving the cleanup
+        extra_volunteers: Volunteers to include beyond those linked to `members`
+        teams / chapters: containers to delete outright (empty for member-scoped runs)
+
+    Returns a dict of name lists, resolved once up front so the dry run reports
+    exactly what the live run will delete.
+    """
+    volunteers = sorted(set(extra_volunteers) | set(_pluck_in("Volunteer", "member", members)))
+
+    # Customers are reachable from BOTH sides of the mutual link, and the two
+    # sides disagree in practice, so union them.
+    customers = set(_pluck_in("Customer", "member", members)) | set(
+        _pluck_in("Member", "name", members, "customer")
+    )
+
+    # ...but drop any Customer that a SURVIVING Member still claims. Duplicate
+    # customer rows exist whose `member` points at a test member while the real
+    # member points back at them through `Member.customer`; deleting those left a
+    # live member (evaschout@gmail.com) with a dangling customer. The orphan sweep
+    # already had this guard -- the member-linked path did not.
+    customers = sorted(customers - set(_claimed_by_surviving_members(customers, members)))
+
+    # Employees are resolved HERE, by name, rather than deleted by `user_id` in the
+    # phase itself: Phase 7 nulls Employee.user_id to break the link before the
+    # User rows go, which would leave a delete-by-user_id matching nothing. The
+    # live run silently deleted no Employees while the dry run reported hundreds.
+    employees = _pluck_in("Employee", "user_id", _protected_filtered(members, "user"))
+
+    return {
+        "members": list(members),
+        "teams": list(teams),
+        "chapters": list(chapters),
+        "volunteers": volunteers,
+        "customers": customers,
+        "users": _protected_filtered(members, "user"),
+        "employees": employees,
+    }
+
+
+def _claimed_by_surviving_members(customers, doomed_members):
+    """Customers that a Member outside `doomed_members` points at via Member.customer."""
+    if not customers:
+        return []
+    doomed = set(doomed_members)
+    claimed = []
+    for part in _chunks(sorted(customers)):
+        placeholders = ", ".join(["%s"] * len(part))
+        for customer, member in frappe.db.sql(
+            f"""SELECT customer, name FROM `tabMember`
+                WHERE customer IN ({placeholders}) AND customer IS NOT NULL AND customer != ''""",
+            part,
+        ):
+            if member not in doomed:
+                claimed.append(customer)
+    return claimed
+
+
+def _protected_filtered(members, field):
+    """Users linked from `members`, minus accounts that must never be deleted.
+
+    A Member row can legitimately carry `user = "Administrator"` (the site owner
+    is usually also a member), and on the production-like site exactly one does.
+    Without this filter `nuclear_cleanup_all_members` resolves Administrator into
+    its delete set and destroys the login -- the pre-refactor code guarded this
+    and the guard was lost when the three engines were merged.
+    """
+    return [u for u in _pluck_in("Member", "name", members, field) if u not in PROTECTED_USERS]
+
+
+def _resolve_test_data_sets():
+    """Resolve the record sets for the test-data cleanup."""
+    member_clause, member_params = _test_member_clause("m")
+    members = [
+        r[0] for r in frappe.db.sql(f"SELECT m.name FROM `tabMember` m WHERE {member_clause}", member_params)
+    ]
+
+    teams = [r[0] for r in frappe.db.sql("SELECT name FROM `tabTeam` WHERE name LIKE '%test%'")]
+    chapters = [r[0] for r in frappe.db.sql("SELECT name FROM `tabChapter` WHERE name LIKE '%test%'")]
+    test_named_volunteers = [
+        r[0]
+        for r in frappe.db.sql(
+            "SELECT name FROM `tabVolunteer` WHERE name LIKE '%test%' OR volunteer_name LIKE '%test%'"
+        )
+    ]
+
+    return _resolve_sets_for_members(
+        members, extra_volunteers=test_named_volunteers, teams=teams, chapters=chapters
+    )
+
+
+def _customer_has_financial_history(column="name"):
+    """SQL NOT EXISTS fragment: customer `cu`.<column> carries no financial trace.
+
+    Used to keep the orphan sweep off anything with real bookkeeping attached.
+    """
+    return f"""
+        NOT EXISTS (SELECT 1 FROM `tabSales Invoice` si WHERE si.customer = cu.{column})
+        AND NOT EXISTS (SELECT 1 FROM `tabGL Entry` g
+                        WHERE g.party_type = 'Customer' AND g.party = cu.{column})
+        AND NOT EXISTS (SELECT 1 FROM `tabPayment Entry` pe
+                        WHERE pe.party_type = 'Customer' AND pe.party = cu.{column})
+    """
+
+
+def _resolve_orphan_sets(known_customers, known_users):
+    """Resolve test debris that is no longer reachable from any surviving Member.
+
+    Most of the mess on a long-lived dev site is here: previous cleanup runs
+    deleted Members with raw SQL (bypassing Member.on_trash), leaving Customers
+    whose `member` points at a deleted row and Users no Member references.
+    Link-following alone will never collect these.
+
+    Only customers with zero Sales Invoice / GL Entry / Payment Entry history are
+    swept -- anything carrying real bookkeeping is left alone and reported.
+
+    Every branch additionally requires an AFFIRMATIVE test signal in the customer
+    name. "The Member it pointed at no longer exists" is NOT such a signal: on the
+    production-like site 9,739 of the 13,216 dangling customers carry no test
+    marker whatsoever, and they are real people's party records left behind by
+    earlier import runs. A button labelled "Cleanup ALL Test Data" must not
+    delete them (nor, via Phase 5, their Contacts and Addresses -- personal data,
+    removed by raw SQL with no Version row and no recovery).
+    """
+    financial_guard = _customer_has_financial_history()
+
+    # A live Member can point at a Customer through Member.customer even when the
+    # reverse Customer.member link is stale or empty, so checking only the reverse
+    # side would sweep a customer that a surviving member still owns.
+    unclaimed = "NOT EXISTS (SELECT 1 FROM `tabMember` mc WHERE mc.customer = cu.name)"
+
+    dangling = [
+        r[0]
+        for r in frappe.db.sql(
+            f"""SELECT cu.name FROM `tabCustomer` cu
+                WHERE cu.member IS NOT NULL AND cu.member != ''
+                  AND cu.customer_name LIKE %s
+                  AND cu.customer_name NOT LIKE %s ESCAPE '\\\\'
+                  AND NOT EXISTS (SELECT 1 FROM `tabMember` m WHERE m.name = cu.member)
+                  AND {unclaimed}
+                  AND {financial_guard}""",
+            ("%test%", FRAMEWORK_FIXTURE_PREFIX),
+        )
+    ]
+
+    # Both LIKE operands are bound parameters: a literal '%test%' in a query that
+    # also passes values makes the driver treat it as a format spec and blow up.
+    test_named = [
+        r[0]
+        for r in frappe.db.sql(
+            f"""SELECT cu.name FROM `tabCustomer` cu
+                WHERE cu.customer_name LIKE %s
+                  AND cu.customer_name NOT LIKE %s ESCAPE '\\\\'
+                  AND NOT EXISTS (SELECT 1 FROM `tabMember` m WHERE m.name = cu.member)
+                  AND {unclaimed}
+                  AND {financial_guard}""",
+            ("%test%", FRAMEWORK_FIXTURE_PREFIX),
+        )
+    ]
+
+    user_clause, user_params = _test_user_clause("u")
+    orphan_users = [
+        r[0]
+        for r in frappe.db.sql(
+            f"""SELECT u.name FROM `tabUser` u
+                WHERE {user_clause}
+                  AND NOT EXISTS (SELECT 1 FROM `tabMember` m WHERE m.user = u.name)""",
+            user_params,
+        )
+    ]
+
+    preserved = frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabCustomer` cu
+            WHERE cu.customer_name LIKE %s
+              AND NOT ({financial_guard})""",
+        ("%test%",),
+    )[0][0]
+
+    # Dangling but unmarked: deliberately NOT swept. Surfaced so an operator can
+    # see what was left behind rather than assuming the sweep was exhaustive.
+    unmarked = frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabCustomer` cu
+            WHERE cu.member IS NOT NULL AND cu.member != ''
+              AND cu.customer_name NOT LIKE %s
+              AND NOT EXISTS (SELECT 1 FROM `tabMember` m WHERE m.name = cu.member)
+              AND {unclaimed}""",
+        ("%test%",),
+    )[0][0]
+
+    return {
+        "orphaned_customers": sorted((set(dangling) | set(test_named)) - set(known_customers)),
+        "orphaned_users": sorted(set(orphan_users) - set(known_users)),
+        "preserved_customers_with_financials": preserved,
+        "skipped_dangling_without_test_marker": unmarked,
+    }
+
+
+def _exclusively_linked_parents(parenttype, doomed):
+    """Return Contact/Address parents whose Dynamic Links point ONLY at doomed rows.
+
+    A single Contact or Address can be shared between a doomed test Customer and
+    a live one, so deleting on any matching link would take real data with it.
+    Parents that keep at least one link outside the doomed set are spared here --
+    only their offending Dynamic Link rows are removed.
+
+    Args:
+        parenttype: 'Contact' or 'Address'
+        doomed: {link_doctype: [names]} of records being deleted
+    """
+    doomed_sets = {doctype: set(names) for doctype, names in doomed.items()}
+
+    candidates = set()
+    for link_doctype, names in doomed.items():
+        for part in _chunks(names):
+            placeholders = ", ".join(["%s"] * len(part))
+            candidates |= {
+                r[0]
+                for r in frappe.db.sql(
+                    f"""SELECT DISTINCT parent FROM `tabDynamic Link`
+                        WHERE parenttype = %s AND link_doctype = %s
+                          AND link_name IN ({placeholders})""",
+                    [parenttype, link_doctype] + list(part),
+                )
+            }
+
+    shared = set()
+    for part in _chunks(sorted(candidates)):
+        placeholders = ", ".join(["%s"] * len(part))
+        for row in frappe.db.sql(
+            f"""SELECT parent, link_doctype, link_name FROM `tabDynamic Link`
+                WHERE parenttype = %s AND parent IN ({placeholders})""",
+            [parenttype] + list(part),
+            as_dict=True,
+        ):
+            if row.link_name not in doomed_sets.get(row.link_doctype, ()):
+                shared.add(row.parent)
+
+    return sorted(candidates - shared)
+
+
+# Result buckets. Order matters only for reporting; the admin_tools 'cleanup'
+# formatter renders these as a breakdown list.
+CLEANUP_BUCKETS = (
+    "members",
+    "memberships",
+    "dues_schedules",
+    "volunteers",
+    "sepa_mandates",
+    "payment_history",
+    "chapter_members",
+    "users",
+    "customers",
+    "donors",
+    "teams",
+    "team_members",
+    "chapter_board_members",
+    "chapters",
+    "volunteer_skills",
+    "volunteer_assignments",
+    "volunteer_interest_areas",
+    "volunteer_development_goals",
+    "movement_members",
+    "sales_invoices",
+    "payment_entries",
+    "gl_entries",
+    "amendment_requests",
+    "termination_requests",
+    "payment_plans",
+    "account_creation_requests",
+    "contacts",
+    "addresses",
+    "dynamic_links",
+    "invoice_items",
+    "user_child_rows",
+    "customer_child_rows",
+    "contact_child_rows",
+    "employees",
+    "user_permissions",
+    "docshares",
+    "member_child_rows",
+    "cleared_links",
+)
+
+
+def _describe_selection(sets):
+    """One-line summary of what a cleanup run selected, for the warnings list."""
+    return (
+        f"Selected {len(sets['members'])} members, {len(sets['customers'])} customers, "
+        f"{len(sets['users'])} users, {len(sets['volunteers'])} volunteers, "
+        f"{len(sets['chapters'])} chapters, {len(sets['teams'])} teams"
+    )
+
+
+def _new_cleanup_results(dry_run):
+    """Build the empty result envelope shared by every cleanup entry point."""
+    results = {key: {"count": 0, "deleted": 0, "errors": []} for key in CLEANUP_BUCKETS}
+    results["dry_run"] = dry_run
+    results["warnings"] = []
+    results["summary"] = ""
+    return results
+
+
+def _execute_cleanup(sets, results, dry_run, label):
+    """Run every phase for `sets`, in one transaction, and fill in the summary.
+
+    The single place that owns the dry-run/live split and the commit/rollback
+    boundary, so the test-data, nuclear and email-pattern entry points cannot
+    drift apart in how they delete or how they report.
+    """
+    try:
+        # Employees are re-resolved here, from the FINAL user set. Callers fold the
+        # orphan-user sweep into sets["users"] after _resolve_sets_for_members has
+        # already run, so resolving only there covered the members' own users and
+        # missed every orphan's Employee row.
+        sets["employees"] = _pluck_in("Employee", "user_id", sets.get("users") or [])
+
+        if dry_run:
+            _run_cleanup_phases(sets, results, dry_run=True)
+            results["total_records_affected"] = sum(results[k]["count"] for k in CLEANUP_BUCKETS)
+            results["summary"] = f"DRY RUN: Would delete {results['total_records_affected']} {label}"
+            return results
+
+        # Flush any writes the caller already has pending before opening the
+        # cleanup's own transaction.
+        #
+        # frappe.db.begin() issues START TRANSACTION, which Frappe treats as an
+        # implicit-commit statement and REFUSES when transaction_writes > 0. The
+        # @critical_api decorator on every entry point writes an API Audit Log row
+        # before the function body runs, so transaction_writes is always >= 1 by
+        # the time we get here -- meaning the live path raised ImplicitCommitError
+        # 100% of the time when invoked from the admin_tools UI, while dry runs
+        # (which never call begin) looked perfectly healthy.
+        #
+        # Committing here also keeps the audit row: it records that the operation
+        # was attempted, and must survive a rollback of the cleanup itself.
+        frappe.db.commit()
+
+        frappe.db.begin()
+        try:
+            _run_cleanup_phases(sets, results, dry_run=False)
+            frappe.db.commit()
+            results["total_records_affected"] = sum(results[k]["count"] for k in CLEANUP_BUCKETS)
+            total_deleted = sum(results[k]["deleted"] for k in CLEANUP_BUCKETS)
+            results["summary"] = f"Successfully deleted {total_deleted} {label}"
+        except Exception as e:
+            frappe.db.rollback()
+            # Nothing survived the rollback, so the per-bucket `deleted` tallies
+            # accumulated before the failure are now lies -- the UI would render
+            # "N deleted" for rows that are still there. Reset them.
+            for key in CLEANUP_BUCKETS:
+                results[key]["deleted"] = 0
+            results["total_records_affected"] = 0
+            results["summary"] = f"TRANSACTION ROLLED BACK - {str(e)}"
+            results["transaction_rolled_back"] = True
+            frappe.log_error(
+                f"Cleanup failed and rolled back: {str(e)}\n{traceback.format_exc()}",
+                "Member Cleanup Error",
+            )
+    except Exception as e:
+        results["summary"] = f"Error: {str(e)}"
+        frappe.log_error(f"Cleanup error: {str(e)}\n{traceback.format_exc()}", "Member Cleanup Error")
+
+    return results
+
+
+def _clear_inbound_links(sets, results, dry_run):
+    """NULL inbound Link fields pointing at records this run deletes.
+
+    Without this, deleting a test Chapter leaves every surviving real Member with
+    a dangling `current_chapter`, and deleting a test User leaves live Employees
+    with a dangling `expense_approver` -- new broken links created by the very
+    tool that is supposed to remove them.
+    """
+    for set_key, fields in INBOUND_LINKS_TO_CLEAR.items():
+        values = sets.get(set_key) or []
+        if not values:
+            continue
+        for doctype, fieldname in fields:
+            _clear_one_link_field(doctype, fieldname, values, results, dry_run)
+
+    _clear_inbound_user_links(sets.get("users") or [], results, dry_run)
+
+
+def _clear_one_link_field(doctype, fieldname, values, results, dry_run):
+    """Count, and on a live run NULL, one inbound Link field."""
+    try:
+        count = _count_in(doctype, fieldname, values)
+        results["cleared_links"]["count"] += count
+        if not dry_run:
+            _update_in(doctype, f"`{fieldname}` = NULL", fieldname, values)
+            results["cleared_links"]["deleted"] += count
+    except Exception as e:
+        results["cleared_links"]["errors"].append(f"{doctype}.{fieldname}: {e}")
+        if not _is_missing_table(e):
+            raise
+
+
+def _clear_inbound_user_links(users, results, dry_run):
+    """NULL every inbound User Link field, discovered by reflection.
+
+    See the USER_LINK_CLEAR_SKIP comment for why User is swept reflectively while
+    the other targets keep explicit lists.
+    """
+    if not users:
+        return
+    for field in _link_fields_to("User"):
+        if (field.doctype, field.fieldname) in USER_LINK_CLEAR_SKIP:
+            continue
+        _clear_one_link_field(field.doctype, field.fieldname, users, results, dry_run)
+
+
+def _run_cleanup_phases(sets, results, dry_run):
+    """Walk every deletion phase in reverse-dependency order.
+
+    Frappe refuses to delete a row while any Link field still points at it, so
+    each phase must clear its dependants before the phase below it runs. The
+    UPDATE steps break the three mutual reference pairs (Member.customer <->
+    Customer.member, Member.volunteer_record <-> Volunteer.member, and the
+    Chapter.chapter_head back-reference) which would otherwise deadlock.
+    """
+    members = sets["members"]
+    customers = sets["customers"]
+    users = sets["users"]
+    volunteers = sets["volunteers"]
+    chapters = sets["chapters"]
+    teams = sets["teams"]
+
+    # Row sets whose SELECTOR COLUMN is nulled by Phase 0 must be resolved BEFORE
+    # Phase 0 runs, or the live run finds nothing where the dry run found rows.
+    # Account Creation Request.created_user and API Audit Log.user are both inbound
+    # User links, so the reflective sweep clears them. Same null-before-select trap
+    # that previously made the Employee phase delete nothing.
+    acr_rows = sorted(
+        set(
+            _pluck_in(
+                "Account Creation Request", "source_record", members, extra="AND request_type = 'Member'"
+            )
+        )
+        | set(_pluck_in("Account Creation Request", "created_user", users))
+    )
+    api_audit_rows = _pluck_in("API Audit Log", "user", users)
+
+    # --- PHASE 0: break inbound links held by records that will SURVIVE -------
+    #
+    # Runs first, and counts against the pre-deletion state in both modes, so the
+    # dry-run preview and the live run report the same number. Rows that are
+    # themselves doomed get nulled too; that write is wasted but harmless, and it
+    # keeps the two modes in agreement.
+    _clear_inbound_links(sets, results, dry_run)
+
+    # --- PHASE 1: financial leaves (must precede Customer) --------------------
+    invoices = sorted(
+        set(_pluck_in("Sales Invoice", "customer", customers))
+        | set(_pluck_in("Sales Invoice", "member", members))
+    )
+    payment_entries = _pluck_in("Payment Entry", "party", customers, extra="AND party_type = 'Customer'")
+
+    # Payment Entry References are reachable two ways -- by the invoice they point
+    # at and by the payment they belong to -- and a membership payment is usually
+    # both. Counting them under two selectors double-counted the overlap in the dry
+    # run while the live run deleted each row once, so the two modes disagreed.
+    # Resolve the union to row names first and delete it exactly once.
+    payment_refs = sorted(
+        set(
+            _pluck_in(
+                "Payment Entry Reference",
+                "reference_name",
+                invoices,
+                extra="AND reference_doctype = 'Sales Invoice'",
+            )
+        )
+        | set(_pluck_in("Payment Entry Reference", "parent", payment_entries))
+    )
+    _step(results, "payment_entries", "Payment Entry Reference", "name", payment_refs, dry_run)
+
+    if invoices:
+        _step(
+            results,
+            "gl_entries",
+            "GL Entry",
+            "voucher_no",
+            invoices,
+            dry_run,
+            "AND voucher_type = 'Sales Invoice'",
+        )
+        _step(
+            results,
+            "gl_entries",
+            "Payment Ledger Entry",
+            "voucher_no",
+            invoices,
+            dry_run,
+            "AND voucher_type = 'Sales Invoice'",
+        )
+        if not dry_run:
+            # Cancel before delete: a submitted invoice cannot be removed, and the
+            # ledger trail above is already gone so doc.cancel() has nothing to reverse.
+            _update_in("Sales Invoice", "docstatus = 2", "name", invoices, "AND docstatus = 1")
+        for child in INVOICE_CHILD_TABLES:
+            _step(results, "invoice_items", child, "parent", invoices, dry_run)
+        _step(results, "sales_invoices", "Sales Invoice", "name", invoices, dry_run)
+
+    if payment_entries:
+        _step(
+            results,
+            "gl_entries",
+            "GL Entry",
+            "voucher_no",
+            payment_entries,
+            dry_run,
+            "AND voucher_type = 'Payment Entry'",
+        )
+        _step(
+            results,
+            "gl_entries",
+            "Payment Ledger Entry",
+            "voucher_no",
+            payment_entries,
+            dry_run,
+            "AND voucher_type = 'Payment Entry'",
+        )
+        _step(results, "payment_entries", "Payment Entry Deduction", "parent", payment_entries, dry_run)
+        if not dry_run:
+            _update_in("Payment Entry", "docstatus = 2", "name", payment_entries, "AND docstatus = 1")
+        _step(results, "payment_entries", "Payment Entry", "name", payment_entries, dry_run)
+
+    # --- PHASE 2: membership / dues chain ------------------------------------
+    _step(results, "sepa_mandates", "Direct Debit Batch Invoice", "member", members, dry_run)
+    _step(results, "sepa_mandates", "SEPA Mandate", "member", members, dry_run)
+    _step(results, "dues_schedules", "Membership Dues Schedule", "member", members, dry_run)
+    if not dry_run and members:
+        _update_in("Membership", "docstatus = 2", "member", members, "AND docstatus = 1")
+    _step(results, "memberships", "Membership", "member", members, dry_run)
+    _step(results, "amendment_requests", "Contribution Amendment Request", "member", members, dry_run)
+    _step(results, "termination_requests", "Membership Termination Request", "member", members, dry_run)
+    _step(results, "payment_plans", "Payment Plan Payment", "member", members, dry_run)
+    _step(results, "payment_plans", "Payment Plan", "member", members, dry_run)
+    _step(results, "donors", "Donor", "member", members, dry_run)
+
+    # --- PHASE 3: volunteer graph --------------------------------------------
+    for bucket, doctype in (
+        ("chapter_board_members", "Chapter Board Member"),
+        ("team_members", "Team Member"),
+        ("movement_members", "Movement Member"),
+    ):
+        _step(results, bucket, doctype, "volunteer", volunteers, dry_run)
+    for bucket, doctype in (
+        ("volunteer_skills", "Volunteer Skill"),
+        ("volunteer_assignments", "Volunteer Assignment"),
+        ("volunteer_interest_areas", "Volunteer Interest Area"),
+        ("volunteer_development_goals", "Volunteer Development Goal"),
+    ):
+        _step(results, bucket, doctype, "parent", volunteers, dry_run)
+    _step(results, "volunteers", "Volunteer Activity", "volunteer", volunteers, dry_run)
+    if not dry_run:
+        # Both halves of the Member <-> Volunteer mutual link.
+        _update_in("Member", "volunteer_record = NULL", "volunteer_record", volunteers)
+        _update_in("Volunteer", "member = NULL", "name", volunteers)
+    _step(results, "volunteers", "Volunteer", "name", volunteers, dry_run)
+
+    # --- PHASE 4: chapters and teams -----------------------------------------
+    # A Chapter Member row can be reachable by BOTH its doomed member and its
+    # doomed parent chapter; counting it under two selectors inflated the dry run
+    # against the live run. Resolve the union of row names and delete once.
+    chapter_member_rows = sorted(
+        set(_pluck_in("Chapter Member", "member", members))
+        | set(_pluck_in("Chapter Member", "parent", chapters))
+    )
+    _step(results, "chapter_members", "Chapter Member", "name", chapter_member_rows, dry_run)
+    _step(results, "chapter_board_members", "Chapter Board Member", "parent", chapters, dry_run)
+    _step(results, "team_members", "Team Member", "parent", teams, dry_run)
+    _step(results, "chapters", "Chapter Join Request", "member", members, dry_run)
+    if not dry_run and members:
+        _update_in("Chapter", "chapter_head = NULL", "chapter_head", members)
+    _step(results, "teams", "Team", "name", teams, dry_run)
+    _step(results, "chapters", "Chapter", "name", chapters, dry_run)
+
+    # --- PHASE 5: contacts, addresses, dynamic links -------------------------
+    #
+    # Exclusivity is computed BEFORE anything is removed, because it is derived
+    # from the very Dynamic Link rows the next steps delete.
+    doomed_links = {"Member": members, "Customer": customers, "Volunteer": volunteers}
+    exclusive_parents = {
+        parenttype: _exclusively_linked_parents(parenttype, doomed_links)
+        for parenttype in ("Contact", "Address")
+    }
+
+    # The two Dynamic Link sweeps below must select DISJOINT rows, or the dry run
+    # counts the overlap twice while the live run deletes it once. Sweep 1 takes
+    # every link POINTING AT a doomed record; sweep 2 takes the remaining links
+    # BELONGING TO a parent that is itself being deleted.
+    doomed_link_row_names = set()
+    for link_doctype, names in doomed_links.items():
+        doomed_link_row_names.update(
+            _pluck_in("Dynamic Link", "link_name", names, extra=f"AND link_doctype = '{link_doctype}'")
+        )
+
+    remaining_parent_links = set()
+    for parenttype, parents in exclusive_parents.items():
+        remaining_parent_links.update(
+            _pluck_in("Dynamic Link", "parent", parents, extra=f"AND parenttype = '{parenttype}'")
+        )
+
+    _step(
+        results,
+        "dynamic_links",
+        "Dynamic Link",
+        "name",
+        sorted(doomed_link_row_names | remaining_parent_links),
+        dry_run,
+    )
+
+    for parenttype, bucket in (("Contact", "contacts"), ("Address", "addresses")):
+        parents = exclusive_parents[parenttype]
+        if not parents:
+            continue
+        if parenttype == "Contact":
+            _step(results, "contact_child_rows", "Contact Email", "parent", parents, dry_run)
+            _step(results, "contact_child_rows", "Contact Phone", "parent", parents, dry_run)
+        _step(results, bucket, parenttype, "name", parents, dry_run)
+
+    if not dry_run and users:
+        _update_in("Contact", "user = NULL", "user", users)
+
+    # --- PHASE 6: customers ---------------------------------------------------
+    if not dry_run:
+        # Both halves of the Member <-> Customer mutual link. Clearing only one
+        # side is what left 13k Customers pointing at deleted Members.
+        _update_in("Member", "customer = NULL", "customer", customers)
+        _update_in("Customer", "member = NULL", "name", customers)
+    _step(
+        results,
+        "customer_child_rows",
+        "Party Account",
+        "parent",
+        customers,
+        dry_run,
+        "AND parenttype = 'Customer'",
+    )
+    _step(
+        results,
+        "customer_child_rows",
+        "Sales Team",
+        "parent",
+        customers,
+        dry_run,
+        "AND parenttype = 'Customer'",
+    )
+    _step(results, "customers", "Customer", "name", customers, dry_run)
+
+    # --- PHASE 7: users -------------------------------------------------------
+    # acr_rows resolved before Phase 0 (which nulls created_user). One request can
+    # name a doomed member AND a doomed user, hence the union-then-delete-once.
+    _step(results, "account_creation_requests", "Account Creation Request", "name", acr_rows, dry_run)
+    _step(results, "docshares", "DocShare", "user", users, dry_run)
+    _step(results, "user_permissions", "User Permission", "user", users, dry_run)
+    # Employees are deleted by name, resolved before anything was nulled. Deleting
+    # by user_id here would match nothing, because the UPDATE below has already
+    # cleared the very column the delete would filter on.
+    _step(results, "employees", "Employee", "name", sets.get("employees", []), dry_run)
+    if not dry_run and users:
+        _update_in("Employee", "user_id = NULL", "user_id", users)
+        _update_in("Volunteer", "user = NULL", "user", users)
+        _update_in("Member", "user = NULL", "user", users)
+    for child in ("Has Role", "User Email", "User Social Login", "Block Module", "DefaultValue"):
+        _step(results, "user_child_rows", child, "parent", users, dry_run)
+    _step(results, "user_child_rows", "Notification Settings", "name", users, dry_run)
+    # By name: api_audit_rows was resolved before Phase 0 nulled API Audit Log.user.
+    _step(results, "user_child_rows", "API Audit Log", "name", api_audit_rows, dry_run)
+    _step(results, "users", "User", "name", users, dry_run)
+
+    # --- PHASE 8: members last ------------------------------------------------
+    from verenigingen.services.member.lifecycle.member_cleanup_service import MemberCleanupService
+
+    # Not every entry in VALID_CHILD_TABLES is a true child table: Member Contact
+    # Request is a standalone doctype carrying a `member` Link, so it has no
+    # `parent` column to match on.
+    standalone_member_tables = {"Member Contact Request"}
+    child_table_buckets = {"Member Payment History": "payment_history"}
+    for table in sorted(MemberCleanupService.VALID_CHILD_TABLES):
+        doctype = table[3:] if table.startswith("tab") else table
+        _step(
+            results,
+            child_table_buckets.get(doctype, "member_child_rows"),
+            doctype,
+            "member" if doctype in standalone_member_tables else "parent",
+            members,
+            dry_run,
+        )
+    _step(results, "members", "Member", "name", members, dry_run)
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def cleanup_all_test_data(dry_run=True):
     """
     Comprehensive cleanup of ALL test data across the system.
 
-    Deletes records where name contains 'test', 'Test', or 'TEST' for:
-    - Teams (and Team Members)
-    - Chapters (and Chapter Members, Chapter Board Members)
-    - Volunteers (and child tables: Skills, Assignments, Interest Areas, Development Goals)
-    - Members (and related records)
+    Selection (see TEST_EMAIL_PATTERNS / _test_member_clause):
+    - Members whose last_name/full_name contains 'test', or whose email sits on a
+      reserved test domain (@test.*, *.invalid, example.*, *.test, *.local)
+    - Teams, Chapters, Volunteers matching '%test%'
+    - Everything reachable from those members: Customers, Users, invoices,
+      memberships, dues schedules, mandates, contacts, addresses
+    - Plus an orphan sweep for test debris left behind by earlier runs
+
+    Deletion runs in reverse-dependency order (see the PHASE markers below).
+    Three mutual reference pairs must have BOTH sides cleared before either row
+    can go: Member.customer <-> Customer.member, Member.volunteer_record <->
+    Volunteer.member, and Member.user -> User (also held by Contact.user and
+    DocShare.user).
+
+    ERPNext's own '_Test *' bootstrap fixtures are deliberately preserved, as is
+    any Customer carrying Sales Invoice / GL Entry / Payment Entry history.
 
     Args:
         dry_run (bool): If True, only shows what would be deleted
@@ -1471,290 +1480,65 @@ def cleanup_all_test_data(dry_run=True):
     """
     validate_cleanup_permissions()
 
-    results = {
-        "dry_run": dry_run,
-        "teams": {"count": 0, "deleted": 0, "errors": []},
-        "team_members": {"count": 0, "deleted": 0, "errors": []},
-        "chapters": {"count": 0, "deleted": 0, "errors": []},
-        "chapter_members": {"count": 0, "deleted": 0, "errors": []},
-        "chapter_board_members": {"count": 0, "deleted": 0, "errors": []},
-        "volunteers": {"count": 0, "deleted": 0, "errors": []},
-        "volunteer_skills": {"count": 0, "deleted": 0, "errors": []},
-        "volunteer_assignments": {"count": 0, "deleted": 0, "errors": []},
-        "volunteer_interest_areas": {"count": 0, "deleted": 0, "errors": []},
-        "volunteer_development_goals": {"count": 0, "deleted": 0, "errors": []},
-        "members": {"count": 0, "deleted": 0, "errors": []},
-        "movement_members": {"count": 0, "deleted": 0, "errors": []},
-        "summary": "",
-    }
+    results = _new_cleanup_results(dry_run)
 
     try:
-        # ========== PHASE 1: COUNT ALL TEST DATA ==========
+        sets = _resolve_test_data_sets()
+        orphans = _resolve_orphan_sets(sets["customers"], sets["users"])
 
-        # Test Teams
-        test_teams = frappe.db.sql(
-            """
-            SELECT name FROM `tabTeam`
-            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
-            """,
-            as_dict=True,
-        )
-        results["teams"]["count"] = len(test_teams)
-        team_names = [t.name for t in test_teams]
+        # Fold the orphan debris into the main sets so a single code path clears
+        # its links too (DocShare, User Permission, Dynamic Link, ...). Most of
+        # what accumulates on a long-lived dev site lives here, unreachable from
+        # any surviving Member.
+        results["orphaned_customers"] = len(orphans["orphaned_customers"])
+        results["orphaned_users"] = len(orphans["orphaned_users"])
+        sets["customers"] = sorted(set(sets["customers"]) | set(orphans["orphaned_customers"]))
+        sets["users"] = sorted(set(sets["users"]) | set(orphans["orphaned_users"]))
 
-        # Team Members for test teams
-        if team_names:
-            placeholders = ", ".join(["%s"] * len(team_names))
-            team_members = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabTeam Member` WHERE parent IN ({placeholders})",
-                team_names,
+        preserved = orphans["preserved_customers_with_financials"]
+        if preserved:
+            results["warnings"].append(
+                f"Preserved {preserved} test-named Customers carrying Sales Invoice / "
+                "GL Entry / Payment Entry history"
             )
-            results["team_members"]["count"] = team_members[0][0] if team_members else 0
-
-        # Test Chapters
-        test_chapters = frappe.db.sql(
-            """
-            SELECT name FROM `tabChapter`
-            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
-            """,
-            as_dict=True,
-        )
-        results["chapters"]["count"] = len(test_chapters)
-        chapter_names = [c.name for c in test_chapters]
-
-        # Chapter Members for test chapters
-        if chapter_names:
-            placeholders = ", ".join(["%s"] * len(chapter_names))
-            chapter_members = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabChapter Member` WHERE parent IN ({placeholders})",
-                chapter_names,
+        unmarked = orphans["skipped_dangling_without_test_marker"]
+        if unmarked:
+            results["warnings"].append(
+                f"Skipped {unmarked} Customers whose member link dangles but whose name carries "
+                "no test marker - they may be real party records. Review them manually; "
+                "scan_and_clear_broken_links can null the stale link without deleting the row."
             )
-            results["chapter_members"]["count"] = chapter_members[0][0] if chapter_members else 0
-
-            chapter_board_members = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabChapter Board Member` WHERE parent IN ({placeholders})",
-                chapter_names,
-            )
-            results["chapter_board_members"]["count"] = (
-                chapter_board_members[0][0] if chapter_board_members else 0
-            )
-
-        # Test Volunteers
-        test_volunteers = frappe.db.sql(
-            """
-            SELECT name FROM `tabVolunteer`
-            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
-               OR volunteer_name LIKE '%test%' OR volunteer_name LIKE '%Test%' OR volunteer_name LIKE '%TEST%'
-            """,
-            as_dict=True,
-        )
-        results["volunteers"]["count"] = len(test_volunteers)
-        volunteer_names = [v.name for v in test_volunteers]
-
-        # Volunteer child tables
-        if volunteer_names:
-            placeholders = ", ".join(["%s"] * len(volunteer_names))
-
-            vol_skills = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})",
-                volunteer_names,
-            )
-            results["volunteer_skills"]["count"] = vol_skills[0][0] if vol_skills else 0
-
-            vol_assignments = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})",
-                volunteer_names,
-            )
-            results["volunteer_assignments"]["count"] = vol_assignments[0][0] if vol_assignments else 0
-
-            vol_interests = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})",
-                volunteer_names,
-            )
-            results["volunteer_interest_areas"]["count"] = vol_interests[0][0] if vol_interests else 0
-
-            vol_goals = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})",
-                volunteer_names,
-            )
-            results["volunteer_development_goals"]["count"] = vol_goals[0][0] if vol_goals else 0
-
-            # Chapter Board Members for test volunteers
-            cbm_for_vols = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabChapter Board Member` WHERE volunteer IN ({placeholders})",
-                volunteer_names,
-            )
-            results["chapter_board_members"]["count"] += cbm_for_vols[0][0] if cbm_for_vols else 0
-
-            # Team Members for test volunteers
-            tm_for_vols = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabTeam Member` WHERE volunteer IN ({placeholders})",
-                volunteer_names,
-            )
-            results["team_members"]["count"] += tm_for_vols[0][0] if tm_for_vols else 0
-
-            # Movement Members for test volunteers
-            mm_for_vols = frappe.db.sql(
-                f"SELECT COUNT(*) as cnt FROM `tabMovement Member` WHERE volunteer IN ({placeholders})",
-                volunteer_names,
-            )
-            results["movement_members"]["count"] = mm_for_vols[0][0] if mm_for_vols else 0
-
-        # Test Members
-        test_members = frappe.db.sql(
-            """
-            SELECT name FROM `tabMember`
-            WHERE name LIKE '%test%' OR name LIKE '%Test%' OR name LIKE '%TEST%'
-               OR first_name LIKE '%test%' OR first_name LIKE '%Test%' OR first_name LIKE '%TEST%'
-            """,
-            as_dict=True,
-        )
-        results["members"]["count"] = len(test_members)
-        member_names = [m.name for m in test_members]
-
-        # Calculate total
-        total_count = sum(
-            results[key]["count"]
-            for key in results
-            if isinstance(results[key], dict) and "count" in results[key]
-        )
-
-        if dry_run:
-            results["summary"] = f"DRY RUN: Would delete {total_count} total test records"
-            return results
-
-        # ========== PHASE 2: ACTUAL DELETION ==========
-        frappe.db.begin()
-
-        try:
-            # Delete Team Members for test teams
-            if team_names:
-                placeholders = ", ".join(["%s"] * len(team_names))
-                frappe.db.sql(f"DELETE FROM `tabTeam Member` WHERE parent IN ({placeholders})", team_names)
-                results["team_members"]["deleted"] = results["team_members"]["count"]
-
-            # Delete Team Members for test volunteers
-            if volunteer_names:
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabTeam Member` WHERE volunteer IN ({placeholders})", volunteer_names
-                )
-
-            # Delete Test Teams
-            if team_names:
-                placeholders = ", ".join(["%s"] * len(team_names))
-                frappe.db.sql(f"DELETE FROM `tabTeam` WHERE name IN ({placeholders})", team_names)
-                results["teams"]["deleted"] = len(team_names)
-
-            # Delete Chapter Board Members for test chapters
-            if chapter_names:
-                placeholders = ", ".join(["%s"] * len(chapter_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabChapter Board Member` WHERE parent IN ({placeholders})",
-                    chapter_names,
-                )
-
-            # Delete Chapter Board Members for test volunteers
-            if volunteer_names:
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabChapter Board Member` WHERE volunteer IN ({placeholders})",
-                    volunteer_names,
-                )
-                results["chapter_board_members"]["deleted"] = results["chapter_board_members"]["count"]
-
-            # Delete Chapter Members for test chapters
-            if chapter_names:
-                placeholders = ", ".join(["%s"] * len(chapter_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabChapter Member` WHERE parent IN ({placeholders})", chapter_names
-                )
-                results["chapter_members"]["deleted"] = results["chapter_members"]["count"]
-
-            # Delete Test Chapters
-            if chapter_names:
-                placeholders = ", ".join(["%s"] * len(chapter_names))
-                frappe.db.sql(f"DELETE FROM `tabChapter` WHERE name IN ({placeholders})", chapter_names)
-                results["chapters"]["deleted"] = len(chapter_names)
-
-            # Delete Movement Members for test volunteers
-            if volunteer_names:
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabMovement Member` WHERE volunteer IN ({placeholders})",
-                    volunteer_names,
-                )
-                results["movement_members"]["deleted"] = results["movement_members"]["count"]
-
-            # Delete Volunteer child tables
-            if volunteer_names:
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Skill` WHERE parent IN ({placeholders})", volunteer_names
-                )
-                results["volunteer_skills"]["deleted"] = results["volunteer_skills"]["count"]
-
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Assignment` WHERE parent IN ({placeholders})",
-                    volunteer_names,
-                )
-                results["volunteer_assignments"]["deleted"] = results["volunteer_assignments"]["count"]
-
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Interest Area` WHERE parent IN ({placeholders})",
-                    volunteer_names,
-                )
-                results["volunteer_interest_areas"]["deleted"] = results["volunteer_interest_areas"]["count"]
-
-                frappe.db.sql(
-                    f"DELETE FROM `tabVolunteer Development Goal` WHERE parent IN ({placeholders})",
-                    volunteer_names,
-                )
-                results["volunteer_development_goals"]["deleted"] = results["volunteer_development_goals"][
-                    "count"
-                ]
-
-            # Delete Test Volunteers
-            if volunteer_names:
-                placeholders = ", ".join(["%s"] * len(volunteer_names))
-                frappe.db.sql(f"DELETE FROM `tabVolunteer` WHERE name IN ({placeholders})", volunteer_names)
-                results["volunteers"]["deleted"] = len(volunteer_names)
-
-            # Delete Test Members (simplified - just the member records)
-            if member_names:
-                placeholders = ", ".join(["%s"] * len(member_names))
-                frappe.db.sql(f"DELETE FROM `tabMember` WHERE name IN ({placeholders})", member_names)
-                results["members"]["deleted"] = len(member_names)
-
-            frappe.db.commit()
-
-            total_deleted = sum(
-                results[key]["deleted"]
-                for key in results
-                if isinstance(results[key], dict) and "deleted" in results[key]
-            )
-            results["summary"] = f"Successfully deleted {total_deleted} test records"
-
-        except Exception as e:
-            frappe.db.rollback()
-            results["summary"] = f"ROLLED BACK: {str(e)}"
-            frappe.log_error(f"Test data cleanup failed: {str(e)}", "Test Data Cleanup Error")
-
+        results["warnings"].append(_describe_selection(sets))
     except Exception as e:
         results["summary"] = f"Error: {str(e)}"
-        frappe.log_error(f"Test data cleanup error: {str(e)}", "Test Data Cleanup Error")
+        frappe.log_error(
+            f"Test data cleanup error: {str(e)}\n{traceback.format_exc()}", "Test Data Cleanup Error"
+        )
+        return results
 
-    return results
+    return _execute_cleanup(sets, results, dry_run, "test records")
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def cleanup_test_members_only(email_patterns: list | None = None):
+def cleanup_test_members_only(email_patterns: list | None = None, dry_run=False):
     """
     Safer cleanup that only deletes members matching test email patterns.
 
+    Same deletion engine as cleanup_all_test_data() -- see _run_cleanup_phases().
+    Only the selection differs: members whose email matches one of the supplied
+    LIKE patterns, rather than the full test-data heuristic.
+
+    Patterns are validated before use. This endpoint is whitelisted and takes a
+    caller-supplied list, and pointing it at the shared engine widened its blast
+    radius enormously: `email_patterns=["%"]` would otherwise select every Member
+    on the site and take their Customers, Users and invoices with them.
+
     Args:
-        email_patterns: List of email patterns to match (default: test patterns)
+        email_patterns: List of email LIKE patterns to match (default: test patterns)
+        dry_run: If True, only report what would be deleted. Defaults to False to
+            preserve the historical behaviour of this endpoint and the admin_tools
+            button that calls it with no arguments.
 
     Returns:
         dict: Results of cleanup
@@ -1762,118 +1546,95 @@ def cleanup_test_members_only(email_patterns: list | None = None):
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
     if not email_patterns:
         email_patterns = ["%test@example.com", "%@test.com", "test_%@%", "%example.%", "%@test.%"]
 
-    results = {
-        "test_patterns": email_patterns,
-        "members_deleted": 0,
-        "related_records_deleted": 0,
-        "errors": [],
-    }
+    results = _new_cleanup_results(dry_run)
+    results["test_patterns"] = email_patterns
+    results["members_deleted"] = 0
+    results["related_records_deleted"] = 0
+    results["errors"] = []
 
     try:
-        # Find test members
-        test_members = []
-        for pattern in email_patterns:
-            members = frappe.get_all(
-                "Member",
-                filters={"email": ["like", pattern]},
-                fields=["name", "email", "first_name", "last_name"],
-            )
-            test_members.extend(members)
+        _validate_email_patterns(email_patterns)
 
-        # Remove duplicates
-        seen = set()
-        unique_test_members = []
-        for member in test_members:
-            if member.name not in seen:
-                seen.add(member.name)
-                unique_test_members.append(member)
+        clause = " OR ".join(["m.email LIKE %s"] * len(email_patterns))
+        members = [
+            r[0] for r in frappe.db.sql(f"SELECT m.name FROM `tabMember` m WHERE {clause}", email_patterns)
+        ]
 
-        if not unique_test_members:
+        if not members:
             results["summary"] = "No test members found matching the patterns"
+            results["total_records_affected"] = 0
             return results
 
-        # Use nuclear cleanup on just these members
-        member_names = [m.name for m in unique_test_members]
-
-        # Delete related records for these specific members
-        for member_name in member_names:
-            try:
-                # Get member to find linked Customer
-                member_doc = frappe.get_doc("Member", member_name)
-
-                # CRITICAL: Clear Customer.custom_member BEFORE deleting Member
-                # Frappe's link validation runs before on_trash hooks, so we must
-                # clear the back-reference first to avoid LinkExistsError
-                if member_doc.customer:
-                    try:
-                        # Check if Customer has custom_member field
-                        if frappe.db.has_column("Customer", "custom_member"):
-                            customer_member = frappe.db.get_value(
-                                "Customer", member_doc.customer, "custom_member"
-                            )
-                            if customer_member == member_name:
-                                # Clear the custom_member field
-                                frappe.db.set_value(
-                                    "Customer",
-                                    member_doc.customer,
-                                    "custom_member",
-                                    None,
-                                    update_modified=False,
-                                )
-
-                        # Also check for Dynamic Link entries on Customer
-                        frappe.db.sql(
-                            """
-                            DELETE FROM `tabDynamic Link`
-                            WHERE parenttype = 'Customer'
-                            AND parent = %s
-                            AND link_doctype = 'Member'
-                            AND link_name = %s
-                            """,
-                            (member_doc.customer, member_name),
-                        )
-
-                        # Check if Customer has any transactions - if not, delete it too
-                        has_transactions = (
-                            frappe.db.count("Sales Invoice", {"customer": member_doc.customer}) > 0
-                            or frappe.db.count(
-                                "Payment Entry",
-                                {"party_type": "Customer", "party": member_doc.customer},
-                            )
-                            > 0
-                        )
-
-                        if not has_transactions:
-                            # Safe to delete Customer with no transaction history
-                            # Security: Bulk cleanup protected by @critical_api + validate_cleanup_permissions()
-                            frappe.delete_doc(
-                                "Customer", member_doc.customer, force=True, ignore_permissions=True
-                            )
-                            results["related_records_deleted"] += 1
-
-                    except Exception as customer_error:
-                        results["errors"].append(
-                            f"Warning handling Customer for {member_name}: {str(customer_error)}"
-                        )
-
-                # Now delete the Member (on_trash will handle remaining cleanup)
-                # Security: Bulk cleanup protected by @critical_api + validate_cleanup_permissions()
-                frappe.delete_doc("Member", member_name, ignore_permissions=True, force=True)
-                results["members_deleted"] += 1
-            except Exception as e:
-                results["errors"].append(f"Error deleting {member_name}: {str(e)}")
-
-        frappe.db.commit()
-        results["summary"] = f"Deleted {results['members_deleted']} test members and their related records"
-
+        sets = _resolve_sets_for_members(members)
+        results["warnings"].append(_describe_selection(sets))
     except Exception as e:
         results["summary"] = f"Error during test cleanup: {str(e)}"
         results["errors"].append(str(e))
+        return results
 
+    _execute_cleanup(sets, results, dry_run, label="test member records")
+
+    # Legacy result keys the admin_tools page and existing callers still read.
+    # Both derived from `deleted`, never mixed with the `count` aggregate: on a
+    # rolled-back run the two disagree and related_records_deleted went negative.
+    results["members_deleted"] = results["members"]["deleted"]
+    results["related_records_deleted"] = (
+        sum(results[key]["deleted"] for key in CLEANUP_BUCKETS) - results["members"]["deleted"]
+    )
+    results["errors"].extend(error for key in CLEANUP_BUCKETS for error in results[key]["errors"])
     return results
+
+
+def _validate_email_patterns(email_patterns):
+    """Reject patterns broad enough to select the entire member base."""
+    if not isinstance(email_patterns, (list, tuple)):
+        frappe.throw(_("email_patterns must be a list of LIKE patterns"))
+
+    for pattern in email_patterns:
+        if not isinstance(pattern, str):
+            frappe.throw(_("email_patterns must contain only strings"))
+        # A pattern of nothing but wildcards matches every address there is.
+        if not pattern.strip("%_ "):
+            frappe.throw(
+                _("Refusing pattern {0}: it matches every member. Supply a specific test pattern.").format(
+                    pattern or "''"
+                )
+            )
+
+
+def _link_fields_to(target_doctype):
+    """Every Link field pointing at `target_doctype`, from BOTH field sources.
+
+    Standard fields live in `tabDocField`, but fields an app adds to a core
+    DocType live in `tabCustom Field` -- and that is where most of this app's
+    links to Customer / Sales Invoice / Payment Entry are defined. Scanning only
+    tabDocField hid 13,539 broken references on the production-like site,
+    including all 13,291 dangling `Customer.member` values, which is precisely
+    what a broken-link scanner exists to surface.
+    """
+    return frappe.db.sql(
+        """
+        SELECT df.parent AS doctype, df.fieldname, df.label, dt.istable, dt.issingle
+        FROM tabDocField df
+        JOIN tabDocType dt ON df.parent = dt.name
+        WHERE df.fieldtype = 'Link' AND df.options = %(target)s AND dt.issingle = 0
+
+        UNION
+
+        SELECT cf.dt AS doctype, cf.fieldname, cf.label, dt.istable, dt.issingle
+        FROM `tabCustom Field` cf
+        JOIN tabDocType dt ON cf.dt = dt.name
+        WHERE cf.fieldtype = 'Link' AND cf.options = %(target)s AND dt.issingle = 0
+        """,
+        {"target": target_doctype},
+        as_dict=True,
+    )
 
 
 def _validate_verenigingen_admin_permissions():
@@ -1940,7 +1701,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
     - Membership Dues Schedule: Only non-templates deleted, templates preserved
 
     Tables that will be UPDATED (references cleared):
-    - Customer (custom_member cleared)
+    - Customer (member link cleared)
 
     PRESERVED:
     - User accounts (except member-linked, excluding Administrator/Guest)
@@ -2042,7 +1803,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
 
         # Tables to update (clear references) - for documentation
         _tables_to_update = [  # noqa: F841
-            ("tabCustomer", "custom_member", "Clear customer-member links"),
+            ("tabCustomer", "member", "Clear customer-member links"),
         ]
 
         # Build whitelist from the hardcoded tuple above
@@ -2078,32 +1839,26 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
 
         # Count users/contacts/addresses that would be affected
         try:
-            member_linked_users = frappe.db.sql(
-                """
+            member_linked_users = frappe.db.sql("""
                 SELECT COUNT(DISTINCT m.user)
                 FROM `tabMember` m
                 WHERE m.user IS NOT NULL AND m.user != ''
                 AND m.user NOT IN ('Administrator', 'Guest')
-            """
-            )[0][0]
+            """)[0][0]
             results["records_before"]["User (member-linked)"] = member_linked_users
 
-            member_addresses = frappe.db.sql(
-                """
+            member_addresses = frappe.db.sql("""
                 SELECT COUNT(DISTINCT dl.parent)
                 FROM `tabDynamic Link` dl
                 WHERE dl.parenttype = 'Address' AND dl.link_doctype = 'Member'
-            """
-            )[0][0]
+            """)[0][0]
             results["records_before"]["Address (member-linked)"] = member_addresses
 
-            member_contacts = frappe.db.sql(
-                """
+            member_contacts = frappe.db.sql("""
                 SELECT COUNT(DISTINCT dl.parent)
                 FROM `tabDynamic Link` dl
                 WHERE dl.parenttype = 'Contact' AND dl.link_doctype = 'Member'
-            """
-            )[0][0]
+            """)[0][0]
             results["records_before"]["Contact (member-linked)"] = member_contacts
         except Exception as e:
             results["warnings"].append(f"Could not count linked records: {str(e)}")
@@ -2128,10 +1883,19 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             frappe.db.sql("UPDATE `tabChapter` SET chapter_head = NULL WHERE chapter_head IS NOT NULL")
             results["tables_updated"].append("tabChapter.chapter_head cleared")
 
-            # Clear Customer.custom_member references (if field exists)
-            if frappe.db.has_column("Customer", "custom_member"):
-                frappe.db.sql("UPDATE `tabCustomer` SET custom_member = NULL WHERE custom_member IS NOT NULL")
-                results["tables_updated"].append("tabCustomer.custom_member cleared")
+            # Capture member-linked Customers BEFORE clearing the link, otherwise
+            # the Dynamic Link cleanup below has nothing left to match on. The
+            # field is `member` -- there is no `custom_member` column on Customer,
+            # so the previous has_column() guard made this whole path a no-op.
+            customer_names = [
+                r[0]
+                for r in frappe.db.sql(
+                    "SELECT name FROM `tabCustomer` WHERE member IS NOT NULL AND member != ''"
+                )
+            ]
+
+            frappe.db.sql("UPDATE `tabCustomer` SET member = NULL WHERE member IS NOT NULL")
+            results["tables_updated"].append("tabCustomer.member cleared")
 
             # Clear Member.user and Member.customer before deleting users
             frappe.db.sql("UPDATE `tabMember` SET user = NULL, customer = NULL")
@@ -2143,17 +1907,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             frappe.db.sql("DELETE FROM `tabDynamic Link` WHERE link_doctype = 'Volunteer'")
             results["tables_updated"].append("Dynamic Links to Member/Volunteer deleted")
 
-            # Get member-linked customers before deleting members
-            customer_names = []
-            if frappe.db.has_column("Customer", "custom_member"):
-                customer_names = frappe.db.sql(
-                    """
-                    SELECT name FROM `tabCustomer` WHERE custom_member IS NOT NULL
-                """,
-                    as_list=True,
-                )
-                customer_names = [c[0] for c in customer_names] if customer_names else []
-
+            # customer_names was captured above, before the link was cleared.
             if customer_names:
                 placeholders = ", ".join(["%s"] * len(customer_names))
                 frappe.db.sql(
@@ -2404,26 +2158,22 @@ def scan_and_clear_broken_links(
                 "total": 0,
             }
 
-            # 1. Find all Link fields pointing to this DocType
-            link_fields = frappe.db.sql(
-                """
-                SELECT df.parent as doctype, df.fieldname, df.label,
-                       dt.istable, dt.issingle
-                FROM tabDocField df
-                JOIN tabDocType dt ON df.parent = dt.name
-                WHERE df.fieldtype = 'Link'
-                AND df.options = %s
-                AND dt.issingle = 0
-                """,
-                target_doctype,
-                as_dict=True,
-            )
-
-            for field in link_fields:
+            for field in _link_fields_to(target_doctype):
                 table_name = f"tab{field.doctype}"
 
                 try:
-                    # Find broken references using LEFT JOIN
+                    # Count separately from the sample: the UPDATE/DELETE below is
+                    # unbounded, so sizing the result off a LIMITed SELECT reported
+                    # 1000 while actually clearing every broken row.
+                    broken_count = frappe.db.sql(f"""
+                        SELECT COUNT(*)
+                        FROM `{table_name}` src
+                        LEFT JOIN `tab{target_doctype}` tgt ON src.`{field.fieldname}` = tgt.name
+                        WHERE src.`{field.fieldname}` IS NOT NULL
+                        AND src.`{field.fieldname}` != ''
+                        AND tgt.name IS NULL
+                        """)[0][0]
+
                     broken = frappe.db.sql(
                         f"""
                         SELECT src.name, src.`{field.fieldname}` as broken_ref
@@ -2432,13 +2182,12 @@ def scan_and_clear_broken_links(
                         WHERE src.`{field.fieldname}` IS NOT NULL
                         AND src.`{field.fieldname}` != ''
                         AND tgt.name IS NULL
-                        LIMIT 1000
+                        LIMIT 5
                         """,
                         as_dict=True,
                     )
 
-                    if broken:
-                        broken_count = len(broken)
+                    if broken_count:
                         results["total_broken"] += broken_count
                         target_results["total"] += broken_count
 
@@ -2457,27 +2206,23 @@ def scan_and_clear_broken_links(
                             # Clear the broken references
                             if clear_mode == "delete" and field.istable:
                                 # Delete child table rows with broken links
-                                frappe.db.sql(
-                                    f"""
+                                frappe.db.sql(f"""
                                     DELETE src FROM `{table_name}` src
                                     LEFT JOIN `tab{target_doctype}` tgt ON src.`{field.fieldname}` = tgt.name
                                     WHERE src.`{field.fieldname}` IS NOT NULL
                                     AND src.`{field.fieldname}` != ''
                                     AND tgt.name IS NULL
-                                    """
-                                )
+                                    """)
                             else:
                                 # Set to NULL
-                                frappe.db.sql(
-                                    f"""
+                                frappe.db.sql(f"""
                                     UPDATE `{table_name}` src
                                     LEFT JOIN `tab{target_doctype}` tgt ON src.`{field.fieldname}` = tgt.name
                                     SET src.`{field.fieldname}` = NULL
                                     WHERE src.`{field.fieldname}` IS NOT NULL
                                     AND src.`{field.fieldname}` != ''
                                     AND tgt.name IS NULL
-                                    """
-                                )
+                                    """)
                             results["cleared"] += broken_count
 
                 except Exception as e:
@@ -2487,6 +2232,18 @@ def scan_and_clear_broken_links(
 
             # 2. Check Dynamic Links (used by Contact, Address, etc.)
             try:
+                # Counted in full for the same reason as the Link fields above.
+                dynamic_count = frappe.db.sql(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM `tabDynamic Link` dl
+                    LEFT JOIN `tab{target_doctype}` tgt ON dl.link_name = tgt.name
+                    WHERE dl.link_doctype = %s
+                    AND tgt.name IS NULL
+                    """,
+                    target_doctype,
+                )[0][0]
+
                 broken_dynamic = frappe.db.sql(
                     f"""
                     SELECT dl.parent, dl.parenttype, dl.link_name
@@ -2500,8 +2257,7 @@ def scan_and_clear_broken_links(
                     as_dict=True,
                 )
 
-                if broken_dynamic:
-                    dynamic_count = len(broken_dynamic)
+                if dynamic_count:
                     results["total_broken"] += dynamic_count
                     target_results["total"] += dynamic_count
 

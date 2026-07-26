@@ -161,6 +161,29 @@ repos:
         verbose: true
         exclude: '^(scripts/validation/tests/|archived_.*|archived_unused/|archived_deleted/)'
 
+      - id: db-begin-validator
+        name: 🔁 Implicit-commit guard (frappe.db.begin / raw TRUNCATE) [advisory]
+        description: >-
+          Flags frappe.db.begin() and raw frappe.db.sql("TRUNCATE ...") in production
+          code. START TRANSACTION raises ImplicitCommitError once the request has
+          written anything (a save, a set_value, a File insert, even frappe.log_error),
+          and callers that swallow the exception turn it into a silent permanent
+          failure -- this broke four call sites (2026-07-26 audit). Fix by DELETING
+          begin() and keeping the SELECT ... FOR UPDATE plus the existing
+          commit()/rollback(); do NOT convert to a savepoint, which does not release
+          row locks. Advisory while the 16-site inventory is triaged; flip to --strict
+          once it is annotated. Suppress a justified site with a trailing
+          '# db-begin-ok: own-connection|patch-context|verified-clean-caller|false-positive'.
+        entry: python scripts/validation/db_begin_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-push]
+        # verbose: pre-commit hides stdout for passing hooks, and this one passes
+        # (advisory) even when it has findings -- without this they are invisible.
+        verbose: true
+        exclude: '^(scripts/validation/tests/|archived_.*|archived_unused/|archived_deleted/)'
+
       - id: eslint
         name: 🔧 ESLint JavaScript validation
         # Check-only: report lint problems on the *staged* files and fail the

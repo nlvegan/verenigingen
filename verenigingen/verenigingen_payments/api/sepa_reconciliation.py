@@ -525,7 +525,16 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     # =========================================================================
     # PHASE 2: Execute atomically with transaction boundaries
     # =========================================================================
-    frappe.db.begin()
+    # Deliberately NO frappe.db.begin(). The live caller
+    # (process_sepa_transaction_conservative) first calls acquire_processing_lock()
+    # and check_batch_processing_status(), both of which are decorated
+    # @high_security_api / @critical_api and write an audit row when they return -
+    # so the transaction ALWAYS has pending writes here and START TRANSACTION
+    # always raised ImplicitCommitError (measured: transaction_writes 0 -> 1 after
+    # the first decorated helper). The FOR UPDATE below takes the batch lock inside
+    # the ambient transaction and the existing commit()/rollback() release it, so
+    # the atomicity this block wants is unchanged. Do NOT use a savepoint: releasing
+    # one does not free the row lock.
     try:
         # Lock the batch row to prevent concurrent processing (FOR UPDATE)
         # This ensures only one process can reconcile this batch at a time

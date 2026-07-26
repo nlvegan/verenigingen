@@ -214,5 +214,95 @@ class TestAPIAuditLog(unittest.TestCase):
         )
 
 
+class TestClearAllAuditLogs(unittest.TestCase):
+    """
+    Tests for the ``clear_all_audit_logs`` endpoint behind the "Clear All Logs"
+    button in the API Audit Log list view.
+
+    This endpoint had no coverage and could not succeed for any input: it writes
+    a forensic Error Log record and then called ``frappe.db.begin()``, which
+    trips Frappe's implicit-commit guard once anything is pending.
+
+    NOT PARALLEL-SAFE: the endpoint TRUNCATEs `tabAPI Audit Log` wholesale --
+    that is the behaviour under test, not an accident. Do not run this module
+    concurrently with tests that assert on audit-log contents.
+    """
+
+    def _seed_pending_write(self):
+        """Leave one uncommitted write in the transaction, then assert it landed.
+
+        Uses a throwaway ToDo rather than a field on the Administrator user:
+        clear_all_audit_logs commits, so a probe written on a shared record would
+        be durable, and an assertion failure before the reset would leak it into
+        the site for every later test. addCleanup is registered BEFORE the write.
+        """
+        todo = frappe.new_doc("ToDo")
+        todo.description = "clear_all_audit_logs regression probe"
+        todo.insert()
+        self.addCleanup(self._discard_probe, todo.name)
+        self.assertGreater(frappe.db.transaction_writes, 0, "expected a pending write")
+
+    @staticmethod
+    def _discard_probe(name):
+        if frappe.db.exists("ToDo", name):
+            # Security: test-local teardown of a ToDo this test created moments
+            # ago, by name. ignore_permissions because the probe must be removed
+            # even when the assertion under test failed; no user input reaches it.
+            frappe.delete_doc("ToDo", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_clear_all_audit_logs_empties_the_table(self):
+        """
+        The endpoint must actually clear the table and report success.
+
+        Regression: it always returned {"success": False, "message": "Failed to
+        clear audit logs: ..."} because the deliberate frappe.log_error() audit
+        record written immediately above counts as a pending write, so the
+        following START TRANSACTION raised ImplicitCommitError. The raw
+        "TRUNCATE TABLE" trips the same guard independently.
+        """
+        from verenigingen.verenigingen.doctype.api_audit_log.api_audit_log import clear_all_audit_logs
+
+        audit_doc = frappe.new_doc("API Audit Log")
+        audit_doc.update(
+            {
+                "event_id": "test_clear_all_001",
+                "timestamp": now(),
+                "event_type": "api_call_success",
+                "severity": "info",
+                "user": "Administrator",
+                "ip_address": "127.0.0.1",
+                "details": {"endpoint": "/api/test", "method": "GET"},
+            }
+        )
+        audit_doc.insert()
+        frappe.db.commit()
+        self.assertGreater(frappe.db.count("API Audit Log"), 0, "fixture row was not persisted")
+
+        result = clear_all_audit_logs()
+
+        self.assertTrue(result.get("success"), f"clear failed: {result.get('message')}")
+        # Assert the pre-existing entry is gone rather than count == 0: the
+        # @critical_api decorator writes its own audit row for this very call
+        # after the function body returns, so the table is legitimately non-empty.
+        self.assertFalse(
+            frappe.db.exists("API Audit Log", {"event_id": "test_clear_all_001"}),
+            "the entry that existed before the clear is still there",
+        )
+
+    def test_clear_all_audit_logs_survives_a_pending_write(self):
+        """
+        A caller that already wrote in the same request must still be able to
+        clear the logs - the original failure mode was triggered by exactly this.
+        """
+        from verenigingen.verenigingen.doctype.api_audit_log.api_audit_log import clear_all_audit_logs
+
+        self._seed_pending_write()
+
+        result = clear_all_audit_logs()
+
+        self.assertTrue(result.get("success"), f"clear failed: {result.get('message')}")
+
+
 if __name__ == "__main__":
     unittest.main()

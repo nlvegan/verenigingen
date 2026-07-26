@@ -1,0 +1,326 @@
+#!/usr/bin/env python3
+"""
+Implicit-Commit Guard Validator (frappe.db.begin / raw TRUNCATE)
+================================================================
+
+Catches the transaction anti-pattern that silently broke four call sites in this
+codebase (see docs/audits/2026-07-26-known-test-failures-baseline-triage.md):
+
+    frappe.db.begin()   # -> START TRANSACTION
+
+Frappe refuses START TRANSACTION whenever the current transaction already has
+pending writes:
+
+    frappe.exceptions.ImplicitCommitError:
+        ('This statement can cause implicit commit', 'START TRANSACTION')
+
+`transaction_writes` reaches 1 after ANY write in the request -- a doc.save()/
+insert(), a frappe.db.set_value(), a File attachment, even a frappe.log_error().
+Since whether a write happened depends on the CALLER, a begin() call site cannot
+be proven safe by reading it: it is safe only while every caller happens to
+arrive with a clean transaction, and one upstream save arms it. Callers that
+swallow exceptions (a generic "operation failed" response) turn this into a
+silent, permanent failure rather than a visible error.
+
+What flags:
+  1. `frappe.db.begin()` (any `<x>.db.begin()` attribute chain).
+  2. `frappe.db.sql("<stmt> ...")` where <stmt> is one of Frappe's
+     IMPLICIT_COMMIT_QUERY_TYPES -- TRUNCATE / ALTER / DROP / CREATE / START /
+     BEGIN. Each trips the same guard independently of begin(); this repo has
+     already been bitten by a CREATE INDEX mid-migrate. Use `frappe.db.sql_ddl()`.
+
+Known limitation: only literal SQL is inspected, so a statement assembled at
+runtime (an f-string table name) is not recognised. Aliasing the handle
+(`db = frappe.db; db.begin()`) is likewise not matched.
+
+The fix is almost never a savepoint
+-----------------------------------
+These call sites overwhelmingly bracket a `SELECT ... FOR UPDATE`, where the
+explicit commit() on an early return is what RELEASES the row lock. Releasing a
+savepoint does NOT free row locks -- converting would silently hold them until
+request end. The correct fix, applied five times in this repo, is to DELETE the
+begin() and keep the FOR UPDATE plus the existing commit()/rollback(): the lock
+is taken inside the ambient request transaction and released by the same commit
+as before. See api/sepa_phantom_hash_admin.py and api/schedule_maintenance.py.
+
+Suppression
+-----------
+A justified call site opts out with a trailing comment on any of its physical
+lines:
+
+    frappe.db.begin()  # db-begin-ok: own-connection
+
+Reason MUST be one of:
+    own-connection        -- runs on its own fresh connection (a thread or job
+                             that called frappe.connect() itself), so
+                             transaction_writes is 0 by construction.
+    patch-context         -- runs under `bench migrate` / a patch, outside any
+                             request transaction.
+    verified-clean-caller -- EVERY caller provably reaches here with no pending
+                             writes. Name them in an adjacent comment; this
+                             claim rots the moment a caller adds a save().
+    idempotent-bootstrap  -- the statement may legitimately fail here and that is
+                             handled: it is an idempotent bootstrap (a
+                             CREATE TABLE IF NOT EXISTS and the like) whose
+                             ImplicitCommitError is caught and logged, it changes
+                             no data, and a later call outside a transaction
+                             completes it. Use ONLY where the failure is caught;
+                             note the residual risk that on a fresh site whose
+                             first call happens mid-transaction, the object stays
+                             missing until something calls again with a clean
+                             transaction.
+    false-positive        -- the analyzer is wrong here; please also report it.
+
+An unknown reason is itself reported.
+
+Usage
+-----
+    python scripts/validation/db_begin_validator.py FILE [FILE ...]
+    python scripts/validation/db_begin_validator.py --all verenigingen
+
+Advisory by default (prints findings, exits 0). Pass --strict (or set
+DB_BEGIN_STRICT=1) to exit non-zero on any unsuppressed finding -- flip that on
+once the inventory is annotated.
+"""
+
+from __future__ import annotations
+
+import ast
+import io
+import os
+import re
+import sys
+import tokenize
+from dataclasses import dataclass
+from pathlib import Path
+
+VALID_REASONS = {
+    "own-connection",
+    "patch-context",
+    "verified-clean-caller",
+    "idempotent-bootstrap",
+    "false-positive",
+}
+_MARKER = re.compile(r"#\s*db-begin-ok\s*:\s*([a-z-]+)?")
+
+KIND_BEGIN = "begin"
+KIND_DDL = "ddl"
+
+# Frappe rejects every one of these when transaction_writes > 0 --
+# frappe/database/database.py: IMPLICIT_COMMIT_QUERY_TYPES. "begin"/"start" are
+# what frappe.db.begin() emits; the rest are DDL that reaches the DB through a
+# raw frappe.db.sql() call. Keyed on the statement's first word.
+_IMPLICIT_COMMIT_KEYWORDS = ("truncate", "alter", "drop", "create", "start", "begin")
+
+# Trees that are not production request code: tests legitimately provoke the
+# guard, and archived code is not shipped.
+_SKIP_PARTS = ("tests", "test")
+_SKIP_PREFIXES = ("archived_", "archived_unused", "archived_deleted")
+
+
+@dataclass
+class Finding:
+    file: str
+    line: int
+    func: str
+    kind: str
+    suppressed: bool
+    bad_reason: str | None = None
+
+
+def _is_db_begin(node: ast.Call) -> bool:
+    """Match <anything>.db.begin() -- frappe.db.begin(), frappe.local.db.begin()."""
+    f = node.func
+    return (
+        isinstance(f, ast.Attribute)
+        and f.attr == "begin"
+        and isinstance(f.value, ast.Attribute)
+        and f.value.attr == "db"
+    )
+
+
+def _is_implicit_commit_sql(node: ast.Call) -> bool:
+    """Match <anything>.db.sql("<TRUNCATE|ALTER|DROP|CREATE|START|BEGIN> ...").
+
+    Only literal first arguments: a statement assembled at runtime cannot be
+    recognised here, and guessing would trade this validator's precision for very
+    little reach. Use frappe.db.sql_ddl() for genuine DDL.
+    """
+    f = node.func
+    if not (
+        isinstance(f, ast.Attribute)
+        and f.attr == "sql"
+        and isinstance(f.value, ast.Attribute)
+        and f.value.attr == "db"
+    ):
+        return False
+    if not node.args:
+        return False
+    first = node.args[0]
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+        return False
+    head = first.value.lstrip().split(None, 1)
+    return bool(head) and head[0].lower() in _IMPLICIT_COMMIT_KEYWORDS
+
+
+def _enclosing_func(tree: ast.AST, line: int) -> str:
+    """Innermost function containing `line`, for the message. '<module>' if none."""
+    best, best_start = "<module>", -1
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            end = getattr(node, "end_lineno", node.lineno) or node.lineno
+            if node.lineno <= line <= end and node.lineno > best_start:
+                best, best_start = node.name, node.lineno
+    return best
+
+
+def _comment_lines(src: str) -> dict[int, str]:
+    """Map line number -> comment text, for real COMMENT tokens only.
+
+    Scanning raw source would honour a marker that merely appears inside a string
+    literal (e.g. an SQL parameter), so tokenize is used to see only comments.
+    """
+    comments: dict[int, str] = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                comments[tok.start[0]] = tok.string
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass  # best effort; ast.parse already succeeded for the findings we have
+    return comments
+
+
+def _suppression(node: ast.Call, comments: dict[int, str]) -> tuple[bool, str | None]:
+    """Look for the marker on the flagged CALL's own physical lines.
+
+    Scoped to the call node, not its enclosing statement: two flagged calls can
+    share one statement (e.g. both inside a list literal), and a statement-wide
+    scan would let a marker written for one silence the other.
+    """
+    start = node.lineno
+    end = getattr(node, "end_lineno", start) or start
+    for ln in range(start, end + 1):
+        m = _MARKER.search(comments.get(ln, ""))
+        if m:
+            reason = m.group(1)
+            if reason in VALID_REASONS:
+                return True, None
+            return False, reason or "(missing)"
+    return False, None
+
+
+def check_file(path: Path) -> list[Finding]:
+    try:
+        src = path.read_text()
+    except (OSError, UnicodeDecodeError):
+        return []
+    try:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return []
+    comments = _comment_lines(src)
+    findings: list[Finding] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if _is_db_begin(node):
+            kind = KIND_BEGIN
+        elif _is_implicit_commit_sql(node):
+            kind = KIND_DDL
+        else:
+            continue
+        suppressed, bad = _suppression(node, comments)
+        findings.append(
+            Finding(str(path), node.lineno, _enclosing_func(tree, node.lineno), kind, suppressed, bad)
+        )
+    return sorted(findings, key=lambda f: f.line)
+
+
+def is_production_file(path: Path) -> bool:
+    """Production Python: not a test module, not inside a tests/ tree, not archived."""
+    if path.suffix != ".py":
+        return False
+    name = path.name
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return False
+    parts = path.parts
+    if any(p in _SKIP_PARTS for p in parts):
+        return False
+    return not any(p.startswith(_SKIP_PREFIXES) for p in parts)
+
+
+_MESSAGES = {
+    KIND_BEGIN: (
+        "frappe.db.begin() raises ImplicitCommitError whenever the request has already "
+        "written anything (a save, a set_value, a File insert, even frappe.log_error). "
+        "Whether that holds depends on the CALLER, so this cannot be proven safe here. "
+        "Delete it and keep the SELECT ... FOR UPDATE plus the existing commit()/rollback() "
+        "-- do NOT convert to a savepoint, which does not release row locks."
+    ),
+    KIND_DDL: (
+        "this statement is in Frappe's IMPLICIT_COMMIT_QUERY_TYPES (truncate/alter/drop/"
+        "create/start/begin), so a raw frappe.db.sql() call trips the same implicit-commit "
+        "guard when writes are pending. Use frappe.db.sql_ddl(), and commit() first if a "
+        "record must survive the statement."
+    ),
+}
+
+
+def main(argv: list[str]) -> int:
+    flags = [a for a in argv[1:] if a.startswith("-")]
+    args = [a for a in argv[1:] if not a.startswith("-")]
+    strict = "--strict" in flags or os.environ.get("DB_BEGIN_STRICT") == "1"
+    scan_all = "--all" in flags
+
+    if not args:
+        print(
+            "usage: db_begin_validator.py FILE [FILE ...]\n" "       db_begin_validator.py --all DIR",
+            file=sys.stderr,
+        )
+        return 2
+
+    if scan_all:
+        paths = [p for root in args for p in sorted(Path(root).rglob("*.py"))]
+    else:
+        paths = [Path(p) for p in args]
+
+    active = 0
+    bad_reasons = 0
+    suppressed = 0
+    for path in paths:
+        if not path.is_file() or not is_production_file(path):
+            continue
+        for f in check_file(path):
+            if f.bad_reason is not None:
+                bad_reasons += 1
+                print(
+                    f"{f.file}:{f.line}: db-begin-ok reason {f.bad_reason!r} is not valid; "
+                    f"use one of {sorted(VALID_REASONS)}"
+                )
+                continue
+            if f.suppressed:
+                suppressed += 1
+                continue
+            active += 1
+            print(
+                f"{f.file}:{f.line}: in {f.func}(): {_MESSAGES[f.kind]} "
+                f"If this site is genuinely safe, annotate '# db-begin-ok: <reason>'."
+            )
+
+    problems = active + bad_reasons
+    if problems:
+        mode = "STRICT" if strict else "advisory"
+        # Flush first: findings go to stdout and the summary to stderr, and
+        # without this the buffered stdout can land after the summary.
+        sys.stdout.flush()
+        print(
+            f"\n{active} implicit-commit finding(s), {bad_reasons} invalid suppression "
+            f"reason(s), {suppressed} suppressed [{mode}].",
+            file=sys.stderr,
+        )
+        return 1 if strict else 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

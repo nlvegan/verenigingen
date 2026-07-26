@@ -1865,7 +1865,13 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         # point (authenticate/parse, find member, load gateway), and this function
         # only reads (fetch invoice, validate amount) before begin(), so begin()
         # does not implicitly commit any prior uncommitted write work.
-        frappe.db.begin()
+        # Caller chain re-verified 2026-07-26: mollie_subscription_webhook ->
+        # _authenticate_and_parse_subscription_payload (logger only) ->
+        # _find_member_for_subscription (writes an Error Log only on branches
+        # that abort) -> PaymentGatewayFactory.get_gateway (reads). This is a
+        # whole-chain invariant nothing enforces: one frappe.log_error() added
+        # to the webhook's happy path arms this call.
+        frappe.db.begin()  # db-begin-ok: verified-clean-caller
         try:
             # IDEMPOTENCY / RACE PROTECTION: concurrent webhooks for the same Mollie
             # payment must not create duplicate Payment Entries. Serialise on the

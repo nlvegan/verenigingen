@@ -367,16 +367,18 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
     Coverage of the race-protected batch-creation *building blocks* against REAL
     submitted Sales Invoices and Direct Debit Batches.
 
-    The end-to-end ``create_batch_with_race_protection`` -> ``_execute_batch_
-    creation_with_isolation`` path opens with
-    ``SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`` followed by ``begin()``.
-    MariaDB rejects ``SET TRANSACTION ...`` while a transaction is already open
-    (error 1568), and the Frappe test harness always runs inside an open
-    transaction for auto-rollback. The full flow is therefore not coverable
-    inside a FrappeTestCase without committing fixtures (which would defeat
-    rollback / leak data). See ``test_isolation_level_blocks_full_flow_in_txn``
-    which documents this. The inner SQL helpers below DO work inside the open
-    transaction and are exercised directly with real data.
+    The end-to-end ``create_batch_with_race_protection`` ->
+    ``_execute_batch_creation_with_isolation`` path used to open with
+    ``SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`` followed by ``begin()``,
+    and this class documented the resulting MariaDB 1568 as a test-harness
+    limitation that "in production runs at request start with no open
+    transaction, so the statement is valid". That was wrong: frappe.db.commit()
+    is ``COMMIT`` followed by ``begin()``, so a transaction is ALWAYS open --
+    including right after the distributed-lock acquisition that immediately
+    precedes this call. Production hit 1568 on every call and
+    @handle_api_error turned it into a generic failure. Both statements are
+    gone; the FOR UPDATE in _lock_invoices_for_processing is the real
+    serialisation mechanism.
     """
 
     def setUp(self):
@@ -400,6 +402,15 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
             submit=True,
         )
         invoice.reload()
+        self._membership = membership
+        # Tracked so the one committing test can undo what its commit made durable.
+        self._committed_fixtures = [
+            ("Customer", customer.name),
+            ("Member", member.name),
+            ("SEPA Mandate", mandate.name),
+            ("Membership", membership.name),
+            ("Sales Invoice", invoice.name),
+        ]
         return invoice, member, mandate
 
     def _batch_data(self, invoice, member, mandate, amount=None):
@@ -413,6 +424,11 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
                     "invoice": invoice.name,
                     "amount": amount,
                     "currency": "EUR",
+                    # member and membership are mandatory on the child row; the
+                    # caller supplies them, exactly as SEPATestDataFactory.
+                    # create_test_direct_debit_batch does for the normal path.
+                    "member": member.name,
+                    "membership": self._membership.name,
                     "member_name": member.full_name,
                     "iban": mandate.iban,
                     "bic": "INGBNL2A",
@@ -474,24 +490,101 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
             f"expected conflict for {assigned_invoice}, got {result}",
         )
 
-    def test_isolation_level_blocks_full_flow_in_txn(self):
-        """Characterize: the full flow cannot run inside the test transaction.
+    def test_full_batch_creation_flow_creates_the_batch(self):
+        """The end-to-end race-protected creation path must produce a real batch.
 
-        ``_execute_batch_creation_with_isolation`` issues
-        ``SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`` before ``begin()``;
-        MariaDB raises OperationalError 1568 because a transaction is already
-        open under FrappeTestCase. This documents why the end-to-end success
-        path is exercised via the inner helpers above rather than the public
-        entry point. (In production this runs at request start with no open
-        transaction, so the statement is valid.)
+        This endpoint had never worked. Three defects, each masked by the one
+        before it:
+
+        1. It opened with SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, which is
+           only legal with no transaction open -- and one is ALWAYS open, because
+           frappe.db.commit() is COMMIT followed by begin(). MariaDB 1568 on every
+           call, in production as much as in tests. The earlier version of this
+           test asserted the 1568 and explained it away as a harness limitation.
+        2. Behind that, _create_batch_document() called insert() before appending
+           any `invoices` child rows (they were only added afterwards by
+           _link_invoices_to_batch), so validation rejected it with "No invoices
+           added to batch".
+        3. And it called add_comment() on the not-yet-saved document.
+
+        The method commits by design, so the batch outlives the test transaction
+        and is removed explicitly.
         """
         invoice, member, mandate = self._make_unpaid_invoice()
-        # Driver-specific OperationalError subclass; assert on the SQLSTATE code.
+
+        result = self.manager._execute_batch_creation_with_isolation(
+            self._batch_data(invoice, member, mandate), [invoice.name]
+        )
+
+        self.assertTrue(result.get("success"), f"batch creation failed: {result}")
+        batch_name = result["batch_name"]
+        self.addCleanup(self._force_delete_batch, batch_name)
+
+        self.assertEqual(result["invoice_count"], 1)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
+        # The row must be on the batch exactly once -- the repair moved population
+        # before insert(), so a leftover _link_invoices_to_batch call would double it.
+        self.assertEqual([row.invoice for row in batch.invoices], [invoice.name])
+        self.assertEqual(batch.entry_count, 1)
+
+    def test_missing_membership_fails_with_a_named_error_not_a_bare_mandatory(self):
+        """A caller that omits member/membership must get a message naming the
+        invoice and the missing field.
+
+        `member` resolves from the locked Sales Invoice, so only `membership`
+        should be reported. Regression guard for the fallback itself: it used to
+        read the lock SELECT's `membership` key, which was
+        `si.membership_dues_schedule_display AS membership` -- a Link to
+        Membership Dues Schedule aliased over the real si.membership column, so
+        it fed a dues-schedule name into a Link->Membership field and blew up
+        inside insert(). The alias is now `dues_schedule` and the real
+        si.membership is selected.
+        """
+        invoice, member, mandate = self._make_unpaid_invoice()
+        # The SEPA factory does not populate Sales Invoice.member (it accepts a
+        # `membership` argument and drops it entirely), so set it here: that is
+        # what makes the db_record fallback actually resolve `member` and leaves
+        # only `membership` missing.
+        frappe.db.set_value("Sales Invoice", invoice.name, "member", member.name)
+
+        batch_data = self._batch_data(invoice, member, mandate)
+        row = batch_data["invoice_list"][0]
+        row.pop("member")
+        row.pop("membership")
+
         with self.assertRaises(Exception) as ctx:
-            self.manager._execute_batch_creation_with_isolation(
-                self._batch_data(invoice, member, mandate), [invoice.name]
-            )
-        self.assertIn("1568", str(ctx.exception))
+            self.manager._execute_batch_creation_with_isolation(batch_data, [invoice.name])
+
+        message = str(ctx.exception)
+        self.assertIn(invoice.name, message)
+        self.assertIn("membership", message)
+        # `member` came from the Sales Invoice, so it must NOT be reported missing.
+        self.assertNotIn("member,", message)
+        # And it must not be a raw MandatoryError from inside insert().
+        self.assertNotIn("Value missing", message)
+
+    def _force_delete_batch(self, batch_name):
+        """Remove the batch AND the fixtures the committing method made durable.
+
+        _execute_batch_creation_with_isolation commits by design, so the whole
+        setUp fixture set survives the test transaction. Submitted Sales Invoices
+        with live SEPA mandates are exactly the input to
+        sepa_batch_ui.load_unpaid_invoices, so leaving them behind would seed
+        cross-test contamination on the shared site.
+        """
+        if frappe.db.exists("Direct Debit Batch", batch_name):
+            frappe.delete_doc("Direct Debit Batch", batch_name, force=True, ignore_permissions=True)
+        for doctype, name in reversed(getattr(self, "_committed_fixtures", [])):
+            try:
+                if not frappe.db.exists(doctype, name):
+                    continue
+                doc = frappe.get_doc(doctype, name)
+                if getattr(doc, "docstatus", 0) == 1:
+                    doc.cancel()
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as exc:  # best effort; a leak must not fail the test
+                frappe.logger().warning(f"race-manager fixture cleanup skipped {doctype} {name}: {exc}")
+        frappe.db.commit()
 
 
 if __name__ == "__main__":

@@ -128,45 +128,59 @@ def clear_all_deleted_documents() -> OperationResult[Dict[str, Any]]:
                 context={"operation": "clear_all_deleted_documents", "user": frappe.session.user},
             )
 
-        # Get statistics before deletion
+        # Get statistics before deletion. get_deleted_document_statistics is
+        # @high_security_api, and that decorator serialises its OperationResult
+        # to a plain dict - so this must be read as a mapping, not by attribute
+        # (`.success` raised "'dict' object has no attribute 'success'", which
+        # the except below turned into a generic failure).
         stats_before_result = get_deleted_document_statistics()
-        if not stats_before_result.success:
+        if not stats_before_result.get("success"):
             return OperationResult.fail(
                 _("Failed to retrieve statistics before deletion"),
-                errors=stats_before_result.errors if hasattr(stats_before_result, "errors") else [],
+                errors=stats_before_result.get("errors") or [],
                 context={"operation": "clear_all_deleted_documents"},
             )
 
-        stats_before = stats_before_result.data
+        stats_before = stats_before_result.get("data") or {}
 
-        # Delete all deleted documents using TRUNCATE for better performance
-        # TRUNCATE is faster than DELETE for clearing entire tables and bypasses MySQL safe mode
-        frappe.db.sql("TRUNCATE TABLE `tabDeleted Document`")
+        # Publish the statistics helper's own audit row (and anything else the
+        # request left pending) before the truncate. TRUNCATE is DDL: Frappe
+        # rejects it - like START TRANSACTION - once transaction_writes > 0, and
+        # the @high_security_api call above always leaves exactly that. Measured:
+        # transaction_writes 0 -> 1 -> ImplicitCommitError.
         frappe.db.commit()
 
+        # TRUNCATE is faster than DELETE for clearing entire tables and bypasses
+        # MySQL safe mode. sql_ddl() is required rather than sql(): it marks the
+        # statement as DDL (and commits first) instead of tripping the guard.
+        frappe.db.sql_ddl("TRUNCATE TABLE `tabDeleted Document`")
+
         # Note: OPTIMIZE TABLE not needed after TRUNCATE as it already rebuilds the table
+
+        # Read defensively: SQL aggregates over an already-empty table come back
+        # NULL, and formatting None with :,/:.2f raises TypeError -- which is
+        # exactly how clear_all_versions failed on a second consecutive call.
+        deleted_count = stats_before.get("total_deleted_documents") or 0
+        size_freed_mb = stats_before.get("storage_size_mb") or 0
 
         # Log the action
         frappe.logger("verenigingen.deleted_document_cleanup").warning(
             f"All deleted documents cleared by {frappe.session.user}: "
-            f"{stats_before['total_deleted_documents']:,} documents deleted, "
-            f"{stats_before['storage_size_mb']:.2f} MB freed"
+            f"{deleted_count:,} documents deleted, {size_freed_mb:.2f} MB freed"
         )
 
         data = {
             "success": True,
-            "deleted_count": stats_before["total_deleted_documents"],
-            "size_freed_mb": stats_before["storage_size_mb"],
-            "unique_doctypes": stats_before["unique_doctypes"],
-            "oldest_deletion": stats_before["oldest_deletion"],
-            "newest_deletion": stats_before["newest_deletion"],
+            "deleted_count": deleted_count,
+            "size_freed_mb": size_freed_mb,
+            "unique_doctypes": stats_before.get("unique_doctypes") or 0,
+            "oldest_deletion": stats_before.get("oldest_deletion"),
+            "newest_deletion": stats_before.get("newest_deletion"),
         }
 
         return OperationResult.ok(
             data,
-            message=_("Cleared {0} deleted documents, freed {1:.2f} MB").format(
-                stats_before["total_deleted_documents"], stats_before["storage_size_mb"]
-            ),
+            message=_("Cleared {0} deleted documents, freed {1:.2f} MB").format(deleted_count, size_freed_mb),
         )
 
     except Exception as e:

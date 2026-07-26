@@ -49,12 +49,17 @@ def clear_all_versions():
     )
 
     total_count = total_result[0].total_count if total_result else 0
-    total_size = total_result[0].total_size if total_result else 0
+    # SUM() over an empty table returns NULL, so an already-cleared tabVersion
+    # gave total_size = None and the size arithmetic below raised TypeError -
+    # i.e. calling this endpoint twice in a row failed the second time.
+    total_size = (total_result[0].total_size if total_result else 0) or 0
 
-    # Delete all versions using TRUNCATE for better performance
-    # TRUNCATE is faster than DELETE for clearing entire tables and bypasses MySQL safe mode
-    frappe.db.sql("TRUNCATE TABLE tabVersion")
-    frappe.db.commit()
+    # Delete all versions using TRUNCATE for better performance.
+    # TRUNCATE is faster than DELETE for clearing entire tables and bypasses
+    # MySQL safe mode. sql_ddl() rather than sql(): TRUNCATE is DDL, and Frappe
+    # rejects it once the request has written anything (ImplicitCommitError).
+    # sql_ddl() marks it as DDL and commits any pending work first.
+    frappe.db.sql_ddl("TRUNCATE TABLE tabVersion")
 
     # Log the action
     frappe.logger("verenigingen.version_cleanup").warning(
@@ -118,7 +123,9 @@ def get_version_statistics():
     return {
         "success": True,
         "total_versions": total.get("total_count", 0),
-        "total_size_mb": round(total.get("total_size", 0) / (1024 * 1024), 2),
+        # `or 0`, not a .get() default: SUM() over an empty table returns a
+        # present-but-None key, and an emptied tabVersion made this 500.
+        "total_size_mb": round((total.get("total_size") or 0) / (1024 * 1024), 2),
         "oldest_version": total.get("oldest"),
         "newest_version": total.get("newest"),
         "doctype_breakdown": doctype_stats,
@@ -307,21 +314,24 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
             return results
 
         # ========== ACTUAL TRUNCATE OPERATION ==========
-        frappe.db.begin()
+        # Deliberately NO frappe.db.begin(), and sql_ddl() rather than sql():
+        # START TRANSACTION and a raw TRUNCATE are both in Frappe's
+        # IMPLICIT_COMMIT_QUERY_TYPES and are rejected once the request has
+        # written anything. Two TRUNCATEs cannot be made atomic with each other
+        # in any case - DDL commits implicitly and cannot be rolled back - so the
+        # transaction wrapper never provided the guarantee it appeared to.
+        frappe.db.commit()
 
         try:
             # Truncate Version table
-            frappe.db.sql("TRUNCATE TABLE `tabVersion`")
+            frappe.db.sql_ddl("TRUNCATE TABLE `tabVersion`")
             results["tables_truncated"].append("tabVersion")
             frappe.logger().info(f"Truncated tabVersion ({version_count:,} records)")
 
             # Truncate Deleted Document table
-            frappe.db.sql("TRUNCATE TABLE `tabDeleted Document`")
+            frappe.db.sql_ddl("TRUNCATE TABLE `tabDeleted Document`")
             results["tables_truncated"].append("tabDeleted Document")
             frappe.logger().info(f"Truncated tabDeleted Document ({deleted_count:,} records)")
-
-            # Commit the transaction
-            frappe.db.commit()
 
             results["summary"] = (
                 f"Nuclear TRUNCATE completed: "
@@ -335,11 +345,13 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
             )
 
         except Exception as e:
-            frappe.db.rollback()
-            results["summary"] = f"TRANSACTION ROLLED BACK - Critical error: {str(e)}"
-            results["transaction_rolled_back"] = True
+            # No rollback: TRUNCATE is DDL and commits implicitly, so a failure
+            # partway through leaves the earlier table truncated. results
+            # ["tables_truncated"] records exactly which ones went.
+            results["summary"] = f"Critical error after truncating {results['tables_truncated']}: {str(e)}"
+            results["errors"].append(str(e))
             frappe.log_error(
-                f"Nuclear TRUNCATE (Version + Deleted Documents) failed and rolled back: {str(e)}",
+                f"Nuclear TRUNCATE (Version + Deleted Documents) failed: {str(e)}",
                 "Version Cleanup Error",
             )
 

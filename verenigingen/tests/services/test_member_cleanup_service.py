@@ -361,26 +361,27 @@ class TestMemberCleanupService(EnhancedTestCase):
         # Should not raise
         get_member_cleanup_service()._unlink_member_from_customer(member)
 
-    def test_unlink_member_from_customer_clears_custom_member(self):
-        """When Customer.custom_member points at the member, it is cleared."""
+    def test_unlink_member_from_customer_clears_member_link(self):
+        """When Customer.member points at the member, it is cleared.
+
+        Regression guard: this asserted on `custom_member`, which is not a column
+        on Customer, so the test skipped itself and the dangling-link bug it was
+        meant to cover went unnoticed. The real field is `member`.
+        """
         member = self.create_test_member(
             first_name="Unlink", last_name="CustomMem", email="unlink.custommem@example.com"
         )
         customer_name = member.customer
         self.assertTrue(customer_name)
 
-        customer = frappe.get_doc("Customer", customer_name)
-        if not hasattr(customer, "custom_member"):
-            self.skipTest("Customer has no custom_member field in this install")
-
-        frappe.db.set_value("Customer", customer_name, "custom_member", member.name)
+        frappe.db.set_value("Customer", customer_name, "member", member.name)
         member.reload()
 
         get_member_cleanup_service()._unlink_member_from_customer(member)
 
-        # custom_member link cleared; Customer preserved
+        # member link cleared; Customer preserved
         self.assertTrue(frappe.db.exists("Customer", customer_name))
-        self.assertFalse(bool(frappe.db.get_value("Customer", customer_name, "custom_member")))
+        self.assertFalse(bool(frappe.db.get_value("Customer", customer_name, "member")))
 
     def test_audit_log_does_not_raise(self):
         """_log_permission_bypass_audit writes an Error Log entry without raising."""

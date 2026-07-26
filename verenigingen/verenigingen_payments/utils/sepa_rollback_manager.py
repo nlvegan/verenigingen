@@ -140,7 +140,8 @@ class SEPARollbackManager:
         """
         try:
             # Create rollback operations table
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Rollback_Operation` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -166,10 +167,12 @@ class SEPARollbackManager:
                     INDEX `idx_initiated_at` (`initiated_at`),
                     INDEX `idx_status` (`status`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
+            """
+            )  # db-begin-ok: idempotent-bootstrap
 
             # Create compensation transactions table
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Compensation_Transaction` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -192,10 +195,12 @@ class SEPARollbackManager:
                     INDEX `idx_original_invoice` (`original_invoice`),
                     INDEX `idx_created_at` (`created_at`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
+            """
+            )  # db-begin-ok: idempotent-bootstrap
 
             # Create audit trail table
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 CREATE TABLE IF NOT EXISTS `tabSEPA_Rollback_Audit` (
                     `name` varchar(255) NOT NULL PRIMARY KEY,
                     `creation` datetime(6) DEFAULT NULL,
@@ -211,7 +216,8 @@ class SEPARollbackManager:
                     INDEX `idx_timestamp` (`timestamp`),
                     INDEX `idx_action` (`action`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
+            """
+            )  # db-begin-ok: idempotent-bootstrap
 
             frappe.db.commit()
 

@@ -474,10 +474,20 @@ class SEPABatchRaceConditionManager:
         Returns:
             Result dictionary
         """
-        # Set transaction isolation level to prevent phantom reads
-        frappe.db.sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        frappe.db.begin()
-
+        # Neither a SET TRANSACTION ISOLATION LEVEL nor a frappe.db.begin() here.
+        #
+        # SET TRANSACTION ISOLATION LEVEL is only legal with no transaction open,
+        # and there is ALWAYS one open: frappe.db.commit() is `COMMIT` followed by
+        # `begin()` (frappe/database/database.py), so even the distributed-lock
+        # acquisition immediately above leaves a fresh transaction running. It
+        # raised MySQL 1568 "Transaction characteristics can't be changed while a
+        # transaction is in progress" on every call, and @handle_api_error on the
+        # public entry point turned that into a generic failure response.
+        #
+        # Nothing is lost: phantom reads are prevented by the SELECT ... FOR UPDATE
+        # in _lock_invoices_for_processing below, which is the real serialisation
+        # mechanism. The commit()/rollback() on the exit paths still bracket the
+        # work and release the row locks.
         try:
             # Step 1: Lock invoice records to prevent concurrent access
             locked_invoices = self._lock_invoices_for_processing(invoice_names)
@@ -504,11 +514,11 @@ class SEPABatchRaceConditionManager:
                     "message": "Batch conflicts detected",
                 }
 
-            # Step 4: Create the batch document
+            # Step 4: Create the batch document with its invoice rows. The rows
+            # must be in place BEFORE insert(): Direct Debit Batch validation
+            # rejects a batch with none ("No invoices added to batch"), so the old
+            # insert-then-link order could never succeed.
             batch_doc = self._create_batch_document(batch_data, validation_result["validated_invoices"])
-
-            # Step 5: Link invoices to batch
-            self._link_invoices_to_batch(batch_doc, validation_result["validated_invoices"])
 
             # Commit transaction
             frappe.db.commit()
@@ -555,7 +565,13 @@ class SEPABatchRaceConditionManager:
                     si.status,
                     si.outstanding_amount,
                     si.docstatus,
-                    si.membership_dues_schedule_display as membership,
+                    si.member,
+                    si.membership,
+                    -- Aliased explicitly: this is a Link to Membership Dues
+                    -- Schedule, NOT to Membership. It used to be selected as
+                    -- `membership`, which shadowed the real si.membership column
+                    -- and fed a dues-schedule name into a Link->Membership field.
+                    si.membership_dues_schedule_display as dues_schedule,
                     si.posting_date,
                     si.due_date
                 FROM `tabSales Invoice` si
@@ -708,7 +724,18 @@ class SEPABatchRaceConditionManager:
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = batch_data["batch_date"]
         batch_doc.batch_type = batch_data["batch_type"]
-        batch_doc.description = batch_data.get("description", f"SEPA Batch {batch_data['batch_date']}")
+        # The mandatory field is batch_description; `description` is not a field on
+        # Direct Debit Batch, so the old assignment was silently dropped and the
+        # insert failed its mandatory check.
+        batch_doc.batch_description = (
+            batch_data.get("batch_description", batch_data.get("description"))
+            or f"SEPA Batch {batch_data['batch_date']}"
+        )
+        batch_doc.currency = (
+            batch_data.get("currency")
+            or (validated_invoices[0].get("currency") if validated_invoices else None)
+            or "EUR"
+        )
         batch_doc.status = "Draft"
 
         # Calculate totals
@@ -716,7 +743,14 @@ class SEPABatchRaceConditionManager:
         batch_doc.total_amount = total_amount
         batch_doc.entry_count = len(validated_invoices)
 
-        # Add metadata about race condition protection
+        # Invoice rows go on BEFORE insert(): Direct Debit Batch validation
+        # rejects a batch with no rows.
+        self._append_invoice_rows(batch_doc, validated_invoices)
+
+        batch_doc.insert()
+
+        # Metadata about race-condition protection, AFTER insert() -- add_comment
+        # needs a saved document to reference.
         batch_doc.add_comment(
             "Info",
             f"Batch created with race condition protection. "
@@ -724,20 +758,51 @@ class SEPABatchRaceConditionManager:
             f"Session: {self.lock_manager.session_id}",
         )
 
-        batch_doc.insert()
         return batch_doc
 
     def _link_invoices_to_batch(self, batch_doc: Any, validated_invoices: List[Dict[str, Any]]):
         """
-        Link validated invoices to the batch document
+        Append validated invoices to an ALREADY-SAVED batch document and save it.
+
+        _create_batch_document populates its own rows before insert(), so the
+        creation path does not call this. Kept for callers that add rows to an
+        existing batch; calling it on a freshly created batch would duplicate
+        every row.
 
         Args:
             batch_doc: Direct Debit Batch document
             validated_invoices: List of validated invoices
         """
+        self._append_invoice_rows(batch_doc, validated_invoices)
+        batch_doc.save()
+
+    @staticmethod
+    def _append_invoice_rows(batch_doc: Any, validated_invoices: List[Dict[str, Any]]):
+        """Append invoice child rows to a batch document without saving it."""
         for invoice_data in validated_invoices:
+            # member and membership are mandatory on Direct Debit Batch Invoice.
+            # Prefer what the caller passed, else fall back to the locked Sales
+            # Invoice row (_lock_invoices_for_processing selects both).
+            db_record = invoice_data.get("db_record") or {}
+            member = invoice_data.get("member") or db_record.get("member")
+            membership = invoice_data.get("membership") or db_record.get("membership")
+            if not member or not membership:
+                # Fail with the field and the invoice named, rather than letting
+                # Frappe raise a bare MandatoryError from inside insert(). No
+                # deeper resolution is attempted here: deriving a Membership from
+                # a dues schedule is the canonical batch builder's job
+                # (api/sepa_batch_ui.py), and guessing it here would duplicate
+                # that logic in a third place.
+                missing = ", ".join(n for n, v in (("member", member), ("membership", membership)) if not v)
+                raise SEPAError(
+                    _(
+                        "Invoice {0}: {1} missing. Supply it in invoice_list, or set it on the Sales Invoice."
+                    ).format(invoice_data["invoice"], missing)
+                )
             batch_invoice = batch_doc.append("invoices", {})
             batch_invoice.invoice = invoice_data["invoice"]
+            batch_invoice.member = member
+            batch_invoice.membership = membership
             batch_invoice.amount = invoice_data["amount"]
             batch_invoice.currency = invoice_data.get("currency", "EUR")
             batch_invoice.member_name = invoice_data.get("member_name", "")
@@ -745,8 +810,6 @@ class SEPABatchRaceConditionManager:
             batch_invoice.bic = invoice_data.get("bic", "")
             batch_invoice.mandate_reference = invoice_data.get("mandate_reference", "")
             batch_invoice.status = "Pending"
-
-        batch_doc.save()
 
     @handle_api_error
     def retry_failed_operation(self, operation_func, *args, **kwargs) -> Any:

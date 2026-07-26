@@ -4,6 +4,7 @@ from datetime import timedelta
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.test_utils import TestDataFactory
 
@@ -44,6 +45,14 @@ class TestVolunteerAPI(VereningingenTestCase):
         # re-applying roles, so ensure the required role is present.
         if "Verenigingen Administrator" not in frappe.get_roles(self.test_user.name):
             self.test_user.add_roles("Verenigingen Administrator")
+
+        # AuthorizationPolicy caps a bare individual role at MEDIUM (Rule 5); the
+        # @high_security_api activity endpoints below need HIGH, which is grantable
+        # only through an assigned role PROFILE (Rule 4). TestDataFactory.create_test_user
+        # assigns bare roles only, so grant the matching profile here. The
+        # unauthorized user built in test_api_permissions is deliberately left
+        # profileless.
+        grant_matching_role_profiles(self.test_user.name, ["Verenigingen Administrator"])
 
     def tearDown(self):
         # Base class cleans up tracked docs (see track_doc calls in setUp);
@@ -109,20 +118,26 @@ class TestVolunteerAPI(VereningingenTestCase):
         self.assertEqual(activity.notes, "Test activity notes")
 
     def test_add_activity_api_validation_errors(self):
-        """Test add_activity API validation and error handling"""
+        """Test add_activity API validation and error handling.
+
+        Message-pinned on purpose: verenigingen.utils.error_handling.PermissionError
+        SUBCLASSES frappe.ValidationError, so a bare assertRaises(ValidationError)
+        also swallows an authorization denial. These assertions passed for that
+        wrong reason until the role PROFILE grant was added to setUp.
+        """
         frappe.set_user(self.test_user.name)
         volunteer = frappe.get_doc("Volunteer", self.test_volunteer.name)
 
         # Test missing activity_type
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "Activity Type is required"):
             volunteer.add_activity(activity_type="", role="Coordinator")
 
         # Test missing role
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "Role is required"):
             volunteer.add_activity(activity_type="Project", role="")
 
         # Test invalid date range
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "End date cannot be before start date"):
             volunteer.add_activity(
                 activity_type="Project",
                 role="Coordinator",
@@ -160,12 +175,15 @@ class TestVolunteerAPI(VereningingenTestCase):
         frappe.set_user(self.test_user.name)
         volunteer = frappe.get_doc("Volunteer", self.test_volunteer.name)
 
-        # Test missing activity_name
-        with self.assertRaises(frappe.ValidationError):
+        # An empty activity_name is not separately validated -- production goes
+        # straight to frappe.get_doc(""), so this pins "not found", not a
+        # missing-argument check. Message-pinned so an authorization denial
+        # (which subclasses ValidationError) cannot satisfy it.
+        with self.assertRaisesRegex(frappe.DoesNotExistError, "Volunteer Activity"):
             volunteer.end_activity(activity_name="")
 
         # Test non-existent activity
-        with self.assertRaises(frappe.DoesNotExistError):
+        with self.assertRaisesRegex(frappe.DoesNotExistError, "NON-EXISTENT"):
             volunteer.end_activity(activity_name="NON-EXISTENT")
 
     def test_get_volunteer_history_api(self):
