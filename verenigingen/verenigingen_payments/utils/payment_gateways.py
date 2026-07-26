@@ -1829,7 +1829,7 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                 "docstatus": 1,
                 "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
             },
-            fields=["name", "grand_total", "currency", "posting_date"],
+            fields=["name", "grand_total", "currency", "posting_date", "company"],
             order_by="posting_date desc",
             limit=1,
         )
@@ -1914,10 +1914,19 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             payment_entry.source_exchange_rate = 1.0
             payment_entry.target_exchange_rate = 1.0
 
-            # Get default accounts (this should be configured in Mollie Settings or Company)
-            company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-                "Global Defaults", "default_company"
-            )
+            # The company MUST come from the invoice being paid, not from the
+            # session/site default. This previously read
+            # frappe.defaults.get_user_default("Company") or Global Defaults, which
+            # is unrelated to the invoice: on a multi-company site (or any site whose
+            # default company is not the one that issued the invoice) the Payment
+            # Entry was stamped with the wrong company while paid_from was taken from
+            # the invoice's debit_to. ERPNext's validate_reference_documents then
+            # looked for the invoice among that WRONG company's outstanding documents,
+            # found nothing, and threw the misleading
+            # "Sales Invoice X has already been fully paid." -- for an invoice with
+            # its full amount still outstanding. paid_to below is resolved against
+            # this company too, so it was also picking a foreign bank account.
+            company = invoice["company"]
 
             # company is a mandatory Payment Entry field; set it (it was previously
             # only used for account lookups, leaving payment_entry.company unset ->
