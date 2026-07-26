@@ -566,7 +566,12 @@ class SEPABatchRaceConditionManager:
                     si.outstanding_amount,
                     si.docstatus,
                     si.member,
-                    si.membership_dues_schedule_display as membership,
+                    si.membership,
+                    -- Aliased explicitly: this is a Link to Membership Dues
+                    -- Schedule, NOT to Membership. It used to be selected as
+                    -- `membership`, which shadowed the real si.membership column
+                    -- and fed a dues-schedule name into a Link->Membership field.
+                    si.membership_dues_schedule_display as dues_schedule,
                     si.posting_date,
                     si.due_date
                 FROM `tabSales Invoice` si
@@ -779,10 +784,25 @@ class SEPABatchRaceConditionManager:
             # Prefer what the caller passed, else fall back to the locked Sales
             # Invoice row (_lock_invoices_for_processing selects both).
             db_record = invoice_data.get("db_record") or {}
+            member = invoice_data.get("member") or db_record.get("member")
+            membership = invoice_data.get("membership") or db_record.get("membership")
+            if not member or not membership:
+                # Fail with the field and the invoice named, rather than letting
+                # Frappe raise a bare MandatoryError from inside insert(). No
+                # deeper resolution is attempted here: deriving a Membership from
+                # a dues schedule is the canonical batch builder's job
+                # (api/sepa_batch_ui.py), and guessing it here would duplicate
+                # that logic in a third place.
+                missing = ", ".join(n for n, v in (("member", member), ("membership", membership)) if not v)
+                raise SEPAError(
+                    _(
+                        "Invoice {0}: {1} missing. Supply it in invoice_list, or set it on the Sales Invoice."
+                    ).format(invoice_data["invoice"], missing)
+                )
             batch_invoice = batch_doc.append("invoices", {})
             batch_invoice.invoice = invoice_data["invoice"]
-            batch_invoice.member = invoice_data.get("member") or db_record.get("member")
-            batch_invoice.membership = invoice_data.get("membership") or db_record.get("membership")
+            batch_invoice.member = member
+            batch_invoice.membership = membership
             batch_invoice.amount = invoice_data["amount"]
             batch_invoice.currency = invoice_data.get("currency", "EUR")
             batch_invoice.member_name = invoice_data.get("member_name", "")

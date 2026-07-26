@@ -403,6 +403,14 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         )
         invoice.reload()
         self._membership = membership
+        # Tracked so the one committing test can undo what its commit made durable.
+        self._committed_fixtures = [
+            ("Customer", customer.name),
+            ("Member", member.name),
+            ("SEPA Mandate", mandate.name),
+            ("Membership", membership.name),
+            ("Sales Invoice", invoice.name),
+        ]
         return invoice, member, mandate
 
     def _batch_data(self, invoice, member, mandate, amount=None):
@@ -519,11 +527,64 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
         self.assertEqual([row.invoice for row in batch.invoices], [invoice.name])
         self.assertEqual(batch.entry_count, 1)
 
-    @staticmethod
-    def _force_delete_batch(batch_name):
+    def test_missing_membership_fails_with_a_named_error_not_a_bare_mandatory(self):
+        """A caller that omits member/membership must get a message naming the
+        invoice and the missing field.
+
+        `member` resolves from the locked Sales Invoice, so only `membership`
+        should be reported. Regression guard for the fallback itself: it used to
+        read the lock SELECT's `membership` key, which was
+        `si.membership_dues_schedule_display AS membership` -- a Link to
+        Membership Dues Schedule aliased over the real si.membership column, so
+        it fed a dues-schedule name into a Link->Membership field and blew up
+        inside insert(). The alias is now `dues_schedule` and the real
+        si.membership is selected.
+        """
+        invoice, member, mandate = self._make_unpaid_invoice()
+        # The SEPA factory does not populate Sales Invoice.member (it accepts a
+        # `membership` argument and drops it entirely), so set it here: that is
+        # what makes the db_record fallback actually resolve `member` and leaves
+        # only `membership` missing.
+        frappe.db.set_value("Sales Invoice", invoice.name, "member", member.name)
+
+        batch_data = self._batch_data(invoice, member, mandate)
+        row = batch_data["invoice_list"][0]
+        row.pop("member")
+        row.pop("membership")
+
+        with self.assertRaises(Exception) as ctx:
+            self.manager._execute_batch_creation_with_isolation(batch_data, [invoice.name])
+
+        message = str(ctx.exception)
+        self.assertIn(invoice.name, message)
+        self.assertIn("membership", message)
+        # `member` came from the Sales Invoice, so it must NOT be reported missing.
+        self.assertNotIn("member,", message)
+        # And it must not be a raw MandatoryError from inside insert().
+        self.assertNotIn("Value missing", message)
+
+    def _force_delete_batch(self, batch_name):
+        """Remove the batch AND the fixtures the committing method made durable.
+
+        _execute_batch_creation_with_isolation commits by design, so the whole
+        setUp fixture set survives the test transaction. Submitted Sales Invoices
+        with live SEPA mandates are exactly the input to
+        sepa_batch_ui.load_unpaid_invoices, so leaving them behind would seed
+        cross-test contamination on the shared site.
+        """
         if frappe.db.exists("Direct Debit Batch", batch_name):
             frappe.delete_doc("Direct Debit Batch", batch_name, force=True, ignore_permissions=True)
-            frappe.db.commit()
+        for doctype, name in reversed(getattr(self, "_committed_fixtures", [])):
+            try:
+                if not frappe.db.exists(doctype, name):
+                    continue
+                doc = frappe.get_doc(doctype, name)
+                if getattr(doc, "docstatus", 0) == 1:
+                    doc.cancel()
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as exc:  # best effort; a leak must not fail the test
+                frappe.logger().warning(f"race-manager fixture cleanup skipped {doctype} {name}: {exc}")
+        frappe.db.commit()
 
 
 if __name__ == "__main__":

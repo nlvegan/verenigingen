@@ -179,7 +179,7 @@ makes it blocking. The hook sets `verbose: true` — pre-commit hides stdout for
 passing hooks, and an advisory hook always "passes", so findings would otherwise
 be invisible.
 
-**Inventory after this round: 12 findings**, 3 suppressed
+**Inventory: 5 active findings, 8 suppressed** (was 16 active)
 (`python scripts/validation/db_begin_validator.py --all verenigingen`). The four
 TRUNCATE sites are fixed and the five `CREATE TABLE` sites the widened rule found
 took their place. It first reported 16, which cross-checked the manual audit
@@ -206,8 +206,10 @@ function: the `@high_security_api` decorator serialises the helper's
 `OperationResult` to a plain dict, but the caller read `stats_before_result.success`
 by attribute — `'dict' object has no attribute 'success'`, swallowed by the outer
 `except` into a generic "Failed to clear deleted documents". Both fixed; tests in
-`tests/backend/unit/utils/test_truncating_cleanup_endpoints.py` (5 tests, all four
-truncating endpoints, each failing first against the unfixed code).
+`tests/backend/unit/utils/test_truncating_cleanup_endpoints.py` (5 tests over the three
+truncating endpoints). Four of the five fail against the unfixed code;
+`test_dry_run_truncates_nothing` returns before any DDL either way, so it is a contract
+test, not a regression test.
 
 ### 2d. Sixth broken endpoint: `create_sepa_batch_with_race_protection`
 

@@ -123,7 +123,9 @@ def get_version_statistics():
     return {
         "success": True,
         "total_versions": total.get("total_count", 0),
-        "total_size_mb": round(total.get("total_size", 0) / (1024 * 1024), 2),
+        # `or 0`, not a .get() default: SUM() over an empty table returns a
+        # present-but-None key, and an emptied tabVersion made this 500.
+        "total_size_mb": round((total.get("total_size") or 0) / (1024 * 1024), 2),
         "oldest_version": total.get("oldest"),
         "newest_version": total.get("newest"),
         "doctype_breakdown": doctype_stats,

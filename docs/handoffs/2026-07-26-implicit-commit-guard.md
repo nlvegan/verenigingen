@@ -7,7 +7,7 @@
 this first; it has the per-site evidence and the full baseline triage.
 
 ```
-942d5e13 fix(sepa): repair race-protected batch creation; add idempotent-bootstrap reason
+878445ea fix(sepa): repair race-protected batch creation; add idempotent-bootstrap reason
 946af195 docs(audit): record the sixth broken endpoint and the two defects behind it
 262b1e99 fix(sepa): remove the SET-ISOLATION/begin() that broke race-protected batching
 023aa153 fix(cleanup): guard NULL aggregates in the version/deleted-document cleanups
@@ -108,8 +108,17 @@ All six verified by a failing test or a direct measurement **before** the fix.
 
 Repaired: rows populated before `insert()`, `add_comment()` after it, redundant
 `_link_invoices_to_batch` step dropped from the flow (calling it too would double every
-row), helper split into `_append_invoice_rows` + a saving wrapper, `si.member` added to
-the lock SELECT so the row fallback works.
+row), helper split into `_append_invoice_rows` + a saving wrapper.
+
+⚠️ The row fallback needed a second pass after review. The lock SELECT read
+`si.membership_dues_schedule_display AS membership` — a Link to *Membership Dues
+Schedule* aliased over the real `si.membership` column — so the fallback fed a
+dues-schedule name into a `Link → Membership` field and failed inside `insert()`. The
+alias is now `dues_schedule`, `si.member` and the real `si.membership` are both selected,
+and a missing value now raises an error naming the invoice and the field instead of a
+bare `MandatoryError`. No deeper resolution is attempted: deriving a Membership from a
+dues schedule is the canonical batch builder's job (`api/sepa_batch_ui.py:472-493`) and
+duplicating it here would put that logic in a third place.
 
 ### Also fixed
 
@@ -224,5 +233,21 @@ inconsistency that lets the client-side pre-check green-light an under-16 applic
 Given six broken endpoints came out of what began as a test-baseline triage, assume the
 two untraced ones deserve a real trace rather than an annotation.
 
-**Not done:** the `assertRaises(frappe.ValidationError)` sweep (see §5); pushing the
-branch / opening a PR.
+**Gate blind spot worth recording:** `verenigingen_payments/utils/shared/db_helpers.py`
+`ensure_table_exists()` runs `frappe.db.sql(create_sql)` with a **variable**, so the
+validator cannot see it (literal SQL only). It is worse than the five annotated inline
+sites: on error it calls `frappe.db.rollback()` — discarding the caller's pending writes
+— and then swallows. Its production caller is `SEPADistributedLock._ensure_lock_table`,
+reached from `SEPABatchRaceConditionManager.__init__`, i.e. from three whitelisted
+endpoints.
+
+**Shard risk:** the two TRUNCATE-ing test modules are documented as not parallel-safe but
+nothing enforces it, and `run-parallel-tests` shards share one database. TRUNCATE takes an
+exclusive metadata lock that can block another shard. Consider gating them on an env var.
+
+**Not done:** the `assertRaises(frappe.ValidationError)` sweep (see §5);
+`_link_invoices_to_batch` is now dead and its stated justification is weak — appending
+rows to a *saved* batch under-counts `entry_count`/`total_amount`, because
+`DirectDebitBatch.calculate_totals()` switches to SQL aggregation for a non-new doc and
+`validate()` runs before the child rows are written. Delete it or fix that path. Pushing
+the branch / opening a PR.
