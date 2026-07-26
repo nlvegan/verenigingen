@@ -100,7 +100,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
         return result, end_time - start_time
 
     @staticmethod
-    def _frappe_thread_worker(worker, *args):
+    def _with_frappe_thread_context(worker, *args):
         """Wrap a thread target so it runs inside its own Frappe DB context.
 
         Frappe state (frappe.local, the DB connection) is thread-local, so a
@@ -112,7 +112,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         site = frappe.local.site
 
-        def _runner():
+        def _with_admin_connection():
             frappe.init(site=site)
             frappe.connect()
             frappe.set_user("Administrator")
@@ -122,7 +122,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             finally:
                 frappe.destroy()
 
-        return _runner
+        return _with_admin_connection
 
     # ===== LARGE DATASET PERFORMANCE =====
 
@@ -380,7 +380,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         # Publish the parent's pending work before spawning. Two reasons, both of
         # which made this test unable to pass as written:
-        #   1. The workers open their OWN connections (see _frappe_thread_worker),
+        #   1. The workers open their OWN connections (see _with_frappe_thread_context),
         #      so they cannot see setUpClass's uncommitted chapter row -- the link
         #      validation on `chapter` would fail.
         #   2. The parent transaction holds the Member naming-series row. Every
@@ -397,7 +397,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         for i in range(thread_count):
             thread = threading.Thread(
-                target=self._frappe_thread_worker(create_members_thread, i)
+                target=self._with_frappe_thread_context(create_members_thread, i)
             )
             threads.append(thread)
             thread.start()
@@ -490,13 +490,13 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             # Start multiple read threads
             for _ in range(3):
                 thread = threading.Thread(
-                    target=self._frappe_thread_worker(read_operations)
+                    target=self._with_frappe_thread_context(read_operations)
                 )
                 threads.append(thread)
                 thread.start()
 
             # Start write thread
-            thread = threading.Thread(target=self._frappe_thread_worker(write_operations))
+            thread = threading.Thread(target=self._with_frappe_thread_context(write_operations))
             threads.append(thread)
             thread.start()
 
@@ -617,7 +617,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         for i in range(8):  # 8 concurrent database threads
             thread = threading.Thread(
-                target=self._frappe_thread_worker(database_operations, i)
+                target=self._with_frappe_thread_context(database_operations, i)
             )
             threads.append(thread)
             thread.start()

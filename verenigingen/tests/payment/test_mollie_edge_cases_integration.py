@@ -23,7 +23,7 @@ from verenigingen.verenigingen_payments.dashboards.financial_dashboard import Fi
 from verenigingen.verenigingen_payments.core.security.mollie_security_manager import MollieSecurityManager
 
 
-def _enable_mollie_backend_api():
+def _setup_mollie_backend_api():
     """Enable the Mollie Backend API on the Mollie Settings Single.
 
     The backend-API clients (Settlements/Balances/Chargebacks/Invoices) refuse
@@ -62,7 +62,7 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
         # FinancialDashboard() below constructs the backend-API clients, which
         # refuse to build unless the backend API is enabled. Enable it before
         # construction (clients are mocked afterwards, so no real call is made).
-        _enable_mollie_backend_api()
+        _setup_mollie_backend_api()
         self.factory = MollieApiDataFactory(seed=100)
 
         # Set up dashboard with mocked components
@@ -491,7 +491,7 @@ class TestMollieApiParameterValidation(EnhancedTestCase):
         super().setUp()
         # SettlementsClient() construction requires the backend API to be
         # enabled; the client's HTTP calls are mocked in each test.
-        _enable_mollie_backend_api()
+        _setup_mollie_backend_api()
         self.factory = MollieApiDataFactory(seed=200)
 
     def test_api_parameter_sanitization(self):
