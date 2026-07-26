@@ -14,11 +14,11 @@ file. The current implementation tries the DB column first and falls back
 to SFTP only if the column doesn't exist or returns no rows.
 """
 
-import logging
-
 import frappe
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.source_folder_backfill")
+from verenigingen.utils.service_logger import get_service_logger
+
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="source_folder_backfill")
 
 
 def backfill_source_folder_ids(dry_run: bool = False, batch_size: int = 200) -> dict:

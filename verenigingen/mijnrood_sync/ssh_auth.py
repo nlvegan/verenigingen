@@ -6,12 +6,13 @@ Extracts the key parsing and auth kwargs logic to avoid duplication.
 """
 
 import io
-import logging
 import os
 
 import paramiko
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.ssh_auth")
+from verenigingen.utils.service_logger import get_service_logger
+
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="ssh_auth")
 
 
 # Host-key algorithms we accept, modern first, legacy as fallback. Filtered

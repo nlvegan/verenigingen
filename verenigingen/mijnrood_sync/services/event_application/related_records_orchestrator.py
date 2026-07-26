@@ -19,7 +19,6 @@ reset_acr_dedup(); peer services call each other via their
 ``get_xxx_service()`` accessors.
 """
 
-import logging
 from typing import Optional
 
 import frappe
@@ -30,8 +29,9 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
     get_mapping_service,
 )
 from verenigingen.mijnrood_sync.utils import safe_int
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.related_records")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.related_records")
 
 
 class MijnRoodRelatedRecordsOrchestrator:

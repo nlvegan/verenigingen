@@ -22,7 +22,6 @@ It calls the related_records service directly via
 """
 
 import json
-import logging
 from typing import Optional
 
 import frappe
@@ -36,8 +35,9 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
 from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
     get_related_records_orchestrator,
 )
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.volunteer_sync")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.volunteer_sync")
 
 
 class MijnRoodVolunteerSyncService:

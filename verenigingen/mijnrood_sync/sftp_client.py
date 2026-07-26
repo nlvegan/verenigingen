@@ -14,7 +14,6 @@ Security notes:
 """
 
 import io
-import logging
 import time
 from typing import Optional
 
@@ -28,8 +27,9 @@ from verenigingen.mijnrood_sync.ssh_auth import (
     parse_pkey_from_string,
     verify_host_key,
 )
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.sftp_client")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="sftp_client")
 
 
 DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # 100 MiB per file
