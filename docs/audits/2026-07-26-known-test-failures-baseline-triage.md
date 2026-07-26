@@ -30,6 +30,29 @@ tests" is inaccurate for most of what remains.
 
 ## 1. Stale entries — 13 tests now pass
 
+> **CORRECTED 2026-07-26 against CI — this section's count was wrong in both
+> directions.** The table below came from a single local run on `test_site_1`;
+> checked against two green develop CI runs (30211441005 @`f28741ae` and
+> 30076384474 @`8cc0a969`, all 12 shards each), **5 of these 13 still fail in CI**
+> and were kept baselined: `test_creates_pe_allocated_to_invoice`,
+> `test_idempotent_returns_existing_pe`, `test_complete_mandate_creation_workflow`,
+> `test_migration_helper_function`, `test_dutch_name_handling_with_tussenvoegsel`.
+> They pass locally but not under the shard matrix — order-dependent, so the local
+> module-at-a-time method could not see it.
+>
+> Conversely the audit **missed 11 prunable entries**: the other 8
+> `test_volunteer_api` tests (only `test_api_error_handling` is listed here) and
+> the 3 `test_mollie_subscription_consolidation` tests, which §2 classified as a
+> real production bug and which PR #186 then fixed.
+>
+> Net actual prune: **32 → 13**, applied to `known_test_failures.txt` on
+> 2026-07-26. See that file's header for the method and the per-group evidence.
+>
+> Two method traps worth carrying forward: match on the fully-qualified dotted
+> path (`test_dutch_name_handling_with_tussenvoegsel` exists on both
+> `TestMemberLifecycleWorkflows` and `TestSEPAXMLCompliance`), and a test absent
+> from a shard's failure list has not necessarily passed — confirm it actually ran.
+
 The gate is blind to these. Six modules ran fully green.
 
 | Module | Baselined tests now passing |

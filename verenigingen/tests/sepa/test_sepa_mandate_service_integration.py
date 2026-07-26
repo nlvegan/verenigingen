@@ -43,6 +43,17 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
         payments_settings.sepa_mandate_starting_counter = 1
         payments_settings.save()
 
+        # sepa_mandate_identity_service is a module-level SINGLETON that memoises
+        # settings in self._settings_cache and never re-reads them. Writing the
+        # pattern above is therefore not enough: if an earlier test in the same
+        # shard already primed the singleton with a different pattern (sibling
+        # modules test_sepa_mandate_naming / test_sepa_mandate_regression both set
+        # their own), generate_mandate_id keeps using THAT one and the
+        # startswith("MANDATE-") assertion fails. This class already cleared the
+        # cache in tearDown -- protecting the next test but not itself -- which is
+        # exactly why it passed alone locally and failed in every CI shard.
+        sepa_mandate_identity_service.clear_settings_cache()
+
     def test_complete_mandate_creation_workflow(self):
         """Test complete mandate creation workflow using all services"""
 

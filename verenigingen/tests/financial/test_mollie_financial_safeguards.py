@@ -350,8 +350,22 @@ class TestMollieFinancialSafeguards(MollieTestCase):
 
         print(f"Concurrent processing results: {len(successful_results)} successful, {len(error_results)} errors")
 
-        # Should handle concurrent requests gracefully
-        self.assertGreaterEqual(len(successful_results), 1, "At least one request should succeed")
+        # Should handle concurrent requests gracefully. assertGreaterEqual(1) alone
+        # was too weak to prove the race is exercised -- it tolerated the state this
+        # test sat in while baselined, where all three workers errored out before any
+        # concurrency happened. Require every worker to complete: exactly one creates
+        # the Payment Entry and the others must observe it and report "duplicate".
+        self.assertEqual(
+            len(error_results),
+            0,
+            f"no worker should error; got: {[r.get('error') for r in error_results]}",
+        )
+        self.assertEqual(len(successful_results), 3, "all three concurrent workers should complete")
+        self.assertEqual(
+            sum(1 for r in results if r.get("status") == "success"),
+            1,
+            "exactly one worker should be the one that creates the payment",
+        )
 
         # Check for duplicate payment entries
         payment_entries = frappe.get_all(
@@ -377,8 +391,10 @@ class TestMollieFinancialSafeguards(MollieTestCase):
                 frappe.db.sql("DELETE FROM `tabPayment Entry` WHERE name=%s", pe.name)
         frappe.db.commit()
 
-        self.assertLessEqual(len(payment_entries), 1,
-                           "Race condition should not create duplicate payment entries")
+        # Exactly one, not "at most one": <=1 also passes when nothing was created
+        # at all, which is precisely how this test used to fail silently.
+        self.assertEqual(len(payment_entries), 1,
+                         "Race condition should create exactly one payment entry")
                            
     def test_payment_reconciliation_accuracy(self):
         """Test accuracy of payment reconciliation"""

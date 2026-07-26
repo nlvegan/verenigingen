@@ -3,53 +3,60 @@
 # only if it produces a failing test NOT listed here. Lines starting with # are
 # ignored. Includes test methods AND fixture-hook failures (setUpClass/setUpModule).
 #
-# Regenerated 2026-07-19 from the UNION of two green develop CI runs, all 12
-# shards each:
-#   run 29689345349 (commit after PR #159) and run 29663560360 (2026-07-18).
-# Both runs produced the IDENTICAL 62-failure set, so these are stable/current
-# failures, not run-to-run flakes. This prune drops 2146 STALE entries from the
-# prior 2208-entry baseline (regenerated 2026-05-30): those tests no longer fail
-# on develop, so keeping them baselined blinded the gate to any real regression
-# in ~2146 tests. Net: 2208 -> 62.
+# ***** THIS BASELINE IS INTENTIONALLY EMPTY (2026-07-26). *****
+# Every entry was either confirmed stale or fixed. The gate is therefore fully
+# armed: ANY failing test now fails the gate. Do not add an entry here to make a
+# red test go away without recording why below.
 #
-# The residual 62 cluster into: HTTP/auth-integration tests that cannot
-# authenticate in CI (see issue #162), external-dependency skips (Mollie real
-# API, bank integration), and a few timing/flaky perf tests.
+# How it got to zero, from 32:
 #
-# CAVEAT: regenerated from two runs. A flaky test that passed BOTH runs is absent
-# here and would trip the gate as a false NEW failure — if that happens, re-run
-# the job, or union another develop run's per-shard logs:
+# 1. 32 -> 13 by regenerating against two green develop CI runs, all 12 shards
+#    each: run 30211441005 (f28741ae, after PR #186) and run 30076384474
+#    (8cc0a969). Every one of the 32 was confirmed to have actually RUN in both
+#    runs, so nothing was pruned on absence-of-evidence. Of the 19 dropped, 7
+#    passed in BOTH runs (simply stale), and 12 passed only in the newer run
+#    because PR #186 fixed them: the 9 test_volunteer_api entries via
+#    grant_matching_role_profiles() in setUp (the @high_security_api endpoints
+#    need a role PROFILE, not a bare role — issue #162), and the 3
+#    test_mollie_subscription_consolidation entries via the frappe.db.begin()
+#    removal in complete_payment_service.py.
+#
+# 2. 13 -> 0 by fixing the rest rather than baselining them. Two were product
+#    bugs, not test bugs:
+#      * _process_subscription_payment stamped the Payment Entry with the company
+#        from frappe.defaults.get_user_default("Company") instead of the invoice's
+#        own company, so ERPNext looked for the invoice among the WRONG company's
+#        outstanding documents and threw "has already been fully paid" for a
+#        fully-outstanding invoice. Broke test_race_condition_protection.
+#      * The applicant-facing validate_birth_date pre-check accepted any age >= 0
+#        while the save enforced the configured minimum (16), so the application
+#        form green-lit an under-age applicant the submission would then reject.
+#        Broke test_age_validation.
+#
+# The other 11 were test-side: a wrong mock target (get_password vs
+# get_webhook_secret); an assertion about an application_status the factory never
+# sets; two preconditions that assumed ambient site state (Global Defaults
+# .default_company empty; Mollie Settings.mollie_clearing_account populated); an
+# outgrown query budget (441 queries / 10 saves, identical locally and in both CI
+# runs — NOT an N+1); three concurrency tests whose worker threads could not see
+# the parent's uncommitted fixtures; and three CI-only environment differences
+# (developer_mode off; a module-level singleton's memoised settings; a Redis-cached
+# is_dutch_installation flag).
+#
+# LESSONS worth keeping, all of which cost real time here:
+#   * Match on the FULLY-QUALIFIED dotted path, never the bare method name.
+#     test_dutch_name_handling_with_tussenvoegsel exists on BOTH
+#     TestMemberLifecycleWorkflows and TestSEPAXMLCompliance, in different shards,
+#     one failing and one passing.
+#   * Per-test result lines carry a "(2.49s)" suffix for slow tests only; a parser
+#     that ignores it silently drops those results and reports them as "not run".
+#   * A test absent from a shard's failure list has NOT necessarily passed —
+#     confirm it actually ran before pruning it.
+#   * A green LOCAL module run is not evidence a CI failure is fixed. Five of these
+#     passed locally and failed in every shard. Reproduce the CI condition first
+#     (developer_mode=0, cleared setting, poisoned cache), watch it fail, then fix.
+#
+# If a test starts failing and you believe it is a pre-existing/accepted failure
+# rather than your regression, re-run the job first. To re-baseline legitimately:
 #   for each shard log: check_new_test_failures.py --results <log> --emit-baseline >> b.txt
-#   then `sort -u`, re-add this header, commit.
-test_add_activity_api (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_add_activity_api)
-test_add_activity_api_with_all_fields (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_add_activity_api_with_all_fields)
-test_age_validation (verenigingen.tests.backend.components.test_membership_application.TestMembershipApplication.test_age_validation)
-test_api_data_integrity (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_api_data_integrity)
-test_api_error_handling (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_api_error_handling)
-test_background_job_parameter_acceptance (verenigingen.tests.integration.test_team_background_jobs.TestTeamBackgroundJobs.test_background_job_parameter_acceptance)
-test_basic_payment_history_addition (verenigingen.tests.payment.test_payment_system_functionality.TestPaymentSystemFunctionality.test_basic_payment_history_addition)
-test_bulk_mandate_processing_performance (verenigingen.tests.sepa.test_sepa_mandate_integration.TestSEPAPerformanceIntegration.test_bulk_mandate_processing_performance)
-test_bulk_processing_extended_timeout (verenigingen.tests.payment.test_payment_history_race_condition.TestPaymentHistoryRaceCondition.test_bulk_processing_extended_timeout)
-test_chapter_transfer_with_financial_implications (verenigingen.tests.backend.components.test_chapter_assignment_comprehensive.TestChapterAssignmentComprehensive.test_chapter_transfer_with_financial_implications)
-test_complete_mandate_creation_workflow (verenigingen.tests.sepa.test_sepa_mandate_service_integration.TestSEPAMandateServiceIntegration.test_complete_mandate_creation_workflow)
-test_concurrent_api_calls (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_concurrent_api_calls)
-test_concurrent_database_access (verenigingen.tests.backend.performance.test_performance_edge_cases.TestPerformanceEdgeCases.test_concurrent_database_access)
-test_concurrent_member_creation (verenigingen.tests.backend.performance.test_performance_edge_cases.TestPerformanceEdgeCases.test_concurrent_member_creation)
-test_cost_center_resolution_real_database (verenigingen.tests.backend.integration.test_erpnext_expense_integration_real.TestERPNextExpenseIntegrationReal.test_cost_center_resolution_real_database)
-test_create_member_subscription_routes_through_gateway (verenigingen.tests.payment.test_mollie_subscription_consolidation.TestMollieGatewaySubscription.test_create_member_subscription_routes_through_gateway)
-test_create_subscription_with_iban_provisions_mandate (verenigingen.tests.payment.test_mollie_subscription_consolidation.TestMollieGatewaySubscription.test_create_subscription_with_iban_provisions_mandate)
-test_create_subscription_without_iban_provisions_no_mandate (verenigingen.tests.payment.test_mollie_subscription_consolidation.TestMollieGatewaySubscription.test_create_subscription_without_iban_provisions_no_mandate)
-test_creates_pe_allocated_to_invoice (verenigingen.tests.payment.test_mollie_dues_payment_processor.TestCreatePaymentEntryForDuesEndToEnd.test_creates_pe_allocated_to_invoice)
-test_dutch_name_handling_with_tussenvoegsel (verenigingen.tests.member.test_member_lifecycle_workflows.TestMemberLifecycleWorkflows.test_dutch_name_handling_with_tussenvoegsel)
-test_end_activity_api (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_end_activity_api)
-test_end_activity_api_validation (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_end_activity_api_validation)
-test_get_aggregated_assignments_api (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_get_aggregated_assignments_api)
-test_get_volunteer_history_api (verenigingen.tests.backend.components.test_volunteer_api.TestVolunteerAPI.test_get_volunteer_history_api)
-test_idempotent_returns_existing_pe (verenigingen.tests.payment.test_mollie_dues_payment_processor.TestCreatePaymentEntryForDuesEndToEnd.test_idempotent_returns_existing_pe)
-test_member_addition_to_existing_team_full_workflow (verenigingen.tests.integration.test_team_background_jobs.TestTeamBackgroundJobs.test_member_addition_to_existing_team_full_workflow)
-test_member_application_to_active_transition_complete_workflow (verenigingen.tests.member.test_member_lifecycle_workflows.TestMemberLifecycleWorkflows.test_member_application_to_active_transition_complete_workflow)
-test_migration_helper_function (verenigingen.tests.payment.test_event_driven_payment_history.TestEventDrivenPaymentHistory.test_migration_helper_function)
-test_organization_cost_center_real_database (verenigingen.tests.backend.integration.test_erpnext_expense_integration_real.TestERPNextExpenseIntegrationReal.test_organization_cost_center_real_database)
-test_race_condition_protection (verenigingen.tests.financial.test_mollie_financial_safeguards.TestMollieFinancialSafeguards.test_race_condition_protection)
-test_security_manager_dashboard_integration (verenigingen.tests.payment.test_mollie_edge_cases_integration.TestMollieEdgeCasesIntegration.test_security_manager_dashboard_integration)
-test_seeder_self_heals_stale_settings_company (verenigingen.tests.backend.integration.test_chapter_cost_center_seeding.TestChapterCostCenterSeeding.test_seeder_self_heals_stale_settings_company)
+#   then `sort -u`, re-add this header, and record WHY each entry is here.

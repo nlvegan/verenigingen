@@ -246,7 +246,24 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
     def test_migration_helper_function(self):
         """Test the migration helper for existing data"""
         from verenigingen.events.migration_helper import test_event_system
-        
+
+        # test_event_system is @development_only_api, so its environment gate
+        # rejects anything that is not DEVELOPMENT with "Function not available in
+        # production environment". test_site_1 sets developer_mode=1 in
+        # site_config.json, but CI does not -- which is why this passed locally and
+        # failed in every CI shard. Scoped to this test and restored afterwards
+        # rather than set for the whole class.
+        original_developer_mode = frappe.conf.get("developer_mode")
+        frappe.conf["developer_mode"] = 1
+
+        def _restore_developer_mode():
+            if original_developer_mode is None:
+                frappe.conf.pop("developer_mode", None)
+            else:
+                frappe.conf["developer_mode"] = original_developer_mode
+
+        self.addCleanup(_restore_developer_mode)
+
         # Test the event system
         result = test_event_system()
         

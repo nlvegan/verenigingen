@@ -378,6 +378,19 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             except Exception as e:
                 exceptions.append(f"Thread {thread_id}: {str(e)}")
 
+        # Publish the parent's pending work before spawning. Two reasons, both of
+        # which made this test unable to pass as written:
+        #   1. The workers open their OWN connections (see _frappe_thread_worker),
+        #      so they cannot see setUpClass's uncommitted chapter row -- the link
+        #      validation on `chapter` would fail.
+        #   2. The parent transaction holds the Member naming-series row. Every
+        #      worker then blocked on it and died with
+        #      "(1205, 'Lock wait timeout exceeded')" -- 0/50 created, ~50s burned.
+        # Committing is safe here because this class cleans up explicitly
+        # (factory.cleanup() in tearDownClass + the delete loop below), rather than
+        # relying on the harness's per-test rollback.
+        frappe.db.commit()
+
         # Start concurrent threads
         threads = []
         start_time = time.time()
@@ -413,12 +426,15 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             f"in {concurrent_time:.2f}s ({len(exceptions)} errors)"
         )
 
-        # Clean up
+        # Clean up. The workers COMMITTED these rows on their own connections, so
+        # the harness rollback cannot remove them and the deletes must be committed
+        # too -- otherwise a rollback would resurrect every one of them.
         for member in created_members:
             try:
                 member.delete(force=True)
             except Exception:
                 pass
+        frappe.db.commit()
 
     def test_concurrent_database_access(self):
         """Test concurrent database access patterns"""
@@ -426,6 +442,13 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         with perf_test_data(self.factory, member_count=10) as data:
             members = data["members"]
+
+            # The reader/writer threads below each open their own connection, so
+            # they cannot see these fixture rows until they are committed. Without
+            # this the test scored 0 reads / 0 writes and 13 "Member ... not found"
+            # exceptions -- it exercised nothing. Safe to commit: the factory tracks
+            # these records and tearDownClass removes them via factory.cleanup().
+            frappe.db.commit()
 
             read_results = []
             write_results = []

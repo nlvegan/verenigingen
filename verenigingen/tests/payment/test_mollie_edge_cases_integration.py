@@ -266,9 +266,14 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
 
     def test_security_manager_dashboard_integration(self):
         """Test integration between security manager and dashboard"""
-        # Mock encryption for dashboard data
-        sensitive_api_key = "org_test_12345_secret"
-        self.mock_settings.get_password.return_value = "webhook_secret_123"
+        # validate_webhook_signature() resolves the secret via
+        # settings.get_webhook_secret() (the test-mode-aware
+        # testing_/live_webhook_secret_key), NOT via get_password. Stubbing
+        # get_password left get_webhook_secret returning a bare Mock, which
+        # reached hmac.new() as the key and raised
+        # "TypeError: key: expected bytes or bytearray, but got 'Mock'".
+        webhook_secret = "webhook_secret_123"
+        self.mock_settings.get_webhook_secret.return_value = webhook_secret
 
         # Test webhook validation with dashboard context
         webhook_payload = self.factory.generate_webhook_payload(
@@ -279,7 +284,6 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
         import hmac
         import hashlib
 
-        webhook_secret = "webhook_secret_123"
         expected_signature = hmac.new(
             webhook_secret.encode("utf-8"), webhook_payload["payload"].encode("utf-8"), hashlib.sha256
         ).hexdigest()
