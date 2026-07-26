@@ -474,10 +474,20 @@ class SEPABatchRaceConditionManager:
         Returns:
             Result dictionary
         """
-        # Set transaction isolation level to prevent phantom reads
-        frappe.db.sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        frappe.db.begin()
-
+        # Neither a SET TRANSACTION ISOLATION LEVEL nor a frappe.db.begin() here.
+        #
+        # SET TRANSACTION ISOLATION LEVEL is only legal with no transaction open,
+        # and there is ALWAYS one open: frappe.db.commit() is `COMMIT` followed by
+        # `begin()` (frappe/database/database.py), so even the distributed-lock
+        # acquisition immediately above leaves a fresh transaction running. It
+        # raised MySQL 1568 "Transaction characteristics can't be changed while a
+        # transaction is in progress" on every call, and @handle_api_error on the
+        # public entry point turned that into a generic failure response.
+        #
+        # Nothing is lost: phantom reads are prevented by the SELECT ... FOR UPDATE
+        # in _lock_invoices_for_processing below, which is the real serialisation
+        # mechanism. The commit()/rollback() on the exit paths still bracket the
+        # work and release the row locks.
         try:
             # Step 1: Lock invoice records to prevent concurrent access
             locked_invoices = self._lock_invoices_for_processing(invoice_names)

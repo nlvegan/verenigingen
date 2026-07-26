@@ -367,16 +367,18 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
     Coverage of the race-protected batch-creation *building blocks* against REAL
     submitted Sales Invoices and Direct Debit Batches.
 
-    The end-to-end ``create_batch_with_race_protection`` -> ``_execute_batch_
-    creation_with_isolation`` path opens with
-    ``SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`` followed by ``begin()``.
-    MariaDB rejects ``SET TRANSACTION ...`` while a transaction is already open
-    (error 1568), and the Frappe test harness always runs inside an open
-    transaction for auto-rollback. The full flow is therefore not coverable
-    inside a FrappeTestCase without committing fixtures (which would defeat
-    rollback / leak data). See ``test_isolation_level_blocks_full_flow_in_txn``
-    which documents this. The inner SQL helpers below DO work inside the open
-    transaction and are exercised directly with real data.
+    The end-to-end ``create_batch_with_race_protection`` ->
+    ``_execute_batch_creation_with_isolation`` path used to open with
+    ``SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`` followed by ``begin()``,
+    and this class documented the resulting MariaDB 1568 as a test-harness
+    limitation that "in production runs at request start with no open
+    transaction, so the statement is valid". That was wrong: frappe.db.commit()
+    is ``COMMIT`` followed by ``begin()``, so a transaction is ALWAYS open --
+    including right after the distributed-lock acquisition that immediately
+    precedes this call. Production hit 1568 on every call and
+    @handle_api_error turned it into a generic failure. Both statements are
+    gone; the FOR UPDATE in _lock_invoices_for_processing is the real
+    serialisation mechanism.
     """
 
     def setUp(self):
@@ -474,24 +476,42 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
             f"expected conflict for {assigned_invoice}, got {result}",
         )
 
-    def test_isolation_level_blocks_full_flow_in_txn(self):
-        """Characterize: the full flow cannot run inside the test transaction.
+    def test_full_flow_no_longer_dies_on_transaction_characteristics(self):
+        """The flow must get past its opening statements.
 
-        ``_execute_batch_creation_with_isolation`` issues
-        ``SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`` before ``begin()``;
-        MariaDB raises OperationalError 1568 because a transaction is already
-        open under FrappeTestCase. This documents why the end-to-end success
-        path is exercised via the inner helpers above rather than the public
-        entry point. (In production this runs at request start with no open
-        transaction, so the statement is valid.)
+        Regression: it raised MariaDB 1568 ("Transaction characteristics can't be
+        changed while a transaction is in progress") on the
+        SET TRANSACTION ISOLATION LEVEL that opened the function -- on EVERY
+        call, in production as much as in tests, because frappe.db.commit() is
+        COMMIT followed by begin(), so a transaction is always open. The previous
+        version of this test asserted the 1568 and explained it away as a
+        harness limitation ("in production this runs at request start with no
+        open transaction"). It does not.
+
+        With that removed the flow reaches step 4 and hits a SEPARATE, still-open
+        defect: _create_batch_document() calls insert() before any `invoices`
+        child rows are appended (they are only added afterwards by
+        _link_invoices_to_batch), so Direct Debit Batch validation rejects it with
+        "No invoices added to batch". That bug was invisible while 1568 masked it,
+        and means this endpoint has never worked. Pinned here so the remaining
+        defect is visible and this test starts failing - loudly - once it is
+        fixed. See docs/audits/2026-07-26-known-test-failures-baseline-triage.md.
         """
         invoice, member, mandate = self._make_unpaid_invoice()
-        # Driver-specific OperationalError subclass; assert on the SQLSTATE code.
+
         with self.assertRaises(Exception) as ctx:
             self.manager._execute_batch_creation_with_isolation(
                 self._batch_data(invoice, member, mandate), [invoice.name]
             )
-        self.assertIn("1568", str(ctx.exception))
+
+        message = str(ctx.exception)
+        self.assertNotIn("1568", message, "the transaction-characteristics error is back")
+        self.assertIn(
+            "No invoices added to batch",
+            message,
+            "expected the known child-row defect; if this changed, the endpoint may "
+            "now work - update this test to assert success",
+        )
 
 
 if __name__ == "__main__":
