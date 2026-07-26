@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import now_datetime
+from frappe.utils import flt, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -129,6 +129,13 @@ def _get_member_comparison_data(event_name: str) -> dict:
         value = member.get(frappe_field) if member.get(frappe_field) else ""
         for mr_col in mr_cols:
             result[mr_col] = str(value) if value else ""
+
+    # Contribution: MijnRood stores cents, Frappe stores euros, and the column is
+    # deliberately absent from MIJNROOD_TO_MEMBER_FIELD_MAP (mapping it raw shadowed
+    # the cents→euros conversion). Convert explicitly so the review table's
+    # "Current (Frappe)" cell shows a comparable number instead of going blank.
+    if member.get("dues_rate") is not None:
+        result["contribution_per_period_in_cents"] = str(int(flt(member.dues_rate) * 100))
 
     # Membership status: Frappe stores string ("Active", "Suspended", etc.)
     # while MijnRood uses numeric IDs resolved to STATUS_ID_LABELS format.

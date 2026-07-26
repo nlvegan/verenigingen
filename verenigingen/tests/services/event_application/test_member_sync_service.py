@@ -352,6 +352,58 @@ class TestApplyChangedMember(EnhancedTestCase):
         self.assertTrue(result["success"])
         updated_last = frappe.db.get_value("Member", member.name, "last_name")
         self.assertEqual(updated_last, "NewName")
+        # member_id unchanged here, so no renumber notice
+        self.assertNotIn("Member number changed", result["message"])
+
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodVolunteerSyncService, "_process_member_roles", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_create_related_records", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_handle_division_field_change", return_value=None)
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodTerminationSyncService, "_check_and_handle_termination", return_value=None)
+    def test_member_id_renumber_is_reported_in_the_message(
+        self, mock_termination, mock_division, mock_create_related, mock_process_roles
+    ):
+        """Applying an event that renumbers the member must say so.
+
+        MijnRood renumbers on application approval (applicant series → member
+        series), so the change is legitimate — but the event's changed_fields
+        never lists it, because MijnRood's own row id did not change. Without
+        this notice the member number is rewritten with nothing to show it.
+        """
+        self._cleanup_member_by_member_id("MR-CHG-OLD-ID")
+        self._cleanup_member_by_member_id("MR-CHG-NEW-ID")
+        member = self.factory.create_member(
+            first_name="Renumber",
+            last_name="Target",
+            email="renumber-target@example.org",
+            member_id="MR-CHG-OLD-ID",
+        )
+        self.addCleanup(self._cleanup_member_by_member_id, "MR-CHG-NEW-ID")
+        self.addCleanup(self._cleanup_member_by_member_id, "MR-CHG-OLD-ID")
+
+        event = _make_event(
+            event_type="Changed",
+            new_data={
+                "id": "MR-CHG-NEW-ID",
+                "first_name": "Renumber",
+                "last_name": "Target",
+                "email": member.email,
+                "current_membership_status_id": 7002,
+            },
+            old_data={"id": "MR-CHG-OLD-ID", "email": member.email},
+            changed_fields=["id"],
+            linked_member=member.name,
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        result = get_member_sync_service().apply_changed_member(event)
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertIn("Member number changed from MR-CHG-OLD-ID to MR-CHG-NEW-ID", result["message"])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "member_id"), "MR-CHG-NEW-ID")
 
     # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
     @patch.object(MijnRoodVolunteerSyncService, "_process_member_roles", return_value=[])

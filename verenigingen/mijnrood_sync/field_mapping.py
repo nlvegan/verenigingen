@@ -143,7 +143,11 @@ MIJNROOD_TO_MEMBER_FIELD_MAP = {
     "country": "country",
     "division_id": "chapter",
     "current_membership_status_id": "membership_type",
-    "contribution_per_period_in_cents": "dues_rate",
+    # contribution_per_period_in_cents is NOT mapped here — it needs a cents→euros
+    # conversion, done in mapping_service.map_member_fields(). Mapping it raw as
+    # well meant the unconverted value won whenever the conversion was skipped,
+    # i.e. exactly when cents == 0, which turned MijnRood's "no custom amount"
+    # into a literal €0 dues rate (observed on MR-SYNC-2026-00087: €9.00 → €0.00).
     # contribution_period is NOT mapped here — it requires integer→string
     # conversion handled by _map_mijnrood_to_member_fields() custom logic.
     "mollie_customer_id": "custom_mollie_customer_id",

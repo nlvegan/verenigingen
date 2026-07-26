@@ -237,5 +237,17 @@ class TestStaticMappingConstants(EnhancedTestCase):
         self.assertEqual(MIJNROOD_TO_MEMBER_FIELD_MAP["current_membership_status_id"], "membership_type")
         self.assertEqual(MIJNROOD_TO_MEMBER_FIELD_MAP["division_id"], "chapter")
 
+    def test_contribution_cents_is_not_mapped_raw(self):
+        """Re-adding this key would silently reintroduce the shadowing bug.
+
+        The column needs a cents→euros conversion, done in
+        mapping_service.map_member_fields(). Mapping it here as well meant the raw
+        cents value won whenever the conversion was skipped — i.e. exactly when
+        cents == 0 — which zeroed the member's real dues rate (MR-SYNC-2026-00087:
+        €9.00 → €0.00 via DuesScheduleRepository.update_schedule_rate, whose gate
+        is `if new_rate is not None` and therefore admits 0).
+        """
+        self.assertNotIn("contribution_per_period_in_cents", MIJNROOD_TO_MEMBER_FIELD_MAP)
+
     def test_field_labels_cover_status_column(self):
         self.assertEqual(MIJNROOD_FIELD_LABELS["current_membership_status_id"], "Membership Status")

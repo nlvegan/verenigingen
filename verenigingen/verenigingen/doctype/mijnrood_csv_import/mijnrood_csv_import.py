@@ -318,6 +318,13 @@ class MijnroodCSVImport(Document):
                         f"Member {member_name} {result} but with related record issues: "
                         f"{', '.join(related_failures)}"
                     )
+            elif result.startswith("failed"):
+                # The service returns "failed: <reason>", but the batch processor
+                # only buckets non-created/updated statuses into skipped_count and
+                # discards the string — so without this the reason dies one frame
+                # above where it was produced, and a genuine failure is
+                # indistinguishable from a legitimate duplicate skip.
+                self._append_to_error_log(f"Row {row.get('row_number', '?')}: {result}")
 
             return result, member_name
         except frappe.ValidationError as ve:

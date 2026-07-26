@@ -796,12 +796,12 @@ class TestMijnroodCSVImportRealIntegration(EnhancedTestCase):
         self.assertEqual(member.email, email)
 
     def test_process_single_member_validation_error_returns_failed(self):
-        """A row that fails Member validation returns ('failed', None) gracefully, not a crash.
+        """A row that fails Member validation returns ('failed: ...', None), not a crash.
 
         MemberImportService catches the Member controller's ValidationError and maps
-        it to the 'failed' status (only DuplicateEntryError maps to 'skipped'; see
-        member_import_service.py create/update contract), so _process_single_member
-        returns that status straight through rather than raising.
+        it to a 'failed' status carrying the reason (only DuplicateEntryError maps to
+        'skipped'; see member_import_service.py create/update contract), so
+        _process_single_member returns that status straight through rather than raising.
         """
         doc = self._make_import_doc(
             [{"Voornaam": "Skip", "Achternaam": "Test", "E-mailadres": "s@example.com"}],
@@ -812,7 +812,9 @@ class TestMijnroodCSVImportRealIntegration(EnhancedTestCase):
         row = {"row_number": 5, "member_id": "999", "email": email}
         error_log = []
         result, info = doc._process_single_member(row, error_log)
-        self.assertEqual(result, "failed")
+        # Failure statuses carry the reason ("failed: <message>") so it reaches the
+        # operator; the "failed" prefix is what callers branch on.
+        self.assertTrue(result.startswith("failed"), f"expected a failed status, got {result!r}")
         self.assertIsNone(info)
         # No Member should have been created for the invalid row.
         self.assertFalse(frappe.db.exists("Member", {"email": email}))

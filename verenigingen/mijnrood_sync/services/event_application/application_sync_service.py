@@ -17,7 +17,6 @@ It calls peer services (member_sync, related_records) directly via
 their ``get_xxx_service()`` accessors.
 """
 
-import logging
 from typing import Optional
 
 import frappe
@@ -32,8 +31,9 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
     get_related_records_orchestrator,
 )
 from verenigingen.mijnrood_sync.utils import safe_int, safe_json_load
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.application_sync")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.application_sync")
 
 
 class MijnRoodApplicationSyncService:
@@ -287,9 +287,10 @@ class MijnRoodApplicationSyncService:
             import_doc_name=f"MijnRood Sync: {event.name}",
         )
         if status not in ("created", "updated"):
+            # `status` already reads "failed: <reason>" — don't say "failed" twice.
             return {
                 "success": False,
-                "message": _("Application promotion failed: {0}").format(status),
+                "message": _("Application promotion {0}").format(status),
             }
 
         old_member_id = old_data.get("id")

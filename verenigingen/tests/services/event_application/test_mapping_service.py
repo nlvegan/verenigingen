@@ -166,6 +166,22 @@ class TestMapMemberFields(EnhancedTestCase):
         })
         self.assertEqual(result["dues_rate"], 12.5)
 
+    def test_zero_cents_leaves_dues_rate_unset(self):
+        """MijnRood 0 cents means "no custom amount", not "a €0 dues rate".
+
+        Regression for MR-SYNC-2026-00087: MIJNROOD_TO_MEMBER_FIELD_MAP used to
+        map contribution_per_period_in_cents → dues_rate raw, and the cents→euros
+        conversion below it is guarded by `if cents:`. So the raw value only ever
+        won when it was exactly 0 — and applying an address-only Changed event
+        zeroed the member's real dues rate (observed: €9.00 → €0.00). Leaving the
+        key unset lets the membership type / template default stand.
+        """
+        result = get_mapping_service().map_member_fields({
+            "current_membership_status_id": 999,
+            "contribution_per_period_in_cents": 0,
+        })
+        self.assertNotIn("dues_rate", result)
+
     def test_maps_known_contribution_period(self):
         result = get_mapping_service().map_member_fields({
             "current_membership_status_id": 999,
