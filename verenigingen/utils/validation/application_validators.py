@@ -115,7 +115,33 @@ def validate_birth_date(birth_date):
         if age < 0:
             return {"valid": False, "message": _("Invalid birth date")}
 
-        return {"valid": True, "message": _("Valid birth date"), "age": age}
+        # Apply the SAME minimum-age rule the save path applies. This function backs
+        # the applicant-facing pre-check (whitelisted as
+        # membership_application.validate_birth_date, called from
+        # public/js/services/validation-service.js), and it used to accept any age
+        # >= 0. So the form green-lit e.g. a 10-year-old and the submission then
+        # failed on Member.validate_age_requirements with "Member must be at least
+        # 16 years old" -- a rule the applicant had no way to see beforehand.
+        #
+        # allow_parental_consent=True because this IS the application context, which
+        # is exactly what validate_member_age_requirements() passes for applications
+        # (member_age_service.py:112). It rescues 16-17 year olds only; a 10-year-old
+        # is a hard reject on both paths, so the two now agree.
+        from verenigingen.utils.validation_utilities import AgeValidator
+
+        age_result = AgeValidator.validate_age(
+            birth_date,
+            context="membership",
+            allow_parental_consent=True,
+            throw_on_error=False,
+        )
+        if not age_result.is_valid:
+            return {"valid": False, "message": age_result.message, "age": age}
+
+        result = {"valid": True, "message": _("Valid birth date"), "age": age}
+        if age_result.warning:
+            result["warning"] = age_result.warning
+        return result
 
     except Exception:
         return {"valid": False, "message": _("Invalid birth date format")}
@@ -313,10 +339,16 @@ def check_application_eligibility(data, allow_existing_email=False):
         birth_validation = validate_birth_date(data["birth_date"])
         if not birth_validation["valid"]:
             eligibility_issues.append(birth_validation["message"])
-        elif birth_validation.get("age", 0) < 12:
-            warnings.append(_("Applicants under 12 require parental consent"))
-        elif birth_validation.get("age", 0) > 100:
-            warnings.append(_("Age verification may be required"))
+        else:
+            # The "under 12 require parental consent" branch that used to sit here
+            # became unreachable once validate_birth_date started applying the
+            # configured minimum membership age (16 by default): anyone under 12 is
+            # rejected above. Surface the validator's own parental-consent warning,
+            # which covers the ages that can actually reach this point (16-17).
+            if birth_validation.get("warning"):
+                warnings.append(birth_validation["warning"])
+            if birth_validation.get("age", 0) > 100:
+                warnings.append(_("Age verification may be required"))
 
     # Email uniqueness
     if data.get("email"):
