@@ -209,6 +209,52 @@ by attribute — `'dict' object has no attribute 'success'`, swallowed by the ou
 `tests/backend/unit/utils/test_truncating_cleanup_endpoints.py` (5 tests, all four
 truncating endpoints, each failing first against the unfixed code).
 
+### 2d. Sixth broken endpoint: `create_sepa_batch_with_race_protection`
+
+Found while triaging the gate's remaining inventory.
+`sepa_race_condition_manager.py` `_execute_batch_creation_with_isolation` opened
+with:
+
+```python
+frappe.db.sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+frappe.db.begin()
+```
+
+`SET TRANSACTION ISOLATION LEVEL` is only legal with no transaction open — and
+one is **always** open, because `frappe.db.commit()` is `COMMIT` followed by
+`begin()` (`frappe/database/database.py`). The distributed-lock acquisition
+immediately before this call commits, and so leaves a fresh transaction running.
+Measured: MariaDB `(1568, "Transaction characteristics can't be changed while a
+transaction is in progress")` on every call; `@handle_api_error` on the public
+endpoint turned it into a generic failure.
+
+This is a *different* failure from the ImplicitCommitError class. The validator
+flagged the `begin()` on the next line and investigating that surfaced it —
+`SET TRANSACTION …` is not in `IMPLICIT_COMMIT_QUERY_TYPES`, so the gate cannot
+catch it directly.
+
+The test suite had characterised it as a harness limitation, in the same shape as
+the skipped reconciliation test: `test_isolation_level_blocks_full_flow_in_txn`
+asserted the 1568 and explained it away — *"(In production this runs at request
+start with no open transaction, so the statement is valid.)"* That is false.
+
+**Two further defects behind it, both masked until now:**
+
+1. `_create_batch_document()` calls `insert()` before any `invoices` child rows
+   are appended — they are only added afterwards by `_link_invoices_to_batch` —
+   so Direct Debit Batch validation rejects it with "No invoices added to batch".
+2. It calls `batch_doc.add_comment(...)` *before* `insert()`, against a document
+   with no name.
+
+Taken together, **this endpoint has never worked**. Repairing it is a design
+decision, not a one-liner: row population has to move inside
+`_create_batch_document` before `insert()`, `add_comment` after it, and the then
+redundant `_link_invoices_to_batch` step removed (calling it as well would double
+the rows). The alternative is deleting the endpoint, which has no production
+callers. Left unfixed and pinned by
+`test_full_flow_no_longer_dies_on_transaction_characteristics`, which asserts the
+1568 is gone and that the child-row defect is what now stops it.
+
 ## 3. Real, lower severity (2 tests)
 
 - **`test_age_validation`** (`tests.backend.components.test_membership_application`).
