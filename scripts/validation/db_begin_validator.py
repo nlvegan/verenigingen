@@ -59,6 +59,16 @@ Reason MUST be one of:
     verified-clean-caller -- EVERY caller provably reaches here with no pending
                              writes. Name them in an adjacent comment; this
                              claim rots the moment a caller adds a save().
+    idempotent-bootstrap  -- the statement may legitimately fail here and that is
+                             handled: it is an idempotent bootstrap (a
+                             CREATE TABLE IF NOT EXISTS and the like) whose
+                             ImplicitCommitError is caught and logged, it changes
+                             no data, and a later call outside a transaction
+                             completes it. Use ONLY where the failure is caught;
+                             note the residual risk that on a fresh site whose
+                             first call happens mid-transaction, the object stays
+                             missing until something calls again with a clean
+                             transaction.
     false-positive        -- the analyzer is wrong here; please also report it.
 
 An unknown reason is itself reported.
@@ -88,6 +98,7 @@ VALID_REASONS = {
     "own-connection",
     "patch-context",
     "verified-clean-caller",
+    "idempotent-bootstrap",
     "false-positive",
 }
 _MARKER = re.compile(r"#\s*db-begin-ok\s*:\s*([a-z-]+)?")

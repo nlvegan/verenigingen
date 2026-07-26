@@ -402,6 +402,7 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
             submit=True,
         )
         invoice.reload()
+        self._membership = membership
         return invoice, member, mandate
 
     def _batch_data(self, invoice, member, mandate, amount=None):
@@ -415,6 +416,11 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
                     "invoice": invoice.name,
                     "amount": amount,
                     "currency": "EUR",
+                    # member and membership are mandatory on the child row; the
+                    # caller supplies them, exactly as SEPATestDataFactory.
+                    # create_test_direct_debit_batch does for the normal path.
+                    "member": member.name,
+                    "membership": self._membership.name,
                     "member_name": member.full_name,
                     "iban": mandate.iban,
                     "bic": "INGBNL2A",
@@ -476,42 +482,48 @@ class TestBatchCreationInnerLogic(EnhancedTestCase):
             f"expected conflict for {assigned_invoice}, got {result}",
         )
 
-    def test_full_flow_no_longer_dies_on_transaction_characteristics(self):
-        """The flow must get past its opening statements.
+    def test_full_batch_creation_flow_creates_the_batch(self):
+        """The end-to-end race-protected creation path must produce a real batch.
 
-        Regression: it raised MariaDB 1568 ("Transaction characteristics can't be
-        changed while a transaction is in progress") on the
-        SET TRANSACTION ISOLATION LEVEL that opened the function -- on EVERY
-        call, in production as much as in tests, because frappe.db.commit() is
-        COMMIT followed by begin(), so a transaction is always open. The previous
-        version of this test asserted the 1568 and explained it away as a
-        harness limitation ("in production this runs at request start with no
-        open transaction"). It does not.
+        This endpoint had never worked. Three defects, each masked by the one
+        before it:
 
-        With that removed the flow reaches step 4 and hits a SEPARATE, still-open
-        defect: _create_batch_document() calls insert() before any `invoices`
-        child rows are appended (they are only added afterwards by
-        _link_invoices_to_batch), so Direct Debit Batch validation rejects it with
-        "No invoices added to batch". That bug was invisible while 1568 masked it,
-        and means this endpoint has never worked. Pinned here so the remaining
-        defect is visible and this test starts failing - loudly - once it is
-        fixed. See docs/audits/2026-07-26-known-test-failures-baseline-triage.md.
+        1. It opened with SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, which is
+           only legal with no transaction open -- and one is ALWAYS open, because
+           frappe.db.commit() is COMMIT followed by begin(). MariaDB 1568 on every
+           call, in production as much as in tests. The earlier version of this
+           test asserted the 1568 and explained it away as a harness limitation.
+        2. Behind that, _create_batch_document() called insert() before appending
+           any `invoices` child rows (they were only added afterwards by
+           _link_invoices_to_batch), so validation rejected it with "No invoices
+           added to batch".
+        3. And it called add_comment() on the not-yet-saved document.
+
+        The method commits by design, so the batch outlives the test transaction
+        and is removed explicitly.
         """
         invoice, member, mandate = self._make_unpaid_invoice()
 
-        with self.assertRaises(Exception) as ctx:
-            self.manager._execute_batch_creation_with_isolation(
-                self._batch_data(invoice, member, mandate), [invoice.name]
-            )
-
-        message = str(ctx.exception)
-        self.assertNotIn("1568", message, "the transaction-characteristics error is back")
-        self.assertIn(
-            "No invoices added to batch",
-            message,
-            "expected the known child-row defect; if this changed, the endpoint may "
-            "now work - update this test to assert success",
+        result = self.manager._execute_batch_creation_with_isolation(
+            self._batch_data(invoice, member, mandate), [invoice.name]
         )
+
+        self.assertTrue(result.get("success"), f"batch creation failed: {result}")
+        batch_name = result["batch_name"]
+        self.addCleanup(self._force_delete_batch, batch_name)
+
+        self.assertEqual(result["invoice_count"], 1)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
+        # The row must be on the batch exactly once -- the repair moved population
+        # before insert(), so a leftover _link_invoices_to_batch call would double it.
+        self.assertEqual([row.invoice for row in batch.invoices], [invoice.name])
+        self.assertEqual(batch.entry_count, 1)
+
+    @staticmethod
+    def _force_delete_batch(batch_name):
+        if frappe.db.exists("Direct Debit Batch", batch_name):
+            frappe.delete_doc("Direct Debit Batch", batch_name, force=True, ignore_permissions=True)
+            frappe.db.commit()
 
 
 if __name__ == "__main__":

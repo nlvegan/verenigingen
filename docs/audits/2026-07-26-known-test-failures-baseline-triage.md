@@ -246,14 +246,29 @@ start with no open transaction, so the statement is valid.)"* That is false.
 2. It calls `batch_doc.add_comment(...)` *before* `insert()`, against a document
    with no name.
 
-Taken together, **this endpoint has never worked**. Repairing it is a design
-decision, not a one-liner: row population has to move inside
-`_create_batch_document` before `insert()`, `add_comment` after it, and the then
-redundant `_link_invoices_to_batch` step removed (calling it as well would double
-the rows). The alternative is deleting the endpoint, which has no production
-callers. Left unfixed and pinned by
-`test_full_flow_no_longer_dies_on_transaction_characteristics`, which asserts the
-1568 is gone and that the child-row defect is what now stops it.
+Taken together, **this endpoint had never worked**. **Repaired 2026-07-26** —
+each defect was only visible once the one above it was gone, so the repair
+uncovered two more:
+
+3. `batch_doc.description = ...` — Direct Debit Batch has no `description` field
+   (the mandatory one is `batch_description`), so the assignment was silently
+   dropped and the insert failed its mandatory check. `currency` was never set
+   either, and is likewise mandatory.
+4. The child rows omitted `member` and `membership`, both mandatory on
+   Direct Debit Batch Invoice.
+
+The repair: row population moved inside `_create_batch_document` before
+`insert()`, `add_comment()` after it, the redundant `_link_invoices_to_batch`
+step dropped from the flow (calling it as well would have doubled every row) and
+the helper split into an append-only `_append_invoice_rows` plus a saving wrapper
+kept for callers that add rows to an existing batch. `batch_description` and
+`currency` set correctly; `member`/`membership` taken from the caller's
+`invoice_list` entry with a fallback to the locked Sales Invoice row, and
+`si.member` added to that lock SELECT so the fallback can work.
+
+`test_full_batch_creation_flow_creates_the_batch` now drives the whole path
+against real fixtures and asserts the batch exists with exactly one invoice row —
+the row count matters, since a leftover link step would double it.
 
 ## 3. Real, lower severity (2 tests)
 

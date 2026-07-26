@@ -104,7 +104,13 @@ class DbBeginValidatorTest(unittest.TestCase):
         """Hard-coded on purpose: iterating dbv.VALID_REASONS would pass even if
         a reason were renamed or dropped, silently turning every existing
         annotation in the tree into a reported error."""
-        documented = ["false-positive", "own-connection", "patch-context", "verified-clean-caller"]
+        documented = [
+            "false-positive",
+            "idempotent-bootstrap",
+            "own-connection",
+            "patch-context",
+            "verified-clean-caller",
+        ]
         self.assertEqual(sorted(dbv.VALID_REASONS), documented)
         for reason in documented:
             src = f"import frappe\ndef f():\n    frappe.db.begin()  # db-begin-ok: {reason}\n"
