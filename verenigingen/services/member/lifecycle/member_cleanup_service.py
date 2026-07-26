@@ -25,7 +25,7 @@ Architecture:
 - SQL injection prevention via whitelisted table names
 
 Security:
-- Uses ignore_permissions=True for Customer/Address unlinking (justified: system operation)
+- Uses ignore_permissions for Customer/Address unlinking (justified: system operation)
 - Child table whitelist prevents SQL injection
 - Force deletion for cascade cleanup
 - Comprehensive error logging
@@ -149,7 +149,7 @@ class MemberCleanupService(StatelessService):
 
         Security:
             - Uses force=True for cascade deletion
-            - Uses ignore_permissions=True for Customer/Address unlinking (system operation)
+            - Uses ignore_permissions for Customer/Address unlinking (system operation)
             - Whitelisted child tables prevent SQL injection
             - Comprehensive error handling prevents partial cleanup
 

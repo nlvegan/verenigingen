@@ -241,6 +241,14 @@ sites: on error it calls `frappe.db.rollback()` — discarding the caller's pend
 reached from `SEPABatchRaceConditionManager.__init__`, i.e. from three whitelisted
 endpoints.
 
+**Validator false positive worth fixing properly:**
+`scripts/validation/security/permission_bypass_validator.py` matches
+`ignore_permissions\s*=\s*True` on any line and skips only lines starting with `#`, so
+**docstring prose** describing a bypass is flagged as if it were code. That is why
+`member_cleanup_service.py` failed CI on two `Security:` docstring bullets. Worked around
+here by dropping the `=True` from the prose (the justification lookup only needs the bare
+`ignore_permissions` token). The real fix is to make the scanner docstring-aware.
+
 **Shard risk:** the two TRUNCATE-ing test modules are documented as not parallel-safe but
 nothing enforces it, and `run-parallel-tests` shards share one database. TRUNCATE takes an
 exclusive metadata lock that can block another shard. Consider gating them on an env var.
