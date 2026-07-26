@@ -45,6 +45,9 @@ class TestCleanupEngineInvariants(EnhancedTestCase):
         return self.factory.create_test_customer(customer_name=customer_name)
 
     def _make_contact(self, first_name, links):
+        # Security: test-local fixture built entirely from arguments this test
+        # supplies; ignore_permissions so the fixture is creatable regardless of
+        # the DocPerms on the shared test site. No user input reaches it.
         return frappe.get_doc(
             {
                 "doctype": "Contact",

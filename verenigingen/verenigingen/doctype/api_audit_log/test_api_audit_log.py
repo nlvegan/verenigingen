@@ -245,6 +245,9 @@ class TestClearAllAuditLogs(unittest.TestCase):
     @staticmethod
     def _discard_probe(name):
         if frappe.db.exists("ToDo", name):
+            # Security: test-local teardown of a ToDo this test created moments
+            # ago, by name. ignore_permissions because the probe must be removed
+            # even when the assertion under test failed; no user input reaches it.
             frappe.delete_doc("ToDo", name, force=True, ignore_permissions=True)
             frappe.db.commit()
 
