@@ -214,10 +214,6 @@ class TestAPIAuditLog(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestClearAllAuditLogs(unittest.TestCase):
     """
     Tests for the ``clear_all_audit_logs`` endpoint behind the "Clear All Logs"
@@ -226,7 +222,31 @@ class TestClearAllAuditLogs(unittest.TestCase):
     This endpoint had no coverage and could not succeed for any input: it writes
     a forensic Error Log record and then called ``frappe.db.begin()``, which
     trips Frappe's implicit-commit guard once anything is pending.
+
+    NOT PARALLEL-SAFE: the endpoint TRUNCATEs `tabAPI Audit Log` wholesale --
+    that is the behaviour under test, not an accident. Do not run this module
+    concurrently with tests that assert on audit-log contents.
     """
+
+    def _seed_pending_write(self):
+        """Leave one uncommitted write in the transaction, then assert it landed.
+
+        Uses a throwaway ToDo rather than a field on the Administrator user:
+        clear_all_audit_logs commits, so a probe written on a shared record would
+        be durable, and an assertion failure before the reset would leak it into
+        the site for every later test. addCleanup is registered BEFORE the write.
+        """
+        todo = frappe.new_doc("ToDo")
+        todo.description = "clear_all_audit_logs regression probe"
+        todo.insert()
+        self.addCleanup(self._discard_probe, todo.name)
+        self.assertGreater(frappe.db.transaction_writes, 0, "expected a pending write")
+
+    @staticmethod
+    def _discard_probe(name):
+        if frappe.db.exists("ToDo", name):
+            frappe.delete_doc("ToDo", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
 
     def test_clear_all_audit_logs_empties_the_table(self):
         """
@@ -274,11 +294,12 @@ class TestClearAllAuditLogs(unittest.TestCase):
         """
         from verenigingen.verenigingen.doctype.api_audit_log.api_audit_log import clear_all_audit_logs
 
-        frappe.db.set_value("User", "Administrator", "middle_name", "clear-logs-probe")
-        self.assertGreater(frappe.db.transaction_writes, 0, "expected a pending write")
+        self._seed_pending_write()
 
         result = clear_all_audit_logs()
 
         self.assertTrue(result.get("success"), f"clear failed: {result.get('message')}")
-        frappe.db.set_value("User", "Administrator", "middle_name", None)
-        frappe.db.commit()
+
+
+if __name__ == "__main__":
+    unittest.main()

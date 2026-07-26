@@ -347,15 +347,14 @@ class TestReconcileFullSepaBatch(ReconBase):
         self.assertEqual(result["total_items"], 0)
         self.assertEqual(result["reconciled_count"], 0)
 
-    @unittest.skip(
-        "reconcile_full_sepa_batch calls frappe.db.begin()/commit(), which the "
-        "FrappeTestCase transaction wrapper rejects with 'This statement can "
-        "cause implicit commit'. The happy-path commit cannot be exercised "
-        "inside the test transaction; the validation/empty branches (which "
-        "return before begin()) are covered above and the per-item payment-entry "
-        "creation is covered via create_manual_payment_entry / manual_sepa_reconciliation."
-    )
     def test_full_reconciliation_creates_payment_entries(self):
+        """Un-skipped 2026-07-26. The skip reason ("reconcile_full_sepa_batch
+        calls frappe.db.begin(), which the test transaction rejects with 'This
+        statement can cause implicit commit'") was not a test-harness quirk - it
+        was the production bug. The live caller reaches this function with
+        pending writes from two decorated helpers, so START TRANSACTION raised
+        there too and SEPA batch reconciliation could never complete. begin() is
+        gone; this now exercises the happy path it was written for."""
         items = [
             self._make_member_with_invoice(first_name=f"FullRec{i}", grand_total=25.0 + i)
             for i in range(2)

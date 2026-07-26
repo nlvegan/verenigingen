@@ -24,8 +24,14 @@ silent, permanent failure rather than a visible error.
 
 What flags:
   1. `frappe.db.begin()` (any `<x>.db.begin()` attribute chain).
-  2. `frappe.db.sql("TRUNCATE ...")` -- a raw TRUNCATE is DDL and trips the same
-     guard independently. Use `frappe.db.sql_ddl()`.
+  2. `frappe.db.sql("<stmt> ...")` where <stmt> is one of Frappe's
+     IMPLICIT_COMMIT_QUERY_TYPES -- TRUNCATE / ALTER / DROP / CREATE / START /
+     BEGIN. Each trips the same guard independently of begin(); this repo has
+     already been bitten by a CREATE INDEX mid-migrate. Use `frappe.db.sql_ddl()`.
+
+Known limitation: only literal SQL is inspected, so a statement assembled at
+runtime (an f-string table name) is not recognised. Aliasing the handle
+(`db = frappe.db; db.begin()`) is likewise not matched.
 
 The fix is almost never a savepoint
 -----------------------------------
@@ -70,9 +76,11 @@ once the inventory is annotated.
 from __future__ import annotations
 
 import ast
+import io
 import os
 import re
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,7 +93,13 @@ VALID_REASONS = {
 _MARKER = re.compile(r"#\s*db-begin-ok\s*:\s*([a-z-]+)?")
 
 KIND_BEGIN = "begin"
-KIND_TRUNCATE = "truncate"
+KIND_DDL = "ddl"
+
+# Frappe rejects every one of these when transaction_writes > 0 --
+# frappe/database/database.py: IMPLICIT_COMMIT_QUERY_TYPES. "begin"/"start" are
+# what frappe.db.begin() emits; the rest are DDL that reaches the DB through a
+# raw frappe.db.sql() call. Keyed on the statement's first word.
+_IMPLICIT_COMMIT_KEYWORDS = ("truncate", "alter", "drop", "create", "start", "begin")
 
 # Trees that are not production request code: tests legitimately provoke the
 # guard, and archived code is not shipped.
@@ -114,11 +128,12 @@ def _is_db_begin(node: ast.Call) -> bool:
     )
 
 
-def _is_raw_truncate(node: ast.Call) -> bool:
-    """Match <anything>.db.sql("TRUNCATE ...") with a literal first argument.
+def _is_implicit_commit_sql(node: ast.Call) -> bool:
+    """Match <anything>.db.sql("<TRUNCATE|ALTER|DROP|CREATE|START|BEGIN> ...").
 
-    Only literals: a TRUNCATE assembled at runtime cannot be recognised here, and
-    guessing would trade this validator's precision for very little reach.
+    Only literal first arguments: a statement assembled at runtime cannot be
+    recognised here, and guessing would trade this validator's precision for very
+    little reach. Use frappe.db.sql_ddl() for genuine DDL.
     """
     f = node.func
     if not (
@@ -131,11 +146,10 @@ def _is_raw_truncate(node: ast.Call) -> bool:
     if not node.args:
         return False
     first = node.args[0]
-    return (
-        isinstance(first, ast.Constant)
-        and isinstance(first.value, str)
-        and first.value.lstrip().upper().startswith("TRUNCATE")
-    )
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+        return False
+    head = first.value.lstrip().split(None, 1)
+    return bool(head) and head[0].lower() in _IMPLICIT_COMMIT_KEYWORDS
 
 
 def _enclosing_func(tree: ast.AST, line: int) -> str:
@@ -149,26 +163,33 @@ def _enclosing_func(tree: ast.AST, line: int) -> str:
     return best
 
 
-def _stmt_span(tree: ast.AST, line: int) -> tuple[int, int]:
-    """Smallest statement span containing `line`, for scanning the suppression
-    comment. A call split across lines carries its marker on any of them."""
-    best, best_size = (line, line), 10**9
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.stmt):
-            continue
-        start = node.lineno
-        end = getattr(node, "end_lineno", start) or start
-        if start <= line <= end and (end - start) < best_size:
-            best, best_size = (start, end), end - start
-    return best
+def _comment_lines(src: str) -> dict[int, str]:
+    """Map line number -> comment text, for real COMMENT tokens only.
+
+    Scanning raw source would honour a marker that merely appears inside a string
+    literal (e.g. an SQL parameter), so tokenize is used to see only comments.
+    """
+    comments: dict[int, str] = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                comments[tok.start[0]] = tok.string
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass  # best effort; ast.parse already succeeded for the findings we have
+    return comments
 
 
-def _suppression(span: tuple[int, int], src_lines: list[str]) -> tuple[bool, str | None]:
-    start, end = span
+def _suppression(node: ast.Call, comments: dict[int, str]) -> tuple[bool, str | None]:
+    """Look for the marker on the flagged CALL's own physical lines.
+
+    Scoped to the call node, not its enclosing statement: two flagged calls can
+    share one statement (e.g. both inside a list literal), and a statement-wide
+    scan would let a marker written for one silence the other.
+    """
+    start = node.lineno
+    end = getattr(node, "end_lineno", start) or start
     for ln in range(start, end + 1):
-        if ln - 1 >= len(src_lines):
-            break
-        m = _MARKER.search(src_lines[ln - 1])
+        m = _MARKER.search(comments.get(ln, ""))
         if m:
             reason = m.group(1)
             if reason in VALID_REASONS:
@@ -186,18 +207,18 @@ def check_file(path: Path) -> list[Finding]:
         tree = ast.parse(src, filename=str(path))
     except SyntaxError:
         return []
-    src_lines = src.splitlines()
+    comments = _comment_lines(src)
     findings: list[Finding] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         if _is_db_begin(node):
             kind = KIND_BEGIN
-        elif _is_raw_truncate(node):
-            kind = KIND_TRUNCATE
+        elif _is_implicit_commit_sql(node):
+            kind = KIND_DDL
         else:
             continue
-        suppressed, bad = _suppression(_stmt_span(tree, node.lineno), src_lines)
+        suppressed, bad = _suppression(node, comments)
         findings.append(
             Finding(str(path), node.lineno, _enclosing_func(tree, node.lineno), kind, suppressed, bad)
         )
@@ -225,10 +246,11 @@ _MESSAGES = {
         "Delete it and keep the SELECT ... FOR UPDATE plus the existing commit()/rollback() "
         "-- do NOT convert to a savepoint, which does not release row locks."
     ),
-    KIND_TRUNCATE: (
-        "a raw TRUNCATE through frappe.db.sql() is DDL and trips the same implicit-commit "
+    KIND_DDL: (
+        "this statement is in Frappe's IMPLICIT_COMMIT_QUERY_TYPES (truncate/alter/drop/"
+        "create/start/begin), so a raw frappe.db.sql() call trips the same implicit-commit "
         "guard when writes are pending. Use frappe.db.sql_ddl(), and commit() first if a "
-        "record must survive the truncate."
+        "record must survive the statement."
     ),
 }
 
@@ -277,6 +299,9 @@ def main(argv: list[str]) -> int:
     problems = active + bad_reasons
     if problems:
         mode = "STRICT" if strict else "advisory"
+        # Flush first: findings go to stdout and the summary to stderr, and
+        # without this the buffered stdout can land after the summary.
+        sys.stdout.flush()
         print(
             f"\n{active} implicit-commit finding(s), {bad_reasons} invalid suppression "
             f"reason(s), {suppressed} suppressed [{mode}].",

@@ -58,8 +58,12 @@ def migrate_team_members_atomic(team_members, role_mapping):
     rollback_data = []
 
     try:
-        # Start atomic transaction. Safe: patches run under `bench migrate`,
-        # outside any request transaction.
+        # Start atomic transaction. Safe because frappe's execute_patch()
+        # (frappe/modules/patch_handler.py) calls frappe.db.commit() immediately
+        # before invoking a patch, and everything execute() does above this point
+        # is read-only -- so transaction_writes is 0 here. Patches DO run inside a
+        # transaction; the pre-commit is the guarantee, not the absence of one.
+        # Verified 2026-07-26.
         frappe.db.begin()  # db-begin-ok: patch-context
 
         for member in team_members:

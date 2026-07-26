@@ -458,3 +458,66 @@ class TestPhantomHashRetry(FrappeTestCase):
         self.assertEqual(log_row.bank_status, "Resolved")
         self.assertEqual(log_row.is_phantom, 0)
         self.assertNotIn("[RETRY_IN_PROGRESS]", log_row.bank_error_message or "")
+
+    def test_failed_retry_records_the_failure_and_leaves_no_orphan_file(self):
+        """
+        A retry that fails AFTER the file was attached must discard the file and
+        record the failure on the log entry.
+
+        This covers the frappe.db.rollback() added at the top of the endpoint's
+        exception handler. Without it the handler's own set_value + commit would
+        PUBLISH the half-written state: a File row (and its bytes on disk)
+        attached to a batch whose log entry says the retry failed.
+
+        The failure is injected at _acquire_row_lock's SECOND call - the
+        re-acquisition after file generation - because that is the first thing
+        the endpoint does once the File exists. Patching a lock helper, not
+        business logic: the code under test is the error path itself.
+        """
+        import verenigingen.api.sepa_phantom_hash_admin as admin
+
+        batch = self._create_batch_awaiting_retry()
+        log_name = self._create_phantom_log(batch.name)
+
+        real_acquire = admin._acquire_row_lock
+        calls = {"n": 0}
+
+        def _fail_on_reacquire(name):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("injected failure after file attachment")
+            return real_acquire(name)
+
+        admin._acquire_row_lock = _fail_on_reacquire
+        self.addCleanup(setattr, admin, "_acquire_row_lock", real_acquire)
+
+        result = admin.retry_phantom_attachment(log_name=log_name)
+
+        self.assertFalse(result.get("success"))
+        self.assertGreaterEqual(calls["n"], 2, "the injected failure point was never reached")
+
+        # The File insert must have been rolled back, not published.
+        self.assertEqual(
+            frappe.db.count(
+                "File", {"attached_to_doctype": "Direct Debit Batch", "attached_to_name": batch.name}
+            ),
+            0,
+            "an orphan File survived a failed retry",
+        )
+        self.assertFalse(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "sepa_file"),
+            "the batch kept a sepa_file from a failed retry",
+        )
+
+        log_row = frappe.db.sql(
+            """
+            SELECT bank_status, is_phantom, bank_error_message
+            FROM `tabSEPA Batch Upload Log` WHERE name = %s
+            """,
+            (log_name,),
+            as_dict=True,
+        )[0]
+        self.assertNotEqual(log_row.bank_status, "Resolved")
+        self.assertEqual(log_row.is_phantom, 1)
+        self.assertIn("Retry failed", log_row.bank_error_message or "")
+        self.assertNotIn("[RETRY_IN_PROGRESS]", log_row.bank_error_message or "")

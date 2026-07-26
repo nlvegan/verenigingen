@@ -131,7 +131,7 @@ endpoint's own writes, or from a second decorated call in the same request.
 | `mollie/services/complete_payment_service.py:258` `_create_owner_subscription` | **BROKEN — confirmed & fixed.** Deleting `begin()` turns the module from `FAILED (failures=3)` to `Ran 48 tests … OK` |
 | `api/sepa_phantom_hash_admin.py:353` + `:394` `retry_phantom_attachment` | **BROKEN, 100% — fixed 2026-07-26.** `attach_file_to_document()` inserts a File doc immediately before `begin()`, so the guard always fires; the error handler then rolls that File insert back, leaving the entry stranded at `[RETRY_IN_PROGRESS]` — still blocking re-upload. Same file's other two functions were already fixed; this one was missed. Fix: drop both `begin()` calls, and `rollback()` first in the error handler so the failure is recorded against clean state. New regression test `TestPhantomHashRetry` in `tests/services/payment/test_sepa_upload_integration.py` (endpoint previously had **zero** coverage) |
 | `doctype/api_audit_log/api_audit_log.py:208` `clear_all_audit_logs` | **BROKEN, 100% — fixed 2026-07-26.** A deliberate `frappe.log_error()` audit record is written immediately before `begin()`. Second landmine in the same function: raw `TRUNCATE TABLE` trips the guard independently. Fix: `commit()` the forensic record first, drop `begin()`, switch to `frappe.db.sql_ddl()`, and drop the misleading "rolled back" handler (TRUNCATE is DDL — it cannot be rolled back). New tests `TestClearAllAuditLogs` in `doctype/api_audit_log/test_api_audit_log.py`. Note the endpoint's own `@critical_api` audit row lands *after* the truncate, so the table is legitimately non-empty afterwards |
-| `mollie/services/complete_payment_service.py:736` `_resolve_customer_by_email` | **NOT broken — corrected 2026-07-26.** Loaded but unarmed. Measured directly: with a clean transaction it sails past `begin()`; with a single pending write it raises `ImplicitCommitError`. Both live callers happen to arrive clean — the public-donation path (`public_donation_service.py:623`) runs `_save_donation_as_system_user`, which ends in `frappe.db.commit()` (measured: `transaction_writes == 0` on exit and after the settings reads that follow), and `unified_payment_api.create_subscription:207` is a standalone endpoint whose decorator writes its audit row *after* the body. One write anywhere upstream arms it |
+| `mollie/services/complete_payment_service.py:736` `_resolve_customer_by_email` | **Not broken, but FIXED anyway 2026-07-26** — annotating a whole-call-chain invariant that nothing enforces is what failed for `sepa_reconciliation`, and leaving one function in this file with `begin()` and its sibling without was the real inconsistency. Was: loaded but unarmed. Measured directly: with a clean transaction it sails past `begin()`; with a single pending write it raises `ImplicitCommitError`. Both live callers happen to arrive clean — the public-donation path (`public_donation_service.py:623`) runs `_save_donation_as_system_user`, which ends in `frappe.db.commit()` (measured: `transaction_writes == 0` on exit and after the settings reads that follow), and `unified_payment_api.create_subscription:207` is a standalone endpoint whose decorator writes its audit row *after* the body. One write anywhere upstream arms it |
 | `mollie/services/payment_service.py:345` `_create_or_get_mollie_customer` | **NOT broken — corrected 2026-07-26.** No production caller at all: its only caller is `create_recurring_first_payment`, which a full-repo grep shows is referenced solely by `mollie/tests/test_api_integration.py` (and a 2026-06-18 dead-code handoff that listed it as "live", which is now stale) |
 | `services/payment/pain002_ingestion_service.py:352` `update_batch_status` | Conditional — depends on caller; not verified |
 | `verenigingen_payments/api/sepa_reconciliation.py:528` | **BROKEN, 100% — found and fixed 2026-07-26 while triaging the gate inventory.** The "PHASE 1 read-only / PHASE 2 begin" structure is sound *within* the function, but the live caller `process_sepa_transaction_conservative` first calls `acquire_processing_lock()` (`@high_security_api`) and `check_batch_processing_status()` (`@critical_api`), each of which writes an audit row when it returns. Measured: `transaction_writes` 0 → 1 after the first helper, then `begin()` raises. SEPA batch reconciliation against a bank transaction could never complete. Fix: drop `begin()`, keep the `FOR UPDATE` + existing commit/rollback. Both reconciliation suites re-run clean (`test_sepa_reconciliation` 48 OK; the one error in `test_sepa_bank_reconciliation_coverage` is **pre-existing** — reproduced with the change stashed) |
@@ -140,7 +140,7 @@ endpoint's own writes, or from a second decorated call in the same request.
 | `utils/payment_gateways.py:1868` `_process_subscription_payment` | Probably safe — carries a reasoned comment that its sole caller (the Mollie webhook) only reads first. Comment also correctly warns against savepoint conversion |
 | `doctype/membership_dues_schedule/membership_dues_schedule_hooks.py:234` | Probably safe — scheduled-job entry point, fresh transaction |
 | `services/member/account/account_creation_api.py:662` | **Safe.** Runs in a worker thread that calls `frappe.connect()` itself, so `transaction_writes` is 0 |
-| `patches/v2_0/migrate_team_role_integration.py:62` | Latent. Patches run mid-`migrate` with writes routinely pending; already applied on existing sites, would bite a fresh install |
+| `patches/v2_0/migrate_team_role_integration.py:62` | **Safe — annotated `patch-context`.** Correction: patches DO run inside a transaction. The guarantee is that frappe's `execute_patch()` (`patch_handler.py:179`) calls `frappe.db.commit()` immediately before invoking a patch, and this patch's `execute()` only reads before reaching `begin()` |
 | `services/infrastructure/production_readiness.py:202` `_validate_database_access` | Self-inflicted false negative — the health check's "test transaction capabilities" step is `begin(); rollback()`, so it reports the database unhealthy whenever called after a write |
 
 ### 2b. Standing gate (2026-07-26)
@@ -153,9 +153,17 @@ It flags two things in production Python (test modules and archived trees are ou
 of scope):
 
 1. any `<x>.db.begin()` — `frappe.db.begin()`, `frappe.local.db.begin()`;
-2. `<x>.db.sql("TRUNCATE …")` with a literal first argument — a raw TRUNCATE is
-   DDL and trips the same guard independently. Runtime-built SQL is deliberately
-   not guessed at.
+2. `<x>.db.sql("<stmt> …")` with a literal first argument where `<stmt>` is any of
+   Frappe's `IMPLICIT_COMMIT_QUERY_TYPES` — TRUNCATE / ALTER / DROP / CREATE /
+   START / BEGIN. (Initially only TRUNCATE; widened after review pointed out that
+   `CREATE TABLE`/`ALTER` trip the identical guard, with 5 live instances in
+   `sepa_notification_manager.py` and `sepa_rollback_manager.py`.) Runtime-built
+   SQL and aliased handles (`db = frappe.db`) are deliberately not guessed at.
+
+The suppression scan is scoped to the flagged **call node** and reads only real
+COMMENT tokens (via `tokenize`). Both matter: a statement-wide raw-source scan let
+a marker written for one call silence a different call in the same statement, and
+honoured a marker that merely appeared inside a string literal.
 
 Design note: the gate flags *every* call site rather than trying to infer
 danger. Three of the four bugs found today were invisible locally — the poisoning
@@ -171,20 +179,35 @@ makes it blocking. The hook sets `verbose: true` — pre-commit hides stdout for
 passing hooks, and an advisory hook always "passes", so findings would otherwise
 be invisible.
 
-**Current inventory: 16 findings** (`python scripts/validation/db_begin_validator.py
---all verenigingen`) — the 12 `begin()` sites left after today's three fixes,
-which cross-checks the manual audit above exactly, plus 4 raw-TRUNCATE sites the
-manual audit had missed:
+**Inventory after this round: 12 findings**, 3 suppressed
+(`python scripts/validation/db_begin_validator.py --all verenigingen`). The four
+TRUNCATE sites are fixed and the five `CREATE TABLE` sites the widened rule found
+took their place. It first reported 16, which cross-checked the manual audit
+exactly (15 `begin()` sites minus 3 fixed, plus 4 raw TRUNCATEs the manual audit
+had missed):
 
 | Raw TRUNCATE site | Notes |
 |---|---|
-| `utils/version_cleanup.py:56` `clear_all_versions` | Reads only before the truncate, so clean today. Same admin_tools surface as the broken `clear_all_audit_logs` |
-| `utils/version_cleanup.py:314` + `:319` `nuclear_truncate_version_and_deleted_tables` | Double landmine: `begin()` at `:310` guards two raw TRUNCATEs |
-| `utils/deleted_document_cleanup.py:144` `clear_all_deleted_documents` | Reads only before the truncate, so clean today |
+| `utils/version_cleanup.py:56` `clear_all_versions` | Reads only before the truncate, so it was clean — **hardened to `sql_ddl()`** |
+| `utils/version_cleanup.py:314` + `:319` `nuclear_truncate_version_and_deleted_tables` | Double landmine: `begin()` at `:310` guarded two raw TRUNCATEs. **Fixed**: `begin()` dropped, both truncates on `sql_ddl()`, and the "TRANSACTION ROLLED BACK" handler removed — DDL commits implicitly, so that rollback never provided the atomicity it advertised |
+| `utils/deleted_document_cleanup.py:144` `clear_all_deleted_documents` | **BROKEN, 100% — found 2026-07-26 while triaging this inventory, and fixed.** See below |
 
-None of the four is proven broken — they are the same conditional class as the
-rest. Flip the hook to `--strict` once they and the 12 `begin()` sites are
-annotated or fixed.
+### 2c. Fifth broken endpoint: `clear_all_deleted_documents`
+
+`utils/deleted_document_cleanup.py` calls `get_deleted_document_statistics()` at
+`:132`, which is `@high_security_api` and so writes an API Audit Log row when it
+returns; the very next statement was a raw TRUNCATE. Measured:
+`transaction_writes` 0 → 1 → `ImplicitCommitError`. I had classified this site as
+"conditional, clean today" without checking the decorator on the helper above it
+— the same mistake made once already on `sepa_reconciliation`.
+
+Writing the regression test surfaced a **second, independent** defect in the same
+function: the `@high_security_api` decorator serialises the helper's
+`OperationResult` to a plain dict, but the caller read `stats_before_result.success`
+by attribute — `'dict' object has no attribute 'success'`, swallowed by the outer
+`except` into a generic "Failed to clear deleted documents". Both fixed; tests in
+`tests/backend/unit/utils/test_truncating_cleanup_endpoints.py` (5 tests, all four
+truncating endpoints, each failing first against the unfixed code).
 
 ## 3. Real, lower severity (2 tests)
 

@@ -739,8 +739,16 @@ class CompletePaymentService:
 
         donor_name = existing_donors[0]["name"]
 
-        # begin()/commit() bracket the row lock: commit()/rollback() release it.
-        frappe.db.begin()
+        # The FOR UPDATE below takes the Donor lock inside the ambient request
+        # transaction; commit()/rollback() release it. Deliberately NO
+        # frappe.db.begin(), for the same reason as _create_owner_subscription
+        # above: START TRANSACTION raises ImplicitCommitError once the request has
+        # written anything, and MolliePaymentError is swallowed into a generic
+        # error response by the callers. Measured 2026-07-26 that both live
+        # callers (create_recurring_donation_payment via public_donation_service,
+        # which commits in _save_donation_as_system_user, and
+        # unified_payment_api.create_subscription) currently arrive clean - but
+        # that is a caller-side accident, not a property of this function.
         try:
             donor = DocType("Donor")
             locked_row = (

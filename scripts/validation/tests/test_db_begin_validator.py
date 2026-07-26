@@ -7,6 +7,7 @@ or plain:  python scripts/validation/tests/test_db_begin_validator.py
 """
 
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
@@ -43,6 +44,8 @@ class DbBeginValidatorTest(unittest.TestCase):
         """frappe.local.db.begin() is the same call through a longer chain."""
         findings = self._active(_run("import frappe\ndef f():\n    frappe.local.db.begin()\n"))
         self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].kind, dbv.KIND_BEGIN)
+        self.assertEqual(findings[0].line, 3)
 
     def test_reports_innermost_enclosing_function(self):
         src = (
@@ -69,7 +72,7 @@ class DbBeginValidatorTest(unittest.TestCase):
         src = "import frappe\ndef f():\n    frappe.db.sql('TRUNCATE TABLE `tabFoo`')\n"
         findings = self._active(_run(src))
         self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].kind, dbv.KIND_TRUNCATE)
+        self.assertEqual(findings[0].kind, dbv.KIND_DDL)
 
     def test_truncate_match_is_case_and_whitespace_insensitive(self):
         src = 'import frappe\ndef f():\n    frappe.db.sql("""\n        truncate table `tabFoo`""")\n'
@@ -98,7 +101,12 @@ class DbBeginValidatorTest(unittest.TestCase):
         self.assertEqual(self._active(findings), [])
 
     def test_every_documented_reason_is_accepted(self):
-        for reason in sorted(dbv.VALID_REASONS):
+        """Hard-coded on purpose: iterating dbv.VALID_REASONS would pass even if
+        a reason were renamed or dropped, silently turning every existing
+        annotation in the tree into a reported error."""
+        documented = ["false-positive", "own-connection", "patch-context", "verified-clean-caller"]
+        self.assertEqual(sorted(dbv.VALID_REASONS), documented)
+        for reason in documented:
             src = f"import frappe\ndef f():\n    frappe.db.begin()  # db-begin-ok: {reason}\n"
             self.assertTrue(_run(src)[0].suppressed, reason)
 
@@ -121,6 +129,82 @@ class DbBeginValidatorTest(unittest.TestCase):
             "    )  # db-begin-ok: patch-context\n"
         )
         self.assertTrue(_run(src)[0].suppressed)
+
+    def test_flags_other_implicit_commit_statements(self):
+        """ALTER/DROP/CREATE/START trip the same guard as TRUNCATE."""
+        for stmt in (
+            "ALTER TABLE `tabFoo` ADD COLUMN x int",
+            "DROP TABLE `tabFoo`",
+            "CREATE TABLE IF NOT EXISTS `tabFoo` (id int)",
+            "START TRANSACTION",
+        ):
+            src = f"import frappe\ndef f():\n    frappe.db.sql('{stmt}')\n"
+            findings = self._active(_run(src))
+            self.assertEqual(len(findings), 1, stmt)
+            self.assertEqual(findings[0].kind, dbv.KIND_DDL, stmt)
+
+    def test_select_and_insert_are_not_flagged(self):
+        for stmt in ("SELECT 1", "INSERT INTO `tabFoo` VALUES (1)", "UPDATE `tabFoo` SET x=1"):
+            src = f"import frappe\ndef f():\n    frappe.db.sql('{stmt}')\n"
+            self.assertEqual(self._active(_run(src)), [], stmt)
+
+    def test_marker_does_not_bleed_between_calls_in_one_statement(self):
+        """Two flagged calls can share a statement; a marker written for one must
+        not silence the other (they are separate call nodes)."""
+        src = (
+            "import frappe\n"
+            "def f():\n"
+            "    ops = [\n"
+            "        frappe.db.begin(),\n"
+            "        frappe.db.sql('TRUNCATE TABLE `tabFoo`'),  # db-begin-ok: patch-context\n"
+            "    ]\n"
+        )
+        findings = _run(src)
+        self.assertEqual(len(findings), 2)
+        by_kind = {f.kind: f for f in findings}
+        self.assertFalse(by_kind[dbv.KIND_BEGIN].suppressed, "begin() was silenced by its neighbour")
+        self.assertTrue(by_kind[dbv.KIND_DDL].suppressed)
+
+    def test_marker_inside_a_string_literal_does_not_suppress(self):
+        """The scan sees COMMENT tokens only, not string contents."""
+        src = (
+            "import frappe\n"
+            "def f():\n"
+            "    frappe.db.sql('TRUNCATE TABLE `tabFoo`', values=['# db-begin-ok: own-connection'])\n"
+        )
+        findings = _run(src)
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].suppressed)
+
+    # ---- CLI -------------------------------------------------------------
+
+    def test_main_is_advisory_by_default_and_blocking_with_strict(self):
+        import contextlib
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "service.py"
+            p.write_text("import frappe\ndef f():\n    frappe.db.begin()\n")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                advisory = dbv.main(["prog", str(p)])
+                strict = dbv.main(["prog", "--strict", str(p)])
+        self.assertEqual(advisory, 0)
+        self.assertEqual(strict, 1)
+
+    def test_main_returns_zero_on_a_clean_file(self):
+        import contextlib
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "service.py"
+            p.write_text("import frappe\ndef f():\n    frappe.db.commit()\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(dbv.main(["prog", "--strict", str(p)]), 0)
+
+    def test_main_usage_error_without_paths(self):
+        import contextlib
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(dbv.main(["prog"]), 2)
 
     # ---- file scoping ----------------------------------------------------
 
