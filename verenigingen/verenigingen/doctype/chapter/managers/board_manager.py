@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 from .base_manager import BaseManager
 
@@ -729,10 +730,10 @@ class BoardManager(BaseManager):
                 try:
                     board_member.remove_board_member_role()
                 except Exception as e:
-                    self.log_action(
+                    self._log_or_reraise(
                         "Failed to remove board member role",
-                        {"volunteer": board_member.volunteer, "error": str(e)},
-                        "error",
+                        {"volunteer": board_member.volunteer},
+                        e,
                     )
 
                 # Recalculate role profile (may downgrade from Board Member to Volunteer/Member)
@@ -790,10 +791,10 @@ class BoardManager(BaseManager):
                 try:
                     old_board_member.remove_board_member_role()
                 except Exception as e:
-                    self.log_action(
+                    self._log_or_reraise(
                         "Failed to remove board member role on deletion",
-                        {"volunteer": old_board_member.volunteer, "error": str(e)},
-                        "error",
+                        {"volunteer": old_board_member.volunteer},
+                        e,
                     )
 
                 # Recalculate role profile (may downgrade from Board Member to Volunteer/Member)
@@ -826,10 +827,10 @@ class BoardManager(BaseManager):
                     try:
                         board_member.assign_board_member_role()
                     except Exception as e:
-                        self.log_action(
+                        self._log_or_reraise(
                             "Failed to assign board member role",
-                            {"volunteer": board_member.volunteer, "error": str(e)},
-                            "error",
+                            {"volunteer": board_member.volunteer},
+                            e,
                         )
             return
 
@@ -860,10 +861,10 @@ class BoardManager(BaseManager):
                 try:
                     board_member.assign_board_member_role()
                 except Exception as e:
-                    self.log_action(
+                    self._log_or_reraise(
                         "Failed to assign board member role",
-                        {"volunteer": board_member.volunteer, "error": str(e)},
-                        "error",
+                        {"volunteer": board_member.volunteer},
+                        e,
                     )
 
                 # Defer role-profile sync until after the Chapter (and its
@@ -893,11 +894,30 @@ class BoardManager(BaseManager):
                             },
                         )
                 except Exception as e:
-                    self.log_action(
+                    self._log_or_reraise(
                         "Failed to auto-add board member to chapter members",
-                        {"volunteer": board_member.volunteer, "error": str(e)},
-                        "error",
+                        {"volunteer": board_member.volunteer},
+                        e,
                     )
+
+    def _log_or_reraise(self, action: str, details: Dict, error: Exception) -> None:
+        """Log a per-member failure and continue, unless the transaction itself is broken.
+
+        Seating or unseating a board member rewrites the volunteer's ``User.roles`` child
+        table, which issues a ``DELETE FROM tabHas Role WHERE parent=... AND name NOT IN
+        (...)``. Under contention that statement can lose a deadlock (1213) or a lock-wait
+        (1205). Continuing afterwards is the bug: the Chapter save reports success while
+        subsequent statements run against state the server discarded, so the board member
+        silently does not exist afterwards. See ``utils/transaction_errors`` for exactly
+        what each error destroys and why neither is resumable.
+
+        Everything else -- a missing User, a permission refusal, a bad Volunteer link -- is
+        genuinely per-member and is logged and skipped, so one bad volunteer cannot block
+        seating the rest of the board.
+        """
+        if isinstance(error, NON_RESUMABLE_DB_ERRORS):
+            raise error
+        self.log_action(action, {**details, "error": str(error)}, "error")
 
     def get_summary(self) -> Dict:
         """
@@ -1071,7 +1091,8 @@ class BoardManager(BaseManager):
 
         Looks up volunteer → member → member.user, then calls auto_sync_on_role_change()
         which derives the correct profile from the user's current organizational roles.
-        Fire-and-forget: logs errors but does not raise.
+        Per-volunteer failures are logged and skipped; a broken transaction is
+        re-raised (see _log_or_reraise).
         """
         try:
             member_name = frappe.db.get_value("Volunteer", volunteer_name, "member")
@@ -1084,10 +1105,8 @@ class BoardManager(BaseManager):
 
             auto_sync_on_role_change(user)
         except Exception as e:
-            self.log_action(
-                "Failed to sync role profile for volunteer",
-                {"volunteer": volunteer_name, "error": str(e)},
-                "error",
+            self._log_or_reraise(
+                "Failed to sync role profile for volunteer", {"volunteer": volunteer_name}, e
             )
 
     def _get_recent_board_changes(self, days: int = 30) -> List[Dict]:

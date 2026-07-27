@@ -36,6 +36,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
     get_related_records_orchestrator,
 )
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.volunteer_sync")
 
@@ -288,6 +289,12 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
             return _("Added to chapter '{0}' board as {1}").format(chapter_name, chapter_role)
+        except NON_RESUMABLE_DB_ERRORS:
+            # Turning this into a per-member "failed" status would let the sync run march
+            # on to the next member inside a transaction the server has already discarded,
+            # and frappe.log_error() below would be a write on it. Let it reach whoever
+            # owns the transaction boundary so the whole sync run is retried instead.
+            raise
         except Exception as e:
             self.logger.error(
                 "Failed to add %s to chapter %s board: %s",
