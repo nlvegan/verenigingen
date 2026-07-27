@@ -7,7 +7,6 @@ All queries are SELECT-only — no writes to MijnRood.
 """
 
 import base64
-import logging
 import re
 import select
 import socket
@@ -32,8 +31,9 @@ from verenigingen.mijnrood_sync.ssh_auth import (
     parse_pkey_from_string,
     verify_host_key,
 )
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.client")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="client")
 
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")

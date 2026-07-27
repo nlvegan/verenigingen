@@ -9,14 +9,14 @@ already gated to admin roles via frappe.only_for).
 """
 
 import json
-import logging
 
 import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.document_reclassify")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="document_reclassify")
 
 MAX_BATCH = 500
 ADMIN_ROLES = ["System Manager", "Verenigingen Administrator"]

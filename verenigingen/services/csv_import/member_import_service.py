@@ -64,6 +64,19 @@ LOCK_TIMEOUT_SECONDS = _DEFAULT_LOCK_TIMEOUT_SECONDS
 LOCK_MAX_RETRIES = _DEFAULT_LOCK_MAX_RETRIES
 LOCK_RETRY_BASE_DELAY = _DEFAULT_LOCK_RETRY_BASE_DELAY
 
+# Failure statuses keep the "failed" prefix so every
+# `status in ("created", "updated")` caller behaves identically, but they carry
+# the reason so it reaches the operator. A bare "failed" is what made MijnRood
+# Sync Event MR-SYNC-2026-00087 report only "Member update failed" for a
+# LinkValidationError that named the exact broken row.
+_FAILURE_REASON_MAX_LENGTH = 300
+
+
+def _failure_status(error: Exception) -> str:
+    """Build a 'failed: <reason>' status string from an exception."""
+    reason = " ".join(str(error).split())[:_FAILURE_REASON_MAX_LENGTH]
+    return f"failed: {reason}" if reason else "failed"
+
 
 class MemberImportService(StatelessService):
     """Service for creating/updating members during CSV import.
@@ -314,7 +327,10 @@ class MemberImportService(StatelessService):
 
         Returns:
             Tuple of (status, member_name_or_none) where:
-            - status: 'created', 'updated', 'skipped', or 'failed'
+            - status: 'created', 'updated', 'skipped', or 'failed: <reason>'
+              (failures always start with 'failed', so callers can keep testing
+              `status in ("created", "updated")`; the reason is appended so it
+              reaches the operator instead of being swallowed)
             - member_name_or_none: Member document name or None on failure
         """
         # Use context manager to ensure bulk flags are set and restored
@@ -382,7 +398,12 @@ class MemberImportService(StatelessService):
         except frappe.ValidationError as e:
             frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
             self.logger.error(f"Row {row_num}: Update validation error for {member_name} - {str(e)[:200]}")
-            return "failed", member_name
+            # A ValidationError here is frequently about something other than the
+            # fields being imported (e.g. a pre-existing broken link elsewhere on
+            # the Member), so the reason has to travel back to the caller — and
+            # into the Error Log, which this branch used to skip.
+            frappe.log_error(frappe.get_traceback(), f"CSV Import Update Validation Error Row {row_num}")
+            return _failure_status(e), member_name
 
         except Exception as e:
             try:
@@ -391,7 +412,7 @@ class MemberImportService(StatelessService):
                 pass
             self.logger.error(f"Row {row_num}: Update failed for {member_name} - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Update Error Row {row_num}")
-            return "failed", member_name
+            return _failure_status(e), member_name
 
     def _acquire_advisory_lock(self, lock_name: str, row_num: Any) -> bool:
         """Acquire MySQL advisory lock with exponential backoff.
@@ -523,7 +544,9 @@ class MemberImportService(StatelessService):
                     f"Row {row_num}: Lock acquisition failed and no existing member found. "
                     "Failing to prevent potential duplicate creation."
                 )
-                return "failed", None
+                # Only reachable under concurrency, which makes it the hardest
+                # failure to diagnose after the fact — so it must name itself too.
+                return "failed: could not acquire the member creation lock", None
 
             # Re-check if member exists after acquiring lock (TOCTOU prevention)
             # Uses same strategies as initial lookup for consistency
@@ -590,7 +613,7 @@ class MemberImportService(StatelessService):
                 pass
             self.logger.error(f"Row {row_num}: Validation error - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Validation Error Row {row_num}")
-            return "failed", None
+            return _failure_status(e), None
 
         except Exception as e:
             try:
@@ -599,7 +622,7 @@ class MemberImportService(StatelessService):
                 pass
             self.logger.error(f"Row {row_num}: Creation failed - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Error Row {row_num}")
-            return "failed", None
+            return _failure_status(e), None
 
         finally:
             # Release lock if still held (e.g., on exception before normal release)

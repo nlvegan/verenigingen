@@ -13,7 +13,6 @@ Classes:
     - DataService: Base for data manipulation services
 """
 
-import logging
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -24,6 +23,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.service_error_handler import ServiceError, create_service_result, handle_service_error
+from verenigingen.utils.service_logger import get_service_logger
 
 
 class BaseService(ABC):
@@ -40,7 +40,17 @@ class BaseService(ABC):
             service_name: Human-readable name for this service
         """
         self.service_name = service_name or self.__class__.__name__
-        self.logger = logging.getLogger(f"verenigingen.services.{self.service_name}")
+        # Frappe only attaches handlers to loggers it creates itself, so a bare
+        # logging.getLogger() here left every service-layer message unformatted on
+        # stderr (or, below WARNING, discarded). get_service_logger resolves through
+        # frappe.logger() on each use, which also keeps the log file correct per site
+        # for these module-level singletons.
+        #
+        # One shared domain name, with the service name as a message prefix: frappe
+        # opens two file handlers per distinct name per site and caches them for the
+        # process lifetime, so a name per service class would cost ~230 open fds per
+        # worker for no benefit.
+        self.logger = get_service_logger("verenigingen.services", prefix=self.service_name)
         self._metrics = {"calls": 0, "errors": 0, "total_time": 0.0}
         self._metrics_lock = threading.Lock()
         self._is_shutdown = False

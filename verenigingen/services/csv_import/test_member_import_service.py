@@ -50,6 +50,20 @@ class TestMemberImportService(FrappeTestCase):
         frappe.db.commit()
         super().tearDown()
 
+    def _create_member(self, **fields):
+        """Create a Member fixture. Named _create_* so the permission bypass is
+        recognised as fixture setup rather than test logic."""
+        member = frappe.new_doc("Member")
+        member.status = "Active"
+        for field, value in fields.items():
+            setattr(member, field, value)
+        member.flags.ignore_workflow = True
+        member._system_update = True
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.created_members.append(member.name)
+        return member
+
     # ============================================================
     # Tests for determine_member_status()
     # ============================================================
@@ -337,17 +351,12 @@ class TestMemberImportService(FrappeTestCase):
         from verenigingen.utils.csv_import_processor import bulk_member_operations
 
         # First create a member
-        member = frappe.new_doc("Member")
-        member.first_name = "Existing"
-        member.last_name = "Member"
-        member.member_id = "TEST-UPDATE-001"
-        member.email = "existing@example.com"
-        member.status = "Active"
-        member.flags.ignore_workflow = True
-        member._system_update = True
-        member.insert(ignore_permissions=True)
-        frappe.db.commit()
-        self.created_members.append(member.name)
+        member = self._create_member(
+            first_name="Existing",
+            last_name="Member",
+            member_id="TEST-UPDATE-001",
+            email="existing@example.com",
+        )
 
         service = get_member_import_service()
 
@@ -381,16 +390,11 @@ class TestMemberImportService(FrappeTestCase):
         from verenigingen.utils.csv_import_processor import bulk_member_operations
 
         # First create a member with specific email
-        member = frappe.new_doc("Member")
-        member.first_name = "Duplicate"
-        member.last_name = "Test"
-        member.email = "duplicate.test@example.com"
-        member.status = "Active"
-        member.flags.ignore_workflow = True
-        member._system_update = True
-        member.insert(ignore_permissions=True)
-        frappe.db.commit()
-        self.created_members.append(member.name)
+        member = self._create_member(
+            first_name="Duplicate",
+            last_name="Test",
+            email="duplicate.test@example.com",
+        )
 
         service = get_member_import_service()
 
@@ -413,6 +417,109 @@ class TestMemberImportService(FrappeTestCase):
         # Should update existing member found by email
         self.assertEqual(result, "updated")
         self.assertEqual(member_name, member.name)
+
+    def test_update_validation_error_surfaces_reason_and_logs(self):
+        """A ValidationError on the update path must not be reduced to bare 'failed'.
+
+        Regression for MR-SYNC-2026-00087: a stale Dynamic Link in the member's
+        payment_history (reference_doctype='Membership' pointing at a Membership
+        Dues Schedule) makes _validate_links() raise LinkValidationError on every
+        save. The service used to swallow the reason entirely — it returned
+        ("failed", name) and, unlike the generic Exception branch, never wrote an
+        Error Log — so the operator saw only "Member update failed" with nothing
+        anywhere to explain it.
+
+        The stale row is inserted with raw SQL on purpose: doc.save() would
+        reject it, which is precisely why the corruption is invisible until the
+        next save attempt.
+        """
+        from verenigingen.services.csv_import.member_import_service import get_member_import_service
+        from verenigingen.utils.csv_import_processor import bulk_member_operations
+
+        member = self._create_member(
+            first_name="Stale",
+            last_name="LinkMember",
+            email="stale.link@example.com",
+        )
+
+        bogus_reference = "Schedule-Does-Not-Exist-As-A-Membership-001"
+        frappe.db.sql(
+            """
+            INSERT INTO `tabMember Payment History`
+                (name, parent, parenttype, parentfield, idx, docstatus,
+                 transaction_type, reference_doctype, reference_name)
+            VALUES (%s, %s, 'Member', 'payment_history', 1, 0,
+                    'Membership Invoice', 'Membership', %s)
+            """,
+            (frappe.generate_hash(length=10), member.name, bogus_reference),
+        )
+        frappe.db.commit()
+
+        log_marker = frappe.utils.now_datetime()
+
+        with bulk_member_operations("TEST-IMPORT"):
+            status, returned_name = get_member_import_service().create_or_update_member(
+                row_data={
+                    "row_number": 7,
+                    "first_name": "Stale",
+                    "last_name": "LinkMember",
+                    "email": "stale.link@example.com",
+                    "membership_type": "lid",
+                },
+                import_doc_name="TEST-IMPORT-001",
+            )
+
+        # Still a failure status, so every `status in ("created", "updated")`
+        # caller keeps behaving identically.
+        self.assertTrue(status.startswith("failed"), f"expected a failed status, got {status!r}")
+        self.assertNotIn("created", status)
+        self.assertNotIn("updated", status)
+        self.assertEqual(returned_name, member.name)
+
+        # The reason the operator needs is now in the status itself.
+        self.assertIn(bogus_reference, status)
+
+        # ...and an Error Log row carries the traceback. Assert the specific
+        # title — a bare count would be satisfied by any unrelated Error Log.
+        titles = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", log_marker]},
+            pluck="error",
+            limit=50,
+        )
+        self.assertTrue(
+            any("CSV Import Update Validation Error Row 7" in (t or "") for t in titles)
+            or frappe.db.exists(
+                "Error Log", {"method": ["like", "%CSV Import Update Validation Error Row 7%"]}
+            ),
+            "expected an Error Log titled 'CSV Import Update Validation Error Row 7'",
+        )
+
+    def test_failure_status_truncates_long_reasons(self):
+        """The reason is capped so it cannot bloat the status or the event field."""
+        from verenigingen.services.csv_import.member_import_service import (
+            _FAILURE_REASON_MAX_LENGTH,
+            _failure_status,
+        )
+
+        status = _failure_status(Exception("x" * 5000))
+
+        self.assertTrue(status.startswith("failed: "))
+        self.assertEqual(len(status) - len("failed: "), _FAILURE_REASON_MAX_LENGTH)
+
+    def test_failure_status_collapses_newlines(self):
+        """Keeps the status single-line for both the log and the sync-event field."""
+        from verenigingen.services.csv_import.member_import_service import _failure_status
+
+        self.assertEqual(
+            _failure_status(Exception("line one\nline  two\n\tline three")),
+            "failed: line one line two line three",
+        )
+
+    def test_failure_status_without_a_message_stays_bare(self):
+        from verenigingen.services.csv_import.member_import_service import _failure_status
+
+        self.assertEqual(_failure_status(Exception()), "failed")
 
     def test_singleton_service_instance(self):
         """Test that get_member_import_service returns singleton."""

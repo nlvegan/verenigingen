@@ -7,14 +7,15 @@ checksum-based polling pipeline.
 """
 
 import hashlib
-import logging
 import re
 
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.document_import")
+from verenigingen.utils.service_logger import get_service_logger
+
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="document_import")
 
 
 class DocumentImportService:

@@ -10,7 +10,6 @@ existing-member-or-conflict lookup. It calls peer services
 directly via their ``get_xxx_service()`` accessors.
 """
 
-import logging
 from typing import Optional
 
 import frappe
@@ -29,8 +28,9 @@ from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_servic
     get_volunteer_sync_service,
 )
 from verenigingen.mijnrood_sync.utils import safe_json_load
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.member_sync")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.member_sync")
 
 
 class MijnRoodMemberSyncService:
@@ -126,6 +126,21 @@ class MijnRoodMemberSyncService:
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
+    def _describe_member_id_change(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Return a message when applying this event will renumber the member.
+
+        Returns None when member_id is absent from the row or already matches.
+        """
+        incoming = row_data.get("member_id")
+        if not incoming:
+            return None
+
+        current = frappe.db.get_value("Member", member_name, "member_id")
+        if not current or str(current) == str(incoming):
+            return None
+
+        return _("Member number changed from {0} to {1}").format(current, incoming)
+
     def apply_changed_member(self, event) -> dict:
         """Update existing Member fields from MijnRood admin_member data.
 
@@ -172,6 +187,15 @@ class MijnRoodMemberSyncService:
         messages = []
         if chapter_result:
             messages.append(chapter_result)
+
+        # MijnRood renumbers a person when an application is approved (applicant
+        # series → member series), so member_id legitimately changes — but the
+        # event's changed_fields never mentions it, because MijnRood's own row id
+        # did not change. Report it so the renumber is visible in the applied
+        # message rather than happening silently.
+        member_id_change = self._describe_member_id_change(member_name, row_data)
+        if member_id_change:
+            messages.append(member_id_change)
 
         # Role-only events (e.g. synthetic division contact changes) carry only
         # managed_division_ids / roles — no mappable member fields. Skip the

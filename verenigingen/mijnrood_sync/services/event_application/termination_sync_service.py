@@ -10,7 +10,6 @@ status, it creates a Membership Termination Request and delegates
 execution to TerminationExecutionService.
 """
 
-import logging
 from typing import Optional
 
 import frappe
@@ -23,8 +22,9 @@ from verenigingen.mijnrood_sync.field_mapping import (
     get_termination_type_map,
 )
 from verenigingen.mijnrood_sync.utils import safe_int
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.termination_sync")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.termination_sync")
 
 
 class MijnRoodTerminationSyncService:

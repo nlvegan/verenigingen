@@ -11,7 +11,6 @@ helpers, but writes nothing.
 """
 
 import json
-import logging
 from typing import Any, Optional
 
 import frappe
@@ -22,8 +21,9 @@ from verenigingen.mijnrood_sync.field_mapping import (
     get_verenigingen_membership_type_for_status_id,
 )
 from verenigingen.mijnrood_sync.utils import safe_int
+from verenigingen.utils.service_logger import get_service_logger
 
-logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.mapping")
+logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.mapping")
 
 
 def extract_email(value: Any) -> Optional[str]:
