@@ -1911,6 +1911,15 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     "last_name": "User",
                     "enabled": 1,
                     "new_password": password,
+                    # The User DocType defaults send_welcome_email to 1, so the insert
+                    # calls send_welcome_mail_to_user(), which raises OutgoingEmailError
+                    # on a test site with no outgoing account and logs "Unable to send new
+                    # password notification" (frappe user.py:472-490). Note the mail is
+                    # gated on send_welcome_email alone -- new_password above is not what
+                    # triggers it. That Error Log is pure noise, and it fails every test
+                    # creating a user under VERENIGINGEN_FAIL_ON_ERROR_LOG=1. The
+                    # enhanced_test_factory helper already opts out; this matches it.
+                    "send_welcome_email": 0,
                 }
             )
             user.insert(ignore_permissions=True)

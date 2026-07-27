@@ -50,6 +50,7 @@ from verenigingen.utils.error_handling import (
     ConfigurationError,
     sanitize_audit_details,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 _impersonation_stack = threading.local()
 
@@ -951,6 +952,16 @@ def secure_document_operation(
                 f"Insufficient permissions for {operation} on {doc.doctype}:{getattr(doc, 'name', 'new')} "
                 f"and system user fallback not allowed"
             )
+
+    except NON_RESUMABLE_DB_ERRORS:
+        # Do not convert a broken transaction into success=False. Callers treat that
+        # as "this one document did not save" and carry on with the rest of their
+        # unit of work -- but after a deadlock there is no transaction left to carry
+        # on in, so everything they do next silently operates on discarded state.
+        # Note this must come BEFORE the generic handler below: that handler's own
+        # add_audit_entry/frappe.log_error are writes, issued on exactly the
+        # transaction the server has already thrown away.
+        raise
 
     except Exception as e:
         # Capture full traceback for debugging

@@ -23,6 +23,7 @@ proves the service correctly validates invoice existence without requiring full 
 """
 
 import unittest
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
@@ -271,27 +272,73 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.track_doc("User", user.name)
         return user.name
 
-    def _grant_payment_entry_create(self, role):
-        """Grant Payment Entry read+create (but NOT submit) to ``role`` via a
-        Custom DocPerm, so the user clears the CREATE gate yet still trips the
-        SUBMIT gate. Transaction-scoped; rolls back with the test."""
+    @contextmanager
+    def _payment_entry_create_granted(self, role):
+        """Grant Payment Entry read+create (but NOT submit) to ``role`` via a Custom
+        DocPerm, and serve ``frappe.get_meta("Payment Entry")`` from a Meta built right
+        here for the duration. Transaction-scoped; the grant rolls back with the test.
+
+        Grant and pin are one context manager on purpose: the pin, and the three
+        assertions that prove the grant landed, all live in ``__enter__``. Split across a
+        plain helper plus a returned context manager, a caller who ignored the return
+        value would silently get neither, with nothing to warn them.
+
+        WHY: the grant is an *uncommitted* Custom DocPerm row, but
+        ``frappe.has_permission`` resolves role rows off
+        ``frappe.get_meta("Payment Entry")`` (frappe/permissions.py:130), which is
+        served from ``frappe.client_cache`` -- a process-shared, redis-backed,
+        asynchronously-invalidated cache this test does not own. Any rebuild of that
+        entry can legitimately drop the grant:
+
+          * ``Meta.set_custom_permissions()`` discards *every* Custom DocPerm outright
+            while ``frappe.flags.in_patch``/``in_install`` is set
+            (frappe/model/meta.py:627-638), falling back to the two shipped
+            DocPerms (Accounts User / Accounts Manager); and
+          * a rebuild driven from any other process only ever sees committed rows.
+
+        Either way the CREATE gate then refuses a permission this test just granted,
+        so the assertion sees the create message instead of the submit one -- the
+        ~50% flake on CI shard 10. The previous approach (global ``frappe.clear_cache()``
+        + eager ``get_meta(cached=False)``) *raced* that cache rather than owning the
+        state, so it could not close the window; it also published this test's
+        uncommitted permissions into shared redis and wiped every other doctype's meta
+        for the rest of the shard.
+
+        Pinning removes the race without weakening what is under test:
+        ``frappe.has_permission`` still runs for real and still evaluates these real
+        Custom DocPerm rows against the user's real roles. Only the nondeterministic
+        cache round-trip is bypassed. Patching ``frappe.get_meta`` (the cache layer) is
+        sanctioned; patching ``frappe.has_permission`` (the security boundary itself)
+        is not -- see scripts/validation/test_quality_enforcer.py.
+        """
+        from frappe.model.meta import load_meta
         from frappe.permissions import add_permission, update_permission_property
 
         add_permission("Payment Entry", role, 0)  # sets read=1
         update_permission_property("Payment Entry", role, 0, "create", 1)
 
-        # has_permission() reads role rows off the *cached* Payment Entry meta and
-        # memoises the result in the request-local role_permissions map. Rebuild the
-        # meta from the current (uncommitted) Custom DocPerm so that when the caller
-        # switches to the restricted user via frappe.set_user() -- which clears
-        # role_permissions/local cache -- the service's fresh permission check sees
-        # this grant. This is defensive: add_permission/update_permission_property
-        # already clear_cache(doctype="Payment Entry"); we rebuild eagerly so the
-        # grant is materialised in the meta cache before the service reads it.
-        frappe.clear_cache()
-        if hasattr(frappe.local, "role_permissions"):
-            frappe.local.role_permissions = {}
-        frappe.get_meta("Payment Entry", cached=False)
+        # load_meta() builds without reading or writing the shared cache, so the
+        # dependency is severed in both directions.
+        meta = load_meta("Payment Entry")
+
+        # Assert the grant actually materialised. Checked against the object we
+        # control rather than a shared cache, so this cannot flake -- and it turns a
+        # broken grant into an immediate, explicit failure instead of a confusing
+        # wrong-gate assertion further down.
+        granted = [p for p in meta.permissions if p.role == role]
+        self.assertEqual(len(granted), 1, f"expected exactly one Custom DocPerm row for {role}")
+        self.assertTrue(granted[0].get("create"), "grant should give CREATE")
+        self.assertFalse(granted[0].get("submit"), "grant must NOT give SUBMIT")
+
+        real_get_meta = frappe.get_meta
+
+        def pinned_get_meta(doctype, *args, **kwargs):
+            if doctype == "Payment Entry":
+                return meta
+            return real_get_meta(doctype, *args, **kwargs)
+
+        with patch("frappe.get_meta", pinned_get_meta):
+            yield
 
     def test_create_permission_denied_raises_permission_error(self):
         """A user lacking Payment Entry CREATE is refused at the create gate
@@ -327,31 +374,24 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         any DB write. Having create isolates the failure to the submit gate."""
         invoice = self._create_test_invoice(amount=Decimal("45.00"))
         role = self._make_deskless_role_without_perms()
-        self._grant_payment_entry_create(role)
         restricted_user = self._make_user_with_roles([role])
 
-        # No pre-check guard here on purpose. A guard like
-        # ``assertTrue(has_permission("Payment Entry", "create", user))`` reads the
-        # permission through the *request-local* role_permissions/meta cache of the
-        # CURRENT (Administrator) context. In a shared-process parallel shard that
-        # pre-set_user cache layer can hold a stale "no create" answer for the fresh
-        # grant, making the guard flake even though the grant is correct in the DB
-        # (an order-dependent failure seen only on some shard compositions). The guard
-        # is also redundant: ``frappe.set_user`` below clears role_permissions/cache,
-        # so the service resolves permissions fresh, and the submit-gate message
-        # asserted at the end can ONLY be reached if the user genuinely HAS create and
-        # LACKS submit. The message assertion therefore proves what the guard checked.
-        frappe.set_user(restricted_user)
-        with self.assertRaises(frappe.PermissionError) as ctx:
-            payment_entry_service.create_payment_entry_from_invoice(
-                invoice_name=invoice.name,
-                amount=Decimal("45.00"),
-                posting_date=date.today(),
-                reference_no="PERM-SUBMIT",
-                reference_date=date.today(),
-                mode_of_payment="SEPA Direct Debit",
-                allow_draft_on_permission_failure=False,  # strict mode
-            )
+        # The grant is verified on entry to the context manager, against the Meta object
+        # the permission check will actually read. An earlier revision dropped that guard
+        # because reading it back through the shared meta cache was itself flaky; pinning
+        # makes the check deterministic, so it is worth having again.
+        with self._payment_entry_create_granted(role):
+            frappe.set_user(restricted_user)
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                payment_entry_service.create_payment_entry_from_invoice(
+                    invoice_name=invoice.name,
+                    amount=Decimal("45.00"),
+                    posting_date=date.today(),
+                    reference_no="PERM-SUBMIT",
+                    reference_date=date.today(),
+                    mode_of_payment="SEPA Direct Debit",
+                    allow_draft_on_permission_failure=False,  # strict mode
+                )
         # Exact literal from :148 — distinguishes the SUBMIT gate from the CREATE gate.
         self.assertIn("Insufficient permissions to submit payment entry", str(ctx.exception))
 

@@ -75,7 +75,16 @@ class ChapterBoardMember(Document):
             if save_result.success:
                 frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
             else:
-                frappe.log_error(f"Could not assign board member role to user {user}: Permission denied")
+                # Report what actually failed. This branch used to hardcode "Permission
+                # denied", which was wrong for every non-permission failure that
+                # secure_document_operation turns into success=False -- and it is the only
+                # record of the failure, since the exception itself is not re-raised.
+                # (Transaction-fatal DB errors no longer reach here at all; those
+                # propagate out of secure_document_operation.)
+                frappe.log_error(
+                    f"Could not assign board member role to user {user}: "
+                    f"{'; '.join(save_result.errors) or 'no reason reported'}"
+                )
 
     def remove_board_member_role(self):
         """Remove Chapter Board Member role if user is no longer on any board"""

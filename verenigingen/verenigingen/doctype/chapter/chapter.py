@@ -81,6 +81,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Import managers and validators
 from .managers import BoardManager, CommunicationManager, MemberManager, VolunteerIntegrationManager
@@ -190,6 +191,12 @@ class Chapter(Document):
         """Execute manager operation safely with proper error handling"""
         try:
             operation_func()
+        except NON_RESUMABLE_DB_ERRORS:
+            # "Don't block the save" is the right default for a manager operation that
+            # failed on its own merits. It is the wrong default when the transaction the
+            # save lives in is already broken -- log_error() below would itself be a write
+            # on that transaction, and the save would go on to report success. Propagate.
+            raise
         except Exception as e:
             error_context = {"chapter": self.name, "operation": operation_name}
             log_error(e, context=error_context, module="verenigingen.doctype.chapter")
