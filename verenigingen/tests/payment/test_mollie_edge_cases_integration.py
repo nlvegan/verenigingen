@@ -23,7 +23,7 @@ from verenigingen.verenigingen_payments.dashboards.financial_dashboard import Fi
 from verenigingen.verenigingen_payments.core.security.mollie_security_manager import MollieSecurityManager
 
 
-def _enable_mollie_backend_api():
+def _setup_mollie_backend_api():
     """Enable the Mollie Backend API on the Mollie Settings Single.
 
     The backend-API clients (Settlements/Balances/Chargebacks/Invoices) refuse
@@ -62,7 +62,7 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
         # FinancialDashboard() below constructs the backend-API clients, which
         # refuse to build unless the backend API is enabled. Enable it before
         # construction (clients are mocked afterwards, so no real call is made).
-        _enable_mollie_backend_api()
+        _setup_mollie_backend_api()
         self.factory = MollieApiDataFactory(seed=100)
 
         # Set up dashboard with mocked components
@@ -266,9 +266,14 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
 
     def test_security_manager_dashboard_integration(self):
         """Test integration between security manager and dashboard"""
-        # Mock encryption for dashboard data
-        sensitive_api_key = "org_test_12345_secret"
-        self.mock_settings.get_password.return_value = "webhook_secret_123"
+        # validate_webhook_signature() resolves the secret via
+        # settings.get_webhook_secret() (the test-mode-aware
+        # testing_/live_webhook_secret_key), NOT via get_password. Stubbing
+        # get_password left get_webhook_secret returning a bare Mock, which
+        # reached hmac.new() as the key and raised
+        # "TypeError: key: expected bytes or bytearray, but got 'Mock'".
+        webhook_secret = "webhook_secret_123"
+        self.mock_settings.get_webhook_secret.return_value = webhook_secret
 
         # Test webhook validation with dashboard context
         webhook_payload = self.factory.generate_webhook_payload(
@@ -279,7 +284,6 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
         import hmac
         import hashlib
 
-        webhook_secret = "webhook_secret_123"
         expected_signature = hmac.new(
             webhook_secret.encode("utf-8"), webhook_payload["payload"].encode("utf-8"), hashlib.sha256
         ).hexdigest()
@@ -487,7 +491,7 @@ class TestMollieApiParameterValidation(EnhancedTestCase):
         super().setUp()
         # SettlementsClient() construction requires the backend API to be
         # enabled; the client's HTTP calls are mocked in each test.
-        _enable_mollie_backend_api()
+        _setup_mollie_backend_api()
         self.factory = MollieApiDataFactory(seed=200)
 
     def test_api_parameter_sanitization(self):

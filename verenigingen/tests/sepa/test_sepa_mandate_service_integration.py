@@ -43,6 +43,17 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
         payments_settings.sepa_mandate_starting_counter = 1
         payments_settings.save()
 
+        # sepa_mandate_identity_service is a module-level SINGLETON that memoises
+        # settings in self._settings_cache and never re-reads them. Writing the
+        # pattern above is therefore not enough: if an earlier test in the same
+        # shard already primed the singleton with a different pattern (sibling
+        # modules test_sepa_mandate_naming / test_sepa_mandate_regression both set
+        # their own), generate_mandate_id keeps using THAT one and the
+        # startswith("MANDATE-") assertion fails. This class already cleared the
+        # cache in tearDown -- protecting the next test but not itself -- which is
+        # exactly why it passed alone locally and failed in every CI shard.
+        sepa_mandate_identity_service.clear_settings_cache()
+
     def test_complete_mandate_creation_workflow(self):
         """Test complete mandate creation workflow using all services"""
 
@@ -296,17 +307,33 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
             mandate_id = sepa_mandate_identity_service.generate_mandate_id()
             self.assertTrue(mandate_id.startswith("MANDATE-"))
 
-        # Test validation service error handling
-        mandate_doc = frappe.new_doc("SEPA Mandate")
-        mandate_doc.member = self.test_member.name
+        # Test validation service rejection paths, against the REAL iban_validator.
+        #
+        # This used to patch iban_validator.validate_iban with side_effect=Exception
+        # to reach validate_mandate_iban's generic `except` branch. That mock was
+        # dead: mandate_doc.iban was never assigned, so the service returned at its
+        # `if not mandate_doc.iban` guard and never called validate_iban at all. The
+        # assertion's `"IBAN validation error" OR "IBAN is required"` disjunction is
+        # what hid it -- the second half always matched. So the test mocked business
+        # logic (prohibited by TESTING_STANDARDS) to exercise a branch it never
+        # reached, and would not have caught a regression in either one.
+        #
+        # Both reachable rejection branches are now asserted separately, with the
+        # message pinned to the branch under test rather than to either-of-two.
+        missing_iban_doc = frappe.new_doc("SEPA Mandate")
+        missing_iban_doc.member = self.test_member.name
 
-        with patch('verenigingen.utils.validation.iban_validator.validate_iban',
-                   side_effect=Exception("IBAN service error")):
-            iban_validation = sepa_mandate_validation_service.validate_mandate_iban(mandate_doc)
-            self.assertFalse(iban_validation["is_valid"])
-            # Check for either the specific error or the general IBAN requirement error
-            error_text = str(iban_validation["errors"])
-            self.assertTrue("IBAN validation error" in error_text or "IBAN is required" in error_text)
+        missing_iban_result = sepa_mandate_validation_service.validate_mandate_iban(missing_iban_doc)
+        self.assertFalse(missing_iban_result["is_valid"])
+        self.assertIn("IBAN is required", str(missing_iban_result["errors"]))
+
+        invalid_iban_doc = frappe.new_doc("SEPA Mandate")
+        invalid_iban_doc.member = self.test_member.name
+        invalid_iban_doc.iban = "NL00BANK0123456789"  # bad check digits + unknown bank code
+
+        invalid_iban_result = sepa_mandate_validation_service.validate_mandate_iban(invalid_iban_doc)
+        self.assertFalse(invalid_iban_result["is_valid"])
+        self.assertIn("Invalid IBAN format", str(invalid_iban_result["errors"]))
 
     def test_performance_with_multiple_mandates(self):
         """Test service performance with multiple mandates"""

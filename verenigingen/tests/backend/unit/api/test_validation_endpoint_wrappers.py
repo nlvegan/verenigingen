@@ -31,6 +31,7 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.api.membership_application import (
     check_application_eligibility_endpoint,
@@ -121,6 +122,27 @@ class TestValidateBirthDate(FrappeTestCase):
     def test_empty_birth_date_returns_failure(self):
         result = validate_birth_date("")
         _assert_failure_shape(self, result)
+
+    def test_under_minimum_age_returns_failure(self):
+        """The pre-check must apply the same minimum age the save path applies.
+
+        Regression: this endpoint backs the application form's birth-date field
+        (public/js/services/validation-service.js). It used to accept any age
+        >= 0, so the form green-lit an under-16 applicant and only the later
+        Member save rejected them with "Member must be at least 16 years old".
+        """
+        ten_years_ago = add_days(getdate(today()), -365 * 10)
+        result = validate_birth_date(str(ten_years_ago))
+        _assert_failure_shape(self, result)
+        self.assertIn("at least", str(result["error"]["message"]))
+
+    def test_adult_birth_date_carries_no_consent_warning(self):
+        """Guards the fix's blast radius: adults must stay clean, not merely valid."""
+        forty_years_ago = add_days(getdate(today()), -365 * 40)
+        result = validate_birth_date(str(forty_years_ago))
+        _assert_success_shape(self, result)
+        self.assertTrue(result["data"]["valid"])
+        self.assertNotIn("warning", result["data"])
 
 
 class TestValidateName(FrappeTestCase):

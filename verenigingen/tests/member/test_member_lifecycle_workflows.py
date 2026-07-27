@@ -95,15 +95,23 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
             ),
         }
 
-    def test_member_application_to_active_transition_complete_workflow(self):
+    def test_member_creation_yields_active_member_with_customer(self):
         """
-        Test Priority 1: Complete member application workflow
+        Test Priority 1: a factory-created member is Active and linked to a Customer.
 
-        This is the most common workflow in association management.
-        If this breaks, new members cannot join.
+        RENAMED 2026-07-26 (was test_member_application_to_active_transition_...).
+        The old name promised an application -> approval -> Active transition that
+        this test never performed: it only calls the factory, which inserts a
+        member directly. It then asserted application_status in ["Approved", None]
+        and failed on the factory's actual "Pending", because the factory does not
+        set application_status at all -- the Member controller defaults it.
+
+        Not converted into a real approval test: approve_membership_application()
+        is already exercised end-to-end ~20 times in
+        tests.backend.components.test_membership_application. What is genuinely
+        unique here is the member -> Customer linkage, so that is what this now
+        pins.
         """
-        # Step 1: Create member (factory creates approved members by default)
-        # Note: Member DocType has application_status field, not separate Member Application DocType
         member = self.create_test_member(
             first_name="Jan",
             last_name="de Vries",
@@ -112,9 +120,11 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
             postal_code="1012 AB"
         )
 
-        # Verify member was created successfully
-        # Note: Factory creates members in approved state for testing convenience
-        self.assertIn(member.application_status, ["Approved", None])  # May be None if cleared after approval
+        # The factory inserts members directly rather than through the application
+        # flow, so application_status is whatever the Member controller defaults to
+        # -- "Pending". Pinned exactly: a silent change to that default is precisely
+        # the drift that left this assertion wrong and baselined.
+        self.assertEqual(member.application_status, "Pending")
         self.assertEqual(member.status, "Active")
 
         # Step 2: Verify member has proper data
@@ -390,6 +400,47 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
                 "expected_sort": "Beek, Anna ter"
             }
         ]
+
+        # update_member_full_name() only uses the tussenvoegsel field when
+        # is_dutch_installation() is True, which needs BOTH a Company whose country
+        # is "Netherlands" AND a Redis cache (1h TTL) that is not stale. This test
+        # used to assume both, and neither holds on a fresh site:
+        #   - the cached answer can predate this shard's fixtures entirely;
+        #   - _get_test_company() adopts the FIRST existing Company whatever its
+        #     country (frappe.get_all("Company", limit=1)), so on a CI site it takes
+        #     ERPNext's India-based "_Test Company" and the factory's Netherlands
+        #     company is never created.
+        # Without one, update_member_full_name() silently falls back to the legacy
+        # middle_name branch and produces "Jan Berg" instead of "Jan van der Berg".
+        # It passed locally only because test_site_1 has accumulated ~30 Netherlands
+        # companies over months of runs -- i.e. for the wrong reason.
+        #
+        # So arrange the condition rather than detecting it, unconditionally, so
+        # this runs the same path locally as in CI. The write is rolled back by the
+        # harness; the Redis cache is not, hence the explicit cleanup.
+        from verenigingen.utils.dutch_name_utils import is_dutch_installation
+
+        # is_dutch_installation() reads the DEFAULT company first and only reaches
+        # its scan-all-companies fallback if that lookup does not raise, so flip the
+        # company it will actually consult.
+        dutch_company = frappe.defaults.get_defaults().get("company")
+        if not dutch_company or not frappe.db.exists("Company", dutch_company):
+            dutch_company = frappe.get_all("Company", limit=1, pluck="name")[0]
+        original_country = frappe.db.get_value("Company", dutch_company, "country")
+
+        frappe.cache().delete_value("is_dutch_installation")
+        self.addCleanup(frappe.cache().delete_value, "is_dutch_installation")
+        self.addCleanup(
+            frappe.db.set_value, "Company", dutch_company, "country", original_country
+        )
+        frappe.db.set_value("Company", dutch_company, "country", "Netherlands")
+        frappe.cache().delete_value("is_dutch_installation")
+
+        self.assertTrue(
+            is_dutch_installation(),
+            f"Arranged {dutch_company} as a Netherlands company but is_dutch_installation() "
+            "is still False, so update_member_full_name() would ignore tussenvoegsel entirely.",
+        )
 
         for name_data in dutch_names:
             with self.subTest(name=name_data["tussenvoegsel"] + " " + name_data["last_name"]):

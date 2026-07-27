@@ -239,6 +239,32 @@ class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
         self.company = "_Test Company"
         self.clearing = _ensure_mollie_clearing_on_test_company()
 
+        # Creating the GL Account is not enough: get_clearing_account() reads
+        # Mollie Settings.mollie_clearing_account, not the Account table. On CI's
+        # fresh site that field is empty, so the processor threw "Mollie Clearing
+        # Account not configured" and this class failed in every shard. Locally it
+        # happened to be populated with ANOTHER company's account ("Mollie - EBIC"),
+        # so the local run passed while testing something other than what the
+        # helper's docstring promises -- PE company matching the invoice company.
+        # Point the setting at the account we just created on _Test Company, and
+        # restore it afterwards. The service caches settings in Redis, which
+        # survives the harness rollback, so the cache must be cleared on both ends.
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            MollieConfigurationService,
+        )
+
+        original_clearing = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self.clearing)
+        MollieConfigurationService.clear_cache()
+
+        def _restore_clearing_account():
+            frappe.db.set_single_value(
+                "Mollie Settings", "mollie_clearing_account", original_clearing or ""
+            )
+            MollieConfigurationService.clear_cache()
+
+        self.addCleanup(_restore_clearing_account)
+
         # Member + auto-created customer
         self.member = self.create_test_member(
             first_name="PE", last_name="Member", email=f"pe.{frappe.generate_hash(length=6)}@example.com"

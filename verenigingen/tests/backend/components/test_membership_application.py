@@ -18,6 +18,9 @@ from verenigingen.api.membership_application import (
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.validation.application_validators import (
+    validate_birth_date as validate_birth_date_util,
+)
 
 
 def _ensure_region(region_name: str, region_code: str) -> str:
@@ -189,19 +192,40 @@ class TestMembershipApplication(VereningingenTestCase):
         self.assertEqual(member.application_id, result["data"]["application_id"])
 
     def test_age_validation(self):
-        """Test age validation for young applicants"""
-        # Test with 10 year old
+        """An under-age applicant must be rejected by the eligibility gate.
+
+        REWRITTEN 2026-07-26. This asserted that a 10-year-old's application
+        SUCCEEDED "but age warning should be noted" -- it never asserted any
+        warning, and the product has never accepted under-16s: the minimum age
+        (Verenigingen Settings.minimum_membership_age) is enforced on save by
+        Member.validate_age_requirements. The test was simply baselined as a
+        known failure instead of being corrected.
+
+        It now also covers the gap that made the old behaviour plausible: the
+        applicant-facing pre-check (validate_birth_date) used to accept any age
+        >= 0, so the form green-lit the applicant and only the save rejected them.
+        Both paths now apply the same rule.
+        """
         young_data = self.application_data.copy()
         young_data["birth_date"] = add_days(today(), -365 * 10)
         young_data["email"] = f"young_{self.test_email}"
 
+        # The eligibility gate deliberately log_error()s the failure detail.
+        self.expectErrorLog("Application Eligibility Failed")
         result = submit_application(**young_data)
-        self.assertTrue(result["success"])
 
-        # The application should still be accepted but age warning should be noted
-        member = frappe.get_doc("Member", result["data"]["member_record"])
-        # Age calculation may vary by 1 year due to date precision
-        self.assertIn(member.age, [9, 10], f"Expected age 9 or 10, got {member.age}")
+        self.assertFalse(result["success"], "a 10-year-old must not be accepted")
+        # Message-pinned: assert the AGE rule rejected it, not some unrelated
+        # validation error that would otherwise satisfy assertFalse. OperationResult
+        # nests the detail under "error" rather than a flat "message".
+        failure_message = str(result["error"]["message"])
+        self.assertIn("at least", failure_message)
+        self.assertIn("16", failure_message)
+
+        # And the pre-check the application form calls must agree, rather than
+        # green-lighting an applicant the submission will reject.
+        precheck = validate_birth_date_util(young_data["birth_date"])
+        self.assertFalse(precheck["valid"], "pre-check must not green-light an under-age applicant")
 
     def test_chapter_suggestion(self):
         """Test automatic chapter suggestion"""

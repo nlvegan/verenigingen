@@ -422,8 +422,23 @@ class TestSEPAPerformanceIntegration(EnhancedTestCase):
 
         # 10 full document saves (each runs validation, link checks, member sync
         # and version tracking). The threshold guards against the pre-optimization
-        # N+1 explosion (1000+ queries) while allowing the real ~30 queries/save.
-        with self.assertQueryCount(400):
+        # N+1 explosion (1000+ queries).
+        #
+        # Budgeted PER SAVE rather than as one round total, so the intent stays
+        # legible and the next breach says how much each save actually costs.
+        # Measured 2026-07-26: 441 queries / 10 saves = 44.1 per save. Verified NOT
+        # an N+1 -- every query shape occurs exactly 1-4x per save (an N+1 over
+        # child rows would scale with the collection, e.g. 100x for 10 rows).
+        #
+        # The budget was 150, raised to 400 in 99b998ac, and had been outgrown
+        # again; it was baselined as a known failure rather than re-examined. The
+        # dominant avoidable cost is ~12 queries/save re-reading Verenigingen
+        # Settings: frappe.get_single() is UNCACHED, so each call reloads the
+        # Single plus its four child tables. Switching those ~15 call sites to
+        # frappe.get_cached_doc is a real win but a much wider change than this
+        # test justifies -- tracked separately, not done here.
+        max_queries_per_save = 48
+        with self.assertQueryCount(max_queries_per_save * len(members)):
             for i, member in enumerate(members):
                 mandate = frappe.new_doc("SEPA Mandate")
                 mandate.member = member.name

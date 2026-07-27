@@ -14,6 +14,11 @@ company, so in tests the single-company shortcut never fires and the resolver
 returns ``None`` -- silently leaving chapters without a cost center -- unless the
 test seeding has populated ``Verenigingen Settings.company`` with a real company.
 
+(``never sets a default company`` holds for a pristine bootstrap but NOT for every
+site: ``test_site_1`` carries ``Global Defaults.default_company='_Test Company'``.
+The stale-company test therefore blanks that field for its duration rather than
+assuming it is empty, and restores it in ``tearDown``.)
+
 This pins the behaviour of ``_seed_verenigingen_test_system_user`` (run by both
 ``before_tests`` and ``ensure_member_test_masters``): it must self-heal a STALE
 ``Verenigingen Settings.company`` (one pointing at a company a co-located test
@@ -51,11 +56,19 @@ class TestChapterCostCenterSeeding(EnhancedTestCase):
         # per-test rollback -- capture the good post-seed value and restore it in
         # tearDown so we don't bleed our deliberate corruption into later tests.
         self._orig_ver_company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        # Same treatment for the resolver's SECOND source. This test's whole
+        # premise is that a stale Verenigingen Settings.company leaves the
+        # resolver with nothing, which only holds while Global Defaults is empty
+        # too. That was assumed rather than enforced, and it is not true on every
+        # site (test_site_1 has default_company='_Test Company'), so the
+        # precondition assertion below failed for environmental reasons.
+        self._orig_global_company = frappe.db.get_single_value("Global Defaults", "default_company")
         self.svc = get_chapter_finance_service()
         self.chapter = SimpleNamespace(name="CC-Seeding-Regression-Chapter")
 
     def tearDown(self):
         frappe.db.set_single_value("Verenigingen Settings", "company", self._orig_ver_company or "")
+        frappe.db.set_single_value("Global Defaults", "default_company", self._orig_global_company or "")
         frappe.db.commit()
         super().tearDown()
 
@@ -74,13 +87,16 @@ class TestChapterCostCenterSeeding(EnhancedTestCase):
             frappe.db.exists("Company", _GHOST_COMPANY),
             "ghost company must not actually exist for this test",
         )
-        # Corrupt: point at a non-existent company.
+        # Corrupt: point at a non-existent company, and empty the Global Defaults
+        # fallback so the resolver really is left with nothing. Both are restored
+        # in tearDown.
         frappe.db.set_single_value("Verenigingen Settings", "company", _GHOST_COMPANY)
+        frappe.db.set_single_value("Global Defaults", "default_company", "")
         frappe.db.commit()
 
-        # Sanity: the corrupted state reproduces the break (the resolver's
-        # Global Defaults fallback is empty in tests, and with many companies the
-        # single-company shortcut never fires).
+        # Sanity: the corrupted state reproduces the break (both configured
+        # sources are now unusable, and with many companies the single-company
+        # shortcut never fires).
         self.assertIsNone(
             self.svc.get_validated_company(self.chapter),
             "expected the resolver to fail with a stale company + many companies",

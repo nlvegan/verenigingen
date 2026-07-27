@@ -100,7 +100,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
         return result, end_time - start_time
 
     @staticmethod
-    def _frappe_thread_worker(worker, *args):
+    def _with_frappe_thread_context(worker, *args):
         """Wrap a thread target so it runs inside its own Frappe DB context.
 
         Frappe state (frappe.local, the DB connection) is thread-local, so a
@@ -112,7 +112,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         site = frappe.local.site
 
-        def _runner():
+        def _with_admin_connection():
             frappe.init(site=site)
             frappe.connect()
             frappe.set_user("Administrator")
@@ -122,7 +122,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             finally:
                 frappe.destroy()
 
-        return _runner
+        return _with_admin_connection
 
     # ===== LARGE DATASET PERFORMANCE =====
 
@@ -378,13 +378,26 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             except Exception as e:
                 exceptions.append(f"Thread {thread_id}: {str(e)}")
 
+        # Publish the parent's pending work before spawning. Two reasons, both of
+        # which made this test unable to pass as written:
+        #   1. The workers open their OWN connections (see _with_frappe_thread_context),
+        #      so they cannot see setUpClass's uncommitted chapter row -- the link
+        #      validation on `chapter` would fail.
+        #   2. The parent transaction holds the Member naming-series row. Every
+        #      worker then blocked on it and died with
+        #      "(1205, 'Lock wait timeout exceeded')" -- 0/50 created, ~50s burned.
+        # Committing is safe here because this class cleans up explicitly
+        # (factory.cleanup() in tearDownClass + the delete loop below), rather than
+        # relying on the harness's per-test rollback.
+        frappe.db.commit()
+
         # Start concurrent threads
         threads = []
         start_time = time.time()
 
         for i in range(thread_count):
             thread = threading.Thread(
-                target=self._frappe_thread_worker(create_members_thread, i)
+                target=self._with_frappe_thread_context(create_members_thread, i)
             )
             threads.append(thread)
             thread.start()
@@ -413,12 +426,15 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             f"in {concurrent_time:.2f}s ({len(exceptions)} errors)"
         )
 
-        # Clean up
+        # Clean up. The workers COMMITTED these rows on their own connections, so
+        # the harness rollback cannot remove them and the deletes must be committed
+        # too -- otherwise a rollback would resurrect every one of them.
         for member in created_members:
             try:
                 member.delete(force=True)
             except Exception:
                 pass
+        frappe.db.commit()
 
     def test_concurrent_database_access(self):
         """Test concurrent database access patterns"""
@@ -426,6 +442,13 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         with perf_test_data(self.factory, member_count=10) as data:
             members = data["members"]
+
+            # The reader/writer threads below each open their own connection, so
+            # they cannot see these fixture rows until they are committed. Without
+            # this the test scored 0 reads / 0 writes and 13 "Member ... not found"
+            # exceptions -- it exercised nothing. Safe to commit: the factory tracks
+            # these records and tearDownClass removes them via factory.cleanup().
+            frappe.db.commit()
 
             read_results = []
             write_results = []
@@ -467,13 +490,13 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
             # Start multiple read threads
             for _ in range(3):
                 thread = threading.Thread(
-                    target=self._frappe_thread_worker(read_operations)
+                    target=self._with_frappe_thread_context(read_operations)
                 )
                 threads.append(thread)
                 thread.start()
 
             # Start write thread
-            thread = threading.Thread(target=self._frappe_thread_worker(write_operations))
+            thread = threading.Thread(target=self._with_frappe_thread_context(write_operations))
             threads.append(thread)
             thread.start()
 
@@ -594,7 +617,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
         for i in range(8):  # 8 concurrent database threads
             thread = threading.Thread(
-                target=self._frappe_thread_worker(database_operations, i)
+                target=self._with_frappe_thread_context(database_operations, i)
             )
             threads.append(thread)
             thread.start()
