@@ -336,3 +336,63 @@ class TestGetUserBoardChapters(EnhancedTestCase):
             as_plain = get_user_board_chapters(user=f"nobody-{frappe.generate_hash(length=6)}@example.com")
 
         self.assertEqual(as_plain, [])
+
+    # ------------------------------------------------------------------
+    # An empty result must mean "no chapters", never "the query broke"
+    # ------------------------------------------------------------------
+
+    def test_volunteer_with_no_board_rows_sees_no_chapters(self):
+        """The genuine empty case: a volunteer holding no Chapter Board Member row.
+
+        Pairs with the test below. Together they pin the distinction that matters:
+        [] is a real answer about access, and an infrastructure failure is not
+        allowed to imitate it.
+        """
+        email = f"bc-vol-{frappe.generate_hash(length=8)}@example.com"
+        member = self.create_test_member(
+            first_name="Vol", last_name="Chapters", email=email, birth_date="1991-01-01"
+        )
+        member.db_set("user", self._ensure_user(email, "Vol"))
+        self.create_test_volunteer(member_name=member.name)
+
+        with self.as_user(email):
+            self.assertEqual(get_user_board_chapters(), [])
+
+    def test_query_failure_propagates_instead_of_reading_as_no_access(self):
+        """A broken query must raise, not return [].
+
+        This helper is the only chapter gate for eight whitelisted read endpoints
+        (see its docstring), so returning [] on error silently reports "no access"
+        for what is actually an outage. The failure that really occurs here is a
+        MariaDB deadlock (1213) - see
+        docs/plans/2026-06-09-order-dependence-tail-handoff.md - which rolls the
+        transaction back and takes any frappe.log_error() row with it, leaving no
+        trace anywhere. It also leaves the transaction dead, so continuing to issue
+        queries against it is not meaningful.
+        """
+        from unittest.mock import patch
+
+        deadlock = Exception("(1213, 'Deadlock found when trying to get lock; try restarting transaction')")
+        real_from = frappe.qb.from_
+
+        def fail_only_the_board_query(table, *args, **kwargs):
+            """Break the board lookup and nothing else.
+
+            Failing every query would make this test pass for the wrong reason:
+            frappe.log_error() writes an Error Log row through the same builder, so
+            a blanket patch escapes from the logging call and looks like the
+            propagation being asserted here even when the error is still swallowed.
+            """
+            if getattr(table, "get_table_name", lambda: None)() == "tabChapter Board Member":
+                raise deadlock
+            return real_from(table, *args, **kwargs)
+
+        # Patches the query builder, not the permission decision: a deadlock cannot
+        # be provoked deterministically from a test, and the branch under test is
+        # exactly the one that runs when the database misbehaves.
+        with self.as_user(self.board_email):
+            with patch("frappe.qb.from_", side_effect=fail_only_the_board_query):
+                with self.assertRaises(Exception) as caught:
+                    get_user_board_chapters()
+
+        self.assertIn("1213", str(caught.exception))

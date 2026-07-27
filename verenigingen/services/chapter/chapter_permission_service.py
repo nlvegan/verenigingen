@@ -40,9 +40,15 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.service_logger import get_service_logger
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+# Module-level counterpart to BaseService.logger, for the module-level helpers
+# below that are not methods on the service. Same domain and prefix, so their
+# messages land in the same file and read the same way.
+_logger = get_service_logger("verenigingen.services", prefix="ChapterPermissionService")
 
 
 class ChapterPermissionService(StatelessService):
@@ -419,6 +425,9 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
     Returns dicts carrying at least ``chapter_name`` and ``region``; the board-member path
     additionally returns ``chapter_role``, ``from_date``, ``to_date`` and ``is_active``.
 
+    An empty list always means "no chapters", never "the lookup failed" - a database
+    error propagates rather than being reported as no access. See the except clause.
+
     Admin *and staff* roles (``Roles.ADMIN_ROLES``) short-circuit to every chapter. This is
     deliberately broader than ``get_permission_query_conditions()``, which grants all-chapter
     visibility only to ``Roles.ADMIN_PAIR`` and restricts staff to published chapters. Keep
@@ -499,6 +508,20 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
             .distinct()
         )
         return query.run(as_dict=True)
-    except Exception as e:
-        frappe.log_error(f"Error fetching board chapters for volunteer {volunteer}: {str(e)}")
-        return []
+    except Exception:
+        # Log to disk, then propagate. Returning [] here would report an outage as
+        # "no chapters", which for the endpoints listed above is the authorization
+        # answer - indistinguishable from a genuine empty result.
+        #
+        # frappe.log_error() alone is not enough: the failure that actually occurs
+        # here is a MariaDB deadlock (1213), which rolls the transaction back and
+        # takes the Error Log row with it, leaving no trace anywhere. See
+        # docs/plans/2026-06-09-order-dependence-tail-handoff.md. The service logger
+        # writes to sites/<site>/logs, which survives the rollback.
+        #
+        # Re-raising is also the only safe option after a deadlock: the transaction
+        # is already dead, so continuing to query against it is meaningless.
+        _logger.error(
+            "get_user_board_chapters failed for user %s (volunteer %s)", user, volunteer, exc_info=True
+        )
+        raise
