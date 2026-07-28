@@ -328,3 +328,166 @@ class TestRoleProfileSetup(VereningingenTestCase):
         """
         with self.assertRaises(ImportError):
             install_fixtures()
+
+
+class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
+    """
+    setup_role_profiles_cli() carries its OWN copy of the recommendation ladder
+    (an if/elif chain) instead of calling get_recommended_role_profile(). That
+    duplication is the risk this class exists for: the two ladders have already
+    drifted once (the Treasurer branch was unreachable in both, fixed
+    separately), and nothing else asserts they agree.
+
+    One CLI run covers every branch of the duplicated ladder at once, because the
+    function walks all Members that have a user. Each persona below is asserted
+    to receive the SAME profile the live get_recommended_role_profile() would
+    recommend for it.
+
+    COMMIT / ISOLATION: setup_role_profiles_cli() commits internally; every doc
+    is tracked for teardown and the test rolls back trailing writes.
+    """
+
+    def _persona(self, roles=None):
+        email = f"rp-cli-{frappe.generate_hash(length=10)}@example.com"
+        self.create_test_user(email, roles=roles or [])
+        member = self.create_test_member(user=email, chapter=False)
+        return email, member
+
+    def _ensure_role(self, role_name):
+        if not frappe.db.exists("Role", role_name):
+            role = frappe.get_doc({"doctype": "Role", "role_name": role_name})
+            role.insert(ignore_permissions=True)
+            self.track_doc("Role", role.name)
+
+    @staticmethod
+    def _assigned_profiles(email):
+        return [r.role_profile for r in frappe.get_doc("User", email).role_profiles]
+
+    def _make_team_leadership(self, volunteer_name):
+        """Put a volunteer on a team under a Team Role flagged is_team_leader."""
+        team = self.factory.create_test_team()
+        self.track_doc("Team", team.name)
+        self.factory.get_or_create_team_role("Team Leader")
+        team_doc = frappe.get_doc("Team", team.name)
+        team_doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer_name,
+                "team_role": "Team Leader",
+                "from_date": today(),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+        team_doc.save(ignore_permissions=True)
+        return team
+
+    @staticmethod
+    def _persist_role_profile(email, role_profile):
+        """Seed a role profile the way Frappe actually persists it (child table)."""
+        user = frappe.get_doc("User", email)
+        user.append("role_profiles", {"role_profile": role_profile})
+        user.save(ignore_permissions=True)
+
+    def test_cli_ladder_matches_get_recommended_role_profile_for_every_branch(self):
+        """Every branch of the CLI's inline ladder must produce the same profile
+        as get_recommended_role_profile(), and must actually persist it."""
+        self._ensure_role("Verenigingen Governance Auditor")
+
+        admin_email, _ = self._persona(roles=["System Manager"])
+        treasurer_email, _ = self._persona(roles=[Roles.VERENIGINGEN_STAFF, "Accounts User"])
+        staff_email, _ = self._persona(roles=[Roles.VERENIGINGEN_STAFF])
+        auditor_email, _ = self._persona(roles=["Verenigingen Governance Auditor"])
+        board_email, _ = self._persona(roles=[Roles.CHAPTER_BOARD_MEMBER])
+        member_email, _ = self._persona(roles=[Roles.VERENIGINGEN_MEMBER])
+
+        volunteer_email, volunteer_member = self._persona(roles=[])
+        self.create_test_volunteer(member=volunteer_member.name)
+
+        leader_email, leader_member = self._persona(roles=[])
+        leader_volunteer = self.create_test_volunteer(member=leader_member.name)
+        self._make_team_leadership(leader_volunteer.name)
+
+        expected = {
+            admin_email: "Verenigingen System Administrator",
+            treasurer_email: "Verenigingen Treasurer",
+            staff_email: "Verenigingen Staff",
+            auditor_email: "Verenigingen Auditor",
+            board_email: "Verenigingen Chapter Board Member",
+            leader_email: "Verenigingen Team Leader",
+            volunteer_email: "Verenigingen Volunteer",
+            member_email: "Verenigingen Member",
+        }
+
+        # Guard: the ladder can only assign profiles that exist as fixtures.
+        for profile in set(expected.values()):
+            self.assertTrue(
+                frappe.db.exists("Role Profile", profile), f"Missing Role Profile: {profile}"
+            )
+
+        # Parity must be measured BEFORE the run: assigning a role profile
+        # re-syncs User.roles to exactly the profile's roles, which changes what
+        # the ladder would recommend afterwards.
+        for email, profile in expected.items():
+            self.assertEqual(
+                get_recommended_role_profile(email),
+                profile,
+                f"get_recommended_role_profile disagrees with the CLI ladder for {email}",
+            )
+
+        try:
+            result = setup_role_profiles_cli()
+            self.assertTrue(result["success"])
+
+            for email, profile in expected.items():
+                self.assertIn(
+                    profile,
+                    self._assigned_profiles(email),
+                    f"CLI ladder did not assign {profile} to {email}",
+                )
+        finally:
+            frappe.db.rollback()
+
+    def test_cli_leaves_an_existing_verenigingen_profile_untouched(self):
+        """The skip branch: a member-user that already holds a Verenigingen role
+        profile must not be reassigned, even when the ladder recommends a
+        different one."""
+        email, _ = self._persona(roles=[Roles.VERENIGINGEN_MEMBER])
+        self._persist_role_profile(email, "Verenigingen Volunteer")
+        self.assertEqual(
+            frappe.db.get_value("User", email, "role_profile_name"), "Verenigingen Volunteer"
+        )
+        # The ladder would otherwise recommend a *different* profile.
+        self.assertEqual(get_recommended_role_profile(email), "Verenigingen Member")
+
+        try:
+            setup_role_profiles_cli()
+            self.assertEqual(
+                self._assigned_profiles(email),
+                ["Verenigingen Volunteer"],
+                "An existing Verenigingen profile must not be replaced or appended to",
+            )
+        finally:
+            frappe.db.rollback()
+
+    def test_module_profile_assignment_persists_nothing_even_when_the_target_exists(self):
+        """
+        Sharpens the existing dead-code test: setup_role_profiles() only enters
+        its assignment branch when the mapped Module Profile actually exists. It
+        does here -- and the write is STILL a no-op, because Role Profile has no
+        module_profile field for Frappe to persist.
+        """
+        self.assertTrue(
+            frappe.db.exists("Module Profile", "Verenigingen Member"),
+            "This test needs the mapped Module Profile to exist to reach the branch",
+        )
+        self.assertTrue(frappe.db.exists("Role Profile", "Verenigingen Member"))
+
+        try:
+            setup_role_profiles()
+            self.assertNotIn("module_profile", frappe.db.get_table_columns("Role Profile"))
+            self.assertIsNone(
+                frappe.get_doc("Role Profile", "Verenigingen Member").get("module_profile")
+            )
+        finally:
+            frappe.db.rollback()
