@@ -31,8 +31,19 @@ class ChapterRole(Document):
                     alert=True,
                 )
 
-    def after_save(self):
-        """Update chapter heads if this is a chair role"""
+    def on_update(self):
+        """Update chapter heads if this is a chair role.
+
+        on_update covers inserts as well (run_post_save_methods runs it for a new
+        draft), so this must NOT also be registered on after_insert — has_value_changed
+        returns True for a new doc, so a dual registration would run the full
+        update_chapters_with_role() path twice per newly created chair role.
+
+        NOTE: this used to live in an `after_save()` method, which Frappe never calls
+        server-side — Document.run_method() is never invoked with that name — so
+        flipping a role to chair never updated the chapters using it. (`after_save` IS
+        a real client-side form event; see chapter_role.js.)
+        """
         # Check if this is a chair role and was modified
         if self.is_chair and self.is_active and self.has_value_changed("is_chair"):
             # Find chapters using this role and update their heads

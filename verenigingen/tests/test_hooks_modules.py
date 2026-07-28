@@ -305,11 +305,25 @@ class TestDocEventHandlerResolution(unittest.TestCase):
         self.assertIn("on_cancel", handlers)
 
     def test_member_handlers_exist(self):
-        """Core Member handlers should exist."""
+        """Core Member handlers should be registered under events that fire.
+
+        This used to assert `"after_save" in handlers` — key presence only. That is
+        the exact shape that hid the dead-hook bug for so long: the key existed, the
+        assertion passed, and none of the handlers under it ever ran. So assert the
+        handler strings themselves, under an event Frappe actually dispatches.
+        """
         handlers = self.doc_events.get("Member", {})
         self.assertIn("before_save", handlers)
-        self.assertIn("after_save", handlers)
-        self.assertIn("on_update", handlers)
+
+        on_update = handlers.get("on_update", [])
+        if isinstance(on_update, str):
+            on_update = [on_update]
+        for expected in (
+            "verenigingen.utils.cache_invalidation.on_document_update",
+            "verenigingen.utils.performance_cache.on_member_update",
+            "verenigingen.services.field_sync_service.sync_fields",
+        ):
+            self.assertIn(expected, on_update)
 
     def test_payment_entry_handlers_exist(self):
         """Payment Entry handlers should exist."""
@@ -904,6 +918,159 @@ class TestCronNestingRegression(unittest.TestCase):
         self.assertFalse(
             missing,
             f"Expected cron tasks not registered in scheduler_events['cron']: {missing}",
+        )
+
+
+class TestDocEventNamesAreDispatched(unittest.TestCase):
+    """Regression: every doc_events key must name an event Frappe actually fires.
+
+    Frappe dispatches document events through Document.run_method(), which composes
+    hooks for whatever method name it is handed. An event key that no framework code
+    ever passes to run_method() is silently inert: the handler strings still resolve,
+    the app still boots, nothing errors — the code just never runs.
+
+    `after_save` is the trap. It reads like a real lifecycle event, but
+    run_post_save_methods() (frappe/model/document.py) runs `on_update` and
+    `on_change` only, and `after_save` appears nowhere in frappe's Python. Seven
+    handlers sat under it here — including every Member, Chapter Member and SEPA
+    Mandate cache invalidation — plus a dead `after_validate` on Sales Invoice.
+    Same failure shape as the cron-nesting bug pinned above: no error, no log,
+    just absence.
+
+    Use `on_update` ALONE to cover what `after_save` was intended to mean: it fires
+    on insert as well as update, so pairing it with `after_insert` double-fires.
+
+    Scope: SERVER-side document events only. `after_save` is a real CLIENT-side form
+    event (frappe/public/js/frappe/form/form.js) that this app uses in several .js
+    files — those are unaffected.
+    """
+
+    # Event names Frappe passes to Document.run_method() / run_trigger().
+    # Derived from `grep -rn 'run_method("[a-z_]*"' apps/frappe/frappe/` on
+    # frappe 16.19.0, filtered to document-lifecycle events (login/session and
+    # serialisation triggers from that grep are not doc_events keys).
+    # If Frappe adds a lifecycle event, verify it against the framework source
+    # before adding it here — that verification is the point of this gate.
+    DISPATCHED_DOC_EVENTS = frozenset(
+        {
+            "after_delete",
+            "after_insert",
+            "after_rename",
+            "autoname",
+            "before_cancel",
+            "before_change",
+            "before_discard",
+            "before_insert",
+            "before_naming",
+            "before_print",
+            "before_rename",
+            "before_save",
+            "before_submit",
+            "before_update_after_submit",
+            "before_validate",
+            "on_cancel",
+            "on_change",
+            "on_discard",
+            "on_submit",
+            "on_trash",
+            "on_update",
+            "on_update_after_submit",
+            "validate",
+            # Dispatched from outside frappe/model/document.py — all reachable as
+            # doc_events keys, so excluding them would cause false failures:
+            "onload",  # frappe/desk/form/load.py
+            "on_recurring",  # frappe/automation/doctype/auto_repeat/auto_repeat.py
+            "before_mapping",  # frappe/model/mapper.py
+            "after_mapping",  # frappe/model/mapper.py
+            "before_import",  # frappe/modules/import_file.py
+            "before_export",  # frappe/modules/export_file.py
+            "before_reload",  # frappe/model/delete_doc.py
+            "validate_share",  # frappe/core/doctype/docshare/docshare.py
+            "notify_communication",  # frappe/core/doctype/communication/communication.py
+            "handle_hold_time",  # frappe/core/doctype/communication/communication.py
+            "before_test_insert",  # frappe/tests/utils/generators.py
+        }
+    )
+
+    def test_every_doc_event_key_is_dispatched_by_frappe(self):
+        """No doc_events key may name an event the framework never fires."""
+        doc_events = load_hooks_submodule("doc_events").doc_events
+
+        inert = []
+        for doctype, events in doc_events.items():
+            for event_name, handlers in events.items():
+                if event_name in self.DISPATCHED_DOC_EVENTS:
+                    continue
+                if isinstance(handlers, str):
+                    handlers = [handlers]
+                for handler in handlers:
+                    inert.append(f"{doctype}.{event_name}: {handler}")
+
+        self.assertEqual(
+            [],
+            inert,
+            "These handlers are registered under an event Frappe never dispatches, "
+            "so they never run:\n  " + "\n  ".join(inert),
+        )
+
+    def test_no_handler_is_registered_on_both_after_insert_and_on_update(self):
+        """A handler under both events runs TWICE on every insert.
+
+        `insert()` calls run_post_save_methods(), which runs `on_update` because
+        _action is "save" for a new draft — so on_update already covers inserts. Its
+        docstring says it executes "before_insert, validate, on_update, after_insert".
+        Registering the same handler under after_insert as well therefore double-fires
+        it on creation: duplicated cache work and DB round-trips at best, and at worst
+        a second pass through a rate-limited, audit-logged @high_security_api call.
+
+        Use on_update ALONE for run-on-every-save handlers, and reserve after_insert
+        for genuinely insert-only work.
+        """
+        doc_events = load_hooks_submodule("doc_events").doc_events
+
+        def as_list(handlers):
+            return [handlers] if isinstance(handlers, str) else list(handlers)
+
+        doubled = []
+        for doctype, events in doc_events.items():
+            after_insert = set(as_list(events.get("after_insert", [])))
+            on_update = set(as_list(events.get("on_update", [])))
+            for handler in sorted(after_insert & on_update):
+                doubled.append(f"{doctype}: {handler}")
+
+        self.assertEqual(
+            [],
+            doubled,
+            "These handlers are registered under BOTH after_insert and on_update, so "
+            "they run twice on every insert. Drop the after_insert entry:\n  " + "\n  ".join(doubled),
+        )
+
+    def test_frappe_still_does_not_dispatch_after_save_or_after_validate(self):
+        """Verify the premise against the framework, not against our own frozenset.
+
+        Asserting "after_save" is absent from DISPATCHED_DOC_EVENTS would just be
+        re-reading a literal defined above. This inspects frappe itself, so it starts
+        failing if a future frappe version introduces either event — at which point
+        the allowlist and the surrounding comments need revisiting.
+        """
+        import inspect as _inspect
+
+        from frappe.model.document import Document
+
+        for name in ("after_save", "after_validate"):
+            with self.subTest(event=name):
+                self.assertFalse(
+                    hasattr(Document, name),
+                    f"frappe.model.document.Document now defines {name}() — the "
+                    "premise of this gate has changed.",
+                )
+
+        post_save_source = _inspect.getsource(Document.run_post_save_methods)
+        self.assertIn("on_update", post_save_source)
+        self.assertNotIn(
+            "after_save",
+            post_save_source,
+            "run_post_save_methods() now references after_save — re-verify the gate.",
         )
 
 

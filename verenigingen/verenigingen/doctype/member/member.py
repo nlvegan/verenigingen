@@ -60,7 +60,6 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
-    development_only_api,
     high_security_api,
     standard_api,
 )
@@ -277,19 +276,28 @@ class Member(
 
         return get_member_status_color(status)
 
-    @frappe.whitelist()
-    @development_only_api(operation_type=OperationType.UTILITY)
-    def after_save(self) -> None:
-        """Execute after saving the document"""
-        # Note: IBAN history creation is handled in two ways:
-        # 1. For application members: During application approval in membership_application_review.py
-        # 2. For directly created members: Should be created manually after member creation
+    # NOTE: an `after_save()` method here used to call create_user_account_if_needed()
+    # for manually created members. Frappe's Document.run_method() is never invoked with
+    # "after_save" (this is about the SERVER side only — `after_save` IS a real
+    # client-side form event, see member.js), so it never ran — and it must NOT simply
+    # be rewired to on_update/after_insert. It creates the User immediately, bypassing
+    # the Account Creation Request queue that now owns account provisioning
+    # (see services/member/account/account_creation_api.py and volunteer.py:285).
+    # Reviving it reintroduces the immediate-creation path the ACR pipeline replaced;
+    # tests/member/test_account_creation_pipeline.py asserts users go through the queue.
+    #
+    # The @frappe.whitelist()/@development_only_api decorators that sat on that method
+    # were removed with it. They must NOT be left dangling above the method below:
+    # Python binds decorators to the next `def` regardless of intervening comments, which
+    # would turn create_user_account_if_needed into a callable endpoint that provisions a
+    # User directly — precisely the ACR bypass this change exists to prevent.
+    #
+    # create_user_account_if_needed() is consequently unreferenced and is a removal
+    # candidate once the ACR migration is confirmed complete.
 
-        # Create user account for manually created members (non-application members)
-        # Application members get user accounts created during the approval process
-        if not self.is_application_member() and not self.user and self.email:
-            # Only create user account if member doesn't have one and has an email
-            self.create_user_account_if_needed()
+    # Note: IBAN history creation is handled in two ways:
+    # 1. For application members: During application approval in membership_application_review.py
+    # 2. For directly created members: Should be created manually after member creation
 
     def create_user_account_if_needed(self):
         """
