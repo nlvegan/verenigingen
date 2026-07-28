@@ -17,10 +17,38 @@ engine makes:
 Mocking policy
 --------------
 Only the four Mollie API *clients* are replaced - they are the external HTTP
-boundary. Every arithmetic decision, threshold comparison, status derivation and
-database write below runs the real production code. The client stand-ins return
+boundary. Arithmetic decisions, threshold comparisons, status derivation and
+database writes below run the real production code. The client stand-ins return
 real ``Balance`` / ``Settlement`` / ``Invoice`` model objects built from Mollie's
 documented JSON shape, so the model layer runs for real too.
+
+IMPORTANT CAVEAT - the balances path is NOT reachable in production
+------------------------------------------------------------------
+``_reconcile_balances`` calls ``balances_client.reconcile_balance(...)``
+(reconciliation_engine.py:166) and ``balances_client.check_balance_health()``
+(:192). **Neither method exists on the real ``BalancesClient``** - the nearest real
+method is ``reconcile_balance_transactions`` - and ``MollieBaseClient`` defines no
+``__getattr__``. So in production ``_reconcile_balances()`` raises ``AttributeError``
+and the run reports ``failed`` every single time, even with zero balances (line 192
+runs unconditionally).
+
+Bare ``Mock()`` answers those phantom calls, which is why the balance-aggregation
+tests here pass. They pin arithmetic that only becomes reachable once the client
+bug is fixed - treat them as specifications, not as proof the path works today.
+The bug itself is pinned against a REAL client by
+``test_mollie_financial_dashboard_reconciliation.TestBalancesClientContract``.
+
+Affected (testing a currently-unreachable branch): ``TestBalanceAggregation`` in
+full, plus ``test_clean_run_is_completed``,
+``test_each_run_gets_its_own_reconciliation_id_and_timing``,
+``test_run_state_is_reset_between_runs``,
+``test_reconciliation_details_serialise_decimal_totals_without_raising`` and
+``test_component_error_marks_the_run_failed_and_does_not_abort_other_components``.
+
+Once ``BalancesClient`` gains the missing methods, switch these stand-ins to
+``unittest.mock.create_autospec(BalancesClient, instance=True)`` so a future phantom
+method fails loudly instead of being silently answered. Every other stubbed method
+on the four clients was verified to exist.
 """
 
 import json
@@ -41,12 +69,19 @@ from verenigingen.verenigingen_payments.workflows.reconciliation_engine import (
 )
 
 
-def setup_mollie_backend_api():
+def setup_mollie_backend_api(test_case=None):
     """Enable the Mollie backend API so the API clients will construct.
 
     ``BalancesClient`` & friends refuse to build unless ``enable_backend_api`` is
     set and an organization access token is present. The token is a dummy: every
     client is replaced with a stand-in before any request could be made.
+
+    Pass the TestCase so the Redis config cache is cleared again on teardown.
+    MollieConfigurationService caches in Redis for CACHE_TTL_SECONDS (300), and that
+    cache is NOT rolled back with the test transaction — without the cleanup the DB
+    says enable_backend_api=0 while the cache says 1 for five minutes, so anything
+    calling is_backend_api_enabled() in that window (including
+    run_scheduled_reconciliation) sees stale config.
     """
     settings = frappe.get_single("Mollie Settings")
     settings.enable_backend_api = 1
@@ -58,6 +93,8 @@ def setup_mollie_backend_api():
     from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
     get_mollie_config().clear_cache()
+    if test_case is not None:
+        test_case.addCleanup(lambda: get_mollie_config().clear_cache())
 
 
 def build_balance(currency="EUR", available="0.00", pending="0.00", balance_id="bal_test"):
@@ -129,7 +166,7 @@ class ReconciliationEngineTestBase(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        setup_mollie_backend_api()
+        setup_mollie_backend_api(self)
 
         self.engine = ReconciliationEngine()
 
@@ -149,9 +186,12 @@ class ReconciliationEngineTestBase(VereningingenTestCase):
         self.engine.chargebacks_client.calculate_financial_impact.return_value = {"net_loss": 0}
         self.engine.chargebacks_client.analyze_chargeback_trends.return_value = {}
 
-        # The engine writes an Error Log on every run because it cannot persist
-        # its own log record (see test_engine_status_values_are_valid_log_options).
-        self.expectErrorLog("Reconciliation Engine")
+        # The engine writes an Error Log on every run because it cannot persist its
+        # own log record (see test_engine_status_values_are_valid_log_options). The
+        # title Frappe actually records is the secure-operation wrapper's, NOT
+        # "Reconciliation Engine" — matching the wrong title made this guard a no-op,
+        # so these tests failed under VERENIGINGEN_FAIL_ON_ERROR_LOG=1.
+        self.expectErrorLog("Mollie Reconciliation Log")
 
     def given_settlements(self, *pairs):
         """Register settlements as (settlement_id, actual_amount, calculated_total)."""
@@ -564,7 +604,7 @@ class TestReconciliationHistoryAndTrends(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        setup_mollie_backend_api()
+        setup_mollie_backend_api(self)
         self.engine = ReconciliationEngine()
         # Isolate from any rows a previous run left behind; the surrounding test
         # transaction is rolled back afterwards.
@@ -694,6 +734,19 @@ class TestBulkImportValidation(ReconciliationEngineTestBase):
     def setUp(self):
         super().setUp()
         self.bank_account = self._ensure_bank_account()
+
+        # _validate_bulk_imports() queries EVERY "Mollie Bulk Import" MT940 Import
+        # created site-wide in the last 7 days, so the success-rate assertions below
+        # (which cannot filter to this test's own rows) are sensitive to leftovers
+        # from another test or shard. Clear the window inside the test transaction —
+        # the same approach TestReconciliationHistoryAndTrends.setUp uses.
+        frappe.db.delete(
+            "MT940 Import",
+            {
+                "import_type": "Mollie Bulk Import",
+                "creation": (">=", add_days(getdate(), -7)),
+            },
+        )
 
     def _ensure_bank_account(self):
         bank_name = "TEST Mollie Recon Bank"

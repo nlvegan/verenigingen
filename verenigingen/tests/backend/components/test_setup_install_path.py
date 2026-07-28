@@ -39,8 +39,7 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
             (dt, f["fieldname"], f.get("options"))
             for dt, fields in self.custom_fields.items()
             for f in fields
-            if f.get("fieldtype") == "Link"
-            and not frappe.db.exists("DocType", f.get("options"))
+            if f.get("fieldtype") == "Link" and not frappe.db.exists("DocType", f.get("options"))
         ]
         self.assertEqual(broken, [], f"Link custom fields pointing at missing DocTypes: {broken}")
 
@@ -77,9 +76,7 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
         present on the live Membership meta.
         """
         seed = next(
-            f
-            for f in self.custom_fields["Membership"]
-            if f["fieldname"] == "procurios_membership_id"
+            f for f in self.custom_fields["Membership"] if f["fieldname"] == "procurios_membership_id"
         )
         self.assertEqual(seed["fieldtype"], "Data")
         self.assertEqual(seed["read_only"], 1)
@@ -88,9 +85,7 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
         self.assertEqual(seed["insert_after"], "amended_from")
 
         df = frappe.get_meta("Membership").get_field("procurios_membership_id")
-        self.assertIsNotNone(
-            df, "A fresh site must get procurios_membership_id without the patch running"
-        )
+        self.assertIsNotNone(df, "A fresh site must get procurios_membership_id without the patch running")
         self.assertEqual(df.fieldtype, "Data")
         self.assertEqual(df.search_index, 1)
 
@@ -104,9 +99,7 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
             for f in fields
             if f["fieldname"] == "btw_exemption_type"
         }
-        self.assertEqual(
-            set(option_sets), {"Sales Invoice", "Membership", "Donation"}
-        )
+        self.assertEqual(set(option_sets), {"Sales Invoice", "Membership", "Donation"})
         self.assertEqual(len(set(option_sets.values())), 1, f"BTW options diverged: {option_sets}")
         codes = [c for c in next(iter(option_sets.values())).split("\n") if c]
         self.assertIn("EXEMPT_MEMBERSHIP", codes)
@@ -116,17 +109,13 @@ class TestCustomFieldsAreInstallable(FrappeTestCase):
         """A default that is not in the Select options renders as an invalid
         value on every new document."""
         for dt in ("Membership", "Donation"):
-            field = next(
-                f for f in self.custom_fields[dt] if f["fieldname"] == "btw_exemption_type"
-            )
+            field = next(f for f in self.custom_fields[dt] if f["fieldname"] == "btw_exemption_type")
             self.assertIn(field["default"], field["options"].split("\n"))
 
     def test_donation_key_is_conditional_on_the_doctype(self):
         """The Donation entry is only added when the DocType exists, so the dict
         stays installable on a site without the donation module."""
-        self.assertEqual(
-            "Donation" in self.custom_fields, bool(frappe.db.exists("DocType", "Donation"))
-        )
+        self.assertEqual("Donation" in self.custom_fields, bool(frappe.db.exists("DocType", "Donation")))
 
 
 class TestExecuteAfterInstallAborts(FrappeTestCase):
@@ -146,8 +135,7 @@ class TestExecuteAfterInstallAborts(FrappeTestCase):
     def test_domain_record_is_not_shipped(self):
         self.assertFalse(
             frappe.db.exists("Domain", "Verenigingen"),
-            "If the Domain record now exists the upstream bug was fixed - update "
-            "these tests",
+            "If the Domain record now exists the upstream bug was fixed - update " "these tests",
         )
 
     def test_setup_verenigingen_raises_without_the_domain_record(self):
@@ -156,15 +144,51 @@ class TestExecuteAfterInstallAborts(FrappeTestCase):
 
     def test_execute_after_install_swallows_the_failure(self):
         """It must not propagate (that would abort `bench install-app`), but it
-        also reports nothing to the caller - hence the silent half-install."""
-        self.assertIsNone(setup_mod.execute_after_install())
+        also reports nothing to the caller - hence the silent half-install.
+
+        Asserts an OBSERVABLE post-condition, not the return value: an earlier
+        version did `assertIsNone(execute_after_install())`, which cannot fail
+        because the function has no `return <value>` on any path. It was also
+        non-deterministic — `execute_after_install` early-returns when
+        `_is_initial_setup_complete()`, so on a seeded site it was a pure no-op
+        that still went green.
+        """
+        if setup_mod._is_initial_setup_complete():
+            self.skipTest("setup already marked complete on this site; the abort path is unreachable")
+
+        setup_mod.execute_after_install()
+
+        # It aborted on the Domain step, so it never reached
+        # _mark_initial_setup_complete() at the end of the sequence.
+        self.assertFalse(
+            setup_mod._is_initial_setup_complete(),
+            "execute_after_install() completed despite the Domain abort - the "
+            "silent half-install this test documents no longer happens, so "
+            "re-verify the rest of this class.",
+        )
 
     def test_run_complete_setup_reports_success_despite_the_abort(self):
         """The whitelisted wrapper only sees "no exception" and reports success,
         so an operator re-running setup gets a green result for a run that
-        stopped at step four."""
+        stopped at step four.
+
+        `assertTrue(result["success"])` alone would be a test of a literal —
+        run_complete_setup() returns {"success": True} unconditionally because
+        execute_after_install() has its own blanket except. So the point is the
+        CONTRADICTION: success is reported while setup demonstrably did not
+        complete.
+        """
+        if setup_mod._is_initial_setup_complete():
+            self.skipTest("setup already marked complete on this site; the abort path is unreachable")
+
         result = setup_mod.run_complete_setup()
+
         self.assertTrue(result["success"])
+        self.assertFalse(
+            setup_mod._is_initial_setup_complete(),
+            "run_complete_setup() reported success AND setup actually completed - "
+            "the misreporting this test documents is gone.",
+        )
 
 
 class TestVerifyAppDependencies(FrappeTestCase):
@@ -182,8 +206,7 @@ class TestVerifyAppDependencies(FrappeTestCase):
         result = setup_mod.verify_app_dependencies()
         self.assertFalse(
             result["success"],
-            "If this now succeeds the missing `required_apps` hook was added - "
-            "update this test",
+            "If this now succeeds the missing `required_apps` hook was added - " "update this test",
         )
         self.assertIn("required_apps", result["message"])
         self.assertNotIn("dependency_status", result)
@@ -239,9 +262,7 @@ class TestBackgroundServiceUser(FrappeTestCase):
         type without anyone touching the setup code.
         """
         setup_mod.create_background_service_user()
-        self.assertEqual(
-            frappe.db.get_value("Role", "Verenigingen Webhook User", "desk_access"), 0
-        )
+        self.assertEqual(frappe.db.get_value("Role", "Verenigingen Webhook User", "desk_access"), 0)
         self.assertEqual(frappe.db.get_value("User", self.EMAIL, "user_type"), "Website User")
 
     def test_is_idempotent(self):
@@ -276,9 +297,7 @@ class TestEnsureRequiredPaymentModes(FrappeTestCase):
     def test_creates_nothing_new_on_a_seeded_site_and_leaves_modes_present(self):
         setup_mod.ensure_required_payment_modes()
         for mode in ("Bank Transfer", "SEPA Direct Debit"):
-            self.assertTrue(
-                frappe.db.exists("Mode of Payment", mode), f"Missing payment mode: {mode}"
-            )
+            self.assertTrue(frappe.db.exists("Mode of Payment", mode), f"Missing payment mode: {mode}")
 
     def test_is_idempotent(self):
         setup_mod.ensure_required_payment_modes()

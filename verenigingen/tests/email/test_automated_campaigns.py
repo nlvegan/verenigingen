@@ -341,10 +341,9 @@ class TestCampaignContentGeneration(EnhancedTestCase):
                 "content_config": json.dumps({}),
             }
         )
-        # monthly_newsletter always yields a (possibly empty) dict, so assert the
-        # complementary case: a requires_content type with no generator.
-        self.assertIsInstance(result, dict)
-
+        # NOTE: an `assertIsInstance(result, dict)` used to sit here. It could never
+        # fail, so it has been dropped — the complementary case below (a
+        # requires_content type with no generator) is what this test actually pins.
         no_generator = self.manager._execute_campaign(
             {
                 "name": "fake2",

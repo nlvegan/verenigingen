@@ -85,6 +85,11 @@ class _CreditVATBase(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # Restore the session user on class teardown: _restore_ctx_locals restores
+        # frappe.local.flags but NOT the session user, so without this the
+        # Administrator session leaks into whatever module runs next in-process.
+        _prior_user = frappe.session.user
+        cls.addClassCleanup(frappe.set_user, _prior_user)
         frappe.set_user("Administrator")
         cls._ensure_company()
         cls.income = cls._account("EBCV Omzet", "Income Account", "Income")
@@ -115,7 +120,9 @@ class _CreditVATBase(EnhancedTestCase):
         r.account_name = f"{ABBR} {root_type} Root"
         r.company = COMPANY
         r.root_type = root_type
-        r.report_type = "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        r.report_type = (
+            "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        )
         r.is_group = 1
         r.insert()
         return r.name

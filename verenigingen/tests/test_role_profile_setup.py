@@ -116,9 +116,7 @@ class TestRoleProfileSetup(VereningingenTestCase):
     def test_recommend_system_administrator(self):
         email = self._make_user(roles=["System Manager"])
         self._make_member_for_user(email)
-        self.assertEqual(
-            get_recommended_role_profile(email), "Verenigingen System Administrator"
-        )
+        self.assertEqual(get_recommended_role_profile(email), "Verenigingen System Administrator")
 
     def test_recommend_staff(self):
         email = self._make_user(roles=[Roles.VERENIGINGEN_STAFF])
@@ -134,9 +132,7 @@ class TestRoleProfileSetup(VereningingenTestCase):
     def test_recommend_chapter_board_member(self):
         email = self._make_user(roles=[Roles.CHAPTER_BOARD_MEMBER])
         self._make_member_for_user(email)
-        self.assertEqual(
-            get_recommended_role_profile(email), "Verenigingen Chapter Board Member"
-        )
+        self.assertEqual(get_recommended_role_profile(email), "Verenigingen Chapter Board Member")
 
     def test_recommend_volunteer(self):
         email = self._make_user(roles=[])
@@ -226,9 +222,7 @@ class TestRoleProfileSetup(VereningingenTestCase):
 
     def test_assign_invalid_user_raises(self):
         with self.assertRaises(frappe.DoesNotExistError):
-            assign_role_profile_to_user(
-                "definitely-not-a-user@example.invalid", "Verenigingen Member"
-            )
+            assign_role_profile_to_user("definitely-not-a-user@example.invalid", "Verenigingen Member")
 
     def test_assign_invalid_profile_raises(self):
         email = self._make_user(roles=[])
@@ -263,9 +257,7 @@ class TestRoleProfileSetup(VereningingenTestCase):
         email = self._make_user(roles=[Roles.VERENIGINGEN_MEMBER])
         self._make_member_for_user(email)
         self._persist_role_profile_child_table(email, "Verenigingen Volunteer")
-        self.assertEqual(
-            frappe.db.get_value("User", email, "role_profile_name"), "Verenigingen Volunteer"
-        )
+        self.assertEqual(frappe.db.get_value("User", email, "role_profile_name"), "Verenigingen Volunteer")
 
         auto_assign_role_profiles()
 
@@ -421,9 +413,7 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
 
         # Guard: the ladder can only assign profiles that exist as fixtures.
         for profile in set(expected.values()):
-            self.assertTrue(
-                frappe.db.exists("Role Profile", profile), f"Missing Role Profile: {profile}"
-            )
+            self.assertTrue(frappe.db.exists("Role Profile", profile), f"Missing Role Profile: {profile}")
 
         # Parity must be measured BEFORE the run: assigning a role profile
         # re-syncs User.roles to exactly the profile's roles, which changes what
@@ -454,9 +444,7 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
         different one."""
         email, _ = self._persona(roles=[Roles.VERENIGINGEN_MEMBER])
         self._persist_role_profile(email, "Verenigingen Volunteer")
-        self.assertEqual(
-            frappe.db.get_value("User", email, "role_profile_name"), "Verenigingen Volunteer"
-        )
+        self.assertEqual(frappe.db.get_value("User", email, "role_profile_name"), "Verenigingen Volunteer")
         # The ladder would otherwise recommend a *different* profile.
         self.assertEqual(get_recommended_role_profile(email), "Verenigingen Member")
 
@@ -477,17 +465,19 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
         does here -- and the write is STILL a no-op, because Role Profile has no
         module_profile field for Frappe to persist.
         """
-        self.assertTrue(
-            frappe.db.exists("Module Profile", "Verenigingen Member"),
-            "This test needs the mapped Module Profile to exist to reach the branch",
-        )
+        # Site state, not a code property: the mapped Module Profile exists on some
+        # sites and not others (present on test_site_2, absent on test_site_1/3), so
+        # asserting it made this test's colour depend on which shard CI picked.
+        if not frappe.db.exists("Module Profile", "Verenigingen Member"):
+            self.skipTest(
+                "Module Profile 'Verenigingen Member' is not installed on this site, "
+                "so the assignment branch under test is unreachable here"
+            )
         self.assertTrue(frappe.db.exists("Role Profile", "Verenigingen Member"))
 
         try:
             setup_role_profiles()
             self.assertNotIn("module_profile", frappe.db.get_table_columns("Role Profile"))
-            self.assertIsNone(
-                frappe.get_doc("Role Profile", "Verenigingen Member").get("module_profile")
-            )
+            self.assertIsNone(frappe.get_doc("Role Profile", "Verenigingen Member").get("module_profile"))
         finally:
             frappe.db.rollback()

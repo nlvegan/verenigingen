@@ -251,12 +251,16 @@ class TestPagePersonalDetailsUpdateBranches(EnhancedTestCase):
         # ... and the Member document was never saved.
         self.assertEqual(frappe.db.get_value("Member", self.member.name, "modified"), modified_before)
 
-    def test_omitting_birth_date_rewrites_it_rather_than_being_a_no_op(self):
-        """Guards the asymmetry that makes the test above necessary.
+    def test_PRODUCT_BUG_omitting_birth_date_wipes_the_stored_value(self):
+        """Characterization of a probable DATA-LOSS bug, not intended behaviour.
 
-        A form that leaves birth_date empty is treated as an explicit change to
-        empty, so the stored birth date is cleared. If this ever becomes a no-op
-        the sibling "no changes" test would stop testing what it claims to.
+        A form that omits birth_date is treated as an explicit change to empty
+        (personal_details.py:190 -> track_changes -> setattr(member, "birth_date", "")),
+        so submitting any partial personal-details form silently clears the member's
+        stored birth date. This test pins the CURRENT behaviour so the sibling
+        "no changes" test keeps testing what it claims to — it is deliberately NOT an
+        endorsement. Decide whether omitted fields should be ignored rather than
+        blanked; if that is fixed, this test must be inverted.
         """
         self._submit({"first_name": "Pieter", "last_name": "Vandenberg"})
 

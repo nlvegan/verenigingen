@@ -299,20 +299,12 @@ class TestMemberHookNeverFires(EmailGroupMixin, EnhancedTestCase):
             "unsubscribe-reversal defect before enabling it, then update this test.",
         )
 
-    @unittest.expectedFailure
-    def test_saving_a_member_syncs_their_email_group_membership(self):
-        """EXPECTED FAILURE - product bug, see class docstring."""
-        member = self._member("hookfire")
-
-        member.reload()
-        member.middle_name = "Hooked"
-        member.save()
-
-        self.assertIn(
-            member.email,
-            self._emails_in_group(self.active_group),
-            "saving a Member did not trigger email-group synchronisation",
-        )
+    # NOTE: an @unittest.expectedFailure test asserting that saving a Member syncs
+    # their email group used to live here. It has been removed: the non-registration
+    # is a deliberate decision (see class docstring), not a defect, so an xfail
+    # asserting the opposite is misleading — the moment someone "fixed" it, the xfail
+    # would report an unexpected success that reads as a regression.
+    # test_handler_is_not_wired_to_any_member_event above is the correct pin.
 
 
 class TestScheduledEmailGroupSync(EmailGroupMixin, EnhancedTestCase):
@@ -322,6 +314,19 @@ class TestScheduledEmailGroupSync(EmailGroupMixin, EnhancedTestCase):
         super().setUp()
         self._setup_groups()
         self.active_group = self._ensure_group(ACTIVE_MEMBERS_GROUP_TITLE)
+
+        # sync_email_groups_manually() calls frappe.db.commit(), which persists this
+        # Singles write past the test transaction — and the EnhancedTestCase insert
+        # capture does not cover Singles. Left on, the flag makes every later test and
+        # every scheduler tick on this database rebuild the whole membership's email
+        # groups. Restore whatever the site had.
+        original_flag = frappe.db.get_single_value("Verenigingen Settings", "enable_email_group_sync")
+        self.addCleanup(
+            frappe.db.set_single_value,
+            "Verenigingen Settings",
+            "enable_email_group_sync",
+            original_flag or 0,
+        )
 
     def test_entrypoint_is_registered_as_a_daily_scheduler_job(self):
         from verenigingen.hooks.scheduler import scheduler_events

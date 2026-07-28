@@ -116,8 +116,7 @@ class TestTerminationWorkflowCreation(FrappeTestCase):
         super().setUp()
         if frappe.db.exists("Workflow", TERMINATION_WORKFLOW):
             self.skipTest(
-                f"{TERMINATION_WORKFLOW} already exists on this site; these tests "
-                "cover the creation path"
+                f"{TERMINATION_WORKFLOW} already exists on this site; these tests " "cover the creation path"
             )
 
     @staticmethod
@@ -153,15 +152,11 @@ class TestTerminationWorkflowCreation(FrappeTestCase):
         self.addCleanup(self._drop_workflow)
         for action in TRANSITION_ACTIONS:
             if not frappe.db.exists("Workflow Action Master", action):
-                frappe.get_doc(
-                    {"doctype": "Workflow Action Master", "workflow_action_name": action}
-                ).insert()
+                frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert()
                 self.addCleanup(self._drop, "Workflow Action Master", action)
         for state in WORKFLOW_STATES:
             if not frappe.db.exists("Workflow State", state):
-                frappe.get_doc(
-                    {"doctype": "Workflow State", "workflow_state_name": state}
-                ).insert()
+                frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state}).insert()
                 self.addCleanup(self._drop, "Workflow State", state)
 
         self.assertTrue(
@@ -192,9 +187,7 @@ class TestTerminationWorkflowContract(FrappeTestCase):
         documents get stuck in a state the field cannot hold."""
         options = frappe.get_meta(TARGET_DOCTYPE).get_field("status").options.split("\n")
         for state in WORKFLOW_STATES:
-            self.assertIn(
-                state, options, f"Workflow state '{state}' is not a valid status option"
-            )
+            self.assertIn(state, options, f"Workflow state '{state}' is not a valid status option")
 
     def test_every_role_referenced_by_the_workflow_exists(self):
         """allow_edit / allowed are Link fields onto Role; a missing role would
@@ -223,7 +216,19 @@ class TestSetupWorkflowsCorrected(FrappeTestCase):
         """KNOWN BUG (see module docstring): setup_workflows_corrected() returns
         True purely because the appeals branch skipped, while the workflow that
         actually matters was never created. A fresh site therefore ends up with
-        no termination workflow and a green install log."""
+        no termination workflow and a green install log.
+
+        Skips rather than fails when the workflow is already present: this class
+        calls setup_workflows_corrected(), which commits internally, so a sibling
+        test (or a site where 'Submit' exists) can leave the workflow behind and
+        turn this into a spurious red that says nothing about the code.
+        """
+        if frappe.db.exists("Workflow", TERMINATION_WORKFLOW):
+            self.skipTest(
+                f"{TERMINATION_WORKFLOW} already exists on this site - the "
+                "missing-workflow bug this test documents is not reproducible here"
+            )
+
         self.assertTrue(wf.setup_workflows_corrected())
         self.assertFalse(
             frappe.db.exists("Workflow", TERMINATION_WORKFLOW),

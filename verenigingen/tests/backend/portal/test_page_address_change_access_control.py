@@ -19,7 +19,12 @@ Dynamic Link -> Member chain before reading or writing:
 
 Each denial test is paired with the same call made by the real owner, so the test
 fails if the guard is replaced by a blanket failure instead of an ownership check.
+
+``get_context`` -- the path a browser actually hits -- does NOT re-verify ownership
+and currently leaks the foreign address. That is pinned as an expectedFailure below.
 """
+
+import unittest
 
 import frappe
 
@@ -127,6 +132,41 @@ class TestPageAddressChangeAccessControl(EnhancedTestCase):
         self.assertEqual(result["address"]["name"], self.victim_address)
         self.assertEqual(result["address"]["city"], "Groningen")
         self.assertEqual(result["address"]["address_line1"], "Slachtofferstraat 5")
+
+    # ------------------------------------------------------- get_context guard
+
+    @unittest.expectedFailure
+    def test_get_context_hides_an_address_linked_to_another_member(self):
+        """EXPECTED FAILURE - PRODUCTION BUG: /address_change leaks a foreign address.
+
+        The two whitelisted endpoints above are guarded, but ``get_context`` is the
+        path a browser actually hits at /address_change, and it has no live ownership
+        check. address_change.py:48-65 puts the Dynamic Link verification INSIDE
+        ``except frappe.PermissionError:`` around ``frappe.get_doc("Address", ...)``
+        -- but frappe.get_doc performs no permission check unless check_permission= is
+        passed (frappe/model/document.py:122), so the except never fires and the guard
+        is dead code. The intruder is handed the victim's street, city and postcode.
+
+        personal_details.py:37-46 performs the SAME check OUTSIDE the try and is
+        correct; test_page_personal_details_access_control.py pins that. Without this
+        test, two green "portal access control" modules would imply both pages are
+        covered when only one is.
+
+        Fix: hoist the Dynamic Link check out of the except in address_change.py,
+        mirroring personal_details.py. This test then passes.
+        """
+        from verenigingen.templates.pages.address_change import get_context
+
+        self._point_primary_address_at(self.intruder, self.victim_address)
+
+        with self.as_user(self.intruder_user):
+            context = frappe._dict()
+            get_context(context)
+
+        self.assertIsNone(
+            context.get("current_address"),
+            "/address_change rendered an Address belonging to another member",
+        )
 
     # ---------------------------------------------- update_member_address guard
 

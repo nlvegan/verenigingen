@@ -134,13 +134,25 @@ class TestSegmentBaseEligibility(SegmentationCohortMixin, EnhancedTestCase):
         that permissive arm becomes live and must be re-reviewed - it would mail
         people on an absent consent record.
         """
-        member = self._member("consentnotnull")
-
-        with self.assertRaises(Exception):
-            frappe.db.sql(
-                "UPDATE `tabMember` SET accepts_optional_communications = NULL WHERE name = %s",
-                (member.name,),
-            )
+        # Assert the schema property directly. An earlier version wrapped a raw
+        # UPDATE ... = NULL in assertRaises(Exception), which would also have passed
+        # on a typo, a missing table or any unrelated SQL error — it proved nothing
+        # about the column.
+        nullable = frappe.db.sql("""
+            SELECT IS_NULLABLE
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tabMember'
+              AND COLUMN_NAME = 'accepts_optional_communications'
+            """)
+        self.assertTrue(nullable, "accepts_optional_communications column not found on tabMember")
+        self.assertEqual(
+            nullable[0][0],
+            "NO",
+            "accepts_optional_communications became nullable — the permissive "
+            "isnull() arm in SimplifiedEmailManager is now live and would mail "
+            "members whose consent was never recorded. Re-review it.",
+        )
 
     def test_non_active_statuses_are_excluded(self):
         """Only status == 'Active' may be mailed; Quit/Expired/Suspended/Banned may not."""

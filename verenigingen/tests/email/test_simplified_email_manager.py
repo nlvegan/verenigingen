@@ -235,19 +235,41 @@ class TestRoleSegmentsIgnoreConsentAndMembershipState(ChapterAudienceMixin, Enha
         self._setup_audience()
 
     @unittest.expectedFailure
-    def test_preview_and_send_audiences_agree_for_the_board_segment(self):
-        """EXPECTED FAILURE - preview under-reports what would actually be mailed."""
-        opted_out = self._member("bdoptout", accepts_optional_communications=0)
+    def test_preview_sample_shows_a_different_audience_than_the_volunteers_send(self):
+        """EXPECTED FAILURE - the admin previews an audience that is not the one mailed.
+
+        The COUNT is not the problem: get_segment_preview() delegates straight to
+        send_to_chapter_segment(test_mode=True) (simplified_email_manager.py:240) and
+        returns its count, so comparing the two counts is tautological. Two earlier
+        versions of this test were unsound for that family of reasons — one compared
+        the count to len(sample_recipients) (the sample is LIMIT 5, so it broke on any
+        audience above five), the other compared the count to its own source.
+
+        The real discrepancy is in WHO is shown. The volunteers send query
+        (:96-111) has no consent filter, but the preview's sample SQL (:275-289)
+        adds `AND m.accepts_optional_communications = 1`. So an opted-out volunteer
+        is mailed but never appears in the sample the admin approves.
+        """
+        opted_out = self._member("vololdoptout", accepts_optional_communications=0)
         self._join(opted_out)
-        self._seat(self._volunteer(opted_out))
+        self._volunteer(opted_out)
 
-        preview = self.manager.get_segment_preview(self.chapter.name, "board")
+        preview = self.manager.get_segment_preview(self.chapter.name, "volunteers")
+        send = self.manager.send_to_chapter_segment(self.chapter.name, "volunteers", test_mode=True)
 
-        self.assertEqual(
-            preview["recipients_count"],
-            len(preview["sample_recipients"]),
-            "the previewed sample and the actual send count disagree, so the admin "
-            "approves a smaller audience than the one that gets mailed",
+        # Sanity: the opted-out volunteer really is inside the audience that gets
+        # mailed — the send query counts them even though the sample will not show
+        # them. (Counts match by construction; asserted only to document that.)
+        self.assertEqual(preview["recipients_count"], send["recipients_count"])
+        self.assertGreaterEqual(
+            send["recipients_count"], 2, "fixture did not put both volunteers in the send audience"
+        )
+
+        self.assertIn(
+            opted_out.email,
+            {r["email"] for r in preview["sample_recipients"]},
+            "an opted-out volunteer is mailed but is hidden from the preview sample, "
+            "so the admin approves a different audience than the one that receives it",
         )
 
     @unittest.expectedFailure

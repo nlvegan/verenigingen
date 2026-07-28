@@ -84,7 +84,7 @@ class FinancialDashboardTestBase(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        setup_mollie_backend_api()
+        setup_mollie_backend_api(self)
 
         self.dashboard = FinancialDashboard()
         self.dashboard.balances_client = Mock()
@@ -567,7 +567,7 @@ class TestBalancesClientContract(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        setup_mollie_backend_api()
+        setup_mollie_backend_api(self)
 
     def _real_balances_client(self):
         from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient

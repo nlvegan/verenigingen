@@ -141,7 +141,12 @@ class TestVolunteerExpenseSubmissionGuards(EnhancedTestCase):
             own_result = expenses.submit_expense(json.dumps(own))
 
         self.assertIn("tampering", str(raised.exception).lower())
-        self.assertNotIn("tampering", json.dumps(own_result).lower())
+        # Control: the identical payload naming the caller's OWN volunteer must get
+        # past the tampering guard. Assert on the outcome rather than sniffing the
+        # response text for the word "tampering" — a string sniff also passes when
+        # the call fails for some unrelated reason.
+        self.assertFalse(own_result["success"])
+        self.assertNotIn("tampering", str(own_result.get("message", "")).lower())
 
     # ------------------------------------------------- organization membership
 

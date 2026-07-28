@@ -65,6 +65,11 @@ class _TxLinesBase(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # Restore the session user on class teardown: _restore_ctx_locals restores
+        # frappe.local.flags but NOT the session user, so without this the
+        # Administrator session leaks into whatever module runs next in-process.
+        _prior_user = frappe.session.user
+        cls.addClassCleanup(frappe.set_user, _prior_user)
         frappe.set_user("Administrator")
         cls._company(COMPANY, ABBR)
         cls._company(OTHER_COMPANY, OTHER_ABBR)
@@ -95,7 +100,9 @@ class _TxLinesBase(EnhancedTestCase):
         r.account_name = f"{abbr} {root_type} Root"
         r.company = company
         r.root_type = root_type
-        r.report_type = "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        r.report_type = (
+            "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        )
         r.is_group = 1
         r.insert()
         return r.name
@@ -233,6 +240,38 @@ class TestSalesInvoiceLineItems(_TxLinesBase):
         data.update(overrides)
         return data
 
+    def test_invoice_builder_dies_on_the_customer_step_before_any_line_is_read(self):
+        """PRODUCTION DEFECT (transaction_utils.py:236) -- bool subscripted as a dict.
+
+        ``create_customer`` is documented and implemented to return ``bool``
+        (relation_migration_service.py:64-75), but the caller does::
+
+            customer_result = migration_doc.create_customer(...)
+            if not customer_result["success"]:
+
+        so the builder raises ``TypeError: 'bool' object is not subscriptable`` at
+        the CUSTOMER step and never reaches the line-item loop at all.
+
+        This test asserts that specific failure rather than a generic one. An
+        earlier version was an expectedFailure whose docstring blamed the
+        (separate, real) wrong-arity defect at :282/:401 -- but that TypeError is
+        never raised, because execution dies 47 lines earlier. It therefore passed
+        for the wrong reason and would NOT have flipped to an unexpected success
+        when the arity bug was fixed.
+
+        The arity defect is still real and is pinned separately below; fix this
+        one first, or the arity fix cannot be observed.
+        """
+        migration = self._migration()
+        result = create_sales_invoice_impl(migration, self._invoice_data())
+
+        self.assertFalse(result["success"])
+        self.assertIn(
+            "subscriptable",
+            result["error"],
+            f"expected the create_customer bool-subscript TypeError, got: {result['error']}",
+        )
+
     @unittest.expectedFailure
     def test_invoice_with_line_items_is_created(self):
         """PRODUCTION DEFECT (transaction_utils.py:282 and :401) -- WRONG ARITY.
@@ -261,8 +300,10 @@ class TestSalesInvoiceLineItems(_TxLinesBase):
         (eboekhouden_rest_full_migration.py:2489 and :2762), so the two here are
         the outliers.
 
-        Marked expectedFailure: it will report an UNEXPECTED SUCCESS once the
-        call sites are corrected.
+        Marked expectedFailure. NOTE: it currently fails on the EARLIER
+        create_customer defect (see the test above), not on the arity bug, so
+        fixing the arity alone will not flip it. Both must be fixed before this
+        reports an unexpected success.
         """
         migration = self._migration()
         result = create_sales_invoice_impl(migration, self._invoice_data())
@@ -280,9 +321,17 @@ class TestSalesInvoiceLineItems(_TxLinesBase):
         whole invoice -- structurally, with nothing written.
 
         Booking a line to a guessed account would corrupt the ledger, and a
-        half-built Sales Invoice would be worse still. The document is only saved
-        after the loop completes, so this invariant holds both today and after
-        the arity defect above is fixed.
+        half-built Sales Invoice would be worse still.
+
+        CAVEAT, deliberately recorded: today the builder never reaches the ledger
+        lookup at all -- it dies on the create_customer bool-subscript defect
+        (see test_invoice_builder_dies_on_the_customer_step...). So the
+        "nothing was persisted" half of this test currently holds for a reason
+        unrelated to ledger mapping, and swapping 7599999 for a MAPPED code would
+        produce the same green result. It is kept because the no-partial-write
+        invariant is what matters and it must still hold once the builder runs;
+        the assertion below deliberately does NOT claim the unmapped code caused
+        the failure, because right now it did not.
         """
         migration = self._migration()
         data = self._invoice_data(

@@ -68,6 +68,11 @@ class _DispatchBase(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # Restore the session user on class teardown: _restore_ctx_locals restores
+        # frappe.local.flags but NOT the session user, so without this the
+        # Administrator session leaks into whatever module runs next in-process.
+        _prior_user = frappe.session.user
+        cls.addClassCleanup(frappe.set_user, _prior_user)
         frappe.set_user("Administrator")
         cls._ensure_company()
         cls._ensure_accounts()
@@ -126,7 +131,9 @@ class _DispatchBase(EnhancedTestCase):
         r.account_name = f"{ABBR} {root_type} Root"
         r.company = COMPANY
         r.root_type = root_type
-        r.report_type = "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        r.report_type = (
+            "Balance Sheet" if root_type in ("Asset", "Liability", "Equity") else "Profit and Loss"
+        )
         r.is_group = 1
         r.insert()
         return r.name
@@ -218,22 +225,28 @@ class _DispatchBase(EnhancedTestCase):
         sibling modules cannot be affected.
         """
         year = getdate().year
-        fy_name = frappe.db.get_value(
-            "Fiscal Year",
-            {"year_start_date": ["<=", nowdate()], "year_end_date": [">=", nowdate()]},
-            "name",
-            order_by="creation desc",
-        )
-        if not fy_name:
-            fy_name = f"FY-{ABBR}-{year}"
-            if not frappe.db.exists("Fiscal Year", fy_name):
-                fy = frappe.new_doc("Fiscal Year")
-                fy.year = fy_name
-                fy.year_start_date = f"{year}-01-01"
-                fy.year_end_date = f"{year}-12-31"
-                fy.insert()
+        fy_name = f"FY-{ABBR}-{year}"
+
+        # ALWAYS use the scoped row. An earlier version looked up any Fiscal Year
+        # covering today() and only fell back to a scoped one if none existed —
+        # so on any real site it appended this test company to the shared FY-<year>,
+        # the exact opposite of the docstring above and a violation of the repo's
+        # no-shared-FY rule. Verified: FY-2026 had picked up the test company.
+        if not frappe.db.exists("Fiscal Year", fy_name):
+            fy = frappe.new_doc("Fiscal Year")
+            fy.year = fy_name
+            fy.year_start_date = f"{year}-01-01"
+            fy.year_end_date = f"{year}-12-31"
+            # The company MUST be set before insert. ERPNext's validate_overlap()
+            # rejects a Fiscal Year whose dates overlap an existing one unless it is
+            # company-scoped ("To avoid please set company"), and a scoped row by
+            # definition overlaps the shared FY-<year>.
+            fy.append("companies", {"company": COMPANY})
+            fy.insert()
+            return
+
         fy = frappe.get_doc("Fiscal Year", fy_name)
-        if fy.companies and not any(c.company == COMPANY for c in fy.companies):
+        if not any(c.company == COMPANY for c in fy.companies):
             fy.append("companies", {"company": COMPANY})
             fy.save(ignore_permissions=True)
 
@@ -396,8 +409,10 @@ class TestImportSingleMutationHappyPath(_DispatchBase):
         self.assertAlmostEqual(total_debit, total_credit, places=2, msg="journal entry must balance")
         self.assertAlmostEqual(total_debit, 100.00, places=2)
 
-        by_account = {a.account: (flt(a.debit_in_account_currency), flt(a.credit_in_account_currency))
-                      for a in je.accounts}
+        by_account = {
+            a.account: (flt(a.debit_in_account_currency), flt(a.credit_in_account_currency))
+            for a in je.accounts
+        }
         self.assertIn(self.expense, by_account, f"expense ledger leg missing; got {list(by_account)}")
         self.assertIn(self.kruisposten, by_account, f"offset ledger leg missing; got {list(by_account)}")
         # Memorial convention: a POSITIVE row amount CREDITS the row account and
