@@ -65,6 +65,14 @@ class TestVolunteerExpensesPage(EnhancedTestCase):
                 {
                     "doctype": "User",
                     "email": email,
+                    # Must be explicit. EnhancedTestCase.setUp sets
+                    # frappe.flags.in_import = True to bypass user-creation
+                    # throttling, and Document._set_defaults() early-returns on that
+                    # flag, so User.enabled never receives its default of 1 and the
+                    # row lands disabled. These tests need a usable account: a
+                    # disabled user gets no role profile, and the API security
+                    # framework then denies get_organization_options().
+                    "enabled": 1,
                     "first_name": "Exp",
                     "last_name": "User",
                     "send_welcome_email": 0,

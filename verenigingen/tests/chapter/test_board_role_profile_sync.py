@@ -160,3 +160,76 @@ class TestBulkAssignChapterBoardRoleProfiles(EnhancedTestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["members_updated"], 2)
+
+
+class TestDisabledUserIsNotResurrected(EnhancedTestCase):
+    """A disabled account must not be re-enabled by role-profile sync.
+
+    sync_user_role_profile() calls _ensure_employee_for_profile(), which creates an
+    Employee with status "Active". ERPNext's Employee.validate_for_enabled_user_id()
+    keeps Employee status and User.enabled in lockstep, so an Active Employee
+    pointing at a disabled User force-enables that User:
+
+        if self.status != "Active" and enabled or self.status == "Active" and enabled == 0:
+            frappe.db.set_value("User", self.user_id, "enabled", not enabled)
+
+    Chapter.on_update drains the deferred board-profile syncs, so seating a board
+    member reaches that path. Without the guard, seating someone — or any later
+    chapter save touching an already-seated member — silently resurrects a
+    deliberately disabled account.
+    """
+
+    def _make_disabled_member_user(self):
+        user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        frappe.db.set_value("User", user.email, "enabled", 0)
+        member = self.factory.create_member(email=user.email)
+        member.user = user.email
+        member.save()
+        volunteer = self.factory.create_volunteer(
+            member_name=member.name, email=user.email, _exact_email=True
+        )
+        return user.email, volunteer
+
+    def test_sync_skips_disabled_user(self):
+        """sync_user_role_profile() reports a skip and leaves the account disabled."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        email, _volunteer = self._make_disabled_member_user()
+
+        result = sync_user_role_profile(email)
+
+        self.assertEqual(result.get("skipped"), "user_disabled")
+        self.assertFalse(result.get("changed"))
+        self.assertEqual(frappe.db.get_value("User", email, "enabled"), 0)
+
+    def test_seating_a_board_member_does_not_re_enable_the_user(self):
+        """The reachable path: a chapter save must not resurrect a disabled account."""
+        email, volunteer = self._make_disabled_member_user()
+
+        if not frappe.db.exists("Chapter Role", "Treasurer"):
+            role = frappe.new_doc("Chapter Role")
+            role.role_name = "Treasurer"
+            role.permissions_level = "Financial"
+            role.is_active = 1
+            role.insert()
+
+        chapter = self.factory.create_chapter()
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": "Treasurer",
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+
+        self.assertEqual(
+            frappe.db.get_value("User", email, "enabled"),
+            0,
+            "seating a board member re-enabled a disabled user account",
+        )

@@ -36,7 +36,9 @@ Migration Status: ✅ COMPLETE (2025-12-09)
 
 Legacy Methods (still throw exceptions):
 - create_user_for_member: Direct user creation (throws ValidationError)
-- create_user_account_if_needed: Hook-based creation (logs errors, doesn't throw)
+- create_user_account_if_needed: UNWIRED legacy path (logs errors, doesn't throw).
+  Was called from a dead Member.after_save(); account provisioning now goes through
+  the Account Creation Request queue. Do not re-wire it — see member.py.
 
 See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
@@ -508,7 +510,9 @@ class MemberUserAccountService(StatelessService):
 
         Note:
             - Does not raise exceptions (logs errors instead)
-            - Used in after_save hook to auto-create accounts
+            - NOT wired to any document event. It was called from a Member.after_save()
+              that Frappe never dispatched; provisioning now goes through the Account
+              Creation Request queue and this direct path must not be re-wired.
             - Sends no welcome email (send_welcome_email=False)
         """
         try:

@@ -166,22 +166,27 @@ class Chapter(Document):
         # Create corresponding Cost Center for financial tracking
         self._create_chapter_cost_center()
 
-    def after_save(self):
-        """After save hook - streamlined with safe operations"""
-        # Handle cost center renaming if chapter name changed
-        if self.has_value_changed("name"):
-            self._safe_manager_operation(
-                "cost_center_rename",
-                lambda: self._update_chapter_cost_center_name(),
-            )
+    def _flush_deferred_board_profile_syncs(self):
+        """Run role-profile syncs deferred by board_manager during validate.
 
-        # NOTE: Volunteer sync removed from here (2025-11-18)
-        # Now handled exclusively via event-driven architecture in on_update()
-        # This prevents duplicate processing and race conditions
+        Deferred so it runs AFTER the Chapter Board Member child rows are persisted
+        (the profile calculator reads them from the database). See
+        board_manager.handle_board_member_additions.
 
-        # Role-profile sync for newly-added board members is deferred to here so it
-        # runs AFTER the Chapter Board Member child rows are persisted (the profile
-        # calculator reads them from the database). See board_manager.handle_board_member_additions.
+        Called from on_update only, which covers inserts as well (run_post_save_methods
+        runs on_update for a new draft too).
+
+        Scope limit: only the "edit an existing chapter and seat a board member" path
+        actually enqueues. _handle_document_changes() is gated on `if old_doc:` and
+        handle_board_member_additions() early-returns when old_doc is None, so seating
+        a board member inline while CREATING a chapter never enqueues and is therefore
+        still not synced. That gap is pre-existing and untouched here.
+
+        NOTE: this used to live in an `after_save()` method, which Frappe never calls
+        server-side — Document.run_method() is never invoked with that name — so the
+        queue was never drained and newly seated board members never got their role
+        profile. (`after_save` IS a real client-side form event; see chapter.js.)
+        """
         self._safe_manager_operation(
             "board_profile_sync",
             lambda: self.board_manager.flush_pending_board_profile_syncs(),
@@ -206,6 +211,17 @@ class Chapter(Document):
         """On update hook with event emission for background processing"""
         self._clear_manager_caches()
 
+        # NOTE: the dead after_save() also carried a cost-center rename guarded by
+        # has_value_changed("name"). That guard is unreachable on a real update —
+        # _doc_before_save is loaded from the DB so previous.name == self.name always —
+        # and on an insert it is True only when nothing has populated _doc_before_save
+        # yet, which is an accident of the cost-center db_set above, not a rename.
+        # Renames do not route through save() at all (frappe.rename_doc), so cost-center
+        # renaming belongs in after_rename() below alongside the Department rename.
+        # It has never run; not wiring it here rather than wiring it wrongly.
+
+        self._flush_deferred_board_profile_syncs()
+
         # Sync Department status if changed (name changes handled in after_rename)
         old_doc = self.get_doc_before_save()
         if old_doc and self.has_value_changed("status"):
@@ -214,6 +230,9 @@ class Chapter(Document):
         # Emit events for significant changes to trigger background operations
         if old_doc:
             self._emit_chapter_change_events(old_doc)
+
+        # NOTE: Volunteer sync is handled exclusively via the event-driven
+        # architecture in _emit_chapter_change_events above (2025-11-18), not here.
 
     def after_rename(self, old_name, new_name, merge=False):
         """Handle department renaming when chapter is renamed.

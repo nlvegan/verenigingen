@@ -278,8 +278,30 @@ class TestDepartmentHierarchy(EnhancedTestCase):
         self._add_board_member(chapter.name, vol.name, "Treasurer")
 
         mgr = DepartmentHierarchyManager()
-        # Disabled user is skipped -> no valid approver
-        self.assertEqual(mgr._get_financial_approvers(chapter.name), [])
+        # Disabled user is skipped -> no valid approver.
+        #
+        # _get_financial_approvers() reads `enabled` straight from the database, so
+        # a non-empty result means the user is enabled at this point despite the
+        # set_value above. This failed in CI while passing locally, and neither a
+        # stale document cache nor the role-profile sync re-enabling the user
+        # reproduced it, so the assertion reports the state it actually saw rather
+        # than just a list diff.
+        approvers = mgr._get_financial_approvers(chapter.name)
+        self.assertEqual(
+            approvers,
+            [],
+            "expected no approver for a disabled user; got {}. enabled={!r} "
+            "board_members={!r} volunteer_email={!r}".format(
+                approvers,
+                frappe.db.get_value("User", user.email, "enabled"),
+                frappe.get_all(
+                    "Chapter Board Member",
+                    filters={"parent": chapter.name, "is_active": 1},
+                    fields=["volunteer", "chapter_role"],
+                ),
+                frappe.db.get_value("Volunteer", vol.name, ["email", "personal_email"], as_dict=True),
+            ),
+        )
 
     def test_financial_approvers_role_priority(self):
         """Treasurer outranks Board Chair regardless of insertion order."""
