@@ -254,27 +254,67 @@ class SecurityWrappersUnitTests(unittest.TestCase):
             result = validate_security_wrapper_installation()
             self.assertFalse(result)
     
-    def test_performance_characteristics(self):
-        """Test performance characteristics of security wrappers"""
-        
+    def test_invalid_user_never_reaches_frappe_get_roles(self):
+        """The vulnerability this wrapper exists to close.
+
+        frappe.get_roles("") and friends must never be delegated: the wrapper's
+        whole purpose is to reject a bad user parameter itself rather than let it
+        reach Frappe. Asserting the return value alone is not enough — [] would
+        also be returned if the call went through and happened to come back empty.
+        The assertion that matters is that the delegation never happens.
+        """
+        for bad_user in ("", "   ", "None", "x" * 500):
+            with self.subTest(user=bad_user):
+                with patch('verenigingen.utils.security_wrappers.frappe') as mock_frappe:
+                    mock_frappe.session = self.mock_session
+                    mock_frappe.get_roles.return_value = ["System Manager"]
+
+                    self.assertEqual(safe_get_roles(bad_user), [])
+                    mock_frappe.get_roles.assert_not_called()
+
+    def test_none_delegates_the_session_user_never_none(self):
+        """safe_get_roles(None) must resolve to the session user before delegating.
+
+        frappe.get_roles(None) returns EVERY role in the system, so passing None
+        through is the exact escalation this wrapper was written to prevent.
+        """
         with patch('verenigingen.utils.security_wrappers.frappe') as mock_frappe:
             mock_frappe.session = self.mock_session
-            mock_frappe.get_roles.return_value = ["Guest"]
-            
-            import time
-            
-            # Measure performance
-            start_time = time.time()
-            
-            for _ in range(1000):
-                safe_get_roles("test@example.com")
-            
-            end_time = time.time()
-            duration = end_time - start_time
-            
-            # Should be very fast (less than 0.1 seconds for 1000 calls)
-            self.assertLess(duration, 0.1, f"Security wrappers too slow: {duration:.3f}s")
-    
+            mock_frappe.get_roles.return_value = ["Verenigingen Member"]
+
+            result = safe_get_roles(None)
+
+            self.assertEqual(result, ["Verenigingen Member"])
+            mock_frappe.get_roles.assert_called_once_with("test@example.com")
+
+    def test_delegates_exactly_once_per_call(self):
+        """No redundant lookups on a hot path.
+
+        safe_get_roles is called on effectively every permission check, so a
+        refactor that introduced a second lookup (a retry, a re-read to validate
+        the result) would double the cost of every check. This pins the count
+        rather than the wall-clock time it used to measure: the previous version
+        timed 1000 calls against a MagicMock, so it measured mock overhead and CI
+        runner load, not this function, and it failed at 0.155s on CI while taking
+        0.028s locally on identical code.
+        """
+        with patch('verenigingen.utils.security_wrappers.frappe') as mock_frappe:
+            mock_frappe.session = self.mock_session
+            mock_frappe.get_roles.return_value = ["Verenigingen Member"]
+
+            safe_get_roles("test@example.com")
+
+            self.assertEqual(mock_frappe.get_roles.call_count, 1)
+
+    def test_guest_short_circuits_without_delegating(self):
+        """Guest is answered from the wrapper, never looked up."""
+        with patch('verenigingen.utils.security_wrappers.frappe') as mock_frappe:
+            mock_frappe.session = self.mock_session
+            mock_frappe.get_roles.return_value = ["System Manager"]
+
+            self.assertEqual(safe_get_roles("Guest"), ["Guest"])
+            mock_frappe.get_roles.assert_not_called()
+
     def test_backward_compatibility_aliases(self):
         """Test backward compatibility aliases"""
         
