@@ -329,38 +329,46 @@ class TestVolunteerAssignmentEventDriven(EnhancedTestCase):
                 f"Volunteer {i+1} should have assignment from bulk sync"
             )
 
-    def test_06_no_direct_sync_in_after_save(self):
+    def test_06_no_direct_sync_in_save_path(self):
         """
         Verify that saving a chapter does NOT directly call sync
-        (architecture change: removed direct sync from after_save)
+        (architecture change: sync is event-driven only)
 
-        This is a regression test to ensure the direct sync doesn't get re-added
+        This is a regression test to ensure the direct sync doesn't get re-added.
+
+        Previously this introspected Chapter.after_save. Frappe dispatches no
+        server-side after_save event, so that method never ran and the assertion
+        was guarding dead code; the method is gone and its live half now lives in
+        on_update. The save path is therefore on_update plus the helper it calls,
+        and both are checked here.
         """
-        # Check that Chapter.after_save doesn't have sync code
         import inspect
         from verenigingen.verenigingen.doctype.chapter.chapter import Chapter
 
-        after_save_source = inspect.getsource(Chapter.after_save)
+        save_path_source = "\n".join(
+            inspect.getsource(fn)
+            for fn in (Chapter.on_update, Chapter._flush_deferred_board_profile_syncs)
+        )
 
         # Should NOT contain sync call
         self.assertNotIn(
             "sync_board_members_with_volunteer_system",
-            after_save_source,
-            "after_save() should NOT directly call sync (event-driven only)"
+            save_path_source,
+            "the save path should NOT directly call sync (event-driven only)"
         )
 
         # Should NOT have the old recursion guard for sync
         self.assertNotIn(
             "_syncing_board_members",
-            after_save_source,
-            "after_save() should NOT have sync recursion guard (no longer needed)"
+            save_path_source,
+            "the save path should NOT have sync recursion guard (no longer needed)"
         )
 
         # Should have the architectural note
         self.assertIn(
             "event-driven",
-            after_save_source.lower(),
-            "after_save() should document event-driven architecture"
+            save_path_source.lower(),
+            "the save path should document event-driven architecture"
         )
 
     def test_07_event_handler_validates_chapter_exists(self):

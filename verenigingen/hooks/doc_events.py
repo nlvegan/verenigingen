@@ -250,10 +250,24 @@ doc_events = {
         "after_insert": [
             "verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate_audit_hooks.log_mandate_created",
         ],
+        #
+        # DELIBERATELY NOT RESTORED: performance_event_handlers.on_sepa_mandate_change.
+        # It sat under the dead `after_save` key, so it has never run. It is a
+        # speculative preload — it warms a mandate cache for a read that may never
+        # come — and it reaches that cache through OptimizedSEPAQueries.
+        # get_active_mandates_for_members(), which is a security-decorated API.
+        # Measured cost of putting it on the save path (test_site_1, 2026-07-29):
+        #   cache_invalidation.on_document_update      1 query
+        #   on_sepa_mandate_change                     5 queries, one of which is
+        #                                              INSERT INTO `tabAPI Audit Log`
+        # So every mandate save would write an audit row and consume rate-limit
+        # budget for an internal call that is not an API request at all — a bulk
+        # mandate import would trip the limiter and start failing. Reviving a dead
+        # cache-warm is not worth that; if the preload is wanted, call the undecorated
+        # query layer directly.
         "on_update": [
             "verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate_audit_hooks.log_mandate_status_change",
             "verenigingen.utils.cache_invalidation.on_document_update",
-            "verenigingen.utils.performance_event_handlers.on_sepa_mandate_change",
         ],
         "on_submit": "verenigingen.utils.cache_invalidation.on_document_submit",
         "on_cancel": "verenigingen.utils.cache_invalidation.on_document_cancel",
