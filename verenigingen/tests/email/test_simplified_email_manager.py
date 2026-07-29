@@ -387,10 +387,18 @@ class TestOrganizationWideAudience(ChapterAudienceMixin, EnhancedTestCase):
     def test_default_filters_exclude_opted_out_members(self):
         """With no caller filters the default set must still be consent-gated."""
         opted_out = self._member("orgdefaultout", accepts_optional_communications=0)
+        # send_organization_wide() with no filters queries the WHOLE SITE, so this
+        # test used to pass only if the site happened to already contain an
+        # opted-in Active member. On a CI site inside a rolled-back transaction it
+        # does not: the only member this test created is the opted-out one, so the
+        # audience came back empty and the run failed with "No eligible recipients"
+        # before it could assert anything about exclusion. Create the opted-in half
+        # of the comparison so the audience is non-empty by construction.
+        self._member("orgdefaultin", accepts_optional_communications=1)
 
         result = self.manager.send_organization_wide(test_mode=True)
 
-        self.assertTrue(result["success"], "site has no opted-in members; cannot assert exclusion")
+        self.assertTrue(result["success"], result.get("error"))
         matching = frappe.get_all(
             "Member",
             filters={

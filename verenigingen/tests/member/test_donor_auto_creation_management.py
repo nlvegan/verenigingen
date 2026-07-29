@@ -35,6 +35,9 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self._ensure_territory()
+        # Clear before capturing the backup, so a dangling reference left by an
+        # earlier module is not preserved and restored by our own tearDown.
+        self._clear_dangling_gl_account()
         self._settings_backup = {
             "auto_create_donors": frappe.db.get_single_value("Verenigingen Settings", "auto_create_donors"),
             "donations_gl_account": frappe.db.get_single_value(
@@ -51,7 +54,26 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
     def tearDown(self):
         for field, value in self._settings_backup.items():
             frappe.db.set_single_value("Verenigingen Settings", field, value)
+        self._clear_dangling_gl_account()
         super().tearDown()
+
+    @staticmethod
+    def _clear_dangling_gl_account():
+        """Never leave donations_gl_account pointing at an Account that is gone.
+
+        Several tests here point the singleton at an income account they created,
+        but that Account lives inside the test transaction and disappears on
+        rollback while the Singles row does not — Singles writes are not covered by
+        the factory's insert capture. The next test then calls
+        update_auto_creation_settings(), which validates the configured account and
+        fails with "Could not find Donations GL Account: Test Sales Income - _TC".
+
+        It only ever passed locally because that account happens to exist on a
+        long-lived dev site; on a fresh CI site it does not.
+        """
+        configured = frappe.db.get_single_value("Verenigingen Settings", "donations_gl_account")
+        if configured and not frappe.db.exists("Account", configured):
+            frappe.db.set_single_value("Verenigingen Settings", "donations_gl_account", None)
 
     @staticmethod
     def _ensure_territory():
