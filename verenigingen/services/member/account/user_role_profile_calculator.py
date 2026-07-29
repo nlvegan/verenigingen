@@ -776,6 +776,30 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
         if not frappe.db.exists("User", user):
             return {"success": False, "error": f"User {user} not found", "user": user}
 
+        # A disabled account is never synced: doing so silently re-enables it.
+        #
+        # _ensure_employee_for_profile() below creates an Employee with status
+        # "Active", and ERPNext's Employee.validate_for_enabled_user_id()
+        # (erpnext/setup/doctype/employee/employee.py) keeps Employee status and
+        # User.enabled in lockstep:
+        #     if self.status != "Active" and enabled or self.status == "Active" and enabled == 0:
+        #         frappe.db.set_value("User", self.user_id, "enabled", not enabled)
+        # so an Active Employee pointing at a disabled User force-enables that User.
+        #
+        # Seating a board member reaches exactly this path now that Chapter.on_update
+        # drains the deferred profile syncs, which means seating someone — or any
+        # later chapter save touching an already-seated member — would resurrect a
+        # deliberately disabled account. A disabled user has no permissions to
+        # govern, so there is nothing to sync and nothing lost by skipping.
+        if not frappe.db.get_value("User", user, "enabled"):
+            return {
+                "success": True,
+                "user": user,
+                "changed": False,
+                "skipped": "user_disabled",
+                "message": f"Skipped: user {user} is disabled",
+            }
+
         # Get current profile. role_profile_name is deprecated/cleared in v16, so read
         # from the canonical store (role_profiles child table on v16, the Link on v15).
         user_doc = frappe.get_doc("User", user)
