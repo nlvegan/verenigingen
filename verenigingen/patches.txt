@@ -12,9 +12,16 @@ verenigingen.patches.v15_0.rename_procurios_csv_import_to_member_import
 # v1_0.cleanup_workspaces, fix_onboarding_visibility, add_national_board_member_role,
 # remove_unique_constraint_member_dues_schedule, rename_amount_to_dues_rate,
 # add_customer_member_link_field
+# NOTE: migrate_membership_type_billing_to_dues_schedule removed 2026-07-31 — every source
+# field it read (contribution_mode, billing_frequency, minimum/suggested/maximum_contribution,
+# enable_income_calculator, income_percentage_rate, invoice_days_before) is gone from
+# Membership Type, so its hasattr() guards all failed and the else-branches wrote
+# contribution_mode="Calculator" and "Tier" — values the Select no longer accepts. Its
+# per-type `except Exception` swallowed the resulting ValidationError, so it could only ever
+# be a silent no-op. Value mapping is owned by v2_1.migrate_contribution_mode_values
+# (idempotent raw SQL). Already recorded in __patches on existing sites.
 verenigingen.patches.v1_0.add_membership_analytics
 verenigingen.patches.v2_0.add_workflow_demo_to_workspace
-verenigingen.patches.v2_0.migrate_membership_type_billing_to_dues_schedule
 verenigingen.patches.v2_0.remove_membership_legacy_fields
 verenigingen.patches.v2_0.standardize_donation_field_names
 verenigingen.patches.v2_0.add_donor_auto_creation_fields
