@@ -132,16 +132,27 @@ class CoverageCalculator(StatelessService):
                     # Calculate end date based on billing frequency from this start
                     coverage_end = self._calculate_coverage_end(coverage_start)
                 else:
-                    # First invoice: Use the billing period containing the reference date
+                    # First invoice: run a full billing period from the member's join date.
+                    # Membership itself runs from start_date (Membership.set_renewal_date sets
+                    # renewal_date = start_date + billing_period), and the sequential branch
+                    # above rolls each later period off the previous coverage end, so the first
+                    # period must roll too. Anchoring it to the surrounding calendar period
+                    # instead produced a short first period that nothing prorates — the invoice
+                    # generator always charges the full dues_rate — and, for a member joining on
+                    # the period's last day, a zero-length period that threw and left them
+                    # permanently un-invoiceable.
                     reference_date = getdate(force_date or today())
-                    period_start, coverage_end = self.calculate_billing_period(
+                    period_start = self.calculate_billing_period(
                         self.billing_frequency,
                         reference_date,
                         self.custom_frequency_number,
                         self.custom_frequency_unit,
-                    )
+                    )[0]
 
-                    # For members who joined mid-period, start from their membership start date
+                    # Members who joined mid-period start from their membership start date so
+                    # they do not pay for time before joining. With no membership on record the
+                    # join date is unknown, so fall back to the calendar period start — for
+                    # which _calculate_coverage_end reproduces the calendar period exactly.
                     membership_start = self._get_membership_start_date()
                     if membership_start and getdate(membership_start) > getdate(period_start):
                         coverage_start = getdate(membership_start)
@@ -149,6 +160,8 @@ class CoverageCalculator(StatelessService):
                     else:
                         coverage_start = period_start
                         metadata["membership_start_used"] = False
+
+                    coverage_end = self._calculate_coverage_end(coverage_start)
 
                     calculation_method = "first_invoice"
                     metadata["reference_date"] = reference_date
