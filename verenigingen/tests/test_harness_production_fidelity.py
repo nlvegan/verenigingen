@@ -112,6 +112,32 @@ class TestHarnessProductionFidelity(EnhancedTestCase):
             "tests is relying on site config and will throttle on a fresh CI site",
         )
 
+    def test_factory_invoice_keeps_its_backdated_posting_date(self):
+        """A backdated invoice must stay backdated.
+
+        ERPNext's TransactionBase.validate_posting_time() overwrites posting_date with
+        now() unless set_posting_time is truthy, and frappe.flags.in_import used to set
+        that implicitly. Removing in_import from the harness therefore made every
+        factory invoice silently posted "today".
+
+        This surfaced on CI as `ValidationError: Due Date cannot be before Posting Date`
+        across several shards — but only because that run crossed midnight, so
+        posting_date jumped to tomorrow while due_date stayed on the test's date. On any
+        run that does not cross midnight the corruption is silent: the date is wrong and
+        nothing complains. Hence this asserts the date directly rather than relying on a
+        downstream validation to notice.
+        """
+        backdated = frappe.utils.add_days(frappe.utils.today(), -10)
+        customer = self.factory.create_test_customer()
+
+        invoice = self.create_test_sales_invoice(customer=customer.name, posting_date=backdated)
+
+        self.assertEqual(
+            str(invoice.posting_date),
+            str(backdated),
+            "ERPNext overwrote the explicit posting_date; set_posting_time is not being set",
+        )
+
     def test_invalid_select_value_is_rejected(self):
         """Select fields must be validated against their options.
 

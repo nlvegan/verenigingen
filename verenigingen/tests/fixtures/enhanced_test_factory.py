@@ -4139,6 +4139,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "doctype": "Sales Invoice",
             "customer": actual_customer,
             "posting_date": kwargs.get("posting_date", frappe.utils.today()),
+            # Honor the posting_date above. Without this, ERPNext's
+            # TransactionBase.validate_posting_time() overwrites posting_date with
+            # now() (erpnext/utilities/transaction_base.py). That used to be masked
+            # because frappe.flags.in_import set set_posting_time implicitly; the
+            # harness no longer sets that flag, so it must be explicit. A backdated
+            # invoice silently becoming "today" also pushes posting_date past
+            # due_date, which fails validate_due_date.
+            "set_posting_time": 1,
             "due_date": kwargs.get("due_date", frappe.utils.add_days(frappe.utils.today(), 30)),
             "company": company,
             "currency": company_currency,  # Use company currency
@@ -5373,6 +5381,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "mode_of_payment": kwargs.get("mode_of_payment", "Bank Transfer"),
             "party_type": kwargs.get("party_type", "Customer"),
             "posting_date": kwargs.get("posting_date", frappe.utils.today()),
+            # See create_test_sales_invoice: ERPNext overwrites posting_date with now()
+            # unless set_posting_time is set, and the harness no longer sets in_import.
+            "set_posting_time": 1,
             # Currency and exchange rate
             "paid_from_account_currency": company_currency,
             "paid_to_account_currency": company_currency,
