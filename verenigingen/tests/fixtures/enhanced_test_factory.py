@@ -1957,11 +1957,34 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Set global test flags for appropriate test behavior
         frappe.flags.skip_volunteer_account_creation = True
 
-        # Bypass User creation throttling in tests
-        # Frappe's throttle_user_creation() checks frappe.flags.in_import to skip throttling
-        # Save original value to restore in tearDown
-        self._original_in_import = getattr(frappe.flags, "in_import", False)
-        frappe.flags.in_import = True
+        # Bypass User creation throttling WITHOUT suppressing production document behavior.
+        #
+        # This used to set frappe.flags.in_import = True, purely so Frappe's
+        # throttle_user_creation() would return early. That flag is far too broad: it also
+        # disables _set_defaults(), _validate_selects(), _validate_constants() and autoname
+        # regeneration, so every test on this harness ran against a document model
+        # production never sees. Concretely, User.enabled has default "1", so suppressing
+        # defaults created *disabled* test users.
+        #
+        # throttle_user_creation() reads throttle_user_limit from conf, so raise that
+        # instead: same bypass, none of the collateral.
+        # See docs/superpowers/specs/2026-07-30-in-import-harness-phase1-design.md
+        # Registered via addCleanup rather than tearDown: if setUp raises anywhere below
+        # this line, unittest skips tearDown but still runs cleanups, so the override
+        # cannot leak into the rest of the process.
+        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
+        self.addCleanup(self._restore_throttle_user_limit)
+        frappe.local.conf["throttle_user_limit"] = 1000000
+
+        # NOTE: do NOT set frappe.flags.in_bulk_import here as a stand-in for in_import.
+        # It is not equivalent and suppresses strictly more: the event *emitters* in
+        # events/team_events.py, events/member_events.py and events/chapter_events.py gate
+        # on `bulk_*_operations or in_bulk_import` and never look at in_import, so under
+        # in_import they emit normally. Setting in_bulk_import short-circuits them before
+        # event_emitter.emit_event() is reached, which breaks three tests in
+        # tests/events/test_team_events_coverage.py (verified). Only the *subscriber* side
+        # (events/subscribers/subscriber_utils.py:45, chapter_subscribers.py:132) consults
+        # in_import.
 
         # Ensure test user has necessary roles instead of bypassing permissions
         self.ensure_test_user_has_role("System Manager")
@@ -2102,6 +2125,26 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 f"(may persist as orphans; usually link/docstatus constraints)."
             )
 
+    def _restore_throttle_user_limit(self):
+        """Undo the setUp override of conf["throttle_user_limit"].
+
+        The key must be *deleted* rather than set back to None when it was absent to
+        begin with: throttle_user_creation() does
+        `count > conf.get("throttle_user_limit", 60)`, and a stored None would make that
+        comparison raise TypeError instead of falling back to the default of 60.
+        `is None` rather than falsiness, so a deliberate 0 survives.
+
+        This only matters for non-EnhancedTestCase tests sharing the same process — the
+        conf dict outlives an individual test. Do not delete as dead code.
+        """
+        try:
+            if self._original_throttle_limit is None:
+                frappe.local.conf.pop("throttle_user_limit", None)
+            else:
+                frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
+        except Exception:
+            pass  # Never let cleanup mask a test result
+
     def tearDown(self):
         """
         Clean up test environment with per-method transaction rollback.
@@ -2136,6 +2179,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # rolled-back data in a later test (see setUp for the full rationale).
         self._reset_financial_history_batch_queue()
 
+        # NOTE: throttle_user_limit is restored via addCleanup in setUp, not here — see
+        # _restore_throttle_user_limit().
+
         # EMAIL MOCKING CLEANUP: Stop all email patches
         try:
             # Stop comprehensive email patches
@@ -2158,12 +2204,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         except Exception:
             pass  # Continue cleanup even if rate limit patch cleanup fails
 
-        # IMPORT FLAG CLEANUP: Restore original in_import flag value
-        try:
-            if hasattr(self, "_original_in_import"):
-                frappe.flags.in_import = self._original_in_import
-        except Exception:
-            pass  # Continue cleanup even if flag restoration fails
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
