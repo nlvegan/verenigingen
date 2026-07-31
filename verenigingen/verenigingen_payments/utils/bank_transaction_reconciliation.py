@@ -17,6 +17,20 @@ from verenigingen.verenigingen_payments.services.mollie_configuration_service im
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
 
+def _log_error_with_traceback(title, reason):
+    """Write an Error Log row that keeps BOTH the reason and the stack frame.
+
+    ``frappe.utils.error.log_error`` takes ``title`` FIRST and, as soon as a second
+    argument is supplied, uses it AS the traceback -- ``frappe.get_traceback()`` is
+    never called. So ``log_error(f"... {e}", "Some Title")`` stores the literal title
+    string where the stack trace belongs, and silently swaps the two arguments the
+    moment the exception text happens to contain a newline. Passing a constant,
+    guaranteed single-line title plus an explicit traceback in the message is
+    deterministic and preserves the frame that says WHERE the failure came from.
+    """
+    frappe.log_error(title=title, message=f"{reason}\n\n{frappe.get_traceback(with_context=True)}")
+
+
 class PaymentReconciliationManager:
     """
     Manages automatic reconciliation of all payment types (SEPA, Mollie) with bank transactions.
@@ -534,17 +548,17 @@ class PaymentReconciliationManager:
                     return False
 
                 except frappe.ValidationError as ve:
-                    frappe.log_error(
-                        f"SEPA batch reconciliation validation error: {str(ve)}",
+                    _log_error_with_traceback(
                         "SEPA Batch Reconciliation",
+                        f"SEPA batch reconciliation validation error: {str(ve)}",
                     )
                     self._mark_transaction_unreconciled(
                         transaction, f"Batch reconciliation validation failed: {str(ve)}"
                     )
                     return False
                 except Exception as pe:
-                    frappe.log_error(
-                        f"SEPA batch reconciliation error: {str(pe)}", "SEPA Batch Reconciliation"
+                    _log_error_with_traceback(
+                        "SEPA Batch Reconciliation", f"SEPA batch reconciliation error: {str(pe)}"
                     )
                     self._mark_transaction_unreconciled(
                         transaction, f"Batch reconciliation failed: {str(pe)}"
@@ -569,13 +583,17 @@ class PaymentReconciliationManager:
                     return True
 
                 except frappe.ValidationError as ve:
-                    frappe.log_error(f"Payment entry validation error: {str(ve)}", "Payment Entry Validation")
+                    _log_error_with_traceback(
+                        "Payment Entry Validation", f"Payment entry validation error: {str(ve)}"
+                    )
                     self._mark_transaction_unreconciled(
                         transaction, f"Payment entry validation failed: {str(ve)}"
                     )
                     return False
                 except Exception as pe:
-                    frappe.log_error(f"Payment entry processing error: {str(pe)}", "Payment Entry Error")
+                    _log_error_with_traceback(
+                        "Payment Entry Error", f"Payment entry processing error: {str(pe)}"
+                    )
                     self._mark_transaction_unreconciled(
                         transaction, f"Payment entry processing failed: {str(pe)}"
                     )
@@ -590,45 +608,35 @@ class PaymentReconciliationManager:
 
                     # Update bank transaction with settlement processing details
                     bank_trans.custom_processing_status = "Mollie Settlement Processed"
+                    bank_trans.status = "Reconciled"
+                    bank_trans.save()
 
-                    # Add settlement summary to transaction comments
+                    # Comments only AFTER the save succeeded. add_comment() inserts
+                    # immediately and is not undone by a failing save(), so writing
+                    # them first left an operator reading "Auto-reconciled ..."
+                    # directly above "Reconciliation failed: ...".
                     summary = (
                         f"Processed {settlement_result['processed_count']}/{settlement_result['total_payments']} "
                         f"payments. Fees: €{settlement_result['mollie_fees']}"
                     )
                     bank_trans.add_comment("Comment", f"Mollie settlement processed: {summary}")
-
-                    # Update bank transaction
-                    bank_trans.status = "Reconciled"
                     bank_trans.add_comment(
                         "Comment",
                         f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
                     )
-                    bank_trans.save()
 
                     return True
 
                 except frappe.ValidationError as ve:
-                    # process_mollie_settlement() has already inserted and SUBMITTED
-                    # Payment Entries by the time anything below it can fail, so a
-                    # bare log_error left the deposit sitting at its previous status
-                    # with no operator-visible trace. Record the reason like the
-                    # batch/invoice branches do.
-                    frappe.log_error(
-                        f"Mollie settlement reconciliation validation error: {str(ve)}",
-                        "Mollie Settlement Reconciliation",
-                    )
-                    self._mark_transaction_unreconciled(
-                        transaction, f"Mollie settlement reconciliation validation failed: {str(ve)}"
+                    self._record_settlement_failure(
+                        transaction,
+                        match,
+                        f"Mollie settlement reconciliation validation failed: {str(ve)}",
                     )
                     return False
                 except Exception as pe:
-                    frappe.log_error(
-                        f"Mollie settlement reconciliation error: {str(pe)}",
-                        "Mollie Settlement Reconciliation",
-                    )
-                    self._mark_transaction_unreconciled(
-                        transaction, f"Mollie settlement reconciliation failed: {str(pe)}"
+                    self._record_settlement_failure(
+                        transaction, match, f"Mollie settlement reconciliation failed: {str(pe)}"
                     )
                     return False
 
@@ -643,9 +651,51 @@ class PaymentReconciliationManager:
                 return False
 
         except Exception as e:
-            frappe.log_error(f"Reconciliation error: {str(e)}", "Payment Reconciliation")
+            _log_error_with_traceback("Payment Reconciliation", f"Reconciliation error: {str(e)}")
             self._mark_transaction_unreconciled(transaction, f"Reconciliation failed: {str(e)}")
             return False
+
+    def _record_settlement_failure(self, transaction, match, reason):
+        """Record a failed Mollie settlement, preserving retryability when it is safe.
+
+        ``reconcile_bank_transactions`` only ever picks up transactions with status
+        "Pending" and nothing anywhere moves a transaction back out of "Unreconciled",
+        so marking it Unreconciled permanently removes the deposit from
+        auto-reconciliation. That is right once the settlement has posted its
+        accounting -- a re-run cannot re-post the Payment Entries (the dedup guard
+        skips them) but would re-book the fee Journal Entry -- and wrong for a failure
+        that posted nothing, e.g. a Mollie API outage, which would simply have
+        succeeded on the next run.
+
+        The discriminator is the posted accounting itself, not where the exception was
+        raised: ``process_mollie_settlement`` submits its Payment Entries before it
+        books the fee Journal Entry, so it can also fail *after* posting and never
+        return a result at all.
+        """
+        _log_error_with_traceback("Mollie Settlement Reconciliation", reason)
+
+        settlement_id = (match.get("settlement_data") or {}).get("id") or match.get("reference")
+        posted = settlement_id and frappe.db.exists(
+            "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+        )
+
+        if posted:
+            self._mark_transaction_unreconciled(transaction, reason)
+        else:
+            self._comment_transaction_failure(transaction, reason)
+
+    def _comment_transaction_failure(self, transaction, reason):
+        """Record why reconciliation failed WITHOUT touching the status, so the
+        transaction stays in the "Pending" auto-reconciliation pool for the next run."""
+        try:
+            bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
+            bank_trans.add_comment("Comment", f"Reconciliation failed (will retry): {reason}")
+            frappe.logger().info(f"Transaction {transaction['name']} left retryable: {reason}")
+        except Exception as e:
+            _log_error_with_traceback(
+                "Transaction Status Update",
+                f"Error commenting on transaction {transaction['name']}: {str(e)}",
+            )
 
     def _mark_transaction_unreconciled(self, transaction, reason):
         """Mark transaction as unreconciled with reason for failure"""
@@ -658,9 +708,9 @@ class PaymentReconciliationManager:
             bank_trans.save()
             frappe.logger().info(f"Transaction {transaction['name']} marked as unreconciled: {reason}")
         except Exception as e:
-            frappe.log_error(
-                f"Error marking transaction {transaction['name']} as unreconciled: {str(e)}",
+            _log_error_with_traceback(
                 "Transaction Status Update",
+                f"Error marking transaction {transaction['name']} as unreconciled: {str(e)}",
             )
 
     def _batch_fetch_invoice_data(self, invoice_refs):

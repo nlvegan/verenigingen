@@ -55,7 +55,7 @@ import unittest
 from decimal import Decimal
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
@@ -362,18 +362,80 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
             )
         ]
 
-    def test_settlement_reconciles_and_persists_processing_status(self):
-        """The happy path must actually reconcile when validation is not suppressed."""
-        it = self._make_member_with_invoice(first_name="MollieProd", grand_total=30.0)
-        bt = self._make_bank_transaction(deposit=30.0, date=today(), bank_account=self._eur_bank_account)
-        settlement_data = {"id": "stl_PROD", "amount": {"value": "30.00", "currency": "EUR"}}
-        match = {
+    def _match(self, settlement_id, amount="30.00"):
+        return {
             "type": "mollie_settlement",
-            "reference": "stl_PROD",
+            "reference": settlement_id,
             "confidence": 0.98,
             "match_reason": "Mollie settlement exact match",
-            "settlement_data": settlement_data,
+            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
         }
+
+    @contextlib.contextmanager
+    def _boom_client(self, message="mollie api down"):
+        """Mollie API outage: the settlement fetch fails, so NOTHING is posted."""
+
+        class _BoomClient:
+            def get_payments_for_settlement(self, _sid):
+                raise RuntimeError(message)
+
+        original = btr.SettlementsClient
+        btr.SettlementsClient = _BoomClient
+        try:
+            yield
+        finally:
+            btr.SettlementsClient = original
+
+    @contextlib.contextmanager
+    def _select_option_not_deployed(self):
+        """Reproduce a deploy whose fixtures have not been synced yet: the
+        "Mollie Settlement Processed" Select option is absent, so the branch's
+        ``save()`` raises -- AFTER ``process_mollie_settlement`` has submitted the
+        Payment Entries. This is the exact production incident 4db12397 fixed."""
+        field = "Bank Transaction-custom_processing_status"
+        original = frappe.db.get_value("Custom Field", field, "options")
+        stripped = "\n".join(
+            line for line in (original or "").split("\n") if line != "Mollie Settlement Processed"
+        )
+        frappe.db.set_value("Custom Field", field, "options", stripped, update_modified=False)
+        frappe.clear_cache(doctype="Bank Transaction")
+        try:
+            yield
+        finally:
+            frappe.db.set_value("Custom Field", field, "options", original, update_modified=False)
+            frappe.clear_cache(doctype="Bank Transaction")
+
+    @contextlib.contextmanager
+    def _capture_error_logs(self):
+        """Collect the Error Log rows written inside the block."""
+        marker = frappe.utils.now_datetime()
+        before = {
+            r.name for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
+        }
+        rows = []
+        yield rows
+        rows.extend(
+            r
+            for r in frappe.get_all(
+                "Error Log",
+                filters={"creation": [">=", marker]},
+                fields=["name", "method", "error"],
+            )
+            if r.name not in before
+        )
+
+    def test_settlement_reconciles_and_persists_processing_status(self):
+        """The happy path must actually reconcile -- and actually book the accounting.
+
+        Every per-payment failure inside ``process_mollie_settlement`` is swallowed
+        into the result's ``details`` and the branch still returns True, so status
+        assertions alone stay green in a world where ZERO Payment Entries were booked.
+        """
+        it = self._make_member_with_invoice(first_name="MollieProd", grand_total=30.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        match = self._match("stl_PROD")
         payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
         with self._stub_client(payments=[payment]):
             # Only the reconciliation call runs with production validation; the
@@ -391,43 +453,171 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         self.assertEqual(bt.status, "Reconciled")
         self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
 
-    def test_settlement_failure_records_reason_on_transaction(self):
-        """A failing settlement must leave an operator-visible reason, like the
-        SEPA batch/invoice branches do -- not just a bare Error Log row."""
+        # The deploy-critical artifact: the option must exist on the DEPLOYED Custom
+        # Field, not merely in the working copy of fixtures/custom_field.json. On a
+        # long-lived site the doc keeps validating against whatever was last synced,
+        # so reverting the fixture would otherwise leave this suite green.
+        self.assertIn(
+            "Mollie Settlement Processed",
+            frappe.db.get_value("Custom Field", "Bank Transaction-custom_processing_status", "options"),
+        )
+
+        # The accounting really happened.
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"], "docstatus": 1}),
+            f"no SUBMITTED Payment Entry for Mollie payment {payment['id']}",
+        )
+        self.assertEqual(
+            flt(frappe.db.get_value("Sales Invoice", it["invoice"].name, "outstanding_amount")),
+            0.0,
+            "the settlement's Payment Entry did not clear the invoice",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any("Processed 1/1 payments" in c for c in comments),
+            f"settlement summary does not report every payment as processed; comments={comments}",
+        )
+
+    def test_failure_error_log_keeps_the_traceback(self):
+        """``frappe.utils.error.log_error`` takes ``title`` FIRST and, when a second
+        argument is given, uses it AS the traceback -- ``frappe.get_traceback()`` is
+        never called. ``log_error(f"...{e}", "Some Title")`` therefore writes an Error
+        Log row whose stack trace is the literal title string, and swaps the two the
+        moment the exception text contains a newline. The stack is the only thing that
+        says WHERE a swallowed failure came from."""
         self.expectErrorLog("mollie api down")
-        bt = self._make_bank_transaction(deposit=30.0, date=today(), bank_account=self._eur_bank_account)
-        match = {
-            "type": "mollie_settlement",
-            "reference": "stl_FAIL",
-            "confidence": 0.98,
-            "match_reason": "Mollie settlement exact match",
-            "settlement_data": {"id": "stl_FAIL", "amount": {"value": "30.00", "currency": "EUR"}},
-        }
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        with self._capture_error_logs() as rows:
+            with self._boom_client():
+                with self.production_validation():
+                    self.mgr.create_reconciliation(self._txn_dict(bt), self._match("stl_TRACE"))
 
-        class _BoomClient:
-            def get_payments_for_settlement(self, _sid):
-                raise RuntimeError("mollie api down")
+        handler_rows = [r for r in rows if "Mollie Settlement Reconciliation" in f"{r.method}\n{r.error}"]
+        self.assertTrue(
+            handler_rows,
+            f"the Mollie branch handler logged nothing; rows={[r.method for r in rows]}",
+        )
+        for row in handler_rows:
+            # "most recent call last" matches both the plain and the with_context
+            # ("Traceback with variables ...") header frappe.get_traceback emits.
+            self.assertIn(
+                "most recent call last",
+                row.error or "",
+                f"Error Log row {row.method!r} carries no stack frame -- its 'error' field is "
+                f"{row.error!r}, i.e. log_error's title/message arguments were used as the traceback",
+            )
+            self.assertIn("bank_transaction_reconciliation.py", row.error or "")
+            self.assertIn("mollie api down", row.error or "")
 
-        original = btr.SettlementsClient
-        btr.SettlementsClient = _BoomClient
-        try:
+    def test_transient_failure_before_posting_stays_retryable(self):
+        """A Mollie API outage fails BEFORE anything is posted.
+
+        ``reconcile_bank_transactions`` only ever selects ``{"status": "Pending"}``
+        and nothing anywhere moves a Bank Transaction back out of "Unreconciled", so
+        marking it Unreconciled removes the deposit from auto-reconciliation forever.
+        For a failure that posted no accounting the next run would simply have
+        succeeded, so the status must be left alone and only the reason recorded."""
+        self.expectErrorLog("mollie api down")
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        with self._boom_client():
             with self.production_validation():
-                ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
-        finally:
-            btr.SettlementsClient = original
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match("stl_RETRY"))
 
         self.assertFalse(ok)
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"custom_mollie_settlement_id": "stl_RETRY"}),
+            "staging error: this must be the nothing-was-posted case",
+        )
         bt.reload()
         self.assertEqual(
             bt.status,
-            "Unreconciled",
-            "a failed Mollie settlement must be marked Unreconciled so it is visible "
-            "to an operator instead of sitting silently at its previous status",
+            "Pending",
+            "a settlement that failed before posting anything must stay in the "
+            "'Pending' auto-reconciliation pool; nothing ever moves an 'Unreconciled' "
+            "transaction back, so marking it here makes a transient outage permanent",
         )
         comments = self._bt_comments(bt.name)
         self.assertTrue(
             any("mollie api down" in c for c in comments),
             f"no Comment records why the settlement failed; comments={comments}",
+        )
+
+    def test_failure_after_posting_marks_unreconciled_without_success_comment(self):
+        """The settlement HAS posted (and submitted) its Payment Entries and then the
+        save() fails because the Select option is not deployed. The transaction must
+        NOT stay retryable -- a re-run cannot re-post the payments (the dedup guard
+        skips them) but WOULD re-book the fee Journal Entry -- and the success
+        comments must not be persisted next to the failure."""
+        self.expectErrorLog("custom_processing_status", "Mollie Settlement Reconciliation")
+        it = self._make_member_with_invoice(first_name="MollieAfterPost", grand_total=30.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        match = self._match("stl_AFTERPOST")
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+        with self._stub_client(payments=[payment]):
+            with self._select_option_not_deployed():
+                with self.production_validation():
+                    ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertFalse(ok)
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"], "docstatus": 1}),
+            "staging error: nothing was posted, so this is not the after-posting case",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "a settlement whose accounting was already posted must be taken out of the "
+            "retry pool and put in front of an operator",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertFalse(
+            any("Auto-reconciled" in c for c in comments),
+            "add_comment() inserts immediately and is not rolled back by the failing "
+            f"save(), so an 'Auto-reconciled' comment ends up directly above "
+            f"'Reconciliation failed'; comments={comments}",
+        )
+
+    def test_fee_entry_failure_after_posting_marks_unreconciled(self):
+        """The other after-posting shape: ``process_mollie_settlement`` itself raises
+        (the fee Journal Entry cannot be booked) AFTER submitting the Payment Entries,
+        so it never returns and its result is never bound. Retryability must be decided
+        on whether accounting was posted, not on whether that call returned."""
+        self.expectErrorLog("stl_FEEBOOM", "Mollie Settlement Reconciliation")
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing FeeBoom", root_type="Asset", account_type="Bank")
+        it = self._make_member_with_invoice(first_name="MollieFeeBoom", grand_total=30.0)
+        # Mollie kept 1.50 in fees, so the settlement payout is 28.50 -> the fee
+        # Journal Entry branch fires, and its fees account does not exist.
+        bt = self._make_bank_transaction(
+            deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        match = self._match("stl_FEEBOOM", amount="28.50")
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+        with self._mollie_settings(
+            clearing_account=clearing, fees_account="Mollie Fees Account That Does Not Exist"
+        ):
+            with self._stub_client(payments=[payment]):
+                with self.production_validation():
+                    ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertFalse(ok)
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"], "docstatus": 1}),
+            "staging error: nothing was posted, so this is not the after-posting case",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "the Payment Entries were already submitted, so this settlement must not "
+            "go back into the auto-reconciliation pool",
         )
 
 

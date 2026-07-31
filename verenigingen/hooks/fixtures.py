@@ -138,13 +138,35 @@ fixtures = [
             ["fieldname", "=", "custom_eboekhouden_grootboek_nummer"],
         ],
     },
-    # Mollie payment dedup fields on Payment Entry (see fixtures/custom_field.json).
-    # Without this export filter, `bench export-fixtures` would drop them from
-    # custom_field.json, silently breaking Mollie payment-processed detection.
+    # Mollie fields that must survive `bench export-fixtures` (see
+    # fixtures/custom_field.json):
+    #   * custom_mollie_payment_id / custom_mollie_settlement_id on Payment Entry --
+    #     the settlement dedup guard reads them;
+    #   * custom_processing_status on Bank Transaction -- its Select options carry
+    #     "Mollie Settlement Processed", and without that option the Mollie branch of
+    #     create_reconciliation throws on save() *after* it has submitted every
+    #     Payment Entry.
+    #
+    # These share ONE entry on purpose. frappe/utils/fixtures.py derives the output
+    # filename as frappe.scrub(<doctype>) unless a "prefix" is given, so all three
+    # unprefixed "Custom Field" entries in this list write to custom_field.json and
+    # only the LAST one's contents survive an export. Adding a fourth entry would
+    # therefore delete the Mollie dedup fields instead of saving this one. The real
+    # fix (the three entries clobbering a single file, which also silently drops the
+    # btw_* and eboekhouden fields) is filed separately and deliberately not
+    # attempted here.
     {
         "doctype": "Custom Field",
         "filters": [
-            ["fieldname", "in", ["custom_mollie_payment_id", "custom_mollie_settlement_id"]],
+            [
+                "fieldname",
+                "in",
+                [
+                    "custom_mollie_payment_id",
+                    "custom_mollie_settlement_id",
+                    "custom_processing_status",
+                ],
+            ],
         ],
     },
     # =========================================================================
