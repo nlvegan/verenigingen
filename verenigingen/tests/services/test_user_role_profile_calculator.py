@@ -50,6 +50,7 @@ from verenigingen.services.member.account.user_role_profile_calculator import (
     validate_role_profile_data_integrity,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.constants import Roles
 
 
 class TestUserRoleProfileCalculator(VereningingenTestCase):
@@ -533,3 +534,140 @@ class TestUserRoleProfileCalculator(VereningingenTestCase):
         self.assertTrue(result["success"])
         flagged = [i["team"] for i in result["issues"]["invalid_team_profiles"]]
         self.assertIn(team, flagged)
+
+
+class TestBulkRecalculationDowngradeIsAPrivilegeChange(VereningingenTestCase):
+    """
+    What a bulk recalculation would actually DO, asserted at the level an operator
+    has to reason about before running it without dry_run.
+
+    The existing coverage pins the building blocks (is_active_volunteer across
+    statuses) and that dry_run applies nothing. What it does not pin is the shape a
+    real site presents: users already HOLDING a profile that the current data no
+    longer justifies. On veg11, 564 users hold Verenigingen Volunteer while 7
+    Volunteer records exist, none Active and none linked to a user - so a
+    recalculation proposes Member for 438 of them.
+
+    Reading `changed: 438` tells you nothing about whether that is a relabel or a
+    permission withdrawal. These tests make it answerable from the suite.
+    """
+
+    def _attach_profile(self, user, profile):
+        """Attach a profile the way production does.
+
+        Mirrors sync_user_role_profile: on v16 the profiles live in the
+        `role_profiles` child table and setting `role_profile_name` alone is a
+        no-op, because User.move_role_profile_name_to_role_profiles discards it.
+        """
+        user_doc = frappe.get_doc("User", user)
+        if calc._has_multi_profile_support():
+            user_doc.set("role_profiles", [{"role_profile": profile}])
+        else:
+            user_doc.role_profile_name = profile
+        user_doc.save()
+        frappe.clear_cache(user=user)
+        self.assertIn(profile, calc.get_user_role_profiles(user), "fixture failed to attach")
+
+    def _member_user(self):
+        email = f"urpcbulk.{frappe.generate_hash(length=8)}@test.invalid"
+        member = self.create_test_member(
+            first_name="BulkRecalc",
+            last_name=f"M{frappe.generate_hash(length=5)}",
+            email=email,
+            status="Active",
+        )
+        user = self.create_test_user(email, roles=["Verenigingen Member"])
+        self.track_doc("User", user.name)
+        frappe.db.set_value("Member", member.name, "user", user.name)
+        return user.name, member.name
+
+    def test_downgrade_from_volunteer_withdraws_privileges_not_just_the_label(self):
+        """
+        The roles the Volunteer profile confers and the Member profile does not are
+        withdrawn with it. This is the assertion that makes `changed: N` interpretable:
+        N is not a relabel, it is N users losing Employee, Employee Self Service and
+        Projects User.
+
+        Derived from the Role Profile documents rather than hardcoded, so it keeps
+        telling the truth when someone edits either profile.
+        """
+        volunteer_roles = {
+            r.role for r in frappe.get_doc("Role Profile", PROFILE_VOLUNTEER).roles
+        }
+        member_roles = {r.role for r in frappe.get_doc("Role Profile", PROFILE_MEMBER).roles}
+        withdrawn = volunteer_roles - member_roles
+
+        # Guard the thesis, not just the arithmetic. `withdrawn` shrinking to nothing
+        # would make the assertions below vacuous; shrinking to the profile's OWN
+        # namesake role would make them near-tautological (swapping the profile
+        # obviously removes the role it is named after) while this test still claimed
+        # to prove a privilege change. Fail loudly in both cases.
+        self.assertTrue(
+            withdrawn - {Roles.VOLUNTEER},
+            f"Volunteer confers nothing over Member beyond its namesake role ({withdrawn}) - "
+            "the downgrade really would be a relabel, so revisit this test",
+        )
+
+        user, member = self._member_user()
+        vol = self.create_test_volunteer(member=member, status="Active").name
+        sync_user_role_profile(user, dry_run=False)
+        self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+        for role in withdrawn:
+            self.assertIn(role, frappe.get_roles(user), f"baseline: {role} should be held")
+
+        # The volunteer stops being active - the veg11 shape. No cache clear needed:
+        # is_active_volunteer() queries Volunteer directly and caches nothing per user.
+        frappe.db.set_value("Volunteer", vol, "status", "Inactive")
+
+        result = bulk_recalculate_role_profiles(filters={"name": user}, dry_run=False)
+
+        self.assertEqual(result["changed"], 1, result)
+        self.assertEqual(result["changes"][0]["new_role"], PROFILE_MEMBER)
+        self.assertNotIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+        frappe.clear_cache(user=user)
+        for role in withdrawn:
+            self.assertNotIn(
+                role, frappe.get_roles(user), f"{role} survived the downgrade to Member"
+            )
+
+    def test_holding_a_profile_with_no_volunteer_record_at_all_is_downgraded(self):
+        """
+        The exact production shape: the profile is held, the Volunteer record does not
+        exist. is_active_volunteer's no-record case is already pinned; this pins that
+        the bulk tool acts on it rather than leaving the stale profile alone.
+        """
+        user, _member = self._member_user()
+        self._attach_profile(user, PROFILE_VOLUNTEER)
+
+        result = bulk_recalculate_role_profiles(filters={"name": user}, dry_run=True)
+
+        self.assertEqual(result["changed"], 1, result)
+        self.assertEqual(result["changes"][0]["old_role"], PROFILE_VOLUNTEER)
+        self.assertEqual(result["changes"][0]["new_role"], PROFILE_MEMBER)
+        # dry_run: still held.
+        self.assertIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user))
+
+    def test_a_user_who_is_not_a_member_is_counted_as_an_error_and_left_untouched(self):
+        """
+        126 of veg11's 564 land here. An operator reading the summary needs to know
+        these are SKIPPED, not silently downgraded - they keep whatever they hold.
+        """
+        email = f"urpcbulk.nonmember.{frappe.generate_hash(length=6)}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Member"])
+        self.track_doc("User", user.name)
+        self._attach_profile(user.name, PROFILE_VOLUNTEER)
+        before = calc.get_user_role_profiles(user.name)
+        # A disabled user takes sync_user_role_profile's skip branch, which lands in
+        # `unchanged` rather than `errors` - that would fail below as a bare `1 != 0`.
+        # Test users have landed disabled before (the in_import/_set_defaults bug), so
+        # name the cause here rather than leaving the next reader to rediscover it.
+        self.assertTrue(
+            frappe.db.get_value("User", user.name, "enabled"), "fixture: user must be enabled"
+        )
+
+        result = bulk_recalculate_role_profiles(filters={"name": user.name}, dry_run=False)
+
+        self.assertEqual(result["errors"], 1, result)
+        self.assertEqual(result["changed"], 0, result)
+        self.assertIn("not a member", result["errors_list"][0]["error"].lower())
+        self.assertEqual(calc.get_user_role_profiles(user.name), before)
