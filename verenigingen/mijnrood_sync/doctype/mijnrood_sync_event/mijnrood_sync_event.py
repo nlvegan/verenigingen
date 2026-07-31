@@ -54,6 +54,11 @@ class MijnRoodSyncEvent(Document):
         self.reviewed_by = frappe.session.user
         self.reviewed_at = now_datetime()
         self.save()
+        # Make the approval durable before applying. apply_event() now rolls back on
+        # failure so a failed event does not leave partial writes committed; without
+        # this commit that rollback would also discard this approval and silently put
+        # the event back to Pending. The batch worker already commits here.
+        frappe.db.commit()
 
         from verenigingen.mijnrood_sync.services.event_application_service import (
             get_event_application_service,

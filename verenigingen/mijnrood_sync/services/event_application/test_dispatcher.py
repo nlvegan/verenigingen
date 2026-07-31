@@ -76,9 +76,16 @@ class TestDispatcherBase(EnhancedTestCase):
         return ev
 
     def _apply(self, ev):
-        """Approve (if pending) and apply an event, returning the result dict."""
+        """Approve (if pending) and apply an event, returning the result dict.
+
+        The approval is committed before applying, as both production callers do
+        (``_batch_event_worker`` and ``MijnRoodSyncEvent.approve_and_apply``).
+        apply_event() rolls back on failure, so an uncommitted approval here would
+        be discarded by that rollback — a harness artifact, not the real flow.
+        """
         if ev.status == "Pending":
             ev.approve()
+            frappe.db.commit()
         result = get_event_application_service().apply_event(ev.name)
         ev.reload()
         return result
@@ -147,6 +154,133 @@ class TestApplyEventGuards(TestDispatcherBase):
         self.assertEqual(ev.status, "Approved")
         self.assertTrue(ev.error_message)
         self.assertIn("99999", ev.error_message)
+
+    def test_failed_event_rolls_back_what_it_wrote_before_failing(self):
+        """An un-Applied event must not leave its own writes committed.
+
+        The except block ends in ``event.save()`` + ``frappe.db.commit()``, which
+        commits *everything* still open on the transaction — including whatever the
+        handler wrote before it raised. Recording "re-run me" while leaving those
+        writes durable makes the re-run replay them onto half-applied state.
+
+        Mock justified: fault injection at the dispatch boundary. ``_apply_changed``
+        is replaced with a stand-in that performs one write and then raises, because
+        the property under test is the transaction boundary in ``apply_event``, not
+        any particular handler's failure mode. No business logic is stubbed out.
+        """
+        self.expectErrorLog("MijnRood Event Application Failed")
+        member = self.factory.create_member(
+            first_name="Rollback",
+            last_name="Probe",
+            email=f"rollback-probe-{frappe.generate_hash(length=6)}@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        marker = f"rollback-marker-{frappe.generate_hash(length=6)}"
+        ev = self._make_event(
+            "Changed",
+            "admin_member",
+            new_data={"id": _next_id(), "first_name": "Rollback"},
+            linked_member=member.name,
+        )
+        ev.approve()
+        frappe.db.commit()
+
+        service = get_event_application_service()
+
+        def _write_then_fail(_event):
+            frappe.db.set_value("Member", member.name, "contact_number", marker, update_modified=False)
+            raise frappe.ValidationError("handler raised after writing")
+
+        with patch.object(service, "_apply_changed", side_effect=_write_then_fail):
+            result = service.apply_event(ev.name)
+
+        self.assertFalse(result["success"])
+        ev.reload()
+        self.assertEqual(ev.status, "Approved")
+        self.assertTrue(ev.error_message)
+        self.assertNotEqual(
+            frappe.db.get_value("Member", member.name, "contact_number"),
+            marker,
+            "a failed event committed the write it made before failing",
+        )
+
+    def test_non_resumable_db_error_is_recorded_then_reraised(self):
+        """A deadlock must reach the transaction owner *and* leave a record.
+
+        ``NON_RESUMABLE_DB_ERRORS`` clauses further down the stack (e.g.
+        ``_end_team_membership``, ``_ensure_chapter_board_membership``) re-raise
+        precisely so the run is abandoned, so this frame must not swallow one.
+        But recording is safe once ``frappe.db.rollback()`` has run — the
+        discarded transaction is gone — and it is necessary: the only production
+        caller (``_batch_event_worker``) catches this, appends a truncated string
+        to an ephemeral realtime payload and continues. Without a record, a
+        deadlock during a privilege revocation leaves an Error-Log-less,
+        error_message-less event and a toast.
+
+        Mock justified: fault injection — a real MariaDB 1213 cannot be provoked
+        deterministically from a single-connection test.
+        """
+        self.expectErrorLog("MijnRood Event Application Failed")
+        ev = self._make_event(
+            "Changed",
+            "admin_member",
+            new_data={"id": _next_id(), "first_name": "Deadlock"},
+        )
+        ev.approve()
+        frappe.db.commit()
+
+        service = get_event_application_service()
+        with patch.object(service, "_apply_changed", side_effect=frappe.QueryDeadlockError("Deadlock found")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                service.apply_event(ev.name)
+
+        ev.reload()
+        self.assertEqual(ev.status, "Approved")
+        self.assertTrue(ev.error_message, "deadlock left no durable record on the event")
+        self.assertIn("Deadlock found", ev.error_message)
+
+    def test_approve_and_apply_leaves_the_event_approved_when_apply_raises(self):
+        """The approval must survive apply_event's rollback.
+
+        ``approve_and_apply`` saves the approval and then applies in the same
+        request. ``apply_event`` now rolls back on failure, which would also
+        discard an uncommitted approval and silently put the event back to
+        Pending — losing the reviewer's decision and the audit fields with it.
+        The commit between the two steps is what prevents that, so it needs a
+        test of its own rather than being covered by accident.
+
+        Mock justified: fault injection at the dispatch boundary; no business
+        logic is stubbed out.
+        """
+        self.expectErrorLog("MijnRood Event Application Failed")
+        ev = self._make_event(
+            "Changed",
+            "admin_member",
+            new_data={"id": _next_id(), "first_name": "Approved"},
+        )
+        service = get_event_application_service()
+
+        with patch.object(service, "_apply_changed", side_effect=frappe.QueryDeadlockError("Deadlock found")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ev.approve_and_apply()
+
+        ev.reload()
+        self.assertEqual(ev.status, "Approved")
+        self.assertTrue(ev.reviewed_by)
+
+    def _cleanup_member_and_customer(self, member_name):
+        for cust in frappe.get_all("Customer", filters={"member": member_name}, pluck="name"):
+            try:
+                frappe.db.set_value("Customer", cust, "member", None, update_modified=False)
+                frappe.delete_doc("Customer", cust, ignore_permissions=True, force=True)
+            except Exception:
+                pass
+        try:
+            if frappe.db.exists("Member", member_name):
+                frappe.delete_doc("Member", member_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
 
     def test_unknown_event_type_returns_failure(self):
         # event_type is a Select field; build a valid doc then poke a bad value
