@@ -394,14 +394,33 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
         self.assertEqual(found, existing.name)
 
     def test_overlap_without_exact_match_skips_creation(self):
-        # An overlapping (but not exact) invoice -> the processor refuses to
-        # create a new invoice and returns None (manual review required).
+        """An overlapping (but not exact) invoice -> the processor refuses to create a
+        new invoice and returns None (manual review required).
+
+        The overlapping invoice must NOT contain the payment date. Since 176a41dc
+        ("anchor duplicate detection and payment matching on the member's own
+        periods"), `_coverage_period_from_member_sequence` prefers *an invoice whose
+        coverage already contains payment_date* and returns that invoice's own period
+        verbatim. An overlapping invoice that spans the payment date therefore becomes
+        the proposed period, `check_coverage_overlap` reports an EXACT match, and the
+        processor reuses the invoice instead of refusing - so the fixture would no
+        longer be constructing the case this test is named for.
+
+        The window is shifted FORWARD from the payment date rather than backward, and
+        the payment date is pinned to `cov_start` rather than `today()`, so "the
+        invoice starts after the payment" holds on every day of the month. The
+        previous fixture shifted backwards by 3 days, which contains today for all but
+        the last 3 days of a period - it passed only because it happened to be written
+        and merged inside that window.
+        """
         member = self._member_with_customer()
         cov_start, cov_end = self._coverage(member.name)
-        # Build an invoice whose coverage overlaps the proposed period but is not
-        # an exact match (shift the window by a few days so it overlaps).
-        overlap_start = add_days(cov_start, -3)
-        overlap_end = add_days(cov_end, -3)
+        # Pay on the first day of the member's own period; cov_start <= today because
+        # that period is the one containing today, so this never trips the
+        # payment-date-in-the-future guard.
+        payment_date = cov_start
+        overlap_start = add_days(cov_start, 5)
+        overlap_end = add_days(cov_end, 5)
         _make_eur_invoice(
             self.company,
             member.customer,
@@ -410,7 +429,7 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
             coverage_start=overlap_start,
             coverage_end=overlap_end,
         )
-        result = self.processor._get_or_create_historical_invoice(member.name, today(), 25.0)
+        result = self.processor._get_or_create_historical_invoice(member.name, payment_date, 25.0)
         self.assertIsNone(result)
 
 
