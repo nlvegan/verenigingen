@@ -18,6 +18,7 @@ import unittest
 from datetime import date
 
 import frappe
+from frappe.utils import add_days, add_months, getdate
 
 from verenigingen.services.billing.coverage_calculator import CoverageCalculator, CoveragePeriod
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -90,9 +91,10 @@ class TestCoverageCalculator(EnhancedTestCase):
         Test that members who join mid-period have coverage starting from
         their membership start date, not the billing period start.
 
-        Scenario: Member joins Nov 15 (mid-Q4). With Annual billing,
-        the billing period would be Jan 1 - Dec 31, but coverage should
-        start from Nov 15 (not Jan 1) since the member wasn't a member before.
+        Scenario: Member joins Nov 15 (mid-Q4). With Annual billing, the surrounding
+        calendar period would be Jan 1 - Dec 31, but coverage runs a full year from
+        Nov 15 - the member neither pays for time before joining nor gets a short
+        first period that nothing prorates.
         """
         # Arrange - ensure we're using the mid-period membership (Nov 15)
         # The default setUp already creates this with start_date=TEST_DATE_MID_Q4
@@ -114,10 +116,10 @@ class TestCoverageCalculator(EnhancedTestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.data.calculation_method, "first_invoice")
 
-        # For Annual billing: period would be Jan 1 - Dec 31
-        # But coverage should start from Nov 15 (membership start)
+        # Coverage runs a full annual period from the Nov 15 join date, not to the
+        # Dec 31 calendar year end.
         self.assertEqual(result.data.start_date, expected_start)
-        self.assertEqual(result.data.end_date, date(2025, 12, 31))
+        self.assertEqual(result.data.end_date, date(2026, 11, 14))
 
         # Verify metadata shows membership_start was used
         self.assertTrue(result.data.metadata.get("membership_start_used"))
@@ -757,3 +759,199 @@ class TestEligibilityFlowIntegration(EnhancedTestCase):
             eligibility_result["eligible_schedules"],
             "Member with partial coverage should be eligible for additional invoices"
         )
+
+
+class TestFirstCoveragePeriodRunsFromJoinDate(EnhancedTestCase):
+    """
+    The first invoice must cover a full billing period starting on the member's
+    join date, not the calendar period surrounding it.
+
+    Membership runs from start_date (Membership.set_renewal_date sets
+    renewal_date = start_date + billing_period) and the sequential branch rolls
+    every later period off the previous coverage end, so the first period rolls
+    too. Anchoring it to the calendar produced a SHORT first period charged at the
+    full dues_rate - nothing in the dues pipeline prorates - and, for a member
+    joining on the period's last day, a zero-length period that threw
+    "Invalid coverage period: start date X must be before end date X" and left them
+    permanently un-invoiceable.
+
+    Dates are derived from today() rather than hard-coded, so the memberships are
+    always recently backdated and therefore Active - a precondition for
+    _get_membership_start_date() to find them at all.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="Running Period Test Type"
+        )
+
+    # ---- date helpers (all relative to today, so the tests never go stale) ----
+
+    @staticmethod
+    def _previous_month_bounds():
+        """(first_day, last_day) of the month preceding the current one."""
+        first_of_this_month = getdate(frappe.utils.today()).replace(day=1)
+        last_day = getdate(add_days(first_of_this_month, -1))
+        return last_day.replace(day=1), last_day
+
+    @staticmethod
+    def _previous_quarter_bounds():
+        """(first_day, last_day) of the quarter preceding the current one."""
+        today_date = getdate(frappe.utils.today())
+        this_quarter_start = today_date.replace(month=((today_date.month - 1) // 3) * 3 + 1, day=1)
+        last_day = getdate(add_days(this_quarter_start, -1))
+        return last_day.replace(month=((last_day.month - 1) // 3) * 3 + 1, day=1), last_day
+
+    def _member_joining_on(self, label, start_date, billing_frequency):
+        """Create a member whose membership starts on start_date, billed at frequency."""
+        member, schedule = self.create_test_member_with_schedule(
+            first_name=label,
+            last_name="RunningPeriod",
+            membership_type_name=self.membership_type.name,
+            start_date=start_date,
+        )
+        schedule.billing_frequency = billing_frequency
+        schedule.save()
+        frappe.db.commit()
+        return member, schedule
+
+    def _first_period(self, member, schedule, join_date, force_date):
+        """Run the first-invoice calculation, asserting its preconditions."""
+        calculator = CoverageCalculator(schedule)
+
+        # Precondition: it is the Active membership that anchors the period.
+        self.assertEqual(
+            calculator._get_membership_start_date(),
+            join_date,
+            "Test precondition: the submitted Active membership must start on the join date",
+        )
+
+        result = calculator.calculate_next_coverage_period(member, force_date=force_date)
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        self.assertEqual(result.data.calculation_method, "first_invoice")
+        self.assertTrue(result.data.metadata.get("membership_start_used"))
+        return result
+
+    # ---- the boundary case that used to be un-invoiceable ----
+
+    def test_monthly_join_on_last_day_of_month_gets_a_full_month(self):
+        period_start, period_end = self._previous_month_bounds()
+        member, schedule = self._member_joining_on("MonthEdge", period_end, "Monthly")
+
+        result = self._first_period(member, schedule, period_end, period_start)
+
+        self.assertEqual(result.data.start_date, period_end)
+        self.assertEqual(result.data.end_date, add_days(add_months(period_end, 1), -1))
+
+    def test_quarterly_join_on_last_day_of_quarter_gets_a_full_quarter(self):
+        period_start, period_end = self._previous_quarter_bounds()
+        member, schedule = self._member_joining_on("QuarterEdge", period_end, "Quarterly")
+
+        result = self._first_period(member, schedule, period_end, period_start)
+
+        self.assertEqual(result.data.start_date, period_end)
+        self.assertEqual(result.data.end_date, add_days(add_months(period_end, 3), -1))
+
+    def test_schedule_returns_period_instead_of_throwing(self):
+        """
+        The production symptom: MembershipDuesSchedule.calculate_next_coverage_period
+        frappe.throw()s the calculator's error message, so invoice generation for such
+        a member aborted with ValidationError instead of producing an invoice.
+        """
+        period_start, period_end = self._previous_month_bounds()
+        _member, schedule = self._member_joining_on("ThrowEdge", period_end, "Monthly")
+
+        coverage_start, coverage_end = schedule.calculate_next_coverage_period(force_date=period_start)
+
+        self.assertEqual(coverage_start, period_end)
+        self.assertEqual(coverage_end, add_days(add_months(period_end, 1), -1))
+
+    # ---- the silent overcharge that affected every mid-period joiner ----
+
+    def test_mid_period_join_gets_a_full_month_not_a_short_stub(self):
+        """
+        A member joining mid-month used to be given only the remainder of the calendar
+        month, then charged the full dues_rate for it. The period must be a full month.
+        """
+        period_start, period_end = self._previous_month_bounds()
+        join_date = getdate(add_days(period_start, 14))
+        member, schedule = self._member_joining_on("MidMonth", join_date, "Monthly")
+
+        result = self._first_period(member, schedule, join_date, period_start)
+
+        self.assertEqual(result.data.start_date, join_date)
+        self.assertEqual(result.data.end_date, add_days(add_months(join_date, 1), -1))
+        self.assertNotEqual(
+            result.data.end_date, period_end, "first period must not be truncated to the calendar month"
+        )
+
+    def test_annual_first_period_ends_the_day_before_membership_renewal(self):
+        """
+        Cross-check against the membership itself: Membership.set_renewal_date sets
+        renewal_date = start_date + 12 months, so annual coverage must run up to the
+        day before renewal. This is what ties the billing period to the membership term.
+
+        The join date is today rather than backdated on purpose: the test factory sets
+        _is_csv_import on a backdated membership, which makes set_renewal_date compute
+        from today() instead of start_date and would decouple the two dates.
+        """
+        join_date = getdate(frappe.utils.today())
+        member, schedule = self._member_joining_on("AnnualRun", join_date, "Annual")
+
+        calculator = CoverageCalculator(schedule)
+        self.assertEqual(
+            calculator._get_membership_start_date(),
+            join_date,
+            "Test precondition: the submitted Active membership must start on the join date",
+        )
+
+        result = calculator.calculate_next_coverage_period(member, force_date=join_date)
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+
+        renewal_date = frappe.db.get_value(
+            "Membership",
+            {"member": member.name, "status": "Active", "docstatus": 1},
+            "renewal_date",
+        )
+        self.assertIsNotNone(renewal_date, "membership must carry a renewal_date to compare against")
+        self.assertEqual(result.data.end_date, add_days(getdate(renewal_date), -1))
+
+    # ---- the invariant the no-membership fallback relies on ----
+
+    def test_running_period_from_a_calendar_start_equals_the_calendar_period(self):
+        """
+        When no membership is on record the join date is unknown and coverage_start
+        falls back to the calendar period start. Deriving coverage_end from it must
+        then reproduce the calendar period exactly, or that fallback would silently
+        change behaviour for members with no membership row.
+
+        This asserts the arithmetic invariant between the two independently written
+        helpers, NOT the branch itself - it does not call
+        calculate_next_coverage_period. A test that drives the fallback branch
+        end-to-end needs a schedule whose member has no submitted Active membership,
+        which the factory does not currently arrange; see the handoff doc.
+
+        Daily is included (a legitimate single-day period). Custom is deliberately
+        excluded: calculate_billing_period defaults a missing frequency NUMBER to 1
+        while honouring the unit, whereas _calculate_coverage_end defaults it to one
+        month and discards the unit, so the two disagree for partially-configured
+        Custom schedules. That divergence is unreachable in production only because
+        MembershipDuesSchedule.validate_custom_frequency rejects such schedules
+        before they can generate - an undocumented coupling, not a property of these
+        two functions.
+        """
+        reference = getdate(frappe.utils.today())
+        for frequency in ("Daily", "Weekly", "Monthly", "Quarterly", "Semi-Annual", "Annual"):
+            with self.subTest(frequency=frequency):
+                schedule = frappe.new_doc("Membership Dues Schedule")
+                schedule.billing_frequency = frequency
+                calculator = CoverageCalculator(schedule)
+
+                calendar_start, calendar_end = calculator.calculate_billing_period(frequency, reference)
+
+                self.assertEqual(
+                    calculator._calculate_coverage_end(calendar_start),
+                    calendar_end,
+                    f"{frequency}: running period from the calendar start must equal the calendar period",
+                )
