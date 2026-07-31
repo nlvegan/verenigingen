@@ -59,6 +59,10 @@ class PaymentReconciliationManager:
     # Bank Transaction has no retry-count field.
     RETRY_COMMENT_MARKER = "Reconciliation failed (will retry)"
 
+    # Every DocType a Mollie settlement books. The settlement is refused unless the
+    # acting user can SUBMIT all of them -- see `_require_submit_permission`.
+    SETTLEMENT_SUBMIT_DOCTYPES = ("Payment Entry", "Journal Entry")
+
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
         self.config = get_mollie_config()  # Use cached configuration service
@@ -755,6 +759,79 @@ class PaymentReconciliationManager:
             "Journal Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
         )
 
+    def _require_submit_permission(self, *doctypes):
+        """Refuse to post anything unless every document booked here can be SUBMITTED.
+
+        Every duplicate/idempotency guard in this module keys on ``docstatus: 1``:
+        ``_is_mollie_payment_processed`` (per payment), ``_existing_settlement_fee_entry``
+        (per settlement) and ``_settlement_has_posted_accounting`` (the retryable /
+        operator-review discriminator). An inserted-but-unsubmitted document is
+        therefore invisible to all three, so inserting without being able to submit
+        does not merely postpone the posting -- it defeats the guards. The settlement
+        reads as "nothing posted", stays in the retry pool, and the next run inserts a
+        full second set of drafts. Nothing hits the GL until somebody bulk-submits
+        them, at which point the invoices are over-allocated.
+
+        Broadening the guards to count drafts is the wrong fix (see
+        ``_reject_leftover_draft_entries``); refusing the settlement is the right one.
+        A refused settlement is visible, retryable and costs nothing, whereas a
+        half-posted one has to be unpicked by hand.
+
+        Raises ``frappe.ValidationError`` so ``create_reconciliation``'s Mollie branch
+        records it through ``_record_settlement_failure`` -- an operator-visible reason
+        on the Bank Transaction -- instead of escaping as an unhandled error.
+        """
+        missing = [dt for dt in doctypes if not frappe.has_permission(dt, "submit")]
+        if missing:
+            frappe.throw(
+                _(
+                    "Insufficient permissions to submit {0}. Mollie settlement processing "
+                    "refused before posting anything: an unsubmitted entry is invisible to "
+                    "every duplicate guard, so it would be silently re-created on each run."
+                ).format(", ".join(missing))
+            )
+
+    def _reject_leftover_draft_entries(self, settlement_id):
+        """Refuse a settlement that still carries DRAFT entries from an earlier run.
+
+        Such drafts exist on any site that ran this code before
+        ``_require_submit_permission``: the entries were inserted and never submitted.
+        The submit precondition stops NEW ones, but it does not make the existing ones
+        visible to the ``docstatus: 1`` guards, so the next successful run would book a
+        second, complete set alongside them.
+
+        The alternative -- teaching the three guards to accept ``docstatus IN (0, 1)``
+        -- was rejected deliberately. A draft has not written to the ledger, so
+        ``_settlement_has_posted_accounting`` would start reporting "posted" for a
+        settlement that posted nothing and permanently remove a retryable deposit from
+        the pool; and ``_is_mollie_payment_processed`` would let a single abandoned
+        draft block that payment from ever being reconciled, with no signal saying why.
+        Refusing names the documents and puts a human on them, which is what the
+        situation actually needs.
+
+        No "Unknown column" guard here: on a deploy whose Custom Fields are unsynced,
+        ``_existing_settlement_fee_entry`` runs first and raises on the same field.
+        """
+        drafts = []
+        for doctype in ("Payment Entry", "Journal Entry"):
+            drafts.extend(
+                row.name
+                for row in frappe.get_all(
+                    doctype,
+                    filters={"custom_mollie_settlement_id": settlement_id, "docstatus": 0},
+                    fields=["name"],
+                )
+            )
+
+        if drafts:
+            frappe.throw(
+                _(
+                    "Mollie settlement {0} still has unsubmitted entries from an earlier run "
+                    "({1}). Submit or delete them before reprocessing: they are invisible to "
+                    "the duplicate guards, so continuing would book a second set."
+                ).format(settlement_id, ", ".join(drafts))
+            )
+
     def _comment_transaction_failure(self, transaction, reason):
         """Record why reconciliation failed WITHOUT touching the status, so the
         transaction stays in the "Pending" auto-reconciliation pool for the next run.
@@ -1005,6 +1082,15 @@ class PaymentReconciliationManager:
             if existing_fee_entry:
                 return self._already_processed_result(settlement_id, existing_fee_entry)
 
+            # Preconditions, deliberately checked BEFORE the first insert and AFTER the
+            # idempotency short-circuit above. Before, because a settlement that inserts
+            # half its Payment Entries and then throws leaves exactly the invisible-draft
+            # mess these checks exist to prevent. After, because the short-circuit posts
+            # nothing at all, so an already-processed settlement must still be allowed to
+            # complete for a user who cannot submit.
+            self._require_submit_permission(*self.SETTLEMENT_SUBMIT_DOCTYPES)
+            self._reject_leftover_draft_entries(settlement_id)
+
             # Get payments for this settlement from Mollie API
             settlements_client = SettlementsClient()
             payments = settlements_client.get_payments_for_settlement(settlement_id)
@@ -1245,6 +1331,13 @@ class PaymentReconciliationManager:
 
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
+        # Second line of defence for a direct caller: refuse BEFORE the insert rather
+        # than insert-and-skip-the-submit. `process_mollie_settlement` already checks
+        # this once per settlement, which is where the refusal belongs (it happens
+        # before ANY of the settlement's entries exist); this only guarantees that no
+        # caller can leave a draft behind.
+        self._require_submit_permission("Payment Entry")
+
         # Get the invoice
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
         payment_amount = self._safe_decimal(mollie_payment.get("amount", {}).get("value", 0))
@@ -1276,10 +1369,11 @@ class PaymentReconciliationManager:
         payment_entry.custom_mollie_settlement_id = settlement_data.get("id")
         payment_entry.custom_bank_transaction = bank_trans.name
 
-        # Validate and save
+        # Validate and save. The submit is unconditional: the permission was checked
+        # above, and a Payment Entry left at docstatus 0 is invisible to
+        # `_is_mollie_payment_processed` and `_settlement_has_posted_accounting`.
         payment_entry.insert()
-        if frappe.has_permission("Payment Entry", "submit"):
-            payment_entry.submit()
+        payment_entry.submit()
 
         return payment_entry
 
@@ -1289,6 +1383,11 @@ class PaymentReconciliationManager:
         fee_amount_decimal = self._safe_decimal(fee_amount)
         if abs(fee_amount_decimal) < Decimal("0.01"):
             return None
+
+        # As in `_create_mollie_payment_entry`: refuse before inserting. An
+        # unsubmitted fee Journal Entry defeats `_existing_settlement_fee_entry`, the
+        # settlement-level idempotency key.
+        self._require_submit_permission("Journal Entry")
 
         import erpnext
         from frappe import get_doc
@@ -1347,8 +1446,7 @@ class PaymentReconciliationManager:
         )
 
         journal_entry.insert()
-        if frappe.has_permission("Journal Entry", "submit"):
-            journal_entry.submit()
+        journal_entry.submit()
 
         return journal_entry
 
