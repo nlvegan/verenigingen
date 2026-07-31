@@ -133,9 +133,9 @@ def _ensure_dues_item():
 
 
 def _make_eur_invoice(
-    company, customer, income_account, amount=25.0, *, coverage_start=None, coverage_end=None
+    company, customer, income_account, amount=25.0, *, coverage_start=None, coverage_end=None, submit=True
 ):
-    """Setup helper: a submitted, unpaid EUR Sales Invoice.
+    """Setup helper: an unpaid EUR Sales Invoice, submitted unless submit=False.
 
     Lives at module scope (a recognised fixture/setup location) so the
     permission-bypass insert is allowed. Currency is pinned to EUR explicitly
@@ -171,7 +171,8 @@ def _make_eur_invoice(
     )
     inv.flags.ignore_links = True
     inv.insert(ignore_permissions=True)
-    inv.submit()
+    if submit:
+        inv.submit()
     frappe.db.commit()
     return inv
 
@@ -431,6 +432,83 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
         )
         result = self.processor._get_or_create_historical_invoice(member.name, payment_date, 25.0)
         self.assertIsNone(result)
+
+    def test_draft_invoice_with_exact_coverage_is_not_returned_as_payable(self):
+        """A DRAFT invoice covering the period must never be handed back to be paid.
+
+        `check_coverage_overlap` matches `docstatus < 2`, so a draft can be the
+        `exact_match`. A draft is not free of outstanding: ERPNext's
+        `calculate_outstanding_amount` runs from `calculate_total_advance` on every
+        save that is not cancelled, so a draft carries its full grand_total as
+        `outstanding_amount` (measured on veg11: 144 of 144 drafts non-zero). The
+        `outstanding > 0` test therefore reads a draft as a reusable unpaid invoice.
+
+        Returning it is not survivable downstream: `_create_payment_entry_for_dues`
+        feeds the name to `get_payment_entry`, and Payment Entry rejects a reference
+        to an unsubmitted document ("... must be submitted", payment_entry.py:712),
+        which matches neither string in that method's race-condition handler - so it
+        re-raises and the payment records nowhere.
+        """
+        member = self._member_with_customer()
+        cov_start, cov_end = self._coverage(member.name)
+        draft = _make_eur_invoice(
+            self.company,
+            member.customer,
+            self.income_account,
+            amount=25.0,
+            coverage_start=cov_start,
+            coverage_end=cov_end,
+            submit=False,
+        )
+        # Pin the premise this test rests on rather than assuming it.
+        self.assertEqual(draft.docstatus, 0)
+        self.assertGreater(
+            frappe.db.get_value("Sales Invoice", draft.name, "outstanding_amount"),
+            0,
+            "a draft carries a non-zero outstanding_amount - this case is not reachable "
+            "via the already-paid branch",
+        )
+
+        found = self.processor._get_or_create_historical_invoice(member.name, today(), 25.0)
+        self.assertNotEqual(
+            found, draft.name, "a draft invoice must not be returned as an invoice to allocate against"
+        )
+
+    def test_draft_exact_coverage_still_records_the_payment_unallocated(self):
+        """The consequence of the above: the money must still land on the ledger.
+
+        With a draft occupying the member's period there is no invoice this payment
+        can be allocated to, and creating a second invoice for the same period would
+        duplicate the draft. The correct outcome is an unallocated Payment Entry -
+        the member's balance stays right and Payment Reconciliation surfaces it for a
+        human, instead of the payment being dropped by a re-raised submit error.
+        """
+        member = self._member_with_customer()
+        cov_start, cov_end = self._coverage(member.name)
+        _make_eur_invoice(
+            self.company,
+            member.customer,
+            self.income_account,
+            amount=25.0,
+            coverage_start=cov_start,
+            coverage_end=cov_end,
+            submit=False,
+        )
+        # paid_at drives the coverage lookup (extract_date(payment, "paid_at")); the
+        # fake's default is 2025-01-15, whose period does not overlap the draft at
+        # all - the draft would never be consulted and the test would pass without
+        # exercising anything.
+        payment = FakeMolliePayment(
+            id=f"tr_draft_cov_{frappe.generate_hash()[:8]}",
+            value="25.00",
+            paid_at=f"{today()}T12:00:00+00:00",
+        )
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment)
+
+        self.assertTrue(pe_name, "the payment must be recorded even when only a draft covers the period")
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(list(pe.references), [], "the PE must not reference a draft invoice")
 
 
 # NOTE — uncovered write path: _create_simple_invoice (the historical-invoice

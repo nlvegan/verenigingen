@@ -388,9 +388,23 @@ class DuesPaymentProcessor:
                     exact_invoice = frappe.db.get_value(
                         "Sales Invoice",
                         overlap_result.exact_match,
-                        ["name", "outstanding_amount"],
+                        ["name", "outstanding_amount", "docstatus"],
                         as_dict=True,
                     )
+                    if exact_invoice and exact_invoice.docstatus == 0:
+                        # A DRAFT covers this period. It is not payable - Payment Entry
+                        # refuses a reference to an unsubmitted document - and it is not
+                        # "already paid" either: ERPNext computes outstanding_amount on
+                        # every non-cancelled save, so a draft carries its full
+                        # grand_total and would otherwise pass the test below. Creating a
+                        # second invoice would duplicate the draft, so leave it to a human.
+                        frappe.logger().warning(
+                            f"[Mollie] Draft invoice {exact_invoice.name} covers "
+                            f"{coverage_start} to {coverage_end} for member {member_name}. "
+                            f"Cannot allocate to a draft and will not duplicate it - "
+                            f"submit or remove the draft. Manual review required."
+                        )
+                        return None
                     if exact_invoice and exact_invoice.outstanding_amount > 0:
                         frappe.logger().info(
                             f"[Mollie] Found existing invoice {exact_invoice.name} for coverage period "

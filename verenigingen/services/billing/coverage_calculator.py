@@ -683,23 +683,17 @@ def _coverage_period_from_member_sequence(
        branch, for a member who has no invoiced coverage at all.
 
     Invoice lookups are restricted to SUBMITTED invoices, deliberately, even though the
-    overlap detectors every caller uses match on `docstatus < 2`. An earlier version of
-    this function widened to match them, on the reasoning that a draft would otherwise
-    be reported as an exact overlap of a period derived from elsewhere. That reasoning
-    was backwards, and widening made the duplicate it feared strictly more likely:
+    overlap detectors every caller uses match on `docstatus < 2`. A submitted invoice is
+    the only kind a payment can actually be allocated to, so anchoring a period on a
+    draft would produce a period no caller can act on.
 
-    - `check_coverage_overlap` already includes drafts, so a draft is in the overlap set
-      either way. The only variable is whether the period returned here EQUALS it.
-    - Returning a submitted-only period usually differs from the draft's, so the callers
-      see a partial overlap and stop - `mollie_payment_orchestrator._create_invoice_if_safe`
-      and `dues_payment_processor` both return None for "manual review required".
-    - Returning the draft's own period makes `exact_match` certain, and a draft's
-      `outstanding_amount` is 0, which those same callers read as "already paid" and use
-      as their cue to create ANOTHER invoice for the period.
-
-    The real defect is that the callers treat `outstanding_amount == 0` as "paid"
-    without checking `docstatus`; for a draft it means "not submitted yet". Until that
-    is fixed there, staying submitted-only keeps the safe branch reachable.
+    An earlier revision of this docstring justified that differently, claiming a draft's
+    `outstanding_amount` is 0 and that the callers therefore read a draft as "already
+    paid" and duplicate it. That is not what a draft does: ERPNext's
+    `calculate_outstanding_amount` runs from `calculate_total_advance` on every save that
+    is not cancelled, so a draft carries its full grand_total as outstanding (measured on
+    veg11: 144 of 144 drafts non-zero). The callers instead read a draft as a *reusable
+    unpaid* invoice; both now check `docstatus` explicitly and stop for manual review.
 
     Args:
         member_name: Member document name
