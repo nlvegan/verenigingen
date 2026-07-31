@@ -1122,6 +1122,75 @@ class TestSettlementSubmitPermission(MollieBase):
             f"the operator is not told WHICH documents block the settlement; comments={comments}",
         )
 
+    def test_leftover_draft_beside_a_submitted_fee_entry_is_still_refused(self):
+        """The state a pre-fix run ACTUALLY leaves: draft Payment Entries AND a
+        submitted fee Journal Entry.
+
+        This is not a variant of the test above, it is the common case. The pre-fix
+        loop counted a draft Payment Entry as a success and incremented
+        ``total_reconciled``, so ``processed_count`` was non-zero and the fee entry was
+        booked -- and submitted, because the shipped Custom DocPerms grant Journal
+        Entry submit to System Manager while Payment Entry submit comes only from
+        Accounts User. So the clerk who cannot post Payment Entries CAN post the fee
+        entry, and leaves both behind.
+
+        With the draft scan running after the idempotency short-circuit, that state
+        reads as "already processed": success, no mention of the drafts, and the
+        deposit permanently out of the retry pool. The drafts then sit there until
+        someone bulk-submits them and over-allocates the invoice."""
+        self.expectErrorLog("still has unsubmitted entries")
+        it = self._make_member_with_invoice(first_name="MollieLeftoverFee", grand_total=30.0)
+        settlement_id = f"stl_LEFTOVERFEE_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        stale = get_payment_entry(dt="Sales Invoice", dn=it["invoice"].name, party_amount=Decimal("30.00"))
+        stale.posting_date = bt.date
+        stale.reference_no = payment["id"]
+        stale.reference_date = bt.date
+        stale.mode_of_payment = "Mollie"
+        stale.custom_mollie_payment_id = payment["id"]
+        stale.custom_mollie_settlement_id = settlement_id
+        stale.custom_bank_transaction = bt.name
+        stale.insert()
+
+        # The submitted fee entry from that same pre-fix run. Built by hand rather than
+        # through _create_mollie_fee_entry so the fixture does not depend on the code
+        # under test; two balance-sheet accounts keep it out of the cost-centre rules
+        # that only apply to P&L rows. All the idempotency key reads is the settlement
+        # id at docstatus 1.
+        debit_account = self._make_gl_account("Mollie Leftover Clearing", account_type="Bank")
+        credit_account = self._make_gl_account("Mollie Leftover Holding", account_type="Bank")
+        fee_je = frappe.new_doc("Journal Entry")
+        fee_je.posting_date = bt.date
+        fee_je.company = self.company
+        fee_je.custom_mollie_settlement_id = settlement_id
+        fee_je.append("accounts", {"account": debit_account, "debit_in_account_currency": 1.5})
+        fee_je.append("accounts", {"account": credit_account, "credit_in_account_currency": 1.5})
+        fee_je.insert()
+        fee_je.submit()
+
+        with self._stub_client(payments=[payment]):
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id))
+
+        self.assertEqual(
+            self._settlement_entries(settlement_id),
+            sorted([("Payment Entry", stale.name, 0), ("Journal Entry", fee_je.name, 1)]),
+            "the run booked new entries instead of refusing the leftover draft",
+        )
+        self.assertFalse(ok, "a settlement carrying leftover drafts must not report success")
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any(stale.name in c for c in comments),
+            "the submitted fee entry short-circuited the run, so the operator was never "
+            f"told about the draft that still needs handling; comments={comments}",
+        )
+
 
 # =============================================================================
 # _create_mollie_payment_entry — direct (1021-1052)

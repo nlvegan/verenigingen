@@ -809,9 +809,22 @@ class PaymentReconciliationManager:
         Refusing names the documents and puts a human on them, which is what the
         situation actually needs.
 
-        No "Unknown column" guard here: on a deploy whose Custom Fields are unsynced,
-        ``_existing_settlement_fee_entry`` runs first and raises on the same field.
+        Runs BEFORE ``_existing_settlement_fee_entry`` -- see the call site for why the
+        two states co-occur. On a deploy whose Custom Fields are unsynced this is now
+        the first query to touch ``custom_mollie_settlement_id``, so it is the one that
+        raises "Unknown column"; that escapes to the outer handler and is written out as
+        the operator-visible reason, exactly as before.
+
+        A falsy *settlement_id* returns early rather than querying. Frappe compiles an
+        ``=`` filter on a falsy value to ``(col IS NULL OR col = '')``, so passing one
+        through would match every draft Payment Entry and Journal Entry on the site and
+        interpolate all of their names into the throw message. Settlement payloads
+        without an id are reachable: ``match_mollie_settlement`` copies
+        ``settlement.get("id")`` straight through.
         """
+        if not settlement_id:
+            return
+
         drafts = []
         for doctype in ("Payment Entry", "Journal Entry"):
             drafts.extend(
@@ -1073,6 +1086,19 @@ class PaymentReconciliationManager:
         """
 
         try:
+            # Leftover drafts are checked FIRST, before the idempotency short-circuit
+            # below, because the two states co-occur. The pre-fix code counted a DRAFT
+            # Payment Entry as a success (it incremented total_reconciled), so
+            # processed_count was non-zero and the fee Journal Entry was booked -- and
+            # submitted, because the shipped fixtures grant Journal Entry submit to
+            # System Manager while Payment Entry submit comes only from Accounts User.
+            # A clerk in the ordinary "prepare but do not post" configuration therefore
+            # left draft Payment Entries AND a submitted fee entry behind. Running this
+            # after the short-circuit would return "already processed" for exactly that
+            # state, leaving the drafts unnamed and dropping the deposit out of the
+            # retry pool for good -- the outcome this guard exists to prevent.
+            self._reject_leftover_draft_entries(settlement_id)
+
             # Settlement-level idempotency. A settlement is processed exactly once: if
             # its fee Journal Entry is already on the ledger, every Payment Entry that
             # was going to be booked was booked before it (they are submitted first),
@@ -1082,14 +1108,15 @@ class PaymentReconciliationManager:
             if existing_fee_entry:
                 return self._already_processed_result(settlement_id, existing_fee_entry)
 
-            # Preconditions, deliberately checked BEFORE the first insert and AFTER the
-            # idempotency short-circuit above. Before, because a settlement that inserts
-            # half its Payment Entries and then throws leaves exactly the invisible-draft
-            # mess these checks exist to prevent. After, because the short-circuit posts
-            # nothing at all, so an already-processed settlement must still be allowed to
-            # complete for a user who cannot submit.
+            # Submit preconditions, deliberately checked BEFORE the first insert and
+            # AFTER the idempotency short-circuit above. Before, because a settlement
+            # that inserts half its Payment Entries and then throws leaves exactly the
+            # invisible-draft mess these checks exist to prevent. After, because the
+            # short-circuit posts nothing at all: a clerk re-running an already-complete
+            # settlement would otherwise throw, and _record_settlement_failure would see
+            # posted accounting and mark a perfectly healthy deposit Unreconciled --
+            # which is permanent.
             self._require_submit_permission(*self.SETTLEMENT_SUBMIT_DOCTYPES)
-            self._reject_leftover_draft_entries(settlement_id)
 
             # Get payments for this settlement from Mollie API
             settlements_client = SettlementsClient()
