@@ -373,6 +373,165 @@ class TestCalculateCoverageForPaymentDate(EnhancedTestCase):
             frappe.db.commit()
 
 
+class TestCoverageForPaymentDateFollowsTheMembersOwnPeriods(EnhancedTestCase):
+    """
+    Payments must be matched against the period the member is actually billed for.
+
+    Coverage periods run from the member's join date, so a member who joined
+    mid-month has periods that straddle two calendar months. Every consumer of
+    calculate_coverage_for_payment_date compares its result to the invoice's
+    custom_coverage_* fields for EXACT equality
+    (find_invoice_for_payment strategy 2, DuesPaymentProcessor, and the Mollie
+    orchestrator), so returning the calendar period means an off-calendar member's
+    payment matches no invoice at all - and the create-invoice paths would go on to
+    write calendar-aligned invoices that overlap the member's own sequence.
+    """
+
+    JOIN_DATE = date(2025, 6, 3)
+    FIRST_PERIOD_END = date(2025, 7, 2)
+    PAYMENT_DATE = date(2025, 6, 20)  # inside the first period, mid calendar month
+
+    def setUp(self):
+        super().setUp()
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="OffCalendar PayCov Type"
+        )
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="OffCalendar",
+            last_name="Payer",
+            membership_type_name=self.membership_type.name,
+            start_date=self.JOIN_DATE,
+        )
+        self.schedule.billing_frequency = "Monthly"
+        self.schedule.save()
+        frappe.db.commit()
+        self.member.reload()
+
+    def _make_first_invoice(self):
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=self.JOIN_DATE,
+            coverage_end=self.FIRST_PERIOD_END,
+            member_doc=self.member,
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        frappe.db.commit()
+        return result.data.name
+
+    def test_payment_inside_an_off_calendar_period_resolves_to_that_period(self):
+        """
+        The returned period must be the invoice's own, not the calendar month.
+
+        The seeded period deliberately ends on the 10th rather than a natural monthly
+        boundary. With a sequential end date this test would also pass by rolling from
+        the membership start, so it would not actually pin the invoice lookup it names.
+        """
+        irregular_end = date(2025, 7, 10)
+        self._make_invoice(self.JOIN_DATE, irregular_end)
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
+
+        self.assertEqual(getdate(start), self.JOIN_DATE)
+        self.assertEqual(getdate(end), irregular_end)
+
+    def _make_invoice(self, coverage_start, coverage_end, submit=True):
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=coverage_start, coverage_end=coverage_end, member_doc=self.member
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        if not submit:
+            frappe.db.set_value("Sales Invoice", result.data.name, "docstatus", 0)
+        frappe.db.commit()
+        return result.data.name
+
+    def test_payment_inside_a_coverage_gap_resolves_to_the_members_own_period(self):
+        """
+        A payment landing in a GAP between two invoiced periods must still resolve to
+        the member's own boundary, not the calendar.
+
+        This is the case that made the previous implementation's third preference
+        unreachable: anchoring on the LATEST coverage end returned None whenever any
+        later invoice existed, and the calendar fallback then handed the Mollie
+        orchestrator a calendar-aligned period which it would CREATE an invoice for -
+        permanently corrupting an off-calendar member's sequence. Gaps are an expected
+        state here, not a hypothetical: the codebase carries _detect_coverage_gaps and
+        GAP_RESET_THRESHOLD_DAYS specifically for them.
+        """
+        self._make_invoice(self.JOIN_DATE, self.FIRST_PERIOD_END)
+        self._make_invoice(date(2025, 10, 3), date(2025, 11, 2))
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, date(2025, 8, 15))
+
+        self.assertEqual(getdate(start), date(2025, 8, 3))
+        self.assertEqual(getdate(end), date(2025, 9, 2))
+
+    def test_draft_invoice_coverage_is_ignored_so_the_safe_branch_stays_reachable(self):
+        """
+        A DRAFT invoice must not supply the period, even though the consumers' overlap
+        detectors do match drafts (docstatus < 2).
+
+        Returning the draft's own period would guarantee `exact_match` in
+        check_coverage_overlap, and a draft's outstanding_amount is 0, which
+        mollie_payment_orchestrator._create_invoice_if_safe and dues_payment_processor
+        both read as "already paid" - their cue to create ANOTHER invoice for the same
+        period. Deriving a different period instead leaves them on the partial-overlap
+        branch, which returns None for manual review. Until those callers check
+        docstatus before trusting outstanding_amount, submitted-only is the safe answer.
+
+        The draft's period is deliberately irregular (ends the 10th), so a resolver that
+        ignored drafts and rolled from the membership start could not reproduce it by
+        coincidence - which is what makes this test discriminating.
+        """
+        self._make_invoice(self.JOIN_DATE, date(2025, 7, 10), submit=False)
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
+
+        self.assertNotEqual(
+            getdate(end), date(2025, 7, 10), "the draft's own period was used as the answer"
+        )
+        # No submitted coverage exists, so the membership-start roll supplies the period.
+        self.assertEqual(getdate(start), self.JOIN_DATE)
+        self.assertEqual(getdate(end), self.FIRST_PERIOD_END)
+
+    def test_payment_predating_all_coverage_falls_back_to_the_calendar(self):
+        """
+        A payment before the member's first invoiced period has no position in the
+        sequence, so it must fall back rather than have one invented from the
+        membership start date.
+
+        The payment is deliberately AFTER the membership start (2025-06-03) but before
+        the only invoiced period. With the "coverage exists but all of it is later"
+        guard removed, control reaches the membership-start roll, which happily produces
+        2025-07-03..2025-08-02 - so this pins the guard rather than the pre-existing
+        `membership_start <= payment_date` check.
+        """
+        self._make_invoice(date(2025, 9, 3), date(2025, 10, 2))
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, date(2025, 7, 15))
+
+        self.assertEqual(getdate(start), date(2025, 7, 1))
+        self.assertEqual(getdate(end), date(2025, 7, 31))
+
+    def test_off_calendar_invoice_is_found_for_a_payment_inside_its_coverage(self):
+        """
+        End-to-end: the payment must resolve to the invoice covering it.
+
+        The payment amount is deliberately mismatched so strategy 3 (unpaid-amount
+        match) cannot fire and the assertion pins strategy 2, the coverage-period
+        match, which is the strategy that breaks for off-calendar members.
+        """
+        invoice_name = self._make_first_invoice()
+        outstanding = frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount")
+        mismatched_amount = float(outstanding) + 1000.0
+
+        found = find_invoice_for_payment(self.member.name, self.PAYMENT_DATE, mismatched_amount)
+
+        self.assertEqual(found, invoice_name)
+
+
 class TestFindInvoiceForPayment(EnhancedTestCase):
     """Cover the module-level find_invoice_for_payment matching strategies."""
 

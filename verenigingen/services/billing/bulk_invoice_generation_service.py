@@ -601,6 +601,13 @@ class BulkInvoiceGenerationService(StatefulService):
         for schedule_name in schedules:
             try:
                 schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+
+                # Re-check the cutoff at execution time - see the same guard in
+                # process_invoice_chunk. Cheap here (the doc is already fetched) and it
+                # keeps the two processing modes behaving identically.
+                if not schedule.should_generate_for_cutoff_period(cutoff_date):
+                    continue
+
                 result.processed += 1
 
                 try:
@@ -890,6 +897,18 @@ def process_invoice_chunk(
     for schedule_name in schedule_names:
         try:
             schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+
+            # Re-check the cutoff at EXECUTION time, not just in the eligibility
+            # snapshot. Chunks are enqueued and the generation lock is released before
+            # they run, so two overlapping runs (the scheduler plus an admin-triggered
+            # run, which does not deduplicate its job) both see the same uncovered
+            # schedules and both generate. Until eligibility also dropped
+            # check_schedule_timing, that guard caught the stale snapshot at execution
+            # time; nothing else does, because the duplicate detector probes the
+            # sequential next period, which by construction never overlaps.
+            if not schedule.should_generate_for_cutoff_period(cutoff_date):
+                continue
+
             result.processed += 1
 
             try:

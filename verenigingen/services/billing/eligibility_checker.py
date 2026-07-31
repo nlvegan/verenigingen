@@ -152,8 +152,16 @@ class EligibilityChecker(StatelessService):
         Expensive checks (Redis/SQL):
         10. Concurrency lock (Redis)
         11. Duplicate detection (SQL)
-        12. Schedule timing
-        13. Last invoice date sanity check
+
+        Deliberately NOT checked here: when to generate. That is decided by
+        BulkInvoiceGenerationService.should_generate_for_cutoff_period(), which compares
+        the member's latest coverage end against the cutoff date derived from
+        billing_cutoff_frequency. This service used to re-decide the same question from
+        next_invoice_date and invoice_days_before, and the two mechanisms disagreed:
+        next_invoice_date is derived from the POSTING date (billing_date_service.py:104),
+        so it drifts out of step with coverage - on the live site 431 schedules carry a
+        next_invoice_date 83 days later than their coverage actually lapsed. Coverage end
+        versus cutoff is the single source of truth.
 
         Args:
             member_doc: Member document (fetched if not provided)
@@ -231,13 +239,7 @@ class EligibilityChecker(StatelessService):
         if not duplicate_result.can_generate:
             return duplicate_result
 
-        # Schedule-based timing check
-        timing_result = self.check_schedule_timing()
-        if not timing_result.can_generate:
-            return timing_result
-
-        # All checks passed - coverage dates are the source of truth for duplicates
-        # (checked by DuplicateInvoiceDetector above)
+        # All checks passed. WHEN to generate is not decided here - see the docstring.
         return EligibilityResult(True, "Can generate invoice", "valid")
 
     # ========== Individual Validation Methods ==========
@@ -453,38 +455,11 @@ class EligibilityChecker(StatelessService):
             self.logger.error(f"Duplicate check error for {self.schedule_name}: {str(e)}")
             return EligibilityResult(False, f"Duplicate detection error: {str(e)}", "system")
 
-    def check_schedule_timing(self) -> EligibilityResult:
-        """
-        Check if it's too early to generate invoice based on invoice_days_before setting.
-
-        Only applies when there's existing coverage AND no gap exists - prevents generating too far ahead.
-        If no coverage exists or there's a gap, member needs invoice immediately.
-
-        Returns:
-            EligibilityResult indicating if timing allows generation
-        """
-        from verenigingen.utils.validation_utilities import DateRangeValidator
-
-        # Get latest coverage end date
-        latest_coverage_end = self._schedule_doc.get_latest_coverage_end_date()
-
-        if latest_coverage_end:
-            # If there's a coverage gap (coverage ended in the past), generate immediately
-            if latest_coverage_end < getdate(today()):
-                return EligibilityResult(True, "Coverage gap detected - generate immediately", "valid")
-
-            # Coverage extends into the future - check if it's time to generate next invoice
-            # Use configured days_before or system default (30 days)
-            days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
-            generate_on_date = add_days(self.next_invoice_date, -days_before)
-
-            if DateRangeValidator.is_date_before(getdate(today()), generate_on_date):
-                return EligibilityResult(
-                    False,
-                    f"Too early - will generate on {generate_on_date}",
-                    "timing",
-                    generate_on_date=generate_on_date,
-                    days_before=days_before,
-                )
-
-        return EligibilityResult(True, "Timing check passed", "valid")
+    # check_schedule_timing() was removed here. It decided WHEN to generate from
+    # next_invoice_date - invoice_days_before, duplicating the cutoff comparison in
+    # BulkInvoiceGenerationService.should_generate_for_cutoff_period() and disagreeing
+    # with it: next_invoice_date is derived from the posting date, so it drifts a period
+    # backwards on every early generation. With invoice_days_before defaulting to 30 -
+    # a whole Monthly period - that drift re-opened the guard the day after each
+    # generation, so a Monthly member accumulated one invoice per scheduler run until
+    # coverage reached the cutoff. Coverage end versus cutoff is now the only rule.
