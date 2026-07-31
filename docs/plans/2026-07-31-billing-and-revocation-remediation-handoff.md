@@ -15,6 +15,7 @@ outstanding test fixes on `test/harness-production-fidelity`.
 | `fix/mollie-settlement-reconciliation-status` | `78f0e32b` | Pushed, **no PR**. 5 behind develop, no conflicts |
 | `fix/mijnrood-role-revocation` | `cd6c5be6` | Pushed, **no PR**. 5 behind develop, no conflicts |
 | `fix/board-profile-withdrawal-deferral` | `9609f08e` | Pushed, **no PR**. 5 behind develop, no conflicts |
+| `test/role-profile-recalculation-coverage` | `21ad380a` | **Local only, not pushed.** Off the merged `develop` |
 | `refactor/retire-security-wrappers` | — | PR #193 still open, independent |
 | `fix/retire-dead-membership-billing-patch` | `4f124f32` | Still ready, still unmerged |
 | `test/harness-production-fidelity` | `c674d17e` | Still blocked on ~213 test fixes |
@@ -149,11 +150,74 @@ withdrawal.**
 A second stale read fell out: two seats for one volunteer removed in a single save each excluded
 only themselves, saw the other active, and neither withdrew.
 
-**Deploy: restart only — but historical leaks are not repaired.** Anyone unseated before this
-deploys keeps a stale board profile. Use the existing `bulk_recalculate_role_profiles()`
-(`user_role_profile_calculator.py:941`, `dry_run=True` by default). These are live permissions;
-`Verenigingen Chapter Board Member` is the profile behind the org-wide `Projects Manager` escalation
-fixed in PR #191.
+**Deploy: restart only.** No migration, no `reload-doctype`.
+
+**Historical leaks are not repaired by the fix — but on veg11 there are none.** An earlier draft of
+this handoff said to sweep them with `bulk_recalculate_role_profiles()`. **Do not follow that
+advice without reading §2a first** — the sweep does something much larger than a board cleanup, and
+on veg11 there is nothing to clean:
+
+```
+Users holding Verenigingen Chapter Board Member : 0
+Active Chapter Board Member seats               : 1
+```
+
+The anomaly on veg11 is the **inverse** of the one this branch fixes: a seated board member who
+never received the grant. That is the additions-path gap the fix explicitly leaves out of scope —
+seating a board member inline while *creating* a chapter never enqueues, because
+`_handle_document_changes` is gated on `if old_doc:`.
+
+`Verenigingen Chapter Board Member` is still the profile behind the org-wide `Projects Manager`
+escalation fixed in PR #191, so a stale grant matters wherever one exists. Check for holders on a
+given site before assuming a sweep is needed.
+
+---
+
+## 2a. `bulk_recalculate_role_profiles` — read before running it anywhere
+
+It is **not** a targeted cleanup tool. Run with `dry_run=True` (the default) it is safe and
+informative; run without, on veg11 today, it would perform a **mass privilege withdrawal**.
+
+Dry-run result on veg11, 2026-07-31:
+
+```
+total: 564   changed: 438   unchanged: 0   errors: 126
+```
+
+Every change is the same transition, `Verenigingen Volunteer → Verenigingen Member`, and that is a
+permission change rather than a relabel:
+
+```
+Verenigingen Volunteer confers : Employee, Employee Self Service, Projects User,
+                                 Verenigingen Member, Verenigingen Volunteer
+Verenigingen Member confers    : All, Verenigingen Member
+Withdrawn by the downgrade     : Employee, Employee Self Service, Projects User,
+                                 Verenigingen Volunteer
+```
+
+**Why it proposes that.** `is_active_volunteer` requires `Volunteer.status in ("Active",
+"Onboarding")`. veg11 has 564 users holding the Volunteer profile and **7** Volunteer records — all
+`New`, none carrying an email to link to a User. So the calculator concludes none of them is an
+active volunteer. It is doing exactly what it is designed to do, against data where the Volunteer
+records do not back the profiles.
+
+**The owner has confirmed that gap is expected on this site** (staging, imported without volunteer
+data). The conclusion is therefore *not* "the profiles are wrong" — it is that **a dry run on
+staging tells you nothing about what the sweep would do on production**, because the answer is
+entirely a function of whether Volunteer records are populated there.
+
+The 126 errors are `User is not a member` — a Verenigingen profile with no Member record. Those are
+skipped and mutate nothing, so they keep whatever they hold.
+
+`test/role-profile-recalculation-coverage` (`21ad380a`) makes all of the above assertable from the
+suite instead of by manual probe: that the downgrade withdraws four named roles (derived from the
+Role Profile documents at runtime, so it cannot go stale), that holding the profile with no
+Volunteer record at all is acted on, and that the not-a-member path is skipped rather than silently
+downgraded.
+
+Note the tool was already better tested than first assumed — `test_bulk_recalculate_dry_run_targeted_filter`
+already pinned that `dry_run` applies nothing, and `is_active_volunteer` was covered across every
+status. The gap was interpretation, not safety.
 
 ---
 
@@ -217,6 +281,17 @@ confident wrong answer about runaway generation; `should_generate_for_cutoff_per
 **`bench` executes the main tree**, not a worktree, unless you prepend `PYTHONPATH=<worktree>`.
 Verify with a load-path probe every time.
 
+**On v16, setting `User.role_profile_name` alone is a no-op.** `move_role_profile_name_to_role_profiles`
+discards it when the `role_profiles` child table is empty, so the canonical store is the child table
+(`user_role_profile_calculator.py:855-864` writes both, guarded by `_has_multi_profile_support()`).
+A test fixture that attaches a profile via the Link field silently tests nothing — that happened
+while writing `21ad380a` and was caught only because the helper asserts the attach took. Read
+profiles back through `get_user_role_profiles()`, never `profiles[0]` of an unordered `get_all`.
+
+**`ignore_permissions=True` in a test is almost always the wrong reflex** — fixtures already run as
+Administrator, and `test-quality-enforcer` blocks it outside setup/teardown/factory methods. It came
+up twice in this work; both times removing it was correct and nothing else had to change.
+
 ---
 
 ## 5. Open questions for the owner
@@ -231,3 +306,11 @@ Verify with a load-path probe every time.
 4. Whether `bulk_remove_board_members`' outer `except Exception` should stop flattening deadlocks
    into `{"success": False}` — shared with three sibling operations, so it is a BoardManager-wide
    decision.
+5. Whether the 564-vs-7 Volunteer-profile gap (§2a) also exists on production. On veg11 it is
+   expected staging data, so the dry run there says nothing about what the sweep would do live. If
+   production has Active Volunteer records for those users, the sweep is close to a no-op; if it
+   does not, it withdraws `Employee`, `Employee Self Service` and `Projects User` from several
+   hundred people. Run `bulk_recalculate_role_profiles(dry_run=True)` there and read the transitions
+   before deciding.
+6. The seated-but-ungranted board member on veg11 (1 active seat, 0 profile holders) — worth
+   confirming whether that is the chapter-creation additions gap or simply a volunteer with no user.
