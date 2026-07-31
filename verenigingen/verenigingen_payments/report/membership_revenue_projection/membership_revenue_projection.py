@@ -1,5 +1,3 @@
-from datetime import datetime, timedelta
-
 import frappe
 from dateutil.relativedelta import relativedelta
 
@@ -49,7 +47,15 @@ def get_columns():
 def get_data(filters):
     """Calculate projected revenue for specified number of months"""
     data = []
-    current_date = datetime.now().replace(day=1)  # Start of current month
+    # Start of the current month in the SITE's timezone, not the server's.
+    # `datetime.now()` reads the server clock, while everything else in Frappe -- the
+    # dates on the dues schedules queried below, `today()`, the naming series, and what
+    # the user sees in the UI -- is site-local. Whenever the two are in different
+    # timezones (a Dutch site on a UTC host, the CI runners, any hosted deployment)
+    # they disagree about the calendar day for the width of the offset, and at a month
+    # boundary that means this report opens on the month that has just ended: it
+    # projects from July while the site, and the reader, are already in August.
+    current_date = frappe.utils.now_datetime().replace(day=1)
 
     # Get projection months from filters, default to 12
     projection_months = 12
