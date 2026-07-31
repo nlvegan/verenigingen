@@ -541,9 +541,11 @@ class MijnRoodVolunteerSyncService:
     ) -> Optional[str]:
         """End a member's active team membership when their MijnRood role is revoked.
 
-        Sets status to 'Ended', is_active to 0, and to_date to today.
-        Saving the Team triggers the on_team_members_change hook which
-        recalculates the user's role profile.
+        Sets status to 'Completed' (the Team Member Select has no 'Ended' option),
+        is_active to 0, and to_date to today. Saving the Team triggers the
+        on_team_members_change hook which recalculates the user's role profile —
+        that recalculation, not the row edit, is what actually withdraws the
+        team-derived access.
 
         Args:
             member_name: Vereinigingen Member name
@@ -552,6 +554,15 @@ class MijnRoodVolunteerSyncService:
 
         Returns:
             Human-readable status message, or None if not a team member.
+
+        Raises:
+            Anything the Team save raises. This is a privilege *revocation*: a
+            failure here leaves the member on the team with their role profile
+            intact, so it must never be downgraded to a status string. Every
+            caller between here and MijnRoodEventApplicationService.apply_event
+            passes messages through as success, so apply_event's except block —
+            which records error_message and leaves the event un-Applied — is the
+            only layer that can turn this into a visible failure.
         """
         from verenigingen.verenigingen.doctype.volunteer.volunteer import (
             get_volunteer_for_member,
@@ -574,7 +585,7 @@ class MijnRoodVolunteerSyncService:
             team_doc = frappe.get_doc("Team", team_name)
             for row in team_doc.team_members:
                 if row.name == tm_name:
-                    row.status = "Ended"
+                    row.status = "Completed"
                     row.is_active = 0
                     row.to_date = today()
                     suffix = "Ended via MijnRood sync — role revoked (event {0})".format(
@@ -593,13 +604,17 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
             return _("Removed from team '{0}'").format(team_name)
+        except NON_RESUMABLE_DB_ERRORS:
+            # The transaction is already discarded — log_error() below would be a
+            # write on it. Let it reach the transaction owner (see the addition path).
+            raise
         except Exception as e:
             self.logger.error("Failed to end team membership for %s in %s: %s", member_name, team_name, e)
             frappe.log_error(
                 frappe.get_traceback(),
                 f"MijnRood Sync - Team Removal Failed: {member_name}",
             )
-            return _("Team removal failed: {0}").format(str(e)[:200])
+            raise
 
     def _apply_role_actions(
         self,
@@ -663,6 +678,11 @@ class MijnRoodVolunteerSyncService:
         entirely — re-running them on every member update produces no useful
         delta and can break legitimate non-role updates when team data is
         corrupt or role config has drifted.
+
+        The "ROLE_ADMIN removed" message is deliberately appended *after*
+        _end_team_membership() rather than unconditionally: that call raises when
+        the revocation cannot be persisted, so the claim is only ever made once
+        the access is actually gone.
         """
         messages = []
 

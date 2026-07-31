@@ -10,7 +10,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.utils import today
+from frappe.utils import now_datetime, today
 
 from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
     MijnRoodRelatedRecordsOrchestrator,
@@ -874,19 +874,25 @@ class TestEndTeamMembership(EnhancedTestCase):
         # Pre-add the volunteer as active
         self._create_team_membership(team_name, volunteer_name)
 
-        result = get_volunteer_sync_service()._end_team_membership(
-            member_name, team_name
-        )
+        # production_validation(): EnhancedTestCase.setUp sets frappe.flags.in_import,
+        # which makes Document._validate_selects() return early. Production runs with
+        # the flag off, so an out-of-options status value throws there and not here.
+        with self.production_validation():
+            result = get_volunteer_sync_service()._end_team_membership(
+                member_name, team_name
+            )
         self.assertIsNotNone(result)
         self.assertIn("Removed from team", result)
 
-        # Verify the row's status flipped to "Ended"
+        # Verify the row was ended with a value the Select field actually allows
         team_doc = frappe.get_doc("Team", team_name)
         ended_rows = [
             row for row in team_doc.team_members
-            if row.volunteer == volunteer_name and row.status == "Ended"
+            if row.volunteer == volunteer_name and row.status == "Completed"
         ]
         self.assertEqual(len(ended_rows), 1)
+        self.assertEqual(ended_rows[0].is_active, 0)
+        self.assertEqual(str(ended_rows[0].to_date), today())
 
     # Reuse helpers from TestEnsureTeamMembership
     _create_team = TestEnsureTeamMembership._create_team
@@ -1086,3 +1092,311 @@ class TestProcessMemberRoles(EnhancedTestCase):
         self.service._handle_division_contact_change.assert_called_once()
         self.assertIn("admin handled", msgs)
         self.assertIn("division handled", msgs)
+
+
+class TestRoleRevocationClosesAccess(EnhancedTestCase):
+    """ROLE_ADMIN revocation must actually revoke the team-derived role profile.
+
+    These are access-control tests, not bookkeeping tests: asserting that the Team
+    Member row changed is not enough, because the whole point of ending the row is
+    that ``on_team_members_change`` recalculates the user's role profile. Every
+    assertion here therefore ends on the User's effective role profile.
+
+    Calls that must mirror production run inside ``production_validation()``:
+    ``EnhancedTestCase.setUp`` sets ``frappe.flags.in_import``, and
+    ``Document._validate_selects()`` (base_document.py) returns early on that flag —
+    so an out-of-options Select value is silently accepted here while it throws in
+    production.
+    """
+
+    # Team profile deliberately outranks the member/volunteer baseline
+    # (PRIORITY_STAFF 75 > PRIORITY_VOLUNTEER 30 > PRIORITY_MEMBER 10).
+    TEAM_PROFILE = "Verenigingen Staff"
+    BASE_PROFILE = "Verenigingen Member"
+
+    def _create_staff_team(self, label):
+        """An association-wide team whose membership grants TEAM_PROFILE."""
+        team_name = f"{label}-{frappe.generate_hash(length=6)}"
+        frappe.get_doc(
+            {
+                "doctype": "Team",
+                "team_name": team_name,
+                "status": "Active",
+                "is_association_wide": 1,
+                "default_role_profile": self.TEAM_PROFILE,
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_team, team_name)
+        return team_name
+
+    def _create_admin_on_team(self, label, team_name):
+        """Member + User + Volunteer, active on ``team_name``, profile synced.
+
+        Returns (member_name, user_name, volunteer_name).
+        """
+        member = self.factory.create_member(
+            first_name=label,
+            last_name="Revoke",
+            email=f"{label.lower()}-revoke-{frappe.generate_hash(length=6)}@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        user_doc = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": member.email,
+                "first_name": label,
+                "send_welcome_email": 0,
+                "enabled": 1,
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(self._cleanup_user, user_doc.name)
+        frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
+
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+
+        result = create_volunteer_from_member(member_name=member.name, create_user_account=False)
+        volunteer_name = result.get("volunteer_name") or result.get("volunteer")
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        team_doc = frappe.get_doc("Team", team_name)
+        team_doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer_name,
+                "team_role": "Team Member",
+                "from_date": today(),
+                "status": "Active",
+                "is_active": 1,
+            },
+        )
+        team_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Baseline: the team membership must actually have granted the profile,
+        # otherwise the revocation assertion below would pass vacuously.
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        sync_user_role_profile(user_doc.name)
+        self.assertEqual(
+            self._effective_profile(user_doc.name),
+            self.TEAM_PROFILE,
+            "fixture is not exercising the escalation path",
+        )
+        return member.name, user_doc.name, volunteer_name
+
+    def _effective_profile(self, user_name):
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+        )
+
+        profiles = get_user_role_profiles(user_name)
+        if profiles:
+            return profiles[0]
+        return frappe.db.get_value("User", user_name, "role_profile_name")
+
+    def _team_member_row(self, team_name, volunteer_name):
+        team_doc = frappe.get_doc("Team", team_name)
+        rows = [r for r in team_doc.team_members if r.volunteer == volunteer_name]
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    # ── the bug ────────────────────────────────────────────────────────
+
+    def test_revocation_revokes_team_derived_role_profile(self):
+        team_name = self._create_staff_team("RevokeTeam")
+        member_name, user_name, volunteer_name = self._create_admin_on_team("Revoked", team_name)
+
+        with self.production_validation():
+            msg = get_volunteer_sync_service()._end_team_membership(member_name, team_name)
+
+        self.assertIsNotNone(msg)
+        self.assertIn("Removed from team", msg)
+
+        row = self._team_member_row(team_name, volunteer_name)
+        self.assertEqual(row.status, "Completed")
+        self.assertEqual(row.is_active, 0)
+        self.assertEqual(str(row.to_date), today())
+
+        # The point of the fix: on_team_members_change must have re-run and
+        # dropped the team-derived profile.
+        self.assertEqual(self._effective_profile(user_name), self.BASE_PROFILE)
+
+    def test_admin_role_change_revokes_profile_end_to_end(self):
+        """The transition handler — not just the helper — must close the access."""
+        team_name = self._create_staff_team("RevokeHandler")
+        member_name, user_name, _volunteer_name = self._create_admin_on_team("Handler", team_name)
+        role_config = {"ROLE_ADMIN": {"add_to_team": True, "default_team": team_name}}
+
+        with self.production_validation():
+            msgs = get_volunteer_sync_service()._handle_admin_role_change(
+                member_name,
+                current_roles=set(),
+                old_roles={"ROLE_ADMIN"},
+                role_config=role_config,
+            )
+
+        self.assertTrue(any("Removed from team" in m for m in msgs), msgs)
+        self.assertTrue(any("ROLE_ADMIN removed" in m for m in msgs), msgs)
+        self.assertEqual(self._effective_profile(user_name), self.BASE_PROFILE)
+
+    # ── failure must not be reported as success ────────────────────────
+
+    def test_failed_removal_raises_instead_of_reporting_success(self):
+        """A revocation that cannot be persisted must not return a success message.
+
+        Failure is injected by breaking a real link on the Team (the state left
+        behind when a Chapter is force-deleted out from under a team), so
+        ``_validate_links()`` rejects the save. No business logic is mocked.
+        """
+        team_name = self._create_staff_team("RevokeFails")
+        member_name, user_name, volunteer_name = self._create_admin_on_team("Fails", team_name)
+        frappe.db.set_value(
+            "Team", team_name, "chapter", "Chapter-Deleted-XYZ-999", update_modified=False
+        )
+        frappe.db.commit()
+        self.expectErrorLog("MijnRood Sync - Team Removal Failed")
+
+        role_config = {"ROLE_ADMIN": {"add_to_team": True, "default_team": team_name}}
+        with self.production_validation():
+            with self.assertRaises(frappe.ValidationError):
+                get_volunteer_sync_service()._handle_admin_role_change(
+                    member_name,
+                    current_roles=set(),
+                    old_roles={"ROLE_ADMIN"},
+                    role_config=role_config,
+                )
+
+        # And the access really is still open — which is exactly why the caller
+        # must not be told "ROLE_ADMIN removed".
+        self.assertEqual(
+            frappe.db.get_value(
+                "Team Member", {"parent": team_name, "volunteer": volunteer_name}, "status"
+            ),
+            "Active",
+        )
+        self.assertEqual(self._effective_profile(user_name), self.TEAM_PROFILE)
+
+    def test_apply_event_records_failure_instead_of_marking_applied(self):
+        """The effective layer: apply_event() is where the raise becomes visible.
+
+        Every frame between _end_team_membership and apply_event passes messages
+        through and returns success=True unconditionally, so this is the boundary
+        that has to observe the failure — and it must leave the event un-Applied
+        so an operator re-runs it.
+        """
+        from verenigingen.mijnrood_sync.services.event_application.dispatcher import (
+            get_event_application_service,
+        )
+
+        team_name = self._create_staff_team("RevokeEvent")
+        member_name, user_name, volunteer_name = self._create_admin_on_team("Event", team_name)
+        frappe.db.set_value(
+            "Team", team_name, "chapter", "Chapter-Deleted-XYZ-999", update_modified=False
+        )
+        frappe.db.commit()
+        self.expectErrorLog(
+            "MijnRood Sync - Team Removal Failed", "MijnRood Event Application Failed"
+        )
+        self._setup_role_mapping(
+            mijnrood_role="ROLE_ADMIN", label="Admin", add_to_team=1, default_team=team_name
+        )
+        event = self._create_role_removal_event(member_name)
+
+        with self.production_validation():
+            result = get_event_application_service().apply_event(event.name)
+
+        self.assertFalse(result.get("success"), result)
+        event.reload()
+        self.assertNotEqual(event.status, "Applied")
+        self.assertTrue(event.error_message)
+
+        # Access unchanged — which is what "not Applied" has to mean here.
+        self.assertEqual(
+            frappe.db.get_value(
+                "Team Member", {"parent": team_name, "volunteer": volunteer_name}, "status"
+            ),
+            "Active",
+        )
+        self.assertEqual(self._effective_profile(user_name), self.TEAM_PROFILE)
+
+    # ── fixture + cleanup helpers ──────────────────────────────────────
+
+    def _create_role_removal_event(self, member_name):
+        """An Approved 'Changed' event whose only delta is ROLE_ADMIN going away."""
+        event = frappe.get_doc(
+            {
+                "doctype": "MijnRood Sync Event",
+                "event_type": "Changed",
+                "status": "Pending",
+                "mijnrood_table": "admin_member",
+                "mijnrood_row_id": 990001,
+                "detected_at": now_datetime(),
+                "linked_member": member_name,
+                "old_data": json.dumps({"roles": '["ROLE_ADMIN"]'}),
+                "new_data": json.dumps({"roles": "[]"}),
+                "changed_fields": json.dumps(
+                    [{"field": "roles", "old": '["ROLE_ADMIN"]', "new": "[]"}]
+                ),
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(self._cleanup_event, event.name)
+        event.approve()
+        frappe.db.commit()
+        return event
+
+    def _setup_role_mapping(self, **fields):
+        """Point MijnRood Sync Settings at this test's team, then restore.
+
+        MijnRood Sync Settings is a Single: its writes are committed and survive
+        the harness rollback, so the prior rows are snapshotted and restored.
+        """
+        settings = frappe.get_single("MijnRood Sync Settings")
+        snapshot = [r.as_dict() for r in (settings.role_mapping or [])]
+        self.addCleanup(self._restore_role_mapping, snapshot)
+        settings.set("role_mapping", [])
+        settings.append("role_mapping", fields)
+        settings.flags.ignore_validate = True
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache.delete_value("mijnrood_role_mapping")
+
+    def _restore_role_mapping(self, snapshot):
+        settings = frappe.get_single("MijnRood Sync Settings")
+        settings.set("role_mapping", [])
+        for row in snapshot:
+            settings.append("role_mapping", row)
+        settings.flags.ignore_validate = True
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache.delete_value("mijnrood_role_mapping")
+
+    def _cleanup_event(self, event_name):
+        try:
+            if frappe.db.exists("MijnRood Sync Event", event_name):
+                frappe.delete_doc("MijnRood Sync Event", event_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def _cleanup_user(self, user_name):
+        for emp in frappe.get_all("Employee", filters={"user_id": user_name}, pluck="name"):
+            try:
+                frappe.db.set_value("Employee", emp, "user_id", None, update_modified=False)
+                frappe.delete_doc("Employee", emp, ignore_permissions=True, force=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("User", user_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    _cleanup_team = TestEnsureTeamMembership._cleanup_team
+    _cleanup_member_and_customer = TestEnsureTeamMembership._cleanup_member_and_customer
+    _cleanup_volunteer = TestEnsureTeamMembership._cleanup_volunteer
