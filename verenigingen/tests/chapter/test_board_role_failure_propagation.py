@@ -106,6 +106,85 @@ class TestBoardRoleFailurePropagation(VereningingenTestCase):
         seated = [b for b in reloaded.board_members if b.volunteer == volunteer.name and b.is_active]
         self.assertEqual(len(seated), 1, "an ordinary role failure must not unseat the board member")
 
+    # ------------------------------------------------------------ bulk operations
+
+    def _bulk_payload(self, volunteer, board_row):
+        return [
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": board_row.chapter_role,
+                "from_date": str(board_row.from_date),
+            }
+        ]
+
+    def _seated_chapter_and_payload(self, first):
+        """Seat a board member for real, then return (manager, payload) to remove them."""
+        chapter, volunteer = self._seat_board_member(first)
+        chapter.save()
+        reloaded = frappe.get_doc("Chapter", self.chapter.name)
+        row = next(b for b in reloaded.board_members if b.volunteer == volunteer.name)
+        return reloaded.board_manager, self._bulk_payload(volunteer, row)
+
+    def test_bulk_remove_propagates_a_deadlock_from_the_chapter_save(self):
+        """The outer handler returns ``success=False`` for every exception.
+
+        For a 1213 that shape is a lie in both directions: it tells the caller "this
+        operation did not happen" when the transaction it would have to retry in is
+        already gone, and ``processed`` reports a count of writes the server discarded.
+        The MijnRood sync service reads that dict and records an ordinary handler
+        failure, so a deadlock during a privilege revocation is indistinguishable from
+        a bad volunteer id.
+        """
+        manager, payload = self._seated_chapter_and_payload("BulkDeadlock")
+
+        with patch.object(
+            type(manager),
+            "_save_chapter_with_board_changes",
+            side_effect=frappe.QueryDeadlockError("1213 deadlock"),
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                manager.bulk_remove_board_members(payload)
+
+    def test_bulk_remove_propagates_a_deadlock_from_the_per_member_work(self):
+        """The INNER handler is the worse of the two, and was not in the original report.
+
+        A per-member failure is appended to ``errors`` and the method still returns
+        ``success: True``. So a deadlock while updating one volunteer's assignment
+        history is reported as a partial success -- the caller sees a truthy result and
+        carries on against a transaction the server has thrown away.
+        """
+        manager, payload = self._seated_chapter_and_payload("InnerDeadlock")
+
+        with patch(
+            "verenigingen.verenigingen.doctype.chapter.managers."
+            "volunteer_integration_manager.VolunteerIntegrationManager"
+            ".update_volunteer_assignment_history",
+            side_effect=frappe.QueryDeadlockError("1213 deadlock"),
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                manager.bulk_remove_board_members(payload)
+
+    def test_bulk_remove_still_collects_ordinary_per_member_failures(self):
+        """The other half of the contract: one bad volunteer must not abort the batch."""
+        manager, _payload = self._seated_chapter_and_payload("OrdinaryBulk")
+
+        result = manager.bulk_remove_board_members([{"volunteer": "does-not-exist"}])
+
+        self.assertTrue(result["success"], "an ordinary per-member failure must stay non-fatal")
+        self.assertTrue(result["errors"], "the failure must still be reported")
+
+    def test_bulk_deactivate_propagates_a_deadlock_from_the_chapter_save(self):
+        """Same clause, same reasoning -- fixing one without the other would be arbitrary."""
+        manager, payload = self._seated_chapter_and_payload("BulkDeactDeadlock")
+
+        with patch.object(
+            type(manager),
+            "_save_chapter_with_board_changes",
+            side_effect=frappe.QueryTimeoutError("1205 lock wait"),
+        ):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                manager.bulk_deactivate_board_members(payload)
+
     # ------------------------------------------------- secure_document_operation
 
     def test_secure_document_operation_propagates_a_non_resumable_error(self):

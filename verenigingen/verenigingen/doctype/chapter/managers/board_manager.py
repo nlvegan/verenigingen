@@ -307,6 +307,17 @@ class BoardManager(BaseManager):
                     if not removed:
                         errors.append(f"Active board member not found for volunteer {volunteer}")
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    # Not a per-member problem, so it must not be collected as one.
+                    # A 1213 has discarded the whole transaction and a 1205 has left it
+                    # half-applied, which means the members already processed in this
+                    # loop describe writes that either did not survive or cannot be
+                    # reasoned about. Appending to `errors` here is the worse of this
+                    # method's two swallow points: the method still returns
+                    # `success: True`, so a deadlock during a privilege change is
+                    # reported to the caller as a partial success. Same call
+                    # `_log_or_reraise` makes for a single member.
+                    raise
                 except Exception as e:
                     errors.append(
                         f"Error processing volunteer {member_data.get('volunteer', 'unknown')}: {str(e)}"
@@ -324,6 +335,14 @@ class BoardManager(BaseManager):
 
             return {"success": True, "processed": processed_count, "errors": errors}
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # Re-raised BEFORE log_action, which would itself be a write issued on the
+            # transaction the error has already destroyed. The structured failure below
+            # is wrong in both directions for a non-resumable error: it tells the caller
+            # "this operation did not happen", inviting a retry inside a transaction
+            # that no longer exists, and `processed` counts writes the server discarded.
+            # See utils/transaction_errors for what each error destroys.
+            raise
         except Exception as e:
             self.log_action(
                 "Critical error in bulk board member removal",
@@ -407,6 +426,17 @@ class BoardManager(BaseManager):
                     if not deactivated:
                         errors.append(f"Active board member not found for volunteer {volunteer}")
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    # Not a per-member problem, so it must not be collected as one.
+                    # A 1213 has discarded the whole transaction and a 1205 has left it
+                    # half-applied, which means the members already processed in this
+                    # loop describe writes that either did not survive or cannot be
+                    # reasoned about. Appending to `errors` here is the worse of this
+                    # method's two swallow points: the method still returns
+                    # `success: True`, so a deadlock during a privilege change is
+                    # reported to the caller as a partial success. Same call
+                    # `_log_or_reraise` makes for a single member.
+                    raise
                 except Exception as e:
                     errors.append(
                         f"Error processing volunteer {member_data.get('volunteer', 'unknown')}: {str(e)}"
@@ -424,6 +454,10 @@ class BoardManager(BaseManager):
 
             return {"success": True, "processed": processed_count, "errors": errors}
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # As in bulk_remove_board_members: re-raise before the log write, and do not
+            # hand back a structured failure describing a transaction that is gone.
+            raise
         except Exception as e:
             self.log_action(
                 "Critical error in bulk board member deactivation",
