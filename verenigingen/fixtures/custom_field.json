@@ -1633,7 +1633,7 @@
     "name": "Bank Transaction-custom_processing_status",
     "no_copy": 0,
     "non_negative": 0,
-    "options": "\nSEPA Identified\nFully Reconciled\nPartial - Manual Review Required\nExcess - Manual Review Required\nManually Reconciled\nReturn Processed",
+    "options": "\nSEPA Identified\nFully Reconciled\nPartial - Manual Review Required\nExcess - Manual Review Required\nManually Reconciled\nReturn Processed\nMollie Settlement Processed",
     "permlevel": 0,
     "placeholder": null,
     "precision": "",

@@ -335,6 +335,103 @@ class TestCreateReconciliationMollieBranch(MollieBase):
 
 
 # =============================================================================
+# create_reconciliation "mollie_settlement" branch under PRODUCTION validation
+# =============================================================================
+class TestCreateReconciliationMollieBranchProduction(MollieBase):
+    """The Mollie branch with ``frappe.flags.in_import`` False, as production runs it.
+
+    ``EnhancedTestCase.setUp`` sets ``in_import = True`` (to bypass user-creation
+    throttling). ``BaseDocument._validate_selects()`` early-returns on that flag, so
+    the sibling class above never checks that the value the branch writes to
+    ``custom_processing_status`` is one of the Custom Field's Select options. In
+    production the flag is False and an out-of-options value raises on ``save()`` --
+    AFTER ``process_mollie_settlement`` has already inserted and SUBMITTED the
+    Payment Entries and the fee Journal Entry, which are not rolled back.
+    """
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    def test_settlement_reconciles_and_persists_processing_status(self):
+        """The happy path must actually reconcile when validation is not suppressed."""
+        it = self._make_member_with_invoice(first_name="MollieProd", grand_total=30.0)
+        bt = self._make_bank_transaction(deposit=30.0, date=today(), bank_account=self._eur_bank_account)
+        settlement_data = {"id": "stl_PROD", "amount": {"value": "30.00", "currency": "EUR"}}
+        match = {
+            "type": "mollie_settlement",
+            "reference": "stl_PROD",
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": settlement_data,
+        }
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+        with self._stub_client(payments=[payment]):
+            # Only the reconciliation call runs with production validation; the
+            # fixtures above create Users, which throttle when in_import is False.
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        bt.reload()
+        self.assertTrue(
+            ok,
+            "Mollie settlement reconciliation returned False. Bank Transaction "
+            f"status={bt.status!r} custom_processing_status="
+            f"{bt.custom_processing_status!r}; comments={self._bt_comments(bt.name)}",
+        )
+        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
+
+    def test_settlement_failure_records_reason_on_transaction(self):
+        """A failing settlement must leave an operator-visible reason, like the
+        SEPA batch/invoice branches do -- not just a bare Error Log row."""
+        self.expectErrorLog("mollie api down")
+        bt = self._make_bank_transaction(deposit=30.0, date=today(), bank_account=self._eur_bank_account)
+        match = {
+            "type": "mollie_settlement",
+            "reference": "stl_FAIL",
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": {"id": "stl_FAIL", "amount": {"value": "30.00", "currency": "EUR"}},
+        }
+
+        class _BoomClient:
+            def get_payments_for_settlement(self, _sid):
+                raise RuntimeError("mollie api down")
+
+        original = btr.SettlementsClient
+        btr.SettlementsClient = _BoomClient
+        try:
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+        finally:
+            btr.SettlementsClient = original
+
+        self.assertFalse(ok)
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "a failed Mollie settlement must be marked Unreconciled so it is visible "
+            "to an operator instead of sitting silently at its previous status",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any("mollie api down" in c for c in comments),
+            f"no Comment records why the settlement failed; comments={comments}",
+        )
+
+
+# =============================================================================
 # _create_mollie_payment_entry — direct (1021-1052)
 # =============================================================================
 class TestCreateMolliePaymentEntry(MollieBase):

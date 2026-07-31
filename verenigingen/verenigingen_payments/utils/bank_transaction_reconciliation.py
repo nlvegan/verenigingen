@@ -609,10 +609,27 @@ class PaymentReconciliationManager:
                     return True
 
                 except frappe.ValidationError as ve:
-                    frappe.log_error(f"Validation error in reconciliation: {str(ve)}")
+                    # process_mollie_settlement() has already inserted and SUBMITTED
+                    # Payment Entries by the time anything below it can fail, so a
+                    # bare log_error left the deposit sitting at its previous status
+                    # with no operator-visible trace. Record the reason like the
+                    # batch/invoice branches do.
+                    frappe.log_error(
+                        f"Mollie settlement reconciliation validation error: {str(ve)}",
+                        "Mollie Settlement Reconciliation",
+                    )
+                    self._mark_transaction_unreconciled(
+                        transaction, f"Mollie settlement reconciliation validation failed: {str(ve)}"
+                    )
                     return False
                 except Exception as pe:
-                    frappe.log_error(f"Payment creation error: {str(pe)}")
+                    frappe.log_error(
+                        f"Mollie settlement reconciliation error: {str(pe)}",
+                        "Mollie Settlement Reconciliation",
+                    )
+                    self._mark_transaction_unreconciled(
+                        transaction, f"Mollie settlement reconciliation failed: {str(pe)}"
+                    )
                     return False
 
             elif match["type"] == "multiple":
