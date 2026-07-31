@@ -142,19 +142,35 @@ fixtures = [
     # fixtures/custom_field.json):
     #   * custom_mollie_payment_id / custom_mollie_settlement_id on Payment Entry --
     #     the settlement dedup guard reads them;
+    #   * custom_mollie_settlement_id on Journal Entry -- the settlement-level
+    #     idempotency guard reads it to decide whether a settlement's fee entry is
+    #     already on the ledger; losing it re-books the fee Journal Entry, for the
+    #     ENTIRE settlement amount, on every scheduled run;
     #   * custom_processing_status on Bank Transaction -- its Select options carry
     #     "Mollie Settlement Processed", and without that option the Mollie branch of
     #     create_reconciliation throws on save() *after* it has submitted every
     #     Payment Entry.
+    #
+    # The filter is by fieldname, so the Bank Transaction / Payment Entry / Journal
+    # Entry copies of custom_mollie_settlement_id are all covered by the one clause.
     #
     # These share ONE entry on purpose. frappe/utils/fixtures.py derives the output
     # filename as frappe.scrub(<doctype>) unless a "prefix" is given, so all three
     # unprefixed "Custom Field" entries in this list write to custom_field.json and
     # only the LAST one's contents survive an export. Adding a fourth entry would
     # therefore delete the Mollie dedup fields instead of saving this one. The real
-    # fix (the three entries clobbering a single file, which also silently drops the
-    # btw_* and eboekhouden fields) is filed separately and deliberately not
-    # attempted here.
+    # fix -- the three entries clobbering a single file -- is issue #196 and is
+    # deliberately not attempted here.
+    #
+    # Measured cost of that defect, correcting the earlier "drops the btw_* and
+    # eboekhouden fields" note, which named the wrong victims and understated the
+    # scale: custom_field.json holds 63 entries and this Mollie filter matches 6, so
+    # an export drops the other 57 -- among them Sales Invoice.member, Customer.member,
+    # Payment Entry.custom_sepa_batch, Bank Transaction.custom_sepa_batch and every
+    # Ponto field. (The btw_* fields are not in this file at all; they are created at
+    # install time by setup.get_custom_fields(). The eboekhouden fields ARE in it, but
+    # under bare `eboekhouden_*` names that the `custom_eboekhouden_...` filter above
+    # never matched either -- so those 17 are part of the 57, not a separate case.)
     {
         "doctype": "Custom Field",
         "filters": [

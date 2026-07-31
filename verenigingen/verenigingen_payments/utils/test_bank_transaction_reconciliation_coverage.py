@@ -550,8 +550,10 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
         """The settlement HAS posted (and submitted) its Payment Entries and then the
         save() fails because the Select option is not deployed. The transaction must
         NOT stay retryable -- a re-run cannot re-post the payments (the dedup guard
-        skips them) but WOULD re-book the fee Journal Entry -- and the success
-        comments must not be persisted next to the failure."""
+        skips them), and precisely because of that its fee Journal Entry would be for
+        the ENTIRE settlement amount rather than the fees (every payment goes to the
+        ``duplicate`` branch, which never adds to ``total_reconciled``) -- and the
+        misleading success comment must not be persisted next to the failure."""
         self.expectErrorLog("custom_processing_status", "Mollie Settlement Reconciliation")
         it = self._make_member_with_invoice(first_name="MollieAfterPost", grand_total=30.0)
         bt = self._make_bank_transaction(
@@ -582,6 +584,16 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
             "add_comment() inserts immediately and is not rolled back by the failing "
             f"save(), so an 'Auto-reconciled' comment ends up directly above "
             f"'Reconciliation failed'; comments={comments}",
+        )
+        # ...but the settlement summary is factually TRUE on this path -- those Payment
+        # Entries really were submitted -- and this is the one place an operator needs
+        # to read what got booked before the failure. Suppressing it along with the
+        # misleading "Auto-reconciled" line threw away the only record.
+        self.assertTrue(
+            any("Processed 1/1 payments" in c for c in comments),
+            "the failure path lost the settlement summary; an operator looking at an "
+            "Unreconciled transaction has no record of the Payment Entries that WERE "
+            f"submitted; comments={comments}",
         )
 
     def test_fee_entry_failure_after_posting_marks_unreconciled(self):
@@ -618,6 +630,185 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
             "Unreconciled",
             "the Payment Entries were already submitted, so this settlement must not "
             "go back into the auto-reconciliation pool",
+        )
+
+
+# =============================================================================
+# Settlement-level idempotency + retry bound
+# =============================================================================
+class TestSettlementIdempotency(MollieBase):
+    """A settlement must book its fee Journal Entry AT MOST ONCE, ever.
+
+    ``mollie_fees = total_reconciled - settlement_amount`` and ``total_reconciled``
+    is only incremented on the per-payment SUCCESS path. Every other outcome
+    (``no_invoice_match``, ``invoice_not_found``, ``amount_mismatch``, and -- on a
+    re-run -- ``duplicate``) leaves it at 0, so ``mollie_fees`` becomes
+    ``-settlement_amount``, ``abs(...) > 0.01`` passes, and ``_create_mollie_fee_entry``
+    inserts and SUBMITS a Journal Entry for the ENTIRE settlement amount booked
+    against the payment-processing-fees expense account.
+
+    Before the retryability change this was bounded at one occurrence: any failure
+    marked the Bank Transaction "Unreconciled", which permanently removed it from
+    the ``{"status": "Pending"}`` pool ``reconcile_bank_transactions`` selects. Now a
+    failure that posted nothing stays "Pending", and ``reconcile_bank_transactions``
+    is scheduled with no date bound while ``match_mollie_settlement`` re-fetches
+    settlements in a +/-3 day window -- so the same settlement is re-matched and the
+    bogus Journal Entry re-booked on every run.
+    """
+
+    def _fee_journal_entries(self, settlement_id):
+        """Fee Journal Entries for a settlement.
+
+        Matched on ``user_remark`` rather than the tracking field so the query is
+        identical before and after the tracking field exists.
+        """
+        return frappe.get_all(
+            "Journal Entry",
+            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
+            fields=["name", "total_debit"],
+        )
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    def _match(self, settlement_id, amount):
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
+        }
+
+    def test_unmatched_settlement_never_books_a_fee_entry(self):
+        """No payment resolved to an invoice -> nothing was reconciled -> there are no
+        fees to book. The arithmetic says otherwise: ``0 - 30.00`` is a 30.00 "fee",
+        i.e. the WHOLE settlement expensed as Mollie charges, once per scheduled run."""
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing NoMatch", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees NoMatch", root_type="Expense")
+        settlement_id = f"stl_NOMATCH_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        # A payment whose description carries no invoice reference -> no_invoice_match.
+        payment = self._mollie_payment(value="30.00", description="grocery store purchase")
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[payment]):
+                self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "30.00"))
+                after_first = self._fee_journal_entries(settlement_id)
+                # A second scheduled run re-matches the same settlement.
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "30.00")
+                )
+                after_second = self._fee_journal_entries(settlement_id)
+
+        self.assertEqual(
+            after_first,
+            [],
+            "zero payments were reconciled, so there are no Mollie fees; the entries "
+            f"booked expense the full settlement amount: {after_first}",
+        )
+        self.assertEqual(
+            len(after_second),
+            len(after_first),
+            "the second run booked another fee Journal Entry for the same settlement -- "
+            f"unbounded, once per scheduled run: {after_second}",
+        )
+
+    def test_rerun_of_processed_settlement_books_exactly_one_fee_entry(self):
+        """The settlement really did reconcile (invoice 30.00, payout 28.50 -> 1.50 of
+        fees). On a re-run every payment is skipped as a ``duplicate``, which does NOT
+        add to ``total_reconciled``, so the fee arithmetic re-books the full 28.50."""
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Rerun", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Rerun", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieRerun", grand_total=30.0)
+        settlement_id = f"stl_RERUN_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[payment]):
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "28.50"))
+                self.assertTrue(ok)
+                after_first = self._fee_journal_entries(settlement_id)
+                # A fresh manager, as the next scheduled run would use (the in-memory
+                # dedup set is empty; the DB-backed guard still sees the submitted PE).
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "28.50")
+                )
+                after_second = self._fee_journal_entries(settlement_id)
+
+        self.assertEqual(len(after_first), 1, f"the first run must book the 1.50 fee once: {after_first}")
+        self.assertEqual(
+            len(after_second),
+            1,
+            "re-running the settlement booked a SECOND fee Journal Entry, this one for "
+            f"the entire 28.50 payout: {after_second}",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Journal Entry", after_first[0].name, "custom_mollie_settlement_id"),
+            settlement_id,
+            "the fee Journal Entry must carry the settlement id as a queryable field -- "
+            "free-text user_remark is invisible to both the idempotency guard and the "
+            "posted-accounting discriminator in _record_settlement_failure",
+        )
+
+    def test_repeated_pre_posting_failure_eventually_stops_retrying(self):
+        """Leaving a failed-before-posting settlement "Pending" is right for a transient
+        outage, but with no cap a permanently broken settlement re-runs -- and re-comments
+        -- forever. After a handful of attempts it must be handed to an operator."""
+        self.expectErrorLog("mollie api down")
+        settlement_id = f"stl_CAP_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+
+        class _BoomClient:
+            def get_payments_for_settlement(self, _sid):
+                raise RuntimeError("mollie api down")
+
+        original = btr.SettlementsClient
+        btr.SettlementsClient = _BoomClient
+        try:
+            for _ in range(5):
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "30.00")
+                )
+        finally:
+            btr.SettlementsClient = original
+
+        bt.reload()
+        comments = self._bt_comments(bt.name)
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "a settlement that has failed on every attempt must eventually leave the "
+            f"retry pool; comments={comments}",
+        )
+        self.assertTrue(
+            any("giving up" in c.lower() for c in comments),
+            f"nothing tells the operator the retries were abandoned; comments={comments}",
+        )
+        retry_comments = [c for c in comments if "will retry" in c]
+        self.assertLessEqual(
+            len(retry_comments),
+            btr.PaymentReconciliationManager.MAX_SETTLEMENT_RETRIES,
+            f"one 'will retry' comment per run, unbounded; comments={comments}",
         )
 
 

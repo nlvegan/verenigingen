@@ -48,6 +48,17 @@ class PaymentReconciliationManager:
        - Individual Mollie payments are already processed via webhooks (see payment_webhook.py)
     """
 
+    # How many times a settlement that failed BEFORE posting any accounting may be
+    # left in the "Pending" retry pool. Retrying a transient Mollie outage is right,
+    # but `reconcile_bank_transactions` runs daily with no date bound, so without a
+    # cap a permanently broken settlement re-runs -- and re-comments -- forever.
+    MAX_SETTLEMENT_RETRIES = 3
+
+    # Marker text every retryable-failure comment carries, so the attempts can be
+    # counted on the next run. Comments are the only per-transaction attempt record;
+    # Bank Transaction has no retry-count field.
+    RETRY_COMMENT_MARKER = "Reconciliation failed (will retry)"
+
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
         self.config = get_mollie_config()  # Use cached configuration service
@@ -69,14 +80,14 @@ class PaymentReconciliationManager:
         if not validation_result["valid"]:
             # Log detailed validation errors
             for error in validation_result["errors"]:
-                frappe.log_error(
-                    f"Mollie GL Account validation failed: {error}", "Mollie Account Configuration"
+                _log_error_with_traceback(
+                    "Mollie Account Configuration", f"Mollie GL Account validation failed: {error}"
                 )
 
             # Log overall failure
-            frappe.log_error(
-                f"Mollie accounts not properly configured. Errors: {', '.join(validation_result['errors'])}",
+            _log_error_with_traceback(
                 "Mollie Account Configuration",
+                f"Mollie accounts not properly configured. Errors: {', '.join(validation_result['errors'])}",
             )
 
         # Log warnings (e.g., optional fees account not configured)
@@ -105,9 +116,9 @@ class PaymentReconciliationManager:
                     missing_fields.append(field_name)
 
             if missing_fields:
-                frappe.log_error(
-                    f"Missing Bank Transaction fields: {missing_fields}",
+                _log_error_with_traceback(
                     "SEPA Reconciliation Field Validation",
+                    f"Missing Bank Transaction fields: {missing_fields}",
                 )
                 frappe.throw(
                     _(
@@ -426,7 +437,9 @@ class PaymentReconciliationManager:
                     }
 
         except Exception as e:
-            frappe.log_error(f"Error matching Mollie settlement: {str(e)}", "Mollie Settlement Matching")
+            _log_error_with_traceback(
+                "Mollie Settlement Matching", f"Error matching Mollie settlement: {str(e)}"
+            )
 
         return None
 
@@ -606,22 +619,34 @@ class PaymentReconciliationManager:
                         bank_trans, match["reference"], match["settlement_data"]
                     )
 
+                    # The summary is true the moment process_mollie_settlement returns:
+                    # those Payment Entries really were inserted and submitted, and they
+                    # are not rolled back by anything below. Write it here so it also
+                    # survives on the failure path -- an operator staring at an
+                    # Unreconciled deposit needs to know what DID get booked. Only the
+                    # "Auto-reconciled" claim waits for the save, because that one is
+                    # false unless the save succeeds.
+                    if settlement_result.get("already_processed"):
+                        summary = (
+                            f"already processed; fee Journal Entry "
+                            f"{settlement_result['fee_journal_entry']} is on the ledger. "
+                            "Nothing re-posted."
+                        )
+                    else:
+                        summary = (
+                            f"Processed {settlement_result['processed_count']}"
+                            f"/{settlement_result['total_payments']} payments. "
+                            f"Fees: €{settlement_result['mollie_fees']}"
+                        )
+                    self._add_comment_without_failing(bank_trans, f"Mollie settlement processed: {summary}")
+
                     # Update bank transaction with settlement processing details
                     bank_trans.custom_processing_status = "Mollie Settlement Processed"
                     bank_trans.status = "Reconciled"
                     bank_trans.save()
 
-                    # Comments only AFTER the save succeeded. add_comment() inserts
-                    # immediately and is not undone by a failing save(), so writing
-                    # them first left an operator reading "Auto-reconciled ..."
-                    # directly above "Reconciliation failed: ...".
-                    summary = (
-                        f"Processed {settlement_result['processed_count']}/{settlement_result['total_payments']} "
-                        f"payments. Fees: €{settlement_result['mollie_fees']}"
-                    )
-                    bank_trans.add_comment("Comment", f"Mollie settlement processed: {summary}")
-                    bank_trans.add_comment(
-                        "Comment",
+                    self._add_comment_without_failing(
+                        bank_trans,
                         f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
                     )
 
@@ -662,39 +687,128 @@ class PaymentReconciliationManager:
         "Pending" and nothing anywhere moves a transaction back out of "Unreconciled",
         so marking it Unreconciled permanently removes the deposit from
         auto-reconciliation. That is right once the settlement has posted its
-        accounting -- a re-run cannot re-post the Payment Entries (the dedup guard
-        skips them) but would re-book the fee Journal Entry -- and wrong for a failure
-        that posted nothing, e.g. a Mollie API outage, which would simply have
-        succeeded on the next run.
+        accounting and wrong for a failure that posted nothing, e.g. a Mollie API
+        outage, which would simply have succeeded on the next run.
+
+        Note on what a re-run would do without the settlement-level idempotency guard
+        (``_existing_settlement_fee_entry``): it cannot re-post the Payment Entries,
+        because ``_is_mollie_payment_processed`` skips them -- but that is exactly why
+        the fee entry it re-books is NOT for the fees. Every payment lands in the
+        ``duplicate`` branch, which ``continue``s without touching ``total_reconciled``,
+        so ``mollie_fees = 0 - settlement_amount`` and the Journal Entry is for the
+        ENTIRE settlement amount, expensed as Mollie charges.
 
         The discriminator is the posted accounting itself, not where the exception was
         raised: ``process_mollie_settlement`` submits its Payment Entries before it
         books the fee Journal Entry, so it can also fail *after* posting and never
-        return a result at all.
+        return a result at all. Both artifacts count -- a run that got as far as the
+        fee Journal Entry and no further has still written to the ledger.
         """
         _log_error_with_traceback("Mollie Settlement Reconciliation", reason)
 
         settlement_id = (match.get("settlement_data") or {}).get("id") or match.get("reference")
-        posted = settlement_id and frappe.db.exists(
-            "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
-        )
 
-        if posted:
+        if self._settlement_has_posted_accounting(settlement_id):
             self._mark_transaction_unreconciled(transaction, reason)
         else:
             self._comment_transaction_failure(transaction, reason)
 
+    def _settlement_has_posted_accounting(self, settlement_id):
+        """Return True if this settlement has already written to the ledger.
+
+        Both queries filter on ``custom_mollie_settlement_id``. That is a Custom Field,
+        so on a deploy whose fixtures have not been synced -- the very failure mode this
+        code path exists to survive -- the query raises "Unknown column", escapes to the
+        outer handler and gets written out as the operator-visible failure reason. Treat
+        an unanswerable question conservatively: assume the accounting IS posted, which
+        takes the transaction out of the retry pool and puts it in front of a human,
+        rather than looping on a settlement whose state we cannot read.
+        """
+        if not settlement_id:
+            return False
+
+        try:
+            return bool(
+                frappe.db.exists(
+                    "Payment Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+                )
+            ) or bool(self._existing_settlement_fee_entry(settlement_id))
+        except Exception as e:
+            _log_error_with_traceback(
+                "Mollie Settlement Reconciliation",
+                f"Cannot determine whether settlement {settlement_id} posted any accounting "
+                f"({str(e)}); assuming it did",
+            )
+            return True
+
+    def _existing_settlement_fee_entry(self, settlement_id):
+        """Return the name of the submitted fee Journal Entry for *settlement_id*, if any.
+
+        This is the settlement-level idempotency key. The settlement id is stamped on
+        the Journal Entry as a queryable field rather than only inside the free-text
+        ``user_remark``, so both this guard and ``_settlement_has_posted_accounting``
+        can see it.
+        """
+        if not settlement_id:
+            return None
+        return frappe.db.exists(
+            "Journal Entry", {"custom_mollie_settlement_id": settlement_id, "docstatus": 1}
+        )
+
     def _comment_transaction_failure(self, transaction, reason):
         """Record why reconciliation failed WITHOUT touching the status, so the
-        transaction stays in the "Pending" auto-reconciliation pool for the next run."""
+        transaction stays in the "Pending" auto-reconciliation pool for the next run.
+
+        Bounded: after ``MAX_SETTLEMENT_RETRIES`` attempts the transaction is marked
+        Unreconciled instead. ``reconcile_bank_transactions`` is scheduled daily with
+        no date bound, so an unbounded retry is an unbounded stream of identical
+        comments on a settlement that is never going to succeed on its own.
+        """
         try:
+            attempts = self._count_retry_comments(transaction["name"])
+            if attempts >= self.MAX_SETTLEMENT_RETRIES:
+                self._mark_transaction_unreconciled(
+                    transaction,
+                    f"giving up after {attempts + 1} attempts; manual review required. "
+                    f"Last failure: {reason}",
+                )
+                return
+
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
-            bank_trans.add_comment("Comment", f"Reconciliation failed (will retry): {reason}")
+            bank_trans.add_comment("Comment", f"{self.RETRY_COMMENT_MARKER}: {reason}")
             frappe.logger().info(f"Transaction {transaction['name']} left retryable: {reason}")
         except Exception as e:
             _log_error_with_traceback(
                 "Transaction Status Update",
                 f"Error commenting on transaction {transaction['name']}: {str(e)}",
+            )
+
+    def _count_retry_comments(self, bank_transaction_name):
+        """How many retryable-failure comments this transaction already carries."""
+        return frappe.db.count(
+            "Comment",
+            {
+                "reference_doctype": "Bank Transaction",
+                "reference_name": bank_transaction_name,
+                "comment_type": "Comment",
+                "content": ["like", f"%{self.RETRY_COMMENT_MARKER}%"],
+            },
+        )
+
+    def _add_comment_without_failing(self, bank_trans, content):
+        """Add a Comment, never letting its failure change the transaction's fate.
+
+        These comments are written around the ``save()`` in the Mollie branch, inside
+        its try/except. An exception from ``add_comment`` would therefore reach
+        ``_record_settlement_failure``, which -- with the accounting posted -- flips an
+        already-"Reconciled" transaction to "Unreconciled" because a *comment* failed.
+        """
+        try:
+            bank_trans.add_comment("Comment", content)
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Comment",
+                f"Could not comment on {bank_trans.name}: {str(e)}. Content was: {content}",
             )
 
     def _mark_transaction_unreconciled(self, transaction, reason):
@@ -736,7 +850,7 @@ class PaymentReconciliationManager:
             return {inv.name: inv for inv in invoices}
 
         except Exception as e:
-            frappe.log_error(f"Error batch fetching invoice data: {str(e)}", "Invoice Batch Fetch")
+            _log_error_with_traceback("Invoice Batch Fetch", f"Error batch fetching invoice data: {str(e)}")
             return {}
 
     def create_payment_entry_from_transaction(self, bank_trans, invoice_name, batch_name=None):
@@ -882,6 +996,15 @@ class PaymentReconciliationManager:
         """
 
         try:
+            # Settlement-level idempotency. A settlement is processed exactly once: if
+            # its fee Journal Entry is already on the ledger, every Payment Entry that
+            # was going to be booked was booked before it (they are submitted first),
+            # and re-entering the loop can only re-book the fee entry. Which it would,
+            # for the WRONG amount -- see the mollie_fees note below.
+            existing_fee_entry = self._existing_settlement_fee_entry(settlement_id)
+            if existing_fee_entry:
+                return self._already_processed_result(settlement_id, existing_fee_entry)
+
             # Get payments for this settlement from Mollie API
             settlements_client = SettlementsClient()
             payments = settlements_client.get_payments_for_settlement(settlement_id)
@@ -1008,32 +1131,43 @@ class PaymentReconciliationManager:
                             "error": str(ve),
                         }
                     )
-                    frappe.log_error(
-                        f"Validation error processing Mollie payment {mollie_payment_id}: {str(ve)}",
+                    # This Error Log row is the ONLY record of the failure: the entry
+                    # appended to `processed_payments` is returned, summarised into a
+                    # comment and then discarded, so without the stack frame there is
+                    # nothing that says where the payment broke.
+                    _log_error_with_traceback(
                         "Mollie Payment Validation",
+                        f"Validation error processing Mollie payment {mollie_payment_id}: {str(ve)}",
                     )
 
                 except Exception as e:
                     processed_payments.append(
                         {"mollie_payment_id": mollie_payment_id, "status": "error", "error": str(e)}
                     )
-                    frappe.log_error(
-                        f"Unexpected error processing Mollie payment {mollie_payment_id}: {str(e)}",
+                    _log_error_with_traceback(
                         "Mollie Payment Processing",
+                        f"Unexpected error processing Mollie payment {mollie_payment_id}: {str(e)}",
                     )
 
             # Handle Mollie fees by creating clearing account entries
             settlement_amount = self._safe_decimal(settlement_data.get("amount", {}).get("value", 0))
             mollie_fees = total_reconciled - settlement_amount
+            processed_count = len([p for p in processed_payments if p["status"] == "success"])
 
-            if abs(mollie_fees) > Decimal("0.01"):  # If there are fees
+            # `total_reconciled` is only incremented on the per-payment SUCCESS path, so
+            # when nothing reconciled it is 0 and `mollie_fees` degenerates to
+            # `-settlement_amount` -- which would expense the ENTIRE settlement as Mollie
+            # charges. Fees are the difference between what the payments were worth and
+            # what Mollie paid out; with no reconciled payment there is no such
+            # difference to book.
+            if processed_count and abs(mollie_fees) > Decimal("0.01"):
                 self._create_mollie_fee_entry(bank_trans, mollie_fees, settlement_data)
 
             return {
                 "type": "mollie_settlement",
                 "settlement_id": settlement_id,
                 "total_payments": len(payments),
-                "processed_count": len([p for p in processed_payments if p["status"] == "success"]),
+                "processed_count": processed_count,
                 "failed_count": len([p for p in processed_payments if p["status"] == "error"]),
                 "unmatched_count": len([p for p in processed_payments if p["status"] == "no_invoice_match"]),
                 "total_reconciled": str(total_reconciled),
@@ -1044,6 +1178,30 @@ class PaymentReconciliationManager:
         except Exception as e:
             frappe.log_error(f"Error processing Mollie settlement {settlement_id}: {str(e)}")
             raise
+
+    def _already_processed_result(self, settlement_id, fee_entry_name):
+        """Result shape for a settlement the idempotency guard short-circuited.
+
+        Same keys as the full result so the caller's summary comment still renders;
+        the counts are 0 because this run posted nothing.
+        """
+        frappe.logger().info(
+            f"Mollie settlement {settlement_id} already processed "
+            f"(fee Journal Entry {fee_entry_name}); skipping re-processing"
+        )
+        return {
+            "type": "mollie_settlement",
+            "settlement_id": settlement_id,
+            "total_payments": 0,
+            "processed_count": 0,
+            "failed_count": 0,
+            "unmatched_count": 0,
+            "total_reconciled": "0",
+            "mollie_fees": "0",
+            "already_processed": True,
+            "fee_journal_entry": fee_entry_name,
+            "details": [],
+        }
 
     def _extract_invoice_reference(self, payment):
         """Extract invoice reference from Mollie payment"""
@@ -1139,8 +1297,8 @@ class PaymentReconciliationManager:
         try:
             mollie_clearing_account = self.config.get_clearing_account()
         except frappe.ValidationError:
-            frappe.log_error(
-                "Cannot create Mollie fee entry - clearing account not configured", "Mollie Fee Processing"
+            _log_error_with_traceback(
+                "Mollie Fee Processing", "Cannot create Mollie fee entry - clearing account not configured"
             )
             return None
 
@@ -1180,6 +1338,10 @@ class PaymentReconciliationManager:
                 "posting_date": bank_trans.date,
                 "voucher_type": "Journal Entry",
                 "user_remark": f"Mollie settlement fees - Settlement {settlement_data.get('id')}",
+                # Queryable settlement id, not just the free-text remark above: this is
+                # the key the settlement-level idempotency guard and the posted-accounting
+                # discriminator both read.
+                "custom_mollie_settlement_id": settlement_data.get("id"),
                 "accounts": accounts,
             }
         )
@@ -1221,10 +1383,10 @@ class PaymentReconciliationManager:
         )
 
         if expense_accounts:
-            frappe.log_error(
+            _log_error_with_traceback(
+                "Mollie Fee Account Fallback",
                 f"Using fallback expense account {expense_accounts[0]['name']} for Mollie fees. "
                 "Please configure payment_processing_fees_account in Mollie Settings.",
-                "Mollie Fee Account Fallback",
             )
             return expense_accounts[0]["name"]
 
@@ -1383,7 +1545,7 @@ def parse_pain002_file(file_content):
     try:
         root = ET.fromstring(file_content)
     except ET.ParseError as e:
-        frappe.log_error(f"Failed to parse pain.002 file: {str(e)}", "SEPA Return File Parsing")
+        _log_error_with_traceback("SEPA Return File Parsing", f"Failed to parse pain.002 file: {str(e)}")
         return []
 
     return_data = []
