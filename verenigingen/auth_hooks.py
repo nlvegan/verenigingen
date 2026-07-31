@@ -77,7 +77,6 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     self_service_api,
 )
-from verenigingen.utils.security_wrappers import safe_get_roles
 
 # REMOVED: validate_session_before_request function (August 21, 2025)
 #
@@ -93,7 +92,7 @@ from verenigingen.utils.security_wrappers import safe_get_roles
 # PROPER ALTERNATIVES:
 # - Session validation: Use on_session_creation hook (runs after session setup)
 # - Session cleanup: Use utils/session_cleanup.py background jobs
-# - Role checking: Use security_wrappers.py safe functions
+# - Role checking: Use frappe.get_roles() directly, after validating the user
 # - Portal access: Use enforce_member_portal_access() function
 
 
@@ -186,7 +185,7 @@ def has_member_role(user):
         if not user or not isinstance(user, str) or user in ["", "None", "Guest"]:
             return False
 
-        user_roles = safe_get_roles(user)
+        user_roles = frappe.get_roles(user)
         # Members hold the "Verenigingen Member" role; the bare "Member" role
         # does not exist on this site (phantom role), so checking it never matched.
         return Roles.VERENIGINGEN_MEMBER in user_roles
@@ -202,7 +201,7 @@ def has_volunteer_role(user):
         if not user or not isinstance(user, str) or user in ["", "None", "Guest"]:
             return False
 
-        user_roles = safe_get_roles(user)
+        user_roles = frappe.get_roles(user)
         volunteer_roles = [
             Roles.VOLUNTEER,
             Roles.CHAPTER_BOARD_MEMBER,
@@ -373,7 +372,7 @@ def has_system_access(user):
         if not user or not isinstance(user, str) or user in ["", "None", "Guest"]:
             return False
 
-        user_roles = safe_get_roles(user)
+        user_roles = frappe.get_roles(user)
         system_roles = [
             Roles.SYSTEM_MANAGER,
             Roles.VERENIGINGEN_ADMIN,
