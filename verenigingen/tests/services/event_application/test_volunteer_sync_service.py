@@ -7,6 +7,8 @@ real Chapter + Team + Volunteer + User fixtures.
 """
 
 import json
+import random
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -587,7 +589,12 @@ class TestEnsureChapterBoardMembership(EnhancedTestCase):
 
 
 class TestEndChapterBoardMembership(EnhancedTestCase):
-    """Removes a volunteer from a chapter's board via BoardManager.bulk_remove_board_members."""
+    """Removes a volunteer from a chapter's board via BoardManager.bulk_remove_board_members.
+
+    The method returns ``(vacated_chapter, message)``. Only ``vacated_chapter`` says a
+    seat was really removed — every case below produces no vacated chapter, which is
+    what stops _notify_board_membership_change from announcing a withdrawal.
+    """
 
     def test_returns_error_when_division_does_not_resolve(self):
         member = self.factory.create_member(
@@ -597,11 +604,11 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_member_and_customer, member.name)
 
-        result = get_volunteer_sync_service()._end_chapter_board_membership(
+        vacated, message = get_volunteer_sync_service()._end_chapter_board_membership(
             member.name, division_id=999998
         )
-        self.assertIsNotNone(result)
-        self.assertIn("does not match any Chapter", result)
+        self.assertIsNone(vacated)
+        self.assertIn("does not match any Chapter", message)
 
     def test_returns_none_when_member_has_no_volunteer(self):
         chapter = self.factory.create_chapter(mijnrood_division_id=80001)
@@ -613,10 +620,12 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_member_and_customer, member.name)
 
-        result = get_volunteer_sync_service()._end_chapter_board_membership(
-            member.name, division_id=80001
+        self.assertEqual(
+            get_volunteer_sync_service()._end_chapter_board_membership(
+                member.name, division_id=80001
+            ),
+            (None, None),
         )
-        self.assertIsNone(result)
 
     def test_returns_none_when_volunteer_not_on_board(self):
         chapter = self.factory.create_chapter(mijnrood_division_id=80002)
@@ -627,10 +636,12 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         self.addCleanup(self._cleanup_member_and_customer, member_name)
         self.addCleanup(self._cleanup_volunteer, volunteer_name)
 
-        result = get_volunteer_sync_service()._end_chapter_board_membership(
-            member_name, division_id=80002
+        self.assertEqual(
+            get_volunteer_sync_service()._end_chapter_board_membership(
+                member_name, division_id=80002
+            ),
+            (None, None),
         )
-        self.assertIsNone(result)
 
     # Reuse helpers from TestEnsureChapterBoardMembership via assignment
     _create_member_with_volunteer = TestEnsureChapterBoardMembership._create_member_with_volunteer
@@ -659,13 +670,17 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
             "verenigingen.utils.notification_helpers.notify_administrators"
         ) as mock_notify:
             get_volunteer_sync_service()._notify_board_membership_change(
-                member.name, removed_division_ids={90001}
+                member.name, vacated_chapters=[chapter.name]
             )
 
         mock_realtime.assert_called_once()
         realtime_args = mock_realtime.call_args
         self.assertEqual(realtime_args.args[0], "board_membership_ended")
         self.assertIn(member.name, str(realtime_args))
+        # The chapters are handed in, not re-resolved from the ids the sync was
+        # asked to revoke — that re-resolution is what named an unresolvable
+        # division in an "access withdrawn" mail.
+        self.assertEqual(realtime_args.args[1]["chapters"], [chapter.name])
 
         mock_notify.assert_called_once()
         notify_kwargs = mock_notify.call_args.kwargs
@@ -1017,7 +1032,9 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
         )
         self.service = MijnRoodVolunteerSyncService()
         self.service._apply_role_actions = MagicMock(return_value=["role action applied"])
-        self.service._end_chapter_board_membership = MagicMock(return_value="Removed from board")
+        self.service._end_chapter_board_membership = MagicMock(
+            side_effect=lambda member, div_id, event=None: (f"Chapter-{div_id}", "Removed from board")
+        )
         self.service._notify_board_membership_change = MagicMock(return_value=None)
 
     def test_new_divisions_call_apply_role_actions(self):
@@ -1041,11 +1058,12 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
         )
         # _end_chapter_board_membership called once per removed division (20, 30)
         self.assertEqual(self.service._end_chapter_board_membership.call_count, 2)
-        # Notify called once with the set of removed divisions
+        # Notify called once with the chapters those calls reported as vacated —
+        # not the requested division ids.
         self.service._notify_board_membership_change.assert_called_once()
         notify_args = self.service._notify_board_membership_change.call_args
         self.assertEqual(notify_args.args[0], "MEM-D2")
-        self.assertEqual(notify_args.args[1], {20, 30})
+        self.assertEqual(notify_args.args[1], ["Chapter-20", "Chapter-30"])
 
 
 class TestProcessMemberRoles(EnhancedTestCase):
@@ -1146,12 +1164,12 @@ class TestProcessMemberRoles(EnhancedTestCase):
     def test_division_removal_deadlock_reaches_the_transaction_owner(self):
         """A deadlock in the board removal must not be flattened into a message.
 
-        ``_handle_division_contact_change`` wraps ``_end_chapter_board_membership``
-        in a bare ``except Exception``, which catches QueryDeadlockError and turns
-        it into a "Failed to end board membership" string — making the
-        ``except NON_RESUMABLE_DB_ERRORS: raise`` clause below it unreachable for
-        the removal path, and letting the run march on inside a transaction the
-        server has already discarded.
+        ``_handle_division_contact_change`` used to wrap
+        ``_end_chapter_board_membership`` in a bare ``except Exception``, which caught
+        QueryDeadlockError and turned it into a "Failed to end board membership"
+        string — making ``_process_member_roles``' own
+        ``except NON_RESUMABLE_DB_ERRORS: raise`` unreachable for the removal path, and
+        letting the run march on inside a transaction the server had discarded.
 
         Mock justified: fault injection — a real MariaDB 1213 cannot be provoked
         deterministically from a single-connection test.
@@ -1823,5 +1841,493 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         frappe.db.commit()
 
     _cleanup_team = TestEnsureTeamMembership._cleanup_team
+    _cleanup_member_and_customer = TestEnsureTeamMembership._cleanup_member_and_customer
+    _cleanup_volunteer = TestEnsureTeamMembership._cleanup_volunteer
+
+
+class TestBoardRevocationClosesAccess(EnhancedTestCase):
+    """A division-contact revocation must close the board access it claims to close.
+
+    Same bar as ``TestRoleRevocationClosesAccess``: deleting the Chapter Board Member
+    row is bookkeeping. The access is the ``Verenigingen Chapter Board Member`` role
+    and the board-derived role profile that
+    ``BoardManager.handle_board_member_deletions()`` is supposed to recalculate — and
+    that recalculation cannot report failure. So every assertion here ends on the
+    User's effective role profile, read over the whole ``get_user_role_profiles()``
+    list rather than ``[0]`` (it is an unordered ``frappe.get_all``).
+
+    The second half is about the *notification*: telling administrators that access
+    was withdrawn has to be exactly as trustworthy as the withdrawal.
+    """
+
+    # PRIORITY_BOARD_DEFAULT (70) outranks the volunteer (30) / member (10) baseline,
+    # so the seat is a real escalation and its removal a real de-escalation.
+    BOARD_PROFILE = "Verenigingen Chapter Board Member"
+    # Same string, different object: the Frappe Role that ChapterBoardMember
+    # .assign_board_member_role() grants and .remove_board_member_role() is meant
+    # to take back.
+    BOARD_ROLE = "Verenigingen Chapter Board Member"
+    BASELINE_PROFILES = ("Verenigingen Member", "Verenigingen Volunteer")
+
+    # ── the access must actually close ─────────────────────────────────
+
+    def test_board_revocation_revokes_board_derived_role_profile(self):
+        """Baseline: the happy path really does de-escalate the user.
+
+        Asserted alongside the failure cases so none of them can pass vacuously —
+        if the fixture never granted the board profile, ``assertNotIn`` afterwards
+        would be satisfied by a revocation that did nothing at all.
+        """
+        chapter_name, division_id = self._create_board_chapter()
+        member_name, user_name, volunteer_name = self._create_contact_on_board(
+            "BoardOk", chapter_name
+        )
+
+        with self.production_validation():
+            msgs = get_volunteer_sync_service()._handle_division_contact_change(
+                member_name,
+                new_division_ids=[],
+                old_division_ids=[division_id],
+                role_config={},
+            )
+
+        self.assertTrue(any("Removed from chapter" in m for m in msgs), msgs)
+        self.assertFalse(
+            frappe.db.exists(
+                "Chapter Board Member",
+                {"parent": chapter_name, "volunteer": volunteer_name, "is_active": 1},
+            )
+        )
+        self._assertBoardAccessRevoked(user_name)
+
+    def test_failed_board_removal_raises_instead_of_reporting_success(self):
+        """A removal that cannot be persisted must not come back as a message.
+
+        ``bulk_remove_board_members()`` reports ``success: True`` even when
+        ``_save_chapter_with_board_changes()`` returned False — the failure is only
+        appended to ``result["errors"]``. So the seat survives, the profile survives,
+        and the caller is handed "Removed from chapter 'X' board" on an event
+        ``apply_event`` then marks Applied.
+
+        Failure is injected by breaking a real, required link on the Chapter (the
+        state a force-deleted Region leaves behind), so ``_validate_links()`` rejects
+        the save. No business logic is mocked.
+        """
+        chapter_name, division_id = self._create_board_chapter()
+        member_name, user_name, volunteer_name = self._create_contact_on_board(
+            "BoardFails", chapter_name
+        )
+        self._break_chapter_region(chapter_name)
+        # Exactly the two rows the rejected Chapter save writes. "MijnRood Sync -
+        # Chapter Board Removal Failed" is deliberately NOT expected: the sync service
+        # now raises on the structured failure instead of logging a third row on a
+        # transaction whose state it cannot vouch for.
+        self.expectErrorLog(
+            "Secure Operation Failed: update_child_table on Chapter",
+            "Board Manager Operation Failed",
+        )
+
+        with self.production_validation():
+            with self.assertRaises(frappe.ValidationError):
+                get_volunteer_sync_service()._handle_division_contact_change(
+                    member_name,
+                    new_division_ids=[],
+                    old_division_ids=[division_id],
+                    role_config={},
+                )
+
+        # And the access really is still open — which is why the caller must not be
+        # told the seat was vacated.
+        self.assertTrue(
+            frappe.db.exists(
+                "Chapter Board Member",
+                {"parent": chapter_name, "volunteer": volunteer_name, "is_active": 1},
+            )
+        )
+        self.assertIn(self.BOARD_PROFILE, self._role_profiles(user_name))
+
+    def test_board_revocation_raises_when_the_profile_recalculation_cannot_run(self):
+        """Deleting the row is not the revocation — the recalculation is.
+
+        Nothing between the Chapter save and the sync service can report that the
+        recalculation never happened: ``handle_board_member_deletions`` routes both
+        ``remove_board_member_role()`` and ``_sync_role_profile_for_volunteer()``
+        through ``_log_or_reraise`` (log and continue), and
+        ``auto_sync_on_role_change`` is explicitly fire-and-forget. A disabled User is
+        the real trigger — ``sync_user_role_profile`` refuses to touch one, because
+        syncing creates an Active Employee and ERPNext keeps Employee status and
+        ``User.enabled`` in lockstep. The row is deleted, "Removed from chapter" comes
+        back, the event is marked Applied — and the board profile is still attached.
+        """
+        chapter_name, division_id = self._create_board_chapter()
+        member_name, user_name, _volunteer_name = self._create_contact_on_board(
+            "BoardDisabled", chapter_name
+        )
+        frappe.db.set_value("User", user_name, "enabled", 0, update_modified=False)
+        frappe.db.commit()
+
+        with self.production_validation():
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                get_volunteer_sync_service()._handle_division_contact_change(
+                    member_name,
+                    new_division_ids=[],
+                    old_division_ids=[division_id],
+                    role_config={},
+                )
+
+        message = str(ctx.exception)
+        self.assertIn(self.BOARD_PROFILE, message)
+        self.assertIn(user_name, message)
+        self.assertIn(self.BOARD_PROFILE, self._role_profiles(user_name))
+
+    # ── the notification must be as trustworthy as the revocation ──────
+
+    def test_no_notification_when_the_division_never_resolved_to_a_chapter(self):
+        """Nothing was withdrawn, so nobody may be told anything was.
+
+        ``_notify_board_membership_change`` was called for the whole requested set
+        and re-resolved the ids itself, naming an unresolvable one as
+        ``"division {id}"`` — an administrator mail claiming board access was ended
+        somewhere that is not even a Chapter here.
+        """
+        member_name, _user_name = self._create_member_without_board()
+        unresolved = self._free_division_id()
+
+        with self._captured_notifications() as (realtime, notify):
+            msgs = get_volunteer_sync_service()._handle_division_contact_change(
+                member_name,
+                new_division_ids=[],
+                old_division_ids=[unresolved],
+                role_config={},
+            )
+
+        self.assertTrue(any("does not match any Chapter" in m for m in msgs), msgs)
+        self.assertEqual(self._board_events(realtime), [])
+        notify.assert_not_called()
+
+    def test_no_notification_when_the_removal_failed(self):
+        """Administrators must not be told access was withdrawn when it was not."""
+        chapter_name, division_id = self._create_board_chapter()
+        member_name, _user_name, _volunteer_name = self._create_contact_on_board(
+            "BoardNoNotify", chapter_name
+        )
+        self._break_chapter_region(chapter_name)
+        # Exactly the two rows the rejected Chapter save writes. "MijnRood Sync -
+        # Chapter Board Removal Failed" is deliberately NOT expected: the sync service
+        # now raises on the structured failure instead of logging a third row on a
+        # transaction whose state it cannot vouch for.
+        self.expectErrorLog(
+            "Secure Operation Failed: update_child_table on Chapter",
+            "Board Manager Operation Failed",
+        )
+
+        with self._captured_notifications() as (realtime, notify):
+            with self.production_validation():
+                with self.assertRaises(frappe.ValidationError):
+                    get_volunteer_sync_service()._handle_division_contact_change(
+                        member_name,
+                        new_division_ids=[],
+                        old_division_ids=[division_id],
+                        role_config={},
+                    )
+
+        self.assertEqual(self._board_events(realtime), [])
+        notify.assert_not_called()
+
+    def test_notification_names_only_the_chapters_actually_vacated(self):
+        """One real removal alongside one unresolvable id: only the real one is named."""
+        chapter_name, division_id = self._create_board_chapter()
+        member_name, _user_name, _volunteer_name = self._create_contact_on_board(
+            "BoardMixed", chapter_name
+        )
+        unresolved = self._free_division_id()
+
+        with self._captured_notifications() as (realtime, notify):
+            with self.production_validation():
+                get_volunteer_sync_service()._handle_division_contact_change(
+                    member_name,
+                    new_division_ids=[],
+                    old_division_ids=[division_id, unresolved],
+                    role_config={},
+                )
+
+        notify.assert_called_once()
+        body = notify.call_args.kwargs["message"]
+        self.assertIn(chapter_name, body)
+        self.assertNotIn(f"division {unresolved}", body)
+        events = self._board_events(realtime)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].args[1]["chapters"], [chapter_name])
+
+    # ── retained access reporting ──────────────────────────────────────
+
+    def test_division_contact_revocation_reports_the_access_it_does_not_withdraw(self):
+        """The board seat is not the only access ROLE_DIVISION_CONTACT granted.
+
+        ``_apply_role_actions`` also runs ``_ensure_volunteer`` for this config, which
+        grants ``verenigingen_role`` directly (``_ensure_user_role`` →
+        ``User.add_roles``) and hands ``role_profile`` to
+        ``create_volunteer_from_member``. The removal branch has no counterpart for
+        either, so a bare "Removed from chapter" on an event marked Applied is a false
+        safety claim — the same gap ``_handle_admin_role_change`` already reports.
+        """
+        probe_role = self._create_probe_role()
+        member_name, user_name = self._create_member_without_board(role_name=probe_role)
+        unresolved = self._free_division_id()
+        role_config = {
+            "ROLE_DIVISION_CONTACT": {
+                "create_volunteer": True,
+                "add_to_chapter_board": True,
+                "verenigingen_role": probe_role,
+            }
+        }
+
+        with self._captured_notifications():
+            msgs = get_volunteer_sync_service()._handle_division_contact_change(
+                member_name,
+                new_division_ids=[],
+                old_division_ids=[unresolved],
+                role_config=role_config,
+            )
+
+        self.assertIn(probe_role, frappe.get_roles(user_name))
+        retained_msgs = [m for m in msgs if "NOT withdrawn" in m]
+        self.assertTrue(retained_msgs, f"retained role never reported: {msgs}")
+        self.assertIn(probe_role, " ".join(retained_msgs))
+
+    def test_retained_access_is_not_reported_while_other_divisions_remain(self):
+        """Still a division contact somewhere — the config-granted access is theirs.
+
+        Reporting it would tell an operator to hand-revoke a role the member still
+        legitimately holds: over-revocation by human, the failure the deferral
+        rationale exists to avoid.
+        """
+        probe_role = self._create_probe_role()
+        member_name, user_name = self._create_member_without_board(role_name=probe_role)
+        removed = self._free_division_id()
+        kept = self._free_division_id()
+        role_config = {
+            "ROLE_DIVISION_CONTACT": {
+                "create_volunteer": True,
+                "add_to_chapter_board": True,
+                "verenigingen_role": probe_role,
+            }
+        }
+
+        with self._captured_notifications():
+            msgs = get_volunteer_sync_service()._handle_division_contact_change(
+                member_name,
+                new_division_ids=[kept],
+                old_division_ids=[removed, kept],
+                role_config=role_config,
+            )
+
+        self.assertIn(probe_role, frappe.get_roles(user_name))
+        self.assertFalse(
+            [m for m in msgs if "NOT withdrawn" in m],
+            f"told the operator to revoke access the member still holds: {msgs}",
+        )
+
+    # ── assertions ─────────────────────────────────────────────────────
+
+    def _assertBoardAccessRevoked(self, user_name):
+        """Both surfaces the seat conferred are gone and the user sits on a baseline."""
+        frappe.clear_cache(user=user_name)
+        profiles = self._role_profiles(user_name)
+        self.assertNotIn(self.BOARD_PROFILE, profiles, "board-derived profile was not withdrawn")
+        self.assertNotIn(
+            self.BOARD_ROLE, frappe.get_roles(user_name), "board Frappe role was not withdrawn"
+        )
+        self.assertTrue(
+            any(p in self.BASELINE_PROFILES for p in profiles),
+            f"no baseline profile left on the user: {profiles}",
+        )
+
+    @contextmanager
+    def _captured_notifications(self):
+        """Mock justified: infrastructure only — socket pub/sub and Notification Log
+        delivery. What is under test is *whether* they are reached, which is exactly
+        what these record."""
+        with patch("frappe.publish_realtime") as realtime, patch(
+            "verenigingen.utils.notification_helpers.notify_administrators"
+        ) as notify:
+            yield realtime, notify
+
+    def _board_events(self, realtime):
+        """Only this service's realtime event.
+
+        ``frappe.publish_realtime`` is the shared transport: every document the
+        Chapter/User saves touch emits doc_update/list_update through it, so a bare
+        ``assert_not_called`` on the patch would fail for reasons unrelated to the
+        board notification.
+        """
+        return [
+            call
+            for call in realtime.call_args_list
+            if call.args and call.args[0] == "board_membership_ended"
+        ]
+
+    # ── fixture + cleanup helpers ──────────────────────────────────────
+
+    def _free_division_id(self):
+        """A MijnRood division id no Chapter on this site claims."""
+        while True:
+            candidate = random.randint(8_000_000, 8_999_999)
+            if not frappe.db.exists("Chapter", {"mijnrood_division_id": candidate}):
+                return candidate
+
+    def _create_board_chapter(self):
+        """Chapter whose board seat grants BOARD_PROFILE, addressable by division id."""
+        division_id = self._free_division_id()
+        chapter = self.factory.create_chapter(
+            mijnrood_division_id=division_id,
+            default_board_role_profile=self.BOARD_PROFILE,
+        )
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        frappe.db.commit()
+        return chapter.name, division_id
+
+    def _create_chapter_role(self):
+        """A throwaway Chapter Role, so no shipped role's meaning is depended on.
+
+        ``permissions_level`` stays Basic: "treasurer"/"financial" role names are
+        routed to PRIORITY_SPECIAL_ACCOUNTING by the calculator, which would grant a
+        different profile than the one under test.
+        """
+        role_name = f"MijnRood Board Probe {frappe.generate_hash(length=6)}"
+        frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": "Basic",
+                "is_active": 1,
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_chapter_role, role_name)
+        return role_name
+
+    def _create_contact_on_board(self, label, chapter_name):
+        """Member + User + Volunteer seated on ``chapter_name``'s board, profile synced.
+
+        Returns (member_name, user_name, volunteer_name).
+        """
+        chapter_role = self._create_chapter_role()
+        member = self.factory.create_member(
+            first_name=label,
+            last_name="Board",
+            email=f"{label.lower()}-board-{frappe.generate_hash(length=6)}@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        user_doc = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": member.email,
+                "first_name": label,
+                "send_welcome_email": 0,
+                "enabled": 1,
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(self._cleanup_user, user_doc.name)
+        frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
+
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+
+        result = create_volunteer_from_member(member_name=member.name, create_user_account=False)
+        volunteer_name = result.get("volunteer_name") or result.get("volunteer")
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer_name,
+                "chapter_role": chapter_role,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Baseline: the seat must actually have granted the escalation, otherwise
+        # every assertNotIn below would pass vacuously.
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        sync_user_role_profile(user_doc.name)
+        frappe.db.commit()
+        self.assertIn(
+            self.BOARD_PROFILE,
+            self._role_profiles(user_doc.name),
+            "fixture is not exercising the escalation path",
+        )
+        return member.name, user_doc.name, volunteer_name
+
+    def _create_member_without_board(self, role_name=None):
+        """Member + User with no volunteer and no board seat. Returns (member, user)."""
+        member = self.factory.create_member(
+            first_name="NoBoard",
+            last_name="Contact",
+            email=f"no-board-contact-{frappe.generate_hash(length=6)}@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        user_doc = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": member.email,
+                "first_name": "NoBoard",
+                "send_welcome_email": 0,
+                "enabled": 1,
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(self._cleanup_user, user_doc.name)
+        frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
+
+        if role_name:
+            user_doc.add_roles(role_name)
+            frappe.db.commit()
+            self.assertIn(role_name, frappe.get_roles(user_doc.name))
+
+        return member.name, user_doc.name
+
+    def _break_chapter_region(self, chapter_name):
+        """Point the Chapter's required ``region`` Link at a Region that is gone.
+
+        Built the way production reaches it — a real, really dangling link — so
+        ``_validate_links()`` rejects the parent save exactly as it would there.
+        Nothing is mocked.
+        """
+        frappe.db.set_value(
+            "Chapter", chapter_name, "region", "Region-Deleted-XYZ-999", update_modified=False
+        )
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("Region", "Region-Deleted-XYZ-999"))
+
+    def _cleanup_chapter_role(self, role_name):
+        try:
+            if frappe.db.exists("Chapter Role", role_name):
+                frappe.delete_doc("Chapter Role", role_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def _cleanup_chapter(self, chapter_name):
+        try:
+            if frappe.db.exists("Chapter", chapter_name):
+                frappe.delete_doc("Chapter", chapter_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    _role_profiles = TestRoleRevocationClosesAccess._role_profiles
+    _create_probe_role = TestRoleRevocationClosesAccess._create_probe_role
+    _cleanup_role = TestRoleRevocationClosesAccess._cleanup_role
+    _cleanup_user = TestRoleRevocationClosesAccess._cleanup_user
     _cleanup_member_and_customer = TestEnsureTeamMembership._cleanup_member_and_customer
     _cleanup_volunteer = TestEnsureTeamMembership._cleanup_volunteer

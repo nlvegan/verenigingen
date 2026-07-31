@@ -35,6 +35,7 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
 from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
     get_related_records_orchestrator,
 )
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.service_logger import get_service_logger
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
@@ -318,12 +319,11 @@ class MijnRoodVolunteerSyncService:
         member_name: str,
         division_id: int,
         event=None,
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], Optional[str]]:
         """Remove a member's active chapter board membership when their division contact role is revoked.
 
         Uses BoardManager.bulk_remove_board_members() which deletes the child table
         row entirely (volunteer assignment history is preserved on the Volunteer record).
-        The save triggers BoardManager.handle_board_member_changes() for role cleanup.
 
         Args:
             member_name: Vereinigingen Member name
@@ -331,11 +331,25 @@ class MijnRoodVolunteerSyncService:
             event: Sync event for logging context
 
         Returns:
-            Human-readable status message, or None if not on the board.
+            ``(vacated_chapter, message)``. ``vacated_chapter`` is the Chapter whose
+            seat was removed *and verified withdrawn*, or None when there was nothing
+            to remove. It is the only trustworthy input to
+            _notify_board_membership_change: a message alone is also produced for a
+            division that resolves to no Chapter at all, and notifying on that told
+            administrators access was ended in "division {id}".
+
+        Raises:
+            frappe.ValidationError when the removal cannot be persisted, and when the
+            recalculation that follows it did not withdraw the access (see
+            _assert_board_access_withdrawn) — plus anything the Chapter save raises.
+            This is a privilege *revocation*: every caller between here and
+            MijnRoodEventApplicationService.apply_event passes messages through as
+            success, so a status string here marks the event Applied with the seat,
+            the Frappe role and the role profile all still in place.
         """
         chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
-            return _("Division ID {0} does not match any Chapter").format(division_id)
+            return None, _("Division ID {0} does not match any Chapter").format(division_id)
 
         from verenigingen.verenigingen.doctype.volunteer.volunteer import (
             get_volunteer_for_member,
@@ -343,7 +357,7 @@ class MijnRoodVolunteerSyncService:
 
         volunteer_name = get_volunteer_for_member(member_name)
         if not volunteer_name:
-            return None  # No volunteer record — nothing to remove
+            return None, None  # No volunteer record — nothing to remove
 
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
@@ -353,47 +367,34 @@ class MijnRoodVolunteerSyncService:
         ]
 
         if not target_rows:
-            return None  # Not on this chapter's board
+            return None, None  # Not on this chapter's board
+
+        reason = "MijnRood sync — division contact revoked (event {0})".format(event.name if event else "N/A")
+        removal_data = [
+            {
+                "volunteer": bm.volunteer,
+                "chapter_role": bm.chapter_role,
+                "from_date": str(bm.from_date),
+                "end_date": str(today()),
+                "reason": reason,
+            }
+            for bm in target_rows
+        ]
+        target_roles = [bm.chapter_role for bm in target_rows]
 
         try:
-            reason = "MijnRood sync — division contact revoked (event {0})".format(
-                event.name if event else "N/A"
-            )
-            removal_data = [
-                {
-                    "volunteer": bm.volunteer,
-                    "chapter_role": bm.chapter_role,
-                    "from_date": str(bm.from_date),
-                    "end_date": str(today()),
-                    "reason": reason,
-                }
-                for bm in target_rows
-            ]
-
             result = (
                 chapter_doc.board_manager.bulk_remove_board_members(  # ast-skip: dynamic manager property
                     removal_data
                 )
             )
-
-            if result.get("success"):
-                self.logger.info(
-                    "Removed board membership for volunteer %s in chapter %s (member %s, event %s)",
-                    volunteer_name,
-                    chapter_name,
-                    member_name,
-                    event.name if event else "N/A",
-                )
-                return _("Removed from chapter '{0}' board").format(chapter_name)
-            else:
-                error_msg = result.get("error") or "; ".join(result.get("errors", []))
-                self.logger.error(
-                    "BoardManager.bulk_remove_board_members failed for %s in %s: %s",
-                    volunteer_name,
-                    chapter_name,
-                    error_msg,
-                )
-                return _("Chapter board removal failed: {0}").format(str(error_msg)[:200])
+        except NON_RESUMABLE_DB_ERRORS:
+            # The transaction is already discarded, so the log_error() below would be
+            # a write on it and every later statement in this sync run would be issued
+            # against state the server threw away. Let it reach the transaction owner
+            # (same clause and reasoning as _ensure_chapter_board_membership, which
+            # was the only path in this file that had one).
+            raise
         except Exception as e:
             self.logger.error(
                 "Failed to remove board membership for %s in chapter %s: %s",
@@ -405,12 +406,193 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Chapter Board Removal Failed: {member_name}",
             )
-            return _("Chapter board removal failed: {0}").format(str(e)[:200])
+            raise
+
+        self._raise_on_failed_board_removal(result, member_name, chapter_name)
+        self._assert_board_access_withdrawn(member_name, chapter_name, target_roles)
+
+        self.logger.info(
+            "Removed board membership for volunteer %s in chapter %s (member %s, event %s)",
+            volunteer_name,
+            chapter_name,
+            member_name,
+            event.name if event else "N/A",
+        )
+        return chapter_name, _("Removed from chapter '{0}' board").format(chapter_name)
+
+    def _raise_on_failed_board_removal(self, result: dict, member_name: str, chapter_name: str) -> None:
+        """Raise unless bulk_remove_board_members really persisted the removal.
+
+        ``success`` alone does not mean it did. bulk_remove_board_members() returns
+        ``{"success": True, "errors": [...]}`` when ``_save_chapter_with_board_changes()``
+        returned False — the Chapter save failure is only *appended* to ``errors``, so
+        the seat is untouched while the caller is told it was vacated. A per-row
+        mismatch lands in the same list. Both are the same outcome and both must raise.
+
+        No frappe.log_error() here on purpose. _save_chapter_with_board_changes() has
+        already written one, and if the underlying failure was a lost deadlock (which
+        secure_document_operation flattens into success=False) that write already went
+        to a transaction the server discarded; adding a second is not free of that
+        problem either.
+        """
+        errors = [str(e) for e in (result.get("errors") or [])]
+        if not result.get("success"):
+            errors.append(str(result.get("error") or _("unknown error")))
+        if not errors:
+            return
+
+        detail = "; ".join(errors)
+        self.logger.error(
+            "BoardManager.bulk_remove_board_members did not remove %s from chapter %s: %s",
+            member_name,
+            chapter_name,
+            detail,
+        )
+        raise frappe.ValidationError(
+            _("Chapter '{0}' board removal for {1} failed: {2}").format(
+                chapter_name, member_name, detail[:400]
+            )
+        )
+
+    def _assert_board_access_withdrawn(
+        self,
+        member_name: str,
+        chapter_name: str,
+        chapter_roles: list,
+    ) -> None:
+        """Raise unless the access the seat conferred is really off the user.
+
+        Deleting the Chapter Board Member row is bookkeeping. The access is the
+        ``Verenigingen Chapter Board Member`` role and the board-derived role profile,
+        and what withdraws them is BoardManager.handle_board_member_deletions() — which
+        cannot report failure, and in the ordinary case does not even succeed:
+
+        - It runs from ``Chapter.validate()`` (via _handle_document_changes), i.e.
+          *before* the child rows are written. get_board_member_profiles() reads
+          ``Chapter Board Member`` from the database, so it still sees the seat as
+          active, calculate_user_role_profile() still returns the board profile and
+          sync_user_role_profile() reports ``changed: False``. The *additions* path was
+          given a deferred flush from ``on_update`` for exactly this reason
+          (flush_pending_board_profile_syncs); the deletions path never was.
+        - Both ``remove_board_member_role()`` and ``_sync_role_profile_for_volunteer()``
+          go through BoardManager._log_or_reraise, which logs and continues for
+          everything that is not a broken transaction.
+        - ``auto_sync_on_role_change`` is explicitly fire-and-forget: it logs and
+          returns, and turns a non-exception failure (``success: False``) into a
+          logged warning.
+
+        So re-running sync_user_role_profile() here is not a belt-and-braces retry —
+        after the save it is the first recalculation that can see the seat is gone, and
+        this frame is the only one where its result is observable. Only when it refuses
+        to run (a disabled User, a calculate_user_role_profile() returning None, a
+        TimestampMismatchError on User.save()) *and* the access is still held is this a
+        failed revocation; access that survives a successful recalculation is granted by
+        something else — another board seat, a team, an administrator profile — and was
+        never this seat's to withdraw.
+        """
+        user = frappe.db.get_value("Member", member_name, "user")
+        if not user:
+            return  # No account — no access to withdraw.
+
+        if not self._outstanding_board_access(user, member_name, chapter_name, chapter_roles):
+            return
+
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+
+        result = sync_user_role_profile(user) or {}
+        outstanding = self._outstanding_board_access(user, member_name, chapter_name, chapter_roles)
+        if not outstanding:
+            return
+
+        if result.get("success") and not result.get("skipped"):
+            self.logger.info(
+                "Board access %s survives the chapter %s revocation for %s — granted elsewhere",
+                ", ".join(outstanding),
+                chapter_name,
+                user,
+            )
+            return
+
+        reason = result.get("skipped") or result.get("error") or _("unknown")
+        self.logger.error(
+            "Chapter %s board revocation did not withdraw %s from %s (member %s): %s",
+            chapter_name,
+            ", ".join(outstanding),
+            user,
+            member_name,
+            reason,
+        )
+        raise frappe.ValidationError(
+            _(
+                "Chapter '{0}' board membership ended but {1} is still attached to {2} "
+                "({3}) — the access was not withdrawn."
+            ).format(chapter_name, ", ".join(outstanding), user, reason)
+        )
+
+    def _outstanding_board_access(
+        self,
+        user: str,
+        member_name: str,
+        chapter_name: str,
+        chapter_roles: list,
+    ) -> list[str]:
+        """Name the board access the user is still observed to hold, if any."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+            is_active_board_member,
+        )
+
+        # frappe.get_roles() memoises per user; the Chapter save rewrote User.roles.
+        frappe.clear_cache(user=user)
+
+        outstanding = []
+        profile = self._board_seat_profile(chapter_name, chapter_roles)
+        if profile and profile in get_user_role_profiles(user):
+            outstanding.append(_("role profile '{0}'").format(profile))
+
+        # Only a leak once there is no seat left to justify it — a member sitting on
+        # another chapter's board holds the role legitimately.
+        if Roles.CHAPTER_BOARD_MEMBER in frappe.get_roles(user) and not is_active_board_member(
+            user, member_name
+        ):
+            outstanding.append(_("role '{0}'").format(Roles.CHAPTER_BOARD_MEMBER))
+
+        return outstanding
+
+    def _board_seat_profile(self, chapter_name: str, chapter_roles: list) -> Optional[str]:
+        """The role profile the removed seat conferred.
+
+        Resolved from the same cached config get_board_member_profiles() reads, rather
+        than re-deriving it, so this cannot claim a different profile than the one that
+        actually granted the access — including when both are looking at a config the
+        5-minute cache has not refreshed yet.
+        """
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            PROFILE_BOARD_MEMBER,
+            _get_cached_chapter_profile_config,
+        )
+
+        config = _get_cached_chapter_profile_config(chapter_name)
+        if config.get("enable_specific"):
+            for chapter_role in chapter_roles:
+                specific = (config.get("specific_profiles") or {}).get(chapter_role)
+                if specific and frappe.db.exists("Role Profile", specific):
+                    return specific
+
+        default_profile = config.get("default_profile")
+        if default_profile and frappe.db.exists("Role Profile", default_profile):
+            return default_profile
+
+        if frappe.db.exists("Role Profile", PROFILE_BOARD_MEMBER):
+            return PROFILE_BOARD_MEMBER
+        return None
 
     def _notify_board_membership_change(
         self,
         member_name: str,
-        removed_division_ids: set,
+        vacated_chapters: list,
         event=None,
     ) -> None:
         """Send a notification when board memberships are ended via sync.
@@ -418,11 +600,13 @@ class MijnRoodVolunteerSyncService:
         Creates both a transient realtime message and a persistent Notification Log
         entry (via the notification configuration system) so the change is visible
         in the bell icon.
+
+        Takes the Chapters actually vacated, not the division IDs the sync was asked
+        to revoke. Re-resolving the requested set here meant administrators were told
+        access had been withdrawn in chapters where the removal failed, and an id that
+        matched no Chapter at all was announced as "division {id}".
         """
-        chapter_names = []
-        for div_id in sorted(removed_division_ids):
-            ch = get_mapping_service().resolve_division_id(div_id)
-            chapter_names.append(ch or f"division {div_id}")
+        chapter_names = list(vacated_chapters)
 
         subject = _("Board membership ended for {0}").format(member_name)
         message = _("MijnRood sync ended board membership for {0} in: {1}").format(
@@ -814,22 +998,38 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
 
-            retained = self._retained_access_messages(member_name, config)
-            if retained:
-                retained_text = ", ".join(retained)
-                warning = _("NOT withdrawn by sync, revoke manually: {0}").format(retained_text)
-                self.logger.warning(
-                    "ROLE_ADMIN revocation for member %s does NOT withdraw %s (event %s)",
-                    member_name,
-                    retained_text,
-                    event.name if event else "N/A",
-                )
-                messages.append(warning)
-                if event is not None:
-                    # Carried to apply_event, which persists it on the event row.
-                    event.flags.setdefault(RETAINED_ACCESS_FLAG, []).append(warning)
+            self._append_retained_access_warning(
+                member_name, config, event, messages, "ROLE_ADMIN revocation"
+            )
 
         return messages
+
+    def _append_retained_access_warning(
+        self,
+        member_name: str,
+        config: dict,
+        event,
+        messages: list,
+        context: str,
+    ) -> None:
+        """Append 'revoke manually' text for configured access the user still holds."""
+        retained = self._retained_access_messages(member_name, config)
+        if not retained:
+            return
+
+        retained_text = ", ".join(retained)
+        warning = _("NOT withdrawn by sync, revoke manually: {0}").format(retained_text)
+        self.logger.warning(
+            "%s for member %s does NOT withdraw %s (event %s)",
+            context,
+            member_name,
+            retained_text,
+            event.name if event else "N/A",
+        )
+        messages.append(warning)
+        if event is not None:
+            # Carried to apply_event, which persists it on the event row.
+            event.flags.setdefault(RETAINED_ACCESS_FLAG, []).append(warning)
 
     def _retained_access_messages(self, member_name: str, config: dict) -> list[str]:
         """Name only the configured access the user is *observed* to still hold.
@@ -871,7 +1071,24 @@ class MijnRoodVolunteerSyncService:
         role_config: dict,
         event=None,
     ) -> list[str]:
-        """Handle ROLE_DIVISION_CONTACT addition or removal."""
+        """Handle ROLE_DIVISION_CONTACT addition or removal.
+
+        The removal branch no longer catches. It used to wrap
+        _end_chapter_board_membership in a bare ``except Exception`` that appended
+        "Failed to end board membership for division {0}" to the message list —
+        which apply_event joins into a hardcoded ``{"success": True}`` and marks the
+        event Applied, leaving the seat, the Frappe role and the role profile exactly
+        where they were. _process_member_roles collects handler failures into one
+        aggregate, so letting this propagate reports the failure *and* still attempts
+        the ROLE_ADMIN handler, which withdraws different access.
+
+        Revocation here is partial by design, the same way ROLE_ADMIN's is: the board
+        seat is the only access this branch withdraws, while the addition path also
+        grants ``verenigingen_role`` and ``role_profile`` through _ensure_volunteer.
+        That residue is reported once the member is no longer a division contact
+        anywhere — while they still hold a division it is legitimately theirs, and
+        naming it would invite an operator to over-revoke.
+        """
         messages = []
 
         if new_division_ids and "ROLE_DIVISION_CONTACT" in role_config:
@@ -885,33 +1102,28 @@ class MijnRoodVolunteerSyncService:
         removed_divs = old_set - new_set
 
         if removed_divs:
+            vacated_chapters = []
             for div_id in sorted(removed_divs):
-                try:
-                    result = self._end_chapter_board_membership(member_name, div_id, event=event)
-                    if result:
-                        messages.append(result)
-                except NON_RESUMABLE_DB_ERRORS:
-                    # Without this the bare except below flattens a deadlock into a
-                    # status string, the loop marches on issuing statements on a
-                    # transaction the server has already discarded, and
-                    # _notify_board_membership_change mails administrators that
-                    # board access was withdrawn when it was not. It also makes
-                    # _process_member_roles' own NON_RESUMABLE clause unreachable
-                    # for this path.
-                    raise
-                except Exception as e:
-                    self.logger.error(
-                        "Failed to end board membership for member %s, division %s: %s",
-                        member_name,
-                        div_id,
-                        e,
-                    )
-                    messages.append(
-                        _("Failed to end board membership for division {0}: {1}").format(div_id, str(e)[:200])
-                    )
+                chapter_name, message = self._end_chapter_board_membership(member_name, div_id, event=event)
+                if message:
+                    messages.append(message)
+                if chapter_name:
+                    vacated_chapters.append(chapter_name)
 
-            # Notify the session user about board membership changes
-            self._notify_board_membership_change(member_name, removed_divs, event)
+            # Only for seats actually vacated. Notifying on the requested set told
+            # administrators access was withdrawn where the removal failed, and
+            # announced an unresolvable id as "division {id}".
+            if vacated_chapters:
+                self._notify_board_membership_change(member_name, vacated_chapters, event)
+
+            if not new_set:
+                self._append_retained_access_warning(
+                    member_name,
+                    role_config.get("ROLE_DIVISION_CONTACT", {}),
+                    event,
+                    messages,
+                    "ROLE_DIVISION_CONTACT revocation",
+                )
 
         return messages
 
