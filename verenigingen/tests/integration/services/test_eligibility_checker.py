@@ -12,9 +12,85 @@ import unittest
 from datetime import date
 
 import frappe
+from frappe.utils import add_days, getdate, today
 
+from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 from verenigingen.services.billing.eligibility_checker import EligibilityChecker, EligibilityResult
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestCutoffIsCappedAtOnePeriodAhead(EnhancedTestCase):
+    """
+    The cutoff comparison is now the ONLY thing deciding when to generate, so it has to
+    hold on its own when billing_cutoff_frequency is coarser than a member's billing
+    frequency.
+
+    billing_cutoff_frequency is a single global setting. Set to Quarterly, it asks for a
+    Monthly member to be covered through quarter end - three periods - and because the
+    bulk generator emits one invoice per schedule per run, that came out as one extra
+    invoice per run rather than three at once. Capping the cutoff at one period ahead of
+    today bounds it without changing anything when the cutoff is at or finer than the
+    member's own frequency.
+
+    cutoff_date is passed explicitly rather than read from settings, so these tests do
+    not depend on today's position in the quarter.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="Timing Anchor Type", amount=10.0, contribution_mode="Fixed Amount"
+        )
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="TimingAnchor",
+            last_name="Member",
+            membership_type_name=self.membership_type.name,
+            start_date=today(),
+        )
+        self.schedule.billing_frequency = "Monthly"
+        self.schedule.save()
+        frappe.db.commit()
+        self.member.reload()
+
+    def _seed_coverage(self, coverage_start, coverage_end):
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=coverage_start, coverage_end=coverage_end, member_doc=self.member
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        # get_latest_coverage_end_date only sees SUBMITTED invoices, so a draft would
+        # make these tests vacuous in both directions.
+        self.assertEqual(frappe.db.get_value("Sales Invoice", result.data.name, "docstatus"), 1)
+        frappe.db.commit()
+
+    def test_coarse_cutoff_does_not_bill_a_member_already_covered_a_period_ahead(self):
+        """A Monthly member covered 45 days out must not be generated again."""
+        self._seed_coverage(add_days(getdate(today()), -15), add_days(getdate(today()), 45))
+
+        calculator = CoverageCalculator(self.schedule)
+
+        self.assertFalse(
+            calculator.should_generate_invoice_for_cutoff(add_days(getdate(today()), 120)),
+            "a coarse cutoff billed a member whose coverage already runs a period ahead",
+        )
+
+    def test_coarse_cutoff_still_bills_a_member_whose_coverage_is_about_to_lapse(self):
+        """The cap must not stop legitimate generation, or billing halts entirely."""
+        self._seed_coverage(add_days(getdate(today()), -28), add_days(getdate(today()), 2))
+
+        calculator = CoverageCalculator(self.schedule)
+
+        self.assertTrue(
+            calculator.should_generate_invoice_for_cutoff(add_days(getdate(today()), 120)),
+            "member about to lapse was not billed",
+        )
+
+    def test_member_with_no_coverage_is_always_billed(self):
+        """A member with no invoices needs one regardless of the cap."""
+        calculator = CoverageCalculator(self.schedule)
+
+        self.assertTrue(calculator.should_generate_invoice_for_cutoff(add_days(getdate(today()), 120)))
 
 
 class TestEligibilityChecker(EnhancedTestCase):
@@ -364,76 +440,12 @@ class TestEligibilityChecker(EnhancedTestCase):
     # No additional integration tests needed here.
 
     # ========== Schedule Timing Tests ==========
-
-    def test_too_early_to_generate_blocked(self):
-        """Test that generation is blocked if too early based on invoice_days_before"""
-        # Arrange - create invoice with recent coverage
-        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
-        from frappe.utils import add_days, today, getdate
-
-        # Create coverage that ends soon but not within invoice_days_before window
-        today_date = getdate(today())
-        coverage_end = add_days(today_date, 45)  # 45 days from now
-
-        generator = InvoiceGenerator(self.schedule)
-        result = generator.generate_invoice(
-            coverage_start=today_date,
-            coverage_end=coverage_end,
-            member_doc=self.member
-        )
-        self.assertTrue(result.success)
-        frappe.db.commit()
-
-        # Set next_invoice_date to future date
-        self.schedule.next_invoice_date = add_days(coverage_end, 1)
-        self.schedule.invoice_days_before = 30  # Generate 30 days before
-        self.schedule.save()
-        frappe.db.commit()
-
-        checker = EligibilityChecker(self.schedule)
-
-        # Act
-        timing_result = checker.check_eligibility(self.member)
-
-        # Assert - should be blocked as too early
-        self.assertFalse(timing_result.can_generate)
-        self.assertEqual(timing_result.category, "timing")
-        self.assertIn("too early", timing_result.reason.lower())
-        self.assertIsNotNone(timing_result.metadata.get("generate_on_date"))
-
-    def test_within_generation_window_allowed(self):
-        """Test that generation is allowed within invoice_days_before window"""
-        # Arrange - create invoice with coverage ending soon
-        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
-        from frappe.utils import add_days, today, getdate
-
-        # Create coverage that ends within invoice_days_before window
-        today_date = getdate(today())
-        coverage_end = add_days(today_date, 20)  # 20 days from now
-
-        generator = InvoiceGenerator(self.schedule)
-        result = generator.generate_invoice(
-            coverage_start=today_date,
-            coverage_end=coverage_end,
-            member_doc=self.member
-        )
-        self.assertTrue(result.success)
-        frappe.db.commit()
-
-        # Set next_invoice_date and invoice_days_before
-        self.schedule.next_invoice_date = add_days(coverage_end, 1)
-        self.schedule.invoice_days_before = 30  # Generate 30 days before
-        self.schedule.save()
-        frappe.db.commit()
-
-        checker = EligibilityChecker(self.schedule)
-
-        # Act
-        timing_result = checker.check_eligibility(self.member)
-
-        # Assert - should pass timing check (might fail duplicate check, but not timing)
-        if not timing_result.can_generate:
-            self.assertNotEqual(timing_result.category, "timing")
+    #
+    # Removed with check_schedule_timing(): test_too_early_to_generate_blocked and
+    # test_within_generation_window_allowed. Both pinned the invoice_days_before guard,
+    # which no longer exists - eligibility no longer decides WHEN to generate. The
+    # replacement coverage is TestCutoffIsCappedAtOnePeriodAhead above, which asserts
+    # the cutoff comparison bounds generation on its own.
 
     # ========== Concurrency Tests ==========
 

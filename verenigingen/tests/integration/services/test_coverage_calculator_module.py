@@ -420,13 +420,85 @@ class TestCoverageForPaymentDateFollowsTheMembersOwnPeriods(EnhancedTestCase):
         return result.data.name
 
     def test_payment_inside_an_off_calendar_period_resolves_to_that_period(self):
-        """The returned period must be the invoice's own, not the calendar month."""
-        self._make_first_invoice()
+        """
+        The returned period must be the invoice's own, not the calendar month.
+
+        The seeded period deliberately ends on the 10th rather than a natural monthly
+        boundary. With a sequential end date this test would also pass by rolling from
+        the membership start, so it would not actually pin the invoice lookup it names.
+        """
+        irregular_end = date(2025, 7, 10)
+        self._make_invoice(self.JOIN_DATE, irregular_end)
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
+
+        self.assertEqual(getdate(start), self.JOIN_DATE)
+        self.assertEqual(getdate(end), irregular_end)
+
+    def _make_invoice(self, coverage_start, coverage_end, submit=True):
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=coverage_start, coverage_end=coverage_end, member_doc=self.member
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        if not submit:
+            frappe.db.set_value("Sales Invoice", result.data.name, "docstatus", 0)
+        frappe.db.commit()
+        return result.data.name
+
+    def test_payment_inside_a_coverage_gap_resolves_to_the_members_own_period(self):
+        """
+        A payment landing in a GAP between two invoiced periods must still resolve to
+        the member's own boundary, not the calendar.
+
+        This is the case that made the previous implementation's third preference
+        unreachable: anchoring on the LATEST coverage end returned None whenever any
+        later invoice existed, and the calendar fallback then handed the Mollie
+        orchestrator a calendar-aligned period which it would CREATE an invoice for -
+        permanently corrupting an off-calendar member's sequence. Gaps are an expected
+        state here, not a hypothetical: the codebase carries _detect_coverage_gaps and
+        GAP_RESET_THRESHOLD_DAYS specifically for them.
+        """
+        self._make_invoice(self.JOIN_DATE, self.FIRST_PERIOD_END)
+        self._make_invoice(date(2025, 10, 3), date(2025, 11, 2))
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, date(2025, 8, 15))
+
+        self.assertEqual(getdate(start), date(2025, 8, 3))
+        self.assertEqual(getdate(end), date(2025, 9, 2))
+
+    def test_draft_invoice_coverage_is_honoured_like_the_overlap_detectors_do(self):
+        """
+        The resolver must see drafts, because every consumer's overlap check does
+        (coverage_overlap_detector matches docstatus < 2).
+
+        If the resolver ignored drafts it would derive a period from elsewhere, the
+        overlap check would then report the draft as an EXACT match, and because a
+        draft's outstanding_amount is 0 the Mollie callers take their "already paid -
+        create a new invoice" branch and duplicate the period. Drafts are reachable in
+        production: invoice_generator keeps the invoice unsubmitted when
+        auto_submit_membership_invoices is off, or when submission fails.
+        """
+        self._make_invoice(self.JOIN_DATE, self.FIRST_PERIOD_END, submit=False)
 
         start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
 
         self.assertEqual(getdate(start), self.JOIN_DATE)
         self.assertEqual(getdate(end), self.FIRST_PERIOD_END)
+
+    def test_payment_predating_all_coverage_falls_back_to_the_calendar(self):
+        """
+        A payment before the member's first invoiced period has no position in the
+        sequence, so it must fall back rather than have one invented from the
+        membership start date.
+        """
+        self._make_invoice(self.JOIN_DATE, self.FIRST_PERIOD_END)
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, date(2025, 4, 20))
+
+        self.assertEqual(getdate(start), date(2025, 4, 1))
+        self.assertEqual(getdate(end), date(2025, 4, 30))
 
     def test_off_calendar_invoice_is_found_for_a_payment_inside_its_coverage(self):
         """

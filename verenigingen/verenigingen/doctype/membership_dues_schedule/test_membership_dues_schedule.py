@@ -113,6 +113,10 @@ class TestMonthlyDuplicateProbe(EnhancedTestCase):
             coverage_start=first_start, coverage_end=first_end, member_doc=member
         )
         self.assertTrue(result.success, getattr(result, "error_message", None))
+        # DuplicateInvoiceDetector only considers SUBMITTED invoices, so a draft would
+        # make this test pass under both implementations. result.success does not imply
+        # submitted - generate_invoice returns ok for drafts too.
+        self.assertEqual(frappe.db.get_value("Sales Invoice", result.data.name, "docstatus"), 1)
         frappe.db.commit()
 
         # Precondition: the first period really does straddle the calendar

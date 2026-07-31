@@ -221,18 +221,27 @@ class CoverageCalculator(StatelessService):
         """
         Determine if invoice generation is needed to cover through cutoff_date.
 
-        The logic is simple and based solely on actual invoice coverage:
+        The logic is based solely on actual invoice coverage:
         - Query the latest coverage_end_date from submitted Sales Invoices
-        - If coverage exists and extends to/past cutoff_date: no invoice needed
-        - If coverage exists but ends before cutoff_date: invoice needed
+        - If coverage exists and extends to/past the effective cutoff: no invoice needed
+        - If coverage exists but ends before it: invoice needed
         - If NO coverage exists (0 invoices): invoice needed (0% of period is covered)
+
+        The cutoff is capped at one billing period ahead of today. billing_cutoff_frequency
+        is a single global setting, so it can be coarser than an individual member's
+        billing frequency - a Quarterly cutoff asks for a Monthly member to be covered
+        through quarter end, i.e. three periods. Since the generator emits one invoice per
+        schedule per run, that produced one extra invoice per run until coverage caught up,
+        rather than either three at once or one per month. Capping keeps a coarser cutoff
+        from over-billing short-frequency members, and is inert whenever the cutoff is at
+        or finer than the member's own frequency (the normal configuration).
 
         Args:
             cutoff_date: Target date that should be covered by invoices (e.g., end of Q4)
             latest_coverage_end: Latest coverage end (if already known, avoids re-query)
 
         Returns:
-            bool: True if invoice generation is needed to cover through cutoff_date
+            bool: True if invoice generation is needed to cover through the effective cutoff
         """
         cutoff_date = getdate(cutoff_date)
 
@@ -242,11 +251,25 @@ class CoverageCalculator(StatelessService):
 
         # If we have coverage, check if it extends to cutoff
         if latest_coverage_end is not None:
-            # Invoice needed if coverage ends before cutoff date
-            return latest_coverage_end < cutoff_date
+            effective_cutoff = min(cutoff_date, self._one_period_ahead_of_today())
+            # Invoice needed if coverage ends before the effective cutoff date
+            return getdate(latest_coverage_end) < effective_cutoff
 
         # No coverage exists (0 invoices) - member ALWAYS needs an invoice
         return True
+
+    def _one_period_ahead_of_today(self) -> date:
+        """
+        The furthest coverage end this schedule may hold before further generation stops.
+
+        Uses the same period arithmetic as the coverage sequence itself, so the cap can
+        never disagree with the periods being generated.
+        """
+        if not self.billing_frequency:
+            # Utility mode with no schedule - impose no cap.
+            return date.max
+
+        return self._calculate_coverage_end(getdate(today()))
 
     # ========== Data Access Methods ==========
 
@@ -517,10 +540,15 @@ def calculate_coverage_for_payment_date(
     This is the generalized, billing-frequency-aware replacement for the
     hardcoded quarterly logic in DuesPaymentProcessor.
 
-    The function uses priority hierarchy:
+    The billing FREQUENCY is resolved by priority hierarchy:
     1. Member's current_dues_schedule link field (if set and schedule is Active)
     2. Fallback query for any non-cancelled schedule for this member
     3. Ultimate fallback: billing_cutoff_frequency from Verenigingen Settings
+
+    The PERIOD is then taken from the member's own coverage sequence, not the calendar
+    - see _coverage_period_from_member_sequence. Coverage runs from the member's join
+    date, so the calendar period is only the right answer for a member who happens to
+    be calendar-aligned, or one with no sequence to anchor to.
 
     Args:
         member_name: Member document name
@@ -530,11 +558,13 @@ def calculate_coverage_for_payment_date(
         tuple: (coverage_start, coverage_end) as date objects
 
     Example:
-        # Monthly billing member pays on 2024-05-15
+        # Monthly member who joined on the 3rd, paying 2024-05-15: the period is the
+        # member's own, NOT the calendar month.
         >>> calculate_coverage_for_payment_date("MEM-001", date(2024, 5, 15))
-        (date(2024, 5, 1), date(2024, 5, 31))
+        (date(2024, 5, 3), date(2024, 6, 2))
 
-        # Quarterly billing member pays on 2024-05-15
+        # A member with no invoices and no membership on record falls back to the
+        # calendar period for their frequency.
         >>> calculate_coverage_for_payment_date("MEM-002", date(2024, 5, 15))
         (date(2024, 4, 1), date(2024, 6, 30))
     """
@@ -588,7 +618,10 @@ def calculate_coverage_for_payment_date(
     # Priority 3: Ultimate fallback to settings
     if not billing_frequency:
         settings = frappe.get_single("Verenigingen Settings")
-        cutoff_freq = getattr(settings, "billing_cutoff_frequency", "Quarterly")
+        # Default matches bulk_invoice_generation_service.calculate_cutoff_date and
+        # www/dues_invoice_manager; this call site alone used to default to Quarterly,
+        # so an unset setting made the payment matcher and the generator disagree.
+        cutoff_freq = getattr(settings, "billing_cutoff_frequency", "Monthly")
 
         # Map cutoff frequency to billing frequency
         freq_map = {"Monthly": "Monthly", "Quarterly": "Quarterly", "Yearly": "Annual"}
@@ -638,13 +671,23 @@ def _coverage_period_from_member_sequence(
     Resolve the member's own billing period containing payment_date.
 
     Order of preference:
-    1. A submitted invoice whose coverage already contains payment_date - the period
-       is then exactly what the consumers will compare against, with no arithmetic.
-    2. Rolling forward from the day after the member's latest coverage end, which is
-       precisely how CoverageCalculator's sequential branch builds the next period,
-       so an invoice created for this period stays gap-free.
+    1. An invoice whose coverage already contains payment_date - the period is then
+       exactly what the consumers will compare against, with no arithmetic.
+    2. Rolling forward from the day after the member's last period to END BEFORE the
+       payment, which is precisely how CoverageCalculator's sequential branch builds
+       the next period, so an invoice created for this period stays gap-free. Anchoring
+       on the *latest* coverage end instead would send a payment landing in a coverage
+       GAP to the calendar fallback, and the create-invoice callers would then write a
+       calendar-aligned invoice into an off-calendar member's sequence.
     3. Rolling forward from the membership start date, matching the first_invoice
-       branch, for a member who has no invoices yet.
+       branch, for a member who has no invoiced coverage at all.
+
+    Invoice lookups deliberately accept docstatus 0 and 1. The overlap detectors every
+    caller uses (coverage_overlap_detector.find_overlapping_invoices) match on
+    `docstatus < 2`, so restricting to submitted invoices here would let a draft
+    invoice be reported as an exact overlap of a period this function had derived from
+    somewhere else - which routes the Mollie callers into their "already paid, create
+    a new invoice" branch and duplicates the period.
 
     Args:
         member_name: Member document name
@@ -661,11 +704,14 @@ def _coverage_period_from_member_sequence(
     customer = frappe.db.get_value("Member", member_name, "customer")
 
     if customer:
+        # Where two invoices cover the same date (e.g. an Annual period plus a
+        # corrective short one), take the latest-starting - the narrower, more
+        # specific period is the one a payment on that date belongs to.
         covering = frappe.db.get_value(
             "Sales Invoice",
             {
                 "customer": customer,
-                "docstatus": 1,
+                "docstatus": ["<", 2],
                 "custom_coverage_start_date": ["<=", payment_date],
                 "custom_coverage_end_date": [">=", payment_date],
             },
@@ -676,24 +722,30 @@ def _coverage_period_from_member_sequence(
         if covering:
             return getdate(covering.custom_coverage_start_date), getdate(covering.custom_coverage_end_date)
 
-        latest_coverage_end = frappe.db.get_value(
+        prior_end = frappe.db.get_value(
             "Sales Invoice",
-            {"customer": customer, "docstatus": 1, "custom_coverage_end_date": ["is", "set"]},
+            {"customer": customer, "docstatus": ["<", 2], "custom_coverage_end_date": ["<", payment_date]},
             "custom_coverage_end_date",
             order_by="custom_coverage_end_date desc",
         )
-        if latest_coverage_end:
-            # Only forward: a payment predating all coverage has no sequence position.
-            if getdate(latest_coverage_end) >= payment_date:
-                return None
+        if prior_end:
             return _roll_to_period_containing(
-                add_days(getdate(latest_coverage_end), 1),
+                add_days(getdate(prior_end), 1),
                 payment_date,
                 billing_frequency,
                 custom_number,
                 custom_unit,
                 calculate_coverage_end,
             )
+
+        if frappe.db.exists(
+            "Sales Invoice",
+            {"customer": customer, "docstatus": ["<", 2], "custom_coverage_end_date": ["is", "set"]},
+        ):
+            # Coverage exists but all of it starts after this payment, so the payment
+            # has no position in the sequence. Fall back rather than invent one - the
+            # membership start below would anchor a period the member was never billed.
+            return None
 
     membership_start = frappe.db.get_value(
         "Membership",
