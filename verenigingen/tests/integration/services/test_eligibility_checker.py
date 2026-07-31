@@ -92,6 +92,77 @@ class TestCutoffIsCappedAtOnePeriodAhead(EnhancedTestCase):
 
         self.assertTrue(calculator.should_generate_invoice_for_cutoff(add_days(getdate(today()), 120)))
 
+    def test_the_cap_scales_with_the_billing_frequency(self):
+        """
+        The cap must be one of the MEMBER'S periods, not a hardcoded month.
+
+        Replacing _one_period_ahead_of_today() with add_days(today(), 30) leaves every
+        other test in this class green, so without this case the docstring's central
+        claim - that the cap uses the same period arithmetic as the sequence - is
+        unpinned. A Quarterly member covered 60 days out is still inside one period and
+        must remain billable.
+        """
+        self.schedule.billing_frequency = "Quarterly"
+        self.schedule.save()
+        frappe.db.commit()
+        self._seed_coverage(add_days(getdate(today()), -30), add_days(getdate(today()), 60))
+
+        calculator = CoverageCalculator(self.schedule)
+
+        self.assertTrue(
+            calculator.should_generate_invoice_for_cutoff(add_days(getdate(today()), 365)),
+            "a 30-day cap was applied to a Quarterly member",
+        )
+
+
+class TestEligibilityIgnoresNextInvoiceDate(EnhancedTestCase):
+    """
+    Eligibility must not consider next_invoice_date. Nothing else pins this, and
+    re-adding a timing gate is a two-line change that breaks no other test.
+
+    The field is derived from the POSTING date, so it drifts out of step with coverage:
+    on the live site 431 schedules carry a next_invoice_date 83 days LATER than their
+    coverage actually lapsed. Under the old guard those members were billed only because
+    a different branch short-circuited first.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="Ignores NID Type", amount=10.0, contribution_mode="Fixed Amount"
+        )
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="IgnoresNID",
+            last_name="Member",
+            membership_type_name=self.membership_type.name,
+            start_date=today(),
+        )
+        self.schedule.billing_frequency = "Monthly"
+        self.schedule.save()
+        frappe.db.commit()
+        self.member.reload()
+
+    def test_lapsed_coverage_is_billable_despite_a_far_future_next_invoice_date(self):
+        """The veg11 shape: coverage lapsed 90 days ago, next_invoice_date 83 days out."""
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=add_days(getdate(today()), -120),
+            coverage_end=add_days(getdate(today()), -90),
+            member_doc=self.member,
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        frappe.db.commit()
+
+        self.schedule.next_invoice_date = add_days(getdate(today()), 83)
+        self.schedule.invoice_days_before = 30
+        self.schedule.save()
+        frappe.db.commit()
+
+        can_generate, reason = self.schedule.can_generate_invoice()
+
+        self.assertTrue(can_generate, f"a lapsed member was blocked by next_invoice_date: {reason}")
+
 
 class TestEligibilityChecker(EnhancedTestCase):
     """Test the EligibilityChecker service with real database operations"""

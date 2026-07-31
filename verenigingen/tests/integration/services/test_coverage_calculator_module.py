@@ -468,22 +468,31 @@ class TestCoverageForPaymentDateFollowsTheMembersOwnPeriods(EnhancedTestCase):
         self.assertEqual(getdate(start), date(2025, 8, 3))
         self.assertEqual(getdate(end), date(2025, 9, 2))
 
-    def test_draft_invoice_coverage_is_honoured_like_the_overlap_detectors_do(self):
+    def test_draft_invoice_coverage_is_ignored_so_the_safe_branch_stays_reachable(self):
         """
-        The resolver must see drafts, because every consumer's overlap check does
-        (coverage_overlap_detector matches docstatus < 2).
+        A DRAFT invoice must not supply the period, even though the consumers' overlap
+        detectors do match drafts (docstatus < 2).
 
-        If the resolver ignored drafts it would derive a period from elsewhere, the
-        overlap check would then report the draft as an EXACT match, and because a
-        draft's outstanding_amount is 0 the Mollie callers take their "already paid -
-        create a new invoice" branch and duplicate the period. Drafts are reachable in
-        production: invoice_generator keeps the invoice unsubmitted when
-        auto_submit_membership_invoices is off, or when submission fails.
+        Returning the draft's own period would guarantee `exact_match` in
+        check_coverage_overlap, and a draft's outstanding_amount is 0, which
+        mollie_payment_orchestrator._create_invoice_if_safe and dues_payment_processor
+        both read as "already paid" - their cue to create ANOTHER invoice for the same
+        period. Deriving a different period instead leaves them on the partial-overlap
+        branch, which returns None for manual review. Until those callers check
+        docstatus before trusting outstanding_amount, submitted-only is the safe answer.
+
+        The draft's period is deliberately irregular (ends the 10th), so a resolver that
+        ignored drafts and rolled from the membership start could not reproduce it by
+        coincidence - which is what makes this test discriminating.
         """
-        self._make_invoice(self.JOIN_DATE, self.FIRST_PERIOD_END, submit=False)
+        self._make_invoice(self.JOIN_DATE, date(2025, 7, 10), submit=False)
 
         start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
 
+        self.assertNotEqual(
+            getdate(end), date(2025, 7, 10), "the draft's own period was used as the answer"
+        )
+        # No submitted coverage exists, so the membership-start roll supplies the period.
         self.assertEqual(getdate(start), self.JOIN_DATE)
         self.assertEqual(getdate(end), self.FIRST_PERIOD_END)
 
@@ -492,13 +501,19 @@ class TestCoverageForPaymentDateFollowsTheMembersOwnPeriods(EnhancedTestCase):
         A payment before the member's first invoiced period has no position in the
         sequence, so it must fall back rather than have one invented from the
         membership start date.
+
+        The payment is deliberately AFTER the membership start (2025-06-03) but before
+        the only invoiced period. With the "coverage exists but all of it is later"
+        guard removed, control reaches the membership-start roll, which happily produces
+        2025-07-03..2025-08-02 - so this pins the guard rather than the pre-existing
+        `membership_start <= payment_date` check.
         """
-        self._make_invoice(self.JOIN_DATE, self.FIRST_PERIOD_END)
+        self._make_invoice(date(2025, 9, 3), date(2025, 10, 2))
 
-        start, end = calculate_coverage_for_payment_date(self.member.name, date(2025, 4, 20))
+        start, end = calculate_coverage_for_payment_date(self.member.name, date(2025, 7, 15))
 
-        self.assertEqual(getdate(start), date(2025, 4, 1))
-        self.assertEqual(getdate(end), date(2025, 4, 30))
+        self.assertEqual(getdate(start), date(2025, 7, 1))
+        self.assertEqual(getdate(end), date(2025, 7, 31))
 
     def test_off_calendar_invoice_is_found_for_a_payment_inside_its_coverage(self):
         """

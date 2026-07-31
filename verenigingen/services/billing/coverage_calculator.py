@@ -682,12 +682,24 @@ def _coverage_period_from_member_sequence(
     3. Rolling forward from the membership start date, matching the first_invoice
        branch, for a member who has no invoiced coverage at all.
 
-    Invoice lookups deliberately accept docstatus 0 and 1. The overlap detectors every
-    caller uses (coverage_overlap_detector.find_overlapping_invoices) match on
-    `docstatus < 2`, so restricting to submitted invoices here would let a draft
-    invoice be reported as an exact overlap of a period this function had derived from
-    somewhere else - which routes the Mollie callers into their "already paid, create
-    a new invoice" branch and duplicates the period.
+    Invoice lookups are restricted to SUBMITTED invoices, deliberately, even though the
+    overlap detectors every caller uses match on `docstatus < 2`. An earlier version of
+    this function widened to match them, on the reasoning that a draft would otherwise
+    be reported as an exact overlap of a period derived from elsewhere. That reasoning
+    was backwards, and widening made the duplicate it feared strictly more likely:
+
+    - `check_coverage_overlap` already includes drafts, so a draft is in the overlap set
+      either way. The only variable is whether the period returned here EQUALS it.
+    - Returning a submitted-only period usually differs from the draft's, so the callers
+      see a partial overlap and stop - `mollie_payment_orchestrator._create_invoice_if_safe`
+      and `dues_payment_processor` both return None for "manual review required".
+    - Returning the draft's own period makes `exact_match` certain, and a draft's
+      `outstanding_amount` is 0, which those same callers read as "already paid" and use
+      as their cue to create ANOTHER invoice for the period.
+
+    The real defect is that the callers treat `outstanding_amount == 0` as "paid"
+    without checking `docstatus`; for a draft it means "not submitted yet". Until that
+    is fixed there, staying submitted-only keeps the safe branch reachable.
 
     Args:
         member_name: Member document name
@@ -711,7 +723,7 @@ def _coverage_period_from_member_sequence(
             "Sales Invoice",
             {
                 "customer": customer,
-                "docstatus": ["<", 2],
+                "docstatus": 1,
                 "custom_coverage_start_date": ["<=", payment_date],
                 "custom_coverage_end_date": [">=", payment_date],
             },
@@ -724,7 +736,7 @@ def _coverage_period_from_member_sequence(
 
         prior_end = frappe.db.get_value(
             "Sales Invoice",
-            {"customer": customer, "docstatus": ["<", 2], "custom_coverage_end_date": ["<", payment_date]},
+            {"customer": customer, "docstatus": 1, "custom_coverage_end_date": ["<", payment_date]},
             "custom_coverage_end_date",
             order_by="custom_coverage_end_date desc",
         )
@@ -740,7 +752,7 @@ def _coverage_period_from_member_sequence(
 
         if frappe.db.exists(
             "Sales Invoice",
-            {"customer": customer, "docstatus": ["<", 2], "custom_coverage_end_date": ["is", "set"]},
+            {"customer": customer, "docstatus": 1, "custom_coverage_end_date": ["is", "set"]},
         ):
             # Coverage exists but all of it starts after this payment, so the payment
             # has no position in the sequence. Fall back rather than invent one - the

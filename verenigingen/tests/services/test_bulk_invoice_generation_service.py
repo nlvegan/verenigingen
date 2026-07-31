@@ -505,3 +505,62 @@ class TestValidationErrorFormatting(EnhancedTestCase):
 
         self.assertIn("ERROR:", formatted)
         self.assertIn("SCH-001", formatted)
+
+
+class TestChunkRechecksCutoffAtExecutionTime(EnhancedTestCase):
+    """
+    process_invoice_chunk must re-evaluate the cutoff, not trust the eligibility
+    snapshot it was enqueued with.
+
+    Chunks are enqueued and the generation lock is released before they run
+    (_process_parallel), so the snapshot can be minutes old. Two overlapping runs - the
+    daily scheduler plus an admin-triggered run, which enqueues without deduplication -
+    both see the same uncovered schedules and both generate. EligibilityChecker used to
+    catch the stale snapshot via check_schedule_timing; that guard has been removed
+    because it duplicated the cutoff comparison and drifted, so the re-check has to
+    happen here. The duplicate detector cannot help: it probes the sequential next
+    period, which by construction never overlaps existing coverage.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="Chunk Cutoff Type", amount=10.0, contribution_mode="Fixed Amount"
+        )
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="ChunkCutoff",
+            last_name="Member",
+            membership_type_name=self.membership_type.name,
+            start_date=today(),
+        )
+        self.schedule.billing_frequency = "Monthly"
+        self.schedule.save()
+        frappe.db.commit()
+        self.member.reload()
+
+    def test_chunk_skips_a_schedule_that_became_covered_after_the_snapshot(self):
+        """Simulates the second of two overlapping runs: coverage now reaches the cutoff."""
+        from verenigingen.services.billing.bulk_invoice_generation_service import process_invoice_chunk
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        # The invoice the FIRST run generated, covering past the cutoff.
+        cutoff = add_days(getdate(today()), 20)
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=getdate(today()),
+            coverage_end=add_days(getdate(today()), 25),
+            member_doc=self.member,
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        self.assertEqual(frappe.db.get_value("Sales Invoice", result.data.name, "docstatus"), 1)
+        frappe.db.commit()
+
+        invoices_before = frappe.db.count("Sales Invoice", {"customer": self.member.customer})
+
+        chunk = process_invoice_chunk([self.schedule.name], chunk_id=1, total_chunks=1, cutoff_date=cutoff)
+
+        self.assertEqual(chunk.generated, 0, "chunk generated against a stale eligibility snapshot")
+        self.assertEqual(
+            frappe.db.count("Sales Invoice", {"customer": self.member.customer}),
+            invoices_before,
+            "a second invoice was created for coverage that already passes the cutoff",
+        )
