@@ -373,6 +373,78 @@ class TestCalculateCoverageForPaymentDate(EnhancedTestCase):
             frappe.db.commit()
 
 
+class TestCoverageForPaymentDateFollowsTheMembersOwnPeriods(EnhancedTestCase):
+    """
+    Payments must be matched against the period the member is actually billed for.
+
+    Coverage periods run from the member's join date, so a member who joined
+    mid-month has periods that straddle two calendar months. Every consumer of
+    calculate_coverage_for_payment_date compares its result to the invoice's
+    custom_coverage_* fields for EXACT equality
+    (find_invoice_for_payment strategy 2, DuesPaymentProcessor, and the Mollie
+    orchestrator), so returning the calendar period means an off-calendar member's
+    payment matches no invoice at all - and the create-invoice paths would go on to
+    write calendar-aligned invoices that overlap the member's own sequence.
+    """
+
+    JOIN_DATE = date(2025, 6, 3)
+    FIRST_PERIOD_END = date(2025, 7, 2)
+    PAYMENT_DATE = date(2025, 6, 20)  # inside the first period, mid calendar month
+
+    def setUp(self):
+        super().setUp()
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="OffCalendar PayCov Type"
+        )
+        self.member, self.schedule = self.create_test_member_with_schedule(
+            first_name="OffCalendar",
+            last_name="Payer",
+            membership_type_name=self.membership_type.name,
+            start_date=self.JOIN_DATE,
+        )
+        self.schedule.billing_frequency = "Monthly"
+        self.schedule.save()
+        frappe.db.commit()
+        self.member.reload()
+
+    def _make_first_invoice(self):
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        result = InvoiceGenerator(self.schedule).generate_invoice(
+            coverage_start=self.JOIN_DATE,
+            coverage_end=self.FIRST_PERIOD_END,
+            member_doc=self.member,
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        frappe.db.commit()
+        return result.data.name
+
+    def test_payment_inside_an_off_calendar_period_resolves_to_that_period(self):
+        """The returned period must be the invoice's own, not the calendar month."""
+        self._make_first_invoice()
+
+        start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
+
+        self.assertEqual(getdate(start), self.JOIN_DATE)
+        self.assertEqual(getdate(end), self.FIRST_PERIOD_END)
+
+    def test_off_calendar_invoice_is_found_for_a_payment_inside_its_coverage(self):
+        """
+        End-to-end: the payment must resolve to the invoice covering it.
+
+        The payment amount is deliberately mismatched so strategy 3 (unpaid-amount
+        match) cannot fire and the assertion pins strategy 2, the coverage-period
+        match, which is the strategy that breaks for off-calendar members.
+        """
+        invoice_name = self._make_first_invoice()
+        outstanding = frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount")
+        mismatched_amount = float(outstanding) + 1000.0
+
+        found = find_invoice_for_payment(self.member.name, self.PAYMENT_DATE, mismatched_amount)
+
+        self.assertEqual(found, invoice_name)
+
+
 class TestFindInvoiceForPayment(EnhancedTestCase):
     """Cover the module-level find_invoice_for_payment matching strategies."""
 

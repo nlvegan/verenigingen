@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 import frappe
-from frappe.utils import add_days, add_months, getdate, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
@@ -461,36 +461,14 @@ class CoverageCalculator(StatelessService):
         Returns:
             date: Coverage period end date
         """
-        if self.billing_frequency == "Daily":
-            return coverage_start
-        elif self.billing_frequency == "Weekly":
-            return add_days(coverage_start, 6)  # 7 days total
-        elif self.billing_frequency == "Monthly":
-            return add_days(add_months(coverage_start, 1), -1)
-        elif self.billing_frequency == "Quarterly":
-            return add_days(add_months(coverage_start, 3), -1)
-        elif self.billing_frequency == "Semi-Annual":
-            return add_days(add_months(coverage_start, 6), -1)
-        elif self.billing_frequency == "Annual":
-            return add_days(add_months(coverage_start, 12), -1)
-        elif self.billing_frequency == "Custom":
-            # Use custom frequency settings
-            if not self.custom_frequency_number or self.custom_frequency_number < 1:
-                return add_days(add_months(coverage_start, 1), -1)  # Default to monthly
+        from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
 
-            if self.custom_frequency_unit == "Days":
-                return add_days(coverage_start, self.custom_frequency_number - 1)
-            elif self.custom_frequency_unit == "Weeks":
-                return add_days(coverage_start, self.custom_frequency_number * 7 - 1)
-            elif self.custom_frequency_unit == "Months":
-                return add_days(add_months(coverage_start, self.custom_frequency_number), -1)
-            elif self.custom_frequency_unit == "Years":
-                return add_days(add_months(coverage_start, self.custom_frequency_number * 12), -1)
-            else:
-                return add_days(add_months(coverage_start, 1), -1)  # Default to monthly
-        else:
-            # Unknown frequency - fallback to monthly
-            return add_days(add_months(coverage_start, 1), -1)
+        return calculate_coverage_end(
+            self.billing_frequency,
+            coverage_start,
+            self.custom_frequency_number,
+            self.custom_frequency_unit,
+        )
 
     def _get_membership_start_date(self) -> Optional[date]:
         """
@@ -505,11 +483,15 @@ class CoverageCalculator(StatelessService):
         if not self.member_name:
             return None
 
-        # Query the active membership for this member
+        # Query the active membership for this member. Ordered because a member with
+        # more than one active membership would otherwise anchor their whole coverage
+        # sequence on an arbitrary row; the earliest start is the one the sequence
+        # actually began from.
         membership_start = frappe.db.get_value(
             "Membership",
             {"member": self.member_name, "status": "Active", "docstatus": 1},
             "start_date",
+            order_by="start_date asc",
         )
 
         return getdate(membership_start) if membership_start else None
@@ -616,7 +598,20 @@ def calculate_coverage_for_payment_date(
             f"billing_frequency={billing_frequency}) for member {member_name}"
         )
 
-    # Use the billing_period_calculator to get period dates
+    # Prefer the member's OWN coverage sequence over the calendar. Every consumer
+    # compares this result to an invoice's custom_coverage_* for exact equality, and
+    # periods run from the member's join date, so for anyone who joined mid-period the
+    # calendar period matches no invoice at all. The create-invoice paths use these
+    # same dates, so a calendar answer would also write invoices overlapping the
+    # member's own sequence.
+    anchored = _coverage_period_from_member_sequence(
+        member_name, payment_date, billing_frequency, custom_number, custom_unit
+    )
+    if anchored:
+        return anchored
+
+    # No sequence to anchor to (no invoices and no membership start, or a payment
+    # predating all coverage) - fall back to the calendar period.
     from verenigingen.services.billing.billing_period_calculator import calculate_billing_period
 
     coverage_start, coverage_end = calculate_billing_period(
@@ -624,6 +619,122 @@ def calculate_coverage_for_payment_date(
     )
 
     return coverage_start, coverage_end
+
+
+# A payment far outside the member's coverage sequence should not spin: bail out and
+# let the caller fall back to the calendar period. Daily billing needs ~365 steps a
+# year, so this only trips on genuinely nonsensical dates.
+MAX_PERIOD_ROLL_STEPS = 10000
+
+
+def _coverage_period_from_member_sequence(
+    member_name: str,
+    payment_date: date,
+    billing_frequency: str,
+    custom_number: Optional[int],
+    custom_unit: Optional[str],
+) -> Optional[tuple]:
+    """
+    Resolve the member's own billing period containing payment_date.
+
+    Order of preference:
+    1. A submitted invoice whose coverage already contains payment_date - the period
+       is then exactly what the consumers will compare against, with no arithmetic.
+    2. Rolling forward from the day after the member's latest coverage end, which is
+       precisely how CoverageCalculator's sequential branch builds the next period,
+       so an invoice created for this period stays gap-free.
+    3. Rolling forward from the membership start date, matching the first_invoice
+       branch, for a member who has no invoices yet.
+
+    Args:
+        member_name: Member document name
+        payment_date: Date the payment was made
+        billing_frequency: Resolved billing frequency for this member
+        custom_number: Period length for Custom frequency
+        custom_unit: Period unit for Custom frequency
+
+    Returns:
+        tuple: (coverage_start, coverage_end), or None if there is nothing to anchor to
+    """
+    from verenigingen.services.billing.billing_period_calculator import calculate_coverage_end
+
+    customer = frappe.db.get_value("Member", member_name, "customer")
+
+    if customer:
+        covering = frappe.db.get_value(
+            "Sales Invoice",
+            {
+                "customer": customer,
+                "docstatus": 1,
+                "custom_coverage_start_date": ["<=", payment_date],
+                "custom_coverage_end_date": [">=", payment_date],
+            },
+            ["custom_coverage_start_date", "custom_coverage_end_date"],
+            as_dict=True,
+            order_by="custom_coverage_start_date desc",
+        )
+        if covering:
+            return getdate(covering.custom_coverage_start_date), getdate(covering.custom_coverage_end_date)
+
+        latest_coverage_end = frappe.db.get_value(
+            "Sales Invoice",
+            {"customer": customer, "docstatus": 1, "custom_coverage_end_date": ["is", "set"]},
+            "custom_coverage_end_date",
+            order_by="custom_coverage_end_date desc",
+        )
+        if latest_coverage_end:
+            # Only forward: a payment predating all coverage has no sequence position.
+            if getdate(latest_coverage_end) >= payment_date:
+                return None
+            return _roll_to_period_containing(
+                add_days(getdate(latest_coverage_end), 1),
+                payment_date,
+                billing_frequency,
+                custom_number,
+                custom_unit,
+                calculate_coverage_end,
+            )
+
+    membership_start = frappe.db.get_value(
+        "Membership",
+        {"member": member_name, "status": "Active", "docstatus": 1},
+        "start_date",
+        order_by="start_date asc",
+    )
+    if membership_start and getdate(membership_start) <= payment_date:
+        return _roll_to_period_containing(
+            getdate(membership_start),
+            payment_date,
+            billing_frequency,
+            custom_number,
+            custom_unit,
+            calculate_coverage_end,
+        )
+
+    return None
+
+
+def _roll_to_period_containing(
+    period_start: date,
+    payment_date: date,
+    billing_frequency: str,
+    custom_number: Optional[int],
+    custom_unit: Optional[str],
+    coverage_end_fn,
+) -> Optional[tuple]:
+    """
+    Step whole billing periods forward from period_start until one contains payment_date.
+
+    Returns:
+        tuple: (coverage_start, coverage_end), or None if payment_date is unreachably far
+    """
+    for _ in range(MAX_PERIOD_ROLL_STEPS):
+        period_end = coverage_end_fn(billing_frequency, period_start, custom_number, custom_unit)
+        if period_end >= payment_date:
+            return period_start, period_end
+        period_start = add_days(period_end, 1)
+
+    return None
 
 
 def find_invoice_for_payment(

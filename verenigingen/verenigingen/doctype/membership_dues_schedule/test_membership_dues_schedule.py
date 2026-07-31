@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import MagicMock
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
@@ -53,6 +53,78 @@ class TestMembershipDuesSchedule(EnhancedTestCase):
         # The rejected value must not have been persisted.
         schedule.reload()
         self.assertGreaterEqual(schedule.dues_rate, 0)
+
+
+class TestMonthlyDuplicateProbe(EnhancedTestCase):
+    """
+    check_for_duplicate_invoices() must probe the period this member is actually
+    about to be billed for, not the calendar month surrounding today.
+
+    Coverage periods run from the member's join date, so a mid-month Monthly
+    joiner's periods straddle two calendar months. Probing the calendar month
+    therefore permanently overlaps the member's OWN latest invoice, and
+    EligibilityChecker.check_for_duplicates blocks generation for most of every
+    month. It fails softly - the orchestrator matches "coverage overlap" and logs
+    at info - so the member is simply never invoiced on time.
+    """
+
+    def _monthly_member_joining_last_month(self):
+        """A Monthly member who joined on the 3rd of the previous month.
+
+        The 3rd is arbitrary but must be far enough into the month that the
+        resulting period straddles a calendar boundary in both directions.
+        """
+        first_of_this_month = getdate(today()).replace(day=1)
+        join_date = getdate(add_days(first_of_this_month, -1)).replace(day=3)
+
+        membership_type = self.create_test_membership_type(
+            membership_type_name="Monthly Probe Type",
+            amount=10.0,
+            contribution_mode="Fixed Amount",
+        )
+        member, schedule = self.create_test_member_with_schedule(
+            first_name="MonthlyProbe",
+            last_name="Member",
+            membership_type_name=membership_type.name,
+            start_date=join_date,
+        )
+        schedule.billing_frequency = "Monthly"
+        schedule.save()
+        frappe.db.commit()
+
+        return member, schedule, join_date
+
+    def test_second_monthly_period_is_not_blocked_by_the_surrounding_calendar_month(self):
+        """
+        Given the first invoice covering join_date .. join_date + 1 month - 1 day,
+        the member must remain eligible for their SECOND invoice.
+
+        This is the assertion the original coverage-period suite was missing: it
+        stopped at the first invoice, which is why probing the calendar month
+        shipped green.
+        """
+        from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+        member, schedule, join_date = self._monthly_member_joining_last_month()
+
+        first_start = join_date
+        first_end = add_days(add_months(join_date, 1), -1)
+        result = InvoiceGenerator(schedule).generate_invoice(
+            coverage_start=first_start, coverage_end=first_end, member_doc=member
+        )
+        self.assertTrue(result.success, getattr(result, "error_message", None))
+        frappe.db.commit()
+
+        # Precondition: the first period really does straddle the calendar
+        # boundary, otherwise the calendar probe would coincidentally agree.
+        self.assertNotEqual(first_start.month, first_end.month)
+
+        duplicate_check = schedule.check_for_duplicate_invoices()
+
+        self.assertTrue(
+            duplicate_check["can_generate"],
+            f"second Monthly period wrongly blocked: {duplicate_check['reason']}",
+        )
 
 
 class TestErrorMessageDeduplication(unittest.TestCase):
