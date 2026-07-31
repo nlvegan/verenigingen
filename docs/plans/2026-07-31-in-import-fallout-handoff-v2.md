@@ -6,6 +6,11 @@ Supersedes `2026-07-31-in-import-harness-fallout-handoff.md` (§2 taxonomy) and 
 
 **Status: the investigation is finished. All 236 CI failures are root-caused.**
 
+**SUPERSEDED IN PART — see `2026-07-31-billing-and-revocation-remediation-handoff.md`.**
+§4a (B1/B2/B3), §4.1 and §4.2 are closed. §4a's fixes merged to `develop` as `6089d372`
+(PR #212). §4.1 and §4.2 are fixed on branches that are pushed but not yet PR'd. Everything
+else below still stands, including the ~213 outstanding test fixes in §5-§7.
+
 **Update 2026-07-31 (later session): the coverage fix is unblocked and two of the production bugs
 are fixed.** B1 and B2 are resolved, B3 is decided, and §4.1 and §4.2 have landed on their own
 branches. What remains is the harness branch's ~213 test fixes (§5-§7) and the nine unfiled
