@@ -84,7 +84,13 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Import managers and validators
-from .managers import BoardManager, CommunicationManager, MemberManager, VolunteerIntegrationManager
+from .managers import (
+    BoardAccessWithdrawalError,
+    BoardManager,
+    CommunicationManager,
+    MemberManager,
+    VolunteerIntegrationManager,
+)
 from .validators import ChapterValidator
 
 
@@ -167,20 +173,21 @@ class Chapter(Document):
         self._create_chapter_cost_center()
 
     def _flush_deferred_board_profile_syncs(self):
-        """Run role-profile syncs deferred by board_manager during validate.
+        """Recalculate board access deferred by board_manager during validate.
 
         Deferred so it runs AFTER the Chapter Board Member child rows are persisted
-        (the profile calculator reads them from the database). See
-        board_manager.handle_board_member_additions.
+        (the profile calculator reads them from the database, and so does the "still
+        on a board?" test behind the Frappe role). See
+        board_manager._defer_board_access_recalculation.
 
         Called from on_update only, which covers inserts as well (run_post_save_methods
         runs on_update for a new draft too).
 
-        Scope limit: only the "edit an existing chapter and seat a board member" path
-        actually enqueues. _handle_document_changes() is gated on `if old_doc:` and
-        handle_board_member_additions() early-returns when old_doc is None, so seating
-        a board member inline while CREATING a chapter never enqueues and is therefore
-        still not synced. That gap is pre-existing and untouched here.
+        Scope limit: only the "edit an existing chapter" paths actually enqueue.
+        _handle_document_changes() is gated on `if old_doc:` and the additions/changes/
+        deletions handlers all early-return when old_doc is None, so seating a board
+        member inline while CREATING a chapter never enqueues and is therefore still
+        not synced. That gap is pre-existing and untouched here.
 
         NOTE: this used to live in an `after_save()` method, which Frappe never calls
         server-side — Document.run_method() is never invoked with that name — so the
@@ -190,9 +197,13 @@ class Chapter(Document):
         self._safe_manager_operation(
             "board_profile_sync",
             lambda: self.board_manager.flush_pending_board_profile_syncs(),
+            # A vacated seat whose access is still attached must not be logged and
+            # waved through: the save would report a removal that did not remove
+            # anything. See BoardManager._assert_board_access_withdrawn.
+            reraise=(BoardAccessWithdrawalError,),
         )
 
-    def _safe_manager_operation(self, operation_name: str, operation_func):
+    def _safe_manager_operation(self, operation_name: str, operation_func, reraise: tuple = ()):
         """Execute manager operation safely with proper error handling"""
         try:
             operation_func()
@@ -201,6 +212,9 @@ class Chapter(Document):
             # failed on its own merits. It is the wrong default when the transaction the
             # save lives in is already broken -- log_error() below would itself be a write
             # on that transaction, and the save would go on to report success. Propagate.
+            raise
+        except reraise:
+            # Caller-declared failures that must reach the user rather than a log file.
             raise
         except Exception as e:
             error_context = {"chapter": self.name, "operation": operation_name}
