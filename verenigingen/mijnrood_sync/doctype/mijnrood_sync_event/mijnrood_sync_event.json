@@ -184,9 +184,10 @@
       "read_only": 1
     },
     {
+      "description": "Why the event could not be applied, or - on an Applied event - the access the sync could not withdraw and an operator must revoke by hand.",
       "fieldname": "error_message",
       "fieldtype": "Small Text",
-      "label": "Error Message",
+      "label": "Error / Warning Message",
       "read_only": 1
     }
   ],

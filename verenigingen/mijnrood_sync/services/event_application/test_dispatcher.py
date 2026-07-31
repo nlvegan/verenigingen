@@ -204,17 +204,23 @@ class TestApplyEventGuards(TestDispatcherBase):
             "a failed event committed the write it made before failing",
         )
 
-    def test_non_resumable_db_error_is_not_recorded_per_event(self):
-        """A deadlock must reach the transaction owner, not become an error string.
+    def test_non_resumable_db_error_is_recorded_then_reraised(self):
+        """A deadlock must reach the transaction owner *and* leave a record.
 
         ``NON_RESUMABLE_DB_ERRORS`` clauses further down the stack (e.g.
         ``_end_team_membership``, ``_ensure_chapter_board_membership``) re-raise
-        precisely so the run is abandoned; catching them here and writing an Error
-        Log + event row on the discarded transaction neutralises every one of them.
+        precisely so the run is abandoned, so this frame must not swallow one.
+        But recording is safe once ``frappe.db.rollback()`` has run — the
+        discarded transaction is gone — and it is necessary: the only production
+        caller (``_batch_event_worker``) catches this, appends a truncated string
+        to an ephemeral realtime payload and continues. Without a record, a
+        deadlock during a privilege revocation leaves an Error-Log-less,
+        error_message-less event and a toast.
 
         Mock justified: fault injection — a real MariaDB 1213 cannot be provoked
         deterministically from a single-connection test.
         """
+        self.expectErrorLog("MijnRood Event Application Failed")
         ev = self._make_event(
             "Changed",
             "admin_member",
@@ -230,6 +236,37 @@ class TestApplyEventGuards(TestDispatcherBase):
 
         ev.reload()
         self.assertEqual(ev.status, "Approved")
+        self.assertTrue(ev.error_message, "deadlock left no durable record on the event")
+        self.assertIn("Deadlock found", ev.error_message)
+
+    def test_approve_and_apply_leaves_the_event_approved_when_apply_raises(self):
+        """The approval must survive apply_event's rollback.
+
+        ``approve_and_apply`` saves the approval and then applies in the same
+        request. ``apply_event`` now rolls back on failure, which would also
+        discard an uncommitted approval and silently put the event back to
+        Pending — losing the reviewer's decision and the audit fields with it.
+        The commit between the two steps is what prevents that, so it needs a
+        test of its own rather than being covered by accident.
+
+        Mock justified: fault injection at the dispatch boundary; no business
+        logic is stubbed out.
+        """
+        self.expectErrorLog("MijnRood Event Application Failed")
+        ev = self._make_event(
+            "Changed",
+            "admin_member",
+            new_data={"id": _next_id(), "first_name": "Approved"},
+        )
+        service = get_event_application_service()
+
+        with patch.object(service, "_apply_changed", side_effect=frappe.QueryDeadlockError("Deadlock found")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ev.approve_and_apply()
+
+        ev.reload()
+        self.assertEqual(ev.status, "Approved")
+        self.assertTrue(ev.reviewed_by)
 
     def _cleanup_member_and_customer(self, member_name):
         for cust in frappe.get_all("Customer", filters={"member": member_name}, pluck="name"):

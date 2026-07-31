@@ -40,6 +40,11 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="event_application.volunteer_sync")
 
+# Doc-flag on the MijnRood Sync Event carrying "this apply succeeded but left access
+# behind" text up to apply_event, which persists it on the row. A service log file is
+# not reachable by the operator who would act on it.
+RETAINED_ACCESS_FLAG = "mijnrood_retained_access"
+
 
 class MijnRoodVolunteerSyncService:
     """Applies MijnRood role/team/board events to Verenigingen records."""
@@ -557,13 +562,15 @@ class MijnRoodVolunteerSyncService:
 
         Raises:
             Anything the Team save raises (after orphan rows are pruned — see
-            below). This is a privilege *revocation*: a
-            failure here leaves the member on the team with their role profile
-            intact, so it must never be downgraded to a status string. Every
-            caller between here and MijnRoodEventApplicationService.apply_event
-            passes messages through as success, so apply_event's except block —
-            which records error_message and leaves the event un-Applied — is the
-            only layer that can turn this into a visible failure.
+            below), and ValidationError when the recalculation did not actually
+            withdraw the team's role profile (see _assert_team_profile_withdrawn).
+            This is a privilege *revocation*: a failure here leaves the member's
+            role profile intact, so it must never be downgraded to a status
+            string. Every caller between here and
+            MijnRoodEventApplicationService.apply_event passes messages through as
+            success, so apply_event's except block — which records error_message
+            and leaves the event un-Applied — is the only layer that can turn this
+            into a visible failure.
         """
         from verenigingen.verenigingen.doctype.volunteer.volunteer import (
             get_volunteer_for_member,
@@ -603,6 +610,10 @@ class MijnRoodVolunteerSyncService:
             # Security: System-initiated team removal from authoritative MijnRood role revocation
             team_doc.save(ignore_permissions=True)
 
+            # The save fires on_team_members_change → auto_sync_on_role_change(),
+            # but neither can report failure. Verify the post-condition instead.
+            self._assert_team_profile_withdrawn(member_name, team_name)
+
             self.logger.info(
                 "Ended team membership for volunteer %s in team %s (member %s, event %s)",
                 volunteer_name,
@@ -624,6 +635,77 @@ class MijnRoodVolunteerSyncService:
                 f"MijnRood Sync - Team Removal Failed: {member_name}",
             )
             raise
+
+    def _assert_team_profile_withdrawn(self, member_name: str, team_name: str) -> None:
+        """Raise unless the team's ``default_role_profile`` is really off the user.
+
+        Ending the Team Member row is bookkeeping; the recalculation triggered by
+        ``on_team_members_change`` is what withdraws the access. That recalculation
+        cannot fail loudly — it is swallowed twice:
+
+        - ``team_role_profile_hooks.on_team_members_change`` catches every
+          exception per volunteer and ``continue``s.
+        - ``user_role_profile_calculator.auto_sync_on_role_change`` is explicitly
+          fire-and-forget: it logs and returns, and turns a non-exception failure
+          (``success: False``) into a logged warning.
+
+        So a disabled User (``sync_user_role_profile`` refuses to touch one — it
+        would re-enable the account via the Employee/User status lockstep), a
+        ``calculate_user_role_profile`` that returns None, or a
+        ``TimestampMismatchError`` on ``User.save()`` all leave the profile
+        attached while the caller returns "Removed from team 'X'" and apply_event
+        marks the event Applied. Trust the post-condition, not the hook.
+
+        Re-running ``sync_user_role_profile`` here — where its result is
+        observable — is deliberate and cheap: if the hook already did the work it
+        is a no-op, and if it did not this is the retry. Only when the
+        authoritative recalculation refuses to run *and* the profile is still
+        attached is this a failed revocation; a profile that survives a successful
+        recalculation is granted by some other source (another team, a chapter
+        board) and was never this team's to withdraw.
+        """
+        profile = frappe.db.get_value("Team", team_name, "default_role_profile")
+        if not profile:
+            return
+
+        user = frappe.db.get_value("Member", member_name, "user")
+        if not user:
+            return  # No account — no profile to withdraw.
+
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            get_user_role_profiles,
+            sync_user_role_profile,
+        )
+
+        if profile not in get_user_role_profiles(user):
+            return
+
+        result = sync_user_role_profile(user) or {}
+        if profile not in get_user_role_profiles(user):
+            return
+
+        if result.get("success") and not result.get("skipped"):
+            self.logger.info(
+                "Role profile '%s' survives the team revocation for %s — granted elsewhere",
+                profile,
+                user,
+            )
+            return
+
+        reason = result.get("skipped") or result.get("error") or _("unknown")
+        self.logger.error(
+            "Team revocation did not withdraw role profile '%s' from %s (member %s): %s",
+            profile,
+            user,
+            member_name,
+            reason,
+        )
+        raise frappe.ValidationError(
+            _(
+                "Team '{0}' membership ended but role profile '{1}' is still attached to {2} "
+                "({3}) — the access was not withdrawn."
+            ).format(team_name, profile, user, reason)
+        )
 
     def _apply_role_actions(
         self,
@@ -692,9 +774,10 @@ class MijnRoodVolunteerSyncService:
 
         The only access this branch withdraws is the team membership configured by
         ``add_to_team`` + ``default_team``. The "ROLE_ADMIN removed" message is
-        appended *after* _end_team_membership() rather than unconditionally, so it
-        is never emitted while a **team** revocation is outstanding — that call
-        raises when it cannot be persisted.
+        appended *after* _end_team_membership(), which raises both when the row
+        edit cannot be persisted and when the resulting recalculation did not
+        actually drop the team's role profile — so it is never emitted while a
+        **team** revocation is outstanding.
 
         It guarantees nothing about ``verenigingen_role`` and ``role_profile``,
         which the addition path grants directly (_ensure_user_role() →
@@ -704,7 +787,10 @@ class MijnRoodVolunteerSyncService:
         mappings can name the same role or profile, and a role may equally have
         been granted by hand, so a blind remove_roles() would over-revoke. Until
         that is designed, the retained access is *reported* rather than left
-        implied by a bare "removed" on an event apply_event then marks Applied.
+        implied by a bare "removed" on an event apply_event then marks Applied —
+        but only the access the user is *observed* to still hold (see
+        _retained_access_messages), because telling an operator to hand-revoke a
+        role that was never granted is over-revocation by proxy.
         """
         messages = []
 
@@ -728,22 +814,54 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
 
-            retained = []
-            if config.get("verenigingen_role"):
-                retained.append(_("role '{0}'").format(config["verenigingen_role"]))
-            if config.get("role_profile"):
-                retained.append(_("role profile '{0}'").format(config["role_profile"]))
+            retained = self._retained_access_messages(member_name, config)
             if retained:
                 retained_text = ", ".join(retained)
+                warning = _("NOT withdrawn by sync, revoke manually: {0}").format(retained_text)
                 self.logger.warning(
                     "ROLE_ADMIN revocation for member %s does NOT withdraw %s (event %s)",
                     member_name,
                     retained_text,
                     event.name if event else "N/A",
                 )
-                messages.append(_("NOT withdrawn by sync, revoke manually: {0}").format(retained_text))
+                messages.append(warning)
+                if event is not None:
+                    # Carried to apply_event, which persists it on the event row.
+                    event.flags.setdefault(RETAINED_ACCESS_FLAG, []).append(warning)
 
         return messages
+
+    def _retained_access_messages(self, member_name: str, config: dict) -> list[str]:
+        """Name only the configured access the user is *observed* to still hold.
+
+        Deriving this from the config alone over-reports. With ``add_to_team`` on
+        the team hook does withdraw ``role_profile``, and ``_ensure_volunteer``
+        never granted ``verenigingen_role`` in that config at all — it returns
+        early because ``populate_role_profile_roles()`` overwrites individually
+        added roles on every User.save(). An operator acting on a config-derived
+        list would strip access the user legitimately holds from another team or a
+        chapter board: over-revocation by human, on a security path, which is the
+        very failure the deferral rationale exists to avoid.
+        """
+        user = frappe.db.get_value("Member", member_name, "user")
+        if not user:
+            return []
+
+        retained = []
+        role = config.get("verenigingen_role")
+        if role and role in frappe.get_roles(user):
+            retained.append(_("role '{0}'").format(role))
+
+        role_profile = config.get("role_profile")
+        if role_profile:
+            from verenigingen.services.member.account.user_role_profile_calculator import (
+                get_user_role_profiles,
+            )
+
+            if role_profile in get_user_role_profiles(user):
+                retained.append(_("role profile '{0}'").format(role_profile))
+
+        return retained
 
     def _handle_division_contact_change(
         self,
@@ -772,6 +890,15 @@ class MijnRoodVolunteerSyncService:
                     result = self._end_chapter_board_membership(member_name, div_id, event=event)
                     if result:
                         messages.append(result)
+                except NON_RESUMABLE_DB_ERRORS:
+                    # Without this the bare except below flattens a deadlock into a
+                    # status string, the loop marches on issuing statements on a
+                    # transaction the server has already discarded, and
+                    # _notify_board_membership_change mails administrators that
+                    # board access was withdrawn when it was not. It also makes
+                    # _process_member_roles' own NON_RESUMABLE clause unreachable
+                    # for this path.
+                    raise
                 except Exception as e:
                     self.logger.error(
                         "Failed to end board membership for member %s, division %s: %s",
@@ -857,17 +984,24 @@ class MijnRoodVolunteerSyncService:
             failures.append(e)
 
         # The two handlers withdraw *different* access, so a raise from the first
-        # must not cancel the second: an event revoking both roles would go from
-        # "one of two revoked" to "neither attempted". Attempt both, then raise an
-        # aggregate so apply_event still records the failure and leaves the event
-        # un-Applied.
+        # must not cancel the second. The durable outcome is "neither applied"
+        # either way — apply_event rolls back — so the benefit is diagnostic, not
+        # transactional: attempting both means *both* failures are reported and
+        # neither revocation is silently skipped, which is what an operator needs
+        # before re-running. The aggregate then reaches apply_event, which records
+        # it and leaves the event un-Applied.
+        #
+        # The handler output below is neutral context, not a claim about what
+        # survived: it is whatever the handlers emitted this attempt, including
+        # strings they produced *for* the failures, and the rollback discards all
+        # of it.
         if failures:
-            applied = "; ".join(messages) if messages else _("nothing")
+            handler_output = "; ".join(messages) if messages else _("none")
             raise frappe.ValidationError(
-                _("Role processing failed for member {0}: {1} (applied before failure: {2})").format(
+                _("Role processing failed for member {0}: {1} (handler output: {2})").format(
                     member_name,
                     " | ".join(str(f)[:200] for f in failures),
-                    applied,
+                    handler_output,
                 )
             )
 

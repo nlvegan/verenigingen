@@ -36,6 +36,9 @@ from verenigingen.mijnrood_sync.services.event_application.member_sync_service i
 from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
     get_related_records_orchestrator,
 )
+from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+    RETAINED_ACCESS_FLAG,
+)
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -78,7 +81,18 @@ class MijnRoodEventApplicationService(StatefulService):
             if result["success"]:
                 event.status = "Applied"
                 event.applied_at = now_datetime()
-                event.error_message = None
+                # A successful apply can still leave access behind — see
+                # _handle_admin_role_change: the addition path grants
+                # verenigingen_role / role_profile and the removal branch has no
+                # counterpart. That warning previously reached a service log file
+                # only: the form button renders a fixed green "applied" on success
+                # and _batch_event_worker discards the result, so nobody who could
+                # act on it ever saw it. Persist it on the row instead of clearing
+                # the field.
+                warnings = list(event.flags.get(RETAINED_ACCESS_FLAG) or [])
+                event.error_message = "\n".join(warnings)[:500] if warnings else None
+                if warnings:
+                    result["warnings"] = warnings
             else:
                 event.error_message = result.get("message", "")[:500]
 
@@ -87,39 +101,66 @@ class MijnRoodEventApplicationService(StatefulService):
             frappe.db.commit()
             return result
 
-        except NON_RESUMABLE_DB_ERRORS:
+        except NON_RESUMABLE_DB_ERRORS as e:
             # Every NON_RESUMABLE_DB_ERRORS clause below this frame (e.g.
             # _end_team_membership, _ensure_chapter_board_membership) re-raises so the
-            # unit of work is abandoned rather than resumed. Catching them here and
-            # writing an Error Log + event row on the discarded transaction is exactly
-            # what would neutralise all of them, so this frame only rolls back and
-            # propagates: whoever owns the transaction boundary restarts the run.
+            # unit of work is abandoned rather than resumed — so this frame must
+            # re-raise too. It must still leave a record: the rollback on the next
+            # line ends the discarded transaction, after which writing is safe, and
+            # the only production caller (_batch_event_worker) does NOT restart the
+            # run — it catches this, appends a truncated string to an ephemeral
+            # realtime payload and continues. Without recording, a deadlock during a
+            # privilege revocation produces no Error Log, no error_message and a toast.
             frappe.db.rollback()
-            self.logger.error("Non-resumable DB error applying event %s", event_name)
+            error_msg = str(e)[:500]
+            self.logger.error("Non-resumable DB error applying event %s: %s", event_name, error_msg)
+            frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")
+            self._record_event_failure(event, error_msg)
             raise
 
         except Exception as e:
-            # Roll back BEFORE recording the failure. The handlers write as they go and
-            # _create_related_records (address, membership, dues schedule, ACR, notes)
-            # never commits, so without this the event.save() + commit() below makes
-            # those partial writes durable while the event still says un-Applied — and
-            # the operator's re-run then replays them onto half-applied state.
-            # (create_or_update_member is the exception: member_import_service commits
-            # the Member save itself, so that one write survives regardless. Separate
-            # pre-existing issue — this frame cannot reach it.)
+            # Roll back BEFORE recording the failure. The handlers write as they go, so
+            # without this the event.save() + commit() below makes their partial writes
+            # durable while the event still says un-Applied — and the operator's re-run
+            # then replays them onto half-applied state.
+            #
+            # The rollback is best-effort for everything downstream of the ACR queue,
+            # because two writes in the New-member path commit on their own:
+            #   1. create_or_update_member — member_import_service commits the Member
+            #      save itself.
+            #   2. _create_related_records step five of six — _ensure_user_account →
+            #      queue_account_creation_for_member → AccountCreationRequest.
+            #      queue_processing(), which commits unless frappe.flags.in_test.
+            # So in the common New-member config the chapter assignment, address,
+            # Mollie data, membership and dues schedule created in steps one to four
+            # are already durable before role processing starts. Both are out of this
+            # frame's reach; noted as separate pre-existing issues.
             frappe.db.rollback()
 
             error_msg = str(e)[:500]
             self.logger.error("Failed to apply event %s: %s", event_name, error_msg)
             frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")
 
+            self._record_event_failure(event, error_msg)
+            return {"success": False, "message": error_msg}
+
+    def _record_event_failure(self, event, error_msg: str) -> None:
+        """Persist ``error_msg`` on the event row after a rollback.
+
+        Runs inside an except block, so it must never replace the exception it is
+        reporting on. Two ways it could: ``reload()`` raises DoesNotExistError if
+        the event row was itself uncommitted when the rollback ran (both
+        production callers commit the approval first, so this is belt-and-braces),
+        and the save can fail for any of the reasons the apply just did.
+        """
+        try:
             event.reload()
             event.error_message = error_msg
             # Security: System-internal error recording on sync event
             event.save(ignore_permissions=True)
             frappe.db.commit()
-
-            return {"success": False, "message": error_msg}
+        except Exception as record_error:
+            self.logger.error("Could not record failure on event %s: %s", event.name, record_error)
 
     # ─── Table dispatch ───────────────────────────────────────────────
 

@@ -98,6 +98,23 @@ const DIVISION_SUMMARY_FIELDS = [
 // Cached after first load to avoid repeated server calls.
 let _status_mapping_cache = null;
 
+// A successful apply can still leave access behind that the sync cannot withdraw
+// (see MijnRoodVolunteerSyncService._handle_admin_role_change). Those warnings are
+// persisted on the event too, but a green "applied" toast on top of them reads as
+// "nothing to do here" — so show them instead of the toast when present.
+function show_apply_result(message, success_text) {
+	const warnings = message.warnings || [];
+	if (warnings.length) {
+		frappe.msgprint({
+			title: __('Applied — access retained'),
+			indicator: 'orange',
+			message: warnings.map(esc).join('<br>')
+		});
+		return;
+	}
+	frappe.show_alert({ message: success_text, indicator: 'green' });
+}
+
 function load_status_mapping(callback) {
 	if (_status_mapping_cache) {
 		callback(_status_mapping_cache);
@@ -445,10 +462,7 @@ frappe.ui.form.on('MijnRood Sync Event', {
 						freeze_message: __('Approving and applying...'),
 						callback(r) {
 							if (r.message && r.message.success) {
-								frappe.show_alert({
-									message: __('Changes approved and applied'),
-									indicator: 'green'
-								});
+								show_apply_result(r.message, __('Changes approved and applied'));
 							} else {
 								frappe.msgprint({
 									title: __('Application Failed'),
@@ -474,10 +488,7 @@ frappe.ui.form.on('MijnRood Sync Event', {
 						freeze_message: __('Applying changes...'),
 						callback(r) {
 							if (r.message && r.message.success) {
-								frappe.show_alert({
-									message: __('Changes applied successfully'),
-									indicator: 'green'
-								});
+								show_apply_result(r.message, __('Changes applied successfully'));
 							} else {
 								frappe.msgprint({
 									title: __('Application Failed'),
