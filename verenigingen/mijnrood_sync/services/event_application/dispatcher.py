@@ -39,6 +39,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class MijnRoodEventApplicationService(StatefulService):
@@ -86,7 +87,28 @@ class MijnRoodEventApplicationService(StatefulService):
             frappe.db.commit()
             return result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # Every NON_RESUMABLE_DB_ERRORS clause below this frame (e.g.
+            # _end_team_membership, _ensure_chapter_board_membership) re-raises so the
+            # unit of work is abandoned rather than resumed. Catching them here and
+            # writing an Error Log + event row on the discarded transaction is exactly
+            # what would neutralise all of them, so this frame only rolls back and
+            # propagates: whoever owns the transaction boundary restarts the run.
+            frappe.db.rollback()
+            self.logger.error("Non-resumable DB error applying event %s", event_name)
+            raise
+
         except Exception as e:
+            # Roll back BEFORE recording the failure. The handlers write as they go and
+            # _create_related_records (address, membership, dues schedule, ACR, notes)
+            # never commits, so without this the event.save() + commit() below makes
+            # those partial writes durable while the event still says un-Applied — and
+            # the operator's re-run then replays them onto half-applied state.
+            # (create_or_update_member is the exception: member_import_service commits
+            # the Member save itself, so that one write survives regardless. Separate
+            # pre-existing issue — this frame cannot reach it.)
+            frappe.db.rollback()
+
             error_msg = str(e)[:500]
             self.logger.error("Failed to apply event %s: %s", event_name, error_msg)
             frappe.log_error(frappe.get_traceback(), f"MijnRood Event Application Failed: {event_name}")

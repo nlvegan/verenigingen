@@ -556,7 +556,8 @@ class MijnRoodVolunteerSyncService:
             Human-readable status message, or None if not a team member.
 
         Raises:
-            Anything the Team save raises. This is a privilege *revocation*: a
+            Anything the Team save raises (after orphan rows are pruned — see
+            below). This is a privilege *revocation*: a
             failure here leaves the member on the team with their role profile
             intact, so it must never be downgraded to a status string. Every
             caller between here and MijnRoodEventApplicationService.apply_event
@@ -583,6 +584,12 @@ class MijnRoodVolunteerSyncService:
 
         try:
             team_doc = frappe.get_doc("Team", team_name)
+            # Same defence as the addition path (_ensure_team_membership): one dangling
+            # volunteer reference makes _validate_links() reject the whole parent save.
+            # Without it the grant path self-heals corrupt team data while the revocation
+            # path — which now raises rather than swallowing — fails permanently, i.e. a
+            # member who can join the team but never leave it.
+            self._prune_orphan_team_members(team_doc, team_name)
             for row in team_doc.team_members:
                 if row.name == tm_name:
                     row.status = "Completed"
@@ -606,7 +613,9 @@ class MijnRoodVolunteerSyncService:
             return _("Removed from team '{0}'").format(team_name)
         except NON_RESUMABLE_DB_ERRORS:
             # The transaction is already discarded — log_error() below would be a
-            # write on it. Let it reach the transaction owner (see the addition path).
+            # write on it. Let it reach the transaction owner (same clause and
+            # reasoning as _ensure_chapter_board_membership; the team *addition*
+            # path has no such clause).
             raise
         except Exception as e:
             self.logger.error("Failed to end team membership for %s in %s: %s", member_name, team_name, e)
@@ -679,10 +688,23 @@ class MijnRoodVolunteerSyncService:
         delta and can break legitimate non-role updates when team data is
         corrupt or role config has drifted.
 
-        The "ROLE_ADMIN removed" message is deliberately appended *after*
-        _end_team_membership() rather than unconditionally: that call raises when
-        the revocation cannot be persisted, so the claim is only ever made once
-        the access is actually gone.
+        Revocation here is *partial by design*, and the messages say so.
+
+        The only access this branch withdraws is the team membership configured by
+        ``add_to_team`` + ``default_team``. The "ROLE_ADMIN removed" message is
+        appended *after* _end_team_membership() rather than unconditionally, so it
+        is never emitted while a **team** revocation is outstanding — that call
+        raises when it cannot be persisted.
+
+        It guarantees nothing about ``verenigingen_role`` and ``role_profile``,
+        which the addition path grants directly (_ensure_user_role() →
+        User.add_roles(), and the ``role_profile`` handed to
+        create_volunteer_from_member()) and which nothing here removes. Undoing
+        those correctly needs provenance the system does not record: both role
+        mappings can name the same role or profile, and a role may equally have
+        been granted by hand, so a blind remove_roles() would over-revoke. Until
+        that is designed, the retained access is *reported* rather than left
+        implied by a bare "removed" on an event apply_event then marks Applied.
         """
         messages = []
 
@@ -705,6 +727,21 @@ class MijnRoodVolunteerSyncService:
                 member_name,
                 event.name if event else "N/A",
             )
+
+            retained = []
+            if config.get("verenigingen_role"):
+                retained.append(_("role '{0}'").format(config["verenigingen_role"]))
+            if config.get("role_profile"):
+                retained.append(_("role profile '{0}'").format(config["role_profile"]))
+            if retained:
+                retained_text = ", ".join(retained)
+                self.logger.warning(
+                    "ROLE_ADMIN revocation for member %s does NOT withdraw %s (event %s)",
+                    member_name,
+                    retained_text,
+                    event.name if event else "N/A",
+                )
+                messages.append(_("NOT withdrawn by sync, revoke manually: {0}").format(retained_text))
 
         return messages
 
@@ -781,28 +818,58 @@ class MijnRoodVolunteerSyncService:
             return []
 
         messages = []
+        failures = []
 
         # 1. Parse ROLE_ADMIN from the roles JSON column
         current_roles = self._parse_mijnrood_roles(mijnrood_data.get("roles"))
         old_roles = self._parse_mijnrood_roles(old_data.get("roles")) if old_data else set()
 
-        messages.extend(
-            self._handle_admin_role_change(member_name, current_roles, old_roles, role_config, event)
-        )
+        try:
+            messages.extend(
+                self._handle_admin_role_change(member_name, current_roles, old_roles, role_config, event)
+            )
+        except NON_RESUMABLE_DB_ERRORS:
+            # No point attempting the second handler: every statement it issues would
+            # be on a transaction the server has already discarded.
+            raise
+        except Exception as e:
+            self.logger.error("ROLE_ADMIN handling failed for member %s: %s", member_name, e)
+            failures.append(e)
 
         # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
         new_division_ids = mijnrood_data.get("managed_division_ids")
         old_division_ids = old_data.get("managed_division_ids") if old_data else None
 
-        messages.extend(
-            self._handle_division_contact_change(
-                member_name,
-                new_division_ids,
-                old_division_ids,
-                role_config,
-                event,
+        try:
+            messages.extend(
+                self._handle_division_contact_change(
+                    member_name,
+                    new_division_ids,
+                    old_division_ids,
+                    role_config,
+                    event,
+                )
             )
-        )
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            self.logger.error("ROLE_DIVISION_CONTACT handling failed for member %s: %s", member_name, e)
+            failures.append(e)
+
+        # The two handlers withdraw *different* access, so a raise from the first
+        # must not cancel the second: an event revoking both roles would go from
+        # "one of two revoked" to "neither attempted". Attempt both, then raise an
+        # aggregate so apply_event still records the failure and leaves the event
+        # un-Applied.
+        if failures:
+            applied = "; ".join(messages) if messages else _("nothing")
+            raise frappe.ValidationError(
+                _("Role processing failed for member {0}: {1} (applied before failure: {2})").format(
+                    member_name,
+                    " | ".join(str(f)[:200] for f in failures),
+                    applied,
+                )
+            )
 
         return messages
 

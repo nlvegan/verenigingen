@@ -1093,6 +1093,56 @@ class TestProcessMemberRoles(EnhancedTestCase):
         self.assertIn("admin handled", msgs)
         self.assertIn("division handled", msgs)
 
+    def test_division_handler_still_runs_when_admin_handler_raises(self):
+        """Fail-fast would cancel an unrelated revocation in the same event.
+
+        The two handlers withdraw *different* access. Stopping at the first failure
+        turns "one of two revocations failed" into "the second was never attempted",
+        which is strictly worse for a privilege withdrawal — so both must be
+        attempted and the failure surfaced afterwards.
+        """
+        self.service._handle_admin_role_change = MagicMock(
+            side_effect=frappe.ValidationError("admin revocation could not be persisted")
+        )
+
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.get_role_mapping",
+            return_value={"ROLE_ADMIN": {"create_volunteer": True}},
+        ):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                self.service._process_member_roles(
+                    "MEM-P3",
+                    mijnrood_data={"roles": "[]", "managed_division_ids": []},
+                    old_data={"roles": '["ROLE_ADMIN"]', "managed_division_ids": [10]},
+                )
+
+        self.service._handle_division_contact_change.assert_called_once()
+        self.assertIn("admin revocation could not be persisted", str(ctx.exception))
+
+    def test_aggregate_error_names_every_failed_handler(self):
+        """Both failing must surface as one error naming both, not just the first."""
+        self.service._handle_admin_role_change = MagicMock(
+            side_effect=frappe.ValidationError("admin boom")
+        )
+        self.service._handle_division_contact_change = MagicMock(
+            side_effect=frappe.ValidationError("division boom")
+        )
+
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.get_role_mapping",
+            return_value={"ROLE_ADMIN": {"create_volunteer": True}},
+        ):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                self.service._process_member_roles(
+                    "MEM-P4",
+                    mijnrood_data={"roles": "[]", "managed_division_ids": []},
+                    old_data={"roles": '["ROLE_ADMIN"]', "managed_division_ids": [10]},
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("admin boom", message)
+        self.assertIn("division boom", message)
+
 
 class TestRoleRevocationClosesAccess(EnhancedTestCase):
     """ROLE_ADMIN revocation must actually revoke the team-derived role profile.
@@ -1112,7 +1162,16 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
     # Team profile deliberately outranks the member/volunteer baseline
     # (PRIORITY_STAFF 75 > PRIORITY_VOLUNTEER 30 > PRIORITY_MEMBER 10).
     TEAM_PROFILE = "Verenigingen Staff"
-    BASE_PROFILE = "Verenigingen Member"
+
+    # The security property is "no longer the team profile"; *which* baseline the
+    # user lands on is not one. In-test the volunteer stays status="New" because
+    # event subscribers do not run inline (event_emitter gates that on
+    # frappe.flags.run_events_synchronously), so calculate_user_role_profile()
+    # returns PROFILE_MEMBER. In production the worker saves the Volunteer,
+    # Volunteer.update_status() sees the Team Member row via _has_any_assignment()
+    # and flips New → Active, and the calculator then returns PROFILE_VOLUNTEER.
+    # Pinning either one would encode a harness artifact, not the fix.
+    BASELINE_PROFILES = ("Verenigingen Member", "Verenigingen Volunteer")
 
     def _create_staff_team(self, label):
         """An association-wide team whose membership grants TEAM_PROFILE."""
@@ -1206,6 +1265,12 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         self.assertEqual(len(rows), 1)
         return rows[0]
 
+    def _assertProfileRevoked(self, user_name):
+        """The team-derived escalation is gone and the user sits on a baseline."""
+        profile = self._effective_profile(user_name)
+        self.assertNotEqual(profile, self.TEAM_PROFILE, "team-derived profile was not withdrawn")
+        self.assertIn(profile, self.BASELINE_PROFILES)
+
     # ── the bug ────────────────────────────────────────────────────────
 
     def test_revocation_revokes_team_derived_role_profile(self):
@@ -1225,7 +1290,7 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
 
         # The point of the fix: on_team_members_change must have re-run and
         # dropped the team-derived profile.
-        self.assertEqual(self._effective_profile(user_name), self.BASE_PROFILE)
+        self._assertProfileRevoked(user_name)
 
     def test_admin_role_change_revokes_profile_end_to_end(self):
         """The transition handler — not just the helper — must close the access."""
@@ -1243,7 +1308,65 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
 
         self.assertTrue(any("Removed from team" in m for m in msgs), msgs)
         self.assertTrue(any("ROLE_ADMIN removed" in m for m in msgs), msgs)
-        self.assertEqual(self._effective_profile(user_name), self.BASE_PROFILE)
+        self._assertProfileRevoked(user_name)
+
+    def test_revocation_succeeds_when_team_carries_an_orphan_row(self):
+        """One dangling Team Member.volunteer must not make leaving impossible.
+
+        The addition path repairs this state (``_ensure_team_membership`` calls
+        ``_prune_orphan_team_members`` before saving, because ``_validate_links()``
+        validates *every* child row on parent save). Without the same call on the
+        removal path a single orphan row means a member can join the team but never
+        leave it — and since the removal now raises rather than swallowing, the
+        failure is permanent-until-operator instead of retried.
+        """
+        team_name = self._create_staff_team("RevokeOrphan")
+        member_name, user_name, volunteer_name = self._create_admin_on_team("Orphan", team_name)
+        self._create_orphan_team_member_row(team_name)
+
+        with self.production_validation():
+            msg = get_volunteer_sync_service()._end_team_membership(member_name, team_name)
+
+        self.assertIsNotNone(msg)
+        self.assertIn("Removed from team", msg)
+        row = self._team_member_row(team_name, volunteer_name)
+        self.assertEqual(row.status, "Completed")
+        self.assertEqual(row.is_active, 0)
+        self._assertProfileRevoked(user_name)
+
+    def test_revocation_reports_the_access_it_does_not_withdraw(self):
+        """With ``add_to_team`` off nothing is revoked — the message must say so.
+
+        ``_ensure_volunteer`` grants ``verenigingen_role`` directly on the addition
+        path (``_ensure_user_role`` → ``User.add_roles``), and hands ``role_profile``
+        to ``create_volunteer_from_member``. The removal branch has no counterpart
+        for either, so a bare "ROLE_ADMIN removed" would be a false safety claim on
+        an event ``apply_event`` then marks Applied.
+        """
+        probe_role = self._create_probe_role()
+        member_name, user_name = self._create_member_with_role(probe_role)
+        role_config = {
+            "ROLE_ADMIN": {
+                "create_volunteer": True,
+                "verenigingen_role": probe_role,
+                "role_profile": self.TEAM_PROFILE,
+                "add_to_team": 0,
+            }
+        }
+
+        msgs = get_volunteer_sync_service()._handle_admin_role_change(
+            member_name,
+            current_roles=set(),
+            old_roles={"ROLE_ADMIN"},
+            role_config=role_config,
+        )
+
+        # The access really is retained — so the message has to admit it.
+        self.assertIn(probe_role, frappe.get_roles(user_name))
+        retained_msgs = [m for m in msgs if probe_role in m]
+        self.assertTrue(retained_msgs, f"retained role never reported: {msgs}")
+        self.assertIn(self.TEAM_PROFILE, " ".join(retained_msgs))
+        self.assertIn("NOT withdrawn", " ".join(retained_msgs))
 
     # ── failure must not be reported as success ────────────────────────
 
@@ -1313,7 +1436,9 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
 
         self.assertFalse(result.get("success"), result)
         event.reload()
-        self.assertNotEqual(event.status, "Applied")
+        # Not "anything but Applied" — "Rejected" or a garbage value would satisfy
+        # that too. The event has to stay exactly where an operator can re-run it.
+        self.assertEqual(event.status, "Approved")
         self.assertTrue(event.error_message)
 
         # Access unchanged — which is what "not Applied" has to mean here.
@@ -1326,6 +1451,91 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         self.assertEqual(self._effective_profile(user_name), self.TEAM_PROFILE)
 
     # ── fixture + cleanup helpers ──────────────────────────────────────
+
+    def _create_orphan_team_member_row(self, team_name):
+        """Leave a Team Member row pointing at a Volunteer that does not exist.
+
+        Built the way production reaches this state: a real row is saved first and
+        the Volunteer reference is then broken, so ``_validate_links()`` sees exactly
+        what a hard-deleted Volunteer leaves behind. (Same technique as the broken
+        ``Team.chapter`` link below — a real link, really dangling, nothing mocked.)
+        """
+        spare_member = self.factory.create_member(
+            first_name="OrphanSpare",
+            last_name="Revoke",
+            email=f"orphan-spare-{frappe.generate_hash(length=6)}@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, spare_member.name)
+
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+
+        result = create_volunteer_from_member(member_name=spare_member.name, create_user_account=False)
+        spare_volunteer = result.get("volunteer_name") or result.get("volunteer")
+        self.addCleanup(self._cleanup_volunteer, spare_volunteer)
+
+        team_doc = frappe.get_doc("Team", team_name)
+        team_doc.append(
+            "team_members",
+            {
+                "volunteer": spare_volunteer,
+                "team_role": "Team Member",
+                "from_date": today(),
+                "status": "Active",
+                "is_active": 1,
+            },
+        )
+        team_doc.save(ignore_permissions=True)
+        row_name = next(r.name for r in team_doc.team_members if r.volunteer == spare_volunteer)
+
+        frappe.db.set_value(
+            "Team Member", row_name, "volunteer", "Vol-Deleted-XYZ-999", update_modified=False
+        )
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("Volunteer", "Vol-Deleted-XYZ-999"))
+        return row_name
+
+    def _create_probe_role(self):
+        """A throwaway Role, so the test never depends on a shipped role's meaning."""
+        role_name = f"MijnRood Revoke Probe {frappe.generate_hash(length=6)}"
+        frappe.get_doc({"doctype": "Role", "role_name": role_name}).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._cleanup_role, role_name)
+        return role_name
+
+    def _create_member_with_role(self, role_name):
+        """Member + User holding ``role_name``. Returns (member_name, user_name)."""
+        member = self.factory.create_member(
+            first_name="NoTeam",
+            last_name="Revoke",
+            email=f"no-team-revoke-{frappe.generate_hash(length=6)}@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        user_doc = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": member.email,
+                "first_name": "NoTeam",
+                "send_welcome_email": 0,
+                "enabled": 1,
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(self._cleanup_user, user_doc.name)
+        frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
+
+        user_doc.add_roles(role_name)
+        frappe.db.commit()
+        self.assertIn(role_name, frappe.get_roles(user_doc.name))
+        return member.name, user_doc.name
+
+    def _cleanup_role(self, role_name):
+        try:
+            frappe.delete_doc("Role", role_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
 
     def _create_role_removal_event(self, member_name):
         """An Approved 'Changed' event whose only delta is ROLE_ADMIN going away."""
