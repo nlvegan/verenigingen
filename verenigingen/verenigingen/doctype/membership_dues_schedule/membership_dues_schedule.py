@@ -380,29 +380,19 @@ class MembershipDuesSchedule(Document):
 
         Delegates to DuplicateInvoiceDetector service for all duplicate detection logic.
         """
-        # Calculate the period to check - use billing period for Monthly, sequential for others
-        if self.billing_frequency == "Monthly":
-            # For monthly schedules, check if the current month is already covered
-            proposed_coverage_start, proposed_coverage_end = self.calculate_current_billing_period()
-        else:
-            # For other frequencies, use the existing sequential logic
-            proposed_coverage_start, proposed_coverage_end = self.calculate_next_coverage_period()
+        # Check the period this schedule is actually about to bill. Monthly used to
+        # probe the calendar month containing today instead; that only agreed with the
+        # proposed period while coverage happened to be calendar-aligned. Coverage runs
+        # from the member's join date, so a mid-month joiner's period straddles two
+        # calendar months and the calendar probe permanently overlaps the member's own
+        # latest invoice, blocking generation for most of every month.
+        proposed_coverage_start, proposed_coverage_end = self.calculate_next_coverage_period()
 
         # Delegate to service
         detector = DuplicateInvoiceDetector(self)
         result = detector.check_for_duplicates(proposed_coverage_start, proposed_coverage_end)
 
         return result.to_dict()
-
-    def calculate_current_billing_period(self):
-        """
-        Calculate the current billing period that should be covered by an invoice.
-        This is different from calculate_next_coverage_period which uses sequential logic.
-
-        Returns:
-            tuple: (billing_start, billing_end) dates for the current period
-        """
-        return self.calculate_billing_period(frappe.utils.today())
 
     def get_latest_coverage_end_date(self):
         """

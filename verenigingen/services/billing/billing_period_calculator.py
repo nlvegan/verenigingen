@@ -186,6 +186,62 @@ def calculate_billing_period(
         return period_start, period_end
 
 
+def calculate_coverage_end(
+    billing_frequency: str,
+    coverage_start,
+    custom_frequency_number: int = None,
+    custom_frequency_unit: str = None,
+) -> date:
+    """
+    Calculate the end of a billing period that RUNS FROM coverage_start.
+
+    Distinct from calculate_billing_period(), which returns the calendar period
+    surrounding a date. This one runs a full period forward from a given start, which
+    is how the coverage sequence is actually built: each period begins the day after
+    the previous one ended.
+
+    Args:
+        billing_frequency: Daily, Weekly, Monthly, Quarterly, Semi-Annual, Annual or Custom
+        coverage_start: First day of the period
+        custom_frequency_number: Period length for Custom frequency
+        custom_frequency_unit: Days, Weeks, Months or Years for Custom frequency
+
+    Returns:
+        date: Last day of the period (inclusive)
+    """
+    coverage_start = getdate(coverage_start)
+
+    if billing_frequency == "Daily":
+        return coverage_start
+    elif billing_frequency == "Weekly":
+        return add_days(coverage_start, 6)  # 7 days total
+    elif billing_frequency == "Monthly":
+        return add_days(add_months(coverage_start, 1), -1)
+    elif billing_frequency == "Quarterly":
+        return add_days(add_months(coverage_start, 3), -1)
+    elif billing_frequency == "Semi-Annual":
+        return add_days(add_months(coverage_start, 6), -1)
+    elif billing_frequency == "Annual":
+        return add_days(add_months(coverage_start, 12), -1)
+    elif billing_frequency == "Custom":
+        if not custom_frequency_number or custom_frequency_number < 1:
+            return add_days(add_months(coverage_start, 1), -1)  # Default to monthly
+
+        if custom_frequency_unit == "Days":
+            return add_days(coverage_start, custom_frequency_number - 1)
+        elif custom_frequency_unit == "Weeks":
+            return add_days(coverage_start, custom_frequency_number * 7 - 1)
+        elif custom_frequency_unit == "Months":
+            return add_days(add_months(coverage_start, custom_frequency_number), -1)
+        elif custom_frequency_unit == "Years":
+            return add_days(add_months(coverage_start, custom_frequency_number * 12), -1)
+        else:
+            return add_days(add_months(coverage_start, 1), -1)  # Default to monthly
+    else:
+        # Unknown frequency - fallback to monthly
+        return add_days(add_months(coverage_start, 1), -1)
+
+
 def derive_coverage_from_invoice_data(
     posting_date, last_invoice_date=None, next_invoice_date=None, billing_frequency=None
 ):
