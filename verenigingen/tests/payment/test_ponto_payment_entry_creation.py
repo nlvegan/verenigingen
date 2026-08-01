@@ -239,3 +239,37 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
             pluck="name",
         )
         self.assertEqual(len(entries), 1, f"the payment was posted more than once: {entries}")
+
+    def test_process_payment_received_actually_creates_and_links(self):
+        """The DocType's own entry point must produce a Payment Entry, not swallow a failure.
+
+        `process_payment_received` built a Payment Entry by hand and set
+        paid_from_account_currency / paid_to_account_currency but never paid_from /
+        paid_to, so every insert raised MandatoryError and was swallowed by its own
+        `except`. It therefore never set `self.payment_entry` - which is what leaves the
+        `not doc.payment_entry` guard unlatched and lets a retried webhook post twice.
+
+        It also keyed reference_no on `self.name` while the webhook path keys on
+        `ponto_request_id`, so the two creators could not see each other's work.
+        """
+        member = self._member_with_customer(first_name="PontoDoctype")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+
+        link.process_payment_received()
+
+        self.assertTrue(link.payment_entry, "the link must carry the entry it created")
+        pe = frappe.get_doc("Payment Entry", link.payment_entry)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(
+            [r.reference_name for r in pe.references],
+            [invoice.name],
+            "the entry must be allocated to the linked invoice",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Ponto Payment Link", link.name, "payment_entry"),
+            pe.name,
+            "the link must be persisted, or the retry guard never latches",
+        )

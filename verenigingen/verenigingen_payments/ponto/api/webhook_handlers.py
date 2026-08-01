@@ -568,15 +568,21 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
             # a SECOND transaction-visible step after the entry is submitted, so the two
             # can diverge (a failed save-back, a crash between them) and the caller's
             # `not doc.payment_entry` guard would then let a retried webhook post the
-            # same money again. Keyed on reference_no, which carries the Ponto request id.
-            reference_no = payment_link_doc.ponto_request_id or payment_link_doc.name
+            # same money again.
+            #
+            # Both keys are searched. The link name is included because the DocType's
+            # former hand-rolled creator keyed reference_no on it; any entry it managed
+            # to write on an older release would otherwise be invisible here and get
+            # duplicated. New entries all use the request id.
+            candidate_refs = [payment_link_doc.ponto_request_id, payment_link_doc.name]
+            candidate_refs = [r for r in candidate_refs if r]
             existing_pe = frappe.db.get_value(
-                "Payment Entry", {"reference_no": reference_no, "docstatus": 1}, "name"
+                "Payment Entry", {"reference_no": ("in", candidate_refs), "docstatus": 1}, "name"
             )
             if existing_pe:
                 frappe.logger().info(
-                    f"Payment Entry {existing_pe} already exists for Ponto reference {reference_no} - "
-                    f"relinking rather than creating a second one"
+                    f"Payment Entry {existing_pe} already exists for Ponto link "
+                    f"{payment_link_doc.name} - relinking rather than creating a second one"
                 )
                 result["payment_entry"] = existing_pe
                 payment_link_doc.payment_entry = existing_pe
