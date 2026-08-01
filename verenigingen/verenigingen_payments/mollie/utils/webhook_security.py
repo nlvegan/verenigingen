@@ -125,6 +125,14 @@ def validate_webhook_user_permissions():
     # - Member: Member payment history updates
     # - Donor: Donor subscription and payment history updates
     # - Mollie Audit Log: Webhook event logging
+    # NOTE: Sales Invoice and Payment Entry are deliberately NOT listed, even though the
+    # dues path needs them. _check_docperm_for_roles() below consults DocPerm rows for the
+    # literal "Verenigingen Webhook User" role only, while the effective grant arrives via
+    # Accounts User in that user's role PROFILE (fixtures/role_profile.json). The check
+    # would therefore fail permanently and emit an Error Log on every webhook, without
+    # revealing anything true. Fixing the checker to evaluate effective permissions - and
+    # adding "submit", which is never checked despite being the gate the service relies on
+    # most - is a prerequisite to listing them here.
     required_doctypes = [
         "Donation",
         "Bank Transaction",

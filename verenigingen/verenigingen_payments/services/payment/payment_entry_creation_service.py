@@ -12,8 +12,21 @@ This service provides standardized payment entry creation with:
 - Input validation (amount, invoice existence)
 - Optional graceful degradation to draft entries
 
+Gateway payments (Mollie, Ponto, ING) are supported via `bank_account` and `remarks`;
+the four hand-rolled gateway wrappers are being migrated onto this service so a fix
+lands in one place rather than four.
+
+Callers must already hold Payment Entry create/submit and Sales Invoice read; this
+service does NOT bypass those checks for anyone. The Mollie webhook meets that by
+running as the configured service user (webhook_security.py sets it after signature
+verification). Ponto does NOT - its executed-payment branch runs inline under an
+allow_guest request - so that path must arrange a permitted identity itself rather than
+assume one. Note also that get_service_user() falls back to Administrator when
+`Verenigingen Payments Settings.webhook_user` is unset, which is the case on veg11:
+configure it before relying on attribution.
+
 Does NOT handle:
-- Gateway-specific payments (Mollie clearing accounts, custom fields)
+- Unallocated payment entries (this service is invoice-driven by construction)
 - Payment plan entries (different pattern - builds from scratch)
 - Fee entries (Journal Entry doctype)
 - Membership status updates (caller responsibility)
@@ -52,6 +65,8 @@ class PaymentEntryCreationService:
         bank_transaction_name: Optional[str] = None,
         allow_draft_on_permission_failure: bool = False,
         custom_fields: Optional[Dict[str, Any]] = None,
+        bank_account: Optional[str] = None,
+        remarks: Optional[str] = None,
     ) -> "PaymentEntry":
         """
         Create and submit payment entry from invoice.
@@ -69,6 +84,13 @@ class PaymentEntryCreationService:
                                                submit permission (for reconciliation workflows)
             custom_fields: Optional dict of custom field names to values to set on payment entry
                           (e.g., {"custom_sepa_batch": "BATCH-001", "custom_sepa_batch_item": "ITEM-001"})
+            bank_account: Optional GL account the money lands in (a gateway clearing
+                          account such as Mollie clearing, Ponto bank or ING). Passed
+                          through to ERPNext, which derives paid_to/paid_from and the
+                          matching account currency from it. Defaults to the company's
+                          bank/cash account when omitted.
+            remarks: Optional remarks text. Sets custom_remarks so Payment Entry.validate()
+                     does not regenerate it. Omit to keep ERPNext's generated text.
 
         Returns:
             PaymentEntry: Created and submitted Payment Entry document
@@ -157,8 +179,17 @@ class PaymentEntryCreationService:
             amount_float = float(amount)
 
             # Create payment entry using ERPNext's standard function
-            # This auto-populates accounts, party information, and references
-            payment_entry = get_payment_entry(dt="Sales Invoice", dn=invoice.name, party_amount=amount_float)
+            # This auto-populates accounts, party information, and references.
+            # bank_account is passed THROUGH rather than assigned afterwards: ERPNext
+            # derives paid_to/paid_from *and* the matching account currency from the
+            # account it resolves here (payment_entry.py:2921-2925), so a post-hoc
+            # assignment would move the account and leave the currency behind.
+            payment_entry = get_payment_entry(
+                dt="Sales Invoice",
+                dn=invoice.name,
+                party_amount=amount_float,
+                bank_account=bank_account,
+            )
 
             # Set payment details
             payment_entry.payment_type = payment_type
@@ -166,6 +197,16 @@ class PaymentEntryCreationService:
             payment_entry.reference_no = reference_no
             payment_entry.reference_date = reference_date
             payment_entry.posting_date = posting_date
+
+            # Gateway callers supply their own remarks (payment id, orphan banner,
+            # payment-link name); otherwise keep the text ERPNext generated.
+            # custom_remarks MUST be set alongside: Payment Entry.validate() calls
+            # set_remarks(), which regenerates the field from the amount/party and
+            # returns early only when custom_remarks is truthy. Assigning remarks alone
+            # is silently discarded on save.
+            if remarks:
+                payment_entry.remarks = remarks
+                payment_entry.custom_remarks = 1
 
             # Set paid/received amounts explicitly
             payment_entry.paid_amount = amount_float

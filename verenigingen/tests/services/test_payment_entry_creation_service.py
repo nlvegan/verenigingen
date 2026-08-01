@@ -519,6 +519,104 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # Assert
         self.assertEqual(payment_entry.payment_type, "Receive")
 
+    # ------------------------------------------------------------------
+    # Gateway parameters (bank_account / remarks)
+    #
+    # These exist so the four hand-rolled gateway wrappers (Mollie dues, Mollie
+    # orchestrator, Ponto, ING) can call this service instead of ERPNext's
+    # get_payment_entry directly. A gateway payment lands in a gateway-specific
+    # clearing account rather than the company default and carries its own remarks.
+    # Permissions are NOT special-cased: gateway webhooks run as the configured
+    # service user, so the requirement is met by granting that role rather than by
+    # bypassing the checks.
+    # ------------------------------------------------------------------
+    def _ensure_clearing_account(self, company):
+        """A real Bank-type GL Account on `company`, standing in for a gateway
+        clearing account (Mollie clearing, Ponto bank, ING). Created here rather
+        than reusing the Mollie fixture so this suite stays gateway-agnostic."""
+        name = frappe.db.get_value(
+            "Account", {"company": company, "account_name": "Test Gateway Clearing"}, "name"
+        )
+        if name:
+            return name
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": "Test Gateway Clearing",
+                "company": company,
+                "parent_account": parent,
+                "account_type": "Bank",
+                "is_group": 0,
+                "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+            }
+        ).insert()
+        self.track_doc("Account", account.name)
+        return account.name
+
+    def test_bank_account_sets_the_receiving_side_of_the_entry(self):
+        """A gateway payment must land in its clearing account, not the company default.
+
+        `paid_to` is the load-bearing assertion: the clearing account is created fresh
+        and is never the company's default bank account, so this only holds if
+        `bank_account` reached `get_payment_entry`. Drop the pass-through and ERPNext
+        resolves the company default instead.
+
+        Deliberately does NOT assert `paid_to_account_currency`. ERPNext does derive it
+        from the same resolved account (payment_entry.py:2921-2925), but the clearing
+        account here carries the company's own currency, so that assertion holds whether
+        or not the currency tracked the account - it would claim a guarantee it cannot
+        provide. Proving it needs a differing-currency account, which drags in
+        multi-currency conversion this test is not about.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("60.00"))
+        invoice.submit()
+        clearing = self._ensure_clearing_account(invoice.company)
+        self.assertNotEqual(
+            clearing,
+            frappe.db.get_value("Company", invoice.company, "default_bank_account"),
+            "the fixture must differ from the default, or paid_to proves nothing",
+        )
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("60.00"),
+            posting_date=date.today(),
+            reference_no="GATEWAY-BANK",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            bank_account=clearing,
+        )
+
+        self.assertEqual(payment_entry.paid_to, clearing)
+
+    def test_remarks_override_the_generated_text(self):
+        """Gateways carry their own remarks (payment id, orphan banner, link name).
+
+        ERPNext generates a default remark, so the test asserts the supplied text is
+        used INSTEAD of it, not merely that the field is non-empty.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("60.00"))
+        invoice.submit()
+        remarks = "Membership dues via Mollie (awaiting settlement). Payment tr_test_12345"
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("60.00"),
+            posting_date=date.today(),
+            reference_no="GATEWAY-REMARKS",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            remarks=remarks,
+        )
+
+        self.assertEqual(payment_entry.remarks, remarks)
+        # Read back from the DB: Payment Entry.validate() regenerates remarks unless
+        # custom_remarks is set, so the in-memory value alone would not prove it stuck.
+        self.assertEqual(frappe.db.get_value("Payment Entry", payment_entry.name, "remarks"), remarks)
+
 
 class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):
     """Integration tests for PaymentEntryCreationService with actual ERPNext data"""
