@@ -528,12 +528,22 @@ class TestCostRate(FinancialDashboardTestBase):
     def test_cost_rate_is_costs_over_revenue_as_a_percentage(self):
         month_start = self.now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         period_key = self.now.strftime("%Y-%m")
+        # Revenue is summed over [month_start, now] (`_get_revenue_analysis` passes
+        # `now` as the upper bound), so the fixture has to sit INSIDE that window
+        # wherever in the month the clock happens to be. Offsetting forward from
+        # month_start put the data in the FUTURE during the first hours of the 1st:
+        # revenue came out 0 and the cost rate collapsed to 0. That failed on develop
+        # at 01:14 UTC on 2026-08-01 and would have recurred 00:00-02:00 UTC on the
+        # 1st of every month. The midpoint is always inside the window - and the
+        # bounds are inclusive (filter_items_by_date_range), so it holds even at the
+        # instant the month starts, where midpoint == month_start == now.
+        within_window = month_start + (self.now - month_start) / 2
         self.given_settlements(
             [
                 settlement_json(
                     "stl_1",
                     "950.00",
-                    settled_at=month_start + timedelta(hours=1),
+                    settled_at=within_window,
                     period_key=period_key,
                     revenue_net="1000.00",
                     costs_net="25.00",
@@ -541,7 +551,7 @@ class TestCostRate(FinancialDashboardTestBase):
             ]
         )
         # Revenue comes from the payments fallback (see the settlement-period bug).
-        self.given_payments([payment("tr_1", "paid", "1000.00", month_start + timedelta(hours=2))])
+        self.given_payments([payment("tr_1", "paid", "1000.00", within_window)])
 
         breakdown = self.dashboard._get_cost_breakdown()
 
