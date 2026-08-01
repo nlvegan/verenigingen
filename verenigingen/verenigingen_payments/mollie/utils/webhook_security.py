@@ -125,11 +125,14 @@ def validate_webhook_user_permissions():
     # - Member: Member payment history updates
     # - Donor: Donor subscription and payment history updates
     # - Mollie Audit Log: Webhook event logging
-    # - Sales Invoice / Payment Entry: dues payments are recorded as a Payment Entry
-    #   allocated to the member's invoice. ERPNext's get_payment_entry reads the invoice
-    #   and PaymentEntryCreationService checks Payment Entry create/submit, so the
-    #   webhook user must genuinely hold these - they are deliberately NOT bypassed at
-    #   the service, so a missing grant surfaces here rather than silently escalating.
+    # NOTE: Sales Invoice and Payment Entry are deliberately NOT listed, even though the
+    # dues path needs them. _check_docperm_for_roles() below consults DocPerm rows for the
+    # literal "Verenigingen Webhook User" role only, while the effective grant arrives via
+    # Accounts User in that user's role PROFILE (fixtures/role_profile.json). The check
+    # would therefore fail permanently and emit an Error Log on every webhook, without
+    # revealing anything true. Fixing the checker to evaluate effective permissions - and
+    # adding "submit", which is never checked despite being the gate the service relies on
+    # most - is a prerequisite to listing them here.
     required_doctypes = [
         "Donation",
         "Bank Transaction",
@@ -137,8 +140,6 @@ def validate_webhook_user_permissions():
         "Member",
         "Donor",
         "Mollie Audit Log",
-        "Sales Invoice",
-        "Payment Entry",
     ]
 
     current_user = frappe.session.user
