@@ -125,6 +125,11 @@ def validate_webhook_user_permissions():
     # - Member: Member payment history updates
     # - Donor: Donor subscription and payment history updates
     # - Mollie Audit Log: Webhook event logging
+    # - Sales Invoice / Payment Entry: dues payments are recorded as a Payment Entry
+    #   allocated to the member's invoice. ERPNext's get_payment_entry reads the invoice
+    #   and PaymentEntryCreationService checks Payment Entry create/submit, so the
+    #   webhook user must genuinely hold these - they are deliberately NOT bypassed at
+    #   the service, so a missing grant surfaces here rather than silently escalating.
     required_doctypes = [
         "Donation",
         "Bank Transaction",
@@ -132,6 +137,8 @@ def validate_webhook_user_permissions():
         "Member",
         "Donor",
         "Mollie Audit Log",
+        "Sales Invoice",
+        "Payment Entry",
     ]
 
     current_user = frappe.session.user
