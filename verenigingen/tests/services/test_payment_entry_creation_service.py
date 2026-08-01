@@ -519,6 +519,124 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # Assert
         self.assertEqual(payment_entry.payment_type, "Receive")
 
+    # ------------------------------------------------------------------
+    # Gateway parameters (bank_account / remarks / system_context)
+    #
+    # These exist so the four hand-rolled gateway wrappers (Mollie dues, Mollie
+    # orchestrator, Ponto, ING) can call this service instead of ERPNext's
+    # get_payment_entry directly. A gateway payment lands in a gateway-specific
+    # clearing account rather than the company default, carries its own remarks,
+    # and is created from a webhook with no user session.
+    # ------------------------------------------------------------------
+    def _ensure_clearing_account(self, company):
+        """A real Bank-type GL Account on `company`, standing in for a gateway
+        clearing account (Mollie clearing, Ponto bank, ING). Created here rather
+        than reusing the Mollie fixture so this suite stays gateway-agnostic."""
+        name = frappe.db.get_value(
+            "Account", {"company": company, "account_name": "Test Gateway Clearing"}, "name"
+        )
+        if name:
+            return name
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": "Test Gateway Clearing",
+                "company": company,
+                "parent_account": parent,
+                "account_type": "Bank",
+                "is_group": 0,
+                "account_currency": frappe.db.get_value("Company", company, "default_currency"),
+            }
+        ).insert()
+        self.track_doc("Account", account.name)
+        return account.name
+
+    def test_bank_account_sets_the_receiving_side_of_the_entry(self):
+        """A gateway payment must land in its clearing account, not the company default.
+
+        Asserts `paid_to` AND `paid_to_account_currency` together on purpose. ERPNext
+        derives both from the same resolved bank account (payment_entry.py:2921-2925),
+        so the service must pass `bank_account` through to `get_payment_entry` rather
+        than assigning `paid_to` afterwards - a post-hoc assignment would move the
+        account while leaving the currency field pointing at the previous one. The
+        four gateway wrappers all do that redundant post-hoc assignment today.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("60.00"))
+        invoice.submit()
+        clearing = self._ensure_clearing_account(invoice.company)
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("60.00"),
+            posting_date=date.today(),
+            reference_no="GATEWAY-BANK",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            bank_account=clearing,
+        )
+
+        self.assertEqual(payment_entry.paid_to, clearing)
+        self.assertEqual(
+            payment_entry.paid_to_account_currency,
+            frappe.db.get_value("Account", clearing, "account_currency"),
+            "currency must track the account ERPNext actually resolved",
+        )
+
+    def test_remarks_override_the_generated_text(self):
+        """Gateways carry their own remarks (payment id, orphan banner, link name).
+
+        ERPNext generates a default remark, so the test asserts the supplied text is
+        used INSTEAD of it, not merely that the field is non-empty.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("60.00"))
+        invoice.submit()
+        remarks = "Membership dues via Mollie (awaiting settlement). Payment tr_test_12345"
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("60.00"),
+            posting_date=date.today(),
+            reference_no="GATEWAY-REMARKS",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            remarks=remarks,
+        )
+
+        self.assertEqual(payment_entry.remarks, remarks)
+        # Read back from the DB: Payment Entry.validate() regenerates remarks unless
+        # custom_remarks is set, so the in-memory value alone would not prove it stuck.
+        self.assertEqual(frappe.db.get_value("Payment Entry", payment_entry.name, "remarks"), remarks)
+
+    def test_system_context_creates_entry_without_a_permitted_user(self):
+        """Webhook callers have no user session, so the permission gates must be skippable.
+
+        This is the gap that keeps the gateways off this service today: it checks
+        `has_permission` for create and submit and throws, which is right for
+        interactive reconciliation and wrong for a webhook. The same restricted user
+        that `test_create_permission_denied_raises_permission_error` proves is refused
+        must succeed here, so the test isolates the flag as the only variable.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("65.00"))
+        invoice.submit()
+        role = self._make_deskless_role_without_perms()
+        restricted_user = self._make_user_with_roles([role])
+
+        frappe.set_user(restricted_user)
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("65.00"),
+            posting_date=date.today(),
+            reference_no="GATEWAY-SYSTEM",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            system_context=True,
+        )
+
+        self.assertEqual(payment_entry.docstatus, 1, "a system-context entry must be submitted")
+
 
 class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):
     """Integration tests for PaymentEntryCreationService with actual ERPNext data"""

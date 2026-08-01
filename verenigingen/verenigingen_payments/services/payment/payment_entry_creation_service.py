@@ -12,8 +12,12 @@ This service provides standardized payment entry creation with:
 - Input validation (amount, invoice existence)
 - Optional graceful degradation to draft entries
 
+Gateway payments (Mollie, Ponto, ING) are supported via `bank_account`, `remarks` and
+`system_context`; the four hand-rolled gateway wrappers are being migrated onto this
+service so a fix lands in one place rather than four.
+
 Does NOT handle:
-- Gateway-specific payments (Mollie clearing accounts, custom fields)
+- Unallocated payment entries (this service is invoice-driven by construction)
 - Payment plan entries (different pattern - builds from scratch)
 - Fee entries (Journal Entry doctype)
 - Membership status updates (caller responsibility)
@@ -52,6 +56,9 @@ class PaymentEntryCreationService:
         bank_transaction_name: Optional[str] = None,
         allow_draft_on_permission_failure: bool = False,
         custom_fields: Optional[Dict[str, Any]] = None,
+        bank_account: Optional[str] = None,
+        remarks: Optional[str] = None,
+        system_context: bool = False,
     ) -> "PaymentEntry":
         """
         Create and submit payment entry from invoice.
@@ -69,6 +76,18 @@ class PaymentEntryCreationService:
                                                submit permission (for reconciliation workflows)
             custom_fields: Optional dict of custom field names to values to set on payment entry
                           (e.g., {"custom_sepa_batch": "BATCH-001", "custom_sepa_batch_item": "ITEM-001"})
+            bank_account: Optional GL account the money lands in (a gateway clearing
+                          account such as Mollie clearing, Ponto bank or ING). Passed
+                          through to ERPNext, which derives paid_to/paid_from and the
+                          matching account currency from it. Defaults to the company's
+                          bank/cash account when omitted.
+            remarks: Optional remarks text. Sets custom_remarks so Payment Entry.validate()
+                     does not regenerate it. Omit to keep ERPNext's generated text.
+            system_context: If True, skip the create/submit permission gates and insert
+                            with ignore_permissions, then submit unconditionally. For
+                            gateway webhook callers ONLY - they run with no user session,
+                            and authorisation comes from the verified webhook. Never set
+                            this on a path that serves a user request.
 
         Returns:
             PaymentEntry: Created and submitted Payment Entry document
@@ -132,22 +151,28 @@ class PaymentEntryCreationService:
         if not frappe.db.exists("Sales Invoice", invoice_name):
             frappe.throw(_("Sales Invoice {0} does not exist").format(invoice_name))
 
-        # Check permissions BEFORE starting any database operations
-        if not frappe.has_permission("Payment Entry", "create"):
-            frappe.throw(
-                _("Insufficient permissions to create payment entry"),
-                frappe.PermissionError,
-            )
-
-        # Check submit permission for strict mode
-        if not allow_draft_on_permission_failure:
-            # In strict mode, we need submit permission upfront
-            # Check on doctype level first (more efficient)
-            if not frappe.has_permission("Payment Entry", "submit"):
+        # Check permissions BEFORE starting any database operations.
+        # SECURITY JUSTIFICATION: system_context skips these gates for gateway webhook
+        # callers, which run with no user session and so have no permissions to check.
+        # The payment is authorised by the gateway's own signed webhook, verified before
+        # this point; the audit trail is the Payment Entry plus its reference_no. This is
+        # an explicit, greppable opt-in - it must never be set on a request-serving path.
+        if not system_context:
+            if not frappe.has_permission("Payment Entry", "create"):
                 frappe.throw(
-                    _("Insufficient permissions to submit payment entry"),
+                    _("Insufficient permissions to create payment entry"),
                     frappe.PermissionError,
                 )
+
+            # Check submit permission for strict mode
+            if not allow_draft_on_permission_failure:
+                # In strict mode, we need submit permission upfront
+                # Check on doctype level first (more efficient)
+                if not frappe.has_permission("Payment Entry", "submit"):
+                    frappe.throw(
+                        _("Insufficient permissions to submit payment entry"),
+                        frappe.PermissionError,
+                    )
 
         try:
             # Get the invoice
@@ -157,8 +182,17 @@ class PaymentEntryCreationService:
             amount_float = float(amount)
 
             # Create payment entry using ERPNext's standard function
-            # This auto-populates accounts, party information, and references
-            payment_entry = get_payment_entry(dt="Sales Invoice", dn=invoice.name, party_amount=amount_float)
+            # This auto-populates accounts, party information, and references.
+            # bank_account is passed THROUGH rather than assigned afterwards: ERPNext
+            # derives paid_to/paid_from *and* the matching account currency from the
+            # account it resolves here (payment_entry.py:2921-2925), so a post-hoc
+            # assignment would move the account and leave the currency behind.
+            payment_entry = get_payment_entry(
+                dt="Sales Invoice",
+                dn=invoice.name,
+                party_amount=amount_float,
+                bank_account=bank_account,
+            )
 
             # Set payment details
             payment_entry.payment_type = payment_type
@@ -166,6 +200,16 @@ class PaymentEntryCreationService:
             payment_entry.reference_no = reference_no
             payment_entry.reference_date = reference_date
             payment_entry.posting_date = posting_date
+
+            # Gateway callers supply their own remarks (payment id, orphan banner,
+            # payment-link name); otherwise keep the text ERPNext generated.
+            # custom_remarks MUST be set alongside: Payment Entry.validate() calls
+            # set_remarks(), which regenerates the field from the amount/party and
+            # returns early only when custom_remarks is truthy. Assigning remarks alone
+            # is silently discarded on save.
+            if remarks:
+                payment_entry.remarks = remarks
+                payment_entry.custom_remarks = 1
 
             # Set paid/received amounts explicitly
             payment_entry.paid_amount = amount_float
@@ -185,13 +229,25 @@ class PaymentEntryCreationService:
                             f"Custom field '{field_name}' not found on Payment Entry - skipping"
                         )
 
-            # Insert payment entry
-            payment_entry.insert()
+            # Insert payment entry.
+            # SECURITY JUSTIFICATION: see the system_context gate above - a gateway
+            # webhook has no user session to carry create permission, and the write is
+            # authorised by the verified webhook rather than by a Frappe role.
+            payment_entry.insert(ignore_permissions=system_context)
 
             # Try to submit
+            # System context submits unconditionally: there is no user whose instance
+            # permission could be consulted, and leaving a gateway payment as a draft
+            # would strand the money off the ledger.
+            if system_context:
+                payment_entry.submit()
+                frappe.logger().info(
+                    f"Created and submitted payment entry {payment_entry.name} for invoice "
+                    f"{invoice_name} in system context"
+                )
             # In strict mode, we already checked permission above
             # In graceful mode, we check instance-level permission here
-            if allow_draft_on_permission_failure:
+            elif allow_draft_on_permission_failure:
                 # Check instance-level permission
                 if frappe.has_permission("Payment Entry", "submit", payment_entry):
                     payment_entry.submit()
