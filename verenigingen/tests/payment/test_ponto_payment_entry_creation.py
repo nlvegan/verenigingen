@@ -169,3 +169,32 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
 
         pe = frappe.get_doc("Payment Entry", pe_name)
         self.assertEqual(float(pe.references[0].allocated_amount), 30.0)
+
+    def test_creates_the_entry_under_the_guest_webhook_session(self):
+        """The production context: `handle_ponto_webhook` is `allow_guest=True`.
+
+        Nothing in that request path elevates the session - the sibling sync/transaction
+        handlers enqueue with `user=_get_webhook_user()`, but the executed-payment branch
+        calls this function INLINE (webhook_handlers.py:405). So the real caller is Guest,
+        and ERPNext's get_payment_entry calls
+        `frappe.has_permission("Sales Invoice", "read", throw=True)` internally
+        (payment_entry.py:2800) before anything is written.
+
+        Running the other tests as Administrator hides this entirely, which is why this
+        one pins the session the webhook actually uses.
+        """
+        member = self._member_with_customer(first_name="PontoGuest")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+
+        # Registered before switching so the session is handed back even if the call
+        # raises. Restoring via addCleanup rather than inline keeps the escalation out
+        # of the test body.
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user("Guest")
+        pe_name = _create_ponto_payment_entry(link, invoice.name)
+
+        self.assertIsNotNone(
+            pe_name, "the webhook's own session must be able to record the payment"
+        )
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe_name, "docstatus"), 1)
