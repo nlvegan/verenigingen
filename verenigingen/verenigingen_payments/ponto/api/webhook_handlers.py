@@ -568,6 +568,20 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
                 frappe.logger().info(
                     f"Matched Ponto Payment Link {payment_link_doc.name} to Sales Invoice {matched_invoice}"
                 )
+            else:
+                # An EXECUTED payment that matches no invoice must not pass silently.
+                # There is no else-branch below either, so without this the money is
+                # received, nothing is written, and nothing is logged - the link simply
+                # sits at Executed with no Payment Entry forever. Recorded as an Error
+                # Log (not just a logger call) because it needs a human to reconcile.
+                frappe.log_error(
+                    title=f"Ponto payment matched no invoice: {payment_link_doc.name}",
+                    message=(
+                        f"Executed Ponto Payment Link {payment_link_doc.name} for member "
+                        f"{member_name} (amount {amount}) matched no Sales Invoice. "
+                        f"No Payment Entry was created - manual reconciliation required."
+                    ),
+                )
 
         # Create Payment Entry if we have an invoice
         if result.get("sales_invoice"):

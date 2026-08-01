@@ -327,6 +327,37 @@ class TestCreateInvoiceIfSafe(OrchestratorBase):
             result.actions_taken,
         )
 
+    def test_exact_draft_overlap_is_neither_reused_nor_duplicated(self):
+        """A DRAFT with exact coverage stops the path for manual review.
+
+        A draft is not payable (Payment Entry refuses an unsubmitted reference) and it
+        is not "already paid" either - ERPNext computes outstanding_amount on every
+        non-cancelled save, so a draft carries its full grand_total and would otherwise
+        be reused as an unpaid invoice. Creating a second invoice instead would
+        duplicate the draft, so neither branch is correct: return None.
+        """
+        from verenigingen.services.billing.coverage_calculator import (
+            calculate_coverage_for_payment_date,
+        )
+
+        member = self._make_member_with_customer(first_name="DraftOverlap")
+        pay_date = today()
+        cov_start, cov_end = calculate_coverage_for_payment_date(member.name, pay_date)
+        draft = self._make_sales_invoice(
+            member.customer, cov_start, cov_end, outstanding=10.0, submit=False
+        )
+        self.assertEqual(draft.docstatus, 0)
+        result = PaymentProcessingResult(payment_id=self.pid)
+        with self.assertNoErrorLog():
+            invoice = self.orch._create_invoice_if_safe(
+                member.name, pay_date, 10.0, result
+            )
+        self.assertIsNone(invoice)
+        self.assertTrue(
+            any("draft invoice" in a.lower() for a in result.actions_taken),
+            result.actions_taken,
+        )
+
 
 # =============================================================================
 # _get_or_create_orphan_customer (real Customer create + idempotent reuse)
