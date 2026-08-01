@@ -20,10 +20,7 @@ from frappe.utils import flt, getdate
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
-from verenigingen.services.billing.coverage_calculator import (
-    calculate_coverage_for_payment_date,
-    find_invoice_for_payment,
-)
+from verenigingen.services.billing.coverage_calculator import calculate_coverage_for_payment_date
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error

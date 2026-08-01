@@ -174,15 +174,21 @@ def check_coverage_overlap(
             reason="No overlapping invoices found",
         )
 
-    # Check for exact match
-    exact_match = None
-    for inv in overlapping:
-        if (
-            getdate(inv["custom_coverage_start_date"]) == proposed_start
-            and getdate(inv["custom_coverage_end_date"]) == proposed_end
-        ):
-            exact_match = inv["name"]
-            break
+    # Check for exact match. Callers use exact_match to decide what a payment can be
+    # allocated to, and only a submitted invoice can be - so when a draft and a
+    # submitted invoice share the period, prefer the submitted one. The query orders by
+    # coverage start date, which is tied in that case, so without this the winner would
+    # be whatever the storage engine happened to return first, and picking the draft
+    # costs a real allocation. The list itself is left in query order for the callers
+    # that report every overlapping invoice.
+    exact_matches = [
+        inv
+        for inv in overlapping
+        if getdate(inv["custom_coverage_start_date"]) == proposed_start
+        and getdate(inv["custom_coverage_end_date"]) == proposed_end
+    ]
+    submitted_match = next((inv for inv in exact_matches if inv.get("docstatus") == 1), None)
+    exact_match = (submitted_match or exact_matches[0])["name"] if exact_matches else None
 
     # Build reason message
     invoice_names = [inv["name"] for inv in overlapping]

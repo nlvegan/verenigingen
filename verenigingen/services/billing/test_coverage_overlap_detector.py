@@ -48,7 +48,10 @@ class TestCoverageOverlapDetector(EnhancedTestCase):
         return member.customer
 
     def _invoice(self, customer, cov_start, cov_end, *, submit=True, outstanding=None):
-        inv = self.create_test_sales_invoice(customer=customer)
+        # A draft must be requested at creation time: create_test_sales_invoice submits
+        # unless status="Draft" is passed, so by the time this helper inspects the doc
+        # its docstatus is already 1 and withholding submit() here does nothing.
+        inv = self.create_test_sales_invoice(customer=customer, **({} if submit else {"status": "Draft"}))
         self._committed.append(("Sales Invoice", inv.name))
         if inv.docstatus == 0 and submit:
             inv.submit()
@@ -136,6 +139,35 @@ class TestCoverageOverlapDetector(EnhancedTestCase):
         self.assertEqual(result.exact_match, inv)
         self.assertIn("Exact duplicate", result.reason)
         self.assertIn(inv, result.reason)
+
+    def test_exact_match_prefers_the_submitted_invoice_over_a_draft(self):
+        """When a draft and a submitted invoice share a period, exact_match is the submitted one.
+
+        Every caller uses exact_match to decide what a payment can be allocated to, and
+        only a submitted invoice can be. Selecting the draft costs a real allocation:
+        the callers stop for manual review and the money lands as an unallocated PE
+        even though a perfectly payable invoice was sitting right there.
+
+        find_overlapping_invoices orders by coverage start date, which is tied here, so
+        without an explicit preference the winner is whatever the storage engine returns
+        first.
+        """
+        customer = self._customer()
+        # Created first, so it is the one the tied ORDER BY returns first - see the
+        # premise assertion below, which fails loudly if that ever stops holding
+        # instead of letting this test pass for the wrong reason.
+        draft = self._invoice(customer, "2025-07-01", "2025-07-31", submit=False)
+        submitted = self._invoice(customer, "2025-07-01", "2025-07-31")
+
+        overlapping = find_overlapping_invoices(customer, "2025-07-01", "2025-07-31")
+        self.assertEqual(
+            [r["name"] for r in overlapping],
+            [draft, submitted],
+            "premise: the draft is returned first, so a first-match wins rule would pick it",
+        )
+
+        result = check_coverage_overlap(customer, "2025-07-01", "2025-07-31")
+        self.assertEqual(result.exact_match, submitted)
 
     def test_check_partial_overlap_no_exact_match(self):
         customer = self._customer()

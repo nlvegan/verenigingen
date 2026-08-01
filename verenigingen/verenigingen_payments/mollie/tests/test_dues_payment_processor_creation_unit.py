@@ -470,9 +470,10 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
         )
 
         found = self.processor._get_or_create_historical_invoice(member.name, today(), 25.0)
-        self.assertNotEqual(
-            found, draft.name, "a draft invoice must not be returned as an invoice to allocate against"
-        )
+        # None, not merely "some other invoice": creating a second invoice for a period
+        # a draft already covers would duplicate it, so neither branch is correct here.
+        # Asserting only `!= draft.name` would accept exactly that duplicate.
+        self.assertIsNone(found, "a draft invoice must not be returned as an invoice to allocate against")
 
     def test_draft_exact_coverage_still_records_the_payment_unallocated(self):
         """The consequence of the above: the money must still land on the ledger.
