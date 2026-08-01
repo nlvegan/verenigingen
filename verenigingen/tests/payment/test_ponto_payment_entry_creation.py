@@ -170,31 +170,72 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         pe = frappe.get_doc("Payment Entry", pe_name)
         self.assertEqual(float(pe.references[0].allocated_amount), 30.0)
 
-    def test_creates_the_entry_under_the_guest_webhook_session(self):
-        """The production context: `handle_ponto_webhook` is `allow_guest=True`.
+    def test_guest_cannot_create_the_entry(self):
+        """Guest must be refused - and nothing partial may be left behind.
 
-        Nothing in that request path elevates the session - the sibling sync/transaction
-        handlers enqueue with `user=_get_webhook_user()`, but the executed-payment branch
-        calls this function INLINE (webhook_handlers.py:405). So the real caller is Guest,
-        and ERPNext's get_payment_entry calls
-        `frappe.has_permission("Sales Invoice", "read", throw=True)` internally
-        (payment_entry.py:2800) before anything is written.
+        `handle_ponto_webhook` is `allow_guest=True` and nothing in that request path
+        elevates the session, so an INLINE call here ran as Guest. That is why the
+        executed-payment branch is now enqueued with `user=_get_webhook_user()` like its
+        sibling handlers, rather than made to work under Guest by escalating privileges
+        inside the service.
 
-        Running the other tests as Administrator hides this entirely, which is why this
-        one pins the session the webhook actually uses.
+        Pinning the refusal matters as much as pinning the success: if this ever starts
+        passing, either the enqueue was reverted or something re-introduced an
+        escalation. The second assertion is the load-bearing one - a half-created,
+        unlinked Payment Entry is the state that lets a retried webhook post twice.
         """
         member = self._member_with_customer(first_name="PontoGuest")
         invoice = self._submitted_invoice(member.customer)
         link = self._payment_link(member)
 
         # Registered before switching so the session is handed back even if the call
-        # raises. Restoring via addCleanup rather than inline keeps the escalation out
-        # of the test body.
+        # raises; restoring via addCleanup keeps the escalation out of the test body.
         self.addCleanup(frappe.set_user, "Administrator")
         frappe.set_user("Guest")
         pe_name = _create_ponto_payment_entry(link, invoice.name)
 
-        self.assertIsNotNone(
-            pe_name, "the webhook's own session must be able to record the payment"
+        self.assertIsNone(pe_name, "Guest must not be able to record a payment")
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
+            "a refused attempt must leave no Payment Entry behind",
         )
-        self.assertEqual(frappe.db.get_value("Payment Entry", pe_name, "docstatus"), 1)
+
+    def test_second_run_relinks_instead_of_creating_a_second_entry(self):
+        """A retried `executed` webhook must not produce a second Payment Entry.
+
+        The caller's guard is `not doc.payment_entry`, which only latches if the
+        save-back succeeded. Writing that field is a separate step after the entry is
+        already submitted, so the two can diverge - a refused save, a crash between
+        them - and the retry then posts the payment again. This simulates exactly that
+        divergence by clearing the link field while leaving the submitted entry in
+        place, which is the state the guard alone cannot distinguish from "never ran".
+        """
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
+            _process_executed_payment,
+        )
+
+        member = self._member_with_customer(first_name="PontoRetry")
+        self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+
+        first = _process_executed_payment(link)
+        self.assertIsNotNone(first.get("payment_entry"), first)
+
+        # Simulate the save-back having been lost.
+        frappe.db.set_value("Ponto Payment Link", link.name, "payment_entry", None)
+        frappe.db.commit()
+        link.reload()
+
+        second = _process_executed_payment(link)
+
+        self.assertEqual(
+            second.get("payment_entry"),
+            first["payment_entry"],
+            "the retry must relink the existing entry, not create another",
+        )
+        entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": link.ponto_request_id, "docstatus": 1},
+            pluck="name",
+        )
+        self.assertEqual(len(entries), 1, f"the payment was posted more than once: {entries}")

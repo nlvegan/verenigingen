@@ -428,23 +428,25 @@ class TestCreateOrphanPaymentEntry(OrchestratorBase):
             ensure_mollie_bank_gl_account,
         )
 
-        cls.clearing_account = frappe.db.get_value(
-            "Account", {"company": cls._company, "account_type": "Bank", "is_group": 0}, "name"
-        ) or ensure_mollie_bank_gl_account(cls._company)
+        # A DEDICATED clearing account, always. Reusing whatever Bank account the
+        # company happens to have can pick the company default, and then asserting
+        # paid_to == clearing_account proves nothing: it would hold whether or not
+        # bank_account reached ERPNext.
+        cls.clearing_account = ensure_mollie_bank_gl_account(cls._company)
 
-        # SETUP-only Single writes (class fixture, not a test body), mirroring the
-        # dues creation-unit suite so the clearing-account lookup resolves.
-        settings = frappe.get_single("Verenigingen Settings")
-        settings.company = cls._company
-        settings.flags.ignore_validate = True
-        settings.flags.ignore_mandatory = True
-        settings.save(ignore_permissions=True)
-
-        ms = frappe.get_single("Mollie Settings")
-        ms.mollie_clearing_account = cls.clearing_account
-        ms.flags.ignore_validate = True
-        ms.flags.ignore_mandatory = True
-        ms.save(ignore_permissions=True)
+        # SETUP-only Single writes (class fixture, not a test body). Written with
+        # set_single_value and restored via addClassCleanup: these Singles survive the
+        # harness rollback, and Mollie Settings.mollie_clearing_account has no harness
+        # restore at all, so leaving it repointed drifts every later suite in the shard
+        # that reads it.
+        for doctype, field, value in (
+            ("Verenigingen Settings", "company", cls._company),
+            ("Mollie Settings", "mollie_clearing_account", cls.clearing_account),
+        ):
+            previous = frappe.db.get_single_value(doctype, field)
+            frappe.db.set_single_value(doctype, field, value)
+            cls.addClassCleanup(frappe.db.set_single_value, doctype, field, previous)
+        cls.addClassCleanup(frappe.db.commit)
         frappe.db.commit()
 
     def setUp(self):

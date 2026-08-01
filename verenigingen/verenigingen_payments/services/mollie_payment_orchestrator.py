@@ -1222,8 +1222,6 @@ class MolliePaymentOrchestrator:
                     f"⚠️ ORPHANED PAYMENT - Mollie ID: {payment_id}\n"
                     f"This payment requires manual review to identify the member."
                 ),
-                # Runs from an authenticated Mollie webhook with no user session.
-                system_context=True,
             )
 
             return payment_entry.name
