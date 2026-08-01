@@ -604,9 +604,11 @@ class TestFindInvoiceForPayment(EnhancedTestCase):
         through.
 
         The caller that pays for this is the Ponto webhook handler: it saves the match
-        onto `Ponto Payment Link.sales_invoice` and hands it to `get_payment_entry`,
-        which refuses an unsubmitted reference ("must be submitted"). That raise is
-        swallowed by a broad `except Exception`, so the payment is silently dropped.
+        onto `Ponto Payment Link.sales_invoice` and hands it to `_create_ponto_payment_entry`,
+        which cannot allocate to a draft. No Payment Entry is created and the link is left
+        pointing at the draft. The failure IS recorded - `webhook_handlers.py` calls
+        `frappe.log_error` on that path, so an Error Log row exists; what is lost is the
+        payment, not the visibility.
         """
         self.schedule.billing_frequency = "Quarterly"
         self.schedule.save()

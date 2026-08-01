@@ -53,8 +53,6 @@ class TestCoverageOverlapDetector(EnhancedTestCase):
         # its docstatus is already 1 and withholding submit() here does nothing.
         inv = self.create_test_sales_invoice(customer=customer, **({} if submit else {"status": "Draft"}))
         self._committed.append(("Sales Invoice", inv.name))
-        if inv.docstatus == 0 and submit:
-            inv.submit()
         frappe.db.set_value(
             "Sales Invoice",
             inv.name,
@@ -140,34 +138,61 @@ class TestCoverageOverlapDetector(EnhancedTestCase):
         self.assertIn("Exact duplicate", result.reason)
         self.assertIn(inv, result.reason)
 
-    def test_exact_match_prefers_the_submitted_invoice_over_a_draft(self):
-        """When a draft and a submitted invoice share a period, exact_match is the submitted one.
+    def test_exact_match_prefers_the_payable_invoice_over_a_draft(self):
+        """A draft and a submitted UNPAID invoice share a period -> the payable one wins.
 
-        Every caller uses exact_match to decide what a payment can be allocated to, and
-        only a submitted invoice can be. Selecting the draft costs a real allocation:
-        the callers stop for manual review and the money lands as an unallocated PE
-        even though a perfectly payable invoice was sitting right there.
+        Callers use exact_match to decide what a payment can be allocated to, and only a
+        submitted invoice with outstanding can be. Picking the draft here costs a real
+        allocation: the callers stop for manual review and the money lands unallocated
+        while a payable invoice was sitting right there.
 
-        find_overlapping_invoices orders by coverage start date, which is tied here, so
-        without an explicit preference the winner is whatever the storage engine returns
-        first.
+        Built in BOTH creation orders on purpose. find_overlapping_invoices orders by
+        coverage start date alone, which is tied here, so a single ordering would let a
+        first-match-wins rule pass by accident on whichever row the engine happened to
+        return first. An earlier revision of this test asserted that raw order as a
+        "premise"; that pinned a MariaDB index artefact rather than the behaviour.
         """
-        customer = self._customer()
-        # Created first, so it is the one the tied ORDER BY returns first - see the
-        # premise assertion below, which fails loudly if that ever stops holding
-        # instead of letting this test pass for the wrong reason.
-        draft = self._invoice(customer, "2025-07-01", "2025-07-31", submit=False)
-        submitted = self._invoice(customer, "2025-07-01", "2025-07-31")
+        for draft_first in (True, False):
+            with self.subTest(draft_first=draft_first):
+                customer = self._customer()
+                if draft_first:
+                    draft = self._invoice(customer, "2025-07-01", "2025-07-31", submit=False)
+                    payable = self._invoice(customer, "2025-07-01", "2025-07-31", outstanding=50)
+                else:
+                    payable = self._invoice(customer, "2025-07-01", "2025-07-31", outstanding=50)
+                    draft = self._invoice(customer, "2025-07-01", "2025-07-31", submit=False)
 
-        overlapping = find_overlapping_invoices(customer, "2025-07-01", "2025-07-31")
-        self.assertEqual(
-            [r["name"] for r in overlapping],
-            [draft, submitted],
-            "premise: the draft is returned first, so a first-match wins rule would pick it",
-        )
+                result = check_coverage_overlap(customer, "2025-07-01", "2025-07-31")
+                self.assertEqual(result.exact_match, payable)
+                self.assertNotEqual(result.exact_match, draft)
 
-        result = check_coverage_overlap(customer, "2025-07-01", "2025-07-31")
-        self.assertEqual(result.exact_match, submitted)
+    def test_exact_match_prefers_a_draft_over_an_already_paid_invoice(self):
+        """A draft and a submitted PAID invoice share a period -> the DRAFT must win.
+
+        This is the case a naive "prefer submitted" rule gets catastrophically wrong.
+        Handing back the paid invoice makes every caller skip its docstatus guard
+        (docstatus == 1) and then read outstanding_amount == 0 as "already paid, create a
+        new invoice for this payment" - producing a THIRD invoice for a period the draft
+        already covers. Returning the draft keeps the stop-for-review branch reachable,
+        which is the whole point of the draft guards.
+        """
+        for draft_first in (True, False):
+            with self.subTest(draft_first=draft_first):
+                customer = self._customer()
+                if draft_first:
+                    draft = self._invoice(customer, "2025-09-01", "2025-09-30", submit=False)
+                    self._invoice(customer, "2025-09-01", "2025-09-30", outstanding=0)
+                else:
+                    self._invoice(customer, "2025-09-01", "2025-09-30", outstanding=0)
+                    draft = self._invoice(customer, "2025-09-01", "2025-09-30", submit=False)
+
+                result = check_coverage_overlap(customer, "2025-09-01", "2025-09-30")
+                self.assertEqual(
+                    result.exact_match,
+                    draft,
+                    "a paid invoice must not shadow the draft - it routes callers into "
+                    "the create-another-invoice branch",
+                )
 
     def test_check_partial_overlap_no_exact_match(self):
         customer = self._customer()

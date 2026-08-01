@@ -19,7 +19,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
 # Business rule constants
 MAX_OVERLAPPING_INVOICES = 10  # Maximum overlapping invoices to return from SQL query
@@ -175,20 +175,39 @@ def check_coverage_overlap(
         )
 
     # Check for exact match. Callers use exact_match to decide what a payment can be
-    # allocated to, and only a submitted invoice can be - so when a draft and a
-    # submitted invoice share the period, prefer the submitted one. The query orders by
-    # coverage start date, which is tied in that case, so without this the winner would
-    # be whatever the storage engine happened to return first, and picking the draft
-    # costs a real allocation. The list itself is left in query order for the callers
-    # that report every overlapping invoice.
+    # allocated to, so when several invoices share the period the choice must not be left
+    # to raw query order (the query orders by coverage start date alone, which is tied
+    # here). The preference order is PAYABLE, then DRAFT, then whatever is left:
+    #
+    # - payable (submitted with outstanding) is the only thing a payment can be allocated
+    #   to, so it wins outright;
+    # - a DRAFT beats an already-paid invoice, which is the case a naive "prefer
+    #   submitted" rule gets badly wrong. Handing back the paid one makes every caller
+    #   skip its docstatus guard and then read outstanding == 0 as "already paid, create
+    #   a new invoice", producing a duplicate for a period the draft already covers.
+    #   Returning the draft keeps the stop-for-review branch reachable;
+    # - the remaining case (only paid invoices) falls through to the callers' existing
+    #   already-paid handling.
+    #
+    # The list itself is left in query order for the callers that report every
+    # overlapping invoice.
     exact_matches = [
         inv
         for inv in overlapping
         if getdate(inv["custom_coverage_start_date"]) == proposed_start
         and getdate(inv["custom_coverage_end_date"]) == proposed_end
     ]
-    submitted_match = next((inv for inv in exact_matches if inv.get("docstatus") == 1), None)
-    exact_match = (submitted_match or exact_matches[0])["name"] if exact_matches else None
+    payable_match = next(
+        (
+            inv
+            for inv in exact_matches
+            if inv.get("docstatus") == 1 and flt(inv.get("outstanding_amount")) > 0
+        ),
+        None,
+    )
+    draft_match = next((inv for inv in exact_matches if inv.get("docstatus") == 0), None)
+    preferred = payable_match or draft_match or (exact_matches[0] if exact_matches else None)
+    exact_match = preferred["name"] if preferred else None
 
     # Build reason message
     invoice_names = [inv["name"] for inv in overlapping]
