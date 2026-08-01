@@ -40,6 +40,29 @@ def _get_webhook_user() -> str:
     )
 
 
+def import_transactions_job(account_id: str) -> Dict[str, Any]:
+    """Background entry point for webhook-triggered transaction import.
+
+    Exists because the identity has to be set INSIDE the job. frappe.enqueue has no
+    `user` parameter (frappe/utils/background_jobs.py:76-93) - anything outside its
+    signature lands in **kwargs and execute_job passes it straight to the job function
+    (`retval = method(**kwargs)`), so `user=...` raises TypeError in the worker rather
+    than changing who it runs as. The worker adopts `queue_args["user"] =
+    frappe.session.user`, i.e. the ENQUEUING session, which is Guest for these
+    allow_guest webhooks.
+
+    frappe.set_user cannot go inside import_new_transactions itself: it has interactive
+    callers (ponto_settings.py trigger_manual_sync, import_all_accounts) whose identity
+    must be left alone.
+    """
+    from verenigingen.verenigingen_payments.ponto.services.transaction_import_service import (
+        import_new_transactions,
+    )
+
+    frappe.set_user(_get_webhook_user())
+    return import_new_transactions(account_id=account_id)
+
+
 def _safe_savepoint_name(prefix: str, doc_name: str) -> str:
     """
     Build a MariaDB-safe savepoint identifier.
@@ -82,11 +105,10 @@ def handle_sync_succeeded(
     if account_id:
         # Queue transaction import job with proper user context
         frappe.enqueue(
-            "verenigingen.verenigingen_payments.ponto.services.transaction_import_service.import_new_transactions",
+            "verenigingen.verenigingen_payments.ponto.api.webhook_handlers.import_transactions_job",
             account_id=account_id,
             queue="short",
             timeout=300,
-            user=_get_webhook_user(),
         )
         return {"handled": True, "action": "transaction_import_queued", "account_id": account_id}
 
@@ -179,11 +201,10 @@ def handle_transactions_created(event_data: Dict[str, Any]) -> Dict[str, Any]:
     # Queue transaction import job
     if account_id:
         frappe.enqueue(
-            "verenigingen.verenigingen_payments.ponto.services.transaction_import_service.import_new_transactions",
+            "verenigingen.verenigingen_payments.ponto.api.webhook_handlers.import_transactions_job",
             account_id=account_id,
             queue="short",
             timeout=300,
-            user=_get_webhook_user(),
         )
         return {"handled": True, "action": "transaction_import_queued", "account_id": account_id}
 
@@ -401,16 +422,18 @@ def _update_payment_link_status(
                 updated_links.append(pl.name)
 
                 # If payment is executed, find the invoice and create a Payment Entry -
-                # but as the configured webhook user, not inline in this request.
+                # as the configured webhook user, not inline in this Guest request.
+                # handle_ponto_webhook is allow_guest=True and never elevates, and Guest
+                # can neither insert a Payment Entry nor save its name back onto the
+                # link, which is what leaves the guard below unlatched and lets a retry
+                # post the payment twice.
                 #
-                # This handler is reached from handle_ponto_webhook, which is
-                # allow_guest=True and never elevates, so an inline call ran as Guest.
-                # Guest cannot insert a Payment Entry (Document.insert checks permission
-                # itself), and - more dangerously - cannot save the Payment Entry name
-                # back onto the link either, so the `not doc.payment_entry` guard below
-                # would never latch and a retried webhook would post the payment twice.
-                # The sibling sync/transaction handlers already enqueue with this user;
-                # the executed-payment branch was the odd one out.
+                # enqueue_after_commit is required, not optional: enqueue_call() pushes
+                # to Redis immediately, so without it the worker can start before this
+                # request commits and read the PRE-webhook row (status not yet Executed),
+                # and the savepoint rollback in the except below cannot un-push the job.
+                # job_id + deduplicate collapse the duplicate jobs a Ponto redelivery
+                # would otherwise queue.
                 if mapped_status == "Executed" and not doc.payment_entry:
                     frappe.enqueue(
                         "verenigingen.verenigingen_payments.ponto.api.webhook_handlers."
@@ -418,7 +441,9 @@ def _update_payment_link_status(
                         payment_link_name=pl.name,
                         queue="short",
                         timeout=300,
-                        user=_get_webhook_user(),
+                        enqueue_after_commit=True,
+                        job_id=f"ponto_executed_{pl.name}",
+                        deduplicate=True,
                     )
                     payment_entries_queued.append(pl.name)
 
@@ -449,14 +474,27 @@ def _update_payment_link_status(
 def process_executed_payment_job(payment_link_name: str) -> Dict[str, Any]:
     """Background entry point for the executed-payment branch.
 
-    Enqueued by handle_payment_initiation_* with user=_get_webhook_user() so the
-    Payment Entry is created and linked back under a real, permissioned identity
-    instead of the Guest session the webhook request carries.
+    Sets the identity HERE rather than via an `enqueue(user=...)` kwarg: frappe.enqueue
+    has no such parameter, so it would be forwarded to this function and raise TypeError
+    in the worker (see import_transactions_job for the full mechanism).
 
-    Module-level (not underscore-private) because frappe.enqueue resolves it by
-    dotted path.
+    Re-checks status rather than trusting the enqueue. The job is queued after commit,
+    but a link can still be re-read after some later change, and acting on a row that is
+    no longer Executed would post money against pre-webhook state.
+
+    Module-level (not underscore-private) because frappe.enqueue resolves it by dotted
+    path.
     """
-    return _process_executed_payment(frappe.get_doc("Ponto Payment Link", payment_link_name))
+    frappe.set_user(_get_webhook_user())
+    doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
+
+    if doc.status != "Executed":
+        frappe.logger().info(
+            f"Skipping Ponto Payment Link {payment_link_name}: status is {doc.status}, not Executed"
+        )
+        return {"payment_entry": None, "sales_invoice": None, "matched_by": None, "skipped": True}
+
+    return _process_executed_payment(doc)
 
 
 def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
