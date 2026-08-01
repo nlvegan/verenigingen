@@ -520,13 +520,15 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.assertEqual(payment_entry.payment_type, "Receive")
 
     # ------------------------------------------------------------------
-    # Gateway parameters (bank_account / remarks / system_context)
+    # Gateway parameters (bank_account / remarks)
     #
     # These exist so the four hand-rolled gateway wrappers (Mollie dues, Mollie
     # orchestrator, Ponto, ING) can call this service instead of ERPNext's
     # get_payment_entry directly. A gateway payment lands in a gateway-specific
-    # clearing account rather than the company default, carries its own remarks,
-    # and is created from a webhook with no user session.
+    # clearing account rather than the company default and carries its own remarks.
+    # Permissions are NOT special-cased: gateway webhooks run as the configured
+    # service user, so the requirement is met by granting that role rather than by
+    # bypassing the checks.
     # ------------------------------------------------------------------
     def _ensure_clearing_account(self, company):
         """A real Bank-type GL Account on `company`, standing in for a gateway
@@ -557,16 +559,26 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
     def test_bank_account_sets_the_receiving_side_of_the_entry(self):
         """A gateway payment must land in its clearing account, not the company default.
 
-        Asserts `paid_to` AND `paid_to_account_currency` together on purpose. ERPNext
-        derives both from the same resolved bank account (payment_entry.py:2921-2925),
-        so the service must pass `bank_account` through to `get_payment_entry` rather
-        than assigning `paid_to` afterwards - a post-hoc assignment would move the
-        account while leaving the currency field pointing at the previous one. The
-        four gateway wrappers all do that redundant post-hoc assignment today.
+        `paid_to` is the load-bearing assertion: the clearing account is created fresh
+        and is never the company's default bank account, so this only holds if
+        `bank_account` reached `get_payment_entry`. Drop the pass-through and ERPNext
+        resolves the company default instead.
+
+        Deliberately does NOT assert `paid_to_account_currency`. ERPNext does derive it
+        from the same resolved account (payment_entry.py:2921-2925), but the clearing
+        account here carries the company's own currency, so that assertion holds whether
+        or not the currency tracked the account - it would claim a guarantee it cannot
+        provide. Proving it needs a differing-currency account, which drags in
+        multi-currency conversion this test is not about.
         """
         invoice = self._create_test_invoice(amount=Decimal("60.00"))
         invoice.submit()
         clearing = self._ensure_clearing_account(invoice.company)
+        self.assertNotEqual(
+            clearing,
+            frappe.db.get_value("Company", invoice.company, "default_bank_account"),
+            "the fixture must differ from the default, or paid_to proves nothing",
+        )
 
         payment_entry = payment_entry_service.create_payment_entry_from_invoice(
             invoice_name=invoice.name,
@@ -579,11 +591,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         )
 
         self.assertEqual(payment_entry.paid_to, clearing)
-        self.assertEqual(
-            payment_entry.paid_to_account_currency,
-            frappe.db.get_value("Account", clearing, "account_currency"),
-            "currency must track the account ERPNext actually resolved",
-        )
 
     def test_remarks_override_the_generated_text(self):
         """Gateways carry their own remarks (payment id, orphan banner, link name).
@@ -609,85 +616,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # Read back from the DB: Payment Entry.validate() regenerates remarks unless
         # custom_remarks is set, so the in-memory value alone would not prove it stuck.
         self.assertEqual(frappe.db.get_value("Payment Entry", payment_entry.name, "remarks"), remarks)
-
-    def test_system_context_creates_entry_without_a_permitted_user(self):
-        """Webhook callers have no user session, so the permission gates must be skippable.
-
-        This is the gap that keeps the gateways off this service today: it checks
-        `has_permission` for create and submit and throws, which is right for
-        interactive reconciliation and wrong for a webhook. The same restricted user
-        that `test_create_permission_denied_raises_permission_error` proves is refused
-        must succeed here, so the test isolates the flag as the only variable.
-        """
-        invoice = self._create_test_invoice(amount=Decimal("65.00"))
-        invoice.submit()
-        role = self._make_deskless_role_without_perms()
-        restricted_user = self._make_user_with_roles([role])
-
-        frappe.set_user(restricted_user)
-        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
-            invoice_name=invoice.name,
-            amount=Decimal("65.00"),
-            posting_date=date.today(),
-            reference_no="GATEWAY-SYSTEM",
-            reference_date=date.today(),
-            mode_of_payment="Bank Transfer",
-            system_context=True,
-        )
-
-        self.assertEqual(payment_entry.docstatus, 1, "a system-context entry must be submitted")
-
-    def test_system_context_elevates_for_the_erpnext_call_and_hands_the_session_back(self):
-        """Skipping our own gates is not enough - the elevation has to cover ERPNext too.
-
-        `get_payment_entry` calls `frappe.has_permission("Sales Invoice", "read",
-        throw=True)` inside `get_reference_details`. That check exists in erpnext 16.30
-        (CI) but not in 16.20 (this bench), so an implementation that only skipped the
-        service's own gates passed here and failed on CI with a PermissionError.
-
-        Asserting the session *at the moment ERPNext is called* pins the fix on either
-        version, instead of relying on whichever erpnext the runner happens to install.
-        The real builder is called through, not replaced - the patch only observes.
-        """
-        from erpnext.accounts.doctype.payment_entry import payment_entry as erpnext_pe
-
-        invoice = self._create_test_invoice(amount=Decimal("70.00"))
-        invoice.submit()
-        role = self._make_deskless_role_without_perms()
-        restricted_user = self._make_user_with_roles([role])
-
-        real_builder = erpnext_pe.get_payment_entry
-        observed = {}
-
-        def _observe(*args, **kwargs):
-            observed["user"] = frappe.session.user
-            return real_builder(*args, **kwargs)
-
-        # Registered before switching so the session is handed back even on failure;
-        # restoring via addCleanup keeps the escalation out of the test body.
-        self.addCleanup(frappe.set_user, "Administrator")
-        frappe.set_user(restricted_user)
-        with patch.object(erpnext_pe, "get_payment_entry", side_effect=_observe):
-            payment_entry_service.create_payment_entry_from_invoice(
-                invoice_name=invoice.name,
-                amount=Decimal("70.00"),
-                posting_date=date.today(),
-                reference_no="GATEWAY-ELEVATE",
-                reference_date=date.today(),
-                mode_of_payment="Bank Transfer",
-                system_context=True,
-            )
-
-        self.assertEqual(
-            observed.get("user"),
-            "Administrator",
-            "ERPNext's builder must run elevated, or its internal read check refuses",
-        )
-        self.assertEqual(
-            frappe.session.user,
-            restricted_user,
-            "the webhook request continues after this call - the session must be restored",
-        )
 
 
 class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):

@@ -12,9 +12,14 @@ This service provides standardized payment entry creation with:
 - Input validation (amount, invoice existence)
 - Optional graceful degradation to draft entries
 
-Gateway payments (Mollie, Ponto, ING) are supported via `bank_account`, `remarks` and
-`system_context`; the four hand-rolled gateway wrappers are being migrated onto this
-service so a fix lands in one place rather than four.
+Gateway payments (Mollie, Ponto, ING) are supported via `bank_account` and `remarks`;
+the four hand-rolled gateway wrappers are being migrated onto this service so a fix
+lands in one place rather than four.
+
+Callers must already hold Payment Entry create/submit and Sales Invoice read. Gateway
+webhooks run as the configured service user (see
+verenigingen_payments/mollie/utils/webhook_security.py), so the requirement is met by
+granting that role, NOT by bypassing the checks here.
 
 Does NOT handle:
 - Unallocated payment entries (this service is invoice-driven by construction)
@@ -58,7 +63,6 @@ class PaymentEntryCreationService:
         custom_fields: Optional[Dict[str, Any]] = None,
         bank_account: Optional[str] = None,
         remarks: Optional[str] = None,
-        system_context: bool = False,
     ) -> "PaymentEntry":
         """
         Create and submit payment entry from invoice.
@@ -83,11 +87,6 @@ class PaymentEntryCreationService:
                           bank/cash account when omitted.
             remarks: Optional remarks text. Sets custom_remarks so Payment Entry.validate()
                      does not regenerate it. Omit to keep ERPNext's generated text.
-            system_context: If True, skip the create/submit permission gates and insert
-                            with ignore_permissions, then submit unconditionally. For
-                            gateway webhook callers ONLY - they run with no user session,
-                            and authorisation comes from the verified webhook. Never set
-                            this on a path that serves a user request.
 
         Returns:
             PaymentEntry: Created and submitted Payment Entry document
@@ -151,40 +150,22 @@ class PaymentEntryCreationService:
         if not frappe.db.exists("Sales Invoice", invoice_name):
             frappe.throw(_("Sales Invoice {0} does not exist").format(invoice_name))
 
-        # Check permissions BEFORE starting any database operations.
-        # SECURITY JUSTIFICATION: system_context skips these gates for gateway webhook
-        # callers, which run with no user session and so have no permissions to check.
-        # The payment is authorised by the gateway's own signed webhook, verified before
-        # this point; the audit trail is the Payment Entry plus its reference_no. This is
-        # an explicit, greppable opt-in - it must never be set on a request-serving path.
-        if not system_context:
-            if not frappe.has_permission("Payment Entry", "create"):
+        # Check permissions BEFORE starting any database operations
+        if not frappe.has_permission("Payment Entry", "create"):
+            frappe.throw(
+                _("Insufficient permissions to create payment entry"),
+                frappe.PermissionError,
+            )
+
+        # Check submit permission for strict mode
+        if not allow_draft_on_permission_failure:
+            # In strict mode, we need submit permission upfront
+            # Check on doctype level first (more efficient)
+            if not frappe.has_permission("Payment Entry", "submit"):
                 frappe.throw(
-                    _("Insufficient permissions to create payment entry"),
+                    _("Insufficient permissions to submit payment entry"),
                     frappe.PermissionError,
                 )
-
-            # Check submit permission for strict mode
-            if not allow_draft_on_permission_failure:
-                # In strict mode, we need submit permission upfront
-                # Check on doctype level first (more efficient)
-                if not frappe.has_permission("Payment Entry", "submit"):
-                    frappe.throw(
-                        _("Insufficient permissions to submit payment entry"),
-                        frappe.PermissionError,
-                    )
-
-        # Skipping our own gates is not sufficient for a system-context caller: ERPNext's
-        # get_payment_entry calls frappe.has_permission("Sales Invoice", "read", throw=True)
-        # internally (get_reference_details), so the whole operation has to run elevated.
-        # frappe.permissions.has_permission short-circuits only for Administrator, so that
-        # is the elevation - restored in the finally below.
-        # NOTE: that internal check does not exist in erpnext 16.20 (this bench) but does in
-        # 16.30 (CI), so an implementation that only skipped our gates passed locally and
-        # failed on CI. Elevating is correct on both.
-        original_user = frappe.session.user
-        if system_context and original_user != "Administrator":
-            frappe.set_user("Administrator")
 
         try:
             # Get the invoice
@@ -241,25 +222,13 @@ class PaymentEntryCreationService:
                             f"Custom field '{field_name}' not found on Payment Entry - skipping"
                         )
 
-            # Insert payment entry.
-            # SECURITY JUSTIFICATION: see the system_context gate above - a gateway
-            # webhook has no user session to carry create permission, and the write is
-            # authorised by the verified webhook rather than by a Frappe role.
-            payment_entry.insert(ignore_permissions=system_context)
+            # Insert payment entry
+            payment_entry.insert()
 
             # Try to submit
-            # System context submits unconditionally: there is no user whose instance
-            # permission could be consulted, and leaving a gateway payment as a draft
-            # would strand the money off the ledger.
-            if system_context:
-                payment_entry.submit()
-                frappe.logger().info(
-                    f"Created and submitted payment entry {payment_entry.name} for invoice "
-                    f"{invoice_name} in system context"
-                )
             # In strict mode, we already checked permission above
             # In graceful mode, we check instance-level permission here
-            elif allow_draft_on_permission_failure:
+            if allow_draft_on_permission_failure:
                 # Check instance-level permission
                 if frappe.has_permission("Payment Entry", "submit", payment_entry):
                     payment_entry.submit()
@@ -337,12 +306,6 @@ class PaymentEntryCreationService:
                 ).format(invoice_name),
                 exc=e,
             )
-
-        finally:
-            # Always hand the session back, including on the error paths above - a
-            # webhook request continues after this call.
-            if frappe.session.user != original_user:
-                frappe.set_user(original_user)
 
 
 # Singleton instance for convenience
