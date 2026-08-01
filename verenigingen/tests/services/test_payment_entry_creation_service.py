@@ -637,6 +637,58 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
 
         self.assertEqual(payment_entry.docstatus, 1, "a system-context entry must be submitted")
 
+    def test_system_context_elevates_for_the_erpnext_call_and_hands_the_session_back(self):
+        """Skipping our own gates is not enough - the elevation has to cover ERPNext too.
+
+        `get_payment_entry` calls `frappe.has_permission("Sales Invoice", "read",
+        throw=True)` inside `get_reference_details`. That check exists in erpnext 16.30
+        (CI) but not in 16.20 (this bench), so an implementation that only skipped the
+        service's own gates passed here and failed on CI with a PermissionError.
+
+        Asserting the session *at the moment ERPNext is called* pins the fix on either
+        version, instead of relying on whichever erpnext the runner happens to install.
+        The real builder is called through, not replaced - the patch only observes.
+        """
+        from erpnext.accounts.doctype.payment_entry import payment_entry as erpnext_pe
+
+        invoice = self._create_test_invoice(amount=Decimal("70.00"))
+        invoice.submit()
+        role = self._make_deskless_role_without_perms()
+        restricted_user = self._make_user_with_roles([role])
+
+        real_builder = erpnext_pe.get_payment_entry
+        observed = {}
+
+        def _observe(*args, **kwargs):
+            observed["user"] = frappe.session.user
+            return real_builder(*args, **kwargs)
+
+        # Registered before switching so the session is handed back even on failure;
+        # restoring via addCleanup keeps the escalation out of the test body.
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user(restricted_user)
+        with patch.object(erpnext_pe, "get_payment_entry", side_effect=_observe):
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("70.00"),
+                posting_date=date.today(),
+                reference_no="GATEWAY-ELEVATE",
+                reference_date=date.today(),
+                mode_of_payment="Bank Transfer",
+                system_context=True,
+            )
+
+        self.assertEqual(
+            observed.get("user"),
+            "Administrator",
+            "ERPNext's builder must run elevated, or its internal read check refuses",
+        )
+        self.assertEqual(
+            frappe.session.user,
+            restricted_user,
+            "the webhook request continues after this call - the session must be restored",
+        )
+
 
 class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):
     """Integration tests for PaymentEntryCreationService with actual ERPNext data"""
