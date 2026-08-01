@@ -557,37 +557,35 @@ def _create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional
             frappe.logger().error(f"No Ponto bank account configured for company {company}")
             return None
 
-        # Calculate allocation amount
+        # Calculate allocation amount. Capped at what the invoice still owes: ERPNext
+        # rejects a reference allocating more than the outstanding amount.
         amount = flt(payment_link_doc.amount)
         allocation_amount = min(amount, flt(invoice_doc.outstanding_amount))
 
-        # Use ERPNext's get_payment_entry for proper account handling
-        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+        # Delegate to PaymentEntryCreationService so this path shares one payment-entry
+        # contract with the rest of the app. The service sets custom_remarks alongside
+        # the remarks text, without which Payment Entry.validate() regenerates the field
+        # and the payment-link reference below never reaches the saved document.
+        from decimal import Decimal
 
-        payment_entry = get_payment_entry(
-            dt="Sales Invoice",
-            dn=invoice_name,
-            party_amount=allocation_amount,
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice_name,
+            amount=Decimal(str(allocation_amount)),
+            posting_date=getdate(today()),
+            reference_no=payment_link_doc.ponto_request_id or payment_link_doc.name,
+            reference_date=getdate(today()),
+            mode_of_payment="Bank Transfer",
             bank_account=ponto_bank_account,
+            remarks=(
+                f"Ponto payment via payment link {payment_link_doc.name}. "
+                f"Description: {payment_link_doc.description or 'N/A'}"
+            ),
+            custom_fields=({"custom_member": payment_link_doc.member} if payment_link_doc.member else None),
+            # Runs from an authenticated Ponto webhook with no user session.
+            system_context=True,
         )
-
-        # Override with Ponto-specific fields
-        payment_entry.posting_date = getdate(today())
-        payment_entry.reference_no = payment_link_doc.ponto_request_id or payment_link_doc.name
-        payment_entry.reference_date = getdate(today())
-        payment_entry.mode_of_payment = "Bank Transfer"
-        payment_entry.paid_to = ponto_bank_account
-        payment_entry.remarks = (
-            f"Ponto payment via payment link {payment_link_doc.name}. "
-            f"Description: {payment_link_doc.description or 'N/A'}"
-        )
-
-        # Link to member if available
-        if payment_link_doc.member:
-            payment_entry.custom_member = payment_link_doc.member
-
-        payment_entry.insert()
-        payment_entry.submit()
 
         frappe.logger().info(
             f"Created Payment Entry {payment_entry.name} for Ponto Payment Link {payment_link_doc.name} "

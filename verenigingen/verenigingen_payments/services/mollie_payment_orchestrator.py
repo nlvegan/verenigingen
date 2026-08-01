@@ -1194,42 +1194,37 @@ class MolliePaymentOrchestrator:
         amount: float,
         payment_date: date,
     ) -> Optional[str]:
-        """Create Payment Entry for orphaned payment."""
+        """Create Payment Entry for orphaned payment.
+
+        Delegates to PaymentEntryCreationService so the orphan path shares one
+        payment-entry contract with the rest of the app. The service also sets
+        custom_remarks alongside the text, without which Payment Entry.validate()
+        regenerates remarks from the amount and party - which is what used to discard
+        the "requires manual review" banner this entry exists to carry.
+        """
         try:
-            from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
-            settings = frappe.get_single("Verenigingen Settings")
-            company = settings.company or frappe.defaults.get_global_default("company")
-
-            # Get Mollie clearing account
             from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
                 get_mollie_config,
             )
+            from verenigingen.verenigingen_payments.services.payment import payment_entry_service
 
-            mollie_config = get_mollie_config()
-            mollie_clearing_account = mollie_config.get_clearing_account()
+            settings = frappe.get_single("Verenigingen Settings")
 
-            # Use ERPNext's get_payment_entry for proper account handling
-            payment_entry = get_payment_entry(
-                dt="Sales Invoice",
-                dn=invoice_name,
-                party_amount=amount,
-                bank_account=mollie_clearing_account,
+            payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice_name,
+                amount=Decimal(str(amount)),
+                posting_date=payment_date,
+                reference_no=payment_id,
+                reference_date=payment_date,
+                mode_of_payment=getattr(settings, "mode_of_payment", None) or "Mollie",
+                bank_account=get_mollie_config().get_clearing_account(),
+                remarks=(
+                    f"⚠️ ORPHANED PAYMENT - Mollie ID: {payment_id}\n"
+                    f"This payment requires manual review to identify the member."
+                ),
+                # Runs from an authenticated Mollie webhook with no user session.
+                system_context=True,
             )
-
-            payment_entry.posting_date = payment_date
-            payment_entry.reference_no = payment_id
-            payment_entry.reference_date = payment_date
-            payment_entry.mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
-            payment_entry.paid_to = mollie_clearing_account
-            payment_entry.remarks = (
-                f"⚠️ ORPHANED PAYMENT - Mollie ID: {payment_id}\n"
-                f"This payment requires manual review to identify the member."
-            )
-
-            # Security: System creates orphan payment entry during authenticated webhook - required for financial reconciliation
-            payment_entry.insert(ignore_permissions=True)
-            payment_entry.submit()
 
             return payment_entry.name
 
