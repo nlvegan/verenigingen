@@ -10,6 +10,11 @@ from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
+from frappe.utils import cint
+
+# Upper bound on the in-job backoff, kept under the 120s enqueue timeout used by
+# the retry call site so the wait can never consume the job's whole budget.
+MAX_RETRY_WAIT_SECONDS = 60
 
 
 def schedule_member_expense_history_update(doc, method=None):
@@ -53,7 +58,9 @@ def schedule_member_expense_history_update(doc, method=None):
     )
 
 
-def update_member_expense_history_with_retry(expense_claim_name, member_name, attempt=1, max_attempts=3):
+def update_member_expense_history_with_retry(
+    expense_claim_name, member_name, attempt=1, max_attempts=3, wait_seconds=0
+):
     """
     Update member expense history with retry logic and conflict detection.
 
@@ -62,7 +69,23 @@ def update_member_expense_history_with_retry(expense_claim_name, member_name, at
         member_name: Name of the member to update
         attempt: Current attempt number (1-based)
         max_attempts: Maximum number of attempts
+        wait_seconds: Backoff applied before this attempt. frappe.enqueue has no
+            `delay` parameter, so the caller's backoff has to be honoured here.
     """
+    import time
+
+    if wait_seconds:
+        # max(..., 0) as well as min(...): time.sleep raises on a negative. Matches
+        # the clamp in mijnrood_csv_import.update_import_tracking_after_retry_job.
+        capped = min(max(cint(wait_seconds), 0), MAX_RETRY_WAIT_SECONDS)
+        if capped < cint(wait_seconds):
+            # Only reachable if a caller raises max_attempts past 3; the 120s branch
+            # below is dead at the default. Log rather than shorten the backoff mutely.
+            frappe.logger("delayed_expense_hooks").warning(
+                f"Backoff {wait_seconds}s capped to {capped}s by MAX_RETRY_WAIT_SECONDS"
+            )
+        time.sleep(capped)
+
     try:
         frappe.logger("delayed_expense_hooks").info(
             f"Attempting member expense history update (attempt {attempt}/{max_attempts}) - "
@@ -126,8 +149,13 @@ def update_member_expense_history_with_retry(expense_claim_name, member_name, at
             # Schedule the retry
             frappe.enqueue(
                 method="verenigingen.events.delayed_expense_hooks.update_member_expense_history_with_retry",
-                queue="short",
-                delay=delay,
+                # "long", not "short": this job now sleeps out the backoff before it
+                # retries, and the short queue carries sub-second work.
+                queue="long",
+                # `delay` is NOT a frappe.enqueue parameter; it used to land in
+                # **kwargs and reach the job, which raised TypeError in the worker.
+                # The backoff has to be applied inside the job itself.
+                wait_seconds=delay,
                 expense_claim_name=expense_claim_name,
                 member_name=member_name,
                 attempt=next_attempt,

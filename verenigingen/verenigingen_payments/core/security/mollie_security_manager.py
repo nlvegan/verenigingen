@@ -289,12 +289,14 @@ class MollieSecurityManager:
         """Schedule cleanup of fallback API key after 24 hours"""
         from frappe.utils.background_jobs import enqueue
 
+        # NOTE: cleanup_fallback_key() takes no arguments -- Mollie Settings is a
+        # Single, so it resolves the doc itself. Passing mollie_settings_name here
+        # forwarded it to the job and raised TypeError in the worker.
         enqueue(
             "verenigingen.verenigingen_payments.core.security.mollie_security_manager.cleanup_fallback_key",
             queue="long",
             timeout=300,
             enqueue_after_commit=True,
-            mollie_settings_name=self.settings.name,
         )
 
     def _create_audit_log(self, action: str, status: str, details: Any = None):

@@ -238,7 +238,7 @@ class TestRetryLogic(EnhancedTestCase):
             reference_name="PE-NONEXISTENT-XYZ",
         )
 
-        retry_job_execution(job_name=job_name, delay=0)
+        retry_job_execution(target_job_name=job_name, delay=0)
 
         status = BackgroundJobManager.get_job_status(job_name)
         self.assertEqual(status["status"], "Completed")
@@ -250,7 +250,7 @@ class TestRetryLogic(EnhancedTestCase):
             job_name=job_name, job_type="totally_unknown_type", status="Failed"
         )
 
-        retry_job_execution(job_name=job_name, delay=0)
+        retry_job_execution(target_job_name=job_name, delay=0)
 
         status = BackgroundJobManager.get_job_status(job_name)
         self.assertEqual(status["status"], "Failed")

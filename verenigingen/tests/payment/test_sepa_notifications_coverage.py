@@ -219,7 +219,12 @@ class TestSEPANotificationsCoverage(EnhancedTestCase):
                 "member": self.member.name,
             }
         ]
-        with patch("frappe.enqueue") as mock_enqueue:
+        with (
+            patch("frappe.enqueue") as mock_enqueue,
+            patch(
+                "frappe.core.doctype.communication.communication.Communication.send_email"
+            ) as mock_send_email,
+        ):
             self.manager._send_email_batch(email_batch)
 
         after = frappe.db.count("Communication")
@@ -236,10 +241,23 @@ class TestSEPANotificationsCoverage(EnhancedTestCase):
         self.assertEqual(comm[0]["communication_type"], "Automated Message")
         self.assertEqual(comm[0]["sent_or_received"], "Sent")
 
-        # Delivery enqueued + comment-logging enqueued.
+        # Delivery is attempted on the persisted Communication.
+        #
+        # This previously asserted that
+        # "frappe.core.doctype.communication.email.send_communication_email" was
+        # enqueued. That function has never existed in any Frappe version, so the
+        # worker died on AttributeError and no mail was ever sent -- the assertion
+        # passed for its whole life while guarding nothing. Assert the real delivery
+        # seam instead: Communication.send_email() (CommunicationEmailMixin), which
+        # hands off to frappe.sendmail -> Email Queue.
+        mock_send_email.assert_called_once()
+
+        # Comment logging still goes through the queue.
         methods = [c.kwargs.get("method") for c in mock_enqueue.call_args_list]
         self.assertIn(
-            "frappe.core.doctype.communication.email.send_communication_email", methods
+            "verenigingen.verenigingen_payments.utils.sepa_notifications."
+            "log_notification_comments_batch",
+            methods,
         )
 
     def test_send_email_batch_uses_cached_template(self):
