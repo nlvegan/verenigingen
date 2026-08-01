@@ -174,6 +174,18 @@ class PaymentEntryCreationService:
                         frappe.PermissionError,
                     )
 
+        # Skipping our own gates is not sufficient for a system-context caller: ERPNext's
+        # get_payment_entry calls frappe.has_permission("Sales Invoice", "read", throw=True)
+        # internally (get_reference_details), so the whole operation has to run elevated.
+        # frappe.permissions.has_permission short-circuits only for Administrator, so that
+        # is the elevation - restored in the finally below.
+        # NOTE: that internal check does not exist in erpnext 16.20 (this bench) but does in
+        # 16.30 (CI), so an implementation that only skipped our gates passed locally and
+        # failed on CI. Elevating is correct on both.
+        original_user = frappe.session.user
+        if system_context and original_user != "Administrator":
+            frappe.set_user("Administrator")
+
         try:
             # Get the invoice
             invoice = frappe.get_doc("Sales Invoice", invoice_name)
@@ -325,6 +337,12 @@ class PaymentEntryCreationService:
                 ).format(invoice_name),
                 exc=e,
             )
+
+        finally:
+            # Always hand the session back, including on the error paths above - a
+            # webhook request continues after this call.
+            if frappe.session.user != original_user:
+                frappe.set_user(original_user)
 
 
 # Singleton instance for convenience
