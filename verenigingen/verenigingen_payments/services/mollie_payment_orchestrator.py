@@ -717,9 +717,24 @@ class MolliePaymentOrchestrator:
         if overlap_result.has_overlap:
             if overlap_result.exact_match:
                 # Exact match found - but only use it if it has outstanding amount
-                outstanding = frappe.db.get_value(
-                    "Sales Invoice", overlap_result.exact_match, "outstanding_amount"
+                exact = frappe.db.get_value(
+                    "Sales Invoice",
+                    overlap_result.exact_match,
+                    ["outstanding_amount", "docstatus"],
+                    as_dict=True,
                 )
+                if exact and exact.docstatus == 0:
+                    # A DRAFT covers this period: not payable (Payment Entry refuses an
+                    # unsubmitted reference) and not "already paid" either, since ERPNext
+                    # computes outstanding_amount on every non-cancelled save. Creating a
+                    # second invoice would duplicate the draft.
+                    result.actions_taken.append(
+                        f"Draft invoice {overlap_result.exact_match} covers this period; "
+                        f"cannot allocate to a draft and will not duplicate it. "
+                        f"Manual review required."
+                    )
+                    return None
+                outstanding = exact.outstanding_amount if exact else None
                 if outstanding and float(outstanding) > 0:
                     result.actions_taken.append(
                         f"Found existing unpaid invoice with exact coverage: {overlap_result.exact_match}"

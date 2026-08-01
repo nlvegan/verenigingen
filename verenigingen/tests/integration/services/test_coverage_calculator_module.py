@@ -128,9 +128,7 @@ class TestCoverageCalculatorCoverageEnd(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="CovEnd Test Type"
-        )
+        self.membership_type = self.create_test_membership_type(membership_type_name="CovEnd Test Type")
         self.member, self.schedule = self.create_test_member_with_schedule(
             first_name="CovEnd",
             last_name="Test",
@@ -242,9 +240,7 @@ class TestGetLatestCoverageEndEdgeCases(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="LatestCov Test Type"
-        )
+        self.membership_type = self.create_test_membership_type(membership_type_name="LatestCov Test Type")
         self.member, self.schedule = self.create_test_member_with_schedule(
             first_name="LatestCov",
             last_name="Test",
@@ -277,9 +273,7 @@ class TestCalculateNextCoveragePeriodFailures(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="CovFail Test Type"
-        )
+        self.membership_type = self.create_test_membership_type(membership_type_name="CovFail Test Type")
         self.member, self.schedule = self.create_test_member_with_schedule(
             first_name="CovFail",
             last_name="Test",
@@ -310,9 +304,7 @@ class TestCalculateCoverageForPaymentDate(EnhancedTestCase):
         super().setUp()
         if not frappe.db.get_single_value("Verenigingen Settings", "creation_user"):
             frappe.db.set_single_value("Verenigingen Settings", "creation_user", "Administrator")
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="PayCov Test Type"
-        )
+        self.membership_type = self.create_test_membership_type(membership_type_name="PayCov Test Type")
 
     def test_priority1_current_dues_schedule_active(self):
         # Member with current_dues_schedule pointing at an Active Quarterly schedule.
@@ -354,9 +346,7 @@ class TestCalculateCoverageForPaymentDate(EnhancedTestCase):
         # A member with NO dues schedule at all -> settings billing_cutoff_frequency.
         member = self.create_test_member(first_name="PayP3", last_name="Test", birth_date="1990-01-01")
         # Ensure no schedules exist for this member.
-        self.assertEqual(
-            frappe.db.count("Membership Dues Schedule", {"member": member.name}), 0
-        )
+        self.assertEqual(frappe.db.count("Membership Dues Schedule", {"member": member.name}), 0)
         settings = frappe.get_single("Verenigingen Settings")
         orig = settings.billing_cutoff_frequency
         settings.billing_cutoff_frequency = "Quarterly"
@@ -489,9 +479,7 @@ class TestCoverageForPaymentDateFollowsTheMembersOwnPeriods(EnhancedTestCase):
 
         start, end = calculate_coverage_for_payment_date(self.member.name, self.PAYMENT_DATE)
 
-        self.assertNotEqual(
-            getdate(end), date(2025, 7, 10), "the draft's own period was used as the answer"
-        )
+        self.assertNotEqual(getdate(end), date(2025, 7, 10), "the draft's own period was used as the answer")
         # No submitted coverage exists, so the membership-start roll supplies the period.
         self.assertEqual(getdate(start), self.JOIN_DATE)
         self.assertEqual(getdate(end), self.FIRST_PERIOD_END)
@@ -537,9 +525,7 @@ class TestFindInvoiceForPayment(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self.membership_type = self.create_test_membership_type(
-            membership_type_name="FindInv Test Type"
-        )
+        self.membership_type = self.create_test_membership_type(membership_type_name="FindInv Test Type")
         self.member, self.schedule = self.create_test_member_with_schedule(
             first_name="FindInv",
             last_name="Test",
@@ -561,6 +547,22 @@ class TestFindInvoiceForPayment(EnhancedTestCase):
         frappe.db.commit()
         # generate_invoice returns the SalesInvoice document; callers want its name.
         return res.data.name
+
+    def _make_draft_invoice(self, coverage_start, coverage_end):
+        """A DRAFT membership invoice, produced the way production produces one.
+
+        `auto_submit_membership_invoices` is a supported setting; with it off,
+        InvoiceGenerator._submit_invoice deliberately leaves the invoice as a draft.
+        That is how a draft carrying real custom_coverage_* dates comes to exist,
+        so the fixture flips the setting rather than hand-building an invoice.
+        """
+        orig = frappe.db.get_single_value("Verenigingen Settings", "auto_submit_membership_invoices")
+        frappe.db.set_single_value("Verenigingen Settings", "auto_submit_membership_invoices", 0)
+        try:
+            return self._make_invoice(coverage_start, coverage_end)
+        finally:
+            frappe.db.set_single_value("Verenigingen Settings", "auto_submit_membership_invoices", orig)
+            frappe.db.commit()
 
     def test_no_customer_returns_none(self):
         member = self.create_test_member(first_name="NoCustFind", last_name="Test", birth_date="1990-01-01")
@@ -587,12 +589,50 @@ class TestFindInvoiceForPayment(EnhancedTestCase):
         # that does NOT match the invoice outstanding so Strategy 3 (amount match)
         # cannot fire. The coverage window for a May 15 payment on a Quarterly schedule
         # is Apr 1 - Jun 30, which exactly matches the invoice -> coverage match wins.
-        invoice_outstanding = frappe.db.get_value(
-            "Sales Invoice", invoice_name, "outstanding_amount"
-        )
+        invoice_outstanding = frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount")
         mismatched_amount = float(invoice_outstanding) + 1000.0
         found = find_invoice_for_payment(self.member.name, date(2025, 5, 15), mismatched_amount)
         self.assertEqual(found, invoice_name)
+
+    def test_draft_invoice_with_exact_coverage_is_not_matched(self):
+        """Strategy 2 must not hand back a DRAFT invoice.
+
+        Strategies 1 and 3 both pin `docstatus = 1`; strategy 2 went through
+        `check_coverage_overlap`, which matches `docstatus < 2`, and then gated only on
+        `outstanding_amount > 0`. A draft carries its full grand_total as outstanding
+        (ERPNext recomputes it on every non-cancelled save), so the gate let drafts
+        through.
+
+        The caller that pays for this is the Ponto webhook handler: it saves the match
+        onto `Ponto Payment Link.sales_invoice` and hands it to `_create_ponto_payment_entry`,
+        which cannot allocate to a draft. No Payment Entry is created and the link is left
+        pointing at the draft. The failure IS recorded - `webhook_handlers.py` calls
+        `frappe.log_error` on that path, so an Error Log row exists; what is lost is the
+        payment, not the visibility.
+        """
+        self.schedule.billing_frequency = "Quarterly"
+        self.schedule.save()
+        frappe.db.commit()
+        draft_name = self._make_draft_invoice(date(2025, 4, 1), date(2025, 6, 30))
+
+        # Pin the premise rather than assuming it: a draft is not "already paid".
+        draft = frappe.db.get_value(
+            "Sales Invoice", draft_name, ["docstatus", "outstanding_amount"], as_dict=True
+        )
+        self.assertEqual(draft.docstatus, 0)
+        self.assertGreater(
+            float(draft.outstanding_amount),
+            0,
+            "a draft carries a non-zero outstanding_amount - the outstanding gate alone " "cannot exclude it",
+        )
+
+        # Mismatch the amount so strategy 3 cannot fire and the assertion pins strategy 2.
+        mismatched_amount = float(draft.outstanding_amount) + 1000.0
+        found = find_invoice_for_payment(self.member.name, date(2025, 5, 15), mismatched_amount)
+
+        self.assertIsNone(
+            found, "a draft invoice must not be matched to a payment - it cannot be allocated to"
+        )
 
     def test_no_match_returns_none(self):
         # Invoice exists but for a coverage window far from the payment and a
