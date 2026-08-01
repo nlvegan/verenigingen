@@ -12,6 +12,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
@@ -791,6 +792,46 @@ class PaymentReconciliationManager:
                 ).format(", ".join(missing))
             )
 
+    def _insert_and_submit(self, doc):
+        """Insert and submit as one unit: a failed submit must leave no draft behind.
+
+        ``_require_submit_permission`` answers "may this user submit this DOCTYPE?",
+        which is the only question a precondition can answer before the document
+        exists. It cannot see the document-level reasons a submit throws -- a frozen
+        account, a closed accounting period, a Company User Permission, an ERPNext
+        validation that only runs on submit. Those fail between the two statements,
+        and ``insert()`` has already written the row.
+
+        That row is a draft, so it is invisible to ``_is_mollie_payment_processed``,
+        ``_existing_settlement_fee_entry`` and ``_settlement_has_posted_accounting``
+        alike, and the per-payment handler in ``process_mollie_settlement`` swallows
+        the error and carries on. The settlement can then report success and be marked
+        Reconciled with an orphan draft on disk that no guard will ever see again --
+        the same end state the submit precondition was added to prevent, reached
+        through a door the precondition does not cover.
+
+        The exception is re-raised rather than swallowed: the caller must still record
+        the payment as failed. Frappe's own ``savepoint`` context manager is not usable
+        here because it swallows what it catches, which would let the caller append a
+        "success" row naming a Payment Entry that no longer exists.
+        """
+        savepoint = f"mollie_submit_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            doc.insert()
+            doc.submit()
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 has already rolled the entire transaction back, savepoints
+            # included, so rolling back to this one would raise 1305 on top of the real
+            # error and hide it. There is nothing left to undo. See
+            # utils/transaction_errors for what each error destroys.
+            raise
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            raise
+        else:
+            frappe.db.release_savepoint(savepoint)
+
     def _reject_leftover_draft_entries(self, settlement_id):
         """Refuse a settlement that still carries DRAFT entries from an earlier run.
 
@@ -1399,8 +1440,9 @@ class PaymentReconciliationManager:
         # Validate and save. The submit is unconditional: the permission was checked
         # above, and a Payment Entry left at docstatus 0 is invisible to
         # `_is_mollie_payment_processed` and `_settlement_has_posted_accounting`.
-        payment_entry.insert()
-        payment_entry.submit()
+        # Atomic, because the permission check cannot cover a submit that fails at
+        # DOCUMENT level -- see `_insert_and_submit`.
+        self._insert_and_submit(payment_entry)
 
         return payment_entry
 
@@ -1472,8 +1514,10 @@ class PaymentReconciliationManager:
             }
         )
 
-        journal_entry.insert()
-        journal_entry.submit()
+        # Atomic for the same reason as the Payment Entry: an unsubmitted fee entry
+        # defeats `_existing_settlement_fee_entry`, the settlement-level idempotency
+        # key, so a draft left here would let the next run book the fees again.
+        self._insert_and_submit(journal_entry)
 
         return journal_entry
 

@@ -61,6 +61,7 @@ unreachable; left uncovered and reported rather than seeded.
 import contextlib
 import unittest
 from decimal import Decimal
+from unittest import mock
 
 import frappe
 from frappe.utils import flt, today
@@ -1189,6 +1190,49 @@ class TestSettlementSubmitPermission(MollieBase):
             any(stale.name in c for c in comments),
             "the submitted fee entry short-circuited the run, so the operator was never "
             f"told about the draft that still needs handling; comments={comments}",
+        )
+
+    def test_a_payment_entry_whose_submit_fails_leaves_no_draft_behind(self):
+        """``_require_submit_permission`` is a doctype-level check, so it cannot see the
+        reasons a submit fails at DOCUMENT level.
+
+        ``insert()`` and ``submit()`` are two statements. The permission precondition
+        stops the case where submit was never attempted, but a submit that IS attempted
+        and throws -- a frozen account, a closed period, a Company User Permission --
+        leaves the inserted row behind, and the per-payment ``except`` swallows the
+        error and lets the loop continue. The draft is then invisible to every
+        ``docstatus: 1`` guard, so it survives both the leftover-draft scan (which runs
+        on the NEXT run, and only if the settlement is retried at all) and any duplicate
+        check. Whatever the settlement then reports, the row is on disk.
+
+        The failure is injected rather than provoked, for the same reason
+        ``tests/chapter/test_board_role_failure_propagation.py`` injects its deadlocks:
+        what is under test is this module's insert/submit atomicity, not ERPNext's
+        enforcement of any particular submit-time rule. Raising from ``submit()`` is
+        precisely the branch that matters and is indifferent to which real condition
+        (frozen account, closed period, restricted company) produced it. Nothing else
+        is stubbed -- the real insert runs, and the real per-payment handler swallows."""
+        self.expectErrorLog("submit refused")
+        it = self._make_member_with_invoice(first_name="MollieSubmitFail", grand_total=30.0)
+        settlement_id = f"stl_SUBMITFAIL_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with mock.patch(
+            "erpnext.accounts.doctype.payment_entry.payment_entry.PaymentEntry.submit",
+            side_effect=frappe.ValidationError("submit refused at document level"),
+        ):
+            with self._stub_client(payments=[payment]):
+                with self.production_validation():
+                    self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id))
+
+        self.assertEqual(
+            self._settlement_entries(settlement_id),
+            [],
+            "the submit failed but its inserted Payment Entry survived as a draft, "
+            "invisible to every docstatus:1 guard",
         )
 
 
