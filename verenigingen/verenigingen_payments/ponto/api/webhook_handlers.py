@@ -428,12 +428,19 @@ def _update_payment_link_status(
                 # link, which is what leaves the guard below unlatched and lets a retry
                 # post the payment twice.
                 #
-                # enqueue_after_commit is required, not optional: enqueue_call() pushes
-                # to Redis immediately, so without it the worker can start before this
-                # request commits and read the PRE-webhook row (status not yet Executed),
-                # and the savepoint rollback in the except below cannot un-push the job.
-                # job_id + deduplicate collapse the duplicate jobs a Ponto redelivery
-                # would otherwise queue.
+                # enqueue_after_commit stops the worker starting before this request
+                # commits and reading the PRE-webhook row (status not yet Executed).
+                # It does NOT rescue the savepoint path: db.rollback(save_point=...)
+                # returns before after_commit.reset() (database.py:1196-1203), so a
+                # savepoint rollback leaves the callback registered either way. Only a
+                # full request rollback drops it.
+                #
+                # job_id + deduplicate collapse a redelivery that arrives while the
+                # first job is still queued or running. They do NOT dedup two
+                # concurrent uncommitted requests: the dedup lookup happens here, the
+                # push happens later from after_commit, so both can pass. The real
+                # protection against a double post is the reference_no check inside
+                # _process_executed_payment.
                 if mapped_status == "Executed" and not doc.payment_entry:
                     frappe.enqueue(
                         "verenigingen.verenigingen_payments.ponto.api.webhook_handlers."

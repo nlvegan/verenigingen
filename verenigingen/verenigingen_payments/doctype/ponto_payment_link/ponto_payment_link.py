@@ -362,7 +362,12 @@ class PontoPaymentLink(Document):
             )
             return
 
-        # Imported lazily: webhook_handlers calls back into this DocType.
+        # Function-local to keep controller import cost down. There is no import cycle:
+        # webhook_handlers reaches this DocType only through frappe.get_doc, a runtime
+        # lookup. (An earlier comment here claimed a cycle; that was not true.)
+        # TODO: _create_ponto_payment_entry belongs in ponto/services/ and should be
+        # public - a controller reaching into a private function in api/ is backwards
+        # layering now that it has two callers.
         from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
             _create_ponto_payment_entry,
         )

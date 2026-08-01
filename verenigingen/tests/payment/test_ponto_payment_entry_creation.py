@@ -13,6 +13,8 @@ submitted Sales Invoice, a real Ponto clearing GL Account and a real Ponto Payme
 Link. Nothing in the payment-entry path is mocked.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import today
 
@@ -272,4 +274,115 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
             frappe.db.get_value("Ponto Payment Link", link.name, "payment_entry"),
             pe.name,
             "the link must be persisted, or the retry guard never latches",
+        )
+
+    def test_no_sales_invoice_creates_nothing(self):
+        """The branch the only production link-creator actually hits.
+
+        payment_gateways.py builds donation links with reference_doctype="Donation" and
+        no sales_invoice, so this early return - not the happy path - is what runs for
+        the real flow today.
+        """
+        member = self._member_with_customer(first_name="PontoNoInv")
+        link = self._payment_link(member)
+        self.assertFalse(link.sales_invoice)
+
+        link.process_payment_received()
+
+        self.assertFalse(link.payment_entry)
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"reference_no": link.ponto_request_id}),
+            "no invoice to allocate against must mean no Payment Entry",
+        )
+
+    def test_relinks_an_entry_keyed_on_the_legacy_link_name(self):
+        """Entries the former creator wrote under `self.name` must not be duplicated.
+
+        The widened candidate_refs lookup exists for exactly this: reduce it back to
+        `[ponto_request_id]` and this test is the only thing that notices.
+        """
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
+            _process_executed_payment,
+        )
+
+        member = self._member_with_customer(first_name="PontoLegacy")
+        invoice = self._submitted_invoice(member.customer)
+        link = self._payment_link(member)
+        link.sales_invoice = invoice.name
+        link.save()
+
+        legacy_pe = _create_ponto_payment_entry(link, invoice.name)
+        self.assertIsNotNone(legacy_pe)
+        # Re-key it the way the old hand-rolled creator did, and unlatch the link.
+        frappe.db.set_value("Payment Entry", legacy_pe, "reference_no", link.name)
+        frappe.db.set_value("Ponto Payment Link", link.name, "payment_entry", None)
+        frappe.db.commit()
+        link.reload()
+
+        result = _process_executed_payment(link)
+
+        self.assertEqual(result.get("payment_entry"), legacy_pe, "must relink the legacy entry")
+        entries = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": ("in", [link.name, link.ponto_request_id]), "docstatus": 1},
+            pluck="name",
+        )
+        self.assertEqual(len(entries), 1, f"the payment was posted more than once: {entries}")
+
+    def test_executed_webhook_puts_the_payment_on_the_ledger(self):
+        """End-to-end: webhook handler -> enqueue -> job -> money on the ledger.
+
+        Dispatches through the CAPTURED enqueue arguments rather than calling the job
+        directly, because the seam this covers is precisely between "what we enqueue"
+        and "what the job accepts": a `user=` kwarg that frappe.enqueue does not have
+        bound cleanly at the call site and raised TypeError only in the worker.
+
+        WHAT THIS DOES NOT PROVE: Redis delivery, enqueue_after_commit ordering against
+        a real commit, or the worker's own identity handling - those need a live worker.
+        Per tests/utils/test_background_jobs.py frappe.enqueue still targets the real RQ
+        queue under test mode, so invoking the captured call the way execute_job does
+        (`retval = method(**kwargs)`) is the honest approximation.
+        """
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        member = self._member_with_customer(first_name="PontoE2E")
+        invoice = self._submitted_invoice(member.customer)
+        # No sales_invoice on the link: that is what leaves the enqueue branch
+        # reachable (a pre-linked one is handled inline by process_payment_received).
+        # The invoice name in the description makes the match deterministic via the
+        # remittance strategy rather than coverage/amount heuristics.
+        link = self._payment_link(member, description=f"Contributie {invoice.name}")
+        frappe.db.set_value("Ponto Payment Link", link.name, "status", "Authorized")
+        frappe.db.commit()
+
+        captured = []
+        enqueue_params = None
+
+        def _capture(*args, **kwargs):
+            captured.append((args[0] if args else kwargs["method"], dict(kwargs)))
+
+        with patch.object(wh.frappe, "enqueue", side_effect=_capture):
+            wh._update_payment_link_status(request_id=link.ponto_request_id, new_status="executed")
+
+        self.assertEqual(len(captured), 1, f"expected exactly one queued job, got {captured}")
+        dotted, kwargs = captured[0]
+
+        import inspect
+
+        enqueue_params = set(inspect.signature(frappe.enqueue).parameters) - {"kwargs"}
+        job_kwargs = {k: v for k, v in kwargs.items() if k not in enqueue_params}
+        target = frappe.get_attr(dotted)
+
+        # Run it exactly as execute_job would.
+        target(**job_kwargs)
+
+        pe_name = frappe.db.get_value("Ponto Payment Link", link.name, "payment_entry")
+        self.assertTrue(pe_name, "the link must be latched, or a retry posts the payment again")
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(pe.paid_to, self.ponto_account)
+        self.assertEqual(
+            [r.reference_name for r in pe.references],
+            [invoice.name],
+            "the money must be allocated to the invoice named in the remittance",
         )

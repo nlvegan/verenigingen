@@ -954,26 +954,13 @@ class TestPontoEnqueueContractsMatchTheirJobs(FrappeTestCase):
         for call in mock_enqueue.call_args_list:
             dotted = call.args[0] if call.args else call.kwargs["method"]
             target = frappe.get_attr(dotted)  # also proves the dotted path resolves
-            job_kwargs = {
-                k: v
-                for k, v in call.kwargs.items()
-                if k
-                not in (
-                    "queue",
-                    "timeout",
-                    "job_name",
-                    "now",
-                    "enqueue_after_commit",
-                    "at_front",
-                    "job_id",
-                    "deduplicate",
-                    "event",
-                    "is_async",
-                    "on_success",
-                    "on_failure",
-                    "method",
-                )
-            }
+            # Derived from frappe.enqueue itself rather than hand-listed. A hand-kept
+            # list drifts (an earlier revision of this missed at_front_when_starved and
+            # async, giving a false red), and the inverse is worse: if a job function
+            # ever takes a parameter named event/now/timeout, a hand-list would strip it
+            # and silently stop verifying it.
+            enqueue_params = set(inspect.signature(frappe.enqueue).parameters) - {"kwargs"}
+            job_kwargs = {k: v for k, v in call.kwargs.items() if k not in enqueue_params}
             # Raises TypeError if the worker could not call it with these kwargs.
             inspect.signature(target).bind(**job_kwargs)
 
@@ -1025,3 +1012,70 @@ class TestPontoEnqueueContractsMatchTheirJobs(FrappeTestCase):
         )
         self.assertTrue(kwargs.get("deduplicate"), "a Ponto redelivery must not queue a second job")
         self.assertIn("PL-TEST-0001", kwargs.get("job_id", ""))
+
+    def test_jobs_adopt_the_webhook_user_themselves(self):
+        """The actual fix: identity is set INSIDE the job, not by an enqueue kwarg.
+
+        Without this, deleting `frappe.set_user(_get_webhook_user())` from either job
+        leaves every other test green while restoring the original Guest-identity bug -
+        the worker inherits the enqueuing session, which for an allow_guest webhook is
+        Guest.
+        """
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        for job, kwargs in (
+            (wh.import_transactions_job, {"account_id": "acc-1"}),
+            (wh.process_executed_payment_job, {"payment_link_name": "PL-X"}),
+        ):
+            with self.subTest(job=job.__name__):
+                with (
+                    patch(f"{self.MODULE}._get_webhook_user", return_value="svc@example.com"),
+                    patch(f"{self.MODULE}.frappe.set_user") as mock_set_user,
+                    patch(
+                        f"{self.MODULE}.frappe.get_doc",
+                        return_value=frappe._dict(status="Cancelled"),
+                    ),
+                    patch(
+                        "verenigingen.verenigingen_payments.ponto.services."
+                        "transaction_import_service.import_new_transactions",
+                        return_value={},
+                    ),
+                ):
+                    job(**kwargs)
+                mock_set_user.assert_called_once_with("svc@example.com")
+
+    def test_executed_payment_job_skips_a_link_that_is_no_longer_executed(self):
+        """Queued-then-changed: the job must not post against pre-webhook state."""
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        with (
+            patch(f"{self.MODULE}._get_webhook_user", return_value="Administrator"),
+            patch(f"{self.MODULE}.frappe.set_user"),
+            patch(f"{self.MODULE}.frappe.get_doc", return_value=frappe._dict(status="Cancelled")),
+            patch(f"{self.MODULE}._process_executed_payment") as mock_process,
+        ):
+            result = wh.process_executed_payment_job("PL-X")
+
+        self.assertTrue(result["skipped"])
+        mock_process.assert_not_called()
+
+    def test_already_linked_payment_does_not_enqueue(self):
+        """The guard that IS the double-post protection - inverting it must be caught."""
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        link = frappe._dict(
+            name="PL-TEST-0002",
+            payment_entry="ACC-PAY-EXISTING",
+            status="Executed",
+            update_status_from_webhook=lambda *a, **k: None,
+        )
+        with (
+            patch(f"{self.MODULE}.frappe.enqueue") as mock_enqueue,
+            patch(f"{self.MODULE}.frappe.get_doc", return_value=link),
+            patch(f"{self.MODULE}.frappe.get_all", return_value=[frappe._dict(name="PL-TEST-0002")]),
+            patch(f"{self.MODULE}.frappe.db.savepoint"),
+            patch(f"{self.MODULE}.frappe.db.rollback"),
+        ):
+            wh._update_payment_link_status(request_id="req-2", new_status="executed")
+
+        mock_enqueue.assert_not_called()
