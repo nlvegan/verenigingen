@@ -181,9 +181,7 @@ class TestPontoWebhookTypeMapping(FrappeTestCase):
             _get_webhook_type_from_event,
         )
 
-        result = _get_webhook_type_from_event(
-            PontoEventType.PAYMENT_REQUEST_CLOSED.value
-        )
+        result = _get_webhook_type_from_event(PontoEventType.PAYMENT_REQUEST_CLOSED.value)
 
         self.assertEqual(result, "ponto_payment")
 
@@ -193,9 +191,7 @@ class TestPontoWebhookTypeMapping(FrappeTestCase):
             _get_webhook_type_from_event,
         )
 
-        result = _get_webhook_type_from_event(
-            PontoEventType.ACCOUNT_DETAILS_UPDATED.value
-        )
+        result = _get_webhook_type_from_event(PontoEventType.ACCOUNT_DETAILS_UPDATED.value)
 
         self.assertEqual(result, "ponto_account")
 
@@ -205,9 +201,7 @@ class TestPontoWebhookTypeMapping(FrappeTestCase):
             _get_webhook_type_from_event,
         )
 
-        result = _get_webhook_type_from_event(
-            PontoEventType.INTEGRATION_ACCOUNT_ADDED.value
-        )
+        result = _get_webhook_type_from_event(PontoEventType.INTEGRATION_ACCOUNT_ADDED.value)
 
         self.assertEqual(result, "ponto_account")
 
@@ -287,9 +281,7 @@ class TestPontoSyncEventHandlers(FrappeTestCase):
                     "errorMessage": "Bank unavailable",
                     "synchronizationSubtype": "accountTransactions",
                 },
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": account_id}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": account_id}}},
             }
         }
 
@@ -316,9 +308,7 @@ class TestPontoSyncEventHandlers(FrappeTestCase):
                     "errorMessage": "Bank authorization has expired",
                     "synchronizationSubtype": "accountDetails",
                 },
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": "test-account"}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": "test-account"}}},
             }
         }
 
@@ -338,9 +328,7 @@ class TestPontoSyncEventHandlers(FrappeTestCase):
             "data": {
                 "type": PontoEventType.SYNC_NO_CHANGE.value,
                 "id": "webhook-123",
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": "test-account"}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": "test-account"}}},
             }
         }
 
@@ -384,9 +372,7 @@ class TestPontoTransactionEventHandlers(FrappeTestCase):
             "data": {
                 "type": PontoEventType.ACCOUNT_TRANSACTIONS_UPDATED.value,
                 "id": "webhook-123",
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": "test-account"}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": "test-account"}}},
             }
         }
 
@@ -409,9 +395,7 @@ class TestPontoAccountEventHandlers(FrappeTestCase):
             "data": {
                 "type": PontoEventType.ACCOUNT_DETAILS_UPDATED.value,
                 "id": "webhook-123",
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": "test-account"}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": "test-account"}}},
             }
         }
 
@@ -431,9 +415,7 @@ class TestPontoAccountEventHandlers(FrappeTestCase):
             "data": {
                 "type": PontoEventType.INTEGRATION_ACCOUNT_ADDED.value,
                 "id": "webhook-123",
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": account_id}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": account_id}}},
             }
         }
 
@@ -454,9 +436,7 @@ class TestPontoAccountEventHandlers(FrappeTestCase):
             "data": {
                 "type": PontoEventType.INTEGRATION_ACCOUNT_REVOKED.value,
                 "id": "webhook-123",
-                "relationships": {
-                    "account": {"data": {"type": "account", "id": account_id}}
-                },
+                "relationships": {"account": {"data": {"type": "account", "id": account_id}}},
             }
         }
 
@@ -899,9 +879,7 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
 
         for ponto_status, expected in status_map.items():
             mapped = status_map.get(ponto_status.lower())
-            self.assertEqual(
-                mapped, expected, f"Status {ponto_status} should map to {expected}"
-            )
+            self.assertEqual(mapped, expected, f"Status {ponto_status} should map to {expected}")
 
 
 class TestPontoPaymentEntryCreation(FrappeTestCase):
@@ -952,3 +930,152 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPontoEnqueueContractsMatchTheirJobs(FrappeTestCase):
+    """Every frappe.enqueue in this module must be callable as enqueued.
+
+    frappe.enqueue has NO `user` parameter (frappe/utils/background_jobs.py:76-93):
+    anything not in its signature falls into **kwargs and is passed straight to the job
+    function by execute_job (`retval = method(**kwargs)`). So `user=<someone>` does not
+    change the worker's identity - it raises TypeError in the worker, where nothing the
+    request can see reports it.
+
+    These tests bind the actual enqueued kwargs to the actual target signature, which is
+    the check that distinguishes "enqueued" from "enqueued and runnable".
+    """
+
+    MODULE = "verenigingen.verenigingen_payments.ponto.api.webhook_handlers"
+
+    def _assert_enqueue_is_runnable(self, mock_enqueue):
+        import inspect
+
+        self.assertTrue(mock_enqueue.called, "expected the handler to enqueue a job")
+        for call in mock_enqueue.call_args_list:
+            dotted = call.args[0] if call.args else call.kwargs["method"]
+            target = frappe.get_attr(dotted)  # also proves the dotted path resolves
+            # Derived from frappe.enqueue itself rather than hand-listed. A hand-kept
+            # list drifts (an earlier revision of this missed at_front_when_starved and
+            # async, giving a false red), and the inverse is worse: if a job function
+            # ever takes a parameter named event/now/timeout, a hand-list would strip it
+            # and silently stop verifying it.
+            enqueue_params = set(inspect.signature(frappe.enqueue).parameters) - {"kwargs"}
+            job_kwargs = {k: v for k, v in call.kwargs.items() if k not in enqueue_params}
+            # Raises TypeError if the worker could not call it with these kwargs.
+            inspect.signature(target).bind(**job_kwargs)
+
+    def test_sync_succeeded_enqueue_is_runnable(self):
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        with (
+            patch(f"{self.MODULE}.frappe.enqueue") as mock_enqueue,
+            patch(f"{self.MODULE}._get_webhook_user", return_value="Administrator"),
+        ):
+            wh.handle_sync_succeeded({"data": {"relationships": {"account": {"data": {"id": "acc-1"}}}}})
+        self._assert_enqueue_is_runnable(mock_enqueue)
+
+    def test_transactions_created_enqueue_is_runnable(self):
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        with (
+            patch(f"{self.MODULE}.frappe.enqueue") as mock_enqueue,
+            patch(f"{self.MODULE}._get_webhook_user", return_value="Administrator"),
+        ):
+            wh.handle_transactions_created(
+                {"data": {"relationships": {"account": {"data": {"id": "acc-1"}}}}}
+            )
+        self._assert_enqueue_is_runnable(mock_enqueue)
+
+    def test_executed_payment_enqueue_is_runnable_and_deferred(self):
+        """The money path: runnable kwargs, and queued only after the request commits."""
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        link = frappe._dict(
+            name="PL-TEST-0001",
+            payment_entry=None,
+            status="Executed",
+            update_status_from_webhook=lambda *a, **k: None,
+        )
+        with (
+            patch(f"{self.MODULE}.frappe.enqueue") as mock_enqueue,
+            patch(f"{self.MODULE}.frappe.get_doc", return_value=link),
+            patch(f"{self.MODULE}.frappe.get_all", return_value=[frappe._dict(name="PL-TEST-0001")]),
+            patch(f"{self.MODULE}.frappe.db.savepoint"),
+        ):
+            wh._update_payment_link_status(request_id="req-1", new_status="executed")
+
+        self._assert_enqueue_is_runnable(mock_enqueue)
+        kwargs = mock_enqueue.call_args.kwargs
+        self.assertTrue(
+            kwargs.get("enqueue_after_commit"),
+            "the worker must not start before this request commits, or it reads pre-webhook state",
+        )
+        self.assertTrue(kwargs.get("deduplicate"), "a Ponto redelivery must not queue a second job")
+        self.assertIn("PL-TEST-0001", kwargs.get("job_id", ""))
+
+    def test_jobs_adopt_the_webhook_user_themselves(self):
+        """The actual fix: identity is set INSIDE the job, not by an enqueue kwarg.
+
+        Without this, deleting `frappe.set_user(_get_webhook_user())` from either job
+        leaves every other test green while restoring the original Guest-identity bug -
+        the worker inherits the enqueuing session, which for an allow_guest webhook is
+        Guest.
+        """
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        for job, kwargs in (
+            (wh.import_transactions_job, {"account_id": "acc-1"}),
+            (wh.process_executed_payment_job, {"payment_link_name": "PL-X"}),
+        ):
+            with self.subTest(job=job.__name__):
+                with (
+                    patch(f"{self.MODULE}._get_webhook_user", return_value="svc@example.com"),
+                    patch(f"{self.MODULE}.frappe.set_user") as mock_set_user,
+                    patch(
+                        f"{self.MODULE}.frappe.get_doc",
+                        return_value=frappe._dict(status="Cancelled"),
+                    ),
+                    patch(
+                        "verenigingen.verenigingen_payments.ponto.services."
+                        "transaction_import_service.import_new_transactions",
+                        return_value={},
+                    ),
+                ):
+                    job(**kwargs)
+                mock_set_user.assert_called_once_with("svc@example.com")
+
+    def test_executed_payment_job_skips_a_link_that_is_no_longer_executed(self):
+        """Queued-then-changed: the job must not post against pre-webhook state."""
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        with (
+            patch(f"{self.MODULE}._get_webhook_user", return_value="Administrator"),
+            patch(f"{self.MODULE}.frappe.set_user"),
+            patch(f"{self.MODULE}.frappe.get_doc", return_value=frappe._dict(status="Cancelled")),
+            patch(f"{self.MODULE}._process_executed_payment") as mock_process,
+        ):
+            result = wh.process_executed_payment_job("PL-X")
+
+        self.assertTrue(result["skipped"])
+        mock_process.assert_not_called()
+
+    def test_already_linked_payment_does_not_enqueue(self):
+        """The guard that IS the double-post protection - inverting it must be caught."""
+        from verenigingen.verenigingen_payments.ponto.api import webhook_handlers as wh
+
+        link = frappe._dict(
+            name="PL-TEST-0002",
+            payment_entry="ACC-PAY-EXISTING",
+            status="Executed",
+            update_status_from_webhook=lambda *a, **k: None,
+        )
+        with (
+            patch(f"{self.MODULE}.frappe.enqueue") as mock_enqueue,
+            patch(f"{self.MODULE}.frappe.get_doc", return_value=link),
+            patch(f"{self.MODULE}.frappe.get_all", return_value=[frappe._dict(name="PL-TEST-0002")]),
+            patch(f"{self.MODULE}.frappe.db.savepoint"),
+            patch(f"{self.MODULE}.frappe.db.rollback"),
+        ):
+            wh._update_payment_link_status(request_id="req-2", new_status="executed")
+
+        mock_enqueue.assert_not_called()

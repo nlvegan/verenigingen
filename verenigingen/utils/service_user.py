@@ -39,13 +39,25 @@ def get_service_user(
     Raises:
         ValueError: If no valid user is available
 
-    Example:
-        user = get_service_user(
-            settings_doctype="Verenigingen Payments Settings",
-            user_field="webhook_user",
-            service_name="Ponto Webhook",
-        )
-        frappe.enqueue(..., user=user)
+    Example - set the identity INSIDE the job, never via an enqueue kwarg:
+
+        def my_job(some_arg):
+            frappe.set_user(get_service_user(
+                settings_doctype="Verenigingen Payments Settings",
+                user_field="webhook_user",
+                service_name="Ponto Webhook",
+            ))
+            ...
+
+        frappe.enqueue("path.to.my_job", some_arg=x, queue="short")
+
+    `frappe.enqueue(..., user=user)` does NOT work and is not a no-op: enqueue has no
+    `user` parameter (frappe/utils/background_jobs.py:76-93), so it lands in **kwargs
+    and execute_job passes it to the job function (`retval = method(**kwargs)`) - a
+    TypeError in the worker, where the enqueuing request cannot see it. The worker's
+    identity comes from `queue_args["user"] = frappe.session.user`, i.e. whoever
+    enqueued, which for an allow_guest webhook is Guest. This example previously showed
+    the broken form and it was copied to three call sites.
     """
     configured_user = None
 
