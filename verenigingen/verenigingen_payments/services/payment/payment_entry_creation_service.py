@@ -16,10 +16,14 @@ Gateway payments (Mollie, Ponto, ING) are supported via `bank_account` and `rema
 the four hand-rolled gateway wrappers are being migrated onto this service so a fix
 lands in one place rather than four.
 
-Callers must already hold Payment Entry create/submit and Sales Invoice read. Gateway
-webhooks run as the configured service user (see
-verenigingen_payments/mollie/utils/webhook_security.py), so the requirement is met by
-granting that role, NOT by bypassing the checks here.
+Callers must already hold Payment Entry create/submit and Sales Invoice read; this
+service does NOT bypass those checks for anyone. The Mollie webhook meets that by
+running as the configured service user (webhook_security.py sets it after signature
+verification). Ponto does NOT - its executed-payment branch runs inline under an
+allow_guest request - so that path must arrange a permitted identity itself rather than
+assume one. Note also that get_service_user() falls back to Administrator when
+`Verenigingen Payments Settings.webhook_user` is unset, which is the case on veg11:
+configure it before relying on attribution.
 
 Does NOT handle:
 - Unallocated payment entries (this service is invoice-driven by construction)
