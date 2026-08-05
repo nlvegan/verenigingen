@@ -264,7 +264,7 @@ class TestExecuteDonorAutoCreation(EnhancedTestCase):
             job_name=job_name, job_type="donor_auto_creation", status="Queued"
         )
 
-        result = execute_donor_auto_creation(payment_doc_name="PE-MISSING-ABC", job_name=job_name)
+        result = execute_donor_auto_creation(payment_doc_name="PE-MISSING-ABC", tracking_job_name=job_name)
         self.assertEqual(result["status"], "skipped")
         self.assertIn("no longer exists", result["reason"])
 
@@ -286,7 +286,7 @@ class TestExecuteExpenseEventProcessing(EnhancedTestCase):
 
         with self.assertRaises(ValueError):
             execute_expense_event_processing(
-                expense_doc_name="EXP-X", event_type="not_a_real_event", job_name=job_name
+                expense_doc_name="EXP-X", event_type="not_a_real_event", tracking_job_name=job_name
             )
 
         status = BackgroundJobManager.get_job_status(job_name)
@@ -307,7 +307,7 @@ class TestExecuteMemberPaymentHistoryUpdate(EnhancedTestCase):
 
         with self.assertNoErrorLog():
             result = execute_member_payment_history_update(
-                member_name="MEMBER-DOES-NOT-EXIST", job_name=job_name
+                member_name="MEMBER-DOES-NOT-EXIST", tracking_job_name=job_name
             )
 
         self.assertEqual(result.get("status"), "skipped")
@@ -323,7 +323,7 @@ class TestExecuteMemberPaymentHistoryUpdate(EnhancedTestCase):
             job_name=job_name, job_type="member_payment_history_update", status="Queued"
         )
 
-        result = execute_member_payment_history_update(member_name=member.name, job_name=job_name)
+        result = execute_member_payment_history_update(member_name=member.name, tracking_job_name=job_name)
         self.assertIn(result.get("status"), {"completed", "cached", "skipped"})
 
         status = BackgroundJobManager.get_job_status(job_name)
