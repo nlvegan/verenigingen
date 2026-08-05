@@ -270,10 +270,15 @@ class BackgroundJobManager:
             # Calculate backoff delay (exponential: 1s, 2s, 4s, 8s...)
             delay = min(2**retry_count, 60)  # Cap at 60 seconds
 
-            # Schedule retry
+            # Schedule retry.
+            # NOTE: do NOT name this kwarg `job_name`. That is one of
+            # frappe.enqueue's own parameters, so enqueue consumes it and the job
+            # is invoked without it -> TypeError: missing a required argument.
             frappe.enqueue(
                 "verenigingen.utils.background_jobs.retry_job_execution",
-                job_name=job_name,
+                target_job_name=job_name,
+                # `delay` IS a real parameter of retry_job_execution, unlike the
+                # enqueue-level `delay=` that was the bug at the other call sites.
                 delay=delay,
                 queue="default",
                 timeout=300,
@@ -424,10 +429,18 @@ def execute_donor_auto_creation(payment_doc_name: str, job_name: str = None, **k
         raise
 
 
-def retry_job_execution(job_name: str, delay: int):
-    """Retry job execution after delay"""
+def retry_job_execution(target_job_name: str, delay: int):
+    """Retry job execution after delay.
+
+    Args:
+        target_job_name: The job being retried. Deliberately NOT called
+            `job_name`: frappe.enqueue owns that parameter name and would
+            swallow it instead of forwarding it to this function.
+        delay: Seconds to wait before retrying.
+    """
     import time
 
+    job_name = target_job_name  # the body below keeps the original name
     time.sleep(delay)
 
     try:
