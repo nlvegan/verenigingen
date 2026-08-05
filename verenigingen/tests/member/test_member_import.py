@@ -627,8 +627,12 @@ class TestMemberImportEndToEnd(EnhancedTestCase):
 
     def test_end_to_end_creates_members_and_skips_duplicate(self):
         # Use unique identifiers per test run so concurrent / re-run executions
-        # don't fight over the same member_id.
-        suffix = frappe.generate_hash(length=8)
+        # don't fight over the same member_id. The leading "x" is load-bearing:
+        # generate_hash is hex, so ~2% of runs return 8 digits, and the PII
+        # sanitizer that error_log passes through redacts any 8+ digit run as a
+        # phone number (_PHONE_PATTERN in utils/error_handling.py). That turned
+        # the assertion on existing_member_id below into a ~1-in-43 flake.
+        suffix = "x" + frappe.generate_hash(length=7)
         existing_member_id = f"E2E-EXISTING-{suffix}"
         new_member_id = f"E2E-NEW-{suffix}"
         nameless_id = f"E2E-NAMELESS-{suffix}"
