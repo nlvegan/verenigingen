@@ -93,6 +93,15 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     @classmethod
     def _sweep_webhook_users(cls):
+        # REFUSE to sweep on a non-test site. This deletes every webhook-user% User
+        # on whatever site the suite runs against, and the webhook service user is
+        # now a real dependency: gateway services fall back to Administrator without
+        # it (get_service_user), silently, until the next migrate re-creates it.
+        # The comment above notes this suite has been pointed at the live site before.
+        site = getattr(frappe.local, "site", "") or ""
+        if not (site.startswith("test_site") or site.endswith(".localhost") or frappe.conf.get("developer_mode")):
+            frappe.logger().warning(f"Refusing to sweep webhook users on non-test site {site!r}")
+            return
         for email in frappe.get_all("User", filters={"email": ["like", "webhook-user%"]}, pluck="name"):
             cls._delete_webhook_user(email)
 
@@ -129,6 +138,11 @@ class TestWebhookUserSetup(VereningingenTestCase):
         result = w.create_webhook_user_account(base, w.generate_secure_password())
         self.assertTrue(result["success"], result)
         self._track_if_exists(base)
+
+        # Pin the precondition: the old generator's counter only fired when the user
+        # actually existed, so without this the test would pass against a no-op
+        # create and prove nothing.
+        self.assertTrue(frappe.db.exists("User", base), "precondition: the user must exist")
 
         # Now that the user exists, the generator must still resolve to it.
         self.assertEqual(w.generate_webhook_user_email(), base)
@@ -309,22 +323,81 @@ class TestWebhookUserSetup(VereningingenTestCase):
         matches = frappe.get_all("User", filters={"name": ["like", f"webhook-user%@{domain}"]}, pluck="name")
         self.assertEqual(len(matches), 1, f"expected exactly one webhook user, found {matches}")
 
-    def test_setup_recreates_a_configured_user_that_was_deleted(self):
-        """The state found on a real site: setting points at a user that is gone."""
-        first = w.setup_webhook_user()
-        self.assertTrue(first["success"], first)
-        email = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
-        self._track_if_exists(email)
+    def test_setup_recreates_a_configured_non_canonical_user_that_was_deleted(self):
+        """The exact state found on test_site_1: a NON-canonical configured address
+        whose User has been deleted.
 
-        frappe.delete_doc("User", email, force=True, ignore_permissions=True)
-        frappe.db.commit()
-        self.assertFalse(frappe.db.exists("User", email))
+        The address must be non-canonical, otherwise the configured-preference
+        branch is indistinguishable from the canonical fallback and the test proves
+        nothing about it. `webhook-user-1@<site>` is the real-world value -- the
+        fingerprint of the old counter bug, left behind after test-data cleanup
+        removed the User.
+        """
+        canonical = w.generate_webhook_user_email()
+        domain = canonical.split("@", 1)[1]
+        stale = f"webhook-user-7@{domain}"
+
+        # Configure the stale address AND create the account, so the normalisation
+        # branch (which only rewrites when the suffixed user is absent) does not fire.
+        self._set_settings_webhook_user(stale)
+        self.assertTrue(w.create_webhook_user_account(stale, w.generate_secure_password())["success"])
+        self._track_if_exists(stale)
+        self.assertNotEqual(stale, canonical)
+
+        # The configured, existing, non-canonical address wins over the canonical one.
+        self.assertEqual(w.generate_webhook_user_email(), stale)
 
         again = w.setup_webhook_user()
         self.assertTrue(again["success"], again)
-        # Recreated at the SAME address, not beside it.
-        self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), email)
-        self.assertTrue(frappe.db.exists("User", email))
+        self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), stale)
+        # Converged on the stale address rather than creating the canonical one beside it.
+        self.assertFalse(frappe.db.exists("User", canonical))
+
+    def test_a_deleted_suffixed_user_is_normalised_back_to_canonical(self):
+        """A `webhook-user-<n>@` setting with no such User is the counter bug's
+        artefact; keep it and every future reader re-diagnoses the old bug."""
+        canonical = w.generate_webhook_user_email()
+        domain = canonical.split("@", 1)[1]
+        stale = f"webhook-user-9@{domain}"
+
+        self._set_settings_webhook_user(stale)
+        self.assertFalse(frappe.db.exists("User", stale), "precondition: the stale user is gone")
+
+        self.assertEqual(w.generate_webhook_user_email(), canonical)
+
+    def test_create_account_re_enables_a_disabled_user(self):
+        """A disabled service user is equivalent to no user: get_service_user reads
+        `enabled` and falls back to Administrator, so setup must converge on it."""
+        email = w.generate_webhook_user_email()
+        self.assertTrue(w.create_webhook_user_account(email, w.generate_secure_password())["success"])
+        self._track_if_exists(email)
+
+        user = frappe.get_doc("User", email)
+        user.enabled = 0
+        user.save(ignore_permissions=True)
+        frappe.db.commit()
+        self.assertFalse(frappe.db.get_value("User", email, "enabled"))
+
+        result = w.create_webhook_user_account(email, None)
+        self.assertTrue(result["success"], result)
+        self.assertIn("re-enabled", result["message"])
+        self.assertTrue(frappe.db.get_value("User", email, "enabled"))
+
+    def test_autosetup_can_be_disabled(self):
+        """Without an opt-out there is no supported way to stop after_migrate
+        recreating the account -- clearing webhook_user does not help."""
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, "disable_webhook_user_autosetup", 1)
+        frappe.db.commit()
+        try:
+            result = w.setup_webhook_user()
+            self.assertTrue(result["success"], result)
+            self.assertTrue(result.get("skipped"), result)
+            # setUp clears the field, which persists as "" rather than None.
+            self.assertFalse(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"))
+            self.assertFalse(frappe.db.exists("User", w.generate_webhook_user_email()))
+        finally:
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, "disable_webhook_user_autosetup", 0)
+            frappe.db.commit()
 
     # ---- get_webhook_credentials_for_display ------------------------------
 

@@ -35,6 +35,7 @@
   "enable_sepa_direct_debit",
   "webhook_section",
   "webhook_user",
+  "disable_webhook_user_autosetup",
   "ing_checkout_webhook_secret",
   "payment_description_section",
   "mollie_subscription_description_template",
@@ -350,6 +351,13 @@
    "fieldtype": "Link",
    "label": "Webhook User",
    "options": "User"
+  },
+  {
+   "default": "0",
+   "description": "Stop setup_webhook_user (after_install/after_migrate) from creating, re-enabling or reconfiguring the webhook service user. Set this if the account is deliberately disabled or managed manually.",
+   "fieldname": "disable_webhook_user_autosetup",
+   "fieldtype": "Check",
+   "label": "Disable Webhook User Auto-setup"
   },
   {
    "description": "Webhook secret for ING Checkout (Pay.nl) webhook verification. Configure this in the Pay.nl admin panel.",
