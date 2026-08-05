@@ -62,7 +62,29 @@ def setup_webhook_user():
 
 
 def generate_webhook_user_email():
-    """Generate a unique webhook user email based on site name"""
+    """Resolve the webhook user's email. DETERMINISTIC -- the same site always
+    resolves to the same address.
+
+    This used to walk a counter *while the user existed*, so it deliberately
+    returned an address that did NOT exist yet. The existence check in
+    create_webhook_user_account could therefore never fire, and every run minted a
+    fresh user (webhook-user-1@, webhook-user-2@, ...). That made setup_webhook_user
+    non-idempotent, which is why it could only ever be wired into after_install and
+    why sites that missed that one-shot could never converge.
+
+    Resolution order:
+      1. Whatever is already configured in Verenigingen Payments Settings, so an
+         existing deployment keeps its identity (and a deleted user is recreated at
+         the SAME address rather than beside it).
+      2. The canonical webhook-user@<site>.
+    """
+    try:
+        configured = frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
+        if configured:
+            return configured
+    except Exception:
+        pass
+
     try:
         site_name = frappe.conf.site_name or frappe.local.site
         # Clean the site name for use as an email domain. Dots MUST be preserved
@@ -72,25 +94,10 @@ def generate_webhook_user_email():
         clean_site = site_name.replace("_", "-")
         if "." not in clean_site:
             clean_site = f"{clean_site}.local"
-        webhook_email = f"webhook-user@{clean_site}"
-
-        # Ensure uniqueness by adding suffix if needed
-        counter = 1
-        # Store original for reference if needed later
-        while frappe.db.exists("User", webhook_email):
-            webhook_email = f"webhook-user-{counter}@{clean_site}"
-            counter += 1
-
-        return webhook_email
+        return f"webhook-user@{clean_site}"
 
     except Exception:
-        # Fallback to a generic webhook user email
-        counter = 1
-        webhook_email = "webhook-user@verenigingen-app.local"
-        while frappe.db.exists("User", webhook_email):
-            webhook_email = f"webhook-user-{counter}@verenigingen-app.local"
-            counter += 1
-        return webhook_email
+        return "webhook-user@verenigingen-app.local"
 
 
 def generate_secure_password(length=16):
@@ -105,6 +112,15 @@ def create_webhook_user_account(webhook_email, webhook_password):
     """Create the webhook user account with proper security settings"""
     try:
         if frappe.db.exists("User", webhook_email):
+            # Converge rather than no-op: get_service_user() treats a DISABLED user
+            # exactly like an unset one and silently falls back to Administrator, so
+            # leaving it disabled would leave the whole scoped-service-user model off.
+            if not frappe.db.get_value("User", webhook_email, "enabled"):
+                frappe.db.set_value("User", webhook_email, "enabled", 1)
+                frappe.db.commit()
+                print(f"   ✅ Re-enabled existing webhook user: {webhook_email}")
+                return {"success": True, "message": f"Webhook user {webhook_email} re-enabled"}
+
             print(f"   ℹ️ Webhook user {webhook_email} already exists")
             return {"success": True, "message": "Webhook user already exists"}
 

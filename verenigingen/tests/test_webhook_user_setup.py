@@ -115,17 +115,40 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # Frappe must accept it as a real email address.
         frappe.utils.validate_email_address(email, throw=True)
 
-    def test_generate_webhook_user_email_increments_on_collision(self):
-        """When the base email already exists, a numbered suffix is used."""
+    def test_generate_webhook_user_email_is_deterministic(self):
+        """The same site must always resolve to the same address.
+
+        This previously asserted the OPPOSITE -- that an existing user causes a
+        numbered suffix -- which pinned the bug: the generator walked a counter
+        *while the user existed*, so it deliberately returned an address that did
+        not exist yet. create_webhook_user_account's existence check could never
+        fire, every run minted a new user, and setup could therefore never be made
+        to converge (which is why it could only live in after_install).
+        """
         base = w.generate_webhook_user_email()
         result = w.create_webhook_user_account(base, w.generate_secure_password())
         self.assertTrue(result["success"], result)
         self._track_if_exists(base)
 
-        # Now the base exists -> generator must return a different, incremented email.
-        second = w.generate_webhook_user_email()
-        self.assertNotEqual(second, base)
-        self.assertFalse(frappe.db.exists("User", second))
+        # Now that the user exists, the generator must still resolve to it.
+        self.assertEqual(w.generate_webhook_user_email(), base)
+
+    def test_generate_webhook_user_email_prefers_the_configured_user(self):
+        """A configured address wins, so a deleted user is recreated in place.
+
+        On a real site the configured user had been deleted, leaving the setting
+        pointing at a nonexistent account. get_service_user() treats that exactly
+        like an unset one (frappe.db.get_value returns None for a missing user) and
+        silently falls back to Administrator -- while the setting still reads as
+        configured. Resolving to the configured address means setup recreates it
+        rather than creating a second user beside it.
+        """
+        configured = "webhook-user-preexisting@example.test"
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, "webhook_user", configured)
+        frappe.db.commit()
+
+        self.assertEqual(w.generate_webhook_user_email(), configured)
+        self.assertFalse(frappe.db.exists("User", configured), "precondition: user must not exist")
 
     # ---- generate_secure_password -----------------------------------------
 
@@ -261,11 +284,14 @@ class TestWebhookUserSetup(VereningingenTestCase):
         verify = w.verify_webhook_user_setup()
         self.assertTrue(verify["setup_complete"], verify)
 
-    def test_setup_webhook_user_run_twice_does_not_error(self):
-        """Running setup twice must not error. NOTE: because the email generator
-        always produces a fresh unique email, the second run creates a SECOND
-        webhook user rather than reusing the first (see reported design issue).
-        This test documents that observed behaviour."""
+    def test_setup_webhook_user_is_idempotent(self):
+        """Running setup twice must CONVERGE on one user, not create a second.
+
+        This is what lets setup_webhook_user live in after_migrate. It previously
+        asserted that both runs produced different users and called that "observed
+        behaviour"; running that version on every migrate would have minted a
+        webhook user per migration.
+        """
         first = w.setup_webhook_user()
         first_email = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
         self._track_if_exists(first_email)
@@ -273,12 +299,32 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
         second = w.setup_webhook_user()
         second_email = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
-        self._track_if_exists(second_email)
         self.assertTrue(second["success"], second)
 
-        # Neither run errored. Both users exist.
+        self.assertEqual(second_email, first_email, "second run must reuse the same webhook user")
         self.assertTrue(frappe.db.exists("User", first_email))
-        self.assertTrue(frappe.db.exists("User", second_email))
+
+        # And exactly one webhook user exists for this site.
+        domain = first_email.split("@", 1)[1]
+        matches = frappe.get_all("User", filters={"name": ["like", f"webhook-user%@{domain}"]}, pluck="name")
+        self.assertEqual(len(matches), 1, f"expected exactly one webhook user, found {matches}")
+
+    def test_setup_recreates_a_configured_user_that_was_deleted(self):
+        """The state found on a real site: setting points at a user that is gone."""
+        first = w.setup_webhook_user()
+        self.assertTrue(first["success"], first)
+        email = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
+        self._track_if_exists(email)
+
+        frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("User", email))
+
+        again = w.setup_webhook_user()
+        self.assertTrue(again["success"], again)
+        # Recreated at the SAME address, not beside it.
+        self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), email)
+        self.assertTrue(frappe.db.exists("User", email))
 
     # ---- get_webhook_credentials_for_display ------------------------------
 
