@@ -118,13 +118,17 @@ def authenticate_mollie_webhook() -> str:
 # - Donor: Donor subscription and payment history updates
 # - Mollie Audit Log: Webhook event logging
 #
-# Sales Invoice and Payment Entry are not listed, even though the dues path writes both;
-# whether they belong here is a separate decision. Note the two are not alike: Payment
-# Entry is granted directly to the literal "Verenigingen Webhook User" role
-# (fixtures/custom_docperm.json grants create/write/submit), whereas Sales Invoice is
-# granted only through Accounts User in that user's role PROFILE
-# (fixtures/role_profile.json). Both are visible to the check below, which evaluates the
-# session user's effective roles.
+# - Payment Entry: created and submitted by PaymentEntryCreationService on the dues path
+# - Sales Invoice (read-only, below): the invoice that entry is allocated against
+#
+# The two are not alike in how they are granted: Payment Entry comes directly from the
+# literal "Verenigingen Webhook User" role (fixtures/custom_docperm.json grants
+# create/write/submit), whereas Sales Invoice arrives only through Accounts User in that
+# user's role PROFILE (fixtures/role_profile.json). Both are visible to the check below
+# because it evaluates the session user's EFFECTIVE roles - which is exactly why listing
+# them was reverted on 2026-08-01 (f8c7f59f) and is safe now: the previous checker read
+# DocPerm rows for the literal role, could not see the profile grant, and would have
+# logged an Error Log on every webhook forever.
 #
 # Module-level so tests can substitute a different list; the contents are the contract.
 # Tuple, not list: this is the contract the webhook user is checked against, and a
@@ -137,7 +141,19 @@ REQUIRED_DOCTYPES = (
     "Member",
     "Donor",
     "Mollie Audit Log",
+    # Submittable, so "submit" is demanded automatically below - which is the gate
+    # PaymentEntryCreationService relies on most.
+    "Payment Entry",
 )
+
+# Checked for "read" only. Splitting these out rather than widening REQUIRED_DOCTYPES
+# keeps the list an honest statement of what the gateway path needs:
+# payment_entry_creation_service's own contract (its module docstring) is "Payment
+# Entry create/submit and Sales Invoice read". Demanding create/write on Sales Invoice
+# would pass today - the role profile happens to grant them via Accounts User - but it
+# would turn any future least-privilege narrowing to read-only into a permanent
+# false alarm, and this check runs on every webhook.
+REQUIRED_READ_DOCTYPES = ("Sales Invoice",)
 
 
 def validate_webhook_user_permissions():
@@ -161,13 +177,18 @@ def validate_webhook_user_permissions():
     "submit" is checked only for submittable doctypes - a non-submittable doctype has no
     submit DocPerm at all, so requiring one would report a miss that means nothing.
 
+    REQUIRED_READ_DOCTYPES are checked for "read" alone. See the constant for why the
+    distinction is kept rather than demanding create/write everywhere.
+
     Returns True if every required permission is present, False otherwise. Callers treat
     a False as a warning; this function never blocks webhook processing.
     """
     current_user = frappe.session.user
     missing_permissions = []
 
-    for doctype in REQUIRED_DOCTYPES:
+    for doctype in REQUIRED_DOCTYPES + REQUIRED_READ_DOCTYPES:
+        read_only = doctype in REQUIRED_READ_DOCTYPES
+
         # Screen out unknown doctypes ONCE, before anything that would raise on one.
         # Both frappe.get_meta and frappe.has_permission raise DoesNotExistError for a
         # doctype that does not exist, and this function is called unguarded from
@@ -177,11 +198,14 @@ def validate_webhook_user_permissions():
             missing_permissions.append(f"{doctype} (no such doctype)")
             continue
 
-        perm_types = ["create", "write"]
-        # "submit" only for submittable doctypes: a non-submittable one has no submit
-        # DocPerm at all, so requiring it would report a miss that means nothing.
-        if frappe.get_meta(doctype).is_submittable:
-            perm_types.append("submit")
+        if read_only:
+            perm_types = ["read"]
+        else:
+            perm_types = ["create", "write"]
+            # "submit" only for submittable doctypes: a non-submittable one has no submit
+            # DocPerm at all, so requiring it would report a miss that means nothing.
+            if frappe.get_meta(doctype).is_submittable:
+                perm_types.append("submit")
 
         for perm_type in perm_types:
             if not frappe.has_permission(doctype, perm_type):
