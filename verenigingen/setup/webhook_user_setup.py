@@ -57,10 +57,15 @@ def setup_webhook_user():
 
         print("✅ Webhook user setup completed successfully")
         print(f"   📧 User: {webhook_user_email}")
-        if webhook_password:
-            print(f"   🔐 Password: {webhook_password}")
         print("   🛡️ Role: Verenigingen Webhook User")
         print("   ⚙️ Configured in Verenigingen Payments Settings")
+        if webhook_password:
+            # The password is deliberately NOT printed. This runs on every migrate,
+            # so it would land in migrate/CI/supervisor logs -- CodeQL flags it as
+            # py/clear-text-logging-sensitive-data, correctly. Nothing needs it to
+            # operate: the gateways assume this identity via frappe.set_user, never
+            # by logging in. Retrieve it deliberately if a human ever needs it.
+            print("   🔐 Password set; retrieve via get_webhook_credentials_manual()")
 
         result = {
             "success": True,
