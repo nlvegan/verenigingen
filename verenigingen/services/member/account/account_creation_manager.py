@@ -1118,11 +1118,15 @@ class AccountCreationManager:
         # (process_account_creation_request declared `at_time=None` purely to swallow
         # it) and the 5->60 minute ladder never applied.
         #
-        # Unlike the dues-schedule retry, this one is NOT deferred to a scheduled task:
-        # no scheduler sweeps Account Creation Requests, so dropping the enqueue would
-        # mean no retry at all. Immediate retry is acceptable here because the caller
-        # only retries transient errors (deadlock, lock timeout, connection, rate
-        # limit) and caps attempts at 3.
+        # No scheduled task sweeps Account Creation Requests -- only the admin-triggered
+        # retry_failed_request / retry_all_failed_requests endpoints -- so dropping this
+        # enqueue would leave no unattended retry at all.
+        #
+        # Immediate retry is fine for the lock/deadlock/connection cases, and attempts
+        # are capped at 3 (see the caller). It is NOT ideal for the "rate limit"
+        # category, where three attempts burn in seconds against a limiter -- but that
+        # is no worse than before, since the advertised 5->60 minute ladder never
+        # applied either.
         try:
             frappe.enqueue(
                 "verenigingen.services.member.account.account_creation_api.process_account_creation_request",

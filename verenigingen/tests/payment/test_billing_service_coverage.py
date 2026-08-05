@@ -463,8 +463,10 @@ class TestDuesScheduleCreationService(EnhancedTestCase):
     # test_retry_delays_exponential removed with RETRY_DELAYS. The constant described
     # a 60s/300s/1800s backoff that never applied: it was fed to frappe.enqueue as
     # `at_time`, which is not an enqueue parameter, so every retry fired immediately.
-    # Retries now defer to the daily auto-creator task, so there is no delay ladder
-    # to assert. See dues_schedule_creation_service._enqueue_retry_job.
+    # The ladder cannot be reinstated -- frappe runs its workers with
+    # with_scheduler=False, so there is no delayed-enqueue facility at all. Retries
+    # still happen, just without delay, so there is no ordering left to assert.
+    # See dues_schedule_creation_service._enqueue_retry.
 
 
 # ---------------------------------------------------------------------------

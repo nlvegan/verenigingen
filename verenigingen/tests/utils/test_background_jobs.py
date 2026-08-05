@@ -163,6 +163,39 @@ class TestEnqueueTrackedJob(EnhancedTestCase):
         self.assertEqual(status["reference_doctype"], "Payment Entry")
         self.assertEqual(status["reference_name"], "PE-DONOR")
 
+    def test_tracked_enqueue_does_not_hand_the_job_name_to_enqueue_itself(self):
+        """The tracking name must reach the job, not be eaten by frappe.enqueue.
+
+        REGRESSION GUARD. _enqueue_tracked_job passed `job_name=`, which is one of
+        frappe.enqueue's OWN parameters: enqueue consumed it and the executors were
+        invoked with job_name=None, so every `if job_name:` guard fell through and
+        update_job_status() never ran -- the record stayed "Queued" for the life of
+        the job.
+
+        This has to assert on the CALL SITE. The repo-wide sweep in
+        test_enqueue_bind_contracts cannot see it (this enqueue passes a *variable*
+        target, which static resolution skips), and calling the executors directly
+        only pins their signature, not what the producer hands to enqueue. Verified
+        by mutation: reverting to `job_name=` fails this test and nothing else.
+
+        `retry=` is asserted absent for the same reason -- it is not an enqueue
+        parameter, so it used to be forwarded to the executors and swallowed by
+        their **kwargs, having never retried anything.
+        """
+        captured = {}
+        original = frappe.enqueue
+        frappe.enqueue = lambda *a, **k: captured.update(k)
+        try:
+            BackgroundJobManager.queue_donor_auto_creation(payment_doc_name="PE-KWARG")
+        finally:
+            frappe.enqueue = original
+
+        self.assertTrue(captured, "expected queue_donor_auto_creation to enqueue a job")
+        self.assertIn("tracking_job_name", captured)
+        self.assertTrue(captured["tracking_job_name"].startswith("donor_auto_creation_PE-KWARG_"))
+        self.assertNotIn("job_name", captured)
+        self.assertNotIn("retry", captured)
+
     def test_enqueue_with_tracking_creates_record_and_notifies(self):
         captured = []
         original = frappe.publish_realtime

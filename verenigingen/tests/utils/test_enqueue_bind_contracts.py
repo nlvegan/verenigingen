@@ -196,7 +196,10 @@ class TestEnqueueCallsBindToTheirJobs(FrappeTestCase):
             for problem in check_call(signature, job_kwargs, all_kwargs, has_splat):
                 failures.append(f"{where}\n    {problem}")
 
-        self.assertGreater(checked, 20, "bind check found suspiciously few enqueue call sites")
+        # 38 literal targets resolve today. A floor well under that catches a total
+        # sweep failure (broken walk, the "enqueue" prefilter regressing, a wrong
+        # app root) without tripping on ordinary churn.
+        self.assertGreater(checked, 35, "bind check found suspiciously few enqueue call sites")
         self.assertEqual(
             [],
             failures,
