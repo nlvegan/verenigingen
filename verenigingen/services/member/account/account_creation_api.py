@@ -32,12 +32,16 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def process_account_creation_request(request_name: str, at_time=None) -> OperationResult[Dict[str, Any]]:
+def process_account_creation_request(request_name: str) -> OperationResult[Dict[str, Any]]:
     """Background job entry point for processing account creation requests
+
+    Previously took an `at_time` parameter documented as "passed by frappe.enqueue
+    when using at_time parameter". frappe.enqueue has no `at_time`; the caller's
+    value was forwarded here as an ordinary job argument and this parameter existed
+    only to absorb it. Both are gone -- see AccountCreationManager.schedule_retry.
 
     Args:
         request_name: Name of the Account Creation Request to process
-        at_time: Scheduled execution time (passed by frappe.enqueue when using at_time parameter)
 
     Returns:
         OperationResult[Dict[str, Any]]: Result with success status and message

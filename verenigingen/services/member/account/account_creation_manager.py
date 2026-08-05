@@ -1112,8 +1112,17 @@ class AccountCreationManager:
         # Reload request to get updated retry_count
         self.request.reload()
 
-        retry_delay_minutes = min(5 * (2**current_retry_count), 60)  # Exponential backoff
-
+        # The retry runs as soon as a worker picks it up. There is no delay, and there
+        # never was: this used to pass at_time=<future> to frappe.enqueue, which has no
+        # such parameter, so the value was forwarded to the job as an ordinary argument
+        # (process_account_creation_request declared `at_time=None` purely to swallow
+        # it) and the 5->60 minute ladder never applied.
+        #
+        # Unlike the dues-schedule retry, this one is NOT deferred to a scheduled task:
+        # no scheduler sweeps Account Creation Requests, so dropping the enqueue would
+        # mean no retry at all. Immediate retry is acceptable here because the caller
+        # only retries transient errors (deadlock, lock timeout, connection, rate
+        # limit) and caps attempts at 3.
         try:
             frappe.enqueue(
                 "verenigingen.services.member.account.account_creation_api.process_account_creation_request",
@@ -1121,10 +1130,9 @@ class AccountCreationManager:
                 queue="long",
                 timeout=600,
                 job_name=f"account_creation_retry_{self.request_name}",
-                at_time=frappe.utils.add_to_date(None, minutes=retry_delay_minutes),
             )
             frappe.logger().info(
-                f"Scheduled retry {new_retry_count} for {self.request_name} in {retry_delay_minutes} minutes"
+                f"Enqueued retry {new_retry_count} for {self.request_name} (no delay; runs when a worker is free)"
             )
         except Exception as e:
             # frappe.log_error signature is (title, message, ...) — `title`
