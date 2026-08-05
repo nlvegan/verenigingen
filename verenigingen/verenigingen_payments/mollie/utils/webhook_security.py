@@ -110,38 +110,48 @@ def authenticate_mollie_webhook() -> str:
     return payload
 
 
+# Doctypes required for donation and membership payment processing
+# - Donation: Core donation records
+# - Bank Transaction: Financial transaction records for bank reconciliation
+# - Journal Entry: Accounting entries for donations (income recognition)
+# - Member: Member payment history updates
+# - Donor: Donor subscription and payment history updates
+# - Mollie Audit Log: Webhook event logging
+#
+# Sales Invoice and Payment Entry are not listed, even though the dues path writes both;
+# whether they belong here is a separate decision. Note the two are not alike: Payment
+# Entry is granted directly to the literal "Verenigingen Webhook User" role
+# (fixtures/custom_docperm.json grants create/write/submit), whereas Sales Invoice is
+# granted only through Accounts User in that user's role PROFILE
+# (fixtures/role_profile.json). Both are visible to the check below, which evaluates the
+# session user's effective roles.
+#
+# Module-level so tests can substitute a different list; the contents are the contract.
+REQUIRED_DOCTYPES = [
+    "Donation",
+    "Bank Transaction",
+    "Journal Entry",
+    "Member",
+    "Donor",
+    "Mollie Audit Log",
+]
+
+
 def validate_webhook_user_permissions():
     """
     Validate that the webhook user has necessary permissions.
 
     For service accounts (like Verenigingen Webhook User), we check DocPerm entries
     directly since list-level frappe.has_permission() doesn't invoke custom
-    has_permission methods on Documents.
-    """
-    # Doctypes required for donation and membership payment processing
-    # - Donation: Core donation records
-    # - Bank Transaction: Financial transaction records for bank reconciliation
-    # - Journal Entry: Accounting entries for donations (income recognition)
-    # - Member: Member payment history updates
-    # - Donor: Donor subscription and payment history updates
-    # - Mollie Audit Log: Webhook event logging
-    # NOTE: Sales Invoice and Payment Entry are deliberately NOT listed, even though the
-    # dues path needs them. _check_docperm_for_roles() below consults DocPerm rows for the
-    # literal "Verenigingen Webhook User" role only, while the effective grant arrives via
-    # Accounts User in that user's role PROFILE (fixtures/role_profile.json). The check
-    # would therefore fail permanently and emit an Error Log on every webhook, without
-    # revealing anything true. Fixing the checker to evaluate effective permissions - and
-    # adding "submit", which is never checked despite being the gate the service relies on
-    # most - is a prerequisite to listing them here.
-    required_doctypes = [
-        "Donation",
-        "Bank Transaction",
-        "Journal Entry",
-        "Member",
-        "Donor",
-        "Mollie Audit Log",
-    ]
+    has_permission methods on Documents. The check uses the session user's *effective*
+    roles, so permissions materialised by a role profile (e.g. Accounts User) count.
 
+    "submit" is checked only for submittable doctypes - a non-submittable doctype has no
+    submit DocPerm at all, so requiring one would report a miss that means nothing.
+
+    Returns True if every required permission is present, False otherwise. Callers treat
+    a False as a warning; this function never blocks webhook processing.
+    """
     current_user = frappe.session.user
     user_roles = frappe.get_roles(current_user)
 
@@ -151,13 +161,18 @@ def validate_webhook_user_permissions():
 
     missing_permissions = []
 
-    for doctype in required_doctypes:
-        for perm_type in ["create", "write"]:
+    for doctype in REQUIRED_DOCTYPES:
+        perm_types = ["create", "write"]
+        if frappe.get_meta(doctype).is_submittable:
+            perm_types.append("submit")
+
+        for perm_type in perm_types:
             has_perm = False
 
             if is_service_account:
-                # Check DocPerm entries directly for service accounts
-                has_perm = _check_docperm_for_roles(doctype, perm_type, service_roles)
+                # Check DocPerm entries directly for service accounts, against every role
+                # the user actually holds - not just the literal service role.
+                has_perm = _check_docperm_for_roles(doctype, perm_type, user_roles)
             else:
                 # Standard permission check for regular users
                 has_perm = frappe.has_permission(doctype, perm_type)

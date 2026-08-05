@@ -66,6 +66,89 @@ class TestValidateWebhookUserPermissions(FrappeTestCase):
             self.assertFalse(ws.validate_webhook_user_permissions())
 
 
+class TestValidateWebhookUserPermissionsEffectiveRoles(FrappeTestCase):
+    """
+    validate_webhook_user_permissions() as the real service account.
+
+    The service account holds the "Verenigingen Webhook User" ROLE PROFILE, which
+    materialises three roles onto the user: the literal webhook role plus Accounts User
+    and Sales User. These tests pin the two properties that literal-role-only checking
+    got wrong: profile-granted permissions must count, and "submit" must be checked for
+    submittable doctypes only.
+
+    Real DocPerm / Custom DocPerm rows are used throughout - the doctypes below were
+    chosen because their real permission rows isolate one property each:
+      * Sales Invoice   - create/write/submit granted ONLY via Accounts User (profile).
+      * Payment Request - submittable; Accounts User has create/write but NOT submit.
+      * Member          - not submittable; webhook role has create/write, submit is 0.
+    """
+
+    SERVICE_USER = "webhook-perm-check@test.invalid"
+
+    def setUp(self):
+        if frappe.db.exists("User", self.SERVICE_USER):
+            frappe.delete_doc("User", self.SERVICE_USER, force=True)
+
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": self.SERVICE_USER,
+                "first_name": "Webhook Perm Check",
+                "send_welcome_email": 0,
+                # v16: role_profile_name alone is silently dropped
+                # (User.move_role_profile_name_to_role_profiles clears it when the
+                # role_profiles table is empty) - the table is the live field.
+                "role_profiles": [{"role_profile": "Verenigingen Webhook User"}],
+            }
+        ).insert()
+
+        # Guard the fixture assumption: if the role profile stops materialising these
+        # roles, the tests below would silently stop testing what they claim to.
+        roles = frappe.get_roles(self.SERVICE_USER)
+        self.assertIn("Verenigingen Webhook User", roles)
+        self.assertIn("Accounts User", roles)
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+
+    def _missing_permissions(self, doctypes):
+        """Run the check for `doctypes` as the service user, returning (ok, message)."""
+        with patch.object(ws, "REQUIRED_DOCTYPES", doctypes), patch.object(frappe, "log_error") as mock_log:
+            with self.set_user(self.SERVICE_USER):
+                ok = ws.validate_webhook_user_permissions()
+        message = mock_log.call_args[0][0] if mock_log.call_args else ""
+        # Flatten so a failure shows the whole list on the assertion line.
+        return ok, " ".join(message.split())
+
+    def test_profile_granted_doctype_is_permitted(self):
+        # Sales Invoice is not granted to the literal "Verenigingen Webhook User" role at
+        # all; the grant arrives via Accounts User in the role profile.
+        ok, message = self._missing_permissions(["Sales Invoice"])
+        self.assertTrue(ok, f"Sales Invoice should be permitted via the role profile: {message}")
+
+    def test_submit_is_checked_for_submittable_doctype(self):
+        # Payment Request is submittable and the service account's effective roles grant
+        # create/write but not submit - so submit, and only submit, must be reported.
+        ok, message = self._missing_permissions(["Payment Request"])
+        self.assertFalse(ok, "a missing submit permission must be reported")
+        self.assertIn("Payment Request (submit)", message)
+        self.assertNotIn("Payment Request (create)", message)
+        self.assertNotIn("Payment Request (write)", message)
+
+    def test_no_spurious_submit_miss_for_non_submittable_doctype(self):
+        # Member has no submit DocPerm because Member is not submittable. Demanding one
+        # would report a miss that means nothing.
+        ok, message = self._missing_permissions(["Member"])
+        self.assertTrue(ok, f"non-submittable Member must not report a submit miss: {message}")
+
+    def test_real_required_doctypes_all_pass(self):
+        # The shipped list must pass for the real service account - this check runs on
+        # every webhook and a false miss would log an Error Log each time.
+        ok, message = self._missing_permissions(ws.REQUIRED_DOCTYPES)
+        self.assertTrue(ok, message)
+
+
 class TestLogWebhookSecurityEvent(FrappeTestCase):
     """log_webhook_security_event() persists a Mollie Audit Log row."""
 
