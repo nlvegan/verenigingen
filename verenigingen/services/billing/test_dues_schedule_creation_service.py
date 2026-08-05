@@ -219,6 +219,53 @@ class TestDuesScheduleCreationService(EnhancedTestCase):
         )
 
     # ==================================================================
+    # Retryable error path — the retry must carry the agreed amount
+    # ==================================================================
+    def test_retryable_failure_enqueues_a_retry_carrying_the_custom_amount(self):
+        """A retryable failure must enqueue a retry that still knows the agreed rate.
+
+        REGRESSION GUARD for a financial bug. A previous revision replaced this
+        enqueue with "let the daily auto_create_missing_dues_schedules task pick it
+        up". That task creates the schedule at the membership type's TEMPLATE rate,
+        not the member's agreed amount -- and Membership.create_or_update_dues_schedule
+        clears csv_import_custom_fee (membership.py:157) BEFORE the create it is
+        retrying, so the agreed amount is gone by the time we get here. A member
+        imported at EUR 5 would silently have been billed the EUR 25 template rate.
+
+        The only thing that carries the agreed rate forward is `custom_amount` in the
+        enqueued kwargs, so that is what this asserts. Nothing else in the suite
+        exercises the enqueue branch at all.
+        """
+        mt = self._make_membership_type(minimum_amount=10.0, with_template=False)
+        member, membership = self._make_member_with_membership(mt)
+
+        captured = {}
+        original = frappe.enqueue
+        frappe.enqueue = lambda *a, **k: captured.update(k)
+        try:
+            result = self.svc.create_schedule_with_retry(
+                member_name=member.name,
+                membership_name=membership.name,
+                membership_type=mt.name,
+                custom_amount=5.0,
+                custom_amount_reason="Imported from CSV",
+                custom_amount_approved=1,
+                retry_count=0,
+            )
+        finally:
+            frappe.enqueue = original
+
+        self.assertFalse(result.success)
+        self.assertTrue(captured, "a retryable failure must enqueue a retry")
+        self.assertEqual(captured.get("custom_amount"), 5.0)
+        self.assertEqual(captured.get("custom_amount_approved"), 1)
+        self.assertEqual(captured.get("member_name"), member.name)
+        # And the caller gets a token back, which is what keeps membership.py's
+        # "will be retried automatically" branch and the admin alerting reachable.
+        self.assertTrue(result.metadata.get("retry_job_id"))
+        self.assertTrue(result.metadata.get("will_retry"))
+
+    # ==================================================================
     # Error categorization
     # ==================================================================
     def test_categorize_error_duplicate(self):

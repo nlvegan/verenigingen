@@ -1118,9 +1118,16 @@ class AccountCreationManager:
         # (process_account_creation_request declared `at_time=None` purely to swallow
         # it) and the 5->60 minute ladder never applied.
         #
-        # No scheduled task sweeps Account Creation Requests -- only the admin-triggered
-        # retry_failed_request / retry_all_failed_requests endpoints -- so dropping this
-        # enqueue would leave no unattended retry at all.
+        # No scheduled task sweeps a STANDALONE Account Creation Request, so dropping
+        # this enqueue would leave one with no unattended retry at all.
+        #
+        # (There IS an hourly sweep -- hooks/scheduler.py -> bulk_retry_processor
+        # .process_retry_queues, with a real 1/4/12/24/48/72h backoff -- but it only
+        # picks up ACRs linked to a Bulk Operation Tracker: BulkOperationTracker
+        # .get_retry_requests filters on `bulk_operation_tracker = self.name`. Requests
+        # created outside a bulk run are invisible to it. The admin-triggered
+        # retry_failed_request / retry_all_failed_requests endpoints are the only other
+        # recovery, and both need a human.)
         #
         # Immediate retry is fine for the lock/deadlock/connection cases, and attempts
         # are capped at 3 (see the caller). It is NOT ideal for the "rate limit"

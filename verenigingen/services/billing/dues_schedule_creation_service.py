@@ -82,8 +82,9 @@ class DuesScheduleCreationService(StatelessService):
         """
         Create dues schedule with automatic retry on failure.
 
-        Attempts immediate creation. If it fails with a retryable error,
-        enqueues a background job with exponential backoff.
+        Attempts immediate creation. If it fails with a retryable error, enqueues a
+        background job that runs as soon as a worker is free. There is no backoff --
+        see _enqueue_retry for why the advertised ladder never existed.
 
         Args:
             member_name: Member document name
@@ -186,7 +187,7 @@ class DuesScheduleCreationService(StatelessService):
 
             # Determine if error is retryable
             if self._is_retryable_error(error_category) and retry_count < self.MAX_RETRIES:
-                # Enqueue retry with exponential backoff
+                # Enqueue retry (no backoff; see _enqueue_retry)
                 retry_job_id = self._enqueue_retry(
                     member_name=member_name,
                     membership_name=membership_name,
@@ -251,13 +252,25 @@ class DuesScheduleCreationService(StatelessService):
         applied. Only the fiction is removed here -- the retry itself is kept, because
         it carries the caller's `custom_amount` and therefore produces the right rate.
 
+        A real backoff cannot be built on frappe.enqueue (frappe forces
+        with_scheduler=False on its workers, so RQ's scheduled registry is never
+        drained). It CAN be built the way utils/bulk_retry_processor.py does it -- a
+        scheduled sweep plus a stored next-attempt timestamp. That is a redesign, not
+        a kwarg fix.
+
         Do NOT "simplify" this into deferring to the daily auto-creator task. That task
         creates schedules at the membership type's template/minimum rate
         (dues_schedule_auto_creator.py, dues_rate = template rate), NOT at the member's
-        agreed amount -- and Membership.create_dues_schedule clears
-        csv_import_custom_fee BEFORE the create it is retrying, so the agreed amount is
-        already gone by the time we get here. Deferring would silently bill an imported
-        member at the template rate.
+        agreed amount -- and Membership.create_or_update_dues_schedule (membership.py:89)
+        clears csv_import_custom_fee at membership.py:157, BEFORE the create at :158
+        that we are retrying, so the agreed amount is already gone by the time we get
+        here. Deferring would silently bill an imported member at the template rate.
+
+        KNOWN BUG, not introduced here and not fixed here: the backpressure branch
+        below does exactly that. On a congested queue it returns None and leaves
+        recovery to the daily task, mispricing the member. Bulk CSV import is both the
+        only source of csv_import_custom_fee and the likeliest cause of queue
+        congestion, so this is not a rare path.
 
         Implements queue backpressure to prevent congestion during bulk failures.
 
@@ -265,7 +278,8 @@ class DuesScheduleCreationService(StatelessService):
             All parameters from create_schedule_with_retry
 
         Returns:
-            Job ID for tracking, or None if backpressure applied
+            A correlation token for the enqueued retry (NOT a lookup-able RQ job id --
+            see the comment at the return), or None if backpressure applied.
         """
         # Check for queue congestion before enqueuing
         try:
@@ -314,14 +328,18 @@ class DuesScheduleCreationService(StatelessService):
             retry_count=retry_count,
         )
 
-        job_id = job.id if hasattr(job, "id") else f"retry_dues_schedule_{member_name}_{retry_count}"
+        # `job` is always None: enqueue_after_commit=True makes frappe.enqueue register
+        # a callback and return before building the RQ job (background_jobs.py:205-207).
+        # So this is a correlation token for logs and result metadata, NOT an RQ job id
+        # -- the real id is a UUID minted later, and nothing can look this one up.
+        retry_token = f"retry_dues_schedule_{member_name}_{retry_count}"
 
         self.logger.info(
             f"[DUES SCHEDULE] Enqueued retry {retry_count} for {member_name} "
-            f"(no delay; runs when a worker is free) (job ID: {job_id})"
+            f"(no delay; runs when a worker is free) (token: {retry_token})"
         )
 
-        return job_id
+        return retry_token
 
     def _categorize_error(self, error_str: str) -> str:
         """
