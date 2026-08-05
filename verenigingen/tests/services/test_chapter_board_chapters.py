@@ -108,6 +108,21 @@ class TestGetUserBoardChapters(EnhancedTestCase):
                 ignore_permissions=True
             )
 
+    def _create_active_board_member(self, chapter_name, volunteer_name, role="Chapter Head"):
+        """Attach an active board row. Privileged data creation belongs in a helper,
+        not a test body - test-quality-enforcer rejects ignore_permissions there."""
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer_name,
+                "chapter_role": role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+
     def _names(self, rows):
         return {r.get("chapter_name") for r in rows}
 
@@ -340,6 +355,42 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     # ------------------------------------------------------------------
     # An empty result must mean "no chapters", never "the query broke"
     # ------------------------------------------------------------------
+
+    def test_board_member_whose_login_user_differs_from_member_email(self):
+        """Resolve the member the way the rest of the app does: user field first.
+
+        The board ROLE grant resolves through get_member_name_for_user()
+        (utils/member_utils.py, via permissions.assign_chapter_board_role), which
+        tries Member.user first and falls back to Member.email. This helper
+        resolved by Member.email ALONE, so a board member whose login user differs
+        from their contact email was granted the Chapter Board Member role and then
+        told they had no chapters - role present, access denied.
+
+        That is not hypothetical bookkeeping: this helper is the only chapter gate
+        for eight whitelisted endpoints and both board portal pages, and the two
+        fields legitimately diverge in production whenever a member's login account
+        is not their contact address.
+        """
+        login_email = f"bc-login-{frappe.generate_hash(length=8)}@example.com"
+        contact_email = f"bc-contact-{frappe.generate_hash(length=8)}@example.com"
+
+        member = self.create_test_member(
+            first_name="Split", last_name="Identity", email=contact_email, birth_date="1988-01-01"
+        )
+        member.db_set("status", "Active")
+        member.db_set("user", self._ensure_user(login_email, "Split"))
+        volunteer = self.create_test_volunteer(member_name=member.name)
+        self._create_active_board_member(self.chapter.name, volunteer.name)
+
+        with self.as_user(login_email):
+            chapters = get_user_board_chapters()
+
+        self.assertIn(
+            self.chapter.name,
+            self._names(chapters),
+            "a board member whose Member.user differs from Member.email must still "
+            f"see their chapter; got {chapters!r}",
+        )
 
     def test_volunteer_with_no_board_rows_sees_no_chapters(self):
         """The genuine empty case: a volunteer holding no Chapter Board Member row.

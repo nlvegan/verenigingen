@@ -479,7 +479,16 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
         chapters = frappe.get_all("Chapter", fields=["name", "region"], order_by="name")
         return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
 
-    member = frappe.db.get_value("Member", {"email": user}, "name")
+    # Resolve the member the way the rest of the app does: Member.user first, then
+    # Member.email. This used to query Member.email ALONE, which disagreed with the
+    # lookup that decides who IS a board member - permissions.assign_chapter_board_role
+    # goes through get_member_name_for_user(). A board member whose login user differs
+    # from their contact email was therefore granted the Chapter Board Member role and
+    # then read as having no chapters, which for the endpoints listed above IS the
+    # access-control answer.
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    member = get_member_name_for_user(user)
     if not member:
         return []
 
