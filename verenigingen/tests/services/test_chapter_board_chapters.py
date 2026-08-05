@@ -111,6 +111,37 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     def _names(self, rows):
         return {r.get("chapter_name") for r in rows}
 
+    def _board_diag(self, session_user=None):
+        """Name the silent causes of an empty board-chapter result.
+
+        get_user_board_chapters() returns [] from two not-found early returns, and
+        returns rows WITHOUT chapter_role from the admin/staff short-circuit. All
+        three are silent, so a bare empty-result failure is indistinguishable from a
+        real regression. Establishing that on 2026-08-05 took a CI-log and
+        failure-artifact investigation; see the memory topic file
+        board-chapters-deadlock-flake-2026-07-27.
+
+        Pass session_user captured INSIDE an as_user block - read afterwards it
+        reports the runner's user and proves nothing.
+        """
+        from verenigingen.utils.constants import Roles
+
+        member = frappe.db.get_value("Member", {"email": self.board_email}, "name")
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+        board_row = (
+            frappe.db.exists(
+                "Chapter Board Member",
+                {"volunteer": volunteer, "parent": self.chapter.name, "is_active": 1},
+            )
+            if volunteer
+            else None
+        )
+        admin_roles = sorted(set(frappe.get_roles(self.board_email)) & Roles.ADMIN_ROLES)
+        return (
+            f"member={member} volunteer={volunteer} board_row={board_row} "
+            f"admin_roles={admin_roles} session_user={session_user}"
+        )
+
     # ------------------------------------------------------------------
     # The divergence this consolidation fixed
     # ------------------------------------------------------------------
@@ -298,9 +329,23 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     def test_board_member_rows_carry_role_fields(self):
         """chapter_dashboard.html reads more than chapter_name on the board path."""
         with self.as_user(self.board_email):
+            # Captured INSIDE the block: as_user restores the session in a finally, so
+            # reading frappe.session.user after it reports the runner's user and can
+            # never show a switch that failed to take.
+            session_user = frappe.session.user
             chapters = get_user_board_chapters()
 
-        row = next(c for c in chapters if c.get("chapter_name") == self.chapter.name)
+        # This assertion used to be `next(c for c in chapters if ...)`, which raised a
+        # bare StopIteration naming nothing - the same opacity PR #228 removed from
+        # test_query_failure_propagates. An empty result here has several silent causes,
+        # so state them rather than making the next reader re-derive them.
+        rows = [c for c in chapters if c.get("chapter_name") == self.chapter.name]
+        self.assertEqual(
+            len(rows),
+            1,
+            f"expected one row for {self.chapter.name}, got {rows!r}; {self._board_diag(session_user)}",
+        )
+        row = rows[0]
         self.assertEqual(row.get("chapter_role"), "Chapter Head")
         self.assertEqual(row.get("is_active"), 1)
         self.assertIn("region", row)
