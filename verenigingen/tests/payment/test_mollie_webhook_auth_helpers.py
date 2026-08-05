@@ -87,9 +87,17 @@ class TestValidateWebhookUserPermissionsEffectiveRoles(FrappeTestCase):
         frappe.set_user("Administrator")
         frappe.db.rollback()
 
-    def _missing_permissions(self, doctypes):
-        """Run the check for `doctypes` as the service user, returning (ok, message)."""
-        with patch.object(ws, "REQUIRED_DOCTYPES", doctypes), patch.object(frappe, "log_error") as mock_log:
+    def _missing_permissions(self, doctypes, read_doctypes=()):
+        """Run the check for `doctypes` as the service user, returning (ok, message).
+
+        Both lists are patched, including read_doctypes' empty default: the checker
+        walks REQUIRED_DOCTYPES + REQUIRED_READ_DOCTYPES, so leaving the read list
+        unpatched would silently fold Sales Invoice into every single-doctype case
+        below and stop them testing only what they name.
+        """
+        with patch.object(ws, "REQUIRED_DOCTYPES", tuple(doctypes)), patch.object(
+            ws, "REQUIRED_READ_DOCTYPES", tuple(read_doctypes)
+        ), patch.object(frappe, "log_error") as mock_log:
             with self.set_user(self.SERVICE_USER):
                 ok = ws.validate_webhook_user_permissions()
         message = mock_log.call_args[0][0] if mock_log.call_args else ""
@@ -137,10 +145,48 @@ class TestValidateWebhookUserPermissionsEffectiveRoles(FrappeTestCase):
         self.assertIn("No Such DocType XYZ", message)
 
     def test_real_required_doctypes_all_pass(self):
-        # The shipped list must pass for the real service account - this check runs on
-        # every webhook and a false miss would log an Error Log each time.
-        ok, message = self._missing_permissions(ws.REQUIRED_DOCTYPES)
+        # BOTH shipped lists must pass for the real service account - this check runs on
+        # every webhook and a false miss would log an Error Log each time. That is not
+        # hypothetical: adding Sales Invoice/Payment Entry was reverted on 2026-08-01
+        # (f8c7f59f) precisely because the then-current checker could not see grants
+        # arriving through the role profile and would have alarmed forever.
+        ok, message = self._missing_permissions(ws.REQUIRED_DOCTYPES, ws.REQUIRED_READ_DOCTYPES)
         self.assertTrue(ok, message)
+
+    def test_payment_entry_submit_is_demanded(self):
+        """Payment Entry is the gate PaymentEntryCreationService relies on most.
+
+        It creates and submits; a create-only grant would let it insert a draft and
+        fail at submit, which is the silent half-success the service documents.
+        """
+        self.assertTrue(frappe.get_meta("Payment Entry").is_submittable, "precondition")
+        self.assertIn("Payment Entry", ws.REQUIRED_DOCTYPES)
+        ok, message = self._missing_permissions(["Payment Entry"])
+        self.assertTrue(ok, f"Payment Entry create/write/submit must be granted: {message}")
+
+    def test_sales_invoice_is_required_for_read_only(self):
+        """The requirement must be read, not create/write.
+
+        payment_entry_creation_service's contract is "Payment Entry create/submit and
+        Sales Invoice read". The role profile happens to grant create/write via
+        Accounts User today, so asserting on this account would pass either way and
+        prove nothing - Guest is used because it holds neither, which makes the
+        reported permission type observable.
+        """
+        self.assertIn("Sales Invoice", ws.REQUIRED_READ_DOCTYPES)
+        self.assertNotIn("Sales Invoice", ws.REQUIRED_DOCTYPES)
+
+        with patch.object(ws, "REQUIRED_DOCTYPES", ()), patch.object(
+            ws, "REQUIRED_READ_DOCTYPES", ("Sales Invoice",)
+        ), patch.object(frappe, "log_error") as mock_log:
+            with self.set_user("Guest"):
+                ok = ws.validate_webhook_user_permissions()
+
+        self.assertFalse(ok, "Guest cannot read Sales Invoice")
+        message = " ".join(mock_log.call_args[0][0].split())
+        self.assertIn("Sales Invoice (read)", message)
+        self.assertNotIn("Sales Invoice (create)", message)
+        self.assertNotIn("Sales Invoice (write)", message)
 
 
 class TestLogWebhookSecurityEvent(FrappeTestCase):
