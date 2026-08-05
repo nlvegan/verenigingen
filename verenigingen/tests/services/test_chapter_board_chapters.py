@@ -372,8 +372,11 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         """
         from unittest.mock import patch
 
+        from verenigingen.utils.constants import Roles
+
         deadlock = Exception("(1213, 'Deadlock found when trying to get lock; try restarting transaction')")
         real_from = frappe.qb.from_
+        board_seen = []
 
         def fail_only_the_board_query(table, *args, **kwargs):
             """Break the board lookup and nothing else.
@@ -384,15 +387,38 @@ class TestGetUserBoardChapters(EnhancedTestCase):
             propagation being asserted here even when the error is still swallowed.
             """
             if getattr(table, "get_table_name", lambda: None)() == "tabChapter Board Member":
+                board_seen.append(True)
                 raise deadlock
             return real_from(table, *args, **kwargs)
 
+        # Captured BEFORE patching. get_user_board_chapters() has three returns that
+        # run before the query under test - the admin/staff short-circuit and the two
+        # not-found early returns - and all three are silent. Without these locals a
+        # miss reports only "Exception not raised", which is indistinguishable from
+        # the swallow bug this test exists to catch. That cost a full CI-log and
+        # artifact investigation on 2026-08-05 to rule out; see the memory topic file
+        # board-chapters-deadlock-flake-2026-07-27.
+        member = frappe.db.get_value("Member", {"email": self.board_email}, "name")
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+        admin_roles = sorted(set(frappe.get_roles(self.board_email)) & Roles.ADMIN_ROLES)
+
+        # Passed explicitly rather than via self.as_user(): every branch of the helper
+        # resolves from this argument (frappe.get_all does not check permissions), so
+        # the session switch adds nothing here except a way for the test to miss the
+        # branch it is aiming at. test_explicit_user_argument_is_honoured pins the
+        # argument path; test_board_member_sees_only_their_chapter pins the session one.
+        #
         # Patches the query builder, not the permission decision: a deadlock cannot
         # be provoked deterministically from a test, and the branch under test is
         # exactly the one that runs when the database misbehaves.
-        with self.as_user(self.board_email):
-            with patch("frappe.qb.from_", side_effect=fail_only_the_board_query):
-                with self.assertRaises(Exception) as caught:
-                    get_user_board_chapters()
+        raised = None
+        with patch("frappe.qb.from_", side_effect=fail_only_the_board_query):
+            try:
+                get_user_board_chapters(user=self.board_email)
+            except Exception as exc:  # noqa: BLE001 - identity is asserted below
+                raised = exc
 
-        self.assertIn("1213", str(caught.exception))
+        diag = f"member={member} volunteer={volunteer} admin_roles={admin_roles} raised={raised!r}"
+        self.assertTrue(board_seen, f"never reached the board query; {diag}")
+        self.assertIsNotNone(raised, f"board query ran but the error was swallowed; {diag}")
+        self.assertIn("1213", str(raised), diag)
