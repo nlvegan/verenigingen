@@ -6,7 +6,6 @@ Target: verenigingen/verenigingen_payments/mollie/utils/webhook_security.py
 Covers:
 * validate_webhook_user_permissions() for a privileged user (Administrator) and
   a no-permission user.
-* _check_docperm_for_roles() against the real DocPerm / Custom DocPerm tables.
 * log_webhook_security_event() writes a real Mollie Audit Log row.
 * authenticate_mollie_webhook() failure paths (rate-limit, empty payload) driven
   through the real rate limiter / signature verifier at the external boundary.
@@ -23,30 +22,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.verenigingen_payments.mollie.utils import webhook_security as ws
-
-
-class TestCheckDocpermForRoles(FrappeTestCase):
-    """_check_docperm_for_roles against real permission tables."""
-
-    def tearDown(self):
-        frappe.db.rollback()
-
-    def test_administrator_role_has_donation_write_via_docperm(self):
-        # "System Manager" universally has read/write on Donation in this app.
-        result = ws._check_docperm_for_roles("Donation", "write", ["System Manager"])
-        self.assertTrue(result)
-
-    def test_unknown_role_has_no_permission(self):
-        result = ws._check_docperm_for_roles(
-            "Donation", "write", ["__NonexistentRole_zzz__"]
-        )
-        self.assertFalse(result)
-
-    def test_core_doctype_checked_via_custom_docperm(self):
-        # Journal Entry is a core ERPNext doctype; System Manager has write.
-        # Either DocPerm or Custom DocPerm should grant it.
-        result = ws._check_docperm_for_roles("Journal Entry", "write", ["System Manager"])
-        self.assertTrue(result)
 
 
 class TestValidateWebhookUserPermissions(FrappeTestCase):
