@@ -36,6 +36,15 @@ after_migrate = [
     "verenigingen.patches.v2_1.add_chapter_dashboard_performance_indexes.execute",
     # Sync document category options from Settings into DocField meta
     "verenigingen.utils.document_categories.sync_category_options_to_doctypes",
+    # Webhook service user. Also in after_install, but that only ever fires once:
+    # a site installed before this existed (or one where the install step failed --
+    # execute_after_install swallows the error and prints a warning) could never
+    # converge, leaving Verenigingen Payments Settings.webhook_user unset and every
+    # gateway service running as Administrator via get_service_user()'s fallback.
+    # Safe to run repeatedly only because generate_webhook_user_email() is now
+    # deterministic; it previously returned a deliberately-unused address, so this
+    # would have minted a new user on every migrate.
+    "verenigingen.setup.webhook_user_setup.setup_webhook_user",
 ]
 
 # Run before test suite executes
