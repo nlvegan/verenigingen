@@ -1112,8 +1112,28 @@ class AccountCreationManager:
         # Reload request to get updated retry_count
         self.request.reload()
 
-        retry_delay_minutes = min(5 * (2**current_retry_count), 60)  # Exponential backoff
-
+        # The retry runs as soon as a worker picks it up. There is no delay, and there
+        # never was: this used to pass at_time=<future> to frappe.enqueue, which has no
+        # such parameter, so the value was forwarded to the job as an ordinary argument
+        # (process_account_creation_request declared `at_time=None` purely to swallow
+        # it) and the 5->60 minute ladder never applied.
+        #
+        # No scheduled task sweeps a STANDALONE Account Creation Request, so dropping
+        # this enqueue would leave one with no unattended retry at all.
+        #
+        # (There IS an hourly sweep -- hooks/scheduler.py -> bulk_retry_processor
+        # .process_retry_queues, with a real 1/4/12/24/48/72h backoff -- but it only
+        # picks up ACRs linked to a Bulk Operation Tracker: BulkOperationTracker
+        # .get_retry_requests filters on `bulk_operation_tracker = self.name`. Requests
+        # created outside a bulk run are invisible to it. The admin-triggered
+        # retry_failed_request / retry_all_failed_requests endpoints are the only other
+        # recovery, and both need a human.)
+        #
+        # Immediate retry is fine for the lock/deadlock/connection cases, and attempts
+        # are capped at 3 (see the caller). It is NOT ideal for the "rate limit"
+        # category, where three attempts burn in seconds against a limiter -- but that
+        # is no worse than before, since the advertised 5->60 minute ladder never
+        # applied either.
         try:
             frappe.enqueue(
                 "verenigingen.services.member.account.account_creation_api.process_account_creation_request",
@@ -1121,10 +1141,9 @@ class AccountCreationManager:
                 queue="long",
                 timeout=600,
                 job_name=f"account_creation_retry_{self.request_name}",
-                at_time=frappe.utils.add_to_date(None, minutes=retry_delay_minutes),
             )
             frappe.logger().info(
-                f"Scheduled retry {new_retry_count} for {self.request_name} in {retry_delay_minutes} minutes"
+                f"Enqueued retry {new_retry_count} for {self.request_name} (no delay; runs when a worker is free)"
             )
         except Exception as e:
             # frappe.log_error signature is (title, message, ...) — `title`

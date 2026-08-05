@@ -32,7 +32,6 @@ class BackgroundJobManager:
         job_prefix: str,
         queue: str = "default",
         timeout: int = 300,
-        retry: int = 3,
         enqueue_kwargs: Optional[Dict] = None,
         status_kwargs: Optional[Dict] = None,
     ) -> str:
@@ -44,8 +43,14 @@ class BackgroundJobManager:
             **(enqueue_kwargs or {}),
             queue=queue,
             timeout=timeout,
-            retry=retry,
-            job_name=job_name,
+            # `tracking_job_name`, NOT `job_name`: job_name is one of frappe.enqueue's
+            # own parameters, so enqueue consumed it and the executors received
+            # job_name=None -- every `if job_name:` guard fell through and the status
+            # record stayed "Queued" for the life of the job.
+            # `retry=` used to be passed here too. It is not an enqueue parameter, so it
+            # was forwarded to the executors and absorbed by their **kwargs; it has
+            # never retried anything. Removed rather than reimplemented.
+            tracking_job_name=job_name,
         )
 
         BackgroundJobManager.create_job_status_record(
@@ -69,7 +74,6 @@ class BackgroundJobManager:
                 job_prefix=f"payment_history_update_{member_name}",
                 queue=priority,
                 timeout=300,
-                retry=3,
                 enqueue_kwargs={"member_name": member_name, "payment_entry": payment_entry},
                 status_kwargs={"member_name": member_name, "payment_entry": payment_entry},
             )
@@ -87,7 +91,6 @@ class BackgroundJobManager:
                 job_prefix=f"expense_event_{event_type}_{expense_doc_name}",
                 queue="short",
                 timeout=180,
-                retry=2,
                 enqueue_kwargs={"expense_doc_name": expense_doc_name, "event_type": event_type},
                 status_kwargs={"reference_doctype": "Expense Claim", "reference_name": expense_doc_name},
             )
@@ -105,7 +108,6 @@ class BackgroundJobManager:
                 job_prefix=f"donor_auto_creation_{payment_doc_name}",
                 queue="default",
                 timeout=240,
-                retry=2,
                 enqueue_kwargs={"payment_doc_name": payment_doc_name},
                 status_kwargs={"reference_doctype": "Payment Entry", "reference_name": payment_doc_name},
             )
@@ -217,7 +219,11 @@ class BackgroundJobManager:
             job_id = f"{job_name}_{int(time.time())}"
 
             # Queue the background job
-            frappe.enqueue(method, job_name=job_id, queue=queue, timeout=timeout, retry=3, **kwargs)
+            # No `retry=`: it is not a frappe.enqueue parameter, so it was forwarded to
+            # the target and would raise TypeError for any target without **kwargs.
+            # It never retried anything. `job_name` IS an enqueue parameter (deprecated
+            # in v16) and is used here only to label the job, not passed to the target.
+            frappe.enqueue(method, job_name=job_id, queue=queue, timeout=timeout, **kwargs)
 
             # Create comprehensive job status record
             BackgroundJobManager.create_job_status_record(
@@ -304,9 +310,14 @@ class BackgroundJobManager:
 
 
 def execute_member_payment_history_update(
-    member_name: str, payment_entry: str = None, job_name: str = None, **kwargs
+    member_name: str, payment_entry: str = None, tracking_job_name: str = None, **kwargs
 ):
-    """Execute member payment history update in background"""
+    """Execute member payment history update in background.
+
+    `tracking_job_name`, not `job_name`: frappe.enqueue owns that parameter name
+    and would consume it instead of forwarding it, leaving status tracking inert.
+    """
+    job_name = tracking_job_name
     try:
         if job_name:
             BackgroundJobManager.update_job_status(job_name, "Running")
@@ -362,8 +373,14 @@ def execute_member_payment_history_update(
         raise
 
 
-def execute_expense_event_processing(expense_doc_name: str, event_type: str, job_name: str = None, **kwargs):
-    """Execute expense event processing in background"""
+def execute_expense_event_processing(
+    expense_doc_name: str, event_type: str, tracking_job_name: str = None, **kwargs
+):
+    """Execute expense event processing in background.
+
+    See execute_member_payment_history_update for why the parameter is not `job_name`.
+    """
+    job_name = tracking_job_name
     try:
         if job_name:
             BackgroundJobManager.update_job_status(job_name, "Running")
@@ -395,8 +412,12 @@ def execute_expense_event_processing(expense_doc_name: str, event_type: str, job
         raise
 
 
-def execute_donor_auto_creation(payment_doc_name: str, job_name: str = None, **kwargs):
-    """Execute donor auto creation in background"""
+def execute_donor_auto_creation(payment_doc_name: str, tracking_job_name: str = None, **kwargs):
+    """Execute donor auto creation in background.
+
+    See execute_member_payment_history_update for why the parameter is not `job_name`.
+    """
+    job_name = tracking_job_name
     try:
         if job_name:
             BackgroundJobManager.update_job_status(job_name, "Running")
@@ -451,16 +472,18 @@ def retry_job_execution(target_job_name: str, delay: int):
             execute_member_payment_history_update(
                 member_name=job_status.get("member_name"),
                 payment_entry=job_status.get("payment_entry"),
-                job_name=job_name,
+                tracking_job_name=job_name,
             )
         elif job_type == "expense_event_processing":
             execute_expense_event_processing(
                 expense_doc_name=job_status.get("reference_name"),
                 event_type="payment_made",  # Default
-                job_name=job_name,
+                tracking_job_name=job_name,
             )
         elif job_type == "donor_auto_creation":
-            execute_donor_auto_creation(payment_doc_name=job_status.get("reference_name"), job_name=job_name)
+            execute_donor_auto_creation(
+                payment_doc_name=job_status.get("reference_name"), tracking_job_name=job_name
+            )
         else:
             raise ValueError(f"Unknown job type for retry: {job_type}")
 
