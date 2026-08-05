@@ -127,14 +127,17 @@ def authenticate_mollie_webhook() -> str:
 # session user's effective roles.
 #
 # Module-level so tests can substitute a different list; the contents are the contract.
-REQUIRED_DOCTYPES = [
+# Tuple, not list: this is the contract the webhook user is checked against, and a
+# module-level mutable would let any importer append to it for the whole process.
+# Tests override it with patch.object rather than mutating in place.
+REQUIRED_DOCTYPES = (
     "Donation",
     "Bank Transaction",
     "Journal Entry",
     "Member",
     "Donor",
     "Mollie Audit Log",
-]
+)
 
 
 def validate_webhook_user_permissions():
@@ -163,7 +166,13 @@ def validate_webhook_user_permissions():
 
     for doctype in REQUIRED_DOCTYPES:
         perm_types = ["create", "write"]
-        if frappe.get_meta(doctype).is_submittable:
+        # Guard the meta lookup: frappe.get_meta raises DoesNotExistError for an
+        # unknown doctype, and this function is called unguarded from
+        # authenticate_mollie_webhook, whose only handler is a generic `except
+        # Exception` that turns it into a 500 -- which Mollie retries. The previous
+        # loop used frappe.db.exists, which merely returns falsy. This check must
+        # never block webhook processing; it only reports.
+        if frappe.db.exists("DocType", doctype) and frappe.get_meta(doctype).is_submittable:
             perm_types.append("submit")
 
         for perm_type in perm_types:

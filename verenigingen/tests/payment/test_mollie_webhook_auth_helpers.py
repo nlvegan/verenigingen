@@ -139,8 +139,27 @@ class TestValidateWebhookUserPermissionsEffectiveRoles(FrappeTestCase):
     def test_no_spurious_submit_miss_for_non_submittable_doctype(self):
         # Member has no submit DocPerm because Member is not submittable. Demanding one
         # would report a miss that means nothing.
+        self.assertFalse(frappe.get_meta("Member").is_submittable, "precondition")
         ok, message = self._missing_permissions(["Member"])
         self.assertTrue(ok, f"non-submittable Member must not report a submit miss: {message}")
+        self.assertNotIn("Member (submit)", message)
+
+    def test_unknown_doctype_is_reported_not_raised(self):
+        """This check must never block webhook processing.
+
+        frappe.get_meta raises DoesNotExistError for an unknown doctype, and
+        validate_webhook_user_permissions is called unguarded from
+        authenticate_mollie_webhook whose only handler turns anything raised into a
+        500 -- which Mollie then retries. The pre-existing loop used frappe.db.exists,
+        which merely returns falsy; adding the is_submittable lookup reintroduced a
+        raise unless it is guarded.
+        """
+        try:
+            ok, message = self._missing_permissions(["No Such DocType XYZ"])
+        except Exception as exc:  # noqa: BLE001 - the point is that nothing escapes
+            self.fail(f"permission check must not raise for an unknown doctype, got {exc!r}")
+        self.assertFalse(ok)
+        self.assertIn("No Such DocType XYZ", message)
 
     def test_real_required_doctypes_all_pass(self):
         # The shipped list must pass for the real service account - this check runs on
