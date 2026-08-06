@@ -49,6 +49,64 @@ if TYPE_CHECKING:
     from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
 
 
+def _suppress_early_payment_discount(payment_entry, amount_float: float) -> None:
+    """Undo any early-payment discount ERPNext applied inside get_payment_entry().
+
+    WHY the discount must not apply here. ``amount`` is cash a payment gateway actually
+    moved. An early-payment discount is something a customer ELECTS when settling an
+    invoice; a webhook saying "X euros arrived" carries no such election. ERPNext,
+    however, applies the discount whenever the invoice has a live discounted payment
+    term, and computes it from the WHOLE invoice - ``doc.base_grand_total``
+    (payment_entry.py:3345) - not from the amount being paid. Every caller here passes a
+    partial figure (``min(amount, outstanding)``), so leaving it alone debits the bank or
+    clearing account by ``amount - full_invoice_discount``: short of the cash that really
+    arrived, in precisely the account that must reconcile against the gateway settlement.
+
+    Two harder failures also become reachable when the discount is left in place:
+    ``paid_amount`` can reach 0 or below and trip "Paid Amount is mandatory"
+    (payment_entry.py:643), and when no ``bank_account`` is passed and the company has no
+    default bank/cash account, ``get_payment_entry`` skips the deductions row while still
+    reducing ``paid_amount``, so ``on_submit`` throws "Difference Amount must be zero".
+
+    Suppressing it means the entry records exactly the cash received against the invoice
+    and leaves the remainder outstanding. If the payer is genuinely entitled to a
+    discount, that is a credit note, not something to infer from a settlement webhook.
+
+    Detection: pre-discount, ``set_paid_amount_and_received_amount`` returns
+    ``abs(outstanding_amount)`` for ``paid_amount`` in BOTH the equal- and
+    differing-currency branches (payment_entry.py:3293, 3296), and
+    ``outstanding_amount`` is exactly ``party_amount`` (3269). So ``paid_amount``
+    differing from the requested amount means, and only means, that a discount was
+    applied.
+    """
+    from frappe.utils import flt
+
+    precision = payment_entry.precision("paid_amount") or 2
+    if flt(payment_entry.paid_amount, precision) == flt(amount_float, precision):
+        return
+
+    # A discount plus a currency difference cannot be undone by simple arithmetic: the
+    # two sides were reduced by different figures (`discount_amount` versus
+    # `discount_amount * conversion_rate`, payment_entry.py:3336-3341), and the
+    # deductions table may also hold exchange gain/loss rows that must survive. Refuse
+    # loudly rather than post a plausible-looking wrong number.
+    if payment_entry.paid_from_account_currency != payment_entry.paid_to_account_currency:
+        frappe.throw(
+            _(
+                "Invoice {0} carries an early-payment discount and the payment crosses a "
+                "currency boundary. Record this payment manually - the service will not "
+                "guess the split."
+            ).format(payment_entry.references[0].reference_name if payment_entry.references else "")
+        )
+
+    # Same currency: paid_amount == received_amount, and every deductions row present at
+    # this point was added by the discount (the only other producer,
+    # set_exchange_gain_loss, requires the currency difference excluded above).
+    payment_entry.set("deductions", [])
+    payment_entry.paid_amount = amount_float
+    payment_entry.received_amount = amount_float
+
+
 class PaymentEntryCreationService:
     """
     Service for creating payment entries from invoices.
@@ -188,12 +246,26 @@ class PaymentEntryCreationService:
             # derives paid_to/paid_from *and* the matching account currency from the
             # account it resolves here (payment_entry.py:2921-2925), so a post-hoc
             # assignment would move the account and leave the currency behind.
+            # payment_type and reference_date are passed IN rather than assigned after.
+            # get_payment_entry() derives paid_from/paid_to from payment_type
+            # (payment_entry.py:2920-2921) and only falls back to set_payment_type() when
+            # the argument is None, so assigning it afterwards left the accounts derived
+            # from ERPNext's guess: for an invoice with outstanding <= 0 that guess is
+            # "Pay", which puts the bank account on paid_from, and forcing "Receive" over
+            # it inverted the posting. reference_date decides early-payment discount
+            # eligibility (`reference_date <= term.discount_date`), which was previously
+            # evaluated against getdate(None) - today - rather than the caller's date,
+            # so a replayed historical payment was judged against the wrong day.
             payment_entry = get_payment_entry(
                 dt="Sales Invoice",
                 dn=invoice.name,
                 party_amount=amount_float,
                 bank_account=bank_account,
+                payment_type=payment_type,
+                reference_date=reference_date,
             )
+
+            _suppress_early_payment_discount(payment_entry, amount_float)
 
             # Set payment details
             payment_entry.payment_type = payment_type
@@ -212,13 +284,43 @@ class PaymentEntryCreationService:
                 payment_entry.remarks = remarks
                 payment_entry.custom_remarks = 1
 
-            # Set paid/received amounts explicitly
-            payment_entry.paid_amount = amount_float
-            payment_entry.received_amount = amount_float
+            # paid_amount/received_amount are deliberately NOT re-assigned here.
+            #
+            # get_payment_entry() already derives both from party_amount:
+            # set_grand_total_and_outstanding_amount() sets outstanding_amount =
+            # party_amount (payment_entry.py:3269) and set_paid_amount_and_received_amount()
+            # returns abs(outstanding_amount) for both (3293), so on the ordinary path an
+            # assignment here is a no-op.
+            #
+            # Where it is NOT a no-op it corrupted the posting. ERPNext lowers both amounts
+            # for an early-payment discount and books the difference as a `deductions` row;
+            # re-asserting the gross amount afterwards does not throw, as one might expect.
+            # set_unallocated_amount() tests
+            # `base_total_allocated < base_paid_amount + deductions_to_consider`
+            # (payment_entry.py:1085) -> `A < A + D` -> true, so it silently absorbed the
+            # discount into unallocated_amount and difference_amount still netted to zero.
+            # The entry submitted and posted a debtors credit of A + D - a credit the
+            # customer never paid for.
+            #
+            # Any early-payment discount ERPNext would apply is suppressed instead - see
+            # _suppress_early_payment_discount, called above.
+            # Regression tests: test_early_payment_discount_is_not_overwritten and
+            # test_partial_payment_against_discounted_invoice_records_full_cash.
 
-            # Link to bank transaction if provided (for reconciliation path)
+            # Link to bank transaction if provided (for reconciliation path).
+            # The field is custom_bank_transaction (added by this app); ERPNext's Payment
+            # Entry has no `bank_transaction` field, so the previous assignment was dropped
+            # by get_valid_dict() on insert and the link was never stored.
+            #
+            # Note this does NOT affect api/sepa_duplicate_prevention.py: its query filters
+            # on `custom_sepa_batch`, which no caller of this service sets, so no
+            # service-created entry has ever been in scope for that guard. It DOES mean a
+            # submitted Payment Entry now back-links the Bank Transaction through a Link
+            # field, so cancelling a reconciled Bank Transaction raises LinkExistsError
+            # (BankTransaction.on_cancel only exempts GL Entry). Deletion is unaffected
+            # where force=True, which covers every delete site in this app.
             if bank_transaction_name:
-                payment_entry.bank_transaction = bank_transaction_name
+                payment_entry.custom_bank_transaction = bank_transaction_name
 
             # Apply custom fields if provided (for SEPA batch tracking, etc.)
             if custom_fields:
@@ -230,16 +332,30 @@ class PaymentEntryCreationService:
                             f"Custom field '{field_name}' not found on Payment Entry - skipping"
                         )
 
-            # Insert payment entry
-            payment_entry.insert()
+            # insert() and submit() are one unit. The permission checks above answer
+            # "may this user submit this DOCTYPE?", which is all that can be asked before
+            # the document exists; they cannot see the document-level reasons a submit
+            # throws (frozen account, closed period, a validation that only runs on
+            # submit). Those fail BETWEEN the two calls, and Frappe takes no savepoint of
+            # its own - Document._save() writes docstatus=1 via db_update() before
+            # run_post_save_methods() - so the row survives as docstatus=1 with no GL
+            # entries. Three of the four gateways swallow the exception, so that row then
+            # persists and satisfies the very dedup guards meant to force a retry.
+            from verenigingen.utils.transaction_errors import (
+                insert_and_submit_atomically,
+                submit_atomically,
+            )
 
             # Try to submit
             # In strict mode, we already checked permission above
             # In graceful mode, we check instance-level permission here
             if allow_draft_on_permission_failure:
-                # Check instance-level permission
+                # Insert first: the instance-level check below is about THIS document.
+                # A draft left behind here is a legitimate outcome, so only the submit
+                # needs to be undoable.
+                payment_entry.insert()
                 if frappe.has_permission("Payment Entry", "submit", payment_entry):
-                    payment_entry.submit()
+                    submit_atomically(payment_entry)
                     frappe.logger().info(
                         f"Created and submitted payment entry {payment_entry.name} for invoice {invoice_name}"
                     )
@@ -250,8 +366,9 @@ class PaymentEntryCreationService:
                         f"for invoice {invoice_name} - lacks submit permission. Manual review required."
                     )
             else:
-                # Strict mode - we already validated permission, just submit
-                payment_entry.submit()
+                # Strict mode - permission already validated, so insert and submit
+                # together and leave nothing behind if the submit throws.
+                insert_and_submit_atomically(payment_entry)
                 frappe.logger().info(
                     f"Created and submitted payment entry {payment_entry.name} for invoice {invoice_name}"
                 )

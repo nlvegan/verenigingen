@@ -575,8 +575,12 @@ def is_user_board_member():
     if any(role in frappe.get_roles() for role in Roles.ADMIN_PAIR):
         return True
 
-    # Find member record for current user
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
+    # Find member record for current user. Member.user first, then Member.email -
+    # resolving by email alone misses a member whose login user differs from their
+    # contact address, which is a false denial in a permission check.
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    member = get_member_name_for_user(user_email)
     if not member:
         return False
 
