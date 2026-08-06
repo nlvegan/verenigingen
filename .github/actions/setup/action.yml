@@ -71,6 +71,33 @@ runs:
         ref: ${{ inputs.frappe-branch }}
         path: apps/frappe
 
+    # Balance parallel shards by MEASURED runtime instead of test count. Frappe's
+    # ParallelTestRunner weighs each file by its number of `def test_` methods, so a
+    # file with 3 slow integration tests weighs 3 while a file with 40 trivial unit
+    # tests weighs 40 - and whichever shard lands the slow modules sets the whole
+    # job's wall clock. The patch teaches the runner to read the committed
+    # verenigingen/tests/test_timings.json instead.
+    #
+    # This step FAILS THE JOB when the patch stops applying, deliberately. Frappe
+    # does change parallel_test_runner.py, and the ungated failure mode is silent:
+    # sharding reverts to the count heuristic, every shard still passes, and the
+    # imbalance only surfaces as a shard tipping over the 60-minute timeout weeks
+    # later. Regenerate the patch against the current frappe; do not skip the step.
+    - name: Apply parallel-shard weighting patch to Frappe
+      shell: bash
+      run: |
+        PATCH="${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/frappe-parallel-test-weights.patch"
+        if [ ! -f "$PATCH" ]; then
+          echo "::error::Missing $PATCH - parallel shard weighting cannot be applied."
+          exit 1
+        fi
+        if ! git -C "${GITHUB_WORKSPACE}/apps/frappe" apply --check "$PATCH"; then
+          echo "::error::frappe-parallel-test-weights.patch no longer applies to ${{ inputs.frappe-user }}/frappe@${{ inputs.frappe-branch }} - frappe changed parallel_test_runner.py. Regenerate the patch. Skipping this step would silently fall back to count-based sharding."
+          exit 1
+        fi
+        git -C "${GITHUB_WORKSPACE}/apps/frappe" apply "$PATCH"
+        echo "Applied measured-runtime shard weighting to frappe."
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
