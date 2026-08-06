@@ -31,7 +31,16 @@ class TestGetUserBoardChapters(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        run = frappe.generate_hash(length=8)
+        # The trailing digit is load-bearing. EnhancedTestDataFactory.create_member()
+        # appends its own uniqueness token to a supplied email UNLESS the last 5
+        # characters of the local part contain a digit
+        # (tests/fixtures/enhanced_test_factory.py:690). generate_hash() is lowercase
+        # hex, so a bare hex run-id is all letters - and therefore rewritten - on
+        # (6/16)^5 = about 1 run in 135. On those runs Member.email silently diverged
+        # from the login user, and assertions that compare a stored Member.email
+        # against this literal (and any helper resolving the member by email) failed
+        # for reasons unrelated to what they test. That is the board-chapter flake.
+        run = f"{frappe.generate_hash(length=8)}0"
 
         self.chapter = self.create_test_chapter(
             chapter_name=f"TEST Board Chapters {run}",
@@ -141,7 +150,12 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         """
         from verenigingen.utils.constants import Roles
 
-        member = frappe.db.get_value("Member", {"email": self.board_email}, "name")
+        # Resolve the way production does. Resolving by email alone made these
+        # diagnostics report "member=None" on exactly the runs where the factory had
+        # rewritten Member.email - the runs they exist to explain.
+        from verenigingen.utils.member_utils import get_member_name_for_user
+
+        member = get_member_name_for_user(self.board_email)
         volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
         board_row = (
             frappe.db.exists(
@@ -514,7 +528,12 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         # the swallow bug this test exists to catch. That cost a full CI-log and
         # artifact investigation on 2026-08-05 to rule out; see the memory topic file
         # board-chapters-deadlock-flake-2026-07-27.
-        member = frappe.db.get_value("Member", {"email": self.board_email}, "name")
+        # Resolve the way production does. Resolving by email alone made these
+        # diagnostics report "member=None" on exactly the runs where the factory had
+        # rewritten Member.email - the runs they exist to explain.
+        from verenigingen.utils.member_utils import get_member_name_for_user
+
+        member = get_member_name_for_user(self.board_email)
         volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
         admin_roles = sorted(set(frappe.get_roles(self.board_email)) & Roles.ADMIN_ROLES)
 

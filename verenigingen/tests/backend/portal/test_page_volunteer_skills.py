@@ -25,7 +25,11 @@ class TestVolunteerSkillsPage(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._ensure_chapter_role("Test Board Role")
-        self.user_email = f"skills-{frappe.generate_hash()[:8]}@test.invalid"
+        # Trailing digit is load-bearing - see test_chapter_board_chapters.setUp.
+        # EnhancedTestDataFactory.create_member() rewrites a supplied email unless the
+        # last 5 characters of the local part contain a digit, so a bare hex run-id
+        # diverges Member.email from the login user on ~1 run in 135.
+        self.user_email = f"skills-{frappe.generate_hash()[:8]}0@test.invalid"
         self.member = self._make_member_with_user(self.user_email)
         self.volunteer = self.create_test_volunteer(
             member=self.member.name, volunteer_name="Skills Board Volunteer"

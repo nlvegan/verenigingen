@@ -27,7 +27,14 @@ class TestPageChapterDashboard(EnhancedTestCase):
         )
 
         # A board member: member -> volunteer -> Chapter Board Member row.
-        self.board_email = f"board-{frappe.generate_hash()[:8]}@example.com"
+        # Trailing digit is load-bearing - see test_chapter_board_chapters.setUp.
+        # EnhancedTestDataFactory.create_member() rewrites a supplied email unless the
+        # last 5 characters of the local part contain a digit, so a bare hex run-id
+        # diverges Member.email from the login user on ~1 run in 135. That divergence
+        # is what made test_board_member_sees_their_chapter fail intermittently; it is
+        # exercised deliberately in
+        # test_board_role_resolves_when_member_email_differs_from_login_user instead.
+        self.board_email = f"board-{frappe.generate_hash()[:8]}0@example.com"
         self.board_member = self.create_test_member(
             first_name="Board",
             last_name="Member",
