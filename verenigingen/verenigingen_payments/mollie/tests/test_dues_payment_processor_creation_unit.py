@@ -309,6 +309,73 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         # Invoice is now fully paid.
         inv.reload()
         self.assertEqual(inv.outstanding_amount, 0)
+        # paid_to comes from the clearing account passed THROUGH to ERPNext rather than
+        # assigned after the fact - ERPNext derives the account and its currency
+        # together, so a post-hoc assignment would move one and leave the other.
+        self.assertEqual(pe.paid_to, self.clearing_account)
+
+    def test_allocated_remarks_survive_validate(self):
+        """The Mollie wording must reach the stored document, not just the object.
+
+        Payment Entry.validate() calls set_remarks(), which rebuilds the field and
+        returns early only when custom_remarks is truthy. This path assigned remarks
+        alone until the PaymentEntryCreationService migration, so its text was
+        discarded on save. Read back from the database - the in-memory doc looks
+        correct either way, which is exactly why this went unnoticed.
+        """
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        payment = FakeMolliePayment(id=f"tr_pe_rem_{frappe.generate_hash()[:8]}", value="25.00")
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
+
+        stored = frappe.db.get_value("Payment Entry", pe_name, ["remarks", "custom_remarks"], as_dict=True)
+        self.assertEqual(
+            stored.custom_remarks, 1, "custom_remarks must be set or validate() overwrites remarks"
+        )
+        self.assertIn("awaiting settlement", stored.remarks or "")
+        # The payment id is asserted explicitly: ERPNext's generated text would also
+        # contain it (as "Transaction reference no ..."), so the wording above is what
+        # actually discriminates - but an operator reading the list view needs both.
+        self.assertIn(payment.id, stored.remarks or "")
+
+    def test_race_condition_falls_back_to_unallocated_entry(self):
+        """Invoice paid by another process between the outstanding check and the insert.
+
+        The service submits internally, so the handler wraps the whole service call.
+        Stubbing the collaborator (the service) rather than the logic under test is
+        what lets this branch be reached at all - it cannot be provoked from real data
+        deterministically, and it had ZERO coverage before.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services import dues_payment_processor as dpp
+
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        payment = FakeMolliePayment(id=f"tr_pe_race_{frappe.generate_hash()[:8]}", value="25.00")
+
+        real_create = dpp.payment_entry_service.create_payment_entry_from_invoice
+
+        def raise_already_paid(*args, **kwargs):
+            raise frappe.ValidationError(f"Sales Invoice {inv.name} has already been fully paid.")
+
+        with patch.object(
+            dpp.payment_entry_service, "create_payment_entry_from_invoice", side_effect=raise_already_paid
+        ):
+            pe_name = self.processor._create_payment_entry_for_dues(
+                member.name, payment, invoice_name=inv.name
+            )
+
+        self.assertTrue(pe_name, "the race must still record the payment, not drop it")
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(len(pe.references), 0, "the fallback entry must be unallocated")
+        stored_remarks = frappe.db.get_value("Payment Entry", pe_name, "remarks") or ""
+        self.assertIn("was paid during processing", stored_remarks)
+        self.assertIn(payment.id, stored_remarks)
+        # Guard the stub: if the service's signature moves, this test must not keep
+        # passing by patching something that is no longer called.
+        self.assertIsNotNone(real_create)
 
     def test_idempotent_returns_existing_payment_entry(self):
         member = self._member_with_customer()
@@ -340,6 +407,13 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         self.assertAlmostEqual(float(pe.paid_amount), 30.0, places=2)
         # Unallocated -> no Sales Invoice references.
         self.assertEqual(len(pe.references), 0)
+        # The wording must survive validate() - this is the entry whose whole purpose
+        # is "a human must look at this", so losing "Manual reconciliation may be
+        # required" to set_remarks() removes the only signal saying so.
+        stored = frappe.db.get_value("Payment Entry", pe_name, ["remarks", "custom_remarks"], as_dict=True)
+        self.assertEqual(stored.custom_remarks, 1)
+        self.assertIn("Manual reconciliation may be required", stored.remarks or "")
+        self.assertIn(ref, stored.remarks or "")
 
     def test_require_invoice_refuses_unallocated_pe(self):
         # recovery mode: require_invoice=True with no invoice -> returns None
