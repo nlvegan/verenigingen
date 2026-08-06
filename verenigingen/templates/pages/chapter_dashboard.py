@@ -124,7 +124,23 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
             },
         }
 
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
+    # Resolve the member the way the rest of the app does: Member.user first, then
+    # Member.email. Querying Member.email ALONE disagreed with both
+    # permissions.assign_chapter_board_role() (which decides who IS a board member)
+    # and the sibling get_user_board_chapters() - the latter was moved onto this
+    # resolver in #232 while this one was left behind. A board member whose login
+    # user differs from their contact email was granted the role and then read here
+    # as having no board role at all, and this function gates board mutations
+    # (quick_approve_member takes permissions.can_approve_members from it).
+    #
+    # This divergence is also what made the board-chapter test failures intermittent
+    # rather than reproducible: EnhancedTestDataFactory.create_member() rewrites a
+    # supplied email with a unique suffix unless the last 5 characters of the local
+    # part contain a digit, so a test using a hex run-id produced Member.email !=
+    # Member.user on roughly 1 run in 135 - and only then did the two helpers disagree.
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    member = get_member_name_for_user(user_email)
     if not member:
         return None
 

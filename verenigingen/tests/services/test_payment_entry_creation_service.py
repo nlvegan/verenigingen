@@ -7,7 +7,6 @@ duplicate logic from batch_processing_service, direct_debit_batch, and sepa_reco
 Test Status (latest run):
 - ✅ test_does_not_exist_error_invalid_invoice - PASS
 - ❌ test_successful_payment_entry_creation_and_submission - ERPNext account setup
-- ❌ test_payment_entry_with_bank_transaction_link - ERPNext account setup
 - ❌ test_validation_error_negative_amount - ERPNext account setup (in helper)
 - ❌ test_validation_error_zero_amount - ERPNext account setup (in helper)
 - ❌ test_decimal_to_float_conversion - ERPNext account setup
@@ -30,6 +29,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
@@ -114,49 +114,12 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.assertEqual(float(payment_entry.paid_amount), 50.00)
         self.assertEqual(float(payment_entry.received_amount), 50.00)
 
-    @unittest.skip("Requires Bank and Account setup - see file comments for known ERPNext setup issues")
-    def test_payment_entry_with_bank_transaction_link(self):
-        """Test payment entry creation with bank transaction linking (reconciliation)"""
-        # Arrange
-        invoice = self._create_test_invoice(amount=Decimal("75.00"))
-        invoice.submit()
-
-        # Create mock bank transaction
-        bank_account = frappe.get_doc(
-            {
-                "doctype": "Bank Account",
-                "account_name": "Test Bank Account",
-                "bank": "Test Bank",
-                "account": "Test - Company",
-            }
-        ).insert()
-
-        bank_trans = frappe.get_doc(
-            {
-                "doctype": "Bank Transaction",
-                "bank_account": bank_account.name,
-                "date": date.today(),
-                "deposit": 75.00,
-                "description": "Test payment",
-                "reference_number": "BANK-REF-001",
-            }
-        ).insert()
-
-        # Act
-        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
-            invoice_name=invoice.name,
-            amount=Decimal("75.00"),
-            posting_date=date.today(),
-            reference_no="BANK-REF-001",
-            reference_date=date.today(),
-            mode_of_payment="Bank Transfer",
-            bank_transaction_name=bank_trans.name,
-        )
-
-        # Assert
-        self.assertIsNotNone(payment_entry)
-        self.assertEqual(payment_entry.bank_transaction, bank_trans.name)
-        self.assertEqual(payment_entry.docstatus, 1)
+    # test_payment_entry_with_bank_transaction_link was removed here. It was skipped,
+    # and it asserted `payment_entry.bank_transaction == bank_trans.name` - a field
+    # that does not exist on Payment Entry, so it pinned the very bug it appeared to
+    # cover and would have passed against the broken behaviour if ever unskipped.
+    # test_bank_transaction_name_is_persisted supersedes it and reads the value back
+    # from the database.
 
     def test_validation_error_negative_amount(self):
         """Test that negative amounts raise ValidationError"""
@@ -616,6 +579,201 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # Read back from the DB: Payment Entry.validate() regenerates remarks unless
         # custom_remarks is set, so the in-memory value alone would not prove it stuck.
         self.assertEqual(frappe.db.get_value("Payment Entry", payment_entry.name, "remarks"), remarks)
+
+    # ------------------------------------------------------------------
+    # Money correctness: the service must not re-assert amounts that ERPNext
+    # deliberately adjusted. See the two tests below.
+    # ------------------------------------------------------------------
+
+    def _ensure_company_discount_account(self, company):
+        """Point the company at a discount account so ERPNext can book the discount loss.
+
+        set_pending_discount_loss() reads Company.default_discount_account (or
+        round_off_account when book_tax_discount_loss is on) to build the deductions
+        row. Without it the row cannot be created and the scenario under test never
+        forms. Privileged fixture setup belongs in a helper, not a test body.
+        """
+        # Pin the branch this helper actually prepares. Accounts Settings ships with
+        # book_tax_discount_loss = 0, but if a site enables it ERPNext reads
+        # round_off_account instead and the account set below is never used - the test
+        # would then pass or fail for a reason unrelated to the service.
+        self.assertFalse(
+            frappe.get_single_value("Accounts Settings", "book_tax_discount_loss"),
+            "This test prepares default_discount_account; with book_tax_discount_loss "
+            "enabled ERPNext books the discount loss to round_off_account instead.",
+        )
+        account = frappe.get_cached_value("Company", company, "default_discount_account")
+        if account:
+            return account
+        account = frappe.db.get_value(
+            "Account",
+            {"company": company, "root_type": "Expense", "is_group": 0},
+            "name",
+        )
+        self.assertIsNotNone(account, f"No expense account available on {company} to book discount loss")
+        frappe.db.set_value("Company", company, "default_discount_account", account)
+        frappe.clear_cache(doctype="Company")
+        return account
+
+    def _append_discount_term(self, invoice, discount_percent):
+        """Give the invoice a payment term carrying a live early-payment discount.
+
+        Mutates the schedule row ERPNext already generated rather than replacing the
+        child table: the invoice is inserted by the factory, and swapping the rows out
+        leaves the new one unresolvable on save ("Payment Schedule <hash> not found").
+        """
+        if not invoice.get("payment_schedule"):
+            invoice.append(
+                "payment_schedule",
+                {
+                    "due_date": frappe.utils.add_days(frappe.utils.today(), 30),
+                    "invoice_portion": 100,
+                    "payment_amount": invoice.grand_total,
+                },
+            )
+        for term in invoice.payment_schedule:
+            term.discount_type = "Percentage"
+            term.discount = discount_percent
+            # Must be in the future: apply_early_payment_discount tests
+            # `reference_date <= term.discount_date`.
+            term.discount_date = frappe.utils.add_days(frappe.utils.today(), 7)
+            # ERPNext requires due_date > discount_date on the same row.
+            term.due_date = frappe.utils.add_days(frappe.utils.today(), 30)
+        invoice.due_date = frappe.utils.add_days(frappe.utils.today(), 30)
+        invoice.save()
+
+    def test_early_payment_discount_is_not_overwritten(self):
+        """A live discount term must not leave a phantom unallocated balance.
+
+        ERPNext reduces paid_amount by the discount and books the discount as a
+        `deductions` row (apply_early_payment_discount + set_pending_discount_loss).
+        Re-asserting the full amount afterwards does NOT throw, as one might expect:
+        set_unallocated_amount (payment_entry.py:1085) tests
+        `base_total_allocated < base_paid_amount + deductions_to_consider`, which is
+        `A < A + D` -> true, so it silently absorbs the discount into
+        unallocated_amount and difference_amount still nets to zero. The entry then
+        submits and posts a debtors credit of A + D - a credit the customer never paid.
+
+        Asserting unallocated_amount is what distinguishes the two behaviours; the
+        submit succeeding does not.
+
+        SCOPE: this covers the FULL-payment case only (amount == grand_total), where
+        the arithmetic happens to come out right. ERPNext computes the discount from
+        the whole invoice (payment_entry.py:3345) while every caller passes cash
+        actually collected, so a PARTIAL payment against a discounted invoice still
+        posts a short bank debit. That is an open design decision recorded in the
+        service - do not read this test as covering it.
+        """
+        # A DRAFT invoice: the factory submits by default, and the discount terms
+        # have to be in place before submission (they are not editable after).
+        invoice = self.create_test_sales_invoice(
+            customer=self.test_customer.name,
+            posting_date=date.today(),
+            due_date=date.today(),
+            items=[{"item_code": self.test_item_code, "qty": 1, "rate": 100.0}],
+            status="Draft",
+        )
+        self._ensure_company_discount_account(invoice.company)
+        self._append_discount_term(invoice, discount_percent=10)
+        invoice.submit()
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("100.00"),
+            posting_date=date.today(),
+            reference_no="DISCOUNT-REF-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+        )
+
+        self.assertEqual(
+            flt(payment_entry.unallocated_amount, 2),
+            0.0,
+            "The discount was absorbed into unallocated_amount, which means the "
+            "service re-asserted paid_amount over ERPNext's discounted figure.",
+        )
+        self.assertEqual(
+            flt(payment_entry.paid_amount, 2),
+            90.0,
+            "paid_amount must keep ERPNext's discounted value, not the gross amount.",
+        )
+
+    def _create_bank_transaction(self, company, amount):
+        """A real Bank Transaction to link against.
+
+        custom_bank_transaction is a Link to Bank Transaction, so the value has to
+        resolve. That is itself part of the fix: the old stray `bank_transaction`
+        attribute was dropped before validation, so it accepted any string silently.
+        """
+        bank_account = frappe.db.get_value("Bank Account", {"company": company}, "name")
+        if not bank_account:
+            bank_name = "Test Bank PECS"
+            if not frappe.db.exists("Bank", bank_name):
+                frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(ignore_permissions=True)
+            account = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+            )
+            self.assertIsNotNone(account, f"No bank account available on {company}")
+            bank_account = (
+                frappe.get_doc(
+                    {
+                        "doctype": "Bank Account",
+                        "account_name": "Test PECS Bank Account",
+                        "bank": bank_name,
+                        "company": company,
+                        "account": account,
+                    }
+                )
+                .insert(ignore_permissions=True)
+                .name
+            )
+
+        bank_transaction = frappe.new_doc("Bank Transaction")
+        bank_transaction.date = frappe.utils.today()
+        bank_transaction.bank_account = bank_account
+        bank_transaction.deposit = amount
+        bank_transaction.reference_number = frappe.generate_hash(length=10)
+        # Bank Transaction defaults currency to the system default (INR on these
+        # sites); it must match the bank account's account currency or validation
+        # rejects it.
+        gl_account = frappe.get_cached_value("Bank Account", bank_account, "account")
+        if gl_account:
+            bank_transaction.currency = frappe.get_cached_value("Account", gl_account, "account_currency")
+        bank_transaction.insert(ignore_permissions=True)
+        return bank_transaction
+
+    def test_bank_transaction_name_is_persisted(self):
+        """The bank_transaction_name parameter must land on a field that exists.
+
+        The service used to assign `payment_entry.bank_transaction`, which is not a
+        Payment Entry field in ERPNext nor a custom field in this app (the app's field
+        is `custom_bank_transaction`). BaseDocument.get_valid_dict() drops unknown
+        attributes silently, so the link was discarded on every reconciliation call.
+
+        This does NOT restore anything to api/sepa_duplicate_prevention.py: that query
+        filters on `custom_sepa_batch`, which no caller of this service sets.
+
+        Read back from the DB, not from the in-memory doc: the old code set the stray
+        attribute unconditionally, so an in-memory assertion passes against the bug.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("40.00"))
+        invoice.submit()
+        bank_transaction = self._create_bank_transaction(invoice.company, 40.00)
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("40.00"),
+            posting_date=date.today(),
+            reference_no="BANKTRANS-REF-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            bank_transaction_name=bank_transaction.name,
+        )
+
+        self.assertEqual(
+            frappe.db.get_value("Payment Entry", payment_entry.name, "custom_bank_transaction"),
+            bank_transaction.name,
+        )
 
 
 class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):

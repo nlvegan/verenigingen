@@ -212,13 +212,60 @@ class PaymentEntryCreationService:
                 payment_entry.remarks = remarks
                 payment_entry.custom_remarks = 1
 
-            # Set paid/received amounts explicitly
-            payment_entry.paid_amount = amount_float
-            payment_entry.received_amount = amount_float
+            # paid_amount/received_amount are deliberately NOT re-assigned here.
+            #
+            # get_payment_entry() already derives both from party_amount:
+            # set_grand_total_and_outstanding_amount() sets outstanding_amount =
+            # party_amount (payment_entry.py:3269) and set_paid_amount_and_received_amount()
+            # returns abs(outstanding_amount) for both (3293), so on the ordinary path an
+            # assignment here is a no-op.
+            #
+            # Where it is NOT a no-op it corrupted the posting. ERPNext lowers both amounts
+            # for an early-payment discount and books the difference as a `deductions` row;
+            # re-asserting the gross amount afterwards does not throw, as one might expect.
+            # set_unallocated_amount() tests
+            # `base_total_allocated < base_paid_amount + deductions_to_consider`
+            # (payment_entry.py:1085) -> `A < A + D` -> true, so it silently absorbed the
+            # discount into unallocated_amount and difference_amount still netted to zero.
+            # The entry submitted and posted a debtors credit of A + D - a credit the
+            # customer never paid for.
+            #
+            # DISCOUNTED INVOICES ARE STILL NOT HANDLED CORRECTLY, in the other direction.
+            # apply_early_payment_discount() computes the discount from the WHOLE invoice
+            # (`doc.base_grand_total`, payment_entry.py:3345) and subtracts it from
+            # paid_amount - but every caller passes `amount` = cash the gateway actually
+            # moved, typically min(amount, outstanding), i.e. a PARTIAL figure. So a partial
+            # payment against a discounted invoice now debits the bank/clearing account
+            # `amount - full_invoice_discount`, short of the cash that really arrived, which
+            # is precisely the account that must reconcile against the gateway settlement.
+            # Two harder failures also become reachable: paid_amount <= 0 trips
+            # "Paid Amount is mandatory" (payment_entry.py:643), and when no bank_account is
+            # passed and the company has no default bank/cash account, get_payment_entry()
+            # skips the deductions row while still reducing paid_amount, so on_submit throws
+            # "Difference Amount must be zero".
+            #
+            # Latent here: no Payment Schedule row on this deployment carries a discount.
+            # Doing this properly means deciding whether a gateway payment may claim an
+            # early-payment discount at all (the customer did not elect it - the gateway
+            # simply moved cash), which is an owner decision, not a quiet fix.
+            # Regression test: test_early_payment_discount_is_not_overwritten covers only
+            # the FULL-payment case, where amount == grand_total and the arithmetic happens
+            # to come out right.
 
-            # Link to bank transaction if provided (for reconciliation path)
+            # Link to bank transaction if provided (for reconciliation path).
+            # The field is custom_bank_transaction (added by this app); ERPNext's Payment
+            # Entry has no `bank_transaction` field, so the previous assignment was dropped
+            # by get_valid_dict() on insert and the link was never stored.
+            #
+            # Note this does NOT affect api/sepa_duplicate_prevention.py: its query filters
+            # on `custom_sepa_batch`, which no caller of this service sets, so no
+            # service-created entry has ever been in scope for that guard. It DOES mean a
+            # submitted Payment Entry now back-links the Bank Transaction through a Link
+            # field, so cancelling a reconciled Bank Transaction raises LinkExistsError
+            # (BankTransaction.on_cancel only exempts GL Entry). Deletion is unaffected
+            # where force=True, which covers every delete site in this app.
             if bank_transaction_name:
-                payment_entry.bank_transaction = bank_transaction_name
+                payment_entry.custom_bank_transaction = bank_transaction_name
 
             # Apply custom fields if provided (for SEPA batch tracking, etc.)
             if custom_fields:

@@ -179,13 +179,33 @@ class TestGetUserBoardChapters(EnhancedTestCase):
 
         The staff user holds no Chapter Board Member row, so without the
         short-circuit this would be empty.
+
+        Asserts on a SECOND chapter that the board member is deliberately not on,
+        rather than comparing the two result lengths. The length comparison only
+        held because other chapters happened to exist: setUp creates exactly one
+        chapter, so on a database with no other chapters staff saw 1 and the board
+        member saw 1, and `assertGreater(1, 1)` failed. It passed on long-lived
+        test sites purely through accumulated rows (test_site_3 carries ~1200
+        chapters) and in CI only when something earlier in the shard committed a
+        chapter first - which shard composition does not guarantee.
         """
+        # Reuse the region the setUp chapter resolved to: the factory normalises a
+        # region label into a Region docname ("Test Region Board" -> "test-region-board"),
+        # so passing the label again fails link validation.
+        other_chapter = self.create_test_chapter(
+            chapter_name=f"TEST Board Chapters Other {frappe.generate_hash(length=8)}",
+            region=self.chapter.region,
+        )
+
         with self.as_user(self.staff_email):
             staff_chapters = get_user_board_chapters()
         with self.as_user(self.board_email):
             board_chapters = get_user_board_chapters()
 
-        self.assertGreater(len(staff_chapters), len(board_chapters))
+        # Staff reaches a chapter they hold no board row on; the board member does not.
+        self.assertIn(other_chapter.name, self._names(staff_chapters))
+        self.assertNotIn(other_chapter.name, self._names(board_chapters))
+        self.assertEqual(self._names(board_chapters), {self.chapter.name})
 
     def test_both_portal_pages_use_this_one_implementation(self):
         """Regression guard against the copy-paste re-appearing.
