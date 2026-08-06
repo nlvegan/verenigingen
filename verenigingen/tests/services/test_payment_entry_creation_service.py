@@ -16,14 +16,12 @@ amount fields - a capped posting and a full-cash one are indistinguishable on
 `allocated_amount` alone, so an assertion on that field cannot tell the two apart.
 """
 
-import unittest
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -941,24 +939,36 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.assertEqual(flt(pe.unallocated_amount, 2), 50.00)
 
 
-class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):
-    """Integration tests for PaymentEntryCreationService with actual ERPNext data"""
-
-    @unittest.skip("Requires full ERPNext accounting setup (items, taxes, accounts)")
-    def test_integration_with_erpnext_get_payment_entry(self):
-        """Test that service properly integrates with ERPNext's get_payment_entry function"""
-        # This test would create a full invoice with items, taxes, etc.
-        # and verify that ERPNext's auto-population works correctly
-        pass  # TODO: Implement full integration test
-
-    @unittest.skip("Requires full ERPNext bank reconciliation module setup")
-    def test_integration_with_bank_reconciliation_workflow(self):
-        """Test that service works correctly in bank reconciliation context"""
-        # This test would simulate the full reconciliation workflow
-        pass  # TODO: Implement reconciliation integration test
-
-    @unittest.skip("Requires full ERPNext accounting and SEPA batch setup")
-    def test_integration_with_batch_processing_workflow(self):
-        """Test that service works correctly in batch processing context"""
-        # This test would simulate the batch processing workflow
-        pass  # TODO: Implement batch processing integration test
+# A class named TestPaymentEntryCreationServiceIntegration stood here, holding three
+# skipped stubs with empty `pass` bodies and TODOs: "integration with ERPNext's
+# get_payment_entry", "bank reconciliation workflow" and "batch processing workflow".
+# All three were deleted rather than unskipped, because each names a behaviour that is
+# already tested for real, and an empty stub carrying that name is worse than nothing -
+# it reads as coverage of a thing nobody is covering here.
+#
+#   * get_payment_entry: the class above IS that integration test. Every test in it
+#     drives the service against a real submitted Sales Invoice built by the factory
+#     (real Item, income account, cost center, Customer), and the service calls
+#     erpnext ... get_payment_entry on it directly. Its auto-population is asserted at
+#     the field level (party, references[0].allocated_amount, the paid_from/paid_to
+#     the bank_account argument derives, the deductions ERPNext adds for an
+#     early-payment discount) and at the GL level in the cash_received tests. Taxes,
+#     the one item on the stub's list not exercised there, would add nothing: the
+#     service has no tax-sensitive branch - taxes only move the invoice outstanding,
+#     which callers cap `amount` against before the service ever sees it.
+#
+#   * bank reconciliation: tests/payment/test_bank_transaction_reconciliation.py runs
+#     the workflow end-to-end on a real DB (73 tests), including the two entry points
+#     that call this service - create_payment_entry_from_transaction and
+#     create_payment_entries_from_batch - covering the skip-Failed-row, skip-Pending-row
+#     and re-run-idempotency guards.
+#
+#   * batch processing: tests/sepa/test_batch_processing_service_happy_path.py drives
+#     BatchProcessingService.mark_batch_invoices_as_paid on a genuinely submitted
+#     Direct Debit Batch and asserts the Payment Entry it books through this service,
+#     with tests/sepa/test_dd_batch_pipeline_coverage.py on the guard branches.
+#
+# Nothing was lost on the cash_received path either: neither the reconciliation nor the
+# batch caller passes cash_received (see the comment at
+# bank_transaction_reconciliation.py:548), so there is no caller-level overpayment
+# behaviour for a test here to reach.
