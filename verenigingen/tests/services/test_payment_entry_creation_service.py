@@ -657,12 +657,11 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         Asserting unallocated_amount is what distinguishes the two behaviours; the
         submit succeeding does not.
 
-        SCOPE: this covers the FULL-payment case only (amount == grand_total), where
-        the arithmetic happens to come out right. ERPNext computes the discount from
-        the whole invoice (payment_entry.py:3345) while every caller passes cash
-        actually collected, so a PARTIAL payment against a discounted invoice still
-        posts a short bank debit. That is an open design decision recorded in the
-        service - do not read this test as covering it.
+        The service now suppresses the discount outright (the gateway moved cash; the
+        payer elected nothing), so paid_amount is the full amount requested and no
+        deductions row survives. See
+        test_partial_payment_against_discounted_invoice_records_full_cash for the case
+        that actually distinguishes suppressing from merely not overriding.
         """
         # A DRAFT invoice: the factory submits by default, and the discount terms
         # have to be in place before submission (they are not editable after).
@@ -694,9 +693,60 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         )
         self.assertEqual(
             flt(payment_entry.paid_amount, 2),
-            90.0,
-            "paid_amount must keep ERPNext's discounted value, not the gross amount.",
+            100.0,
+            "paid_amount must equal the cash the gateway moved, with the early-payment "
+            "discount suppressed.",
         )
+        self.assertFalse(
+            payment_entry.get("deductions"),
+            "the discount deductions row must not survive suppression",
+        )
+
+    def test_partial_payment_against_discounted_invoice_records_full_cash(self):
+        """A partial payment must debit the bank by the cash received, not less.
+
+        This is the case the full-payment test cannot see. ERPNext computes the
+        early-payment discount from the WHOLE invoice (`doc.base_grand_total`,
+        payment_entry.py:3345) and subtracts it from paid_amount, while every caller
+        here passes only the cash the gateway moved - min(amount, outstanding). So a
+        40.00 payment against a 100.00 invoice with a 10% term would post a bank debit
+        of 30.00 against 40.00 of real cash, leaving the clearing account unable to
+        reconcile against the gateway settlement.
+
+        Both prior behaviours fail this: overriding paid_amount afterwards (the
+        original code) left a 10.00 phantom unallocated balance, and simply not
+        overriding it left paid_amount at 30.00.
+        """
+        invoice = self.create_test_sales_invoice(
+            customer=self.test_customer.name,
+            posting_date=date.today(),
+            due_date=date.today(),
+            items=[{"item_code": self.test_item_code, "qty": 1, "rate": 100.0}],
+            status="Draft",
+        )
+        self._ensure_company_discount_account(invoice.company)
+        self._append_discount_term(invoice, discount_percent=10)
+        invoice.submit()
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("40.00"),
+            posting_date=date.today(),
+            reference_no="DISCOUNT-PARTIAL-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+        )
+
+        self.assertEqual(
+            flt(payment_entry.paid_amount, 2),
+            40.00,
+            "the bank must be debited by the cash actually received",
+        )
+        self.assertEqual(flt(payment_entry.unallocated_amount, 2), 0.0)
+        self.assertFalse(payment_entry.get("deductions"))
+        # The invoice keeps the rest outstanding - a discount the payer never elected
+        # must not be written off here.
+        self.assertEqual(flt(frappe.db.get_value("Sales Invoice", invoice.name, "outstanding_amount"), 2), 60.00)
 
     def _create_bank_transaction(self, company, amount):
         """A real Bank Transaction to link against.

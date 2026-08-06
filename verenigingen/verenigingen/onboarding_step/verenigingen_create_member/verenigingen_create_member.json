@@ -1,0 +1,21 @@
+{
+ "action": "Create Entry",
+ "action_label": "Create your first Member",
+ "creation": "2026-08-06 03:55:42.836812",
+ "description": "Create a member profile to get started with membership management.",
+ "docstatus": 0,
+ "doctype": "Onboarding Step",
+ "idx": 0,
+ "is_complete": 0,
+ "is_single": 0,
+ "is_skipped": 0,
+ "modified": "2026-08-06 03:55:42.836812",
+ "modified_by": "Administrator",
+ "name": "Verenigingen-Create-Member",
+ "owner": "Administrator",
+ "reference_document": "Member",
+ "show_form_tour": 0,
+ "show_full_form": 0,
+ "title": "Create Member",
+ "validate_action": 1
+}

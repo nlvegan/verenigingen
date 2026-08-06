@@ -35,8 +35,12 @@ def get_user_volunteer_record():
     """Get volunteer record for current user"""
     user_email = frappe.session.user
 
-    # First try to find by linked member
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
+    # First try to find by linked member. Member.user first, then Member.email -
+    # resolving by email alone misses a member whose login user differs from their
+    # contact address.
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    member = get_member_name_for_user(user_email)
     if member:
         volunteer = frappe.db.get_value(
             "Volunteer", {"member": member}, ["name", "volunteer_name"], as_dict=True

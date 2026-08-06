@@ -12,7 +12,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
@@ -586,9 +586,24 @@ class PaymentReconciliationManager:
             elif match["type"] == "invoice":
                 # Create payment entry with proper validation
                 try:
-                    self.create_payment_entry_from_transaction(
+                    payment_entry = self.create_payment_entry_from_transaction(
                         bank_trans, match["reference"], match.get("batch")
                     )
+
+                    # The service degrades to an unsubmitted DRAFT when the acting user
+                    # lacks submit permission (allow_draft_on_permission_failure). A draft
+                    # posts no GL entries and leaves the invoice outstanding, so marking
+                    # the transaction Reconciled on the strength of it reports work that
+                    # did not happen - and the service's own "manual review required" note
+                    # goes only to the log. Return value was previously discarded.
+                    if payment_entry is not None and payment_entry.docstatus != 1:
+                        bank_trans.add_comment(
+                            "Comment",
+                            f"Payment Entry {payment_entry.name} was created as a DRAFT "
+                            "(submit permission missing) - transaction left unreconciled "
+                            "for manual review.",
+                        )
+                        return False
 
                     # Update bank transaction
                     bank_trans.status = "Reconciled"
@@ -814,23 +829,11 @@ class PaymentReconciliationManager:
         the payment as failed. Frappe's own ``savepoint`` context manager is not usable
         here because it swallows what it catches, which would let the caller append a
         "success" row naming a Payment Entry that no longer exists.
+
+        The implementation now lives in utils/transaction_errors so the gateway paths
+        can share it rather than carry a second copy.
         """
-        savepoint = f"mollie_submit_{frappe.generate_hash(length=8)}"
-        frappe.db.savepoint(savepoint)
-        try:
-            doc.insert()
-            doc.submit()
-        except NON_RESUMABLE_DB_ERRORS:
-            # A 1213 has already rolled the entire transaction back, savepoints
-            # included, so rolling back to this one would raise 1305 on top of the real
-            # error and hide it. There is nothing left to undo. See
-            # utils/transaction_errors for what each error destroys.
-            raise
-        except Exception:
-            frappe.db.rollback(save_point=savepoint)
-            raise
-        else:
-            frappe.db.release_savepoint(savepoint)
+        insert_and_submit_atomically(doc)
 
     def _reject_leftover_draft_entries(self, settlement_id):
         """Refuse a settlement that still carries DRAFT entries from an earlier run.

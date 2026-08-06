@@ -667,6 +667,20 @@ def _create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional
         from verenigingen.utils.settings_utils import get_payments_settings
 
         ponto_bank_account = getattr(get_payments_settings(), "ponto_bank_account_parent", None)
+        # The setting is labelled "Ponto Bank Account Parent Group" and is described as
+        # the group under which Ponto accounts are created, so it is a GROUP account.
+        # Nothing on the way in rejects one: get_default_bank_cash_account() returns any
+        # account handed to it without checking is_group, company or account_type
+        # (erpnext journal_entry.py:1333), and it becomes paid_to. The group is not
+        # refused until GLEntry.validate ("Account ... is a group account") - i.e. inside
+        # on_submit, after the Payment Entry row already exists. Fall through to the
+        # non-group lookups below instead.
+        if ponto_bank_account and frappe.get_cached_value("Account", ponto_bank_account, "is_group"):
+            frappe.logger().warning(
+                f"ponto_bank_account_parent ({ponto_bank_account}) is a group account and "
+                "cannot receive a payment; falling back to a concrete Ponto account"
+            )
+            ponto_bank_account = None
         if not ponto_bank_account:
             # Try to find a Ponto account
             ponto_bank_account = frappe.db.get_value(

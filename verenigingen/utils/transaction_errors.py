@@ -29,3 +29,61 @@ only, partly by string.
 import frappe
 
 NON_RESUMABLE_DB_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
+
+
+def insert_and_submit_atomically(doc):
+    """Insert and submit as one unit: a failed submit must leave no draft behind.
+
+    A submit precondition can only answer "may this user submit this DOCTYPE?", which
+    is the only question askable before the document exists. It cannot see the
+    document-level reasons a submit throws - a frozen account, a closed accounting
+    period, a Company User Permission, an ERPNext validation that only runs on submit.
+    Those fail BETWEEN insert() and submit(), and insert() has already written the row.
+
+    Frappe offers no protection here: Document._save() calls set_docstatus() ->
+    db_update() and only then run_post_save_methods(), and there is no savepoint
+    anywhere in Document.save/submit. So a throw inside on_submit leaves docstatus=1
+    written with no GL entries, and PaymentEntry.on_submit runs update_payment_requests()
+    and update_payment_schedule() BEFORE make_gl_entries(), so those land too. Callers
+    that swallow the exception then leave that row behind permanently - and a
+    docstatus=1-without-GL row satisfies the very dedup guards meant to trigger a retry.
+
+    The exception is re-raised rather than swallowed: the caller must still record the
+    operation as failed. Frappe's own ``savepoint`` context manager is not usable here
+    because it swallows what it catches, which would let a caller report success naming
+    a document that no longer exists.
+
+    Extracted from BankTransactionReconciliationManager._insert_and_submit, which was
+    the only correct implementation in the codebase while every gateway path went
+    without one.
+    """
+    _atomically(doc.insert, doc.submit)
+
+
+def submit_atomically(doc):
+    """Submit inside a savepoint, so a failed submit leaves the DRAFT intact.
+
+    For callers that treat an unsubmitted draft as a legitimate outcome (graceful
+    degradation on a missing submit permission). Without this a throw inside on_submit
+    leaves docstatus=1 with no GL entries, which is not a draft and not a submitted
+    entry - it is a row that satisfies dedup guards while having posted nothing.
+    """
+    _atomically(doc.submit)
+
+
+def _atomically(*operations):
+    savepoint = f"atomic_{frappe.generate_hash(length=8)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        for operation in operations:
+            operation()
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 has already rolled the entire transaction back, savepoints included,
+        # so rolling back to this one would raise 1305 on top of the real error and
+        # hide it. There is nothing left to undo.
+        raise
+    except Exception:
+        frappe.db.rollback(save_point=savepoint)
+        raise
+    else:
+        frappe.db.release_savepoint(savepoint)
