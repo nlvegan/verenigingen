@@ -1120,15 +1120,17 @@ class DuesPaymentProcessor:
                     # has already been taken, so it needs an owner decision rather than
                     # a quiet fix inside a refactor.
                     #
-                    # The match is an English substring test against a translated
-                    # string (_("{0} {1} has already been fully paid.")). Under a
-                    # non-English site language it stops matching and the payment is
-                    # dropped. Also pre-existing, also not for this refactor.
-                    error_msg = str(e).lower()
-                    if (
-                        "already been fully paid" in error_msg
-                        or "cannot be greater than outstanding amount" in error_msg
-                    ):
+                    # Detection is by STATE, not by error message. Both errors ERPNext
+                    # raises here are wrapped in _(), so the English substring test this
+                    # used to perform stopped matching under a Dutch site language and
+                    # dropped a payment that had already been taken. Both messages mean
+                    # the same thing - the invoice can no longer absorb this allocation -
+                    # and the database answers that in any language.
+                    from verenigingen.verenigingen_payments.utils.payment_allocation import (
+                        invoice_cannot_absorb,
+                    )
+
+                    if isinstance(e, frappe.ValidationError) and invoice_cannot_absorb(invoice_name, amount):
                         frappe.logger().warning(
                             f"[Mollie] Invoice {invoice_name} was paid by another process during PE "
                             f"creation, creating unallocated PE instead. Original error: {e}"

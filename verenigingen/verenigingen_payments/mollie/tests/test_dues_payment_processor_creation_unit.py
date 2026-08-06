@@ -354,9 +354,12 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         inv = self._invoice_for_member(member, amount=25.0)
         payment = FakeMolliePayment(id=f"tr_pe_race_{frappe.generate_hash()[:8]}", value="25.00")
 
-        real_create = dpp.payment_entry_service.create_payment_entry_from_invoice
-
         def raise_already_paid(*args, **kwargs):
+            # Settle the invoice DURING the call, which is what losing the race means:
+            # the processor checked outstanding > 0 and only then did a concurrent
+            # writer take it to zero. Recovery is decided on this state rather than on
+            # the wording of the exception, so the state has to actually be true.
+            frappe.db.set_value("Sales Invoice", inv.name, "outstanding_amount", 0)
             raise frappe.ValidationError(f"Sales Invoice {inv.name} has already been fully paid.")
 
         with patch.object(
@@ -373,9 +376,63 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         stored_remarks = frappe.db.get_value("Payment Entry", pe_name, "remarks") or ""
         self.assertIn("was paid during processing", stored_remarks)
         self.assertIn(payment.id, stored_remarks)
-        # Guard the stub: if the service's signature moves, this test must not keep
-        # passing by patching something that is no longer called.
-        self.assertIsNotNone(real_create)
+
+    def test_race_recovery_survives_a_translated_error_message(self):
+        """The recovery must not depend on the site language.
+
+        ERPNext raises _("{0} {1} has already been fully paid.") - a TRANSLATED string.
+        Recovery used to be decided by an English substring test, so on a Dutch site
+        (this app's entire audience) the match failed, the exception propagated, and a
+        payment the PSP had already taken was recorded nowhere.
+
+        Here the exception carries the Dutch text while the invoice really is settled.
+        Message-matching recovery fails this; state-based recovery passes it.
+        """
+        from verenigingen.verenigingen_payments.mollie.services import dues_payment_processor as dpp
+
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member)
+        payment = FakeMolliePayment(id=f"tr_pe_nl_{frappe.generate_hash()[:8]}", value="25.00")
+
+        def raise_dutch_already_paid(*args, **kwargs):
+            frappe.db.set_value("Sales Invoice", inv.name, "outstanding_amount", 0)
+            raise frappe.ValidationError(f"Verkoopfactuur {inv.name} is al volledig betaald.")
+
+        with patch.object(
+            dpp.payment_entry_service,
+            "create_payment_entry_from_invoice",
+            side_effect=raise_dutch_already_paid,
+        ):
+            pe_name = self.processor._create_payment_entry_for_dues(
+                member.name, payment, invoice_name=inv.name
+            )
+
+        self.assertTrue(pe_name, "a translated error must recover exactly like the English one")
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe_name, "docstatus"), 1)
+
+    def test_unrelated_validation_error_is_not_swallowed_as_a_race(self):
+        """Recovery must stay narrow: only an over-allocated invoice counts as a race.
+
+        The counterpart to the test above. State-based detection must not become a
+        blanket except-and-continue - an unrelated ValidationError, with the invoice
+        still fully outstanding, has to propagate rather than quietly produce an
+        unallocated entry that hides a real configuration fault.
+        """
+        from verenigingen.verenigingen_payments.mollie.services import dues_payment_processor as dpp
+
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member)
+        payment = FakeMolliePayment(id=f"tr_pe_other_{frappe.generate_hash()[:8]}", value="25.00")
+
+        # The invoice stays fully outstanding: nothing raced, so nothing to recover.
+        def raise_unrelated(*args, **kwargs):
+            raise frappe.ValidationError("Account 1234 is frozen for the current period")
+
+        with patch.object(
+            dpp.payment_entry_service, "create_payment_entry_from_invoice", side_effect=raise_unrelated
+        ):
+            with self.assertRaises(frappe.ValidationError):
+                self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
 
     def test_idempotent_returns_existing_payment_entry(self):
         member = self._member_with_customer()
