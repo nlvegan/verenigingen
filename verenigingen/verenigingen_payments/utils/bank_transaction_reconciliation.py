@@ -544,7 +544,17 @@ class PaymentReconciliationManager:
                     # cover the deposit. If failed/uncollected rows mean the booked
                     # total falls short of the deposit, leave the transaction
                     # Unreconciled so an operator can see and resolve the discrepancy.
-                    allocated_total = sum(Decimal(str(pe.paid_amount)) for pe in created_entries)
+                    # Summed from allocated_amount, NOT paid_amount. The two are equal
+                    # on this path today - it does not pass cash_received, so nothing
+                    # lands in unallocated_amount - but the gate asks "was the whole
+                    # deposit ALLOCATED to invoices?", and paid_amount answers "was it
+                    # received?". Should this path ever record cash above an invoice's
+                    # outstanding, paid_amount would satisfy the check precisely
+                    # because of the excess, defeating the shortfall detection it
+                    # exists to perform.
+                    allocated_total = sum(
+                        Decimal(str(ref.allocated_amount)) for pe in created_entries for ref in pe.references
+                    )
                     deposit_total = Decimal(str(bank_trans.deposit or 0))
 
                     if created_entries and allocated_total == deposit_total:

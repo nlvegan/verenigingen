@@ -383,9 +383,19 @@ def validate_payment_amount(invoice, received_amount):
             "message": f"Payment amount ({received_amount}) is less than invoice amount ({invoice_amount})",
         }
     else:
+        # NOT a donation. A member paying more than this invoice asks for is usually
+        # paying ahead or catching up on arrears, and nothing in a payment amount
+        # expresses an intent to give. Calling it a donation would misstate income and
+        # remove the member's claim on the money. It is an overpayment: the excess is
+        # recorded as an unallocated credit on the customer (see
+        # PaymentEntryCreationService's cash_received) and stays applicable to whatever
+        # the member still owes.
         return {
             "valid": True,
-            "message": f"Payment amount ({received_amount}) exceeds invoice amount - treating as donation",
+            "message": (
+                f"Payment amount ({received_amount}) exceeds invoice amount "
+                f"({invoice_amount}) - recording the excess as a credit"
+            ),
             "overpayment": received_amount - invoice_amount,
         }
 

@@ -4,21 +4,16 @@ Unit Tests for PaymentEntryCreationService
 Tests the consolidated payment entry creation service that replaces
 duplicate logic from batch_processing_service, direct_debit_batch, and sepa_reconciliation.
 
-Test Status (latest run):
-- ✅ test_does_not_exist_error_invalid_invoice - PASS
-- ❌ test_successful_payment_entry_creation_and_submission - ERPNext account setup
-- ❌ test_validation_error_negative_amount - ERPNext account setup (in helper)
-- ❌ test_validation_error_zero_amount - ERPNext account setup (in helper)
-- ❌ test_decimal_to_float_conversion - ERPNext account setup
-- ❌ test_payment_entry_fields_correctly_set - ERPNext account setup
-- ❌ test_multiple_payment_entries_for_same_invoice_allowed - ERPNext account setup
-- ❌ test_payment_type_parameter_respected - ERPNext account setup
+A per-test status block used to live here, listing seven tests as failing on "ERPNext
+account setup". All seven pass; the helper it blamed (_create_test_invoice) works. The
+block was removed rather than refreshed - a hand-maintained list of which tests pass is
+stale the moment it is written, and this one had gone from stale to actively misleading,
+telling a reader the suite was broken when it was green.
 
-**Root Cause**: Tests use EnhancedTestCase correctly, but _create_test_invoice() helper
-fails due to missing ERPNext accounting configuration (party accounts, currency setup).
-
-**Service Validation**: The core service logic IS working - test_does_not_exist_error_invalid_invoice
-proves the service correctly validates invoice existence without requiring full invoice creation.
+Overpayment coverage: the service records cash above an invoice's outstanding ONLY when
+a caller opts in via `cash_received`. Those tests assert the GL rows, not just the
+amount fields - a capped posting and a full-cash one are indistinguishable on
+`allocated_amount` alone, so an assertion on that field cannot tell the two apart.
 """
 
 import unittest
@@ -199,16 +194,12 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.assertIsInstance(payment_entry.paid_amount, (float, int))
         self.assertAlmostEqual(float(payment_entry.paid_amount), float(pay_amount), places=2)
 
-    @unittest.skip("Requires complex permission mocking with user/role setup")
-    def test_graceful_degradation_creates_draft_on_permission_failure(self):
-        """Test that graceful mode creates draft entry if submit permission lacking"""
-        # This test would require mocking permission checks
-        # Skipping for now as it requires complex permission setup
-        pass  # TODO: Implement with permission mocking
-
     # ---- Real permission-denial paths (no mocking) ------------------------
-    # The two skipped stubs above deferred these as "requires complex permission
-    # mocking". They need no mocking at all: a real deskless User carrying a role
+    # A skipped `pass` stub named test_graceful_degradation_creates_draft_on_permission_failure
+    # stood here, deferring this as "requires complex permission mocking". It was
+    # deleted rather than unskipped: the tests below already cover that path for real,
+    # so unskipping an empty body would only have added a second, weaker claim on the
+    # same behaviour. They need no mocking at all: a real deskless User carrying a role
     # with the exact Payment Entry perms under test, driven with frappe.set_user.
     # Custom DocPerm rows added via add_permission/update_permission_property are
     # transaction-scoped and roll back with the test.
@@ -358,7 +349,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         # Exact literal from :148 — distinguishes the SUBMIT gate from the CREATE gate.
         self.assertIn("Insufficient permissions to submit payment entry", str(ctx.exception))
 
-    @unittest.skip("Requires complete ERPNext accounting setup - see file comments for known issues")
     def test_payment_entry_fields_correctly_set(self):
         """Test that all payment entry fields are correctly populated"""
         # Arrange
@@ -456,11 +446,20 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                     mode_of_payment="SEPA Direct Debit",
                 )
 
-        # Verify the unexpected error was logged with the documented contract
+        # Verify the unexpected error was logged with the documented contract.
+        #
+        # Asserted on KEYWORDS. Passed positionally, the message lands in log_error's
+        # `title` (which truncates) and the title in `message`; frappe's auto-swap only
+        # rescues that when the title contains a newline, and this one has none. The
+        # previous positional assertion therefore pinned the broken call shape.
         mock_log_error.assert_called_once()
-        call_args = mock_log_error.call_args
-        self.assertIn(invoice.name, call_args[0][0])  # Invoice name in error message
-        self.assertEqual(call_args[0][1], "Payment Entry Unexpected Error")  # Error title
+        kwargs = mock_log_error.call_args.kwargs
+        self.assertEqual(kwargs["title"], "Payment Entry Unexpected Error")
+        self.assertIn(invoice.name, kwargs["message"])
+        self.assertIn("Unexpected database error", kwargs["message"])
+        # The traceback is the whole point of this log line: without it the branch
+        # records that something failed but not where.
+        self.assertIn("Traceback", kwargs["message"])
 
     def test_payment_type_parameter_respected(self):
         """Test that payment_type parameter (Receive/Pay) is properly used"""
@@ -746,7 +745,9 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         self.assertFalse(payment_entry.get("deductions"))
         # The invoice keeps the rest outstanding - a discount the payer never elected
         # must not be written off here.
-        self.assertEqual(flt(frappe.db.get_value("Sales Invoice", invoice.name, "outstanding_amount"), 2), 60.00)
+        self.assertEqual(
+            flt(frappe.db.get_value("Sales Invoice", invoice.name, "outstanding_amount"), 2), 60.00
+        )
 
     def _create_bank_transaction(self, company, amount):
         """A real Bank Transaction to link against.
@@ -824,6 +825,120 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             frappe.db.get_value("Payment Entry", payment_entry.name, "custom_bank_transaction"),
             bank_transaction.name,
         )
+
+    # --- cash_received: recording an overpayment without losing the excess ---------
+
+    def _debtors_account(self, company):
+        return frappe.get_cached_value("Company", company, "default_receivable_account")
+
+    def test_cash_received_records_full_cash_with_remainder_unallocated(self):
+        """A gateway paying more than the invoice owes must post the WHOLE cash.
+
+        Asserts the GL rather than only the amount fields. The failure this guards
+        against is not a wrong `paid_amount` - it is a debtors credit that does not
+        match the cash the gateway actually settled, which is invisible on the
+        document and only shows up when the clearing account fails to reconcile.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("30.00"))
+        invoice.submit()
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("30.00"),
+            cash_received=Decimal("100.00"),
+            posting_date=date.today(),
+            reference_no="OVERPAY-REF-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+        )
+
+        pe = frappe.get_doc("Payment Entry", payment_entry.name)
+        self.assertEqual(flt(pe.paid_amount, 2), 100.00)
+        self.assertEqual(flt(pe.received_amount, 2), 100.00)
+        self.assertEqual(flt(pe.references[0].allocated_amount, 2), 30.00)
+        self.assertEqual(flt(pe.unallocated_amount, 2), 70.00)
+        self.assertEqual(flt(pe.difference_amount, 2), 0.00)
+
+        debtors = self._debtors_account(invoice.company)
+        gl = frappe.get_all(
+            "GL Entry",
+            filters={"voucher_no": pe.name, "is_cancelled": 0},
+            fields=["account", "debit", "credit", "against_voucher"],
+        )
+
+        # Two SEPARATE debtors credits: 30 carries against_voucher (settles the
+        # invoice), 70 does not (sits as an advance). They must not merge - if they
+        # ever do, the invoice is silently cleared for the full 100.
+        allocated_credit = [r for r in gl if r.account == debtors and r.against_voucher == invoice.name]
+        unallocated_credit = [r for r in gl if r.account == debtors and not r.against_voucher]
+        self.assertEqual(len(allocated_credit), 1, f"expected one settled debtors row, got {gl}")
+        self.assertEqual(flt(allocated_credit[0].credit, 2), 30.00)
+        self.assertEqual(len(unallocated_credit), 1, f"expected one advance debtors row, got {gl}")
+        self.assertEqual(flt(unallocated_credit[0].credit, 2), 70.00)
+
+        # The bank side must carry the FULL cash, or the clearing account cannot
+        # reconcile against the gateway settlement - the entire point of the change.
+        bank_debit = sum(flt(r.debit) for r in gl if r.account != debtors)
+        self.assertEqual(flt(bank_debit, 2), 100.00)
+
+    def test_cash_received_defaults_to_the_allocation(self):
+        """Omitting cash_received must leave every existing caller's posting unchanged."""
+        invoice = self._create_test_invoice(amount=Decimal("45.00"))
+        invoice.submit()
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("45.00"),
+            posting_date=date.today(),
+            reference_no="NOCASH-REF-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+        )
+
+        pe = frappe.get_doc("Payment Entry", payment_entry.name)
+        self.assertEqual(flt(pe.paid_amount, 2), 45.00)
+        self.assertEqual(flt(pe.unallocated_amount, 2), 0.00)
+
+    def test_cash_received_below_the_allocation_is_refused(self):
+        """cash_received < amount would allocate money that never arrived."""
+        invoice = self._create_test_invoice(amount=Decimal("50.00"))
+        invoice.submit()
+
+        with self.assertRaises(frappe.ValidationError):
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("50.00"),
+                cash_received=Decimal("20.00"),
+                posting_date=date.today(),
+                reference_no="UNDERCASH-REF-001",
+                reference_date=date.today(),
+                mode_of_payment="Bank Transfer",
+            )
+
+    def test_overpayment_is_not_mistaken_for_an_early_payment_discount(self):
+        """The discount detector must be handed the ALLOCATION, not the cash.
+
+        Handed the cash, `paid_amount != amount` holds for every overpayment, so the
+        helper concludes a discount was applied to an invoice that has none. On a
+        same-currency invoice it then lands on the right number by accident, which is
+        why this asserts the deductions table is empty rather than just the total.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("30.00"))
+        invoice.submit()
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("30.00"),
+            cash_received=Decimal("80.00"),
+            posting_date=date.today(),
+            reference_no="NODISCOUNT-REF-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+        )
+
+        pe = frappe.get_doc("Payment Entry", payment_entry.name)
+        self.assertEqual(len(pe.deductions), 0, "a phantom discount was detected and booked")
+        self.assertEqual(flt(pe.unallocated_amount, 2), 50.00)
 
 
 class TestPaymentEntryCreationServiceIntegration(FrappeTestCase):

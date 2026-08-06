@@ -1007,8 +1007,13 @@ class DuesPaymentProcessor:
             invoice_name: Optional specific invoice to allocate to (skips lookup)
             allow_invoice_creation: If False, won't create invoices when none found.
                                    Used by orchestrator in discovery mode.
-            require_invoice: If True, refuses to create unallocated PE when no invoice
-                           is available. Used in recovery mode to prevent orphaned PEs.
+            require_invoice: If True, refuses to create an unallocated PE when NO INVOICE
+                           WAS EVER IDENTIFIED. Used in recovery mode to prevent orphaned
+                           PEs. Deliberately narrow: it does not cover the case where an
+                           invoice was matched and a concurrent process consumed it while
+                           this one was writing. That payment has already been taken, so
+                           it is recorded unallocated rather than discarded - see the lost
+                           race handler below.
 
         Returns:
             str: Payment Entry name if created, None otherwise
@@ -1107,18 +1112,29 @@ class DuesPaymentProcessor:
                             f"Linked to invoice {invoice_name}"
                         ),
                         custom_fields={"custom_member": member_name},
+                        # Record the whole payment. `allocation` still settles the
+                        # invoice; any excess becomes an unallocated credit on the
+                        # member's customer rather than being dropped. The Mollie
+                        # clearing account must carry the full cash or it cannot
+                        # reconcile against the Mollie settlement.
+                        cash_received=Decimal(str(amount)),
                     )
                 except Exception as e:
                     # Race: the invoice was paid by another process between the
                     # outstanding check above and the insert. The service submits
                     # internally, so this must wrap the whole call, not just an insert.
                     #
-                    # PRE-EXISTING INCONSISTENCY, preserved deliberately: this fallback
-                    # does NOT honour require_invoice, while the no-invoice path below
-                    # does. Recovery mode refuses to create orphaned PEs, yet a lost
-                    # race creates one anyway. Changing it would drop a payment that
-                    # has already been taken, so it needs an owner decision rather than
-                    # a quiet fix inside a refactor.
+                    # This fallback does NOT honour require_invoice, and that is now a
+                    # DECIDED distinction rather than the inconsistency it looks like.
+                    # require_invoice gates INVENTING a payment for which no invoice was
+                    # ever identified - the no-invoice path below, which returns None and
+                    # asks for manual intervention. It does not gate this case, where an
+                    # invoice WAS matched and a concurrent process consumed it in flight.
+                    # The cash has already been taken; refusing to record it does not
+                    # un-take it, it only removes the ledger's evidence that it arrived.
+                    # So the payment is recorded unallocated against the customer, where
+                    # Payment Reconciliation can apply it to whatever the member still
+                    # owes.
                     #
                     # Detection is by STATE, not by error message. Both errors ERPNext
                     # raises here are wrapped in _(), so the English substring test this
@@ -1130,7 +1146,16 @@ class DuesPaymentProcessor:
                         invoice_cannot_absorb,
                     )
 
-                    if isinstance(e, frappe.ValidationError) and invoice_cannot_absorb(invoice_name, amount):
+                    # Tested against `allocation`, NOT `amount`. The predicate is
+                    # `outstanding < figure`, so handing it the full cash makes every
+                    # overpayment satisfy it whether or not a race occurred - and any
+                    # ValidationError raised for an unrelated reason (frozen account,
+                    # closed period, the service's currency guard) would then be
+                    # misread as a lost race and silently become an unallocated PE.
+                    # `allocation` is what this attempt actually tried to book.
+                    if isinstance(e, frappe.ValidationError) and invoice_cannot_absorb(
+                        invoice_name, allocation
+                    ):
                         frappe.logger().warning(
                             f"[Mollie] Invoice {invoice_name} was paid by another process during PE "
                             f"creation, creating unallocated PE instead. Original error: {e}"

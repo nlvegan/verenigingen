@@ -49,8 +49,17 @@ if TYPE_CHECKING:
     from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
 
 
-def _suppress_early_payment_discount(payment_entry, amount_float: float) -> None:
+def _suppress_early_payment_discount(payment_entry, allocated_float: float) -> None:
     """Undo any early-payment discount ERPNext applied inside get_payment_entry().
+
+    MUST be handed the ALLOCATION (the ``party_amount`` passed to get_payment_entry),
+    never the total cash received. The detection below is an equality test against
+    that figure, and pre-discount ``paid_amount`` equals ``party_amount`` and nothing
+    else. Hand it the cash on an overpayment and ``paid_amount != cash`` holds with no
+    discount anywhere, so it concludes a discount was applied: on the same-currency
+    path it then arrives at the right number by accident, and on a currency boundary it
+    throws a message about a discount the invoice does not have, refusing cash that has
+    already been taken.
 
     WHY the discount must not apply here. ``amount`` is cash a payment gateway actually
     moved. An early-payment discount is something a customer ELECTS when settling an
@@ -82,7 +91,7 @@ def _suppress_early_payment_discount(payment_entry, amount_float: float) -> None
     from frappe.utils import flt
 
     precision = payment_entry.precision("paid_amount") or 2
-    if flt(payment_entry.paid_amount, precision) == flt(amount_float, precision):
+    if flt(payment_entry.paid_amount, precision) == flt(allocated_float, precision):
         return
 
     # A discount plus a currency difference cannot be undone by simple arithmetic: the
@@ -103,8 +112,8 @@ def _suppress_early_payment_discount(payment_entry, amount_float: float) -> None
     # this point was added by the discount (the only other producer,
     # set_exchange_gain_loss, requires the currency difference excluded above).
     payment_entry.set("deductions", [])
-    payment_entry.paid_amount = amount_float
-    payment_entry.received_amount = amount_float
+    payment_entry.paid_amount = allocated_float
+    payment_entry.received_amount = allocated_float
 
 
 class PaymentEntryCreationService:
@@ -129,13 +138,19 @@ class PaymentEntryCreationService:
         custom_fields: Optional[Dict[str, Any]] = None,
         bank_account: Optional[str] = None,
         remarks: Optional[str] = None,
+        cash_received: Optional[Decimal] = None,
     ) -> "PaymentEntry":
         """
         Create and submit payment entry from invoice.
 
         Args:
             invoice_name: Sales Invoice name
-            amount: Payment amount (must be positive)
+            amount: Amount to ALLOCATE to this invoice (must be positive). Callers cap
+                    this at the invoice's outstanding themselves; ERPNext rejects a
+                    reference row above outstanding, so passing more throws - which is
+                    the intended, loud outcome for callers whose amount is not known to
+                    belong to this invoice (bank reconciliation matches an invoice
+                    number found in a description, with no amount check at all).
             posting_date: Posting date for payment entry
             reference_no: Payment reference number
             reference_date: Reference date for payment
@@ -153,6 +168,25 @@ class PaymentEntryCreationService:
                           bank/cash account when omitted.
             remarks: Optional remarks text. Sets custom_remarks so Payment Entry.validate()
                      does not regenerate it. Omit to keep ERPNext's generated text.
+            cash_received: Total cash the gateway actually moved, when it EXCEEDS
+                     `amount`. Opt-in, and defaults to `amount` (behaviour unchanged).
+                     Supplied, the entry records the full cash: `amount` still settles
+                     the invoice and the excess lands in `unallocated_amount` as a
+                     credit on the customer, applicable to another invoice via
+                     Payment Reconciliation.
+
+                     WHY THIS IS OPT-IN rather than simply reinterpreting `amount`.
+                     Most callers pass a figure they know belongs to this invoice, and
+                     for them "more than outstanding" is a bug that must keep throwing.
+                     bank_transaction_reconciliation.create_payment_entry_from_transaction
+                     passes a whole bank deposit against a single invoice matched by an
+                     invoice number appearing in the description, with no amount check.
+                     Under a blanket reinterpretation it would silently post the excess
+                     as a credit and stamp the Bank Transaction "Reconciled", replacing
+                     an error an operator sees with a number nobody does. Only callers
+                     whose cash figure is authoritative - a gateway settling into a
+                     clearing account that must reconcile against a settlement file -
+                     should opt in.
 
         Returns:
             PaymentEntry: Created and submitted Payment Entry document
@@ -212,6 +246,17 @@ class PaymentEntryCreationService:
         if amount <= Decimal("0"):
             frappe.throw(_("Payment amount must be greater than zero. Got: {0}").format(amount))
 
+        # cash_received below the allocation would settle the invoice with money that
+        # never arrived, and ERPNext would not catch it: set_unallocated_amount only
+        # tests total_allocated < paid, so a SHORTFALL leaves unallocated at 0 and the
+        # entry submits with a debtors credit larger than the cash.
+        if cash_received is not None and cash_received < amount:
+            frappe.throw(
+                _(
+                    "Cash received ({0}) cannot be less than the amount allocated to invoice {1} ({2})."
+                ).format(cash_received, invoice_name, amount)
+            )
+
         # Validate invoice exists
         if not frappe.db.exists("Sales Invoice", invoice_name):
             frappe.throw(_("Sales Invoice {0} does not exist").format(invoice_name))
@@ -265,7 +310,38 @@ class PaymentEntryCreationService:
                 reference_date=reference_date,
             )
 
+            # Handed the ALLOCATION, never cash_received - see the helper's docstring.
             _suppress_early_payment_discount(payment_entry, amount_float)
+
+            # Record the full cash when the caller opted in and it exceeds what this
+            # invoice can absorb. ERPNext derives the rest: set_unallocated_amount()
+            # gives `paid - allocated`, and set_difference_amount() then nets
+            # `(allocated + unallocated) - received` to zero, so the entry submits and
+            # posts TWO debtors credits - the allocation against the invoice, and the
+            # remainder with no against_voucher, which is the canonical unreconciled
+            # advance. They cannot merge: get_merge_properties() keys on
+            # against_voucher (general_ledger.py), so the invoice is never silently
+            # cleared for the full cash.
+            if cash_received is not None and cash_received > amount:
+                # Same refusal as the discount path above, for the same reason: across a
+                # currency boundary set_received_amount() does NOT normalise the two
+                # sides, so assigning the gateway's single figure to both makes
+                # set_exchange_gain_loss() book the mismatch as a deductions row.
+                # difference_amount still nets to zero and the entry SUBMITS, debiting
+                # the clearing account a converted figure for unconverted cash. A
+                # settlement webhook reports one number and nothing says which side of
+                # the boundary it belongs to, so guessing is not available.
+                if payment_entry.paid_from_account_currency != payment_entry.paid_to_account_currency:
+                    frappe.throw(
+                        _(
+                            "Payment for invoice {0} exceeds the outstanding amount and crosses a "
+                            "currency boundary. Record this payment manually - the service will not "
+                            "guess the split."
+                        ).format(invoice_name)
+                    )
+
+                payment_entry.paid_amount = float(cash_received)
+                payment_entry.received_amount = float(cash_received)
 
             # Set payment details
             payment_entry.payment_type = payment_type
@@ -284,7 +360,8 @@ class PaymentEntryCreationService:
                 payment_entry.remarks = remarks
                 payment_entry.custom_remarks = 1
 
-            # paid_amount/received_amount are deliberately NOT re-assigned here.
+            # paid_amount/received_amount are re-assigned above ONLY on the opt-in
+            # cash_received path, and are otherwise deliberately left alone.
             #
             # get_payment_entry() already derives both from party_amount:
             # set_grand_total_and_outstanding_amount() sets outstanding_amount =
@@ -325,12 +402,18 @@ class PaymentEntryCreationService:
             # Apply custom fields if provided (for SEPA batch tracking, etc.)
             if custom_fields:
                 for field_name, field_value in custom_fields.items():
-                    if hasattr(payment_entry, field_name):
-                        setattr(payment_entry, field_name, field_value)
-                    else:
-                        frappe.logger().warning(
-                            f"Custom field '{field_name}' not found on Payment Entry - skipping"
+                    # Throw rather than warn. This is a money path, and the caller asked
+                    # for a field to be recorded on the entry: a typo or a renamed custom
+                    # field previously vanished into frappe.logger(), leaving a submitted
+                    # Payment Entry silently missing the link (custom_member, the SEPA
+                    # batch reference) that a later reconciliation or dedup query relies
+                    # on to find it. Failing here is recoverable; a payment nobody can
+                    # trace back is not.
+                    if not hasattr(payment_entry, field_name):
+                        frappe.throw(
+                            _("Custom field '{0}' does not exist on Payment Entry.").format(field_name)
                         )
+                    setattr(payment_entry, field_name, field_value)
 
             # insert() and submit() are one unit. The permission checks above answer
             # "may this user submit this DOCTYPE?", which is all that can be asked before
@@ -420,9 +503,18 @@ class PaymentEntryCreationService:
         except Exception as e:
             # Unexpected errors (framework issues, database errors, etc.)
             # These are rare and indicate serious problems
+            # Keyword args, and the traceback explicitly. Passed positionally, the
+            # message lands in `title` and gets truncated, and frappe's auto-swap
+            # heuristic does not rescue it: error.py only swaps the two when the title
+            # contains a newline, and this message has none. The traceback must be
+            # added by hand for the same reason - log_error only captures one when it
+            # is given no message at all.
             frappe.log_error(
-                f"Unexpected error creating payment entry for invoice {invoice_name}: {str(e)}",
-                "Payment Entry Unexpected Error",
+                title="Payment Entry Unexpected Error",
+                message=(
+                    f"Unexpected error creating payment entry for invoice {invoice_name}: "
+                    f"{str(e)}\n\n{frappe.get_traceback(with_context=True)}"
+                ),
             )
             frappe.throw(
                 _(

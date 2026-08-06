@@ -39,11 +39,20 @@ class TestValidatePaymentAmount(VereningingenTestCase):
         self.assertFalse(result["valid"])
         self.assertIn("less than", result["message"])
 
-    def test_overpayment_treated_as_donation(self):
+    def test_overpayment_is_reported_as_a_credit_not_a_donation(self):
+        """An overpayment is money the member still owns, not a gift.
+
+        Renamed from test_overpayment_treated_as_donation, which asserted the message
+        said "donation". Members overpay because they are paying ahead or catching up
+        on arrears; nothing in an amount expresses intent to give. Classifying it as a
+        donation misstated income and wrote off the member's claim on the excess, which
+        is now recorded as an unallocated credit on their customer account.
+        """
         result = ap.validate_payment_amount(self._invoice(50.0), 75.0)
         self.assertTrue(result["valid"])
         self.assertEqual(result["overpayment"], 25.0)
-        self.assertIn("donation", result["message"])
+        self.assertNotIn("donation", result["message"].lower())
+        self.assertIn("credit", result["message"].lower())
 
 
 class TestCalculateMembershipAmountWithDiscounts(VereningingenTestCase):

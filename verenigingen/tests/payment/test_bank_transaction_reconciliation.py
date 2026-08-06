@@ -579,6 +579,56 @@ class TestMatchTransactionAndReconcile(BTRBase):
         )
         self.assertTrue(refs, "payment entry should reference the invoice")
 
+    def test_deposit_larger_than_the_invoice_stays_unreconciled(self):
+        """A description-only match whose deposit exceeds the invoice must FAIL LOUDLY.
+
+        match_by_description returns confidence 0.90 on nothing more than an invoice
+        number appearing in the text - it never compares amounts (:330-336). So this
+        deposit has no established relationship to this invoice beyond a string. The
+        correct outcome is the ValidationError ERPNext raises for an over-allocated
+        reference, caught by create_reconciliation and surfaced as Unreconciled, where
+        an operator sees it.
+
+        This is the regression guard for a design decision: PaymentEntryCreationService
+        can now record cash above the outstanding as an unallocated credit, but ONLY
+        for callers that opt in via cash_received. This caller must never opt in. If it
+        did, the entry would submit, the excess would become an untraceable credit on
+        whichever customer the string matched, and the transaction would be stamped
+        Reconciled - removing it from the sweep pool permanently, since
+        reconcile_bank_transactions only selects Pending rows.
+
+        Nothing pinned this before, so the silent-success version passed every test.
+        """
+        it = self._make_member_with_invoice(first_name="BTROver", grand_total=30.0)
+        bt = self._make_bank_transaction(
+            deposit=500.0,
+            description=f"INVOICE {it['invoice'].name}",
+            reference_number="NO-BATCH-TOKEN",
+            date=today(),
+        )
+
+        self.mgr.match_transaction(self._txn_dict(bt))
+
+        bt.reload()
+        # "Unreconciled" specifically, not merely "not Reconciled": that status is set
+        # by _mark_transaction_unreconciled in the exception handler, so it proves the
+        # match fired and the over-allocation was REFUSED. A test asserting only
+        # "not Reconciled" would also pass if the description never matched at all,
+        # pinning nothing.
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "a 500.00 deposit was reconciled against a 30.00 invoice matched only by "
+            "an invoice number in the description",
+        )
+        submitted = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
+            fields=["parent"],
+        )
+        submitted = [r for r in submitted if frappe.db.get_value("Payment Entry", r.parent, "docstatus") == 1]
+        self.assertFalse(submitted, "no Payment Entry should have been booked for this match")
+
     def test_batch_type_reconciliation_bug(self):
         """Regression (FIXED): create_reconciliation now branches on type 'batch'
         and reconciles each invoice in the Direct Debit Batch (via

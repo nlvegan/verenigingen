@@ -306,6 +306,16 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
         allocated = sum(flt(r.allocated_amount) for r in pe.references)
         self.assertEqual(allocated, outstanding)
 
+        # ...but the ENTRY records the full cash Pay.nl settled, with the excess held
+        # as an unallocated credit on the customer. Previously the excess was dropped:
+        # the entry posted only the capped figure, so the ING clearing account was
+        # debited less than the settlement actually moved and could not be reconciled.
+        # Asserting `allocated` alone cannot see that difference - the reference row is
+        # identical either way - which is why these three assertions exist.
+        self.assertEqual(flt(pe.paid_amount, 2), flt(outstanding + 15.00, 2))
+        self.assertEqual(flt(pe.unallocated_amount, 2), 15.00)
+        self.assertEqual(flt(pe.difference_amount, 2), 0.00)
+
     def test_remarks_wording_reaches_the_saved_document(self):
         """The gateway's own wording must survive validate().
 

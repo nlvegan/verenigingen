@@ -201,6 +201,14 @@ class TransactionService:
                 mode_of_payment="iDEAL",
                 bank_account=bank_account,
                 remarks=f"ING Checkout payment: {transaction_id}",
+                # Record the whole transaction, not just the part this invoice can
+                # absorb. The cap above still decides what SETTLES the invoice; the
+                # excess becomes an unallocated credit on the customer instead of
+                # vanishing. Without this the ING clearing account was debited the
+                # capped figure while Pay.nl had settled the full amount, so the
+                # account could not reconcile against the settlement file. The
+                # overpayment alert at :159-161 is unchanged and still fires.
+                cash_received=Decimal(str(transaction_amount)),
             )
 
             result["success"] = True
