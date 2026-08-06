@@ -201,6 +201,22 @@ class TestMemberUtils(EnhancedTestCase):
         member_name = get_member_name_for_user(None)
         self.assertIsNone(member_name)
 
+    def test_get_member_name_for_user_propagates_database_error(self):
+        """A database failure must propagate, never read as 'not a member'.
+
+        This resolver is the member-identity step of several permission paths
+        (permissions.py's query conditions, chapter_permission_service.
+        get_user_board_chapters, SelfServiceAccessController). Swallowing the
+        error and returning None turns an outage into "no access", which is
+        indistinguishable from a genuine non-member and silently denies
+        legitimate users. Callers that want to degrade must say so explicitly.
+        """
+        outage = frappe.db.OperationalError("simulated database outage")
+
+        with patch.object(frappe.db, "get_value", side_effect=outage):
+            with self.assertRaises(frappe.db.OperationalError):
+                get_member_name_for_user("test.member@verenigingen.test")
+
     @patch('frappe.session')
     def test_get_current_user_member_name(self, mock_session):
         """Test current user member lookup"""

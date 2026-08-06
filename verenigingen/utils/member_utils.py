@@ -64,13 +64,36 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
     Returns:
         Member name/ID if found, None otherwise
 
+    Raises:
+        Any database error raised by the lookup (e.g. OperationalError, a MariaDB
+        deadlock). See Error Handling below.
+
     Note:
         This function tries two lookup strategies:
         1. By user field (primary - explicit User link)
         2. By email field (fallback for legacy records)
 
     Error Handling:
-        Returns None if no member found - caller should handle explicitly.
+        Returns None only when the user is genuinely not linked to a Member -
+        caller should handle that explicitly.
+
+        A database error PROPAGATES; it is deliberately not turned into None.
+        This resolver is the member-identity step of the app's authorization
+        paths - permissions.py's *_permission_query_conditions/has_permission
+        helpers, chapter_permission_service.get_user_board_chapters (whose
+        docstring promises exactly this) and
+        SelfServiceAccessController.get_user_member. There, None IS the
+        access-control answer, so swallowing an outage silently downgrades every
+        member to "not a member" / "no access", indistinguishable from a genuine
+        empty result. It is also unsafe after a deadlock (1213), which kills the
+        transaction and makes any further query on it meaningless.
+
+        The error is logged to disk first (sites/<site>/logs) because a deadlock
+        rolls back frappe.log_error()'s Error Log row, leaving no trace.
+
+        Callers that genuinely want to degrade to None must catch it themselves -
+        auth_hooks.get_default_home_page() and
+        SelfServiceAccessController.get_user_member() already do.
     """
     if not user_email:
         frappe.logger().warning("get_member_name_for_user called with empty user_email")
@@ -87,7 +110,7 @@ def get_member_name_for_user(user_email: str) -> Optional[str]:
         return member_name
     except Exception as e:
         frappe.logger().error(f"Error looking up member for user {user_email}: {str(e)}")
-        return None
+        raise
 
 
 def get_current_user_member_name() -> Optional[str]:
@@ -105,6 +128,7 @@ def get_current_user_member_name() -> Optional[str]:
     Error Handling:
         Returns None if no member found - caller should handle explicitly.
         Use get_current_user_member_doc() for automatic exception throwing.
+        A database error propagates (see get_member_name_for_user).
     """
     return get_member_name_for_user(frappe.session.user)
 
