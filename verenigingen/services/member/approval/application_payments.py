@@ -386,10 +386,14 @@ def validate_payment_amount(invoice, received_amount):
         # NOT a donation. A member paying more than this invoice asks for is usually
         # paying ahead or catching up on arrears, and nothing in a payment amount
         # expresses an intent to give. Calling it a donation would misstate income and
-        # remove the member's claim on the money. It is an overpayment: the excess is
-        # recorded as an unallocated credit on the customer (see
-        # PaymentEntryCreationService's cash_received) and stays applicable to whatever
-        # the member still owes.
+        # remove the member's claim on the money.
+        #
+        # Scope: this function currently has NO production callers - only tests reference
+        # it - so this is a wording and classification fix, not a live behaviour change.
+        # The path that actually records an overpayment is
+        # PaymentEntryCreationService's `cash_received`, which books the excess as an
+        # unallocated credit on the customer; the two are consistent, but they are not
+        # wired to each other.
         return {
             "valid": True,
             "message": (

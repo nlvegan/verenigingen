@@ -160,7 +160,9 @@ class PaymentEntryCreationService:
             allow_draft_on_permission_failure: If True, return draft entry if user lacks
                                                submit permission (for reconciliation workflows)
             custom_fields: Optional dict of custom field names to values to set on payment entry
-                          (e.g., {"custom_sepa_batch": "BATCH-001", "custom_sepa_batch_item": "ITEM-001"})
+                          (e.g., {"custom_sepa_batch": "BATCH-001"}). Unknown field names
+                          THROW - see the loop below for why - so every name here must be
+                          a real Payment Entry field.
             bank_account: Optional GL account the money lands in (a gateway clearing
                           account such as Mollie clearing, Ponto bank or ING). Passed
                           through to ERPNext, which derives paid_to/paid_from and the
@@ -236,7 +238,6 @@ class PaymentEntryCreationService:
                 custom_fields={
                     "custom_bank_transaction": bank_trans.name,
                     "custom_sepa_batch": batch.name,
-                    "custom_sepa_batch_item": item.name,
                 }
             )
         """
@@ -247,9 +248,13 @@ class PaymentEntryCreationService:
             frappe.throw(_("Payment amount must be greater than zero. Got: {0}").format(amount))
 
         # cash_received below the allocation would settle the invoice with money that
-        # never arrived, and ERPNext would not catch it: set_unallocated_amount only
-        # tests total_allocated < paid, so a SHORTFALL leaves unallocated at 0 and the
-        # entry submits with a debtors credit larger than the cash.
+        # never arrived. ERPNext DOES catch it - set_difference_amount() computes
+        # base_total_allocated + base_unallocated - base_received, and on_submit refuses a
+        # non-zero difference, so a 20 payment allocated 50 dies on "Difference Amount
+        # must be zero". This guard exists to fail at input validation with a message
+        # naming the two figures and the invoice, rather than after the document has been
+        # built and submitted, where the operator is left to work backwards from an
+        # arithmetic complaint to a caller that passed the wrong pair.
         if cash_received is not None and cash_received < amount:
             frappe.throw(
                 _(

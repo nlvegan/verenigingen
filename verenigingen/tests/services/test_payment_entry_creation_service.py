@@ -14,6 +14,12 @@ Overpayment coverage: the service records cash above an invoice's outstanding ON
 a caller opts in via `cash_received`. Those tests assert the GL rows, not just the
 amount fields - a capped posting and a full-cash one are indistinguishable on
 `allocated_amount` alone, so an assertion on that field cannot tell the two apart.
+
+Known gaps, stated rather than implied: the currency-boundary refusal on the overpayment
+path is untested (it needs a foreign-currency bank account this suite has no fixture
+for), and so is the argument passed to `_suppress_early_payment_discount` - that swap is
+unobservable on the same-currency path, so no test here can catch it. See
+test_overpayment_books_no_deductions_row.
 """
 
 from contextlib import contextmanager
@@ -902,7 +908,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         invoice = self._create_test_invoice(amount=Decimal("50.00"))
         invoice.submit()
 
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as ctx:
             payment_entry_service.create_payment_entry_from_invoice(
                 invoice_name=invoice.name,
                 amount=Decimal("50.00"),
@@ -913,13 +919,32 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 mode_of_payment="Bank Transfer",
             )
 
-    def test_overpayment_is_not_mistaken_for_an_early_payment_discount(self):
-        """The discount detector must be handed the ALLOCATION, not the cash.
+        # Assert the MESSAGE, not just the type. ERPNext rejects this shortfall on its
+        # own ("Difference Amount must be zero"), and the service re-wraps that as a
+        # frappe.ValidationError too - its setup_keywords list contains "must be". So a
+        # bare assertRaises passes with this guard deleted and pins nothing.
+        self.assertIn("cannot be less than the amount allocated", str(ctx.exception))
 
-        Handed the cash, `paid_amount != amount` holds for every overpayment, so the
-        helper concludes a discount was applied to an invoice that has none. On a
-        same-currency invoice it then lands on the right number by accident, which is
-        why this asserts the deductions table is empty rather than just the total.
+    def test_overpayment_books_no_deductions_row(self):
+        """An overpayment on a discount-free invoice must book no `deductions` row.
+
+        NOT a test of the discount-argument swap, despite the obvious reading. This was
+        originally named ...is_not_mistaken_for_an_early_payment_discount and claimed to
+        pin that `_suppress_early_payment_discount` receives the ALLOCATION rather than
+        the cash. A review disproved it: handed the cash, the helper skips its early
+        return, clears an already-empty `deductions`, and assigns
+        `paid = received = cash` - which the override two lines later assigns anyway. The
+        resulting document is byte-identical, so the swap is genuinely unobservable here,
+        and this test passed unchanged when the swap was simulated.
+
+        The swap's only observable effect is on a CURRENCY BOUNDARY, where it throws the
+        discount-related refusal instead of the overpayment one. That case has no test -
+        it needs a foreign-currency bank account this suite has no fixture for.
+
+        What this DOES pin, and why it stays: a deductions row here would silently
+        inflate `unallocated_amount` (set_unallocated_amount adds
+        `deductions_to_consider`) while `difference_amount` still nets to zero, so the
+        entry would submit having credited debtors more than the cash received.
         """
         invoice = self._create_test_invoice(amount=Decimal("30.00"))
         invoice.submit()
@@ -937,6 +962,61 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         pe = frappe.get_doc("Payment Entry", payment_entry.name)
         self.assertEqual(len(pe.deductions), 0, "a phantom discount was detected and booked")
         self.assertEqual(flt(pe.unallocated_amount, 2), 50.00)
+
+    def test_unknown_custom_field_throws_instead_of_being_dropped(self):
+        """A misnamed custom field must abort, not vanish into a log.
+
+        The old behaviour warned to frappe.logger() and continued, so a typo or a renamed
+        field left a SUBMITTED payment silently missing the link (custom_member, the SEPA
+        batch reference) that a later reconciliation or dedup query needs to find it.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("25.00"))
+        invoice.submit()
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("25.00"),
+                posting_date=date.today(),
+                reference_no="BADFIELD-REF-001",
+                reference_date=date.today(),
+                mode_of_payment="Bank Transfer",
+                custom_fields={"custom_field_that_does_not_exist": "x"},
+            )
+        self.assertIn("custom_field_that_does_not_exist", str(ctx.exception))
+
+    def test_race_predicate_is_evaluated_against_the_allocation_not_the_cash(self):
+        """`invoice_cannot_absorb` must be asked about the ALLOCATION.
+
+        The predicate is `outstanding < figure`. The Mollie lost-race handler uses it to
+        decide whether a ValidationError means "another process consumed this invoice"
+        (recover by recording the payment unallocated) or something else (re-raise).
+
+        Handed the full cash on an overpayment, it is true whether or not a race
+        occurred - so ANY ValidationError during an overpayment, including a frozen
+        account, a closed period or the service's own currency guard, would be laundered
+        into a silent full-amount unallocated Payment Entry. This pins the distinction
+        the caller depends on, which no test covered.
+        """
+        from verenigingen.verenigingen_payments.utils.payment_allocation import (
+            invoice_cannot_absorb,
+        )
+
+        invoice = self._create_test_invoice(amount=Decimal("30.00"))
+        invoice.submit()
+
+        # Nothing has happened to the invoice: it can absorb its own outstanding.
+        self.assertFalse(
+            invoice_cannot_absorb(invoice.name, 30.00),
+            "a healthy invoice was reported as unable to absorb its own outstanding",
+        )
+        # ...but the full cash of an overpayment exceeds it, which is why passing the
+        # cash here would report a lost race on every overpayment.
+        self.assertTrue(
+            invoice_cannot_absorb(invoice.name, 100.00),
+            "the predicate must be true for a figure above outstanding - if this fails "
+            "the caller's argument choice no longer matters and this test is moot",
+        )
 
 
 # A class named TestPaymentEntryCreationServiceIntegration stood here, holding three

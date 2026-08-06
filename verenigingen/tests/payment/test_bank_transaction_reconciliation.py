@@ -607,6 +607,14 @@ class TestMatchTransactionAndReconcile(BTRBase):
             date=today(),
         )
 
+        # The refusal is SUPPOSED to log: ERPNext raises "Allocated Amount cannot be
+        # greater than outstanding amount" and the reconciler records it before marking
+        # the transaction Unreconciled. Declaring it here follows the file's convention
+        # and pins the exception path more tightly than the status alone - without it the
+        # harness warns, and under VERENIGINGEN_FAIL_ON_ERROR_LOG=1 this test would fail
+        # for succeeding.
+        self.expectErrorLog("Payment Entry Validation")
+
         self.mgr.match_transaction(self._txn_dict(bt))
 
         bt.reload()
