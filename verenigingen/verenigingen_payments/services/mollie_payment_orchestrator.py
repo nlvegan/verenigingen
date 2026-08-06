@@ -932,6 +932,26 @@ class MolliePaymentOrchestrator:
         result = PaymentProcessingResult(payment_id=payment_id)
 
         try:
+            # Idempotency. Mollie retries a webhook until it gets a 2xx, and this path
+            # previously checked nothing before creating documents: a redelivery produced
+            # a SECOND orphan Sales Invoice and a SECOND Payment Entry for the same
+            # payment. The other three gateway paths all guard (Mollie dues via
+            # UnifiedIdempotencyManager.payment_entry_exists, Ponto on reference_no, ING
+            # on transaction status); this one was the gap.
+            #
+            # get_processing_status() already answers all of it - has_payment_entry,
+            # has_sales_invoice, has_bank_transaction - and this function already called
+            # it further down, but consulted only the Bank Transaction. Fetch it once,
+            # up front, and honour the whole answer.
+            status = self.get_processing_status(payment_id)
+            if status.has_payment_entry:
+                result.status = "skipped"
+                result.skipped_reason = f"Payment Entry {status.payment_entry} already exists"
+                result.payment_entry = status.payment_entry
+                result.sales_invoice = status.sales_invoice
+                result.bank_transaction = status.bank_transaction
+                return result
+
             # Fetch payment if not provided
             if not payment:
                 payment = self.mollie_client.get_payment(payment_id)
@@ -967,14 +987,21 @@ class MolliePaymentOrchestrator:
 
             result.actions_taken.append(f"Using fallback customer: {orphan_customer}")
 
-            # Create Sales Invoice for orphan
-            invoice_name = self._create_orphan_invoice(
-                payment_id=payment_id,
-                customer=orphan_customer,
-                amount=payment_amount,
-                payment_date=payment_date,
-                payment_description=getattr(payment, "description", None),
-            )
+            # Reuse an invoice from a partially-completed earlier run rather than
+            # creating a second one for the same payment. Without this, a redelivery
+            # that got past invoice creation but failed before the Payment Entry left a
+            # duplicate invoice behind on every retry.
+            invoice_name = status.sales_invoice
+            if invoice_name:
+                result.actions_taken.append(f"Reusing existing orphan Sales Invoice: {invoice_name}")
+            else:
+                invoice_name = self._create_orphan_invoice(
+                    payment_id=payment_id,
+                    customer=orphan_customer,
+                    amount=payment_amount,
+                    payment_date=payment_date,
+                    payment_description=getattr(payment, "description", None),
+                )
 
             if invoice_name:
                 result.sales_invoice = invoice_name
@@ -984,8 +1011,7 @@ class MolliePaymentOrchestrator:
                 result.error = "Failed to create orphan invoice"
                 return result
 
-            # Create Bank Transaction
-            status = self.get_processing_status(payment_id)
+            # Create Bank Transaction (status was fetched once, up front)
             if not status.has_bank_transaction:
                 bt_name = self._create_orphan_bank_transaction(
                     payment=payment,

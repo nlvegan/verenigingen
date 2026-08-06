@@ -390,20 +390,74 @@ class TestProcessOrphanedPaymentWithInvoice(unittest.TestCase):
         bt="BT-1",
         pe="PE-1",
         existing_bt=None,
+        existing_pe=None,
+        existing_si=None,
+        created_invoices=None,
         link_ok=True,
     ):
         orch = _bare_orchestrator(mollie=_FakeMollieClient(payment=payment))
         orch._get_or_create_orphan_customer = lambda: orphan_customer
-        orch._create_orphan_invoice = lambda **kw: invoice
+
+        def _create_invoice(**kw):
+            if created_invoices is not None:
+                created_invoices.append(kw)
+            return invoice
+
+        orch._create_orphan_invoice = _create_invoice
         orch.get_processing_status = lambda pid: ProcessingStatus(
             payment_id=pid,
             has_bank_transaction=bool(existing_bt),
             bank_transaction=existing_bt,
+            has_payment_entry=bool(existing_pe),
+            payment_entry=existing_pe,
+            has_sales_invoice=bool(existing_si),
+            sales_invoice=existing_si,
         )
         orch._create_orphan_bank_transaction = lambda **kw: bt
         orch._create_orphan_payment_entry = lambda **kw: pe
         orch._link_bt_to_pe = lambda b, p: link_ok
         return orch
+
+    def test_existing_payment_entry_short_circuits_without_creating_duplicates(self):
+        """A redelivered webhook must not produce a second invoice and payment entry.
+
+        Mollie retries a webhook until it gets a 2xx, and this path used to check
+        nothing before writing: the other three gateway paths all guard (Mollie dues via
+        UnifiedIdempotencyManager.payment_entry_exists, Ponto on reference_no, ING on
+        transaction status), this one did not. get_processing_status() already reported
+        has_payment_entry; the function simply never asked.
+        """
+        created = []
+        orch = self._orch_with_helpers(
+            payment=_paid_payment(),
+            existing_pe="PE-ALREADY",
+            existing_si="SINV-ALREADY",
+            created_invoices=created,
+        )
+        out = orch.process_orphaned_payment_with_invoice("tr_1", payment=_paid_payment())
+
+        self.assertEqual(out.status, "skipped")
+        self.assertEqual(out.payment_entry, "PE-ALREADY")
+        self.assertEqual(out.sales_invoice, "SINV-ALREADY")
+        self.assertEqual(created, [], "no second orphan invoice may be created")
+
+    def test_existing_invoice_is_reused_rather_than_duplicated(self):
+        """A run that created the invoice then died must not create a second one.
+
+        Without this, every retry of a partially-completed orphan payment left another
+        orphan Sales Invoice behind.
+        """
+        created = []
+        orch = self._orch_with_helpers(
+            payment=_paid_payment(),
+            existing_si="SINV-FROM-EARLIER-RUN",
+            created_invoices=created,
+        )
+        out = orch.process_orphaned_payment_with_invoice("tr_1", payment=_paid_payment())
+
+        self.assertEqual(out.sales_invoice, "SINV-FROM-EARLIER-RUN")
+        self.assertEqual(created, [], "the existing invoice must be reused")
+        self.assertTrue(any("Reusing existing" in a for a in out.actions_taken))
 
     def test_payment_not_found_is_error(self):
         orch = self._orch_with_helpers(payment=None)
