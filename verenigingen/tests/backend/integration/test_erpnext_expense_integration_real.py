@@ -66,6 +66,13 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             else (frappe.get_all("Company", limit=1, pluck="name") or [None])[0]
         )
         if self.test_company:
+            # set_default writes the tabDefaultValue row that
+            # frappe.defaults.get_global_default("company") reads, so leaving it
+            # behind changes which company every later test in the shard resolves.
+            # Restore whatever was there (addCleanup so it runs even if setUp
+            # raises after this point).
+            previous_default = frappe.db.get_default("company")
+            self.addCleanup(self._restore_default_company, previous_default)
             frappe.db.set_default("company", self.test_company)
         
         # get_or_create_expense_type now validates an Expense Category (a custom
@@ -82,6 +89,13 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             "category": "Travel",
             "notes": "Real database testing for ERPNext integration"
         }
+
+    def _restore_default_company(self, previous_default):
+        """Put back the global default company this test overwrote."""
+        if previous_default:
+            frappe.db.set_default("company", previous_default)
+        else:
+            frappe.defaults.clear_default("company")
 
     def _ensure_expense_category(self, category_name):
         """Ensure an Expense Category with a real expense account exists."""
