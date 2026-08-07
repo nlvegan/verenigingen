@@ -65,17 +65,19 @@ def _suppress_early_payment_discount(payment_entry, allocated_float: float) -> N
     moved. An early-payment discount is something a customer ELECTS when settling an
     invoice; a webhook saying "X euros arrived" carries no such election. ERPNext,
     however, applies the discount whenever the invoice has a live discounted payment
-    term, and computes it from the WHOLE invoice - ``doc.base_grand_total``
-    (payment_entry.py:3345) - not from the amount being paid. Every caller here passes a
-    partial figure (``min(amount, outstanding)``), so leaving it alone debits the bank or
-    clearing account by ``amount - full_invoice_discount``: short of the cash that really
-    arrived, in precisely the account that must reconcile against the gateway settlement.
+    term, and computes it from the WHOLE invoice - ``doc.base_grand_total`` in
+    ``apply_early_payment_discount`` (payment_entry.py) - not from the amount being paid.
+    Every caller here passes a partial figure (``min(amount, outstanding)``), so leaving
+    it alone debits the bank or clearing account by ``amount - full_invoice_discount``:
+    short of the cash that really arrived, in precisely the account that must reconcile
+    against the gateway settlement.
 
     Two harder failures also become reachable when the discount is left in place:
     ``paid_amount`` can reach 0 or below and trip "Paid Amount is mandatory"
-    (payment_entry.py:643), and when no ``bank_account`` is passed and the company has no
-    default bank/cash account, ``get_payment_entry`` skips the deductions row while still
-    reducing ``paid_amount``, so ``on_submit`` throws "Difference Amount must be zero".
+    (``PaymentEntry.validate_mandatory``), and when no ``bank_account`` is passed and the
+    company has no default bank/cash account, ``get_payment_entry`` skips the deductions
+    row while still reducing ``paid_amount``, so ``on_submit`` throws "Difference Amount
+    must be zero".
 
     Suppressing it means the entry records exactly the cash received against the invoice
     and leaves the remainder outstanding. If the payer is genuinely entitled to a
@@ -83,10 +85,10 @@ def _suppress_early_payment_discount(payment_entry, allocated_float: float) -> N
 
     Detection: pre-discount, ``set_paid_amount_and_received_amount`` returns
     ``abs(outstanding_amount)`` for ``paid_amount`` in BOTH the equal- and
-    differing-currency branches (payment_entry.py:3293, 3296), and
-    ``outstanding_amount`` is exactly ``party_amount`` (3269). So ``paid_amount``
-    differing from the requested amount means, and only means, that a discount was
-    applied.
+    differing-currency branches, and ``set_grand_total_and_outstanding_amount`` makes
+    ``outstanding_amount`` exactly ``party_amount`` (both in payment_entry.py). So
+    ``paid_amount`` differing from the requested amount means, and only means, that a
+    discount was applied.
     """
     from frappe.utils import flt
 
@@ -96,7 +98,7 @@ def _suppress_early_payment_discount(payment_entry, allocated_float: float) -> N
 
     # A discount plus a currency difference cannot be undone by simple arithmetic: the
     # two sides were reduced by different figures (`discount_amount` versus
-    # `discount_amount * conversion_rate`, payment_entry.py:3336-3341), and the
+    # `discount_amount * conversion_rate` in `apply_early_payment_discount`), and the
     # deductions table may also hold exchange gain/loss rows that must survive. Refuse
     # loudly rather than post a plausible-looking wrong number.
     if payment_entry.paid_from_account_currency != payment_entry.paid_to_account_currency:
@@ -293,12 +295,12 @@ class PaymentEntryCreationService:
             # Create payment entry using ERPNext's standard function
             # This auto-populates accounts, party information, and references.
             # bank_account is passed THROUGH rather than assigned afterwards: ERPNext
-            # derives paid_to/paid_from *and* the matching account currency from the
-            # account it resolves here (payment_entry.py:2921-2925), so a post-hoc
-            # assignment would move the account and leave the currency behind.
+            # derives paid_to/paid_from *and* the matching account currency together from
+            # the account get_payment_entry() resolves here, so a post-hoc assignment
+            # would move the account and leave the currency behind.
             # payment_type and reference_date are passed IN rather than assigned after.
-            # get_payment_entry() derives paid_from/paid_to from payment_type
-            # (payment_entry.py:2920-2921) and only falls back to set_payment_type() when
+            # get_payment_entry() derives paid_from/paid_to from payment_type and only
+            # falls back to set_payment_type() when
             # the argument is None, so assigning it afterwards left the accounts derived
             # from ERPNext's guess: for an invoice with outstanding <= 0 that guess is
             # "Pay", which puts the bank account on paid_from, and forcing "Receive" over
@@ -370,16 +372,16 @@ class PaymentEntryCreationService:
             #
             # get_payment_entry() already derives both from party_amount:
             # set_grand_total_and_outstanding_amount() sets outstanding_amount =
-            # party_amount (payment_entry.py:3269) and set_paid_amount_and_received_amount()
-            # returns abs(outstanding_amount) for both (3293), so on the ordinary path an
-            # assignment here is a no-op.
+            # party_amount and set_paid_amount_and_received_amount() returns
+            # abs(outstanding_amount) for both, so on the ordinary path an assignment
+            # here is a no-op.
             #
             # Where it is NOT a no-op it corrupted the posting. ERPNext lowers both amounts
             # for an early-payment discount and books the difference as a `deductions` row;
             # re-asserting the gross amount afterwards does not throw, as one might expect.
             # set_unallocated_amount() tests
             # `base_total_allocated < base_paid_amount + deductions_to_consider`
-            # (payment_entry.py:1085) -> `A < A + D` -> true, so it silently absorbed the
+            # -> `A < A + D` -> true, so it silently absorbed the
             # discount into unallocated_amount and difference_amount still netted to zero.
             # The entry submitted and posted a debtors credit of A + D - a credit the
             # customer never paid for.

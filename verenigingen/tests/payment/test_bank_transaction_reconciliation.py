@@ -583,11 +583,15 @@ class TestMatchTransactionAndReconcile(BTRBase):
         """A description-only match whose deposit exceeds the invoice must FAIL LOUDLY.
 
         match_by_description returns confidence 0.90 on nothing more than an invoice
-        number appearing in the text - it never compares amounts (:330-336). So this
-        deposit has no established relationship to this invoice beyond a string. The
-        correct outcome is the ValidationError ERPNext raises for an over-allocated
-        reference, caught by create_reconciliation and surfaced as Unreconciled, where
-        an operator sees it.
+        number appearing in the text - it never compares amounts. So this deposit has
+        no established relationship to this invoice beyond a string. The correct
+        outcome is a ValidationError, caught by create_reconciliation and surfaced as
+        Unreconciled, where an operator sees it.
+
+        The refusal is now create_payment_entry_from_transaction's OWN guard rather
+        than ERPNext's incidental over-allocation check, so the message names the
+        deposit, the invoice and both figures - which is what reaches the operator, via
+        the Comment _mark_transaction_unreconciled writes on the Bank Transaction.
 
         This is the regression guard for a design decision: PaymentEntryCreationService
         can now record cash above the outstanding as an unallocated credit, but ONLY
@@ -607,12 +611,11 @@ class TestMatchTransactionAndReconcile(BTRBase):
             date=today(),
         )
 
-        # The refusal is SUPPOSED to log: ERPNext raises "Allocated Amount cannot be
-        # greater than outstanding amount" and the reconciler records it before marking
-        # the transaction Unreconciled. Declaring it here follows the file's convention
-        # and pins the exception path more tightly than the status alone - without it the
-        # harness warns, and under VERENIGINGEN_FAIL_ON_ERROR_LOG=1 this test would fail
-        # for succeeding.
+        # The refusal is SUPPOSED to log: the reconciler records the ValidationError
+        # before marking the transaction Unreconciled. Declaring it here follows the
+        # file's convention and pins the exception path more tightly than the status
+        # alone - without it the harness warns, and under
+        # VERENIGINGEN_FAIL_ON_ERROR_LOG=1 this test would fail for succeeding.
         self.expectErrorLog("Payment Entry Validation")
 
         self.mgr.match_transaction(self._txn_dict(bt))
@@ -636,6 +639,55 @@ class TestMatchTransactionAndReconcile(BTRBase):
         )
         submitted = [r for r in submitted if frappe.db.get_value("Payment Entry", r.parent, "docstatus") == 1]
         self.assertFalse(submitted, "no Payment Entry should have been booked for this match")
+
+        # The operator's only view of this is the Comment on the Bank Transaction, so
+        # the reason has to be legible there. ERPNext's own message ("Row #1: Allocated
+        # Amount cannot be greater than outstanding amount") names neither the deposit
+        # nor the invoice, and this assertion is what distinguishes the explicit guard
+        # from that incidental refusal.
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Bank Transaction", "reference_name": bt.name},
+            fields=["content"],
+        )
+        blob = " ".join(c.content or "" for c in comments)
+        self.assertIn(it["invoice"].name, blob)
+        self.assertIn("500", blob, "the comment must name the deposit that was refused")
+        self.assertIn("30", blob, "the comment must name the outstanding it exceeded")
+
+    def test_deposit_below_the_invoice_still_reconciles_as_partial_payment(self):
+        """The guard bounds only the ABOVE case.
+
+        A deposit smaller than the outstanding is a legitimate partial payment: the
+        cash arrived, all of it is allocated to the invoice, and nothing is invented.
+        Without this test the over-deposit guard could be tightened into an
+        equality check and silently stop reconciling every partial payment - a
+        regression the suite would otherwise report as "still green".
+        """
+        it = self._make_member_with_invoice(first_name="BTRPartial", grand_total=80.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0,
+            description=f"INVOICE {it['invoice'].name}",
+            reference_number="NO-BATCH-TOKEN",
+            date=today(),
+        )
+
+        self.mgr.match_transaction(self._txn_dict(bt))
+
+        bt.reload()
+        self.assertEqual(bt.status, "Reconciled")
+        refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
+            fields=["parent", "allocated_amount"],
+        )
+        refs = [r for r in refs if frappe.db.get_value("Payment Entry", r.parent, "docstatus") == 1]
+        self.assertEqual(len(refs), 1)
+        self.assertAlmostEqual(float(refs[0].allocated_amount), 30.0, places=2)
+        # The invoice keeps the remainder outstanding - a partial payment, not a
+        # settlement.
+        it["invoice"].reload()
+        self.assertAlmostEqual(float(it["invoice"].outstanding_amount), 50.0, places=2)
 
     def test_batch_type_reconciliation_bug(self):
         """Regression (FIXED): create_reconciliation now branches on type 'batch'

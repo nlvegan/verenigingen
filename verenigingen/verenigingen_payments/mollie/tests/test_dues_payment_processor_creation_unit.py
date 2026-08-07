@@ -314,6 +314,80 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         # together, so a post-hoc assignment would move one and leave the other.
         self.assertEqual(pe.paid_to, self.clearing_account)
 
+    def test_overpayment_records_the_full_cash_as_an_unallocated_credit(self):
+        """A payment above the invoice's outstanding must post the WHOLE cash.
+
+        This is the Mollie side of the `cash_received` opt-in. The allocation is
+        still capped at what the invoice can absorb - ERPNext refuses a reference row
+        above outstanding - but the entry now records the full amount Mollie moved,
+        with the excess landing in `unallocated_amount` as a credit on the member's
+        customer that Payment Reconciliation can apply elsewhere.
+
+        Before the opt-in the excess was simply dropped, silently: the entry posted
+        only the capped figure, so the Mollie clearing account was debited less than
+        the settlement actually moved and could not be reconciled against the Mollie
+        settlement file.
+
+        `allocated_amount` is IDENTICAL under the bug and the fix, so asserting it
+        alone pins nothing - which is exactly how this went uncovered. The four
+        assertions that discriminate are paid_amount (the cash), unallocated_amount
+        (the credit), difference_amount (the entry still balances, so it submits) and
+        the clearing account carrying the full figure.
+        """
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        # 40.00 against a 25.00 invoice -> 25.00 allocated, 15.00 left as credit.
+        payment = FakeMolliePayment(id=f"tr_pe_over_{frappe.generate_hash()[:8]}", value="40.00")
+
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
+
+        self.assertTrue(pe_name)
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1, "the overpayment entry must submit, not sit as a draft")
+
+        # Allocation is capped at the invoice, and the invoice fully settles.
+        refs = [r for r in pe.references if r.reference_name == inv.name]
+        self.assertEqual(len(refs), 1)
+        self.assertAlmostEqual(float(refs[0].allocated_amount), 25.0, places=2)
+        inv.reload()
+        self.assertEqual(inv.outstanding_amount, 0)
+
+        # ...and the entry carries the full cash Mollie moved.
+        self.assertAlmostEqual(float(pe.paid_amount), 40.0, places=2)
+        self.assertAlmostEqual(float(pe.unallocated_amount), 15.0, places=2)
+        self.assertAlmostEqual(float(pe.difference_amount), 0.0, places=2)
+        # The clearing account is the reason the excess must be recorded: it has to
+        # match the Mollie settlement, which moved 40.00, not 25.00.
+        self.assertEqual(pe.paid_to, self.clearing_account)
+
+    def test_exact_payment_records_no_unallocated_credit(self):
+        """The opt-in must not manufacture a credit when nothing was overpaid.
+
+        `cash_received` is passed unconditionally by this caller, so the equal case
+        runs through the same argument. It must remain a plain full settlement, and a
+        bug that treated the opt-in as "always split" would otherwise leave every
+        ordinary dues payment carrying a phantom credit.
+
+        WHAT THIS DOES NOT CATCH, stated because the obvious reading is wrong: it does
+        not pin the `>` in `cash_received > amount`. Relaxing that to `>=` leaves this
+        test passing, because on the equal case the override assigns
+        `paid = received = 25` - byte-identical to what set_paid_amount_and_received_amount
+        already produced, so unallocated_amount is 0 either way. The boundary is
+        observable ONLY across a currency boundary, where `>=` would send every exact
+        payment into the service's refusal. Closing that needs the foreign-currency
+        fixture this suite still lacks (handoff 2026-08-07 6a item 2), which would
+        close this gap and the discount-argument-swap gap together.
+        """
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        payment = FakeMolliePayment(id=f"tr_pe_exact_{frappe.generate_hash()[:8]}", value="25.00")
+
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
+
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertAlmostEqual(float(pe.paid_amount), 25.0, places=2)
+        self.assertAlmostEqual(float(pe.unallocated_amount), 0.0, places=2)
+
     def test_allocated_remarks_survive_validate(self):
         """The Mollie wording must reach the stored document, not just the object.
 
@@ -576,7 +650,8 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
 
         Returning it is not survivable downstream: `_create_payment_entry_for_dues`
         feeds the name to `get_payment_entry`, and Payment Entry rejects a reference
-        to an unsubmitted document ("... must be submitted", payment_entry.py:712),
+        to an unsubmitted document ("... must be submitted", in
+        `PaymentEntry.validate_reference_documents`),
         which matches neither string in that method's race-condition handler - so it
         re-raises and the payment records nowhere.
         """

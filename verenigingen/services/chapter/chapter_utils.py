@@ -49,11 +49,37 @@ def get_user_accessible_chapters(
         List[str]: List of chapter names user can access
         []: Empty list if user has no chapter access
 
+    Raises:
+        Any database error raised while resolving the user's identity or board
+        positions. See Error Handling below.
+
     Permission Logic:
         1. System/Admin roles → Full access (returns None)
         2. Board positions with required permission levels → Chapter access
         3. National chapter access if configured and user has permissions
         4. No member record or board positions → No access (returns [])
+
+    Error Handling:
+        `[]` means "this user is on no board that grants the required level" and
+        nothing else. A database error PROPAGATES rather than becoming `[]`.
+
+        This is an authorization primitive: permissions.py builds Expense Claim
+        query conditions from the returned list, and every chapter-scoped report
+        filters on it. `[]` there IS the access-control answer, so swallowing an
+        outage silently downgrades every board member to "no chapters" -
+        indistinguishable from a genuine empty result, and invisible because the
+        caller sees a well-formed empty report rather than an error. It is also
+        unsafe after a deadlock (1213), which kills the transaction and makes any
+        further query on it meaningless.
+
+        This is the same bug class as `get_member_name_for_user` (which this
+        function calls) one layer up; both now propagate. The error is logged to
+        disk first, because a deadlock rolls back frappe.log_error()'s Error Log
+        row and would leave no trace.
+
+        The narrower excepts INSIDE this function are deliberately kept: a single
+        missing Chapter Role, or a failure resolving the optional national chapter,
+        must not deny access that the user's other board positions already grant.
 
     Performance:
         Optimized queries with proper filtering and minimal database hits.
@@ -166,8 +192,10 @@ def get_user_accessible_chapters(
         return accessible_chapters
 
     except Exception as e:
+        # Log, then re-raise: returning [] here would report "no chapter access" for
+        # what is actually a failure to determine it. See Error Handling above.
         frappe.logger().error(f"Error determining chapter access for user {user_email}: {str(e)}")
-        return []
+        raise
 
 
 def has_chapter_access_permission(
@@ -222,6 +250,21 @@ def get_user_board_positions(
         - is_active: Whether position is active
         - start_date: Position start date
         - end_date: Position end date (if applicable)
+
+    Raises:
+        Any database error raised while resolving the user's identity or positions.
+
+    Error Handling:
+        `[]` means "this user holds no matching board position". A database error
+        PROPAGATES rather than becoming `[]` - see get_user_accessible_chapters for
+        the full rationale. It matters here too: is_chapter_board_member() is built
+        on this function, and a swallowed error there reads as "not a board member".
+
+        That failure mode has already bitten this function once, for a different
+        reason: it selected phantom `start_date`/`end_date` columns, frappe.get_all
+        raised, and the broad except returned [] for every real board member (see the
+        aliasing comment on the query below). The column bug was fixed; leaving the
+        swallow in place would let the next such fault hide exactly as quietly.
 
     Use Cases:
         - User profile displays
@@ -297,8 +340,9 @@ def get_user_board_positions(
         return enriched_positions
 
     except Exception as e:
+        # Log, then re-raise - see Error Handling in the docstring.
         frappe.logger().error(f"Error getting board positions for user {user_email}: {str(e)}")
-        return []
+        raise
 
 
 def is_chapter_board_member(

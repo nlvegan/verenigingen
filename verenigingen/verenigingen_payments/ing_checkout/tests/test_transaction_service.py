@@ -326,7 +326,7 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
 
         Assert on the PHRASING, not on the transaction id: ERPNext's generated text
         appends "Transaction reference no {reference_no} dated {date}"
-        (payment_entry.py:1250-1252), so the id is present either way and asserting
+        (PaymentEntry.set_remarks), so the id is present either way and asserting
         on it would pass against the broken behaviour. "ING Checkout payment" is what
         tells an operator which gateway produced the entry, and only the custom text
         carries it. Read back from the database rather than trusting the returned doc.

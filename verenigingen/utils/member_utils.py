@@ -346,9 +346,28 @@ def get_volunteer_for_member(member_name: str) -> Optional[str]:
     Returns:
         Volunteer record name if found, None otherwise
 
+    Raises:
+        Any database error raised by the lookup (e.g. OperationalError, a MariaDB
+        deadlock). See Error Handling below.
+
     Error Handling:
-        Returns None if no volunteer found or on error.
-        Logs errors for debugging.
+        Returns None only when the member genuinely has no Volunteer record.
+
+        A database error PROPAGATES, for the same reason as
+        [get_member_name_for_user]: callers read None as a fact about the data, so
+        an outage returning None makes every one of them act on a false negative.
+        Two are worth naming because None is not merely a denial there:
+
+        - Volunteer.create_volunteer_from_member uses this as the duplicate guard.
+          None means "no volunteer exists yet", so a swallowed error creates a
+          SECOND Volunteer for a member who already has one - and the same applies
+          to mijnrood_sync's volunteer_sync_service, which guards its inserts the
+          same way.
+        - chapter_utils.get_user_accessible_chapters / get_user_board_positions turn
+          None into "no board positions" -> no chapter access, silently denying a
+          real board member.
+
+        Callers that genuinely want to degrade to None must catch it themselves.
     """
     if not member_name:
         frappe.logger().warning("get_volunteer_for_member called with empty member_name")
@@ -358,8 +377,10 @@ def get_volunteer_for_member(member_name: str) -> Optional[str]:
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
         return volunteer_name
     except Exception as e:
+        # Log to disk first: a deadlock (1213) rolls back frappe.log_error()'s own
+        # Error Log row, which would leave no trace of the failure at all.
         frappe.logger().error(f"Error looking up volunteer for member {member_name}: {str(e)}")
-        return None
+        raise
 
 
 def get_volunteer_for_current_user() -> Optional[str]:

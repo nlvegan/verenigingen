@@ -531,7 +531,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         resolves the company default instead.
 
         Deliberately does NOT assert `paid_to_account_currency`. ERPNext does derive it
-        from the same resolved account (payment_entry.py:2921-2925), but the clearing
+        from the same resolved account (inside `get_payment_entry`), but the clearing
         account here carries the company's own currency, so that assertion holds whether
         or not the currency tracked the account - it would claim a guarantee it cannot
         provide. Proving it needs a differing-currency account, which drags in
@@ -651,7 +651,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         ERPNext reduces paid_amount by the discount and books the discount as a
         `deductions` row (apply_early_payment_discount + set_pending_discount_loss).
         Re-asserting the full amount afterwards does NOT throw, as one might expect:
-        set_unallocated_amount (payment_entry.py:1085) tests
+        set_unallocated_amount tests
         `base_total_allocated < base_paid_amount + deductions_to_consider`, which is
         `A < A + D` -> true, so it silently absorbs the discount into
         unallocated_amount and difference_amount still nets to zero. The entry then
@@ -709,8 +709,8 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         """A partial payment must debit the bank by the cash received, not less.
 
         This is the case the full-payment test cannot see. ERPNext computes the
-        early-payment discount from the WHOLE invoice (`doc.base_grand_total`,
-        payment_entry.py:3345) and subtracts it from paid_amount, while every caller
+        early-payment discount from the WHOLE invoice (`doc.base_grand_total`, in
+        `apply_early_payment_discount`) and subtracts it from paid_amount, while every caller
         here passes only the cash the gateway moved - min(amount, outstanding). So a
         40.00 payment against a 100.00 invoice with a 10% term would post a bank debit
         of 30.00 against 40.00 of real cash, leaving the clearing account unable to

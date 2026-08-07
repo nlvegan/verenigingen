@@ -62,9 +62,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         self.chapter_basic = self.create_chapter(chapter_name=f"CU Basic {token}", region=region)
 
         # Financial board member: User -> Member -> Volunteer -> board (Financial role)
-        self.fin_user = self.create_test_user(
-            email=f"cu-fin-{token}@test.com", roles=["Verenigingen Member"]
-        )
+        self.fin_user = self.create_test_user(email=f"cu-fin-{token}@test.com", roles=["Verenigingen Member"])
         self.fin_member = self.create_test_member(
             first_name="Fin", last_name="Boardmember", email=self.fin_user.name, user=self.fin_user.name
         )
@@ -123,9 +121,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
 
         # Board positions
         self._add_board_position(self.chapter_fin.name, self.fin_volunteer.name, self.financial_role.name)
-        self._add_board_position(
-            self.chapter_basic.name, self.basic_volunteer.name, self.basic_role.name
-        )
+        self._add_board_position(self.chapter_basic.name, self.basic_volunteer.name, self.basic_role.name)
 
         frappe.db.commit()
 
@@ -265,17 +261,13 @@ class TestChapterUtilsAccess(EnhancedTestCase):
             chapter_name=f"CU National {self.token}", region=_ensure_test_region()
         )
         # Give the financial volunteer an ACTIVE Financial board seat in it.
-        self._add_board_position(
-            national_chapter.name, self.fin_volunteer.name, self.financial_role.name
-        )
+        self._add_board_position(national_chapter.name, self.fin_volunteer.name, self.financial_role.name)
         frappe.db.commit()
 
         # Configure the national chapter in settings WITHOUT committing: production
         # reads it via frappe.db.get_single_value in the same transaction, and this
         # rolls back at test end (never corrupting the shared Single for parallel shards).
-        frappe.db.set_single_value(
-            "Verenigingen Settings", "national_board_chapter", national_chapter.name
-        )
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national_chapter.name)
 
         result = get_user_accessible_chapters(self.fin_user.name)
         self.assertIn(national_chapter.name, result)
@@ -291,9 +283,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
             chapter_name=f"CU National Neg {self.token}", region=_ensure_test_region()
         )
         # fin_volunteer has NO board position in national_chapter.
-        frappe.db.set_single_value(
-            "Verenigingen Settings", "national_board_chapter", national_chapter.name
-        )
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national_chapter.name)
 
         result = get_user_accessible_chapters(self.fin_user.name)
         self.assertNotIn(national_chapter.name, result)
@@ -310,17 +300,117 @@ class TestChapterUtilsAccess(EnhancedTestCase):
             chapter_name=f"CU National Basic {self.token}", region=_ensure_test_region()
         )
         # Basic-level seat for the financial volunteer in the national chapter.
-        self._add_board_position(
-            national_chapter.name, self.fin_volunteer.name, self.basic_role.name
-        )
+        self._add_board_position(national_chapter.name, self.fin_volunteer.name, self.basic_role.name)
         frappe.db.commit()
-        frappe.db.set_single_value(
-            "Verenigingen Settings", "national_board_chapter", national_chapter.name
-        )
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national_chapter.name)
 
         result = get_user_accessible_chapters(self.fin_user.name)
         # Basic seat does not satisfy default [Admin, Financial] requirement.
         self.assertNotIn(national_chapter.name, result)
+        self.assertIn(self.chapter_fin.name, result)
+
+    def test_database_error_propagates_instead_of_denying_access(self):
+        """An outage must not read as "this board member has no chapters".
+
+        `[]` is the access-control answer here: permissions.py builds the Expense
+        Claim query conditions from it, and every chapter-scoped report filters on
+        it. Swallowing a database error and returning `[]` therefore denies a real
+        board member silently - the caller gets a well-formed empty report, not an
+        error, so nothing anywhere says the answer was never computed.
+
+        Patch the board-position query specifically, AFTER the identity lookups have
+        succeeded, so this pins THIS function's handler rather than the already-fixed
+        one in get_member_name_for_user.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
+
+        # Sanity: this user really does have access, so an [] below would be a lie
+        # rather than a coincidentally correct answer.
+        self.assertIn(self.chapter_fin.name, get_user_accessible_chapters(self.fin_user.name))
+
+        outage = frappe.db.OperationalError("simulated database outage")
+        with patch.object(frappe, "get_all", side_effect=outage):
+            with self.assertRaises(frappe.db.OperationalError):
+                get_user_accessible_chapters(self.fin_user.name)
+
+    def test_board_positions_database_error_propagates(self):
+        """Same contract for get_user_board_positions.
+
+        is_chapter_board_member() is built on this function, so a swallowed error
+        here reads as "not a board member". This function has already produced that
+        failure once for a different reason - it selected phantom start_date/end_date
+        columns and the broad except turned the resulting error into [] for every
+        real board member.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.services.chapter.chapter_utils import get_user_board_positions
+
+        self.assertTrue(get_user_board_positions(self.fin_user.name))
+
+        outage = frappe.db.OperationalError("simulated database outage")
+        with patch.object(frappe, "get_all", side_effect=outage):
+            with self.assertRaises(frappe.db.OperationalError):
+                get_user_board_positions(self.fin_user.name)
+
+    def test_missing_chapter_role_skips_only_that_seat(self):
+        """The NARROW excepts inside must survive the broad one being removed.
+
+        A single unresolvable Chapter Role must not deny access that the user's other
+        board seats already grant - that inner handler is the reason the function can
+        afford to propagate real faults from the outer one.
+
+        The failing seat carries a FINANCIAL role in a third chapter, so it would
+        otherwise be granted. That is what makes the skip observable: with a Basic
+        role the chapter is excluded by the permission-level filter anyway, and the
+        test passes whether the lookup raised or not - pinning nothing.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
+
+        # A SECOND Financial role, distinct from self.financial_role. The seats are
+        # resolved in `order_by="parent"` order, so keying the failure on call count
+        # would target whichever chapter name happens to sort first; keying it on a
+        # role used by exactly one seat is order-independent.
+        broken_role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": f"CU Broken Treasurer {self.token}",
+                "permissions_level": "Financial",
+                "is_unique": 1,
+                "is_active": 1,
+            }
+        )
+        broken_role.save()
+        third_chapter = self.create_chapter(
+            chapter_name=f"CU Broken Role {self.token}", region=_ensure_test_region()
+        )
+        self._add_board_position(third_chapter.name, self.fin_volunteer.name, broken_role.name)
+        frappe.db.commit()
+
+        # Baseline: the seat really does grant access when its role resolves, so the
+        # assertion below distinguishes "skipped" from "never granted in the first
+        # place".
+        self.assertIn(third_chapter.name, get_user_accessible_chapters(self.fin_user.name))
+
+        real_get_cached_doc = frappe.get_cached_doc
+
+        def fail_for_that_seat(doctype, *args, **kwargs):
+            if doctype == "Chapter Role" and args and args[0] == broken_role.name:
+                raise frappe.DoesNotExistError("Chapter Role vanished")
+            return real_get_cached_doc(doctype, *args, **kwargs)
+
+        with patch.object(frappe, "get_cached_doc", side_effect=fail_for_that_seat):
+            result = get_user_accessible_chapters(self.fin_user.name)
+
+        # The seat whose role failed is skipped...
+        self.assertNotIn(third_chapter.name, result)
+        # ...and the one that resolved is still granted. Both halves are needed: the
+        # first alone would pass if the function denied everything, the second alone
+        # if it ignored the failure entirely.
         self.assertIn(self.chapter_fin.name, result)
 
     # ---- has_chapter_access_permission -------------------------------------
@@ -516,9 +606,7 @@ class TestChapterUtilsPrimaryChapter(EnhancedTestCase):
         self._add_chapter_member(
             older_chapter.name, self.member.name, join_date=frappe.utils.add_days(frappe.utils.today(), -30)
         )
-        self._add_chapter_member(
-            self.chapter.name, self.member.name, join_date=frappe.utils.today()
-        )
+        self._add_chapter_member(self.chapter.name, self.member.name, join_date=frappe.utils.today())
         frappe.db.commit()
         # ORDER BY chapter_join_date DESC LIMIT 1 -> most recently joined chapter
         self.assertEqual(get_member_primary_chapter(self.member.name), self.chapter.name)
@@ -569,12 +657,8 @@ class TestChapterUtilsDuesSplit(EnhancedTestCase):
         result = calculate_dues_split(100.0, self.chapter.name)
         self.assertIn("chapter_amount", result)
         self.assertIn("national_amount", result)
-        self.assertAlmostEqual(
-            result["chapter_amount"] + result["national_amount"], 100.0, places=2
-        )
-        self.assertAlmostEqual(
-            result["chapter_percentage"] + result["national_percentage"], 100.0, places=2
-        )
+        self.assertAlmostEqual(result["chapter_amount"] + result["national_amount"], 100.0, places=2)
+        self.assertAlmostEqual(result["chapter_percentage"] + result["national_percentage"], 100.0, places=2)
 
     def test_calculate_dues_split_respects_custom_percentage(self):
         from verenigingen.services.chapter.chapter_utils import calculate_dues_split
@@ -590,9 +674,7 @@ class TestChapterUtilsDuesSplit(EnhancedTestCase):
 
         info = get_chapter_split_info(self.chapter.name)
         self.assertEqual(info["chapter_name"], self.chapter.name)
-        self.assertAlmostEqual(
-            info["chapter_percentage"] + info["national_percentage"], 100.0, places=2
-        )
+        self.assertAlmostEqual(info["chapter_percentage"] + info["national_percentage"], 100.0, places=2)
         self.assertTrue(info["uses_default"])
 
     def test_get_chapter_split_info_custom_not_default(self):
