@@ -10,22 +10,25 @@ WHAT
     The timings table it reads is verenigingen/tests/test_timings.json, which IS
     committed. Only this runner change lives outside the app.
 
-STATUS - READ THIS BEFORE ASSUMING IT WORKS
-    As of 2026-08-06 this patch does NOT run in CI. .github/actions/setup/action.yml
-    clones ${frappe-user}/frappe, and _base-server-tests.yml defaults frappe-user to
-    'frappe', so CI builds against pristine upstream and shards by the stock
-    heuristic. Until it is applied in the workflow (or merged upstream), its only
-    effect is on `bench run-parallel-tests` run locally on a bench where someone has
-    applied it by hand.
+STATUS
+    CI applies this automatically. .github/actions/setup/action.yml applies it right
+    after checking out frappe, and FAILS THE JOB if it no longer applies - deliberately,
+    because the ungated failure mode is silent: sharding reverts to count-based, every
+    shard still passes, and the imbalance resurfaces as a shard tipping over the
+    60-minute timeout weeks later. If that step goes red, regenerate the patch against
+    the frappe revision CI checks out; do not skip or delete the step.
 
-    It was extracted from an UNCOMMITTED working-tree modification in apps/frappe -
-    one `git checkout` from being lost, with no copy anywhere. That is why it is here.
+    (Before 2026-08-07 this patch ran nowhere. It existed only as an uncommitted
+    working-tree edit in apps/frappe, one `git checkout` from being lost, while CI built
+    against pristine upstream and sharded by the stock heuristic the whole time.)
 
-APPLY
+APPLY - only needed on a local bench; CI does it for you
     git -C apps/frappe apply apps/verenigingen/scripts/frappe-parallel-test-weights.patch
 
-    Generated against frappe v16.19.0. Re-check it after a frappe upgrade: it touches
-    parallel_test_runner.py, which upstream does change.
+    Generated against frappe v16.19.0, and verified to apply unchanged to v16.30.0 and
+    to version-16's head - parallel_test_runner.py is byte-identical across all three.
+    CI checks out the BRANCH, so correctness is pinned to version-16's head, not to any
+    tag: re-verify after a frappe upgrade, since upstream does change this file.
 
 diff --git a/frappe/parallel_test_runner.py b/frappe/parallel_test_runner.py
 index 7f57e54618..ea43d4352a 100644
