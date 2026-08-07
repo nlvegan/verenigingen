@@ -341,13 +341,21 @@ class TestRelationMigrationService(EnhancedTestCase):
         """Test that existing customer is skipped."""
         # Create test customer first
         customer_name = "Existing Test Customer BV"
+        # Resolve a Territory that actually exists rather than hardcoding
+        # "Netherlands": it is not a standard erpnext fixture, so this only ever
+        # worked when another module in the same shard happened to create it
+        # first. Territory is incidental here -- the test asserts the
+        # already-exists skip path, not anything about territories.
+        territory = frappe.db.get_value("Territory", {"is_group": 0}, "name") or frappe.db.get_value(
+            "Territory", {}, "name"
+        )
         existing_customer = frappe.get_doc(
             {
                 "doctype": "Customer",
                 "customer_name": customer_name,
                 "customer_type": "Company",
                 "customer_group": "Individual",
-                "territory": "Netherlands",
+                "territory": territory,
             }
         )
         existing_customer.insert(ignore_permissions=True)
