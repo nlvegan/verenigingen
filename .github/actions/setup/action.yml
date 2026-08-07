@@ -168,6 +168,39 @@ runs:
         )
         EOF
 
+        # Drop the RQ workers. bench's Procfile template guards every other
+        # process behind a skip_* flag but emits `worker:` UNCONDITIONALLY, and
+        # setup_procfile() has no skip_worker parameter -- so this is the only
+        # way to keep `bench start` from running workers against the test site.
+        #
+        # Why that matters: frappe.enqueue does NOT run inline under tests.
+        # `call_directly = now or (not is_async and not frappe.in_test)`
+        # (frappe/utils/background_jobs.py), so with the default is_async=True a
+        # test's job goes to the REAL redis queue and a worker executes it in a
+        # SEPARATE process with its OWN database connection -- concurrently with
+        # the suite, against the same database.
+        #
+        # That worker then inserts naming-series documents and takes the
+        # `tabSeries` row lock while a test's still-open transaction wants the
+        # same row. Every Bulk Operation Tracker insert in the shard blocked for
+        # the full innodb_lock_wait_timeout (~51s apart in the logs) and failed
+        # with (1205, 'Lock wait timeout exceeded') -- 10 of the failures that
+        # blocked this PR. It was previously mis-filed as local test-site
+        # pollution because CI was believed to be worker-free. It is not.
+        #
+        # Tests that genuinely need a job to run should execute it inline
+        # (now=True) rather than depend on a worker racing the suite.
+        if grep -qE '^worker' "${GITHUB_WORKSPACE}/Procfile"; then
+          sed -i '/^worker/d' "${GITHUB_WORKSPACE}/Procfile"
+          echo "Removed RQ worker lines from Procfile:"
+        else
+          echo "::error::No worker lines found in the generated Procfile."
+          echo "::error::bench's template emits them unconditionally, so this means"
+          echo "::error::the Procfile format changed -- verify before removing this guard."
+          exit 1
+        fi
+        cat "${GITHUB_WORKSPACE}/Procfile"
+
         # Copy site configuration
         cp "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/.github/helper/db/mariadb.json" \
            "${GITHUB_WORKSPACE}/sites/test_site/site_config.json"
