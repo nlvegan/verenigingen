@@ -173,7 +173,7 @@ class TransactionService:
             #   set_remarks(), which rebuilds the field and discards what was assigned.
             #   Note what this does NOT mean: the transaction id survived either way,
             #   because ERPNext's generated text appends "Transaction reference no
-            #   {reference_no} dated {date}" (payment_entry.py:1250-1252). What was
+            #   {reference_no} dated {date}" (PaymentEntry.set_remarks). What was
             #   lost is the "ING Checkout payment" phrasing that tells an operator
             #   which gateway the entry came from.
             # * permissions are enforced rather than bypassed. This used
@@ -201,6 +201,15 @@ class TransactionService:
                 mode_of_payment="iDEAL",
                 bank_account=bank_account,
                 remarks=f"ING Checkout payment: {transaction_id}",
+                # Record the whole transaction, not just the part this invoice can
+                # absorb. The cap above still decides what SETTLES the invoice; the
+                # excess becomes an unallocated credit on the customer instead of
+                # vanishing. Without this the ING clearing account was debited the
+                # capped figure while Pay.nl had settled the full amount, so the
+                # account could not reconcile against the settlement file. The
+                # overpayment detection above is unchanged and still populates
+                # result["overpayment"].
+                cash_received=Decimal(str(transaction_amount)),
             )
 
             result["success"] = True

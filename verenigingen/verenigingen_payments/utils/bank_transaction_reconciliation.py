@@ -544,7 +544,17 @@ class PaymentReconciliationManager:
                     # cover the deposit. If failed/uncollected rows mean the booked
                     # total falls short of the deposit, leave the transaction
                     # Unreconciled so an operator can see and resolve the discrepancy.
-                    allocated_total = sum(Decimal(str(pe.paid_amount)) for pe in created_entries)
+                    # Summed from allocated_amount, NOT paid_amount. The two are equal
+                    # on this path today - it does not pass cash_received, so nothing
+                    # lands in unallocated_amount - but the gate asks "was the whole
+                    # deposit ALLOCATED to invoices?", and paid_amount answers "was it
+                    # received?". Should this path ever record cash above an invoice's
+                    # outstanding, paid_amount would satisfy the check precisely
+                    # because of the excess, defeating the shortfall detection it
+                    # exists to perform.
+                    allocated_total = sum(
+                        Decimal(str(ref.allocated_amount)) for pe in created_entries for ref in pe.references
+                    )
                     deposit_total = Decimal(str(bank_trans.deposit or 0))
 
                     if created_entries and allocated_total == deposit_total:
@@ -1006,10 +1016,63 @@ class PaymentReconciliationManager:
         Note:
             Uses graceful degradation - creates draft entry if submit permission lacking,
             allowing manual review instead of blocking reconciliation workflow.
+
+            The WHOLE deposit is allocated to this one invoice, uncapped. That is only
+            safe while a deposit exceeding the invoice is REFUSED - see the guard below.
         """
         from decimal import Decimal
 
         from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        # Refuse a deposit this invoice cannot absorb, explicitly and before building
+        # anything.
+        #
+        # WHY THIS CANNOT BECOME AN OVERPAYMENT. The service can now record cash above
+        # the outstanding as an unallocated credit (`cash_received`), and this caller
+        # must never opt in. Its match may come from match_by_description, which returns
+        # confidence 0.90 on nothing more than an invoice number appearing in the
+        # transaction text - it never compares amounts. So an oversized deposit here has
+        # no established relationship to this invoice beyond a string, and parking the
+        # excess as a credit would attach real money to whichever customer that string
+        # happened to name, then stamp the transaction Reconciled - removing it from the
+        # sweep pool permanently, since reconcile_bank_transactions only selects Pending
+        # rows. An operator would never see it.
+        #
+        # WHY AN EXPLICIT GUARD RATHER THAN LETTING ERPNext THROW. ERPNext does refuse
+        # this today: validate_allocated_amount_with_latest_data re-reads the invoice
+        # and rejects an allocation above outstanding. But that safety is incidental to
+        # this module - it lives in another app, fires only after the document has been
+        # built, and surfaces as "Row #1: Allocated Amount cannot be greater than
+        # outstanding amount", which tells the operator reading the Bank Transaction
+        # comment nothing about which deposit or which invoice. Naming both figures here
+        # makes the refusal this module's own decision, and keeps it true if ERPNext ever
+        # starts capping allocations silently.
+        #
+        # Note this bounds only the ABOVE case. A deposit smaller than the outstanding is
+        # a legitimate partial payment and still reconciles.
+        #
+        # Compared at the field's own precision, matching what ERPNext does. Currency
+        # columns are decimal(21,9), so an unrounded comparison would refuse a deposit
+        # exceeding the outstanding by a fraction of a cent that ERPNext itself rounds
+        # away and accepts - a transaction stuck Unreconciled over a residue no operator
+        # can see or act on.
+        #
+        # A missing invoice is NOT handled here: get_value returns None for one, and
+        # this guard steps aside so the service's own existence check produces the clean
+        # "Sales Invoice {0} does not exist" rather than an arithmetic error from here.
+        invoice_outstanding = frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount")
+        if invoice_outstanding is not None:
+            precision = frappe.get_precision("Sales Invoice", "outstanding_amount") or 2
+            deposit = flt(bank_trans.deposit or 0, precision)
+            outstanding = flt(invoice_outstanding, precision)
+            if deposit > outstanding:
+                frappe.throw(
+                    _(
+                        "Deposit {0} on bank transaction {1} exceeds the outstanding amount {2} of "
+                        "invoice {3}. The match does not establish that the surplus belongs to this "
+                        "invoice, so the transaction is left for manual reconciliation."
+                    ).format(deposit, bank_trans.name, outstanding, invoice_name)
+                )
 
         # Use consolidated payment entry creation service with graceful degradation
         # This allows reconciliation to proceed even if user lacks submit permission

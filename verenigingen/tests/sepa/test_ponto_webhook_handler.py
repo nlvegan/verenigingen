@@ -907,8 +907,8 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
 
     def test_create_ponto_payment_entry_nonexistent_invoice(self):
         """Should handle nonexistent invoice gracefully."""
-        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
-            _create_ponto_payment_entry,
+        from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
+            create_ponto_payment_entry,
         )
 
         mock_payment_link = MagicMock()
@@ -919,7 +919,7 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
         mock_payment_link.member = None
 
         # Pass nonexistent invoice - should handle error gracefully
-        result = _create_ponto_payment_entry(
+        result = create_ponto_payment_entry(
             payment_link_doc=mock_payment_link,
             invoice_name="SINV-NONEXISTENT-001",
         )

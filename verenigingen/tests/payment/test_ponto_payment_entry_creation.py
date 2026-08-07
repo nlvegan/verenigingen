@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """
-Real-DB tests for `_create_ponto_payment_entry` (ponto/api/webhook_handlers.py).
+Real-DB tests for `create_ponto_payment_entry` (ponto/services/payment_entry_service.py).
 
 This is the function that turns an executed Ponto payment link into money on the
 ledger, and it had no coverage at all - the existing test_ponto_webhook_handler.py
@@ -16,12 +16,14 @@ Link. Nothing in the payment-entry path is mocked.
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import _create_ponto_payment_entry
+from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
+    create_ponto_payment_entry,
+)
 
 
 def _ensure_ponto_clearing_account(company):
@@ -116,7 +118,7 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         invoice = self._submitted_invoice(member.customer)
         link = self._payment_link(member)
 
-        pe_name = _create_ponto_payment_entry(link, invoice.name)
+        pe_name = create_ponto_payment_entry(link, invoice.name)
 
         self.assertIsNotNone(pe_name, "an executed Ponto payment must produce a Payment Entry")
         pe = frappe.get_doc("Payment Entry", pe_name)
@@ -142,7 +144,7 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         invoice = self._submitted_invoice(member.customer)
         link = self._payment_link(member, description="Contributie kwartaal 2")
 
-        pe_name = _create_ponto_payment_entry(link, invoice.name)
+        pe_name = create_ponto_payment_entry(link, invoice.name)
 
         remarks = frappe.db.get_value("Payment Entry", pe_name, "remarks") or ""
         self.assertIn(link.name, remarks, "the payment-link reference was discarded by set_remarks()")
@@ -155,22 +157,31 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         frappe.db.set_value("Sales Invoice", invoice.name, "outstanding_amount", 0)
         link = self._payment_link(member)
 
-        self.assertIsNone(_create_ponto_payment_entry(link, invoice.name))
+        self.assertIsNone(create_ponto_payment_entry(link, invoice.name))
 
     def test_allocation_is_capped_at_the_outstanding_amount(self):
         """An overpaying link allocates only what the invoice still owes.
 
         Without the cap ERPNext rejects the reference outright ("cannot be greater than
         outstanding amount"), so this pins the clamp rather than the happy path.
+
+        Ponto deliberately does NOT opt into PaymentEntryCreationService's
+        `cash_received`: it posts to a bank account rather than a gateway clearing
+        account that must reconcile against a settlement file. The paid_amount and
+        unallocated_amount assertions below exist to catch that decision being
+        reversed silently - asserting allocated_amount alone cannot tell the capped
+        posting apart from a full-cash one, since the reference row is 30.00 either way.
         """
         member = self._member_with_customer(first_name="PontoOver")
         invoice = self._submitted_invoice(member.customer, amount=30.0)
         link = self._payment_link(member, amount=100.0)
 
-        pe_name = _create_ponto_payment_entry(link, invoice.name)
+        pe_name = create_ponto_payment_entry(link, invoice.name)
 
         pe = frappe.get_doc("Payment Entry", pe_name)
         self.assertEqual(float(pe.references[0].allocated_amount), 30.0)
+        self.assertEqual(flt(pe.paid_amount, 2), 30.0)
+        self.assertEqual(flt(pe.unallocated_amount, 2), 0.0)
 
     def test_guest_cannot_create_the_entry(self):
         """Guest must be refused - and nothing partial may be left behind.
@@ -194,7 +205,7 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         # raises; restoring via addCleanup keeps the escalation out of the test body.
         self.addCleanup(frappe.set_user, "Administrator")
         frappe.set_user("Guest")
-        pe_name = _create_ponto_payment_entry(link, invoice.name)
+        pe_name = create_ponto_payment_entry(link, invoice.name)
 
         self.assertIsNone(pe_name, "Guest must not be able to record a payment")
         self.assertFalse(
@@ -311,7 +322,7 @@ class TestCreatePontoPaymentEntry(EnhancedTestCase):
         link.sales_invoice = invoice.name
         link.save()
 
-        legacy_pe = _create_ponto_payment_entry(link, invoice.name)
+        legacy_pe = create_ponto_payment_entry(link, invoice.name)
         self.assertIsNotNone(legacy_pe)
         # Re-key it the way the old hand-rolled creator did, and unlatch the link.
         frappe.db.set_value("Payment Entry", legacy_pe, "reference_no", link.name)
