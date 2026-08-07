@@ -328,17 +328,25 @@ class TestMollieFinancialSafeguards(MollieTestCase):
                 frappe.db.commit()
                 frappe.destroy()
 
-        # Simulate concurrent processing
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(process_payment) for _ in range(3)]
+        # Simulate concurrent processing.
+        #
+        # try/finally, not a plain trailing restore: future.result() below RE-RAISES
+        # whatever a worker raised, so any worker failure used to skip the restore
+        # entirely and leak this test's company into every module that ran after it
+        # on the same shard.
+        try:
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = [executor.submit(process_payment) for _ in range(3)]
 
-            for future in as_completed(futures):
-                results.append(future.result())
-
-        # Restore the previous Global Defaults company so this test does not leak
-        # state into other tests on the shared site.
-        frappe.db.set_single_value("Global Defaults", "default_company", previous_default_company)
-        frappe.db.commit()
+                for future in as_completed(futures):
+                    results.append(future.result())
+        finally:
+            # Restore the previous Global Defaults company so this test does not leak
+            # state into other tests on the shared site.
+            frappe.db.set_single_value(
+                "Global Defaults", "default_company", previous_default_company
+            )
+            frappe.db.commit()
 
         # The worker threads committed their own connections, so the duplicate-check
         # query below must read fresh committed rows.
