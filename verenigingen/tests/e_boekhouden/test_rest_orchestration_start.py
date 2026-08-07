@@ -145,7 +145,17 @@ class _StartImportBase(EnhancedTestCase):
         # default_company is also mandatory; on a fresh site it was empty, so
         # restoring None would raise MandatoryError. Fall back to COMPANY (which
         # exists) when there was no original value.
-        settings.default_company = cls._orig_company or COMPANY
+        #
+        # The value must also still EXIST. It was captured in _setup_settings, and
+        # a co-located test can delete that company before this runs -- e.g.
+        # cost_center_test_factory.py builds "TEST Company <n> - <run id>" and
+        # cleans them up, which is exactly what produced
+        # "LinkValidationError: Could not find Default Company: TEST Company 3 -
+        # TEST-123" in CI. Restoring a dangling link is worse than not restoring.
+        original = cls._orig_company
+        if original and not frappe.db.exists("Company", original):
+            original = None
+        settings.default_company = original or COMPANY
         # Keep a non-empty docfield value to avoid MandatoryError on save when the
         # site never had a real token (fresh CI site). The real token (if any) is
         # restored into the Auth store directly below.

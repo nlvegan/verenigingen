@@ -106,6 +106,12 @@ class _DispatchBase(EnhancedTestCase):
         except Exception:
             pass
         settings.api_token = "EBDS-PLACEHOLDER-TOKEN"
+        # default_company is reqd on this Single, so save() throws
+        # "[E-Boekhouden Settings]: default_company" whenever it is still empty.
+        # It only ever looked optional because some other module in the same shard
+        # happened to seed it first; rebalancing the shards removed that accident.
+        if not settings.default_company:
+            settings.default_company = COMPANY
         settings.save(ignore_permissions=True)
         frappe.db.commit()
 
