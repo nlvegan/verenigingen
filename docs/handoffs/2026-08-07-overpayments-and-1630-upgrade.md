@@ -8,18 +8,29 @@ here; one was already closed before it was written. Read §2 before trusting it.
 
 ## 1. State
 
-Branch `fix/payment-overpayment-and-service-defects`, **7 commits, PUSHED** (head
-`c0a486a4`, local and remote verified equal). No PR opened yet.
+**MERGED.** PR **#236** landed on `develop` as merge commit `2e2462ec` (2026-08-07),
+40/40 checks green, `mergeStateStatus: CLEAN`.
+
+> **The branch was SPLIT before merging.** The shard-weighting work described in §6 is
+> NOT in #236 and is NOT on develop — it lives on **draft PR #237**
+> (`ci/parallel-shard-weighting`), because it turns ~103 tests red. **Read §9c before
+> acting on §6.** The commit hashes below are the post-split ones; the pre-split hashes
+> quoted elsewhere in this document (`c4a84a25`, `7a49f8fc`, `c0a486a4` …) no longer
+> exist on any branch.
 
 | Commit | Subject |
 |---|---|
-| `c4a84a25` | member resolver propagates DB errors instead of reporting "no access" |
-| `90ddda42` | Ponto payment-entry builder moved into the services layer |
-| `7a49f8fc` | gateway overpayments recorded; six service defects closed |
-| `488c8acd` | three empty skipped integration stubs deleted |
-| `b25f3232` | frappe parallel-shard weighting patch preserved |
-| `4bb98a99` | shard balancing regenerated and wired into CI |
-| `c0a486a4` | review fixes: two misleading comments, two weak tests |
+| `20efb3c8` | member resolver propagates DB errors instead of reporting "no access" |
+| `e3134f13` | Ponto payment-entry builder moved into the services layer |
+| `72faf28b` | gateway overpayments recorded; six service defects closed |
+| `719dc9eb` | three empty skipped integration stubs deleted |
+| `9c28ade0` | review fixes: one misleading comment, two weak tests |
+| `0e7f039d` | this handoff |
+| `4ea8baa1` | four §6a/§7 gaps closed (see §9a) |
+| `1454bd49` | `test_member_permissions` no longer breaks itself on re-run |
+
+On **#237** (draft, NOT merged): `550f5842` patch preserved, `c7dc63c6` shard balancing
+wired into CI, `d1bbc8d2` stale warning header dropped.
 
 Bench moved to **erpnext v16.30.0, frappe v16.30.0, builder v1.32.0**. All seven sites
 migrated (six test sites + veg11), except veg11 has NOT yet taken the builder migration.
@@ -162,6 +173,11 @@ Copies of every cleared lock are in this session's scratchpad, not in the repo.
 
 ## 6. CI shard balancing — was never running
 
+> **STOP — this work is no longer on develop.** It was split onto draft PR **#237**
+> after it turned 6 of 12 shards and ~103 tests red. Everything below is still an
+> accurate description of the change; what has moved is where it lives and whether it
+> is safe to land. **Read §9c.**
+
 The `test_timings.json` weighting had **never affected CI**.
 `.github/actions/setup/action.yml` clones `${frappe-user}/frappe` and
 `_base-server-tests.yml` defaults that to `frappe`, so CI built against pristine upstream
@@ -237,14 +253,16 @@ reasons other than the ones they claimed. Fixed in `c0a486a4`:
 
 ## 7. Open items
 
+*Items 3 and 4 are CLOSED — see §9a. The rest stand. §9d is the current list.*
+
 1. **veg11 has not taken the builder migration.** Locks are cleared, backup is at
    `20260807_041216-veg11_veganisme_org-database.sql.gz`.
 2. **`auto_reconcile_payments` decision** (§4) — owner call, currently off.
-3. **`bank_transaction_reconciliation.py:1022` passes an uncapped deposit** matched by an
-   amount-blind matcher. Pre-existing; fails loudly today, which is why it was left alone.
-   Worth fixing properly.
-4. **`chapter_utils.py:86/241`** swallow database errors and degrade to "no chapters" —
-   the same bug class fixed in `get_member_name_for_user`, one layer up.
+3. ~~`bank_transaction_reconciliation.py:1022` passes an uncapped deposit~~ — **CLOSED**
+   in `4ea8baa1`: explicit deposit-vs-outstanding guard, compared at field precision.
+4. ~~`chapter_utils.py:86/241` swallow database errors~~ — **CLOSED** in `4ea8baa1`, and
+   the fix went further than this item asked: `get_volunteer_for_member` sits between the
+   two and swallowed too. See §9b.
 5. **click conflict** (§5) — watch, do not force.
 6. **`test_snapshot/clean_v1620-database.sql.gz`** is a clean **16.20** dump. Restoring
    from it now lands a site on the old schema; regenerate or do not trust the name.
@@ -278,3 +296,123 @@ reasons other than the ones they claimed. Fixed in `c0a486a4`:
   nothing ran.
 - **`git ls-remote` against a fork proves nothing about upstream tags.** The frappe fork
   here carries no v16 tags; the versions were on `frappe/frappe`.
+
+---
+
+## 9. Continuation session — gaps closed, branch split, PRs opened
+
+Everything below happened AFTER §1–§8 were written. Where it contradicts them, this
+section wins; §1 and §7 have been rewritten in place to match.
+
+### 9a. The four gaps from §6a and §7, closed
+
+| Gap | Where it was | What happened |
+|---|---|---|
+| §6a-1 Mollie `cash_received` untested | `dues_payment_processor` | two tests added |
+| §6a-3 stale ERPNext line citations | payment comments | all replaced with function names |
+| §7-4 `chapter_utils` swallows DB errors | `services/chapter/` | propagates now |
+| §7-3 uncapped deposit | `bank_transaction_reconciliation` | explicit guard |
+
+**Every ERPNext citation had drifted at 16.30** — verified one by one against the
+bench's own v16.30.0 source, not against the previous handoff's mapping. The Ponto one
+was worse than stale: `journal_entry.py:1333` is `validate_empty_accounts_table`, not
+`get_default_bank_cash_account` (which is at 1342). The claim it supported held up;
+only the pointer was wrong. **The convention is now file + function, never a line
+number** — this is the second time these have rotted.
+
+### 9b. Two findings the review produced that are worth more than the diff
+
+**Fixing `chapter_utils` alone was not enough, and the docstring said otherwise.**
+`get_volunteer_for_member` sits one line after `get_member_name_for_user` in the same
+resolver chain and still swallowed. A reviewer proved it live: with `frappe.db.get_value`
+raising, a DB error on the Volunteer lookup still produced "no chapters". The new tests
+could not see it because they patch `frappe.get_all` and that function uses
+`frappe.db.get_value`.
+
+Fixing it surfaced something worse than the denial being chased:
+**`Volunteer.create_volunteer_from_member` and mijnrood_sync's `volunteer_sync_service`
+use that resolver as their DUPLICATE GUARD**, where `None` means "no volunteer exists
+yet". A swallowed database error was inserting a second Volunteer for a member who
+already had one. All three now propagate.
+
+**`None` from `get_user_accessible_chapters` means "admin — sees ALL chapters".**
+`performance_cache`'s module docstring demonstrated wrapping it in `get_or_set()`, which
+logs and returns `None` when the getter raises. Following that example would have turned
+a database outage into full access for every caller. It also did not match the method's
+signature, so it had plainly never been run. Replaced with a warning.
+**Never cache a value whose None/empty form is an authorization answer.**
+
+### 9c. THE BRANCH WAS SPLIT — read this before looking for the CI work
+
+§6 describes shard-weighting work that **is no longer on this branch.**
+
+The first CI run of the combined branch failed: **6 of 12 shards, 103 tests**, caught by
+the armed `known_test_failures` baseline gate. The failures cluster by fixture, not by
+feature — e_boekhouden migration, `test_sepa_reconciliation` (12 × `setUpClass`),
+`test_bulk_account_creation`, `test_payment_retry`, `dd_batch_optimizer`,
+`mollie_financial_safeguards`, `ponto_bank_account_creator`. Recurring causes, all
+company / chart-of-accounts setup:
+
+- `MandatoryError: [Account, Income - EBHMT]: parent_account` — the factory's
+  `_get_or_create_income_account` building a group account with `income_parent = None`
+- `LinkValidationError: Could not find Default Company: TEST Company 3 - TEST-123`
+- `create_test_sales_invoice` failing against `EBH Migration Test Co`
+
+**None of it traced to the payment or resolver changes** — zero references to
+`get_volunteer_for_member`, `get_member_name_for_user`, `payment_entry_creation_service`
+or `bank_transaction_reconciliation` in any failing traceback, and all the new tests
+passed in CI.
+
+**Working hypothesis: those tests were never self-sufficient.** They relied on another
+test in their old shard creating a company and its accounts first, and rebalancing
+separated them from that accidental provider. This repo has hit the identical pattern
+before, when a coverage sweep changed shard composition. If it holds, the weighting did
+not break them — it EXPOSED 103 tests passing by accident of ordering.
+
+So the branch was split rather than letting a CI-sharding problem hold the payments work:
+
+- **PR #236** — payments + resolvers, this branch, 8 commits.
+- **PR #237** (DRAFT) — `ci/parallel-shard-weighting`, the §6 work, 3 commits.
+
+`c0a486a4` was a MIXED commit — it corrected a stale warning header inside the shard
+patch *and* fixed payment comments/tests. It could not simply be dropped; both halves
+were separated by hand and both commit messages record it. The split was verified
+lossless three ways: identical combined file set, and an empty diff in each direction
+when each branch is compared to the pre-split state over its own paths.
+
+### 9d. Still open after this session
+
+1. **PR #237 cannot merge until the ~103 fixture failures are resolved.** Not started.
+   Step one is to run one failing module in isolation locally — that distinguishes
+   "genuinely broken test" from "lost its accidental provider". Step two is making the
+   affected fixtures create their own company and accounts.
+2. `Accounts Settings.auto_reconcile_payments` is still `0` (§4). Unchanged, owner call.
+3. veg11 still has not taken the builder migration (§5).
+4. The foreign-currency fixture (§6a-2) is still missing. It remains the only way to
+   observe both the currency-boundary refusal and the discount-argument swap.
+5. `test_snapshot/clean_v1620-database.sql.gz` is still a 16.20 dump under a 16.x name.
+6. The 2026-08-06 handoff is still on the unmerged branch `docs/handoff-2026-08-06`.
+
+### 9e. Process notes from this session
+
+- **Mutation-test every test you add.** Break the thing it names and watch it fail.
+  Three tests here did not survive that: one exercised a role level the permission
+  filter excluded anyway (so the skip it claimed to prove was unobservable), one named
+  a boundary only visible across a currency boundary, and one asserted an exception
+  type ERPNext raises for that input regardless. All three looked fine on review.
+- **A fix can be incomplete in the middle of a chain.** Both ends of the resolver chain
+  were fixed while the link between them still swallowed — and the docstring asserting
+  otherwise was the actual defect. Grep the whole call path, not just the named function.
+- **`gh pr edit --body-file` can silently fail.** It emitted a Projects-classic
+  deprecation error, exited without applying the change, and left the body untouched
+  while looking like it worked. Caught only by grepping the live body afterwards.
+  `gh api -X PATCH repos/.../pulls/N -F body=@file` works. Same class as the known
+  `gh pr checks --json` trap.
+- **Strip ANSI before grepping CI logs.** A grep for `FAIL: test_` returned 0 against
+  103 real failures because of colour codes. This trap is now recorded twice.
+- **`autoname: field:<x>` makes a fixture name a global unique key.** A test inserting
+  one with a literal name is one committed row away from being permanently broken on
+  that site. That is what ailed `test_member_permissions`; it is fixed.
+- **A green local run still says nothing about CI**, and this session is the clearest
+  example yet: every suite touched passed locally, and the branch was still red for
+  reasons no local run could reach.
