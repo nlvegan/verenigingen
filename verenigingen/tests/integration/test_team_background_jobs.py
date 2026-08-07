@@ -21,6 +21,18 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
     def setUp(self):
         """Set up test data"""
         super().setUp()
+
+        # Run event subscribers INLINE. emit_event() normally enqueues them to a
+        # worker and does NOT run them inline under frappe.in_test (see the
+        # affordance in events/event_emitter.py), so asserting on a subscriber's
+        # side effects otherwise depends on a worker happening to finish first.
+        # These tests used to `time.sleep(2)` and hope; they passed only because
+        # CI ran a worker alongside the suite, which raced the whole database and
+        # has been removed.
+        _prior = getattr(frappe.flags, "run_events_synchronously", False)
+        frappe.flags.run_events_synchronously = True
+        self.addCleanup(setattr, frappe.flags, "run_events_synchronously", _prior)
+
         self.test_volunteer = self.create_test_volunteer()
 
         # Create team with unique name for this test
@@ -67,19 +79,10 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         self.test_team.save()
         frappe.db.commit()
 
-        # Process background jobs synchronously in test mode
-        # frappe.enqueue() in tests runs immediately by default
-        # but we need to ensure all jobs complete
-        try:
-            # Try to flush any pending jobs if the method exists
-            if hasattr(frappe, 'enqueue') and hasattr(frappe.enqueue, 'flush'):
-                frappe.enqueue.flush()
-        except Exception:
-            pass
-
-        # Wait a moment for background processing
-        import time
-        time.sleep(2)
+        # Subscribers already ran inline (run_events_synchronously, set in setUp).
+        # The old code here claimed "frappe.enqueue() in tests runs immediately by
+        # default" and called a frappe.enqueue.flush() that has never existed, so
+        # it was a no-op followed by a 2-second sleep waiting on a real worker.
 
         # Reload volunteer to check if assignment history was updated
         volunteer_doc.reload()
@@ -148,9 +151,7 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         self.test_team.save()
         frappe.db.commit()
 
-        # Wait for background processing
-        import time
-        time.sleep(2)
+        # Subscribers already ran inline (run_events_synchronously, set in setUp).
 
         # Check for errors from team subscribers
         errors = frappe.get_all(
@@ -203,9 +204,7 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         self.test_team.save()
         frappe.db.commit()
 
-        # Wait for background processing
-        import time
-        time.sleep(2)
+        # Subscribers already ran inline (run_events_synchronously, set in setUp).
 
         # Verify assignment history was updated
         volunteer_doc.reload()
@@ -247,9 +246,6 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         self.test_team.save()
         frappe.db.commit()
 
-        import time
-        time.sleep(1)
-
         # Reload team
         self.test_team = frappe.get_doc("Team", self.test_team.name)
 
@@ -261,8 +257,6 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         # This triggers on_update() → role_changed event → background jobs
         self.test_team.save()
         frappe.db.commit()
-
-        time.sleep(2)
 
         # Check no background job errors
         errors = frappe.get_all(
