@@ -15,11 +15,11 @@ a caller opts in via `cash_received`. Those tests assert the GL rows, not just t
 amount fields - a capped posting and a full-cash one are indistinguishable on
 `allocated_amount` alone, so an assertion on that field cannot tell the two apart.
 
-Known gaps, stated rather than implied: the currency-boundary refusal on the overpayment
-path is untested (it needs a foreign-currency bank account this suite has no fixture
-for), and so is the argument passed to `_suppress_early_payment_discount` - that swap is
-unobservable on the same-currency path, so no test here can catch it. See
-test_overpayment_books_no_deductions_row.
+Both gaps this docstring used to list as open are now closed by
+`_ensure_foreign_currency_clearing_account`: the currency-boundary refusal on the
+overpayment path, and the argument handed to `_suppress_early_payment_discount`. Neither
+is observable on the same-currency path, which is why they went untested for so long -
+see the three tests under "Currency boundary".
 """
 
 from contextlib import contextmanager
@@ -938,8 +938,8 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         and this test passed unchanged when the swap was simulated.
 
         The swap's only observable effect is on a CURRENCY BOUNDARY, where it throws the
-        discount-related refusal instead of the overpayment one. That case has no test -
-        it needs a foreign-currency bank account this suite has no fixture for.
+        discount-related refusal instead of the overpayment one. That case IS now covered
+        - see test_discount_suppression_is_handed_the_allocation_not_the_cash.
 
         What this DOES pin, and why it stays: a deductions row here would silently
         inflate `unallocated_amount` (set_unallocated_amount adds
@@ -962,6 +962,241 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         pe = frappe.get_doc("Payment Entry", payment_entry.name)
         self.assertEqual(len(pe.deductions), 0, "a phantom discount was detected and booked")
         self.assertEqual(flt(pe.unallocated_amount, 2), 50.00)
+
+    # ------------------------------------------------------------------
+    # Currency boundary
+    #
+    # The service refuses an overpayment whose two sides sit in different
+    # currencies, because a settlement webhook reports ONE figure and nothing says
+    # which side of the boundary it belongs to. Left to ERPNext,
+    # set_exchange_gain_loss() books the mismatch as a deductions row,
+    # difference_amount still nets to zero, and the entry SUBMITS - debiting the
+    # clearing account a converted figure for unconverted cash.
+    #
+    # Every test below needs a foreign-currency account, which is also the only
+    # place the _suppress_early_payment_discount argument swap is observable. That
+    # is why one fixture closes two long-standing gaps at once.
+    # ------------------------------------------------------------------
+    FX_CURRENCY = "USD"
+    FX_RATE = 1.25  # EUR -> USD, chosen so 30.00 EUR is exactly 37.50 USD
+
+    def _ensure_foreign_currency_clearing_account(self, company):
+        """A Bank-type GL account in a currency the company does NOT use.
+
+        `paid_from` on a Receive entry is the debtors account, which carries the
+        company currency, so putting `paid_to` in another currency is all it takes to
+        make `paid_from_account_currency != paid_to_account_currency` - the exact
+        condition both refusals test. No foreign customer or foreign-currency invoice
+        is needed, and adding one would drag in conversion behaviour these tests are
+        not about.
+
+        The Currency Exchange rows are NOT optional bookkeeping. Without a matching
+        row, `erpnext.setup.utils.get_exchange_rate` falls through to a live HTTP call
+        against the configured rate API and, when that fails, calls `frappe.log_error`.
+        That would make these tests network-dependent AND trip the Error Log guard.
+        Both directions are created because which one ERPNext asks for depends on the
+        path taken; today it values the USD side against the company currency.
+        """
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+        self.assertNotEqual(
+            company_currency,
+            self.FX_CURRENCY,
+            "the fixture currency must differ from the company's, or there is no boundary",
+        )
+
+        for from_currency, to_currency, rate in (
+            (company_currency, self.FX_CURRENCY, self.FX_RATE),
+            (self.FX_CURRENCY, company_currency, 1 / self.FX_RATE),
+        ):
+            # Currency Exchange autonames from date + currencies + purpose, so an
+            # insert of a row that already exists is a duplicate-key error rather than
+            # a second row. Get-or-create, and only track what we actually created -
+            # tracking a pre-existing row would schedule someone else's fixture for
+            # deletion.
+            existing = frappe.db.get_value(
+                "Currency Exchange",
+                {"from_currency": from_currency, "to_currency": to_currency, "date": frappe.utils.today()},
+                "name",
+            )
+            if existing:
+                continue
+            rate_doc = frappe.get_doc(
+                {
+                    "doctype": "Currency Exchange",
+                    "from_currency": from_currency,
+                    "to_currency": to_currency,
+                    "date": frappe.utils.today(),
+                    "exchange_rate": rate,
+                    "for_buying": 1,
+                    "for_selling": 1,
+                }
+            ).insert()
+            self.track_doc("Currency Exchange", rate_doc.name)
+
+        account_name = f"Test FX Clearing {self.FX_CURRENCY}"
+        name = frappe.db.get_value("Account", {"company": company, "account_name": account_name}, "name")
+        if name:
+            return name
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": account_name,
+                "company": company,
+                "parent_account": parent,
+                "account_type": "Bank",
+                "is_group": 0,
+                "account_currency": self.FX_CURRENCY,
+            }
+        ).insert()
+        self.track_doc("Account", account.name)
+        return account.name
+
+    def _assert_is_a_boundary(self, invoice, clearing):
+        """Fail loudly if the fixture stopped producing a currency boundary.
+
+        Without this, a change that quietly aligned the two currencies would leave
+        both refusal tests passing against a condition that can no longer occur -
+        green, and pinning nothing.
+        """
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        probe = get_payment_entry(
+            dt="Sales Invoice",
+            dn=invoice.name,
+            party_amount=float(invoice.outstanding_amount),
+            bank_account=clearing,
+            payment_type="Receive",
+            reference_date=date.today(),
+        )
+        self.assertNotEqual(
+            probe.paid_from_account_currency,
+            probe.paid_to_account_currency,
+            "fixture no longer crosses a currency boundary; the refusal tests below are vacuous",
+        )
+
+    def test_overpayment_across_a_currency_boundary_is_refused(self):
+        """One gateway figure cannot be assigned to both sides of a currency boundary.
+
+        The failure being prevented is not an exception - it is a SUBMITTED entry.
+        Assigning the cash to `paid_amount` and `received_amount` alike makes
+        set_exchange_gain_loss() absorb the mismatch into a deductions row;
+        `difference_amount` still nets to zero, so ERPNext accepts the document and
+        the clearing account is debited a converted figure for unconverted cash. That
+        reconciles against nothing and is invisible on the entry itself.
+
+        Asserts the MESSAGE, not just the type: ERPNext raises frappe.ValidationError
+        across this path for several unrelated reasons, so a bare assertRaises would
+        pass with the guard deleted.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("30.00"))
+        invoice.submit()
+        clearing = self._ensure_foreign_currency_clearing_account(invoice.company)
+        self._assert_is_a_boundary(invoice, clearing)
+
+        # The refusal is raised INSIDE the service's try block, so its handler logs
+        # the throw before re-raising. Declared rather than left to trip the Error Log
+        # guard, and scoped to this message so an unrelated error still fails the test.
+        self.expectErrorLog("crosses a currency boundary")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("30.00"),
+                cash_received=Decimal("100.00"),
+                posting_date=date.today(),
+                reference_no="FX-OVERPAY-001",
+                reference_date=date.today(),
+                mode_of_payment="Bank Transfer",
+                bank_account=clearing,
+            )
+
+        self.assertIn("exceeds the outstanding amount and crosses a currency boundary", str(ctx.exception))
+
+    def test_discount_suppression_is_handed_the_allocation_not_the_cash(self):
+        """`_suppress_early_payment_discount` must receive the ALLOCATION.
+
+        This is the test test_overpayment_books_no_deductions_row could not be. That
+        one was named for this swap and was disproved: on the same-currency path,
+        handing the helper the cash produces a byte-identical document, so the swap is
+        genuinely unobservable there.
+
+        Here it is observable. The helper's detection is an equality test against the
+        figure it is given, and pre-discount `paid_amount` equals the allocation and
+        nothing else. Handed the cash on an overpayment, the equality fails, so it
+        concludes a discount was applied and - because this crosses a currency boundary
+        - throws the DISCOUNT refusal about an invoice that has no discount, instead of
+        the overpayment refusal that actually applies.
+
+        The invoice here is deliberately discount-free, which is what makes the
+        negative assertion meaningful. Verified by mutation: passing `cash_received`
+        into the helper flips the message and fails this test.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("30.00"))
+        invoice.submit()
+        clearing = self._ensure_foreign_currency_clearing_account(invoice.company)
+        self.assertFalse(
+            invoice.get("payment_schedule") and any(r.discount for r in invoice.payment_schedule),
+            "the invoice must carry no early-payment discount, or the assertion below is meaningless",
+        )
+        self.expectErrorLog("crosses a currency boundary")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice.name,
+                amount=Decimal("30.00"),
+                cash_received=Decimal("100.00"),
+                posting_date=date.today(),
+                reference_no="FX-SWAP-001",
+                reference_date=date.today(),
+                mode_of_payment="Bank Transfer",
+                bank_account=clearing,
+            )
+
+        self.assertNotIn(
+            "carries an early-payment discount",
+            str(ctx.exception),
+            "the discount helper was handed the cash instead of the allocation",
+        )
+
+    def test_ordinary_foreign_currency_payment_is_not_refused(self):
+        """The refusal is scoped to the OVERPAYMENT path, not to foreign currency.
+
+        Without this, the two tests above could be satisfied by refusing every
+        differing-currency payment outright - both would stay green while the service
+        lost the ability to record ordinary gateway settlements into a
+        foreign-currency clearing account.
+
+        The two amounts are deliberately different: `paid_amount` is the 30.00 the
+        invoice is settled for, `received_amount` the 37.50 that lands in the USD
+        account. A single figure on both sides is exactly the corruption the
+        overpayment path refuses to risk.
+        """
+        invoice = self._create_test_invoice(amount=Decimal("30.00"))
+        invoice.submit()
+        clearing = self._ensure_foreign_currency_clearing_account(invoice.company)
+
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal("30.00"),
+            posting_date=date.today(),
+            reference_no="FX-ORDINARY-001",
+            reference_date=date.today(),
+            mode_of_payment="Bank Transfer",
+            bank_account=clearing,
+        )
+
+        pe = frappe.get_doc("Payment Entry", payment_entry.name)
+        self.assertEqual(pe.docstatus, 1, "an ordinary foreign-currency payment must still submit")
+        self.assertEqual(pe.paid_to, clearing)
+        self.assertEqual(pe.paid_to_account_currency, self.FX_CURRENCY)
+        self.assertEqual(flt(pe.paid_amount, 2), 30.00)
+        self.assertEqual(flt(pe.received_amount, 2), 37.50)
+        self.assertEqual(flt(pe.unallocated_amount, 2), 0.00)
+        self.assertEqual(flt(pe.difference_amount, 2), 0.00)
+        self.assertEqual(len(pe.deductions), 0)
 
     def test_unknown_custom_field_throws_instead_of_being_dropped(self):
         """A misnamed custom field must abort, not vanish into a log.
