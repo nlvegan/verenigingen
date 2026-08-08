@@ -29,8 +29,12 @@ WHAT IS FLAGGED
 A handler is reported only when ALL of these hold, which is the load-bearing case:
 
 1. the ``except`` is broad (bare, ``Exception``, or ``BaseException``);
-2. the handler never re-raises;
-3. its body is only logging calls and returns;
+2. the failure never leaves the handler -- no ``raise``, and no call that raises
+   on its behalf (``frappe.throw``, ``msgprint(raise_exception=True)``,
+   ``sys.exit``);
+3. the handler logs, and does nothing that lets the caller learn the cause or
+   resume real work: no ``continue``/``break``, no nested ``def``/``class``, and
+   no return of a real value on ANY branch;
 4. it hands the caller a falsy value -- either every return in it is a falsy
    literal (``None``/``False``/``{}``/``[]``/``""``/``0``), or it has no return at
    all and the ``try`` is the LAST statement of the function, so falling off the
@@ -44,28 +48,40 @@ trailing ``try`` on purpose -- falling off a handler in the MIDDLE of a function
 resumes it, so the caller still gets a real value and flagging it would be a
 false positive.
 
+On (3): this is a set of DISQUALIFIERS, not a whitelist of allowed statements.
+It used to require a body of only logging calls and returns, which meant a single
+``cleanup()`` call or an ``error_msg = str(e)[:100]`` truncation hid the site
+completely -- 56 live sites, including a report whose handler is commented
+"Return empty result instead of crashing", and a metadata helper that writes the
+failure INTO ITS CACHE (``self._doctype_cache[doctype] = None``), making one
+transient error permanent for the life of the process.
+
+Widening (3) is what makes (2) load-bearing. ``frappe.throw`` is a raise in
+disguise, and 85 live handlers propagate through it; under the old rule the throw
+call was itself a non-logging statement, so those were excluded by accident. Drop
+the whitelist without teaching (2) about ``throw`` and they all become false
+positives.
+
 (5) is what separates a dangerous swallow from a harmless one. A function that
 never returns anything meaningful (fire-and-forget cache invalidation, a
 best-effort notification) is not reported: its falsy return is not load-bearing,
 because no caller can branch on it. Measured on this repo, (5) is what makes the
-rule usable: conditions 1-4 alone match 725 sites, and (5) cuts that to 353.
-(Before the implicit-``None`` arm of (4) existed, (5) removed only 6 of 356 --
-it was carrying almost nothing, because the handlers it filters out are mostly
-void functions that log and fall off the end.)
+rule usable: conditions 1-4 alone match 900 sites, and (5) cuts that to 432.
 
 KNOWN FALSE NEGATIVES
 ---------------------
-Condition (3) is strict: one non-logging statement in the handler (a
-``frappe.db.rollback()``, an assignment, a ``flags`` reset) and the site is
-invisible to this validator. That is deliberate -- loosening (3) is what would
-generate false positives -- but it means a clean report is not proof of absence.
-A handler that logs and returns a falsy value through a local variable
-(``result = None`` ... ``return result``) is likewise not detected.
+A handler that returns a falsy value INDIRECTLY (``result = None`` ...
+``return result``) is not detected: the returns are matched syntactically, so a
+value reaching the caller through a local variable is invisible. A clean report
+is therefore not proof of absence.
+
+Handlers that log nothing at all are also out of scope. That is a different and
+worse bug class -- a silent swallow -- and reporting it here would bury this one.
 
 RATCHET, NOT BIG-BANG
 ---------------------
-There are 376 such sites today (353 under ``verenigingen/``, 23 under ``scripts/``).
-Failing on all of them would block every commit, and pragma-ing 376 sites in one
+There are 432 such sites today, across ``verenigingen/`` and ``scripts/``.
+Failing on all of them would block every commit, and pragma-ing 432 sites in one
 diff would be unreviewable. So this validator fails only on sites NOT already
 recorded in the baseline.
 
@@ -123,6 +139,16 @@ LOG_NAMES = {
 }
 BROAD_EXCEPTIONS = {"Exception", "BaseException"}
 
+# Calls that end the flow rather than swallow it. `frappe.throw` is a raise in
+# disguise: 85 live handlers propagate through it and would otherwise be reported
+# the moment condition (3) stopped excluding them for having a non-logging
+# statement. `msgprint` counts as logging everywhere else, but raise_exception=True
+# makes it raise too.
+PROPAGATING_CALLS = {"throw", "exit", "_exit"}
+
+# A def inside a handler puts real returns out of reach of this analysis.
+NESTED_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
 VALID_REASONS = {"best-effort", "caller-checks", "false-positive"}
 _MARKER = re.compile(r"#\s*swallow-ok\s*:\s*([a-z-]+)?")
 
@@ -179,6 +205,21 @@ def _is_broad(handler: ast.ExceptHandler) -> bool:
         return t.id in BROAD_EXCEPTIONS
     if isinstance(t, ast.Tuple):
         return any(isinstance(e, ast.Name) and e.id in BROAD_EXCEPTIONS for e in t.elts)
+    return False
+
+
+def _propagates(handler: ast.ExceptHandler) -> bool:
+    """True if the failure LEAVES the handler instead of being swallowed."""
+    for n in ast.walk(handler):
+        if isinstance(n, ast.Raise):
+            return True
+        if isinstance(n, ast.Call):
+            f = n.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+            if name in PROPAGATING_CALLS:
+                return True
+            if name == "msgprint" and any(k.arg == "raise_exception" for k in n.keywords):
+                return True
     return False
 
 
@@ -242,20 +283,33 @@ def scan_file(path: Path):
         for node in _own_nodes(fn):
             if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
                 continue
-            if any(isinstance(n, ast.Raise) for n in ast.walk(node)):
+            # (2) the failure must not leave the handler -- `raise`, but also
+            # `frappe.throw` and `msgprint(raise_exception=True)`, which raise.
+            if _propagates(node):
                 continue
 
-            body = [n for n in node.body if not isinstance(n, ast.Pass)]
-            logs = [n for n in body if _is_log_call(n)]
-            rets = [n for n in body if isinstance(n, ast.Return)]
-            if not logs:
+            # (3) the handler must not do anything that lets the caller learn the
+            # cause or resume real work. This is a set of disqualifiers rather than
+            # a whitelist of allowed statements: requiring a body of ONLY logs and
+            # returns meant a single `cleanup()` call hid the site completely.
+            inner = list(ast.walk(node))
+            if not any(_is_log_call(n) for n in inner):
+                continue  # silent returns are a different (worse) bug class
+            if any(isinstance(n, NESTED_DEFS) for n in inner):
                 continue
-            if not all(_is_log_call(n) or isinstance(n, ast.Return) for n in body):
+            if any(isinstance(n, (ast.Continue, ast.Break)) for n in inner):
+                continue  # resumes the loop; nothing falsy reaches a caller
+
+            # Returns at ANY depth, now that an `if` no longer disqualifies the
+            # handler: one real return on one branch means the caller can still
+            # get a usable value, so the handler is not a swallow.
+            rets = [n for n in inner if isinstance(n, ast.Return)]
+            if not all(_is_falsy_return(r) for r in rets):
                 continue
-            if rets:
-                if not all(_is_falsy_return(r) for r in rets):
-                    continue
-            elif id(node) not in trailing:
+
+            # (4) no return at all is an implicit `return None` only if falling off
+            # the handler ends the function.
+            if not rets and id(node) not in trailing:
                 continue
 
             ok, bad_reason = _suppressed(node, lines)
