@@ -100,9 +100,13 @@ class ServiceFieldValidator:
             self._doctype_cache[doctype] = meta_dict
             return meta_dict
         except Exception as e:
+            # Do NOT cache the failure: it would make one transient error permanent
+            # for the life of the process. And do not return None -- the caller reads
+            # a falsy result as "DocType {doctype} does not exist", which turns a
+            # database error into a confidently wrong diagnosis. Its own handler
+            # reports the real cause.
             self.logger.warning(f"Could not get metadata for DocType {doctype}: {str(e)}")
-            self._doctype_cache[doctype] = None
-            return None
+            raise
 
     def get_valid_fields(self, doctype: str) -> Set[str]:
         """Get set of valid field names for a DocType.

@@ -1019,8 +1019,12 @@ def _get_subscription_failure_count(member_name, subscription_id):
         return failure_count
 
     except Exception as e:
+        # NOT a safe fallback: the caller does `current + 1`, so a swallowed read
+        # error restarts the escalation at 1 and a subscription that should be
+        # cancelled after N failures never gets there. Raising fails the webhook,
+        # which makes Mollie retry -- the right outcome for a transient DB error.
         frappe.logger().error(f"❌ Error counting subscription failures: {e}")
-        return 0  # Safe fallback
+        raise
 
 
 def _validate_payment_amount(payment):

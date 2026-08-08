@@ -453,9 +453,11 @@ class SEPAZabbixIntegration:
             return round(total, 2)
 
         except Exception as e:
-            # Final fallback - log error and return 0
+            # Both the SQL aggregation and this fallback have failed. Reporting 0.0
+            # to monitoring is a false all-clear -- zero SEPA batch volume looks
+            # normal. A failed metric collection is the honest signal.
             frappe.logger().error(f"Python fallback calculation failed for total batch amount: {str(e)}")
-            return 0.0
+            raise
 
     def _calculate_daily_batch_amount_optimized(self, cutoff_date) -> float:
         """
@@ -535,9 +537,9 @@ class SEPAZabbixIntegration:
             return round(total, 2)
 
         except Exception as e:
-            # Final fallback - log error and return 0
+            # As above: 0.0 here is a false all-clear on daily SEPA volume.
             frappe.logger().error(f"Python fallback calculation failed for daily batch amount: {str(e)}")
-            return 0.0
+            raise
 
     def _get_mandate_metrics(self) -> Dict[str, Union[int, float]]:
         """Get SEPA mandate management metrics"""
