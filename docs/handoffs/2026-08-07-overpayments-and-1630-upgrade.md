@@ -11,12 +11,12 @@ here; one was already closed before it was written. Read §2 before trusting it.
 **MERGED.** PR **#236** landed on `develop` as merge commit `2e2462ec` (2026-08-07),
 40/40 checks green, `mergeStateStatus: CLEAN`.
 
-> **The branch was SPLIT before merging.** The shard-weighting work described in §6 is
-> NOT in #236 and is NOT on develop — it lives on **draft PR #237**
-> (`ci/parallel-shard-weighting`), because it turns ~103 tests red. **Read §9c before
-> acting on §6.** The commit hashes below are the post-split ones; the pre-split hashes
-> quoted elsewhere in this document (`c4a84a25`, `7a49f8fc`, `c0a486a4` …) no longer
-> exist on any branch.
+> **The branch was SPLIT before merging.** The shard-weighting work described in §6 was
+> NOT in #236; it went to PR #237, which was held as a draft because it turned ~103 tests
+> red. **#237 has since MERGED** as `63fd5190` (2026-08-08) — see §10, which supersedes
+> §6's and §9c's account of where that work lives. The commit hashes below are the
+> post-split ones; the pre-split hashes quoted elsewhere in this document (`c4a84a25`,
+> `7a49f8fc`, `c0a486a4` …) no longer exist on any branch.
 
 | Commit | Subject |
 |---|---|
@@ -29,8 +29,10 @@ here; one was already closed before it was written. Read §2 before trusting it.
 | `4ea8baa1` | four §6a/§7 gaps closed (see §9a) |
 | `1454bd49` | `test_member_permissions` no longer breaks itself on re-run |
 
-On **#237** (draft, NOT merged): `550f5842` patch preserved, `c7dc63c6` shard balancing
-wired into CI, `d1bbc8d2` stale warning header dropped.
+On **#237** (MERGED `63fd5190`, 2026-08-08): `7084aaa0` patch preserved, `5f2db670` shard
+balancing wired into CI, `04a2cb0c` stale warning header dropped, plus two commits that
+were not part of the original scope — `39481cee` RQ workers removed from CI and
+`0b64a274` team event subscribers run inline. See §10.
 
 Bench moved to **erpnext v16.30.0, frappe v16.30.0, builder v1.32.0**. All seven sites
 migrated (six test sites + veg11), except veg11 has NOT yet taken the builder migration.
@@ -173,10 +175,10 @@ Copies of every cleared lock are in this session's scratchpad, not in the repo.
 
 ## 6. CI shard balancing — was never running
 
-> **STOP — this work is no longer on develop.** It was split onto draft PR **#237**
-> after it turned 6 of 12 shards and ~103 tests red. Everything below is still an
-> accurate description of the change; what has moved is where it lives and whether it
-> is safe to land. **Read §9c.**
+> **This work IS on develop as of 2026-08-08** (#237, `63fd5190`). It was split off after
+> it turned 6 of 12 shards and ~103 tests red; all four root causes are now fixed and none
+> of them was the weighting. Everything below is still an accurate description of the
+> change. **Read §10a before re-deriving why those shards were red.**
 
 The `test_timings.json` weighting had **never affected CI**.
 `.github/actions/setup/action.yml` clones `${frappe-user}/frappe` and
@@ -382,14 +384,15 @@ when each branch is compared to the pre-split state over its own paths.
 
 ### 9d. Still open after this session
 
-1. **PR #237 cannot merge until the ~103 fixture failures are resolved.** Not started.
-   Step one is to run one failing module in isolation locally — that distinguishes
-   "genuinely broken test" from "lost its accidental provider". Step two is making the
-   affected fixtures create their own company and accounts.
+*Items 1 and 4 are CLOSED — see §10. §10e is the current list.*
+
+1. ~~**PR #237 cannot merge until the ~103 fixture failures are resolved.**~~ — **CLOSED.**
+   #237 merged as `63fd5190` on 2026-08-08, all 12 shards green. The hypothesis in §9c
+   was right: none of the four root causes was the weighting. See §10a.
 2. `Accounts Settings.auto_reconcile_payments` is still `0` (§4). Unchanged, owner call.
 3. veg11 still has not taken the builder migration (§5).
-4. The foreign-currency fixture (§6a-2) is still missing. It remains the only way to
-   observe both the currency-boundary refusal and the discount-argument swap.
+4. ~~The foreign-currency fixture (§6a-2) is still missing.~~ — **CLOSED** by PR #242.
+   See §10c.
 5. `test_snapshot/clean_v1620-database.sql.gz` is still a 16.20 dump under a 16.x name.
 6. The 2026-08-06 handoff is still on the unmerged branch `docs/handoff-2026-08-06`.
 
@@ -416,3 +419,145 @@ when each branch is compared to the pre-split state over its own paths.
 - **A green local run still says nothing about CI**, and this session is the clearest
   example yet: every suite touched passed locally, and the branch was still red for
   reasons no local run could reach.
+
+---
+
+## 10. Third session — #237 landed, and what the red shards actually were
+
+Everything below happened AFTER §9. Where it contradicts §1–§9, this section wins.
+
+### 10a. The ~103 failures: four root causes, none of them the weighting
+
+§9c's working hypothesis held exactly. The weighting only ever changed test ORDER, which
+is all three latent bugs needed; the fourth was never about ordering at all.
+
+| §9c symptom | Actual root cause | Landed |
+|---|---|---|
+| `MandatoryError: [Account, Income - EBHMT]: parent_account` | `get_eur_test_company()` borrowed ANY EUR company with a current FY — including the two deliberately chart-of-accounts-less e_boekhouden ones | #239 `dc9591de` |
+| `LinkValidationError: Default Company: TEST Company 3`, `create_test_sales_invoice` vs `EBH Migration Test Co` | two fixtures depending on another test having run first | #240 `d6a05bd0` |
+| 10 × `1205` lock wait timeout on Bulk Operation Tracker inserts | **RQ workers racing the suite on the same database** | #237 `39481cee` |
+| `test_chapter_members_enhanced` Contact-creation failure | event subscribers racing a worker instead of running inline | #237 `0b64a274` |
+
+Failure count across the arc: **120 → 14 → 5 → 0.** `known_test_failures.txt` was never
+touched — the baseline is still empty and armed, so the green run means every test
+genuinely passes.
+
+**The worker finding is the one with teeth, and it corrects a month-old misdiagnosis.**
+bench's Procfile template guards redis / web / socketio / watch / schedule behind `skip_*`
+flags but emits `worker:` **unconditionally**, and `setup_procfile()` has no `skip_worker`
+parameter. `frappe.enqueue` does NOT run inline under tests — `call_directly = now or (not
+is_async and not frappe.in_test)` — so with the default `is_async=True` a test's job goes
+to the real Redis queue, where a worker executes it on its own connection and takes the
+`tabSeries` row lock while a test's still-open transaction wants the same row. Error Log
+entries sat ~51s apart, i.e. every one burned the full `innodb_lock_wait_timeout`.
+
+The 2026-07-21 tracker-contention work (#173) recorded CI as worker-free and dismissed the
+local reproduction as test-site pollution. **That is why this sat for a month.** There is
+no bench flag; deleting the worker lines is the only lever, and the step fails the job if
+no worker line is found.
+
+### 10b. #237 merged — and what it now carries
+
+Merged as `63fd5190`, 2026-08-08. All 12 shards green, 25/25 checks, `mergeStateStatus:
+CLEAN`. The PR body was rewritten before merging: it still described the PR as a blocked
+draft with ~103 red tests and did not mention workers at all.
+
+| | slowest shard | fastest | spread | total |
+|---|---|---|---|---|
+| unweighted (develop, #239's green run) | 40.9 min | 13.9 | 2.94× | 312 min |
+| weighted (#237) | 36.9 min | 18.1 | 2.04× | 299 min |
+
+**Do not quote the ~10% as the weighting's contribution.** Those two runs differ in TWO
+ways — weighting and no worker — and removing the worker eliminated lock contention that
+was also costing time. Attributing it cleanly would need a run with the worker fix and no
+weighting; nobody has spent a CI cycle on that and it probably is not worth one.
+
+**#237 grew beyond what it was opened for.** It removes RQ workers from every CI job in
+the repo, which changes the runtime environment for the whole suite — a much larger blast
+radius than shard ordering. Anyone bisecting CI behaviour across 2026-08-08 should reach
+for this before reaching for the weighting.
+
+### 10c. Foreign-currency fixture — §6a-2 closed (PR #242)
+
+`_ensure_foreign_currency_clearing_account` creates a USD Bank account on the EUR test
+company. `paid_from` on a Receive entry is the debtors account, which carries the company
+currency, so a USD `paid_to` is the ENTIRE boundary — no foreign customer and no
+foreign-currency invoice needed.
+
+**The `Currency Exchange` rows are not optional bookkeeping.** Without a matching row,
+`erpnext.setup.utils.get_exchange_rate` falls through to a live HTTP call against the
+configured rate API and calls `frappe.log_error` when that fails — network-dependent tests
+that also trip the Error Log guard.
+
+Three tests, each verified by breaking what it names:
+
+- **The currency-boundary refusal.** Neutering the guard raises NOTHING — the entry
+  SUBMITS. `set_exchange_gain_loss()` absorbs the mismatch into a deductions row,
+  `difference_amount` still nets to zero, and the clearing account is debited a converted
+  figure for unconverted cash. The failure being prevented is a submitted entry, not an
+  exception.
+- **The discount-argument swap** — the gap §6a-3 and §9e said no test could reach. It IS
+  observable across a boundary: handed the cash, the helper concludes a discount was
+  applied and throws the DISCOUNT refusal about a discount-free invoice.
+- **An ordinary foreign-currency payment still succeeds.** Without this, a blanket refusal
+  of every differing-currency payment satisfies both tests above while the service quietly
+  loses the ability to record ordinary gateway settlements into a foreign-currency
+  clearing account.
+
+### 10d. #241 (error-swallow validator) reviewed — REQUEST CHANGES
+
+The ratchet MECHANISM is sound and survived mutation testing: the count ratchet catches a
+second swallow in a function baselined at 1, the baseline is byte-reproducible and honest
+(350 sites / 338 functions, spot-checked against source), the pragma cannot be used as a
+blanket mute, and the key construction does not collide. It also demonstrably catches two
+of the three historical incidents.
+
+**The detection predicate is where the risk is, and the PR's central design claim is
+false.** The body says condition (5) — "the enclosing function elsewhere returns a real
+value" — is the load-bearing narrowing, taking 1,199 sites to 350. Measured: conditions
+1–4 alone give 356, and condition (5) removes **6 of them, 1.7%**. The real narrowing is
+condition (3) — "the handler body is exclusively log calls and returns" — which is also
+what produces the false negatives.
+
+Must-fix false negatives, all cheap:
+
+1. **`return ""` is not treated as falsy.** `_is_falsy_return` tests `v.value in (None,
+   False)`; `0` passes only by accident of `0 == False`. `""` is precisely the value
+   ERPNext reads as UNRESTRICTED — the flagship incident in the PR's own motivation list.
+2. **A handler that logs and falls off the end** (implicit `None`) is invisible. Two live
+   instances, one a whitelisted API. A one-line edit evades the gate.
+3. **Any extra statement in the handler defeats it — 42 live instances**, including one
+   that poison-caches the failure and one that returns `0` as a count the caller reads as
+   "nothing to do".
+
+Also: `except Exception: pass` — the most destructive form — is structurally invisible
+(100 live sites); `--update-baseline` hard-codes the `verenigingen/` root while the hook
+enforces more broadly, so some files can be blocked but never baselined; nothing runs this
+in CI, so `git commit -n` bypasses it; and 349 lines of new AST logic ship with zero tests
+despite `test_except_order_validator.py` being the same author's own template.
+
+### 10e. Still open
+
+1. `Accounts Settings.auto_reconcile_payments` is still `0` (§4). Owner call.
+2. veg11 still has not taken the builder migration (§5).
+3. `test_snapshot/clean_v1620-database.sql.gz` is still a 16.20 dump under a 16.x name.
+4. The 2026-08-06 handoff is still stranded on unmerged `docs/handoff-2026-08-06`.
+5. **#241 needs the §10d fixes** before it is worth the friction it imposes.
+6. **#242 is open** and needs a CI run.
+7. The click conflict (§5) is still unresolved-by-design. Watch, do not force.
+
+### 10f. Process notes
+
+- **A hypothesis recorded in a handoff paid for itself.** §9c wrote down "these tests were
+  never self-sufficient, the weighting exposed them" at the moment of the split. Three
+  sessions later that is exactly what all four causes turned out to be, and having it
+  written down meant nobody re-litigated whether to abandon the weighting.
+- **Partition CI failures BY SHARD before attributing a cause.** The 103 were never one
+  bug; they were four, and two of them were single-shard poisonings.
+- **A local-vs-CI divergence is not proof of local pollution.** That inference is what
+  buried the worker finding for a month. The environment difference was real and was CI's.
+- **Mutation-testing found the fixture's own blind spot.** The "ordinary foreign-currency
+  payment" test exists only because the first two tests would BOTH stay green under a
+  blanket refusal. Ask what else satisfies your assertions.
+- **Rewrite a PR body before merging it.** #237's still described a blocked draft and said
+  nothing about removing workers — the single most consequential thing in it.
