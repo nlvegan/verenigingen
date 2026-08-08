@@ -571,42 +571,6 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
     return False
 
 
-def has_membership_permission(doc, user=None, permission_type=None):
-    """Direct permission check for Membership doctype"""
-    if not user:
-        user = frappe.session.user
-
-    # Log for debugging
-    frappe.logger().debug(
-        f"Checking Membership permissions for user {user} with roles {frappe.get_roles(user)}"
-    )
-
-    # Admin roles always have access
-    if _has_admin_access(frappe.get_roles(user)):
-        return True
-
-    # Return True, NOT None, to mean "this controller has no objection".
-    #
-    # Frappe treats a falsy hook result as a DENY, not as "no opinion":
-    # frappe/permissions.py::has_controller_permissions does
-    #     if not controller_permission:
-    #         return bool(controller_permission)
-    # so `None` short-circuits the whole check to False. The previous `return None`
-    # (documented as "fall back to standard permission system") therefore denied
-    # doc-level access to every user outside Roles.ADMIN_ROLES, which silently made
-    # this doctype's DocPerms for `Verenigingen Chapter Board Member` and
-    # `Verenigingen Member` dead letters -- a board member could not insert the
-    # Membership that approving an application creates, and the failure surfaced as
-    # an empty "Error creating membership: " because frappe.PermissionError is raised
-    # bare (frappe/model/document.py::raise_no_permission_to).
-    #
-    # Returning True does not widen anything: role-level DocPerms are evaluated
-    # separately by has_permission() and still apply. This only stops the controller
-    # from vetoing them. Same falsy-return class as PR #191, inverted -- there a
-    # falsy result read as "unrestricted", here it read as "denied".
-    return True
-
-
 def _make_member_linked_permission(doctype, member_field="member"):
     """Build the (has_permission, permission_query) pair for a doctype that links to
     Member via a direct ``member`` Link field and must be member-scoped.
@@ -641,6 +605,21 @@ def _make_member_linked_permission(doctype, member_field="member"):
     slug = doctype.lower().replace(" ", "_")
 
     def has_permission(doc, user=None, permission_type=None):
+        # WARNING: `permission_type` is ALWAYS None when this is reached through the
+        # has_permission hook. frappe/permissions.py::has_controller_permissions calls
+        # frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs
+        # drops kwargs that are not in the callee's signature -- our parameter is named
+        # permission_type, not ptype, so the value never arrives. MEASURED:
+        # frappe.get_newargs(has_donor_permission, {...,"ptype":"write",...}) -> ['doc','user'].
+        #
+        # Consequences: _check_service_account_permission below always evaluates the
+        # "read" DocPerm (perm_type = permission_type or "read"), and this check returns
+        # the same verdict for read/write/create/submit. Do NOT add ptype-dependent
+        # logic here expecting it to work, and do NOT "fix" this by renaming the
+        # parameter to ptype -- that would start feeding real ptypes into the service
+        # account branch and silently change webhook answers for non-read operations.
+        # (Sibling checks in this repo differ: chapter.py and project_permissions.py
+        # name the parameter ptype and DO receive it.)
         if not user:
             user = frappe.session.user
 
@@ -763,6 +742,37 @@ has_donor_permission, get_donor_permission_query = _make_member_linked_permissio
 has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_linked_permission(
     "SEPA Mandate"
 )
+
+# Membership has the same shape (a required `member` Link) and the same intended policy,
+# so its doc-level check is generated here too. It previously had a hand-written stub that
+# returned None for every non-admin, which is a hard DENY, not "no opinion":
+# frappe/permissions.py::has_controller_permissions does
+#     if not controller_permission:
+#         return bool(controller_permission)
+# so the doctype's DocPerms for `Verenigingen Chapter Board Member` and `Verenigingen
+# Member` were unreachable -- a board member could not insert the Membership that
+# approving an application creates, and the failure surfaced as an empty "Error creating
+# membership: " because frappe.PermissionError is raised bare
+# (frappe/model/document.py::raise_no_permission_to). Same falsy-return class as PR #191,
+# inverted: there a falsy result read as "unrestricted", here it read as "locked out".
+#
+# The stub must NOT simply return True instead. `Verenigingen Chapter Board Member` holds
+# create/read/write/submit on Membership with no `if_owner`, and a permission_query_condition
+# scopes LIST views only -- frappe.client.get calls doc.check_permission() -- so an
+# unconditional True would grant every board member read and write on every Membership in
+# the database by name, across all chapters. The factory applies the chapter scope the
+# query condition already describes.
+#
+# Only the has_permission half is taken. get_membership_permission_query below is kept
+# hand-written because it mirrors get_member_permission_query's
+# `status NOT IN ('Quit', 'Banned', 'Deceased')` exclusion, which Donor and SEPA Mandate do
+# not have; generating it here would silently widen board list visibility to quit and
+# banned members. The resulting doc-level/list divergence already exists for Member
+# (has_member_permission does not apply that exclusion either).
+#
+# Indexed rather than unpacked into `_`: this module does not import frappe's translation
+# function today, but binding `_` at module scope would silently shadow it if anyone does.
+has_membership_permission = _make_member_linked_permission("Membership")[0]
 
 
 def has_donation_permission(doc, user=None, permission_type=None):

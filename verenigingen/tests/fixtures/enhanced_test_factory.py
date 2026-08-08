@@ -3690,6 +3690,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 "email": email,
                 "first_name": first_name,
                 "send_welcome_email": 0,
+                # Explicit, as create_test_user also does. setUp sets
+                # frappe.flags.in_import = True to bypass Frappe's user-creation
+                # throttling, and Document._set_defaults() early-returns on that flag
+                # (frappe/model/document.py:1069), so NO DocType default reaches a doc
+                # built inside this harness -- User.enabled's default of "1" included,
+                # leaving the Check at 0. A disabled board member is not a scenario
+                # worth testing (they cannot log in) and has_permission denies disabled
+                # accounts outright, so the seat would be invisible for a reason the
+                # test is not about.
+                "enabled": 1,
                 "roles": [{"role": "Verenigingen Member"}],
             })
             user.insert(ignore_permissions=True)
@@ -3704,7 +3714,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         volunteer = self.create_test_volunteer(member_name=member.name)
 
         role_name = role_name or f"Test Board Approver {permissions_level}"
-        if not frappe.db.exists("Chapter Role", role_name):
+        existing = frappe.db.get_value(
+            "Chapter Role", role_name, ["permissions_level", "is_active"], as_dict=True
+        )
+        if not existing:
             role = frappe.get_doc({
                 "doctype": "Chapter Role",
                 "role_name": role_name,
@@ -3713,6 +3726,19 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             })
             role.insert(ignore_permissions=True)
             self.factory.track_document("Chapter Role", role.name, priority=3)
+        elif existing.permissions_level != permissions_level or not existing.is_active:
+            # The default role_name is NOT tokenized, so this row is shared across
+            # tests and across runs. A prior run that left it inactive, or that asked
+            # for a different permissions_level, would otherwise be silently reused --
+            # and get_user_manageable_chapters only accepts permissions_level "Admin",
+            # so the seat would grant nothing in a fixture whose entire purpose is that
+            # the seat is visible. Repair rather than skip.
+            frappe.db.set_value(
+                "Chapter Role",
+                role_name,
+                {"permissions_level": permissions_level, "is_active": 1},
+                update_modified=False,
+            )
 
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
         chapter_doc.append(

@@ -271,13 +271,16 @@ class TestBoardMemberApprovalPermissions(EnhancedTestCase):
                     member_doc, create_invoice=False, approval_fields={}
                 )
 
-        # The assertion that matters: the failure is still identifiable as a
-        # permission failure. Before the fix this surfaced as a ValidationError whose
-        # message ended at the colon.
-        self.assertNotIsInstance(
-            ctx.exception, frappe.ValidationError,
-            "A permission failure must not be flattened into a generic ValidationError",
-        )
+        # assertRaises(frappe.PermissionError) above IS the whole guard: before the
+        # fix the service caught the PermissionError and re-threw it via frappe.throw,
+        # which raises ValidationError, so this block raised ValidationError and the
+        # test failed there.
+        #
+        # An assertNotIsInstance(ctx.exception, frappe.ValidationError) used to follow
+        # and was deleted as tautological: frappe/exceptions.py declares
+        # `class ValidationError(Exception)` and `class PermissionError(Exception)` as
+        # siblings, so given the enclosing assertRaises it could never fail.
+        self.assertEqual(str(ctx.exception), "", "bare PermissionError carries no message")
 
 
 if __name__ == "__main__":
