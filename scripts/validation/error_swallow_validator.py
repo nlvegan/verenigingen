@@ -31,18 +31,41 @@ A handler is reported only when ALL of these hold, which is the load-bearing cas
 1. the ``except`` is broad (bare, ``Exception``, or ``BaseException``);
 2. the handler never re-raises;
 3. its body is only logging calls and returns;
-4. every return in it is falsy (``None``/``False``/``{}``/``[]``); and
+4. it hands the caller a falsy value -- either every return in it is a falsy
+   literal (``None``/``False``/``{}``/``[]``/``""``/``0``), or it has no return at
+   all and the ``try`` is the LAST statement of the function, so falling off the
+   end of the handler is an implicit ``return None``; and
 5. the ENCLOSING FUNCTION elsewhere returns a real value.
+
+On (4): the falsy test is "any falsy literal", not a list of blessed ones,
+because ``""`` is precisely the value ERPNext reads as UNRESTRICTED in the
+permission-hook incident above. The implicit-``None`` arm is restricted to a
+trailing ``try`` on purpose -- falling off a handler in the MIDDLE of a function
+resumes it, so the caller still gets a real value and flagging it would be a
+false positive.
 
 (5) is what separates a dangerous swallow from a harmless one. A function that
 never returns anything meaningful (fire-and-forget cache invalidation, a
 best-effort notification) is not reported: its falsy return is not load-bearing,
-because no caller can branch on it.
+because no caller can branch on it. Measured on this repo, (5) is what makes the
+rule usable: conditions 1-4 alone match 725 sites, and (5) cuts that to 353.
+(Before the implicit-``None`` arm of (4) existed, (5) removed only 6 of 356 --
+it was carrying almost nothing, because the handlers it filters out are mostly
+void functions that log and fall off the end.)
+
+KNOWN FALSE NEGATIVES
+---------------------
+Condition (3) is strict: one non-logging statement in the handler (a
+``frappe.db.rollback()``, an assignment, a ``flags`` reset) and the site is
+invisible to this validator. That is deliberate -- loosening (3) is what would
+generate false positives -- but it means a clean report is not proof of absence.
+A handler that logs and returns a falsy value through a local variable
+(``result = None`` ... ``return result``) is likewise not detected.
 
 RATCHET, NOT BIG-BANG
 ---------------------
-There are ~393 such sites today. Failing on all of them would block every commit,
-and pragma-ing 393 sites in one diff would be unreviewable. So this validator
+There are 353 such sites today. Failing on all of them would block every commit,
+and pragma-ing 353 sites in one diff would be unreviewable. So this validator
 fails only on sites NOT already recorded in the baseline.
 
 The baseline is keyed ``path::qualified_function::count`` -- deliberately NOT line
@@ -125,7 +148,10 @@ def _is_falsy_return(node: ast.AST) -> bool:
     v = node.value
     if v is None:
         return True
-    if isinstance(v, ast.Constant) and v.value in (None, False):
+    # Any falsy literal, NOT just None/False: `return ""` is the flagship incident
+    # (ERPNext reads "" from a permission hook as UNRESTRICTED), and `return 0`
+    # only used to be caught here by the accident of `0 == False`.
+    if isinstance(v, ast.Constant) and not v.value:
         return True
     if isinstance(v, ast.Dict) and not v.keys:
         return True
@@ -196,6 +222,12 @@ def scan_file(path: Path):
         if not returns_real:
             continue
 
+        # Handlers of a `try` that is the LAST statement of the function: falling off
+        # the end of one is an implicit `return None`. Anywhere else, falling off
+        # resumes the function, so the caller still gets a real value.
+        tail = fn.body[-1] if fn.body else None
+        trailing = {id(h) for h in tail.handlers} if isinstance(tail, ast.Try) else set()
+
         for node in _own_nodes(fn):
             if not isinstance(node, ast.ExceptHandler) or not _is_broad(node):
                 continue
@@ -205,11 +237,14 @@ def scan_file(path: Path):
             body = [n for n in node.body if not isinstance(n, ast.Pass)]
             logs = [n for n in body if _is_log_call(n)]
             rets = [n for n in body if isinstance(n, ast.Return)]
-            if not logs or not rets:
+            if not logs:
                 continue
             if not all(_is_log_call(n) or isinstance(n, ast.Return) for n in body):
                 continue
-            if not all(_is_falsy_return(r) for r in rets):
+            if rets:
+                if not all(_is_falsy_return(r) for r in rets):
+                    continue
+            elif id(node) not in trailing:
                 continue
 
             ok, bad_reason = _suppressed(node, lines)
@@ -292,6 +327,8 @@ def write_baseline(path: Path, counts: Counter) -> None:
         "#",
         "# This file should only ever SHRINK. Do not regenerate it to make a new",
         "# finding go away; either fix the swallow or mark it `# swallow-ok: <reason>`.",
+        "# The one legitimate reason it may GROW is a change to the validator's own",
+        "# detection rules, which must land in the same commit as the regeneration.",
         "",
     ]
     body = [f"{k}::{v}" for k, v in sorted(counts.items())]

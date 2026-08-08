@@ -8,8 +8,11 @@
 #
 # This file should only ever SHRINK. Do not regenerate it to make a new
 # finding go away; either fix the swallow or mark it `# swallow-ok: <reason>`.
+# The one legitimate reason it may GROW is a change to the validator's own
+# detection rules, which must land in the same commit as the regeneration.
 
 verenigingen/api/email_template_manager.py::send_template_email::1
+verenigingen/api/member/financial_api.py::get_current_dues_schedule_details::1
 verenigingen/api/member_management.py::can_assign_member_to_chapter::1
 verenigingen/api/member_management.py::extract_transaction_data_improved::1
 verenigingen/api/payment_processing.py::send_chapter_notification::1
@@ -90,6 +93,7 @@ verenigingen/services/customer_handling_service.py::CustomerHandlingService.vali
 verenigingen/services/donation/donor_service.py::DonationDonorService.link_donor_to_customer::1
 verenigingen/services/member/account/base_role_profile_manager.py::safe_hook_execution::1
 verenigingen/services/member/account/member_role_service.py::MemberRoleService.add_member_roles_to_user::1
+verenigingen/services/member/account/user_role_profile_calculator.py::auto_sync_on_role_change::1
 verenigingen/services/member/account/user_role_profile_calculator.py::is_active_board_member::1
 verenigingen/services/member/account/user_role_profile_calculator.py::is_active_volunteer::1
 verenigingen/services/member/account/user_role_profile_calculator.py::is_team_leader::1
@@ -167,6 +171,7 @@ verenigingen/utils/financial_utils.py::get_customer_payment_summary::1
 verenigingen/utils/financial_utils.py::get_invoice_payment_status::1
 verenigingen/utils/financial_utils.py::get_outstanding_invoices::1
 verenigingen/utils/financial_utils.py::get_total_outstanding_amount::1
+verenigingen/utils/import_helpers.py::persist_full_error_log::1
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.add_or_update_entry::2
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.remove_entry::1
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.update_entry_field::1
