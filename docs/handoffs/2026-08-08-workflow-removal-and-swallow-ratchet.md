@@ -3,20 +3,23 @@
 Supersedes nothing; extends `docs/handoffs/2026-08-07-overpayments-and-1630-upgrade.md`,
 whose §10 closed the shard-weighting arc. Everything here happened after that.
 
-Six PRs merged, four are open, four issues filed. Every defect the review round found is
-now corrected; #246 and #250 are re-verified green, #249 and #251 have their fixes in.
-Read §6 before touching any of them.
+**Ten PRs merged, two open (plus 8 untouched dependabot), four issues filed.** The whole
+workflow arc is on `develop`. The one open piece of work is **#256**, and it is the most
+consequential thing in this document — see §9.
 
-**Two things you cannot pick up from the diffs.** #249 was a hard prerequisite for #251 —
-alone, #251 opens the unguarded status mutation in §3.3. That is now satisfied: #249 is
-merged **and deployed**. And **veg11 lost the Workflow** to a botched dry run (§4.13),
-which put the live site in the post-#251 state on pre-#249 code for several hours; the
-decision was to leave it and rush #249 to deploy rather than restore. That deploy has
-happened and the exposure is closed.
+**Four things you cannot pick up from the diffs.**
 
-**Also: this bench serves veg11 straight out of the git working tree** (§4.14). A
-`git checkout` in `apps/verenigingen` is a live code change. Decision: keep the tree on
-`develop` and use `git worktree` for branch work.
+1. **#250 fixed the gate but not the outcome.** Board members still could not approve
+   after it merged; three further defects sat behind it, found only by writing the first
+   positive test. **§9.** Read it before assuming board approval works.
+2. **veg11 lost the Workflow to a botched dry run** (§4.13). The decision was to leave it
+   and rush #249 to deploy rather than restore. That deploy happened; the exposure is
+   closed. #249 was a hard prerequisite for #251 and is satisfied.
+3. **This bench serves veg11 straight out of the git working tree** (§4.14). A
+   `git checkout` in `apps/verenigingen` is a live code change. Decision: keep the tree on
+   `develop`, use `git worktree` for branch work.
+4. **veg11 sits between two develop states** — see "Deployed to veg11" below. Merged is
+   not deployed here, and nothing else will do it for you.
 
 ---
 
@@ -33,13 +36,23 @@ happened and the exposure is closed.
 | #245 | `e930d33f` | condition (3) widened; `frappe.throw` taught to condition (2) |
 | #247 | `87ed9327` | test workflow-transition fix — landed on the decision to land rather than close |
 | #249 | `39b5836b` | workflow_demo page removed + COR data patch — **merged on two named red shards** (§6.3) |
+| #250 | `f0842042` | board-member chapter lookup — 12/12 green |
+| #246 | `0ef3dc69` | money-critical swallows — 12/12 green |
+| #251 | `c36be736` | Membership Application Workflow removed — **merged on two named red shards** (§5) |
 
-### Deployed to veg11
+`develop` head: **`c36be736`**.
 
-**#249 is deployed, not merely merged** — this is what closed the §3.3 exposure that §4.13
-opened. Backup `20260808_225640` taken first. `bench migrate` applied the COR patch (and
-two pre-existing pending `builder` patches, unrelated). Verified against the **live**
-gunicorn workers, 15 samples each:
+### Deployed to veg11 — TWO deploys, and the site is now BEHIND develop
+
+**veg11 runs `0ef3dc69`. develop is `c36be736`.** #251 is merged but **not deployed**
+there. In practice that patch is a no-op on veg11 (§4.13 already deleted the Workflow, and
+the patch is idempotent), but any other site would get the real removal. #256 is deployed
+nowhere, correctly — it is unreviewed.
+
+**Deploy 1 — #249 (migrate).** This is what closed the §3.3 exposure §4.13 opened. Backup
+`20260808_225640` first. `bench migrate` applied the COR patch, plus two pre-existing
+pending `builder` patches (unrelated, but they went to production alongside it). Verified
+against the **live** gunicorn workers, 15 samples each:
 
 | check | result |
 |---|---|
@@ -49,15 +62,35 @@ gunicorn workers, 15 samples each:
 | both API methods | `No module named 'verenigingen.templates.pages.workflow_demo'` — byte-identical to a method that never existed |
 | controls | `frappe.ping` 200; a live whitelisted method 403 |
 
+**Deploy 2 — #250 + #246 (no migrate).** The incoming diff had no patches, no DocType
+JSON, no fixtures, no hooks — pure Python plus one form script — so it needed `git pull`
+and `clear-cache` only, and mutated no data. No second backup for that reason.
+
+| check | result |
+|---|---|
+| `strict_user_link` in the board lookup signature | present |
+| the namespace premise, on live data | Volunteer name → **1 row**; Member name → **0 rows** |
+| `get_doctype_meta` on a bad DocType | raises `DoesNotExistError`, cache not poisoned |
+| `can_review_application` | whitelisted, `(member_name: str) -> bool` |
+
+Two of those needed a second pass. The whitelist check first read `False` — a lazy import,
+not a missing decorator. And `get_user_board_chapters` returned ~110 chapters for a user
+with one board seat, which is **documented** behaviour: admin *and staff* roles
+short-circuit to every chapter (see the function's own docstring before calling it a bug).
+
+**What deploy 2 could NOT verify:** the non-admin board path. veg11's only active board
+member is `Administrator`, which short-circuits before the fixed lookup runs — the same
+blind spot that hid the original bug. That gap is what §9 came out of.
+
 ### Open
 
 | PR | Branch | State | Blocking work |
 |---|---|---|---|
-| #246 | `fix/money-critical-swallows` | **CI re-verified green** (12/12 shards, 0 failures) | ready |
-| #250 | `fix/board-member-application-approval` | **CI re-verified green** (12/12 shards, 0 failures) | ready |
-| #251 | `chore/remove-membership-application-workflow` | fixes in + **rebased onto develop** (`e8f45051`) | CI re-run; #249 prerequisite now satisfied |
-| — | issues **#248**, **#253**, **#254**, **#255** | open | see §3 and §8 |
-| — | `fix/error-swallow-log-names` @ `953e3416` | **local only, never pushed** | stacked on #246; rebase after it merges |
+| **#256** | `test/board-member-approval-fixture` | CI running | **needs a real review — §9.4**, not a merge-when-green |
+| #252 | `docs/handoff-2026-08-08-workflow-removal` | this document | merge whenever |
+| — | issues **#248**, **#253**, **#254**, **#255** | open | see §3, §8, §9 |
+| — | `fix/error-swallow-log-names` @ `953e3416` | **local only, never pushed** | #246 has merged, so it is unblocked: add the §4.8 doc line, rebase, push |
+| — | 8 dependabot PRs | untouched | pre-existing, not looked at |
 
 ---
 
@@ -109,7 +142,11 @@ that the app-side permission check had never worked either.
 
 ## 3. Production bugs found
 
-### 3.1 Chapter board members could never approve applications — FIXED (#250)
+### 3.1 Chapter board members could never approve applications — LOOKUP fixed (#250), approval only works with #256
+
+> **#250 alone does NOT make board approval work.** It fixed the lookup described below;
+> three further layers still denied the approval itself. See **§9**. Do not read the
+> "FIXED" on the lookup as "the feature works".
 
 `chapter_security.get_user_manageable_chapters` resolved the caller's **Member** name and
 compared it against `Chapter Board Member.volunteer`, which holds a **Volunteer** name.
@@ -410,22 +447,34 @@ Two consequences worth knowing:
 
 ## 5. CI status of the open PRs
 
-- **#246, #250** — re-verified after their correction commits: **12/12 shards green, 0
-  failures** on both.
-- **#249** — was red on shards 5 and 9, **one failure each**, both extracted from the job
-  logs and named in the PR body (§6.3). Neither touches code the PR changes. Re-running
-  after `45aa80ff`.
-- **#251** — same family, plus it deletes a test module (§4.2).
+All merged. Recorded because **two of them were merged on red**, and the standard applied
+was: extract the failures from the job logs, name them, and show they are pre-existing —
+never a generic "#248" hand-wave.
 
-Merging on red must be an evidenced decision naming the failures, not a generic
-"#248" hand-wave. Note `gh run view --log` returns empty here; use
-`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs` and strip the ANSI codes.
+- **#246, #250** — 12/12 shards green after their correction commits.
+- **#249** — one failure per red shard, both traced:
+  - shard 5 — `test_regression_payment_history_draft_status.test_payment_history_sync_with_auto_generated_invoice`,
+    `ValidationError: Dues rate (€2.00) cannot be less than minimum amount (€100.00)`. Dues-rate contamination, **#248**.
+  - shard 9 — `test_dues_payment_processor_integration...test_find_member_by_customer_id`,
+    `AssertionError: None != 'Assoc-Member-2026-08-0420'`. The matcher singleton, **#255**.
+- **#251** — shard 2, two failures: the same dues-rate one, plus a new
+  `test_member_performance_optimization.test_member_dashboard_caching`,
+  `AssertionError: 0 not greater than 0 : Cache should reduce queries`. That test measures
+  an uncached load against a cached one; it failed because the **first** load issued zero
+  queries, which is only possible if `member_optimizer`'s cache was already warm when the
+  module started. A process-global warmed by a preceding module — structurally identical
+  to #255, and surfaced here because deleting a test module reshuffles the shards (§4.2).
+
+**Tooling note:** `gh run view --log` returns empty here. Use
+`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs` and strip the ANSI codes. Failure
+lines match `^\S+Z\s+(FAIL|ERROR)\s+test`; the root cause is usually in a `msg = '...'`
+local a few frames down.
 
 ---
 
-## 6. Required work before merge
+## 6. What each PR needed before merge (all landed unless noted)
 
-### 6.1 #246 — DONE (`bcb8a9cf`)
+### 6.1 #246 — MERGED (`0ef3dc69`)
 Both net-negative hunks reverted (Mollie, Zabbix); the live Zabbix caller fixed to degrade
 per-metric. Three wrong-target/tautological tests fixed or removed. Baseline 425 → 427,
 still below develop's 432 so the no-growth gate holds.
@@ -439,7 +488,7 @@ there and reported as `"Field validation error: <real cause>"` instead of the ol
 confidently wrong `"DocType {x} does not exist"`. `validate_fields`' contract — always
 returns a dict, never raises — is unchanged, so no caller depended on the swallow.
 
-### 6.2 #250 — DONE (`d568e8d7`)
+### 6.2 #250 — MERGED (`f0842042`) — but see §9, it was only a third of the fix
 `strict_user_link` added; the two missing tests added (`Basic`-role denial, email-collision
 denial). The identity test is verified to fail without the flag.
 
@@ -460,7 +509,7 @@ denial). The identity test is verified to fail without the flag.
 
    One failure per shard, both order-dependence, neither touching changed code.
 
-### 6.4 #251 — ALL FOUR DONE, rebased (`e8f45051`)
+### 6.4 #251 — MERGED (`c36be736`), all four done
 1. DONE — **#249 was a hard prerequisite** and is now merged *and deployed*, so §3.3 can no
    longer be opened by this PR. Rebased onto `develop`; the only conflict was
    `patches.txt`, where both branches appended a line (both kept, COR patch first).
@@ -473,7 +522,7 @@ denial). The identity test is verified to fail without the flag.
    anyone with ordinary Member write permission. A real widening, now stated as an accepted
    consequence rather than a footnote.
 
-### 6.5 log_names — TODO
+### 6.5 log_names — TODO, now unblocked (#246 has merged)
 Document the `FinancialErrorHandler` exception in `KNOWN FALSE NEGATIVES` (§4.8). Then
 rebase onto `develop` after #246 merges and push.
 
@@ -492,6 +541,12 @@ rebase onto `develop` after #246 merges and push.
 - **#247: land it**, rather than close it in favour of #251. Merged `87ed9327`.
 - **veg11 after the §4.13 incident: do NOT restore the Workflow.** Rush #249 to deploy to
   close the §3.3 exposure instead. The restore path was available and declined.
+- **Keep the served working tree on `develop`** and use `git worktree` for branch work
+  (§4.14), rather than accepting checkouts as silent deploys.
+- **Grant `submit` on Membership to the board role** rather than treating board approval
+  as intentionally requiring staff to finalise (§9.2 defect 2).
+- **Preserve the real exception** in `membership_creation_service` instead of leaving the
+  empty `Error creating membership: ` (§9.2 defect 3).
 
 ---
 
@@ -512,3 +567,108 @@ rebase onto `develop` after #246 merges and push.
   2026-08-08): leave it local.* Recorded here so the next reader knows it was chosen, not
   overlooked — if a contributor's review misses the exception-handler cases this section
   covers, that is the reason.
+- **veg11 is one merge behind `develop`** (runs `0ef3dc69`, develop is `c36be736`). #251 is
+  not deployed there. No-op for veg11 specifically; real for any other site.
+
+---
+
+## 9. #256 — the board-approval fix, and why #250 was only a third of it
+
+This is the newest work and the part most likely to be mis-read as "already done".
+
+### 9.1 The question that started it
+
+*"Does the test data factory not include fixtures to test this?"* It does not, and the
+gap was worse than a missing helper:
+
+- The factory has every ingredient (`create_test_member`, `create_test_volunteer`,
+  `ensure_test_chapter`, `ensure_chapter_role`, `create_test_user`) but nothing that
+  composes them into a seated board member. Each test hand-rolled ~15 lines.
+- **`create_board_member_bob` is a trap.** The persona named "Board Member Bob" calls
+  `with_team_assignment("Board", role="Treasurer", role_type="Board Member")`, which
+  creates a **Team** and a Team Member row. It never touches `Chapter Board Member` and
+  grants no chapter rights whatsoever.
+- The two halves never met in one test: `test_chapter_membership_approval_integration`
+  makes 4 approval calls and seats 0 board members; `test_volunteer_board_finance_persona`
+  seats 5 and makes 0 approval calls. `test_member_approval_permissions` covered only
+  `as_staff()` / `as_admin_role()`, both of which short-circuit to `"all"`.
+
+So nothing asserted a board member *can* approve — the exact behaviour §3.1 broke.
+
+### 9.2 Three defects, each hidden behind the last
+
+Found by writing that positive test and watching it fail three times.
+
+**1. `has_membership_permission` returned `None` for every non-admin — and `None` DENIES.**
+
+```python
+# frappe/permissions.py::has_controller_permissions
+controller_permission = frappe.call(method, doc=doc, ptype=ptype, user=user)
+if not controller_permission:
+    return bool(controller_permission)
+```
+
+A falsy hook result is a hard deny, not "no opinion". The function's docstring said
+*"Return None to fall back to standard permission system"* — the opposite of what happens.
+Effect: Membership's DocPerms for `Verenigingen Chapter Board Member` **and**
+`Verenigingen Member` were dead letters. Only `Roles.ADMIN_ROLES` (System Manager,
+Verenigingen Administrator, Verenigingen Staff) passed, which is exactly why every
+existing test passed.
+
+**This is the PR #191 bug class inverted** — there a falsy return read as *unrestricted*,
+here as *locked out*. Worth grepping for siblings: any `has_permission` hook in
+`hooks/permissions.py` that returns `None` on its fallback path has this bug.
+
+**2. The board role could not submit.** `Verenigingen Chapter Board Member` held
+create/read/write on Membership but `submit = 0`, and approval submits the Membership it
+creates. Measured: `frappe.has_permission("Membership", "submit")` was `False` for that
+role, `True` for Staff.
+
+**3. The cause was destroyed on the way out.** `frappe.PermissionError` is raised **bare**
+by `frappe/model/document.py::raise_no_permission_to`, so `str(e)` is `""`. The service's
+blanket `frappe.throw(_("Error creating membership: {0}").format(str(e)))` produced a
+literal `Error creating membership: ` with nothing after the colon. That cost most of the
+debugging time: each fix revealed the next layer only after the message became readable.
+Permission errors now propagate with their type intact.
+
+### 9.3 The tests, and why they are trustworthy
+
+- `create_test_board_member()` — builds `user → Member → Volunteer → Chapter Board Member`
+  **plus the role PROFILE**. The profile is not optional: `APISecurityFramework`
+  authorizes on **profiles**, not roles, and `approve_membership_application` is
+  `@high_security_api`. Without it the user is capped below HIGH and denied at the tier
+  gate — so a chapter-scope test would pass or fail for a reason unrelated to chapters.
+  The helper also forces a trailing digit into the email (the §board-chapter-flake trap).
+- `test_board_member_can_approve_own_chapter_applicant` — **proven to bite.** Reverting
+  `chapter_security.py` to the pre-#250 version makes it fail with the real production
+  symptom, `PermissionError: You don't have permission to approve applications for this
+  member's chapter`; restoring makes it pass again, byte-identical to before the
+  experiment. It is a demonstrated regression guard, not a test written against code that
+  already worked.
+- `test_board_member_cannot_approve_other_chapter_applicant` — necessary: the positive
+  test alone would also pass if the gate were replaced by `return True`.
+- `test_permission_failure_during_creation_keeps_its_cause` — pins defect 3.
+
+Added to an **existing** module deliberately (§4.2): a new module reshuffles every shard.
+
+**A green test was protecting the bug.**
+`test_permissions_coverage.test_has_membership_permission_admin_and_fallback` asserted
+`assertIsNone(...)` and commented it as *"defer to DocPerm + query"* — it pinned the defect
+rather than the intent, and had to be corrected for the fix to land. Worth remembering
+when a permission change is "blocked" by an existing test.
+
+### 9.4 What the reviewer must decide
+
+Defect 1 changes doc-level permission behaviour for **every** non-admin Membership access,
+not just board members — `Verenigingen Member`'s DocPerm read on Membership becomes
+effective too. That is almost certainly the intent the DocPerms already encode, but it is
+a behaviour change well beyond the board-approval case and should be an explicit decision,
+not something waved through with fixture work. **Do not merge #256 on green alone.**
+
+Second, smaller: the `submit` grant reaches existing sites via the DocType JSON on
+`bench migrate` (there are no Custom DocPerms on Membership). If that is too implicit for
+a permission change, it wants an explicit patch instead.
+
+Verified on `test_site_1`: target module 5/5, `test_permissions_coverage` 46/46,
+`test_chapter_service_coverage` 80/80, `test_authorization_coverage` 37/37,
+`test_chapter_board_chapters` 16/16, `membership.test_membership` 8/8.
