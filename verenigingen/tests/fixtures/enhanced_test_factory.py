@@ -3656,6 +3656,115 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             member_name = kwargs.pop("member")
         return self.factory.create_volunteer(member_name, **kwargs)
 
+    def create_test_board_member(
+        self, chapter_name, permissions_level="Admin", role_name=None, first_name="Board"
+    ):
+        """Seat a real, non-admin board member on `chapter_name`.
+
+        A board seat is held by a VOLUNTEER, and the permission gates resolve
+        user -> Member -> Volunteer -> `Chapter Board Member`. Every link in that
+        chain has to exist or the seat is invisible to
+        chapter_security.get_user_manageable_chapters, and a permission test
+        silently passes (or fails) for the wrong reason. Assembling it by hand is
+        ~15 lines that were previously copy-pasted per test file; the persona
+        `create_board_member_bob` does NOT do this -- it builds a Team assignment,
+        which is a different doctype and grants no chapter rights.
+
+        `permissions_level` defaults to "Admin" because that is the only level that
+        actually grants approval: `Chapter Role` has no `can_approve_memberships`
+        field and its permissions_level options are Basic/Financial/Admin, so the
+        `"Membership"` arm in get_user_manageable_chapters is dead.
+
+        Returns a frappe._dict with `user`, `member`, `volunteer`, `chapter` and
+        `chapter_role`.
+        """
+        # Trailing digit is required: the factory rewrites Member.email unless the
+        # local part's last 5 characters contain one, which silently decouples
+        # Member.email from Member.user and breaks user-linked lookups ~1 run in 135.
+        run = f"{frappe.generate_hash(length=8)}0"
+        email = f"board-{run}@example.com"
+
+        if not frappe.db.exists("User", email):
+            user = frappe.get_doc({
+                "doctype": "User",
+                "email": email,
+                "first_name": first_name,
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Member"}],
+            })
+            user.insert(ignore_permissions=True)
+            self.factory.track_document("User", user.name, priority=2)
+
+        member = self.create_test_member(
+            first_name=first_name, last_name=f"Seat{run[:6]}", email=email, birth_date="1985-01-01"
+        )
+        member.db_set("status", "Active")
+        member.db_set("user", email)
+
+        volunteer = self.create_test_volunteer(member_name=member.name)
+
+        role_name = role_name or f"Test Board Approver {permissions_level}"
+        if not frappe.db.exists("Chapter Role", role_name):
+            role = frappe.get_doc({
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": permissions_level,
+                "is_active": 1,
+            })
+            role.insert(ignore_permissions=True)
+            self.factory.track_document("Chapter Role", role.name, priority=3)
+
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": role_name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+
+        # The roles alone are not enough. APISecurityFramework authorizes on Frappe ROLE
+        # PROFILES, not roles (authorization_policy.ROLE_PROFILE_SECURITY_MAPPING), and
+        # approve_membership_application is @high_security_api. Without the profile the
+        # user is capped below HIGH and denied at the tier gate -- so a chapter-scope
+        # test would be denied before the chapter check ever ran, and a denial test
+        # would pass for entirely the wrong reason.
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        assign_role_profile_to_user(email, "Verenigingen Chapter Board Member")
+
+        return frappe._dict(
+            user=email,
+            member=member.name,
+            volunteer=volunteer.name,
+            chapter=chapter_name,
+            chapter_role=role_name,
+        )
+
+    def add_member_to_test_chapter(self, member_name, chapter_name):
+        """Give `member_name` an ACTIVE Chapter Member row on `chapter_name`.
+
+        can_user_manage_application() matches manageable chapters against
+        `tabChapter Member` rows with enabled=1 AND status='Active'. A member
+        without one belongs to no chapter as far as the approval gate is
+        concerned, so a board-member permission test would be unreachable.
+        """
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter_doc.get("members", []):
+            if row.member == member_name:
+                row.enabled = 1
+                row.status = "Active"
+                break
+        else:
+            chapter_doc.append(
+                "members", {"member": member_name, "enabled": 1, "status": "Active"}
+            )
+        chapter_doc.save(ignore_permissions=True)
+        return chapter_doc
+
     def create_test_application_data(self, with_skills=True):
         """Convenience method for creating application data"""
         return self.factory.create_application_data(with_volunteer_skills=with_skills)

@@ -585,10 +585,26 @@ def has_membership_permission(doc, user=None, permission_type=None):
     if _has_admin_access(frappe.get_roles(user)):
         return True
 
-    # Other permission checks would go here
-
-    # Return None to fall back to standard permission system if no match
-    return None
+    # Return True, NOT None, to mean "this controller has no objection".
+    #
+    # Frappe treats a falsy hook result as a DENY, not as "no opinion":
+    # frappe/permissions.py::has_controller_permissions does
+    #     if not controller_permission:
+    #         return bool(controller_permission)
+    # so `None` short-circuits the whole check to False. The previous `return None`
+    # (documented as "fall back to standard permission system") therefore denied
+    # doc-level access to every user outside Roles.ADMIN_ROLES, which silently made
+    # this doctype's DocPerms for `Verenigingen Chapter Board Member` and
+    # `Verenigingen Member` dead letters -- a board member could not insert the
+    # Membership that approving an application creates, and the failure surfaced as
+    # an empty "Error creating membership: " because frappe.PermissionError is raised
+    # bare (frappe/model/document.py::raise_no_permission_to).
+    #
+    # Returning True does not widen anything: role-level DocPerms are evaluated
+    # separately by has_permission() and still apply. This only stops the controller
+    # from vetoing them. Same falsy-return class as PR #191, inverted -- there a
+    # falsy result read as "unrestricted", here it read as "denied".
+    return True
 
 
 def _make_member_linked_permission(doctype, member_field="member"):

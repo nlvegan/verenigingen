@@ -195,6 +195,18 @@ class MembershipCreationService(StatelessService):
             )
             return membership
 
+        except frappe.PermissionError:
+            # Re-raise unchanged. frappe.PermissionError is raised bare by
+            # frappe/model/document.py::raise_no_permission_to, so str(e) is "" and
+            # wrapping it produced a literal "Error creating membership: " with
+            # nothing after the colon -- the caller could not tell a permission
+            # failure from any other, and the doctype and permission type were lost.
+            # The type itself is the diagnosis, so preserve it.
+            self.logger.error(
+                f"MembershipCreationService: permission denied for {member_doc.name} "
+                f"as {frappe.session.user}"
+            )
+            raise
         except Exception as e:
             self.logger.error(f"MembershipCreationService: Error for {member_doc.name}: {str(e)}")
             frappe.throw(_("Error creating membership: {0}").format(str(e)))

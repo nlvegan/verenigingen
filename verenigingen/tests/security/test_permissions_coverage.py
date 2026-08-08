@@ -657,8 +657,16 @@ class TestMiscPermissionHelpers(PermissionsCoverageBase):
 
         # Admin -> True.
         self.assertTrue(has_membership_permission("any", self.staff_user.name))
-        # Non-admin -> None (defer to DocPerm + query).
-        self.assertIsNone(has_membership_permission("any", self.regular_user.name))
+
+        # Non-admin -> True, meaning "this controller has no objection"; the DocPerm
+        # layer then decides. This assertion used to require None and described it as
+        # "defer to DocPerm + query", which is the opposite of what Frappe does:
+        # frappe/permissions.py::has_controller_permissions treats a falsy hook result
+        # as a hard DENY (`if not controller_permission: return bool(...)`), so None
+        # short-circuited the check to False and made this doctype's DocPerms for
+        # Verenigingen Chapter Board Member and Verenigingen Member unreachable.
+        # The test pinned the defect rather than the intent.
+        self.assertTrue(has_membership_permission("any", self.regular_user.name))
 
     def test_service_account_deferral(self):
         from verenigingen.permissions import _check_service_account_permission
