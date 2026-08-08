@@ -244,6 +244,27 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|scripts/validation/archived/)'
 
+      - id: error-swallow-validator
+        name: 🕳️  Swallowed-Exception Guard (ratchet)
+        description: >-
+          Blocks NEW broad `except` handlers that only log and return a falsy value
+          from a function that elsewhere returns a real value. The caller then cannot
+          tell failure from "legitimately nothing", and on CI the real error dies with
+          the database. This repo has been bitten repeatedly: board members got
+          org-wide project access when a permission hook returned "" (read as
+          UNRESTRICTED, PR #191); a swallowed DB error in the volunteer duplicate guard
+          inserted SECOND Volunteers; and a CI failure in test_chapter_members_enhanced
+          was undiagnosable because the only copy of the cause died with the job.
+          Ratcheted against scripts/validation/error_swallow_baseline.txt (353 known
+          sites) so existing code does not block commits — the baseline should only
+          ever shrink. Mark deliberate cases `# swallow-ok: best-effort`.
+        entry: python scripts/validation/error_swallow_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/|verenigingen/tests/)'
+
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
         description: Check for usage of deprecated functions using Codanna
