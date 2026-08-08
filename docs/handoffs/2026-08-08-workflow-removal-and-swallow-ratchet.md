@@ -7,10 +7,16 @@ Six PRs merged, four are open, four issues filed. Every defect the review round 
 now corrected; #246 and #250 are re-verified green, #249 and #251 have their fixes in.
 Read §6 before touching any of them.
 
-**Two things you cannot pick up from the diffs.** #251 must not merge before #249 — alone
-it opens the unguarded status mutation in §3.3. And **veg11 already lost the Workflow** to
-a botched dry run (§4.13), which puts the live site in the post-#251 state on pre-#249
-code; the decision was to leave it and rush #249 to deploy rather than restore.
+**Two things you cannot pick up from the diffs.** #249 was a hard prerequisite for #251 —
+alone, #251 opens the unguarded status mutation in §3.3. That is now satisfied: #249 is
+merged **and deployed**. And **veg11 lost the Workflow** to a botched dry run (§4.13),
+which put the live site in the post-#251 state on pre-#249 code for several hours; the
+decision was to leave it and rush #249 to deploy rather than restore. That deploy has
+happened and the exposure is closed.
+
+**Also: this bench serves veg11 straight out of the git working tree** (§4.14). A
+`git checkout` in `apps/verenigingen` is a live code change. Decision: keep the tree on
+`develop` and use `git worktree` for branch work.
 
 ---
 
@@ -26,15 +32,30 @@ code; the decision was to leave it and rush #249 to deploy rather than restore.
 | #244 | `999a9616` | ratchet promoted to a hard CI gate |
 | #245 | `e930d33f` | condition (3) widened; `frappe.throw` taught to condition (2) |
 | #247 | `87ed9327` | test workflow-transition fix — landed on the decision to land rather than close |
+| #249 | `39b5836b` | workflow_demo page removed + COR data patch — **merged on two named red shards** (§6.3) |
+
+### Deployed to veg11
+
+**#249 is deployed, not merely merged** — this is what closed the §3.3 exposure that §4.13
+opened. Backup `20260808_225640` taken first. `bench migrate` applied the COR patch (and
+two pre-existing pending `builder` patches, unrelated). Verified against the **live**
+gunicorn workers, 15 samples each:
+
+| check | result |
+|---|---|
+| `execute_workflow_action` / `get_workflow_actions` COR rows | gone |
+| `Patch Log` entry | present |
+| `GET /workflow_demo` | 404 |
+| both API methods | `No module named 'verenigingen.templates.pages.workflow_demo'` — byte-identical to a method that never existed |
+| controls | `frappe.ping` 200; a live whitelisted method 403 |
 
 ### Open
 
 | PR | Branch | State | Blocking work |
 |---|---|---|---|
 | #246 | `fix/money-critical-swallows` | **CI re-verified green** (12/12 shards, 0 failures) | ready |
-| #249 | `chore/remove-workflow-demo-page` | COR patch + recreators fixed (`45aa80ff`) | CI re-run |
 | #250 | `fix/board-member-application-approval` | **CI re-verified green** (12/12 shards, 0 failures) | ready |
-| #251 | `chore/remove-membership-application-workflow` | patch defects fixed (`eba97229`) | **rebase after #249 lands** |
+| #251 | `chore/remove-membership-application-workflow` | fixes in + **rebased onto develop** (`e8f45051`) | CI re-run; #249 prerequisite now satisfied |
 | — | issues **#248**, **#253**, **#254**, **#255** | open | see §3 and §8 |
 | — | `fix/error-swallow-log-names` @ `953e3416` | **local only, never pushed** | stacked on #246; rebase after it merges |
 
@@ -123,7 +144,7 @@ So board members never saw Approve/Reject on the Member record at all. Replaced 
 server call to a new read-only `can_review_application(member_name)` rather than porting
 the rule into JS.
 
-### 3.3 `execute_workflow_action` is an unguarded status mutation — CRITICAL, see §6.4
+### 3.3 `execute_workflow_action` is an unguarded status mutation — CLOSED (#249, deployed)
 
 `templates/pages/workflow_demo.py` exposed a whitelisted endpoint that does
 `member.application_status = next_state; member.save()`, guarded **only** by
@@ -131,8 +152,13 @@ the rule into JS.
 hook never runs. No `validate_chapter_permission_or_throw`, and no check that the
 transition is legal.
 
-Today the Workflow rejects the save. **#251 removes the only thing stopping it.** #249
-deletes the page, which closes it — so #249 is a hard prerequisite for #251, not a nicety.
+The Workflow used to reject the save, so **#251 would have removed the only thing stopping
+it** — which is why #249 was a hard prerequisite, not a nicety.
+
+**Now closed.** #249 deleted the page and its Critical Operation Rules, and is deployed to
+veg11 — both methods return `No module named …`, verified against the live workers. The
+window in which this was genuinely exposed on veg11 (workflow gone via §4.13, page still
+deployed) lasted a few hours on 2026-08-08 and is over. #251 is now safe to land.
 
 ### 3.4 `ServiceFieldValidator.get_doctype_meta` poison-cached failures — FIXED (#246)
 
@@ -344,7 +370,34 @@ would have put the Workflow back, if that decision is ever revisited.
 **Rule: to preview a data patch, run it on a scratch site, or read it first and confirm it
 has no `commit()`. A rolled-back transaction is not a safety net around one that does.**
 
-### 4.14 Assorted
+### 4.14 The bench serves veg11 from the git working tree — a checkout IS a deploy
+
+`gunicorn` runs against `/home/frappeuser/frappe-bench/apps/verenigingen`, which is this
+git repo. There is no separate deploy artifact. **Whatever branch is checked out is what
+the live site serves.** Switching branches to inspect a PR silently changes production.
+
+Observed this session: checking out `chore/remove-workflow-demo-page` removed
+`templates/pages/workflow_demo.py` from the served code with no deploy step — which
+happened to *narrow* the §4.13 exposure by accident, and checking develop back out before
+#249 merged would have re-opened it. The deploy had to be sequenced around that.
+
+*Decision (foppe, 2026-08-08): keep this working tree on `develop`; use `git worktree` for
+branch work.*
+
+Two consequences worth knowing:
+
+- **Pre-push hooks fail inside a worktree.** `make test-quick` runs `bench --site`, which
+  needs a bench directory; from `/tmp/.../wt-xxx` it dies with `No such option: --site` and
+  the push aborts. Do the commit in the worktree, then push the *ref* from the main tree
+  (`git push origin <branch>`) so the hooks run where they work. Do **not** reach for
+  `--no-verify` — it skips the real validators too.
+- "Deploy" on this box is `git checkout develop` + `bench migrate` + worker recycle. There
+  is no pipeline. `supervisorctl` needs a sudo password that is not available here, so a
+  forced restart is not possible; gunicorn runs `--max-requests 500`, so workers recycle on
+  their own. Verify with real HTTP requests rather than assuming — and **send the site's
+  `Host:` header**, or every probe returns 404 and the result is meaningless.
+
+### 4.15 Assorted
 
 - `delete_doc(..., force=True)` still records to `tabDeleted Document` (recoverable);
   `frappe.db.delete` does not.
@@ -392,7 +445,7 @@ denial). The identity test is verified to fail without the flag.
 
 **CI re-verified after the correction commit: 12/12 shards green, 0 failures.**
 
-### 6.3 #249 — DONE (`45aa80ff`)
+### 6.3 #249 — MERGED (`39b5836b`) AND DEPLOYED
 1. `patches/v2_2/remove_workflow_demo_critical_operation_rules.py` added (§4.7).
 2. `scripts/workspace_reorganization.py` no longer lists `/workflow_demo` among the links
    it rebuilds. Also removed the workflow_demo special case in
@@ -407,9 +460,10 @@ denial). The identity test is verified to fail without the flag.
 
    One failure per shard, both order-dependence, neither touching changed code.
 
-### 6.4 #251 — patch DONE (`eba97229`), rebase outstanding
-1. **#249 is a hard prerequisite** — stated at the top of the PR body. Alone, #251 opens
-   §3.3. **Rebase onto `develop` once #249 lands.**
+### 6.4 #251 — ALL FOUR DONE, rebased (`e8f45051`)
+1. DONE — **#249 was a hard prerequisite** and is now merged *and deployed*, so §3.3 can no
+   longer be opened by this PR. Rebased onto `develop`; the only conflict was
+   `patches.txt`, where both branches appended a line (both kept, COR patch first).
 2. DONE — children deleted explicitly, by **subquery** rather than an `IN` list (veg11 has
    3,624 parent names, and that only grows). Patch comment corrected (§4.3).
 3. DONE — `frappe.clear_cache(doctype="Member")` before the commit (§4.11).
