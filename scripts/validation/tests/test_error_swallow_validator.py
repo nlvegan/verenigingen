@@ -226,12 +226,104 @@ class ExistingConditionsTest(unittest.TestCase):
             [],
         )
 
-    def test_handler_with_real_work_is_not_flagged(self):
-        """Condition (3): a handler that does more than log is out of scope.
+    def test_handler_with_an_extra_statement_is_flagged(self):
+        """Condition (3) used to require a body of ONLY logs and returns.
 
-        This is a KNOWN false negative, pinned deliberately so the gap stays
-        visible rather than being rediscovered.
+        One unrelated statement — a cleanup call, an assignment — hid the site
+        entirely. The swallow is no less real for having tidied up first.
         """
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.log_error('boom')\n"
+                    "        cleanup()\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_poison_cached_failure_is_flagged(self):
+        """The live shape this fix was written for (ServiceFieldValidator).
+
+        Caching the falsy value makes ONE transient error permanent for the
+        life of the process — strictly worse than returning it once.
+        """
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def get_meta(self, doctype):\n"
+                    "    try:\n"
+                    "        meta = frappe.get_meta(doctype)\n"
+                    "        self._cache[doctype] = meta\n"
+                    "        return meta\n"
+                    "    except Exception as e:\n"
+                    "        self.logger.warning(f'no meta for {doctype}: {e}')\n"
+                    "        self._cache[doctype] = None\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+
+class PropagationTest(unittest.TestCase):
+    """Condition (2): a handler that propagates is not a swallow.
+
+    Widening (3) makes these reachable for the first time: previously the very
+    statement that propagates (a `frappe.throw` call) was also what tripped the
+    old "logs and returns only" rule, so they were excluded by accident.
+    """
+
+    def test_frappe_throw_is_not_flagged(self):
+        """`frappe.throw` raises. 85 live handlers rely on this."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        frappe.log_error('boom')\n"
+                "        frappe.throw(_('Could not compute: {0}').format(e))\n"
+            ),
+            [],
+        )
+
+    def test_msgprint_with_raise_exception_is_not_flagged(self):
+        """`msgprint` is in LOG_NAMES, but raise_exception=True makes it raise."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.msgprint('failed', raise_exception=True)\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+    def test_plain_msgprint_is_still_flagged(self):
+        """Without raise_exception it really is just logging."""
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception:\n"
+                    "        frappe.msgprint('failed')\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_sys_exit_is_not_flagged(self):
         self.assertEqual(
             _flagged(
                 "def f(x):\n"
@@ -239,6 +331,73 @@ class ExistingConditionsTest(unittest.TestCase):
                 "        return compute(x)\n"
                 "    except Exception:\n"
                 "        frappe.log_error('boom')\n"
+                "        sys.exit(1)\n"
+            ),
+            [],
+        )
+
+
+class WidenedConditionThreeNegativesTest(unittest.TestCase):
+    """The disqualifiers that keep the widened (3) from over-reaching."""
+
+    def test_nested_real_return_is_not_flagged(self):
+        """A real value on ANY path means the caller can still get one."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        if fallback_allowed():\n"
+                "            return fallback()\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+    def test_continue_is_not_flagged(self):
+        """`continue` resumes the loop; nothing falsy reaches a caller."""
+        self.assertEqual(
+            _flagged(
+                "def f(rows):\n"
+                "    out = []\n"
+                "    for r in rows:\n"
+                "        try:\n"
+                "            out.append(compute(r))\n"
+                "        except Exception:\n"
+                "            frappe.log_error('boom')\n"
+                "            failures += 1\n"
+                "            continue\n"
+                "    return out\n"
+            ),
+            [],
+        )
+
+    def test_nested_function_def_is_not_flagged(self):
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
+                "        frappe.log_error('boom')\n"
+                "        def later():\n"
+                "            return real_value()\n"
+                "        schedule(later)\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+    def test_handler_with_no_logging_is_not_flagged(self):
+        """Out of scope: this rule is about log-AND-swallow, not silent returns."""
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception:\n"
                 "        cleanup()\n"
                 "        return None\n"
             ),
