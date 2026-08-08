@@ -255,7 +255,7 @@ repos:
           UNRESTRICTED, PR #191); a swallowed DB error in the volunteer duplicate guard
           inserted SECOND Volunteers; and a CI failure in test_chapter_members_enhanced
           was undiagnosable because the only copy of the cause died with the job.
-          Ratcheted against scripts/validation/error_swallow_baseline.txt (432 known
+          Ratcheted against scripts/validation/error_swallow_baseline.txt (450 known
           sites) so existing code does not block commits — the baseline should only
           ever shrink. Mark deliberate cases `# swallow-ok: best-effort`.
           This hook only sees the files you touched; the Code Validation workflow

@@ -66,7 +66,7 @@ positives.
 never returns anything meaningful (fire-and-forget cache invalidation, a
 best-effort notification) is not reported: its falsy return is not load-bearing,
 because no caller can branch on it. Measured on this repo, (5) is what makes the
-rule usable: conditions 1-4 alone match 900 sites, and (5) cuts that to 432.
+rule usable: conditions 1-4 alone match 926 sites, and (5) cuts that to 450.
 
 KNOWN FALSE NEGATIVES
 ---------------------
@@ -80,8 +80,8 @@ worse bug class -- a silent swallow -- and reporting it here would bury this one
 
 RATCHET, NOT BIG-BANG
 ---------------------
-There are 432 such sites today, across ``verenigingen/`` and ``scripts/``.
-Failing on all of them would block every commit, and pragma-ing 432 sites in one
+There are 450 such sites today, across ``verenigingen/`` and ``scripts/``.
+Failing on all of them would block every commit, and pragma-ing 450 sites in one
 diff would be unreviewable. So this validator fails only on sites NOT already
 recorded in the baseline.
 
@@ -136,6 +136,16 @@ LOG_NAMES = {
     "exception",
     "msgprint",
     "print",
+    # This repo's own error helpers. Without these the validator only recognised
+    # the framework's names, so a handler recording its failure through the
+    # service layer looked like it logged NOTHING and was skipped entirely --
+    # 25 log-and-swallow sites hidden behind the project's own conventions.
+    # A bare `log` was deliberately NOT added: too generic to attribute.
+    "handle_error",
+    "handle_service_error",
+    "log_action",
+    "safe_log_error",
+    "_log_error_with_traceback",
 }
 BROAD_EXCEPTIONS = {"Exception", "BaseException"}
 
@@ -145,6 +155,14 @@ BROAD_EXCEPTIONS = {"Exception", "BaseException"}
 # statement. `msgprint` counts as logging everywhere else, but raise_exception=True
 # makes it raise too.
 PROPAGATING_CALLS = {"throw", "exit", "_exit"}
+
+# `handle_service_error(..., raise_error=True)` is the DEFAULT, and BaseService's
+# `handle_error` delegates straight to it -- so a bare `self.handle_error(e, op)`
+# re-raises. These names log AND propagate, which is why they appear in LOG_NAMES
+# too. Only an explicit `raise_error=False` makes them a swallow; anything
+# non-literal is assumed to raise, which errs toward a false negative rather than
+# inventing a swallow where the failure actually escapes.
+RAISE_UNLESS_DISABLED = {"handle_error", "handle_service_error"}
 
 # A def inside a handler puts real returns out of reach of this analysis.
 NESTED_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
@@ -220,7 +238,17 @@ def _propagates(handler: ast.ExceptHandler) -> bool:
                 return True
             if name == "msgprint" and any(k.arg == "raise_exception" for k in n.keywords):
                 return True
+            if name in RAISE_UNLESS_DISABLED and not _disables_raise(n):
+                return True
     return False
+
+
+def _disables_raise(call: ast.Call) -> bool:
+    """True only for a literal ``raise_error=False``."""
+    return any(
+        k.arg == "raise_error" and isinstance(k.value, ast.Constant) and k.value.value is False
+        for k in call.keywords
+    )
 
 
 def _qualnames(tree: ast.AST):
