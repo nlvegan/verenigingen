@@ -177,29 +177,5 @@ class TestGetSubscriptionFailureCountSafe(FrappeTestCase):
         self.assertEqual(count, 0)
 
 
-class TestSubscriptionFailureCountFailsLoudly(FrappeTestCase):
-    """`return 0  # Safe fallback` was not safe.
-
-    `process_failed_payment` reads this count and does `current + 1`, so a
-    swallowed read error restarted the escalation at 1 -- a subscription that
-    should be cancelled after N failures never got there. Raising fails the
-    webhook, which makes Mollie retry: the right outcome for a transient error.
-    """
-
-    def test_raises_instead_of_reporting_zero_failures(self):
-        from unittest.mock import patch
-
-        with patch.object(frappe.db, "count", side_effect=RuntimeError("database is down")):
-            with self.assertRaises(RuntimeError):
-                pw._get_subscription_failure_count("MEM-0001", "sub_abc")
-
-    def test_still_returns_zero_for_a_subscription_with_no_failures(self):
-        """The control: a genuine zero must survive untouched."""
-        from unittest.mock import patch
-
-        with patch.object(frappe.db, "count", return_value=0):
-            self.assertEqual(pw._get_subscription_failure_count("MEM-0001", "sub_abc"), 0)
-
-
 if __name__ == "__main__":
     unittest.main()

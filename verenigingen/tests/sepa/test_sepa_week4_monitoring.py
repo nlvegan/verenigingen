@@ -390,20 +390,46 @@ class TestSEPAZabbixIntegration(VereningingenTestCase):
         super().setUp()
         self.zabbix_integration = SEPAZabbixIntegration()
 
-    def test_total_batch_amount_raises_rather_than_reporting_zero_volume(self):
-        """0.0 to monitoring is a FALSE ALL-CLEAR: zero SEPA volume looks normal.
+    def test_one_failing_metric_does_not_blank_the_alerted_ones(self):
+        """A failing amount calculation must not take the whole batch group down.
 
-        The SQL aggregation already degrades to this Python fallback; if that
-        fails too, a failed metric collection is the honest signal.
+        `_get_batch_metrics` used to wrap all seven metrics in a single
+        try/except returning {}. Only three of them carry Zabbix triggers --
+        success_rate, stuck_count and count.daily -- and none of the amount
+        metrics do, so a failure in an UNALERTED metric silently removed the
+        ALERTED ones. With no nodata() trigger defined, last() then keeps
+        evaluating a frozen value: a false all-clear rather than a gap.
         """
-        with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
-            with self.assertRaises(RuntimeError):
-                self.zabbix_integration._calculate_total_batch_amount_python()
+        with patch.object(
+            self.zabbix_integration,
+            "_calculate_total_batch_amount_optimized",
+            side_effect=RuntimeError("database is down"),
+        ):
+            metrics = self.zabbix_integration._get_batch_metrics()
 
-    def test_daily_batch_amount_raises_rather_than_reporting_zero_volume(self):
-        with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
-            with self.assertRaises(RuntimeError):
-                self.zabbix_integration._calculate_daily_batch_amount_python(now_datetime())
+        self.assertNotEqual(metrics, {}, "one failure must not blank the group")
+        for alerted in ("sepa.batch.success_rate", "sepa.batch.stuck_count", "sepa.batch.count.daily"):
+            self.assertIn(alerted, metrics, f"{alerted} carries a trigger and must survive")
+
+        # The failed metric is ABSENT (not silently zero) and is reported as such.
+        self.assertNotIn("sepa.batch.amount.total", metrics)
+        self.assertEqual(metrics["sepa.batch.collection_errors"], 1)
+
+    def test_healthy_collection_reports_no_errors(self):
+        """The control: all seven present and collection_errors == 0."""
+        metrics = self.zabbix_integration._get_batch_metrics()
+
+        for key in (
+            "sepa.batch.count.total",
+            "sepa.batch.count.daily",
+            "sepa.batch.amount.total",
+            "sepa.batch.amount.daily",
+            "sepa.batch.success_rate",
+            "sepa.batch.stuck_count",
+            "sepa.batch.avg_processing_time",
+        ):
+            self.assertIn(key, metrics)
+        self.assertEqual(metrics["sepa.batch.collection_errors"], 0)
 
     def test_get_zabbix_metrics(self):
         """Test Zabbix metrics collection"""
