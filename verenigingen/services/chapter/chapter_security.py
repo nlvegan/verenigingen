@@ -48,11 +48,20 @@ def get_user_manageable_chapters(user=None):
     # already resolves user -> Member -> Volunteer -> board roster, and is the lookup
     # the chapter dashboard trusts. Keeping a second implementation here is what let
     # the two silently diverge in the first place.
+    #
+    # strict_user_link=True keeps the IDENTITY rule this function already had. The
+    # delegate's default resolution falls back to matching Member.email when no
+    # Member.user link matches, which would admit a User who merely shares an address
+    # with a Member they are not linked to -- 126 such Members exist on this database,
+    # one of whose volunteers holds an active board seat. That is a looser rule than
+    # the gate guarding approvals, and adopting it here would have been an
+    # authorization change smuggled in as a lookup fix. The board dashboard keeps the
+    # fallback; this path does not.
     from verenigingen.services.chapter.chapter_permission_service import get_user_board_chapters
 
     manageable_chapters = []
 
-    for position in get_user_board_chapters(user):
+    for position in get_user_board_chapters(user, strict_user_link=True):
         chapter_name = position.get("chapter_name")
         chapter_role = position.get("chapter_role")
         if not chapter_name or not chapter_role or chapter_name in manageable_chapters:

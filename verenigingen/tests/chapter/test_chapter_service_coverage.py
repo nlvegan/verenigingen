@@ -977,3 +977,75 @@ class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
             from verenigingen.services.chapter.chapter_security import can_user_manage_application
 
             self.assertTrue(can_user_manage_application(self.applicant_other.name))
+
+    # ------------------------------------------------ the predicate, and identity
+
+    def test_board_role_without_admin_level_cannot_approve(self):
+        """A board SEAT is not enough -- the Chapter Role must grant it.
+
+        Nothing pinned this before, so deleting the permissions_level check
+        entirely would have passed every other test in this class. On live data
+        the predicate is load-bearing: President is Basic, Penningmeester is
+        Financial, and neither may approve.
+        """
+        from verenigingen.services.chapter.chapter_security import (
+            can_user_manage_application,
+            get_user_manageable_chapters,
+        )
+
+        basic_role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": f"TEST Board Basic {frappe.generate_hash(length=6)}",
+                "permissions_level": "Basic",
+                "is_active": 1,
+            }
+        ).insert()
+        self.track_doc("Chapter Role", basic_role.name)
+
+        user = self.create_test_user_with_roles(roles=["Verenigingen Member"])
+        member = self.create_test_member(first_name="BasicBoard", last_name="Member")
+        frappe.db.set_value("Member", member.name, "user", user.name)
+        volunteer = self.create_test_volunteer(member_name=member.name)
+
+        chapter = frappe.get_doc("Chapter", self.chapter_own.name)
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": basic_role.name,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        chapter.save()
+
+        self.assertEqual(get_user_manageable_chapters(user=user.name), [])
+        self.assertFalse(can_user_manage_application(self.applicant_own.name, user=user.name))
+
+    def test_identity_is_the_user_link_not_a_matching_email(self):
+        """Sharing an address with a board member's Member record grants nothing.
+
+        get_user_board_chapters falls back to matching Member.email when no
+        Member.user link matches, which the chapter DASHBOARD wants. This gate
+        does not: it passes strict_user_link=True, because gaining a board seat
+        by email collision is a looser rule than the one guarding approvals.
+        """
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+        # A User whose address equals the board member's Member.email, but which
+        # no Member.user field points at.
+        shared_email = frappe.db.get_value("Member", self.board_member.name, "email")
+        self.assertTrue(shared_email)
+        impostor = self.create_test_user(shared_email, roles=["Verenigingen Member"])
+        self.assertNotEqual(
+            frappe.db.get_value("Member", self.board_member.name, "user"),
+            impostor.name,
+            "precondition: the Member must NOT link to this user",
+        )
+
+        self.assertEqual(
+            get_user_manageable_chapters(user=impostor.name),
+            [],
+            "an email match must not confer the board member's chapters",
+        )
