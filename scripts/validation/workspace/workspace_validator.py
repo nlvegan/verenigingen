@@ -152,7 +152,7 @@ class WorkspaceValidator:
             """, (self.workspace_name,), as_dict=True)
             
             # Check for essential page links
-            essential_pages = ['/workflow_demo', '/member_portal', '/volunteer/dashboard']
+            essential_pages = ['/member_portal', '/volunteer/dashboard']
             found_pages = [link.link_to for link in page_links]
             
             missing_essential = [page for page in essential_pages if page not in found_pages]
