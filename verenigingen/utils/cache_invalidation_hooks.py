@@ -55,10 +55,18 @@ def invalidate_member_cache(doc, method=None):
         for pattern in cache_patterns:
             try:
                 if "*" in pattern:
-                    # Handle wildcard patterns
-                    keys = frappe.cache().get_keys(pattern)
-                    for key in keys:
-                        frappe.cache().delete_key(key)
+                    # delete_keys() resolves the wildcard and deletes with
+                    # make_keys=False. The previous get_keys() + delete_key() loop
+                    # double-prefixed every key -- get_keys() returns keys with the
+                    # site namespace already applied, delete_key() re-applies it -- so
+                    # this branch silently deleted nothing.
+                    #
+                    # The pattern is passed through unchanged: get_keys() appends its
+                    # OWN "*" (redis_wrapper.py, `key = self.make_key(key + "*")`), so
+                    # "member_*" globs "member_**", which Redis treats identically to
+                    # "member_*". Stripping the trailing star would be a no-op that
+                    # reads as if it were load-bearing.
+                    frappe.cache().delete_keys(pattern)
                 else:
                     frappe.cache().delete_key(pattern)
             except (ConnectionError, TimeoutError) as cache_error:
@@ -114,11 +122,11 @@ def invalidate_chapter_access_cache(doc, method=None):
             except Exception as e:
                 frappe.logger().error(f"Unexpected cache error for '{pattern}': {e}")
 
-        # Also clear general chapter access cache since board structure changed
+        # Also clear general chapter access cache since board structure changed.
+        # delete_keys() rather than get_keys() + delete_key(): the latter
+        # double-prefixed every key and deleted nothing.
         try:
-            keys = frappe.cache().get_keys("user_accessible_chapters:*")
-            for key in keys:
-                frappe.cache().delete_key(key)
+            frappe.cache().delete_keys("user_accessible_chapters:*")
         except Exception as e:
             frappe.logger().warning(f"Error clearing general chapter access cache: {e}")
 
@@ -182,13 +190,21 @@ def invalidate_all_caches():
         total_cleared = 0
         for pattern in cache_patterns:
             try:
+                # One scan, then delete exactly those keys. The previous
+                # get_keys() + delete_key() loop incremented total_cleared for every
+                # key while deleting none of them (delete_key re-applies the site
+                # namespace that get_keys already applied), so this "emergency clear
+                # everything" function reported a confident non-zero count and was a
+                # complete no-op.
+                #
+                # This is what delete_keys() does internally; it is inlined here only
+                # so the count comes from the same scan that performed the delete.
+                # Scanning twice would both double the cost (get_keys uses Redis KEYS,
+                # which is O(keyspace) and blocking) and let the count drift from what
+                # was actually removed.
                 keys = frappe.cache().get_keys(pattern)
-                for key in keys:
-                    try:
-                        frappe.cache().delete_key(key)
-                        total_cleared += 1
-                    except Exception:
-                        pass  # Continue clearing other keys
+                frappe.cache().delete_value(keys, make_keys=False)
+                total_cleared += len(keys)
             except Exception as e:
                 frappe.logger().warning(f"Error clearing cache pattern '{pattern}': {e}")
 

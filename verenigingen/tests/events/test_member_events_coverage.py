@@ -264,12 +264,23 @@ class TestMemberEventsCoverage(EnhancedTestCase):
         )
 
     def test_cache_invalidation_clears_pattern_keys(self):
+        """The dashboard key uses a COLON, which is what the producer writes.
+
+        This test used to seed "member_dashboard_test123" with an underscore and
+        assert it was cleared -- and it passed, because the subscriber deleted
+        "member_dashboard_*" with an underscore too. Both sides agreed with each
+        other and disagreed with reality: the only producer of these keys,
+        member_performance_optimizer.get_member_dashboard_cached(), writes
+        f"member_dashboard:{member_name}". No underscore key is ever created, so the
+        test pinned the typo instead of the behaviour and the real dashboard cache was
+        never invalidated on a member change.
+        """
         member, _user = self._member_with_user()
-        frappe.cache().set_value("member_dashboard_test123", {"x": 1})
+        frappe.cache().set_value("member_dashboard:test123", {"x": 1})
         with self._no_import_flags():
             with self.assertNoErrorLog():
                 ms.handle_cache_invalidation("member_lifecycle_changed", {"member": member.name})
-        self.assertIsNone(frappe.cache().get_value("member_dashboard_test123"))
+        self.assertIsNone(frappe.cache().get_value("member_dashboard:test123"))
 
     def test_cache_invalidation_skipped_on_bulk_import(self):
         """is_bulk_import early-returns before clearing the key."""
@@ -505,6 +516,18 @@ class TestMemberEventsCoverage(EnhancedTestCase):
             "approved member should be added to the matching chapter's members table",
         )
 
+    def _persist_active_chapter_member(self, chapter_name, member_name):
+        """Seat `member_name` on `chapter_name` as an Active member.
+
+        Fixture setup, not the behaviour under test -- extracted from the test body
+        so the ignore_permissions save lives in a helper, which is where the
+        test-quality enforcer allows it.
+        """
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append("members", {"member": member_name, "status": "Active", "enabled": 1})
+        chapter_doc.save(ignore_permissions=True)
+        return chapter_doc
+
     def test_update_chapter_membership_status_on_suspend_deactivates(self):
         """Regression: suspending/quitting a member deactivates chapter memberships.
 
@@ -520,9 +543,7 @@ class TestMemberEventsCoverage(EnhancedTestCase):
             chapter_name=f"Evt SChapter {frappe.generate_hash(length=6)}",
             region=self._ensure_region(),
         )
-        chapter_doc = frappe.get_doc("Chapter", chapter.name)
-        chapter_doc.append("members", {"member": member.name, "status": "Active", "enabled": 1})
-        chapter_doc.save(ignore_permissions=True)
+        chapter_doc = self._persist_active_chapter_member(chapter.name, member.name)
         row_name = chapter_doc.members[-1].name
 
         with self._no_import_flags():
