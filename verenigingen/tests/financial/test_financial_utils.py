@@ -203,6 +203,22 @@ class TestFinancialUtils(EnhancedTestCase):
         )
 
 
+class TestOutstandingAmountFailsLoudly(EnhancedTestCase):
+    """A swallowed error must not reach the caller as a legitimate 0.0.
+
+    `get_total_outstanding_amount` used to log and return 0.0, which reads as
+    "this customer owes nothing" -- the one answer a caller is most likely to
+    act on. `None` or `[]` at least look like nothing; a monetary zero does not.
+    """
+
+    def test_raises_instead_of_reporting_zero_owed(self):
+        from unittest.mock import patch
+
+        with patch.object(frappe.db, "sql", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                get_total_outstanding_amount("CUST-0001")
+
+
 if __name__ == '__main__':
     import unittest
     unittest.main()

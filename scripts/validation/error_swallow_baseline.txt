@@ -137,7 +137,6 @@ verenigingen/services/communication/email_service.py::EmailService._has_active_e
 verenigingen/services/csv_import/membership_import_service.py::MembershipImportService.create_membership_from_csv::1
 verenigingen/services/customer_handling_service.py::CustomerHandlingService.validate_configuration::1
 verenigingen/services/donation/donor_service.py::DonationDonorService.link_donor_to_customer::1
-verenigingen/services/infrastructure/field_validator.py::ServiceFieldValidator.get_doctype_meta::1
 verenigingen/services/member/account/base_role_profile_manager.py::safe_hook_execution::1
 verenigingen/services/member/account/member_role_service.py::MemberRoleService.add_member_roles_to_user::1
 verenigingen/services/member/account/user_role_profile_calculator.py::auto_sync_on_role_change::1
@@ -230,8 +229,6 @@ verenigingen/utils/financial_utils.py::get_customer_invoices::1
 verenigingen/utils/financial_utils.py::get_customer_payment_summary::1
 verenigingen/utils/financial_utils.py::get_invoice_payment_status::1
 verenigingen/utils/financial_utils.py::get_outstanding_invoices::1
-verenigingen/utils/financial_utils.py::get_total_outstanding_amount::1
-verenigingen/utils/import_helpers.py::persist_full_error_log::1
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.add_or_update_entry::2
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.remove_entry::1
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.update_entry_field::1
@@ -251,7 +248,6 @@ verenigingen/utils/member_utils.py::get_member_sepa_mandate::1
 verenigingen/utils/member_utils.py::get_volunteer_name_for_user::1
 verenigingen/utils/member_utils.py::has_active_dues_schedule::1
 verenigingen/utils/member_utils.py::has_any_dues_schedule::1
-verenigingen/utils/membership_dues_integration.py::_calculate_member_paid_ytd_python::1
 verenigingen/utils/migration/migration_error_recovery.py::MigrationErrorRecovery._save_error_details_to_file::1
 verenigingen/utils/migration/stock_migration.py::StockTransactionMigrator.get_or_create_migration_item::1
 verenigingen/utils/optimized_queries.py::optimize_volunteer_assignment_loading::1
@@ -418,7 +414,6 @@ verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPARollbackM
 verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPARollbackManager._get_notification_recipients::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._calculate_daily_batch_amount_python::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._calculate_total_batch_amount_python::1
-verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_batch_metrics::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_business_metrics::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_financial_metrics::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_health_metrics::1
