@@ -50,7 +50,14 @@ class TestMemberUserEmailSyncSweep(EnhancedTestCase):
                 "contact_number": "+31612345678",
                 "birth_date": "1990-01-01",
                 "status": "Active",
-                "application_status": "Approved",
+                # NOT application_status="Approved". The native Frappe Workflow
+                # "Membership Application Workflow" is active on Member (on veg11
+                # and on the test sites), and its initial state is Pending, so
+                # inserting straight into Approved is a transition it rejects:
+                # "Workflow State transition not allowed from Pending to Approved".
+                # These tests only ever passed where no earlier test in the same
+                # process had installed the workflow. Nothing here asserts on
+                # application_status -- it was incidental scaffolding.
             }
         )
         member.insert(ignore_permissions=True)
