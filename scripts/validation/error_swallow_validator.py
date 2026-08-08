@@ -64,9 +64,13 @@ A handler that logs and returns a falsy value through a local variable
 
 RATCHET, NOT BIG-BANG
 ---------------------
-There are 353 such sites today. Failing on all of them would block every commit,
-and pragma-ing 353 sites in one diff would be unreviewable. So this validator
-fails only on sites NOT already recorded in the baseline.
+There are 376 such sites today (353 under ``verenigingen/``, 23 under ``scripts/``).
+Failing on all of them would block every commit, and pragma-ing 376 sites in one
+diff would be unreviewable. So this validator fails only on sites NOT already
+recorded in the baseline.
+
+Run over the whole tree by the ``Code Validation`` workflow, so ``git commit -n``
+does not bypass it, and as a pre-commit hook on touched files for fast feedback.
 
 The baseline is keyed ``path::qualified_function::count`` -- deliberately NOT line
 numbers, which rot on any edit above them. The count means a new swallow added to
@@ -97,6 +101,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("error_swallow_baseline.txt")
+
+# The roots the baseline covers. CI scans exactly these; the pre-commit hook scans
+# only the files you touched, so its `exclude` must stay a SUBSET of this -- a file
+# that the hook scans but the baseline does not cover fails spuriously on its first
+# edit. `scripts/` is included because a dev tool that swallows an error into "no
+# findings" is a gate that silently passes, which is this bug class at its worst.
+SCAN_ROOTS = ("verenigingen", "scripts")
 
 # Attribute/name fragments that mark a call as "just logging".
 LOG_NAMES = {
@@ -337,16 +348,16 @@ def write_baseline(path: Path, counts: Counter) -> None:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("paths", nargs="*", default=["verenigingen"])
+    ap.add_argument("paths", nargs="*", default=list(SCAN_ROOTS))
     ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     ap.add_argument("--update-baseline", action="store_true")
     ap.add_argument("--stats", action="store_true", help="print totals and exit 0")
     args = ap.parse_args(argv[1:])
 
-    paths = args.paths or ["verenigingen"]
+    paths = args.paths or list(SCAN_ROOTS)
 
     if args.update_baseline:
-        counts, _ = _counts([str(REPO_ROOT / "verenigingen")])
+        counts, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
         write_baseline(args.baseline, counts)
         print(f"baseline written: {len(counts)} functions, {sum(counts.values())} sites")
         return 0

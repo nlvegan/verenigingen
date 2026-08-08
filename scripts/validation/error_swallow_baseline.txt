@@ -11,6 +11,29 @@
 # The one legitimate reason it may GROW is a change to the validator's own
 # detection rules, which must land in the same commit as the regeneration.
 
+scripts/admin/role_renamer.py::get_role_usage_count::1
+scripts/analysis/eslint_analysis.py::ESLintAnalyzer.run_eslint_analysis::1
+scripts/field_rename_safety.py::FieldRenameSafety.perform_safe_field_rename::1
+scripts/install_sepa_schemas.py::download_sepa_xsd_schema::1
+scripts/maintenance/rename_roles_with_prefix.py::get_role_usage_count::1
+scripts/migration/migrate_amendment_data.py::cleanup_old_doctype::1
+scripts/migration/migrate_amendment_data.py::get_old_doctype_data::1
+scripts/migration/migrate_amendment_data.py::update_member_links::1
+scripts/migration/migrate_to_native_expense_system.py::migrate_to_native_expense_system::1
+scripts/migration/remove_custom_amount_fields.py::update_membership_python_file::1
+scripts/monitoring/context_switching_performance_monitor.py::setup_monitoring_integration::1
+scripts/n_plus_one_scanner.py::N1CodebaseScanner._scan_file::1
+scripts/security/batch_secure_apis.py::add_security_framework_to_file::1
+scripts/security/batch_secure_apis.py::extract_function_names::1
+scripts/setup/configure_role_profiles.py::configure_chapter::1
+scripts/setup/configure_role_profiles.py::configure_team::1
+scripts/setup/setup_department_hierarchy.py::setup_department_hierarchy::1
+scripts/setup/update_workspace_for_onboarding.py::update_workspace_onboarding::1
+scripts/setup/validate_role_profile_db_config.py::test_new_api_functionality::1
+scripts/testing/pytest_precommit_runner.py::run_pytest_for_precommit::1
+scripts/validate_fixtures.py::validate_single_fixture::1
+scripts/validation/production/comprehensive_field_reference_validator.py::ContextAnalyzer.analyze_file_context::1
+scripts/validation/production/js_python_parameter_validator_enhanced.py::EnhancedJSPythonParameterValidator._create_python_function::1
 verenigingen/api/email_template_manager.py::send_template_email::1
 verenigingen/api/member/financial_api.py::get_current_dues_schedule_details::1
 verenigingen/api/member_management.py::can_assign_member_to_chapter::1
