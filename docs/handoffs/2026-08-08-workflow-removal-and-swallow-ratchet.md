@@ -136,7 +136,7 @@ permanent for the process lifetime on a module-level singleton. Worse, its calle
 falsy result as `"DocType {x} does not exist"` — a DB error reported as a confidently
 wrong diagnosis.
 
-### 3.5 `get_valid_fields` has the identical bug — **NOT FIXED**
+### 3.5 `get_valid_fields` has the identical bug — **NOT FIXED, issue #253**
 
 Eleven lines below 3.4, same class:
 
@@ -168,7 +168,7 @@ three same-named functions in `payment_processors.py` are unrelated class method
 webhook routes through `unified_payment_api`), so this was documented rather than
 restructured.
 
-### 3.8 `create_customer_for_member` — dead `return None`, aborts Member insert — **NOT FIXED**
+### 3.8 `create_customer_for_member` — dead `return None`, aborts Member insert — **NOT FIXED, issue #254**
 
 `self.handle_error(e, op)` defaults to `raise_error=True` (§4.8), so the `return None`
 below it is unreachable. But it is annotated `-> Optional[str]` and
@@ -176,7 +176,7 @@ below it is unreachable. But it is annotated `-> Optional[str]` and
 `ServiceError` propagating out of `after_insert`, aborting the Member insert. Deserves
 its own issue.
 
-### 3.9 `get_member_payment_matcher()` singleton is never invalidated — **NOT FIXED**
+### 3.9 `get_member_payment_matcher()` singleton is never invalidated — **NOT FIXED, issue #255**
 
 A process-global whose `_customer_id_map` loads once behind a `_loaded` flag. Whichever
 module in a shard warms it first freezes the snapshot; Members created later are invisible.
@@ -375,10 +375,17 @@ rebase onto `develop` after #246 merges and push.
 
 ## 8. Not done / open questions
 
-- §3.5, §3.8, §3.9 have no fix and no issue yet.
+- §3.5, §3.8, §3.9 have no fix. Each now has an issue so they survive this document:
+  **#253** (`get_valid_fields`), **#254** (`create_customer_for_member`),
+  **#255** (matcher singleton). #254 is a *decision*, not a mechanical fix — the issue
+  states the two coherent options. #253 should land after #246, which edits the same file.
 - #247: close in favour of #251, or land it? Its comment becomes false once #251 lands.
 - Issue #248 items 1 and 2 are resolved by #251; item 3 (the "not in use" comment) is
-  answered — it was in use.
+  answered — it was in use. #255 is the shard-9 half of it, split out because it is a
+  production defect and not only a test-isolation artifact.
 - The reviewer-agent instructions (`.claude/agents/skeptical-code-reviewer.md`) gained an
   exception-handler section this session. **`.claude/` and `CLAUDE.md` are gitignored**, so
-  that guidance is local to this machine and reaches no contributor.
+  that guidance is local to this machine and reaches no contributor. *Decision (foppe,
+  2026-08-08): leave it local.* Recorded here so the next reader knows it was chosen, not
+  overlooked — if a contributor's review misses the exception-handler cases this section
+  covers, that is the reason.
