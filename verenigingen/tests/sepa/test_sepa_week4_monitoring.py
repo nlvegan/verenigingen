@@ -389,7 +389,22 @@ class TestSEPAZabbixIntegration(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.zabbix_integration = SEPAZabbixIntegration()
-    
+
+    def test_total_batch_amount_raises_rather_than_reporting_zero_volume(self):
+        """0.0 to monitoring is a FALSE ALL-CLEAR: zero SEPA volume looks normal.
+
+        The SQL aggregation already degrades to this Python fallback; if that
+        fails too, a failed metric collection is the honest signal.
+        """
+        with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                self.zabbix_integration._calculate_total_batch_amount_python()
+
+    def test_daily_batch_amount_raises_rather_than_reporting_zero_volume(self):
+        with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                self.zabbix_integration._calculate_daily_batch_amount_python(now_datetime())
+
     def test_get_zabbix_metrics(self):
         """Test Zabbix metrics collection"""
         # Create test data to generate metrics

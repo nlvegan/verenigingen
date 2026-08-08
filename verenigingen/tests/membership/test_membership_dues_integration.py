@@ -410,3 +410,28 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
             frappe.db.set_value("Membership Dues Schedule", existing[0], "schedule_name", first)
             second = generate_dues_schedule_name(member_id, mtype)
             self.assertNotEqual(second, first)
+
+
+class TestMemberPaidYtdFailsLoudly(VereningingenTestCase):
+    """The Python fallback is the LAST line of defence, so its failure is real.
+
+    `_calculate_member_paid_ytd_optimized` already degrades to this fallback when
+    the SQL aggregation fails. If the fallback fails too, that is infrastructure
+    failure -- per-invoice conversion errors are absorbed by its own loop. It used
+    to return 0.0, reporting "paid nothing year-to-date".
+    """
+
+    def test_raises_when_both_paths_fail(self):
+        from unittest.mock import patch
+
+        with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                mdi._calculate_member_paid_ytd_python("CUST-0001")
+
+    def test_still_returns_zero_when_there_are_no_invoices(self):
+        """The control: a genuine zero is still 0.0, which is what made the
+        swallow easy to miss in the first place."""
+        from unittest.mock import patch
+
+        with patch.object(frappe, "get_all", return_value=[]):
+            self.assertEqual(mdi._calculate_member_paid_ytd_python("CUST-0001"), 0.0)
