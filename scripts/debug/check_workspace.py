@@ -27,21 +27,10 @@ def check_workspace():
         print(f"Public: {workspace.public}")
         print(f"Hidden: {workspace.is_hidden}")
 
-        # Check for workflow demo link
-        workflow_demo_link = None
+        print("Page links:")
         for link in workspace.links:
-            if link.link_to == "/workflow_demo":
-                workflow_demo_link = link
-                break
-
-        if workflow_demo_link:
-            print(f"✅ Workflow demo link found: {workflow_demo_link.label}")
-        else:
-            print("❌ Workflow demo link NOT found")
-            print("Available page links:")
-            for link in workspace.links:
-                if link.link_type == "Page":
-                    print(f"  - {link.label} -> {link.link_to}")
+            if link.link_type == "Page":
+                print(f"  - {link.label} -> {link.link_to}")
 
         # Check for any broken links
         broken_links = []
