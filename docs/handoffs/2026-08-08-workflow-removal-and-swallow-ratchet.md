@@ -3,9 +3,14 @@
 Supersedes nothing; extends `docs/handoffs/2026-08-07-overpayments-and-1630-upgrade.md`,
 whose §10 closed the shard-weighting arc. Everything here happened after that.
 
-Five PRs merged, five are open, one issue filed. **Nothing open is ready to merge as-is**
-— a skeptical review round found defects in four of the five, two of which are already
-corrected. Read §6 before touching any of them.
+Six PRs merged, four are open, four issues filed. Every defect the review round found is
+now corrected; #246 and #250 are re-verified green, #249 and #251 have their fixes in.
+Read §6 before touching any of them.
+
+**Two things you cannot pick up from the diffs.** #251 must not merge before #249 — alone
+it opens the unguarded status mutation in §3.3. And **veg11 already lost the Workflow** to
+a botched dry run (§4.13), which puts the live site in the post-#251 state on pre-#249
+code; the decision was to leave it and rush #249 to deploy rather than restore.
 
 ---
 
@@ -20,17 +25,17 @@ corrected. Read §6 before touching any of them.
 | #243 | `7552121c` | handoff update for #237 |
 | #244 | `999a9616` | ratchet promoted to a hard CI gate |
 | #245 | `e930d33f` | condition (3) widened; `frappe.throw` taught to condition (2) |
+| #247 | `87ed9327` | test workflow-transition fix — landed on the decision to land rather than close |
 
 ### Open
 
 | PR | Branch | State | Blocking work |
 |---|---|---|---|
-| #246 | `fix/money-critical-swallows` | corrections landed (`bcb8a9cf`) | re-verify CI |
-| #247 | `fix/member-email-sync-workflow-transition` | CLEAN | **decide**: close in favour of #251, or land |
-| #249 | `chore/remove-workflow-demo-page` | red (2 shards, see §5) | needs a COR data patch |
-| #250 | `fix/board-member-application-approval` | corrections landed (`d568e8d7`) | re-verify CI |
-| #251 | `chore/remove-membership-application-workflow` | red | **3 fixes required — see §6.4** |
-| — | issue **#248** | open | test-suite order-dependence |
+| #246 | `fix/money-critical-swallows` | **CI re-verified green** (12/12 shards, 0 failures) | ready |
+| #249 | `chore/remove-workflow-demo-page` | COR patch + recreators fixed (`45aa80ff`) | CI re-run |
+| #250 | `fix/board-member-application-approval` | **CI re-verified green** (12/12 shards, 0 failures) | ready |
+| #251 | `chore/remove-membership-application-workflow` | patch defects fixed (`eba97229`) | **rebase after #249 lands** |
+| — | issues **#248**, **#253**, **#254**, **#255** | open | see §3 and §8 |
 | — | `fix/error-swallow-log-names` @ `953e3416` | **local only, never pushed** | stacked on #246; rebase after it merges |
 
 ---
@@ -306,7 +311,40 @@ Hit once this session: Black reformatted one line, the hook aborted the commit, 
 the output looked green, and the subsequent push reported success with nothing new on the
 branch. **Always verify with `git log -1` and compare local vs `origin/<branch>` heads.**
 
-### 4.13 Assorted
+### 4.13 A patch that commits internally CANNOT be dry-run in a transaction — veg11 incident
+
+**This happened. veg11 lost the Workflow to it.**
+
+`remove_membership_application_workflow.execute()` ends with `frappe.db.commit()`, like
+most data patches here. Wrapping the call in `frappe.db.begin()` / `frappe.db.rollback()`
+to preview it does **not** work: the patch's own commit ends the transaction, and the
+subsequent `rollback()` has nothing left to undo. The verification prints "rolled back"
+while the rows are already gone.
+
+Consequences on veg11, 2026-08-08 22:12:
+
+| item | count | recoverable |
+|---|---|---|
+| `Workflow` "Membership Application Workflow" | 1 | **yes** — `tabDeleted Document` `7487f2fkqk`, full payload (6 states, 17 transitions) |
+| `Workflow Action` (reference_doctype=Member) | 3,624 | **no** — raw `DELETE` is not journalled |
+| `Workflow Action Permitted Role` | 7,352 | **no** — same |
+
+Unaffected: `application_status` values (697 Approved / 51 Pending), the Periodic Donation
+Agreement workflow and its 2 permitted-role rows, and Member saves — the patch's
+`frappe.clear_cache(doctype="Member")` ran, so §4.11 did not fire.
+
+**The exposure this created:** veg11 now runs post-#251 data on pre-#249 code, so §3.3 is
+live there — `execute_workflow_action` mutates `application_status` with no chapter check
+and no transition check, and the Workflow that used to reject that save is gone.
+
+*Decision (foppe, 2026-08-08): do NOT restore; rush #249 to deploy to close it.* The
+restore was available and declined — `frappe.core.doctype.deleted_document.restore("7487f2fkqk")`
+would have put the Workflow back, if that decision is ever revisited.
+
+**Rule: to preview a data patch, run it on a scratch site, or read it first and confirm it
+has no `commit()`. A rolled-back transaction is not a safety net around one that does.**
+
+### 4.14 Assorted
 
 - `delete_doc(..., force=True)` still records to `tabDeleted Document` (recoverable);
   `frappe.db.delete` does not.
@@ -319,13 +357,16 @@ branch. **Always verify with `git log -1` and compare local vs `origin/<branch>`
 
 ## 5. CI status of the open PRs
 
-- **#249** red on shards 5 and 9. Both traced and both are #248-family: shard 5 is a
-  dues-rate contamination already named in #248; shard 9 is the matcher singleton (§3.9).
-- **#251** red — same family, plus it deletes a test module (§4.2).
-- **#246, #250** were green before the correction commits; **re-verify**.
+- **#246, #250** — re-verified after their correction commits: **12/12 shards green, 0
+  failures** on both.
+- **#249** — was red on shards 5 and 9, **one failure each**, both extracted from the job
+  logs and named in the PR body (§6.3). Neither touches code the PR changes. Re-running
+  after `45aa80ff`.
+- **#251** — same family, plus it deletes a test module (§4.2).
 
 Merging on red must be an evidenced decision naming the failures, not a generic
-"#248" hand-wave.
+"#248" hand-wave. Note `gh run view --log` returns empty here; use
+`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs` and strip the ANSI codes.
 
 ---
 
@@ -336,23 +377,47 @@ Both net-negative hunks reverted (Mollie, Zabbix); the live Zabbix caller fixed 
 per-metric. Three wrong-target/tautological tests fixed or removed. Baseline 425 → 427,
 still below develop's 432 so the no-growth gate holds.
 
+**CI re-verified after the correction commit: 12/12 shards green, 0 failures.**
+
+Its `get_doctype_meta` fix changes the method from *returning `None`* to *raising*.
+Audited: the method has exactly **one** caller, `validate_fields` (same file, line 36),
+which is itself inside a `try/except Exception` returning a dict. The exception is caught
+there and reported as `"Field validation error: <real cause>"` instead of the old,
+confidently wrong `"DocType {x} does not exist"`. `validate_fields`' contract — always
+returns a dict, never raises — is unchanged, so no caller depended on the swallow.
+
 ### 6.2 #250 — DONE (`d568e8d7`)
 `strict_user_link` added; the two missing tests added (`Basic`-role denial, email-collision
 denial). The identity test is verified to fail without the flag.
 
-### 6.3 #249 — TODO
-1. Add a COR removal patch for `execute_workflow_action` / `get_workflow_actions` (§4.7).
-2. Delete `scripts/workspace_reorganization.py:44`, which recreates the dead link.
-3. Replace the generic #248 disclaimer with the two named failures.
+**CI re-verified after the correction commit: 12/12 shards green, 0 failures.**
 
-### 6.4 #251 — TODO, contains the critical item
-1. **Make #249 a hard prerequisite** (or fold the page deletion in). Alone, #251 opens
-   §3.3.
-2. Delete `Workflow Action Permitted Role` children explicitly, and correct the patch
-   comment that claims they cascade (§4.3).
-3. Add `frappe.clear_cache(doctype="Member")` at the end of the patch (§4.11).
-4. State in the PR body that the desk Member form becomes **editable** for Staff and board
-   members once the workflow's `allow_edit` states are gone.
+### 6.3 #249 — DONE (`45aa80ff`)
+1. `patches/v2_2/remove_workflow_demo_critical_operation_rules.py` added (§4.7).
+2. `scripts/workspace_reorganization.py` no longer lists `/workflow_demo` among the links
+   it rebuilds. Also removed the workflow_demo special case in
+   `scripts/debug/check_workspace.py`, which printed a ❌ marker whenever the link was
+   absent — i.e. always, after this PR.
+3. PR body now names both failures instead of hand-waving at #248:
+   - shard 5 — `test_regression_payment_history_draft_status.test_payment_history_sync_with_auto_generated_invoice`,
+     `ValidationError: Dues rate (€2.00) cannot be less than minimum amount (€100.00)`.
+     Dues-rate contamination from the reshuffle. #248.
+   - shard 9 — `test_dues_payment_processor_integration...test_find_member_by_customer_id`,
+     `AssertionError: None != 'Assoc-Member-2026-08-0420'`. The matcher singleton, **#255**.
+
+   One failure per shard, both order-dependence, neither touching changed code.
+
+### 6.4 #251 — patch DONE (`eba97229`), rebase outstanding
+1. **#249 is a hard prerequisite** — stated at the top of the PR body. Alone, #251 opens
+   §3.3. **Rebase onto `develop` once #249 lands.**
+2. DONE — children deleted explicitly, by **subquery** rather than an `IN` list (veg11 has
+   3,624 parent names, and that only grows). Patch comment corrected (§4.3).
+3. DONE — `frappe.clear_cache(doctype="Member")` before the commit (§4.11).
+4. DONE — and quantified. `allow_edit` was `Verenigingen Administrator` on Pending, Under
+   Review, Approved, Payment Pending and Active, and `System Manager` on Rejected. Removing
+   the workflow drops that restriction entirely: the desk Member form becomes editable by
+   anyone with ordinary Member write permission. A real widening, now stated as an accepted
+   consequence rather than a footnote.
 
 ### 6.5 log_names — TODO
 Document the `FinancialErrorHandler` exception in `KNOWN FALSE NEGATIVES` (§4.8). Then
@@ -370,6 +435,9 @@ rebase onto `develop` after #246 merges and push.
 - Debt: fix the money-critical tranche only; do not attempt a 432-site remediation.
 - Silent swallows (~1,383, of which ~244 match the ratchet's shape): **measure first** —
   measurement done, no validator built.
+- **#247: land it**, rather than close it in favour of #251. Merged `87ed9327`.
+- **veg11 after the §4.13 incident: do NOT restore the Workflow.** Rush #249 to deploy to
+  close the §3.3 exposure instead. The restore path was available and declined.
 
 ---
 
@@ -379,7 +447,8 @@ rebase onto `develop` after #246 merges and push.
   **#253** (`get_valid_fields`), **#254** (`create_customer_for_member`),
   **#255** (matcher singleton). #254 is a *decision*, not a mechanical fix — the issue
   states the two coherent options. #253 should land after #246, which edits the same file.
-- #247: close in favour of #251, or land it? Its comment becomes false once #251 lands.
+- **#249 must be deployed to veg11, not merely merged** — that is what closes the §3.3
+  exposure the §4.13 incident opened. Merging it does nothing for the live site.
 - Issue #248 items 1 and 2 are resolved by #251; item 3 (the "not in use" comment) is
   answered — it was in use. #255 is the shard-9 half of it, split out because it is a
   production defect and not only a test-isolation artifact.
