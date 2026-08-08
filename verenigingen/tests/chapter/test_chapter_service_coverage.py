@@ -811,3 +811,169 @@ class TestChapterBoardMemberController(EnhancedTestCase):
         doc = self._make_board_member_doc()
         # Should not raise
         doc.validate()
+
+
+class TestChapterSecurityBoardMemberApproval(EnhancedTestCase):
+    """A chapter board member may review their OWN chapter's applications.
+
+    This is the case nothing covered: every existing test drives these helpers as
+    Administrator or Staff, both of which short-circuit to "all" before the board
+    roster is ever consulted, so the roster lookup itself was never exercised.
+
+    Board seats are held by a VOLUNTEER profile, not by a Member.
+    get_user_manageable_chapters used to compare the caller's MEMBER name against
+    Chapter Board Member.volunteer -- different namespaces (Assoc-Member-... vs
+    Assoc-Vol-...), so it matched nothing and every board member was read as
+    managing no chapters.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.chapter_own = self.create_test_chapter()
+        self.chapter_other = self.create_test_chapter()
+
+        # A board role that grants approval. Chapter Role is autonamed
+        # `field:role_name`, so the name is a GLOBAL unique key -- generate it.
+        role_name = f"TEST Board Approver {frappe.generate_hash(length=6)}"
+        self.chapter_role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": "Admin",
+                "is_active": 1,
+            }
+        ).insert()
+        self.track_doc("Chapter Role", self.chapter_role.name)
+
+        # The board member: a plain member, deliberately WITHOUT any admin/staff
+        # role, so the short-circuit at the top of get_user_manageable_chapters
+        # cannot mask whether the roster lookup works.
+        self.board_user = self.create_test_user_with_roles(roles=["Verenigingen Member"])
+        self.board_member = self.create_test_member(first_name="Board", last_name="Reviewer")
+        frappe.db.set_value("Member", self.board_member.name, "user", self.board_user.name)
+        self.board_volunteer = self.create_test_volunteer(member_name=self.board_member.name)
+
+        self._seat_on_board(self.chapter_own, self.board_volunteer)
+
+        self.applicant_own = self._pending_applicant_in(self.chapter_own, "Own")
+        self.applicant_other = self._pending_applicant_in(self.chapter_other, "Other")
+
+    def _seat_on_board(self, chapter, volunteer):
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": self.chapter_role.name,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        chapter.save()
+
+    def _pending_applicant_in(self, chapter, tag):
+        """A member whose application is pending, holding an ACTIVE seat in chapter.
+
+        can_user_manage_application matches the applicant through Chapter Member
+        rows with enabled=1 and status='Active'.
+        """
+        applicant = self.create_test_member(first_name="Applicant", last_name=tag)
+        chapter.reload()
+        chapter.append("members", {"member": applicant.name, "enabled": 1, "status": "Active"})
+        chapter.save()
+        return applicant
+
+    def test_board_member_manages_only_their_own_chapter(self):
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+        manageable = get_user_manageable_chapters(user=self.board_user.name)
+
+        self.assertNotEqual(manageable, "all", "a plain board member must not get blanket access")
+        self.assertEqual(
+            manageable,
+            [self.chapter_own.name],
+            "the board seat is held by the VOLUNTEER; resolving only as far as the Member finds nothing",
+        )
+
+    def test_board_member_can_manage_application_in_own_chapter(self):
+        from verenigingen.services.chapter.chapter_security import can_user_manage_application
+
+        self.assertTrue(can_user_manage_application(self.applicant_own.name, user=self.board_user.name))
+
+    def test_board_member_cannot_manage_application_in_another_chapter(self):
+        """The scope must be per-chapter, not "is a board member somewhere"."""
+        from verenigingen.services.chapter.chapter_security import can_user_manage_application
+
+        self.assertFalse(can_user_manage_application(self.applicant_other.name, user=self.board_user.name))
+
+    def test_validate_throws_for_another_chapters_application(self):
+        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
+
+        # Own chapter: must not raise.
+        validate_chapter_permission_or_throw(self.applicant_own.name, user=self.board_user.name)
+
+        with self.assertRaises(frappe.PermissionError):
+            validate_chapter_permission_or_throw(self.applicant_other.name, user=self.board_user.name)
+
+    def test_inactive_board_seat_confers_nothing(self):
+        """Leaving the board removes the permission."""
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+        chapter = frappe.get_doc("Chapter", self.chapter_own.name)
+        for row in chapter.board_members:
+            if row.volunteer == self.board_volunteer.name:
+                row.is_active = 0
+        chapter.save()
+
+        self.assertEqual(get_user_manageable_chapters(user=self.board_user.name), [])
+
+    # ------------------------------------------------ real sessions, not user= kwargs
+
+    def test_board_member_reviewing_in_their_own_session(self):
+        """Same checks, but actually logged in AS the board member.
+
+        The tests above pass ``user=`` explicitly while running as Administrator,
+        which exercises the lookup but not a real session. Running under
+        ``as_user`` additionally covers the ``user = frappe.session.user`` default
+        branch and proves the queries still resolve without admin rights -- a
+        board member is a plain Verenigingen Member.
+        """
+        from verenigingen.services.chapter.chapter_security import (
+            can_user_manage_application,
+            get_user_manageable_chapters,
+            validate_chapter_permission_or_throw,
+        )
+
+        with self.as_user(self.board_user.name):
+            # No user= argument anywhere: everything resolves from the session.
+            self.assertEqual(get_user_manageable_chapters(), [self.chapter_own.name])
+            self.assertTrue(can_user_manage_application(self.applicant_own.name))
+            self.assertFalse(can_user_manage_application(self.applicant_other.name))
+
+            validate_chapter_permission_or_throw(self.applicant_own.name)
+            with self.assertRaises(frappe.PermissionError):
+                validate_chapter_permission_or_throw(self.applicant_other.name)
+
+    def test_can_review_application_endpoint_in_board_member_session(self):
+        """The endpoint the Member form calls, exercised as the board member.
+
+        member.js gates its Review Actions buttons on this, so it has to give the
+        board member the same answer the server enforces on approve/reject.
+        """
+        from verenigingen.api.membership_application_review import can_review_application
+
+        with self.as_user(self.board_user.name):
+            self.assertTrue(can_review_application(self.applicant_own.name))
+            self.assertFalse(can_review_application(self.applicant_other.name))
+
+    def test_staff_session_gets_all_chapters(self):
+        """Staff short-circuit to "all" without consulting any board roster."""
+        from verenigingen.services.chapter.chapter_security import get_user_manageable_chapters
+
+        staff_user = self.create_test_user_with_roles(roles=[Roles.VERENIGINGEN_STAFF])
+
+        with self.as_user(staff_user.name):
+            self.assertEqual(get_user_manageable_chapters(), "all")
+            # ... including chapters they hold no seat on.
+            from verenigingen.services.chapter.chapter_security import can_user_manage_application
+
+            self.assertTrue(can_user_manage_application(self.applicant_other.name))
