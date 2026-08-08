@@ -280,7 +280,6 @@
 ./verenigingen/setup/dd_batch_workflow_setup.py
 ./verenigingen/setup/document_links.py
 ./verenigingen/setup/__init__.py
-./verenigingen/setup/membership_application_workflow_setup.py
 ./verenigingen/setup/role_profile_setup.py
 ./verenigingen/setup/security_setup.py
 ./verenigingen/setup/simple_dd_workflow_setup.py

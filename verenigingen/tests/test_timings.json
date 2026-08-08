@@ -606,7 +606,6 @@
  "verenigingen.tests.member.test_member_utils_coverage": 10,
  "verenigingen.tests.member.test_member_utils_endpoints": 24,
  "verenigingen.tests.member.test_membership_application_integration": 8,
- "verenigingen.tests.member.test_membership_application_workflow": 4,
  "verenigingen.tests.member.test_membership_commitment_period": 4,
  "verenigingen.tests.member.test_membership_termination_analytics": 16,
  "verenigingen.tests.member.test_membership_termination_request": 24,
