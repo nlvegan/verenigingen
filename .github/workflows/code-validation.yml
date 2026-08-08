@@ -78,6 +78,92 @@ jobs:
         echo "- Field validation: ~1s (764 Python files)" >> $GITHUB_STEP_SUMMARY
         echo "- Template validation: ~2s (62 templates)" >> $GITHUB_STEP_SUMMARY
 
+  # Unlike the advisory steps in `validation` above, this one is a HARD GATE.
+  # It is a ratchet: it fails only on log-and-swallow sites that are not already
+  # in scripts/validation/error_swallow_baseline.txt, so it cannot go red from
+  # pre-existing code — only from something the PR adds.
+  #
+  # It exists as a CI job and not only as a pre-commit hook because the hook can
+  # be skipped with `git commit -n` (or SKIP=), and because the hook only ever
+  # sees the files in one commit; this scans the whole tree.
+  swallowed-exception-ratchet:
+    name: 🕳️ Swallowed-Exception Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # The validator is stdlib-only (ast, argparse, pathlib) by design, so this job
+    # needs no bench, no site, and no dependency install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_error_swallow_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/error_swallow_validator.py
+
+    # A ratchet that never tightens is not a ratchet. If someone fixes a swallow
+    # without regenerating, the baseline keeps a ceiling that is higher than the
+    # tree, and the removed slot can be silently refilled later.
+    - name: Baseline is in sync with the tree
+      run: |
+        python scripts/validation/error_swallow_validator.py --update-baseline
+        if ! git diff --quiet -- scripts/validation/error_swallow_baseline.txt; then
+          echo "::error file=scripts/validation/error_swallow_baseline.txt::Baseline is out of sync with the tree."
+          echo "Regenerate it and commit the result:"
+          echo "    python scripts/validation/error_swallow_validator.py --update-baseline"
+          echo ""
+          echo "Drift (committed vs regenerated):"
+          git --no-pager diff -- scripts/validation/error_swallow_baseline.txt
+          exit 1
+        fi
+        echo "Baseline matches the tree."
+
+    # The step above cannot catch the one abuse that actually defeats this gate:
+    # regenerating the baseline so a NEW finding is recorded rather than fixed.
+    # That leaves baseline and tree perfectly in sync — and the ratchet green.
+    # The only signal is that the baseline GREW, which is legitimate solely when
+    # the validator's own detection rules changed in the same PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/error_swallow_baseline.txt
+        VALIDATOR=scripts/validation/error_swallow_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a larger baseline is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline sites: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new log-and-swallow site was recorded into the baseline instead of fixed."
+          echo "Either fix the handler, or mark it deliberately:"
+          echo "    except Exception:  # swallow-ok: best-effort"
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
   fast-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 5

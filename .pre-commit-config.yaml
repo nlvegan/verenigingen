@@ -255,15 +255,19 @@ repos:
           UNRESTRICTED, PR #191); a swallowed DB error in the volunteer duplicate guard
           inserted SECOND Volunteers; and a CI failure in test_chapter_members_enhanced
           was undiagnosable because the only copy of the cause died with the job.
-          Ratcheted against scripts/validation/error_swallow_baseline.txt (353 known
+          Ratcheted against scripts/validation/error_swallow_baseline.txt (376 known
           sites) so existing code does not block commits — the baseline should only
           ever shrink. Mark deliberate cases `# swallow-ok: best-effort`.
+          This hook only sees the files you touched; the Code Validation workflow
+          re-runs it over the whole tree, so `git commit -n` no longer bypasses it.
+          The exclude below must stay a SUBSET of SCAN_ROOTS in the validator —
+          anything scanned here but absent from the baseline fails on first edit.
         entry: python scripts/validation/error_swallow_validator.py
         language: system
         pass_filenames: true
         files: '\.py$'
         stages: [pre-commit]
-        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/|verenigingen/tests/)'
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
 
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
