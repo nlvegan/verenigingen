@@ -143,17 +143,35 @@ disagreed with the producer. Fixed, and the test corrected.
 
 The margin was only ever 1 → 0, which is why it never reproduced in isolation.
 
-**IMPORTANT — this did not fix CI.** With the working clear in place, CI still reached
-the first load with a warm entry, failing the new `first_load_queries >= 1` assertion.
-So the broken clear is real and proven, but it is **not the only way that key gets
-warmed in a CI run**, and the other way is unidentified. Candidates ruled out: nothing
-else in the repo calls `get_member_dashboard_cached`, and the enqueued
-`process_member_post_creation` does not touch it.
+**The broken clear was real, but it was NOT what made CI fail.** Fixing it left CI
+still failing, now on a new `first_load_queries >= 1` assertion with the cache key
+verified absent immediately beforehand. That ruled out a stale cache entirely and
+pointed at the counter.
 
-The test now deletes **its own member's key** and asserts it absent immediately before
-measuring, so the next failure is diagnostic: if it still fires, the cause is either
-that `_count_queries` is not observing `frappe.db.sql`, or something repopulates the key
-in between. The failure message says so.
+**ACTUAL ROOT CAUSE — a leaked instance attribute on `frappe.db`.**
+`frappe.db.sql` is a CLASS attribute. `tests/integration/test_query_optimization_suite.py`
+saved it and "restored" it with `frappe.db.sql = original_sql` instead of deleting it,
+which leaves a permanent INSTANCE attribute behind. MEASURED:
+`"sql" in frappe.db.__dict__` goes `False -> True` on re-assignment and back to `False`
+only on `del`.
+
+An instance attribute wins attribute lookup, so `_count_queries` — which patched
+`frappe.db.__class__.sql` — observed **nothing** and recorded zero queries in any shard
+where that module had already run. Order-dependent, therefore CI-only and never
+reproducible locally in isolation.
+
+With zero counted queries, the original `assertGreater(first_load, cached_load)` is
+`0 > 0` and fails — and, more quietly, **every upper-bound budget in that module passed
+vacuously** (`assertLessEqual(0, 300)` is always true). Fixed at both ends: the
+polluting helper now deletes the instance attribute, and `_count_queries` patches the
+instance so it is immune either way.
+`test_query_counter_survives_an_instance_level_sql_attribute` pins it by simulating the
+polluted state.
+
+Generalisable: **`obj.attr = saved` is not the inverse of patching a class attribute.**
+Restoring requires `del obj.attr` when the attribute was not in `obj.__dict__` to begin
+with — which is precisely what `mock.patch.object` gets right and hand-rolled patchers
+usually get wrong.
 
 ---
 
