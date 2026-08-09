@@ -108,6 +108,7 @@ class Volunteer(Document):
         """Validate volunteer data"""
         self.validate_required_fields()
         self.validate_member_link()
+        self.validate_unique_member_link()
         self.validate_volunteer_age()
         self.validate_dates()
 
@@ -122,6 +123,40 @@ class Volunteer(Document):
             "Member", self.member, throw_on_error=False
         ):
             frappe.throw(_("Member {0} does not exist").format(self.member), frappe.DoesNotExistError)
+
+    def validate_unique_member_link(self):
+        """Refuse a second Volunteer for a member who already has one.
+
+        This is for the MESSAGE, not the enforcement: two concurrent inserts both
+        pass validate() and only the unique index on `member` stops the second. It
+        exists because the four creation paths that already guard this
+        (create_volunteer_from_member, the bulk creation service,
+        api/volunteer_application.py, mijnrood's sync service) all check-then-insert,
+        and a swallowed error in the check silently produces the duplicate --
+        utils/member_utils.py:361 documents that as an observed outcome.
+
+        Duplicates are not merely redundant data. Half the codebase resolves this
+        link with a single-row lookup (get_volunteer_for_member) and half iterates
+        (permissions.py:1500, :1533, :1578), so a second record makes lookups --
+        including authorization ones -- depend on which row wins. See #267.
+
+        self.name is already set here: insert() calls set_new_name (document.py:479)
+        before _validate (:485), so excluding the document being saved works on
+        insert as well as on update.
+        """
+        if not self.member:
+            return
+
+        filters = {"member": self.member}
+        if self.name:
+            filters["name"] = ("!=", self.name)
+
+        existing = frappe.db.get_value("Volunteer", filters, "name")
+        if existing:
+            frappe.throw(
+                _("Member {0} already has a Volunteer record: {1}").format(self.member, existing),
+                frappe.UniqueValidationError,
+            )
 
     def validate_volunteer_age(self):
         """Validate volunteer age requirements"""

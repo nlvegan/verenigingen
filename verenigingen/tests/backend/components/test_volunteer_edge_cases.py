@@ -23,6 +23,10 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         # Create test interest categories if needed
         self.create_test_interest_categories()
 
+        # See create_test_volunteer below: only the first volunteer in a test links
+        # to self.test_member, because Volunteer.member is unique.
+        self._test_member_has_volunteer = False
+
     def create_test_interest_categories(self):
         """Create test interest categories"""
         categories = ["Testing Category", "Edge Case Category", "Special Category"]
@@ -38,8 +42,17 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
                 self.track_test_record("Volunteer Interest Category", category)
 
     def create_test_volunteer(self, **kwargs):
-        """Create volunteer defaulting to self.test_member"""
-        kwargs.setdefault("member_name", self.test_member.name)
+        """Create a volunteer, linked to self.test_member for the FIRST one in a test.
+
+        Volunteer.member is unique (#267), so several tests here — which vary the
+        NAME or the EMAIL and create one volunteer per case — cannot all hang off
+        one member. Subsequent volunteers therefore get a member of their own from
+        the factory. The first keeps the linkage, which is what the tests that
+        assert on volunteer.member use.
+        """
+        if "member_name" not in kwargs and not self._test_member_has_volunteer:
+            kwargs["member_name"] = self.test_member.name
+            self._test_member_has_volunteer = True
         return super().create_test_volunteer(**kwargs)
 
     def test_volunteer_name_edge_cases(self):
