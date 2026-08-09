@@ -10,19 +10,39 @@ see §1 below before reading it.
 
 ## 0. State at handoff
 
-| PR | What | Status |
+**Everything in this document is MERGED.** `develop` is at `654ed54d`.
+
+| PR | What | Merge commit |
 |---|---|---|
-| #252 | the previous handoff doc | CLEAN, mergeable |
-| #256 | Membership doc-level scoping | **NOT merged**, red on shard 2 (see §5) |
-| #259 | Employee doc-level scoping | **NOT merged**, red on shard 2 |
-| #260 | cache invalidation + 3 test fixes | **NOT merged**, CI re-running |
-| #257 | issue: Team has the same defect | open, unimplemented |
-| #258 | issue: nothing enforces the two registries agree | open, unimplemented |
+| #262 | payment tests own their membership type (#248) | `f18a234a` |
+| #260 | wildcard cache invalidation + the query-counter fix | `09a997b7` |
+| #259 | Employee scoped at document level | `0495f5be` |
+| #256 | Membership scoped at document level | `654ed54d` |
 
-`develop` is at `c36be736`. veg11 serves the git working tree, which is on `develop`
-and clean. **Nothing from this session is merged.**
+Open issues left behind: **#257** (Team has the same doc-level defect), **#258** (nothing
+enforces that the two permission registries agree), **#263** (two more shared
+membership-type names with #248's exposure), **#264** (audit of the membership-type and
+dues-schedule fixtures).
 
----
+veg11 serves the git working tree, which is on `develop` and clean. Note the site's
+gunicorn had been running ~14 days with `--preload` against source that changed 3 days
+earlier, which surfaced as `ImportError: cannot import name 'get_workspaces'` and
+`SessionBootFailed` on the desk. Nothing was wrong on disk; `bench restart` fixed it. Any
+long-lived `--preload` gunicorn will do this whenever app source changes underneath it,
+and a `git checkout` in `apps/verenigingen` IS such a change.
+
+### Merge order, and why it was not optional
+
+#260 and #262 were MUTUALLY blocking: #260's only red shard was the dues-rate
+contamination that #262 fixes, and #262's only red shard was the caching test that #260
+fixes. Neither could go green alone. #262 was merged first on that cross-fixed red — the
+only merge in the sequence not on a fully green run — after confirming from its own shard
+log that the `Dues rate (€2.00)` class had disappeared. Everything after it merged CLEAN
+at 12/12.
+
+If this shape recurs: identify precisely which failure each PR removes from the other,
+merge the smaller/lower-risk one first, then rebase and re-run rather than merging both
+on red.
 
 ## 1. §9.4 of the previous handoff was asking about the wrong role
 
@@ -199,23 +219,22 @@ already name it `ptype` and do receive it, so the repo has both conventions.
 
 ---
 
-## 5. Why nothing merged
+## 5. CI polling produced two plausible-but-wrong signals
 
-Both permission PRs are red on shard 2, and neither failure is theirs:
+Both would have caused a merge on an unverified run, and both were caught by checking the
+underlying state before acting:
 
-- `test_member_dashboard_caching` — §3. #260 was supposed to fix it and does not yet.
-- `test_payment_history_sync_with_auto_generated_invoice` — `Dues rate (€2.00) cannot be
-  less than minimum amount (€100.00)`. This is #248's dues-rate contamination: a shared
-  Membership Type's `minimum_amount` is mutated by another test. Order-dependent.
+1. **`pending == 0` is meaningless right after a force-push.** The push cancels the old
+   run and re-registers checks; in the gap the API honestly reports zero pending. A wait
+   loop keyed only on that exits immediately and reports `fail=NONE` while the shards that
+   matter have not started. Require a COMPLETENESS term too — all 12 test shards present
+   AND none pending.
+2. **A wait loop that times out reports rather than waits.** A bounded `for` loop falling
+   through to its status line is indistinguishable, in the output, from one that satisfied
+   its condition. Print whether the loop broke or exhausted.
 
-**Merge order when they are green:** #260 first (it is what makes the caching test
-stop failing), then rebase #256 and #259 onto the updated `develop` and re-run. All
-three trial-merge cleanly against each other (`git merge-tree`), but #256 and #259 both
-touch `permissions.py` and `test_permissions_coverage.py`, so the second one to land
-wants a rebase and a re-run rather than a blind merge — its "verified on test_site_1"
-counts were measured without the other's changes present.
-
----
+Related, from the repo's existing notes: `gh run view --log` returns empty here — use
+`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`.
 
 ## 6. Open work
 
