@@ -245,8 +245,17 @@ def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kw
         if not frappe.db.exists("Member", member_name):
             frappe.logger("events").info(f"Member {member_name} no longer exists - clearing caches anyway")
 
-        # Clear member-specific caches
-        frappe.cache().delete_keys("member_dashboard_*")
+        # Clear member-specific caches.
+        #
+        # "member_dashboard:" with a COLON. The producer is
+        # member_performance_optimizer.get_member_dashboard_cached(), which writes
+        # f"member_dashboard:{member_name}". This pattern said "member_dashboard_*"
+        # with an underscore and therefore matched nothing, so the member dashboard
+        # cache was never invalidated on a member change -- a stale dashboard survived
+        # until its 5 minute TTL. Unlike the loops in cache_invalidation_hooks.py
+        # (which is not registered in hooks and only runs from tests), THIS subscriber
+        # is live: member_events.py registers it for member change events.
+        frappe.cache().delete_keys("member_dashboard:*")
         frappe.cache().delete_keys("chapter_members_*")
         frappe.cache().delete_keys("analytics_*")
 
