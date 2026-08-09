@@ -9,6 +9,10 @@ import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.support.sepa_test_company import ensure_membership_dues_item
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.test_data_factory import (
+    PAYMENT_TEST_DAILY_TYPE,
+    ensure_payment_test_daily_type,
+)
 import time
 
 
@@ -273,7 +277,16 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
 
 class TestEventSystemIntegration(VereningingenTestCase):
     """Integration tests for the complete event system"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Seed the shared master HERE, not in a test body. ensure_payment_test_daily_type()
+        # commits on first creation, and committing partway through a test would also
+        # persist everything that test had already inserted (a Member, a Customer),
+        # defeating the per-test rollback and leaving residue for the rest of the shard.
+        ensure_payment_test_daily_type()
+
     def test_end_to_end_invoice_to_payment_history_flow(self):
         """
         Test the complete flow from invoice creation to payment history update
@@ -295,14 +308,11 @@ class TestEventSystemIntegration(VereningingenTestCase):
         member.save()
         self.track_doc("Customer", customer.name)
         
-        # Create membership. "Daglid" is a named type that may not exist on a
-        # fresh site; ensure it before referencing it.
-        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
-
-        ensure_membership_type_exists("Daglid", amount=2.0)
+        # Create membership with the payment tests' own EUR2 type (seeded in
+        # setUpClass; see PAYMENT_TEST_DAILY_TYPE for why the name is not shared).
         membership = self.create_test_membership(
             member=member.name,
-            membership_type="Daglid"
+            membership_type=PAYMENT_TEST_DAILY_TYPE
         )
         # The dues schedule below requires an active *submitted* membership
         # (status=Active, docstatus=1); the factory only inserts (docstatus=0).
@@ -324,7 +334,7 @@ class TestEventSystemIntegration(VereningingenTestCase):
             dues_schedule.schedule_name = f"Integration Test Schedule {member.name}"
             dues_schedule.member = member.name
             dues_schedule.member_name = member.full_name
-            dues_schedule.membership_type = "Daglid"
+            dues_schedule.membership_type = PAYMENT_TEST_DAILY_TYPE
             dues_schedule.status = "Active"
         dues_schedule.billing_frequency = "Daily"
         dues_schedule.dues_rate = 2.0
