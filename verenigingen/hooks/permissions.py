@@ -35,6 +35,7 @@ permission_query_conditions = {
 # Each function receives (doc, user, permission_type) and returns True/False
 has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
+    "Employee": "verenigingen.permissions.has_employee_permission",
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",
     "Address": "verenigingen.permissions.has_address_permission",

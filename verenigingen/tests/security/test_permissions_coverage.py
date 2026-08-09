@@ -698,6 +698,156 @@ class TestMiscPermissionHelpers(PermissionsCoverageBase):
         clear_permission_cache()
 
 
+class TestEmployeeDocLevelPermissions(PermissionsCoverageBase):
+    """Employee must be scoped at DOC level, not only in list views.
+
+    get_employee_permission_query has scoped Employee LISTS for a long time, but a
+    query condition only ever reaches list views: frappe/model/db_query.py calls
+    frappe.has_permission WITHOUT a doc, while frappe.client.get calls
+    doc.check_permission() (frappe/client.py:104), which never consults the query.
+    With no has_permission registered for Employee, doc-level access fell entirely
+    to DocPerms -- and fixtures/custom_docperm.json grants the ERPNext `Employee`
+    role read with no if_owner, while 8 of 11 role profiles hand out that role.
+
+    Net effect before this fix, MEASURED against real config: a plain volunteer got
+    `1=0` from the list query (zero employees visible anywhere) and True from
+    frappe.has_permission("Employee", "read", doc=<any employee>) -- personal data
+    (date of birth, personal email, phone, address) readable by name.
+    """
+
+    def _make_employee(self, user_name=None, member_name=None):
+        company = frappe.get_value("Verenigingen Settings", None, "company")
+        emp = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"Emp {frappe.generate_hash(length=6)}",
+                "last_name": "DocLevel",
+                "status": "Active",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": today(),
+                "company": company,
+                "user_id": user_name,
+            }
+        )
+        emp.insert(ignore_permissions=True)
+        if member_name:
+            frappe.db.set_value("Member", member_name, "employee", emp.name, update_modified=False)
+        return emp
+
+    def _make_employee_role_holder(self, user_name):
+        """Give `user_name` the ERPNext `Employee` role and NO Employee record.
+
+        That combination is the exposed population, and it has to be built exactly
+        this way for the test to mean anything:
+
+        - No Employee record: ERPNext's Employee.update_user_permissions() creates a
+          User Permission on Employee for anyone who has one, so such users are
+          already scoped by that mechanism. Giving the actor a record would make the
+          denial come from User Permissions rather than from the check under test.
+        - Inserted as a Has Role row, not appended to the User: saving a User
+          re-syncs its roles and drops an ad-hoc one, and the role profiles on a
+          fresh test site do not necessarily carry the Employee role that
+          fixtures/role_profile.json ships.
+        """
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": user_name,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": "Employee",
+            }
+        ).insert(ignore_permissions=True)
+        frappe.clear_cache(user=user_name)
+        return user_name
+
+    def test_unrelated_user_cannot_read_employee_by_name(self):
+        """The regression guard: an `Employee`-role holder with no relationship.
+
+        The actor must actually hold the ERPNext `Employee` role, which is what
+        fixtures/role_profile.json hands to Verenigingen Volunteer, Chapter Board
+        Member, Treasurer, Team Leader, Staff, Auditor and National Board Member.
+        Without it the role layer denies first and this test would pass against the
+        hole as readily as against the fix.
+        """
+        target = self._make_employee(member_name=self.other_member.name)
+
+        self._make_employee_role_holder(self.bare_user.name)
+
+        self.assertIn("Employee", frappe.get_roles(self.bare_user.name), "fixture invalid")
+        self.assertFalse(
+            frappe.db.exists("Employee", {"user_id": self.bare_user.name}),
+            "fixture invalid: actor must have no Employee record of their own",
+        )
+
+        self.assertFalse(
+            frappe.has_permission("Employee", "read", doc=target.name, user=self.bare_user.name),
+            "an Employee-role holder with no relationship must not read it by name",
+        )
+
+    def test_employee_can_read_own_record(self):
+        """Self-access must survive the fix -- Employee Self Service depends on it."""
+        own = self._make_employee(user_name=self.regular_user.name, member_name=self.regular_member.name)
+
+        # regular_user is declared with only the Verenigingen Member role, which has no
+        # Employee DocPerm; this test reaches the role layer at all because ERPNext's
+        # Employee.update_user() grants the `Employee` role as a side effect of creating
+        # an Employee with a user_id. Assert that explicitly -- if ERPNext ever stops
+        # doing it, the test should fail as an invalid fixture rather than as a
+        # regression in the code under test.
+        self.assertIn(
+            "Employee",
+            frappe.get_roles(self.regular_user.name),
+            "fixture invalid: creating an Employee with user_id should grant the Employee role",
+        )
+
+        self.assertTrue(
+            frappe.has_permission("Employee", "read", doc=own.name, user=self.regular_user.name),
+            "an employee must be able to read their own record",
+        )
+
+    def test_board_member_scoped_to_own_chapter(self):
+        """Board access matches what the list query already grants them."""
+        own_chapter = self._make_employee(member_name=self.regular_member.name)
+        other_chapter = self._make_employee(member_name=self.other_member.name)
+
+        self.assertTrue(
+            frappe.has_permission("Employee", "read", doc=own_chapter.name, user=self.board_user.name),
+            "board member must reach an employee of a member in their chapter",
+        )
+        self.assertFalse(
+            frappe.has_permission("Employee", "read", doc=other_chapter.name, user=self.board_user.name),
+            "board member must NOT reach an employee outside their chapters",
+        )
+
+    def test_list_query_and_doc_check_agree_on_self(self):
+        """The two halves must encode the same policy.
+
+        The list query used to fall through to `1=0` for a plain employee, so a user
+        could not see their own record in a list while being able to read every
+        record by name -- wrong in both directions at once.
+        """
+        from verenigingen.permissions import get_employee_permission_query
+
+        own = self._make_employee(user_name=self.regular_user.name, member_name=self.regular_member.name)
+        cond = get_employee_permission_query(self.regular_user.name)
+        # Not assertTrue(cond): "1=0" is a truthy string, so that would pass against
+        # the pre-fix state this test exists to catch. Both ends must be excluded --
+        # "" means unrestricted, "1=0" means the member cannot see their own record.
+        self.assertTrue(cond, "expected a scoping condition, not an empty (unrestricted) string")
+        self.assertNotIn("1=0", cond, "expected a real condition, not a blanket denial")
+
+        visible = bool(
+            frappe.db.sql(f"SELECT name FROM `tabEmployee` WHERE name = %s AND {cond}", own.name)
+        )
+        self.assertTrue(visible, "own employee record must be visible in list views")
+        self.assertTrue(
+            frappe.has_permission("Employee", "read", doc=own.name, user=self.regular_user.name),
+            "and readable at doc level -- the two halves must agree",
+        )
+
+
 class TestExpenseClaimPermissions(PermissionsCoverageBase):
     """has_expense_claim_permission + get_expense_claim_permission_query.
 
