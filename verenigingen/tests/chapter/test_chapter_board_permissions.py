@@ -162,10 +162,16 @@ class TestChapterBoardPermissions(EnhancedTestCase):
     def test_membership_chapter_filtering(self):
         """Board members see only memberships of members in their own chapter.
 
-        Chapter scoping for Membership is enforced by the permission QUERY
-        (get_membership_permission_query), mirroring the Member/Employee/Donor
-        scoping. The has_membership_permission hook only short-circuits for admins
-        (returns None otherwise to defer to DocPerm + the query).
+        This covers the LIST half only: get_membership_permission_query, mirroring
+        the Member/Employee/Donor scoping. The doc-level half is a separate function
+        and is covered by test_cross_chapter_access_prevention below.
+
+        This docstring used to say the hook "returns None otherwise to defer to
+        DocPerm + the query". It does not defer -- frappe's has_controller_permissions
+        treats a falsy result as a hard DENY -- and a query condition never scopes
+        doc-level access anyway, because frappe/model/db_query.py calls
+        frappe.has_permission WITHOUT a doc, so the hook is not consulted for lists
+        and the query is not consulted for documents. The two halves are disjoint.
         """
         from verenigingen.permissions import get_membership_permission_query
 

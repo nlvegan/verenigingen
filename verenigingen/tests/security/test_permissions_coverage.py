@@ -652,13 +652,93 @@ class TestMemberLinkedFactory(PermissionsCoverageBase):
 
 
 class TestMiscPermissionHelpers(PermissionsCoverageBase):
-    def test_has_membership_permission_admin_and_fallback(self):
+    def test_has_membership_permission_is_member_scoped(self):
+        """The Membership controller hook vetoes by member and by chapter.
+
+        This asserts the HOOK in isolation. The hook is a veto layer, not the
+        answer: frappe composes it with role DocPerms, user permissions and the
+        `if_owner` overlay (see test_membership_composed_permission_is_chapter_scoped
+        for the answer the system actually gives).
+
+        This test used to require None for a non-admin and described it as "defer to
+        DocPerm + query", which is the opposite of what Frappe does:
+        has_controller_permissions treats a falsy hook result as a hard DENY
+        (`if not controller_permission: return bool(...)`), so None short-circuited
+        the check to False and made this doctype's DocPerms for Verenigingen Chapter
+        Board Member and Verenigingen Member unreachable.
+
+        The correction is NOT an unconditional True -- see the cross-chapter
+        assertions, which are what separate the fix from the hole.
+        """
         from verenigingen.permissions import has_membership_permission
 
-        # Admin -> True.
+        own = self.create_test_membership(member=self.regular_member.name)
+        other = self.create_test_membership(member=self.other_member.name)
+
+        # Admin -> True, including for a name that does not exist.
         self.assertTrue(has_membership_permission("any", self.staff_user.name))
-        # Non-admin -> None (defer to DocPerm + query).
-        self.assertIsNone(has_membership_permission("any", self.regular_user.name))
+
+        self.assertTrue(
+            has_membership_permission(own.name, self.regular_user.name),
+            "hook does not veto a member's own membership",
+        )
+        self.assertFalse(
+            has_membership_permission(other.name, self.regular_user.name),
+            "a member must not reach another member's membership",
+        )
+
+        self.assertTrue(
+            has_membership_permission(own.name, self.board_user.name), "board of the member's chapter"
+        )
+        self.assertFalse(
+            has_membership_permission(other.name, self.board_user.name),
+            "a board member must not reach a membership outside their chapters",
+        )
+
+        # No Member record at all -> denied.
+        self.assertFalse(has_membership_permission(own.name, self.bare_user.name))
+
+    def test_membership_composed_permission_is_chapter_scoped(self):
+        """The same policy through frappe.has_permission -- the layer that matters.
+
+        The hook test above exercises the controller alone. This one goes through
+        the full composition (role DocPerms -> if_owner overlay -> user permissions
+        -> controller), which is what `/api/resource/Membership/<name>` and
+        doc.check_permission() actually consult. Nothing else in the suite covered
+        it, and it is the assertion that would have caught an unconditional
+        `return True` through the real chain rather than through the hook.
+        """
+        own = self.create_test_membership(member=self.regular_member.name)
+        other = self.create_test_membership(member=self.other_member.name)
+
+        self.assertTrue(
+            frappe.has_permission("Membership", "read", doc=own.name, user=self.board_user.name),
+            "board member must reach a membership in their own chapter",
+        )
+        self.assertFalse(
+            frappe.has_permission("Membership", "read", doc=other.name, user=self.board_user.name),
+            "board member must NOT reach a membership outside their chapters",
+        )
+        self.assertFalse(
+            frappe.has_permission("Membership", "write", doc=other.name, user=self.board_user.name),
+            "board member must NOT write a membership outside their chapters",
+        )
+
+        # A plain member is denied even their OWN membership, and not by the hook --
+        # the hook returns True for it (asserted above). `Verenigingen Member`'s only
+        # DocPerm row on Membership is `if_owner: 1, read: 1`, and memberships are
+        # owned by whoever ran the approval, never by the member. The DocPerm encodes
+        # an intent the ownership model cannot satisfy. Pinned here so that dropping
+        # `if_owner` is a deliberate change with a failing test, not a silent one.
+        self.assertNotEqual(
+            frappe.db.get_value("Membership", own.name, "owner"),
+            self.regular_user.name,
+            "fixture invalid: the member must not own their own membership",
+        )
+        self.assertFalse(
+            frappe.has_permission("Membership", "read", doc=own.name, user=self.regular_user.name),
+            "member cannot read their own membership: if_owner DocPerm, and they are not the owner",
+        )
 
     def test_service_account_deferral(self):
         from verenigingen.permissions import _check_service_account_permission
