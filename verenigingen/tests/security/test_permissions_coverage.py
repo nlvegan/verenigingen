@@ -951,6 +951,40 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
             self.create_test_team_member(team.name, volunteer_name)
         return frappe.get_doc("Team", team.name)
 
+    def _make_team_lead_user(self):
+        """A user holding the `Team Lead` role, which is what team.json grants create on.
+
+        Inserted as a Has Role row rather than appended to the User: saving a User
+        re-syncs its roles from its role profiles and drops an ad-hoc one, and no role
+        profile in this app grants `Team Lead`.
+        """
+        lead_user = self.create_test_user(
+            email=f"perm-teamlead-{self.token}@test.com", roles=[Roles.VERENIGINGEN_MEMBER]
+        )
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": lead_user.name,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": "Team Lead",
+            }
+        ).insert(ignore_permissions=True)
+        frappe.clear_cache(user=lead_user.name)
+        return lead_user
+
+    def _insert_team_as(self, user_name):
+        """Insert a Team while acting as `user_name`, so the row is really theirs.
+
+        The insert itself is permission-checked -- that is the point, it exercises the
+        create path through the hook -- and Administrator is restored either way.
+        """
+        frappe.set_user(user_name)
+        try:
+            return self.create_test_team(team_name=f"Perm Owned Team {frappe.generate_hash(length=6)}")
+        finally:
+            frappe.set_user("Administrator")
+
     def _assert_team_role_layer_grants_read(self, user_name):
         """Guard against a test that would pass against the hole as readily as the fix.
 
@@ -965,7 +999,16 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
         )
 
     def test_unrelated_member_cannot_read_team_by_name(self):
-        """The regression guard: a member with no Team Member row on that team."""
+        """The regression guard: a volunteer who is on A team, but not on THIS one.
+
+        The actor must have a Volunteer record and an active membership elsewhere.
+        Without them the check exits at its "no volunteer" guard, and the test would
+        pass just as well against an implementation that denies everyone lacking a
+        Volunteer while handing every team to anyone who has one -- which is the
+        interesting half of the policy.
+        """
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        self._make_team_with_member(volunteer.name)
         target = self._make_team_with_member()
 
         self._assert_team_role_layer_grants_read(self.regular_user.name)
@@ -973,6 +1016,10 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
         self.assertFalse(
             frappe.has_permission("Team", "read", doc=target.name, user=self.regular_user.name),
             "a member unrelated to the team must not read it by name",
+        )
+        self.assertFalse(
+            frappe.has_permission("Team", "write", doc=target.name, user=self.regular_user.name),
+            "and must not write it either",
         )
 
     def test_active_team_member_can_read_own_team(self):
@@ -994,22 +1041,142 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
         team.team_members[0].status = "Inactive"
         team.save()
 
+        self._assert_team_role_layer_grants_read(self.regular_user.name)
         self.assertFalse(
             frappe.has_permission("Team", "read", doc=team.name, user=self.regular_user.name),
             "a deactivated team member must lose doc-level access, as they lose list access",
         )
 
-    def test_admin_reads_any_team(self):
-        """The query's admin short-circuit ("" = unrestricted) must have a doc-level twin."""
-        target = self._make_team_with_member()
+    def test_roster_rows_are_governed_by_the_parent(self):
+        """The disclosure this fixes is the roster, so assert the roster directly.
 
-        admin_user = self.create_test_user(
-            email=f"perm-teamadmin-{self.token}@test.com", roles=[Roles.VERENIGINGEN_ADMIN]
+        frappe/permissions.py::has_child_permission delegates a child-table check to the
+        parent document, so registering Team is what closes it -- Team Member has a
+        query condition of its own but, like Team did, no doc-level check.
+        """
+        own_volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(own_volunteer.name)
+
+        other_volunteer = self.create_test_volunteer(self.other_member.name)
+        other = self._make_team_with_member(other_volunteer.name)
+
+        own_row = frappe.get_doc("Team Member", own.team_members[0].name)
+        other_row = frappe.get_doc("Team Member", other.team_members[0].name)
+
+        self.assertTrue(
+            frappe.has_permission(
+                "Team Member", "read", doc=own_row, parent_doctype="Team", user=self.regular_user.name
+            ),
+            "a member must reach the roster of their own team",
+        )
+        self.assertFalse(
+            frappe.has_permission(
+                "Team Member", "read", doc=other_row, parent_doctype="Team", user=self.regular_user.name
+            ),
+            "and must not reach another team's roster",
+        )
+
+    def test_second_volunteer_record_still_grants_access(self):
+        """A member may hold more than one Volunteer record, and the team may hang off
+        the later one.
+
+        `tabVolunteer` has no unique index on `member`, and member_utils documents a
+        production path that creates a second Volunteer for a member who already has
+        one. Resolving a single record with frappe.db.get_value emits
+        `ORDER BY creation DESC` (MEASURED: frappe.qb.get_query with the default
+        order_by), so it returns the NEWEST -- and once a doc-level check consumes that
+        resolution, picking the wrong one is an access denial, not just a thin list.
+
+        The team therefore has to hang off the OLDER volunteer, which is the one the
+        single-record resolution would miss. Attaching it to the newer one would let
+        this test pass against the very implementation it exists to reject.
+        """
+        older = self.create_test_volunteer(self.regular_member.name)
+        newer = self.create_test_volunteer(self.regular_member.name)
+        self.assertNotEqual(older.name, newer.name, "fixture invalid: needs two Volunteer records")
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", {"member": self.regular_member.name}, "name"),
+            newer.name,
+            "fixture invalid: single-record resolution must land on the volunteer WITHOUT the team",
+        )
+
+        own = self._make_team_with_member(older.name)
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=own.name, user=self.regular_user.name),
+            "the team hangs off the member's other Volunteer and must still be reachable",
+        )
+
+    def test_team_lead_reaches_the_team_they_lead(self):
+        """Pins the reason has_team_permission carries no team_lead branch.
+
+        The claim is that Team._update_team_lead derives team_lead from an ACTIVE Team
+        Member row carrying an is_team_leader Team Role, so a lead is always also a
+        member. If that ever stops holding, team leads lose their own team and only
+        this test says so.
+        """
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        leader_role = self.ensure_team_role("Team Leader")
+        self.assertTrue(leader_role.is_team_leader, "fixture invalid: role must be a leader role")
+
+        team = self.create_test_team(team_name=f"Perm Lead Team {frappe.generate_hash(length=6)}")
+        self.create_test_team_member(team.name, volunteer.name, team_role_name=leader_role.name)
+        team.reload()
+
+        self.assertEqual(
+            team.team_lead,
+            self.regular_user.name,
+            "fixture invalid: the leader row should have populated team_lead",
         )
         self.assertTrue(
-            frappe.has_permission("Team", "read", doc=target.name, user=admin_user.name),
-            "Verenigingen Administrator must reach every team",
+            frappe.has_permission("Team", "read", doc=team.name, user=self.regular_user.name),
+            "a team lead must reach the team they lead",
         )
+
+    def test_creator_keeps_the_team_they_created(self):
+        """`Team Lead` holds create AND write on Team with no if_owner.
+
+        Without an owner branch that role could insert a team and be denied on the very
+        next read: at insert time there is no Team Member row yet and team_lead is
+        empty, so the team would immediately become administrator-only -- and its
+        creator could not even add themselves to it.
+        """
+        lead_user = self._make_team_lead_user()
+        created = self._insert_team_as(lead_user.name)
+
+        self.assertEqual(created.owner, lead_user.name, "fixture invalid: creator must own the team")
+        self.assertFalse(
+            frappe.db.get_all("Team Member", filters={"parent": created.name}),
+            "fixture invalid: a freshly created team must have no member rows",
+        )
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=created.name, user=lead_user.name),
+            "the creator must still be able to read the team they just created",
+        )
+        self.assertTrue(
+            frappe.has_permission("Team", "write", doc=created.name, user=lead_user.name),
+            "and to write it -- otherwise they cannot add members to it",
+        )
+
+    def test_admin_reads_any_team(self):
+        """The query's admin short-circuit ("" = unrestricted) must have a doc-level twin.
+
+        Both arms of _is_team_admin are exercised: a one-role test would leave the other
+        free to be deleted.
+        """
+        target = self._make_team_with_member()
+
+        for role in (Roles.VERENIGINGEN_ADMIN, Roles.SYSTEM_MANAGER):
+            with self.subTest(role=role):
+                admin_user = self.create_test_user(
+                    email=f"perm-teamadmin-{role.replace(' ', '-').lower()}-{self.token}@test.com",
+                    roles=[role],
+                )
+                self.assertTrue(
+                    frappe.has_permission("Team", "read", doc=target.name, user=admin_user.name),
+                    f"{role} must reach every team",
+                )
 
     def test_list_query_and_doc_check_agree(self):
         """The two halves must encode the same policy, on both sides of the boundary."""

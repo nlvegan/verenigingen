@@ -520,13 +520,28 @@ def _user_active_team_names(user):
     A team_lead needs no branch of its own: Team._update_team_lead derives that field
     from an active Team Member row whose Team Role carries is_team_leader, so a team
     lead is always also an active member of the team they lead.
+
+    ALL of the member's volunteers are considered, not just one. `tabVolunteer` has no
+    unique index on `member`, and utils/member_utils.py documents a production path
+    where a swallowed error creates a second Volunteer for a member who already has
+    one. Resolving a single record with frappe.db.get_value (which orders by creation
+    ASC) would silently pick the older duplicate and drop every team reached through
+    the other -- and now that a doc-level check consumes this, that is an access
+    denial, not just a thin list. permissions.py:1500, :1533 and :1578 iterate for the
+    same reason.
+
+    The actor is resolved by the `user` LINK only, deliberately not via
+    get_member_name_for_user, whose Member.email fallback would let an email match
+    stand in for an account link inside an authorization gate.
     """
     member = frappe.db.get_value("Member", {"user": user}, "name")
     if not member:
         return []
 
-    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-    if not volunteer:
+    # get_all, not get_list: a permission helper must not recurse into permission
+    # checks (Volunteer has a permission query of its own).
+    volunteers = frappe.get_all("Volunteer", filters={"member": member}, pluck="name")
+    if not volunteers:
         return []
 
     TM = DocType("Team Member")
@@ -534,7 +549,7 @@ def _user_active_team_names(user):
         frappe.qb.from_(TM)
         .select(TM.parent)
         .distinct()
-        .where((TM.volunteer == volunteer) & (TM.is_active == 1))
+        .where(TM.volunteer.isin(volunteers) & (TM.is_active == 1))
     ).run(as_dict=True)
 
     return [team.parent for team in team_memberships]
@@ -563,6 +578,7 @@ def has_team_permission(doc, user=None, ptype=None):
 
     Access:
     - System Manager / Verenigingen Administrator: all teams
+    - The creator of the team: that team
     - Anyone holding an active Team Member row on that team: that team
     """
     if not user:
@@ -583,6 +599,15 @@ def has_team_permission(doc, user=None, ptype=None):
     if not team_name:
         return True
 
+    # The creator keeps the team they created. `Team Lead` holds create AND write on
+    # Team with no if_owner, so without this branch that role could insert a team (the
+    # __islocal arm above) and be denied on the very next read: at insert time there is
+    # no Team Member row yet and _update_team_lead leaves team_lead empty, so nothing
+    # below would match and the team would be editable only by an administrator.
+    owner = doc.get("owner") if not isinstance(doc, str) else frappe.db.get_value("Team", team_name, "owner")
+    if owner and owner == user:
+        return True
+
     # Deliberately NOT wrapped in try/except, unlike the query below. This is an
     # authorization decision, and a swallowed failure here returns False, which is
     # indistinguishable from "policy says no". A permission check that throws is
@@ -593,8 +618,11 @@ def has_team_permission(doc, user=None, ptype=None):
 def get_team_permission_query_conditions(user=None):
     """Get permission query conditions for Teams.
 
-    Kept in lockstep with has_team_permission -- see its docstring for why both
-    halves are required.
+    Kept in lockstep with has_team_permission -- see its docstring for why both halves
+    are required. One asymmetry is deliberate: this half swallows a failure and returns
+    a blanket denial (fail closed, with an Error Log row), while the doc-level check
+    lets it raise. A quietly empty list view is recoverable; a quietly wrong
+    authorization answer is not.
     """
     try:
         if not user:
@@ -603,10 +631,21 @@ def get_team_permission_query_conditions(user=None):
         if _is_team_admin(user):
             return ""
 
+        conditions = []
+
+        # Gated on actually owning a team so that a user who owns none still falls
+        # through to the blanket denial below rather than to a condition that matches
+        # nothing. Same result, but it keeps "no access" expressed as no access.
+        if frappe.db.exists("Team", {"owner": user}):
+            conditions.append(f"`tabTeam`.owner = {frappe.db.escape(user)}")
+
         team_names = _user_active_team_names(user)
         if team_names:
             escaped_teams = [frappe.db.escape(name) for name in team_names]
-            return f"`tabTeam`.name in ({', '.join(escaped_teams)})"
+            conditions.append(f"`tabTeam`.name in ({', '.join(escaped_teams)})")
+
+        if conditions:
+            return f"({' OR '.join(conditions)})"
 
         return "`tabTeam`.name = ''"
 
