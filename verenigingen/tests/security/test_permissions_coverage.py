@@ -928,6 +928,120 @@ class TestEmployeeDocLevelPermissions(PermissionsCoverageBase):
         )
 
 
+class TestTeamDocLevelPermissions(PermissionsCoverageBase):
+    """Team must be scoped at DOC level, not only in list views.
+
+    Same defect as Employee above, third occurrence in this repo (see PR #191,
+    #256, #259): get_team_permission_query_conditions has scoped Team LISTS for a
+    long time, but a query condition only ever reaches list views, and Team had no
+    has_permission registered -- so doc-level access fell entirely to DocPerms, and
+    team.json grants `Verenigingen Member` read with no if_owner.
+
+    Net effect before this fix, MEASURED against real config: a plain member got
+    `` `tabTeam`.name = '' `` from the list query (zero teams anywhere) and True
+    from frappe.has_permission("Team", "read", doc=<any team>). The Team Member
+    child rows travel with the parent, so that exposed team rosters -- volunteer,
+    role, dates, status -- plus team_lead, chapter and description.
+    """
+
+    def _make_team_with_member(self, volunteer_name=None):
+        """A Team, optionally carrying an ACTIVE Team Member row for `volunteer_name`."""
+        team = self.create_test_team(team_name=f"Perm Team {frappe.generate_hash(length=6)}")
+        if volunteer_name:
+            self.create_test_team_member(team.name, volunteer_name)
+        return frappe.get_doc("Team", team.name)
+
+    def _assert_team_role_layer_grants_read(self, user_name):
+        """Guard against a test that would pass against the hole as readily as the fix.
+
+        frappe.has_permission WITHOUT a doc consults only the role layer
+        (frappe/permissions.py:152-167), so this asserts the actor really holds
+        Team's `Verenigingen Member` read DocPerm. Without it the role layer would
+        deny first and the doc-level assertions below would mean nothing.
+        """
+        self.assertTrue(
+            frappe.has_permission("Team", "read", user=user_name),
+            "fixture invalid: actor must hold a Team read DocPerm at role level",
+        )
+
+    def test_unrelated_member_cannot_read_team_by_name(self):
+        """The regression guard: a member with no Team Member row on that team."""
+        target = self._make_team_with_member()
+
+        self._assert_team_role_layer_grants_read(self.regular_user.name)
+
+        self.assertFalse(
+            frappe.has_permission("Team", "read", doc=target.name, user=self.regular_user.name),
+            "a member unrelated to the team must not read it by name",
+        )
+
+    def test_active_team_member_can_read_own_team(self):
+        """Team access must survive the fix for the people the list query already grants."""
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(volunteer.name)
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=own.name, user=self.regular_user.name),
+            "an active team member must be able to read their own team",
+        )
+
+    def test_inactive_team_member_is_denied(self):
+        """is_active=0 is the query's boundary; the doc check must use the same one."""
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        team = self._make_team_with_member(volunteer.name)
+
+        team.team_members[0].is_active = 0
+        team.team_members[0].status = "Inactive"
+        team.save()
+
+        self.assertFalse(
+            frappe.has_permission("Team", "read", doc=team.name, user=self.regular_user.name),
+            "a deactivated team member must lose doc-level access, as they lose list access",
+        )
+
+    def test_admin_reads_any_team(self):
+        """The query's admin short-circuit ("" = unrestricted) must have a doc-level twin."""
+        target = self._make_team_with_member()
+
+        admin_user = self.create_test_user(
+            email=f"perm-teamadmin-{self.token}@test.com", roles=[Roles.VERENIGINGEN_ADMIN]
+        )
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=target.name, user=admin_user.name),
+            "Verenigingen Administrator must reach every team",
+        )
+
+    def test_list_query_and_doc_check_agree(self):
+        """The two halves must encode the same policy, on both sides of the boundary."""
+        from verenigingen.verenigingen.doctype.team.team import get_team_permission_query_conditions
+
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(volunteer.name)
+        other = self._make_team_with_member()
+
+        cond = get_team_permission_query_conditions(self.regular_user.name)
+        # Not assertTrue(cond): "`tabTeam`.name = ''" is a truthy string, so that
+        # would pass against a blanket denial. Both ends must be excluded -- ""
+        # means unrestricted, `name = ''` means no team is visible at all.
+        self.assertTrue(cond, "expected a scoping condition, not an empty (unrestricted) string")
+        self.assertNotIn("name = ''", cond, "expected a real condition, not a blanket denial")
+
+        visible = {
+            row[0] for row in frappe.db.sql(f"SELECT name FROM `tabTeam` WHERE {cond}")  # nosec B608
+        }
+        self.assertIn(own.name, visible, "own team must be visible in list views")
+        self.assertNotIn(other.name, visible, "an unrelated team must not be visible in list views")
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=own.name, user=self.regular_user.name),
+            "and readable at doc level -- the two halves must agree",
+        )
+        self.assertFalse(
+            frappe.has_permission("Team", "read", doc=other.name, user=self.regular_user.name),
+            "and unreadable at doc level -- the two halves must agree",
+        )
+
+
 class TestExpenseClaimPermissions(PermissionsCoverageBase):
     """has_expense_claim_permission + get_expense_claim_permission_query.
 
