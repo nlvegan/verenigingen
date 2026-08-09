@@ -116,8 +116,15 @@ class TestMembershipTypeAndCostCenter(EnhancedTestCase):
 
     def test_membership_type_falls_back_to_settings_default(self):
         # Member with no current_membership_plan -> settings default returned.
+        # `or None` because an unset Link on a Single reads back as "" once the field
+        # has ever been written; _get_membership_type_cached is Optional[str] and
+        # normalises, so an unconfigured default must compare as None here too.
+        # Without it this test and test_dues_payment_processor_integration's
+        # test_get_membership_type_cached_uses_settings_default asserted OPPOSITE
+        # things about the same method, and exactly one of them failed on any site
+        # where the field held "".
         member_doc = SimpleNamespace(current_membership_plan=None)
-        default = frappe.get_single("Verenigingen Settings").default_membership_type
+        default = frappe.get_single("Verenigingen Settings").default_membership_type or None
         self.assertEqual(self.proc._get_membership_type_cached(member_doc), default)
 
     def test_membership_type_caches_default(self):

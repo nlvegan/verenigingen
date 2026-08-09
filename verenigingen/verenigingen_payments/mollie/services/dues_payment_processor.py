@@ -506,7 +506,13 @@ class DuesPaymentProcessor:
         # Fallback to default from settings (cached)
         if self._default_membership_type is None:
             settings = frappe.get_single("Verenigingen Settings")
-            self._default_membership_type = settings.default_membership_type
+            # Normalise to None. An unset Link on a Single reads back as "" once the
+            # field has ever been written, and only as None when the row was never
+            # created — so this returned "" on some sites and None on others while
+            # the signature and docstring promise Optional[str]. The one caller uses
+            # `if not membership_type`, so behaviour is unchanged; what changes is
+            # that the contract is now true on every site.
+            self._default_membership_type = settings.default_membership_type or None
             frappe.logger().info(f"Cached default membership type: {self._default_membership_type}")
 
         return self._default_membership_type
