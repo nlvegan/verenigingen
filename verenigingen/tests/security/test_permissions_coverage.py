@@ -1076,36 +1076,14 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
             "and must not reach another team's roster",
         )
 
-    def test_second_volunteer_record_still_grants_access(self):
-        """A member may hold more than one Volunteer record, and the team may hang off
-        the later one.
-
-        `tabVolunteer` has no unique index on `member`, and member_utils documents a
-        production path that creates a second Volunteer for a member who already has
-        one. Resolving a single record with frappe.db.get_value emits
-        `ORDER BY creation DESC` (MEASURED: frappe.qb.get_query with the default
-        order_by), so it returns the NEWEST -- and once a doc-level check consumes that
-        resolution, picking the wrong one is an access denial, not just a thin list.
-
-        The team therefore has to hang off the OLDER volunteer, which is the one the
-        single-record resolution would miss. Attaching it to the newer one would let
-        this test pass against the very implementation it exists to reject.
-        """
-        older = self.create_test_volunteer(self.regular_member.name)
-        newer = self.create_test_volunteer(self.regular_member.name)
-        self.assertNotEqual(older.name, newer.name, "fixture invalid: needs two Volunteer records")
-        self.assertEqual(
-            frappe.db.get_value("Volunteer", {"member": self.regular_member.name}, "name"),
-            newer.name,
-            "fixture invalid: single-record resolution must land on the volunteer WITHOUT the team",
-        )
-
-        own = self._make_team_with_member(older.name)
-
-        self.assertTrue(
-            frappe.has_permission("Team", "read", doc=own.name, user=self.regular_user.name),
-            "the team hangs off the member's other Volunteer and must still be reachable",
-        )
+    # test_second_volunteer_record_still_grants_access lived here. It built its
+    # fixture from two Volunteer records for one Member, which #267 made
+    # unconstructible: Volunteer.member is unique, so the second insert now raises.
+    #
+    # _user_active_team_names still iterates all of a member's volunteers on purpose.
+    # The constraint stops NEW duplicates; it does not remove ones an existing
+    # deployment already carries, and the pre_model_sync patch reports those rather
+    # than merging them.
 
     def test_team_lead_reaches_the_team_they_lead(self):
         """Pins the reason has_team_permission carries no team_lead branch.

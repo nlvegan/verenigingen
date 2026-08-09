@@ -905,3 +905,141 @@ class TestVolunteerSchemaContract(EnhancedTestCase):
         field_names = {f.fieldname for f in meta.fields}
         self.assertIn("volunteer_name", field_names)
         self.assertIn("member", field_names)
+
+
+class TestVolunteerMemberUniqueness(EnhancedTestCase):
+    """One Volunteer per Member is an invariant this app has always assumed and
+    never enforced. See #267.
+
+    Four creation paths guard it with check-then-insert
+    (`volunteer.py::create_volunteer_from_member`, the bulk creation service,
+    `api/volunteer_application.py`, and mijnrood's sync service), which loses to a
+    race and to a swallowed error -- `utils/member_utils.py:361` documents the
+    second as an observed outcome. Meanwhile half the codebase resolves the link
+    with a single-row lookup (`get_volunteer_for_member`) and half iterates
+    (`permissions.py:1500`, `:1533`, `:1578`), so a duplicate does not merely
+    duplicate data: it makes lookups -- including authorization ones -- depend on
+    which row wins. `frappe.db.get_value` with a filter dict emits
+    `ORDER BY creation DESC`, so it silently picks the NEWEST.
+    """
+
+    def test_second_volunteer_for_same_member_is_rejected(self):
+        """The guard: the controller must refuse it before the DB has to."""
+        member = self.create_test_member()
+        first = self.create_test_volunteer(member.name)
+
+        with self.assertRaises(frappe.UniqueValidationError) as caught:
+            frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": f"Dup {frappe.generate_hash(length=6)}",
+                    "email": f"dup-{frappe.generate_hash(length=8)}@test.invalid",
+                    "member": member.name,
+                    "status": "Active",
+                    "start_date": today(),
+                }
+            ).insert()
+
+        self.assertIn(
+            first.name,
+            str(caught.exception),
+            "the error must name the existing record, or the operator cannot act on it",
+        )
+
+    def test_saving_the_existing_volunteer_again_is_allowed(self):
+        """The guard must exclude the document being saved.
+
+        A filter of {"member": self.member} alone matches the row itself, so every
+        subsequent save of an existing volunteer would throw.
+        """
+        member = self.create_test_member()
+        volunteer = self.create_test_volunteer(member.name)
+
+        volunteer.reload()
+        volunteer.status = "Inactive"
+        volunteer.save()
+
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Inactive")
+
+    def test_volunteers_without_a_member_are_unconstrained(self):
+        """Volunteer.member is optional, and NULL must stay repeatable.
+
+        MySQL allows many NULLs under a unique index but only one empty STRING, so
+        the schema half of this depends on unlinked volunteers storing NULL.
+        """
+        first = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"NoMember A {frappe.generate_hash(length=6)}",
+                "email": f"nomember-a-{frappe.generate_hash(length=8)}@test.invalid",
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+        second = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"NoMember B {frappe.generate_hash(length=6)}",
+                "email": f"nomember-b-{frappe.generate_hash(length=8)}@test.invalid",
+                "status": "Active",
+                "start_date": today(),
+            }
+        ).insert()
+
+        self.assertTrue(first.name and second.name)
+        stored = frappe.db.sql(
+            "SELECT member FROM `tabVolunteer` WHERE name IN (%s, %s)", (first.name, second.name)
+        )
+        self.assertTrue(
+            all(row[0] is None for row in stored),
+            f"unlinked volunteers must store NULL, not '': {stored}",
+        )
+
+    def test_member_field_declares_unique_in_the_schema(self):
+        """The controller guard is for the message; the index is the enforcement.
+
+        Two concurrent inserts both pass validate() -- only the DB constraint stops
+        the second. This pins that the JSON carries it, which is also what reaches
+        a FRESH install: frappe/installer.py:333 marks every patch as completed on
+        install without running it, so a DDL-only patch would never reach a new site.
+        """
+        meta = frappe.get_meta("Volunteer")
+        self.assertTrue(
+            meta.get_field("member").unique,
+            "Volunteer.member must be declared unique so new sites get the constraint",
+        )
+
+    def test_patch_normalises_empty_string_member_to_null(self):
+        """The pre_model_sync patch's other job.
+
+        MySQL allows many NULLs under a unique index but only one empty STRING, so a
+        row written as '' by older code, an import or direct SQL would collide with
+        the next one and present as a duplicate-member problem it is not.
+
+        Inserted by raw SQL because validate() cannot produce this shape. Only ONE
+        such row is created: two would already violate the index this test runs
+        against. The patch's other branch -- aborting on genuine duplicates -- has no
+        test for the same reason, since the constraint makes its fixture
+        unconstructible; it was verified by hand against a site without the index.
+        """
+        from verenigingen.patches.v2_2.enforce_unique_volunteer_per_member import execute
+
+        name = f"PROBE-EMPTY-{frappe.generate_hash(length=8)}"
+        frappe.db.sql(
+            """INSERT INTO `tabVolunteer`
+               (name, creation, modified, owner, modified_by, volunteer_name, email, member, status, start_date)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', %s, %s, '', 'Active', CURDATE())""",
+            (name, f"Probe Empty {name}", f"{name.lower()}@test.invalid"),
+        )
+        self.assertEqual(
+            frappe.db.sql("SELECT member FROM `tabVolunteer` WHERE name = %s", name)[0][0],
+            "",
+            "fixture invalid: the row must start with an empty-string member",
+        )
+
+        execute()
+
+        self.assertIsNone(
+            frappe.db.sql("SELECT member FROM `tabVolunteer` WHERE name = %s", name)[0][0],
+            "the patch must rewrite an empty-string member to NULL",
+        )

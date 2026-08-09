@@ -21,6 +21,7 @@ to verify:
 """
 
 import frappe
+from frappe.utils import today
 
 from verenigingen.services.member.approval import application_helpers as helpers
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -377,6 +378,72 @@ class TestCreateVolunteerRecord(EnhancedTestCase):
         self.track_doc("Volunteer", volunteer.name)
         self.assertEqual(volunteer.member, self.member.name)
         self.assertEqual(volunteer.status, "New")
+
+    def _insert_unlinked_volunteer(self, email):
+        """A Volunteer with no member link — the shape the volunteer form produces."""
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Orphan {frappe.generate_hash(length=6)}",
+                "email": email,
+                "status": "New",
+                "start_date": today(),
+            }
+        ).insert()
+        self.track_doc("Volunteer", volunteer.name)
+        return volunteer
+
+    def test_adopts_an_unlinked_volunteer_with_the_same_email(self):
+        """The volunteer application creates the Volunteer BEFORE the Member.
+
+        api/volunteer_application.py inserts the Volunteer, then submits the
+        membership application, then links the two. At this point the record exists
+        with no member link, so the "already linked to this member" lookup misses it
+        and a SECOND volunteer used to be created for the same person — which #267
+        now refuses outright, breaking the become_member flow.
+        """
+        self.member.interested_in_volunteering = 1
+        self.member.save()
+        orphan = self._insert_unlinked_volunteer(self.member.email)
+
+        volunteer = helpers.create_volunteer_record(self.member)
+
+        self.assertEqual(
+            volunteer.name, orphan.name, "the existing unlinked volunteer must be adopted, not duplicated"
+        )
+        self.assertEqual(volunteer.member, self.member.name)
+        self.assertEqual(
+            frappe.db.count("Volunteer", {"member": self.member.name}),
+            1,
+            "the member must end up with exactly one volunteer",
+        )
+
+    def test_does_not_steal_a_volunteer_linked_to_another_member(self):
+        """The adoption is restricted to orphans, on purpose.
+
+        Matching on email alone would hand another member's volunteer record — with
+        its assignment history and expenses — to whoever applies next with a
+        colliding address.
+        """
+        other_member = self.create_test_member(
+            first_name="Other", last_name="Owner", email=f"other-{frappe.generate_hash(length=6)}@example.com"
+        )
+        taken = self._insert_unlinked_volunteer(self.member.email)
+        taken.member = other_member.name
+        taken.save()
+
+        self.member.interested_in_volunteering = 1
+        self.member.save()
+
+        volunteer = helpers.create_volunteer_record(self.member)
+        self.track_doc("Volunteer", volunteer.name)
+
+        self.assertNotEqual(volunteer.name, taken.name, "must not adopt another member's volunteer")
+        self.assertEqual(
+            frappe.db.get_value("Volunteer", taken.name, "member"),
+            other_member.name,
+            "the other member's link must be untouched",
+        )
 
 
 class TestDraftAndStatus(EnhancedTestCase):
