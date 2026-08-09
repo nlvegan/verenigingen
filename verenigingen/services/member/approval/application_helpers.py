@@ -738,6 +738,20 @@ def create_volunteer_record(member):
         # Check if a volunteer linked to this member already exists (handles reapplication case)
         existing_volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
 
+        if not existing_volunteer and member.email:
+            # The volunteer application form creates the Volunteer BEFORE the Member and
+            # links it afterwards (api/volunteer_application.py), so on that path the
+            # record exists here carrying no member link and the lookup above misses it.
+            # Creating a second one is what this function's docstring says it avoids, and
+            # since #267 it is refused outright by the unique index on Volunteer.member.
+            #
+            # Restricted to UNLINKED volunteers so this can only adopt an orphan, never
+            # steal another member's record. Volunteer.email is unique, so the match is
+            # deterministic.
+            existing_volunteer = frappe.db.get_value(
+                "Volunteer", {"email": member.email, "member": ["in", (None, "")]}, "name"
+            )
+
         if existing_volunteer:
             # Relink existing volunteer to new member record
             frappe.logger().info(
