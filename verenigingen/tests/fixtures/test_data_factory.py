@@ -1211,6 +1211,86 @@ def _ensure_member_role_profile():
     return profile.name
 
 
+# A €2/day type owned EXCLUSIVELY by the payment test modules.
+#
+# Those tests used the name "Daglid", which is also referenced by
+# create_test_membership(membership_type="Daglid") elsewhere. That made it a shared
+# master, and ensure_membership_type_exists() returns an existing row WITHOUT
+# correcting its amount while defaulting to 100.0 -- so whichever caller touched the
+# name first fixed its amount for the whole run. When a caller that passes no amount
+# won the race, "Daglid" was created at €100 and the payment tests' €2 dues schedules
+# died on `Dues rate (€2.00) cannot be less than minimum amount (€100.00)`.
+# Order-dependent, so it only ever surfaced in CI (issue #248).
+#
+# The fix is to stop sharing rather than to repair the shared row mid-run: a name no
+# other test references can never be created with the wrong amount in the first place.
+# Keep it stable (not tokenised) so it behaves like the bootstrap master it is and
+# does not accumulate a row per run.
+PAYMENT_TEST_DAILY_TYPE = "TEST Payment Daily 2EUR"
+PAYMENT_TEST_DAILY_AMOUNT = 2.0
+
+
+def ensure_payment_test_daily_type():
+    """Get-or-create the payment tests' own €2 membership type; return its name.
+
+    Verifies the amount instead of trusting it. ensure_membership_type_exists()
+    returns an existing row untouched, so if anything ever creates this name via the
+    no-amount path -- create_test_membership() does exactly that, at the 100.0 default
+    -- the type would silently be wrong and every dues schedule built on it would fail
+    with an error naming the schedule rather than the type. Since no other test
+    references this name, a mismatch means real contamination, and failing here points
+    straight at it.
+    """
+    existed = frappe.db.exists("Membership Type", PAYMENT_TEST_DAILY_TYPE)
+    name = ensure_membership_type_exists(PAYMENT_TEST_DAILY_TYPE, amount=PAYMENT_TEST_DAILY_AMOUNT)
+
+    if not existed:
+        # COMMIT, or this master does not survive to the tests that need it.
+        #
+        # Callers seed it from setUpClass. That row survives into the FIRST test method
+        # and is destroyed by the FIRST tearDown -- the per-test rollback is this app's
+        # own (enhanced_test_factory.py tearDown, and utils/base.py for
+        # VereningingenTestCase), not frappe's, which only registers a class-level
+        # cleanup. Every method after the first therefore starts with the type absent,
+        # and create_test_membership() re-creates it through
+        # ensure_membership_type_exists() WITHOUT an amount -- i.e. at the 100.0
+        # default. TRACED with a stack dump at the creation point: two creations per
+        # run, `amount=2.0` from setUpClass and `amount=100.0` from
+        # test_data_factory.py:439 inside a test body.
+        #
+        # That is issue #248. It bit test_payment_history_sync_with_auto_generated_invoice
+        # because unittest runs methods alphabetically and that one sorts last, so by
+        # the time it ran the setUpClass row was long gone and the €2 schedule was built
+        # against a freshly re-created €100 type:
+        # `Dues rate (€2.00) cannot be less than minimum amount (€100.00)`. Whether the
+        # bad row then got committed only decides how long the damage outlives the run.
+        #
+        # Committing makes it a real bootstrap master, exactly as the name being stable
+        # and unshared already implies -- the same thing test_data_factory does for the
+        # test Region. There is nothing to leak: the row is reused by every subsequent
+        # run rather than accumulating. Seed it from setUpClass/setUp, never from a test
+        # body, or this commit will also persist whatever that test had already written.
+        frappe.db.commit()
+
+    actual = frappe.db.get_value("Membership Type", name, "minimum_amount")
+    if actual is None or flt(actual, 2) != flt(PAYMENT_TEST_DAILY_AMOUNT, 2):
+        found = "missing" if actual is None else f"minimum_amount={actual}"
+        raise AssertionError(
+            f"{name!r} is {found} but the payment tests require "
+            f"{PAYMENT_TEST_DAILY_AMOUNT}. Something created it via a path that does not "
+            f"specify an amount (create_test_membership defaults to 100.0). The type and "
+            f"its template link to each other, so the Desk UI cannot delete either one "
+            f"first -- clear it from `bench --site <site> console` with:\n"
+            f'    frappe.db.set_value("Membership Type", {name!r}, "dues_schedule_template", None)\n'
+            f'    for t in frappe.get_all("Membership Dues Schedule", '
+            f'filters={{"membership_type": {name!r}}}, pluck="name"):\n'
+            f'        frappe.delete_doc("Membership Dues Schedule", t, force=True)\n'
+            f'    frappe.delete_doc("Membership Type", {name!r}, force=True)\n'
+            f"    frappe.db.commit()"
+        )
+    return name
+
+
 def ensure_membership_type_exists(name, *, amount=100.0):
     """Get-or-create a Membership Type with the EXACT given name; return the name.
 
