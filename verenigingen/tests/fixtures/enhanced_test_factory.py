@@ -1882,6 +1882,15 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     Provides 28 factory methods with field safety validation and business rules.
     """
 
+    # Doctypes holding shared master data that `tests.setup.before_tests` seeds
+    # ONCE per process. Production code called from a test body may legitimately
+    # RE-create one of these rows (ensure_payment_modes_exist() restoring a Mode
+    # of Payment a test removed). The insert hook cannot tell that apart from a
+    # test's own throwaway record, so draining it destroys the seed for the rest
+    # of the process and every later test in the shard fails link validation
+    # against it. Keep this set SMALL: entries here leak between tests by design.
+    DRAIN_EXEMPT_DOCTYPES = frozenset({"Mode of Payment"})
+
     def setUp(self):
         super().setUp()
 
@@ -2063,7 +2072,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         seen = set()
         ordered = []
         for key in reversed(captured):
-            if key in seen:
+            if key in seen or key[0] in self.DRAIN_EXEMPT_DOCTYPES:
                 continue
             seen.add(key)
             ordered.append(key)

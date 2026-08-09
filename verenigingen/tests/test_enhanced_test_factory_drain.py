@@ -345,6 +345,47 @@ class TestCapturedInsertDrain(EnhancedTestCase):
             "captured committed record must be drained (else it leaks into later tests)",
         )
 
+    def test_seeded_master_data_survives_the_drain(self):
+        """Regression: production code RE-creating a session-seeded shared record
+        inside a test body must not have that record force-deleted at tearDown.
+
+        `test_ensure_payment_modes_exist_creates_missing` deletes Mode of Payment
+        "Mollie" and lets ensure_payment_modes_exist() re-seed it. The insert hook
+        captured that re-seed and the drain deleted it, destroying the seed
+        `tests.setup.before_tests` made for the whole process — so every later test
+        in the same shard that built a Member with payment_method="Mollie" died on
+        `LinkValidationError: Could not find Payment Method: Mollie`. Invisible
+        until the two modules landed in one shard (CI run 31325518967, shard 9/12).
+
+        The negative control lives in
+        `test_raw_committed_insert_is_captured_and_drained`: a non-exempt doctype
+        must still be drained, so this exemption cannot be widened into a no-op.
+        """
+        from verenigingen.services.member.approval.application_helpers import (
+            ensure_payment_modes_exist,
+        )
+
+        if frappe.db.exists("Mode of Payment", "Mollie"):
+            frappe.delete_doc("Mode of Payment", "Mollie", force=True, ignore_permissions=True)
+        self.assertIn(
+            "Mollie",
+            ensure_payment_modes_exist(),
+            "precondition: the helper re-creates the removed mode",
+        )
+        self.assertIn(
+            ("Mode of Payment", "Mollie"),
+            self._captured_inserts,
+            "precondition: the re-seed goes through Document.db_insert and is captured",
+        )
+
+        self._drain_captured_inserts()
+
+        self.assertTrue(
+            frappe.db.exists("Mode of Payment", "Mollie"),
+            "an exempt seeded record must survive the drain, or it is gone for the "
+            "rest of the process and later tests fail link validation against it",
+        )
+
     def test_singles_setvalue_is_not_captured(self):
         # Documents the known limit: Singles writes (update_single via set_value)
         # don't go through Document.db_insert, so they're neither captured nor
