@@ -489,6 +489,10 @@ repos:
         language: system
         pass_filenames: false
         files: '\.(py)$'
+        # pre-commit hides the stdout of hooks that pass, so without this the target's
+        # "skipping, this is a worktree" message would be invisible and the skip would
+        # read as a successful test run.
+        verbose: true
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 

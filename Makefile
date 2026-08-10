@@ -2,11 +2,22 @@
 
 .PHONY: help test test-quick test-all coverage lint format install clean check-imports test-mollie test-mollie-core test-mollie-performance test-mollie-security
 
-# Dynamic paths - works on any server
-# Makefile is at: <bench>/apps/verenigingen/Makefile
-# So bench is 2 levels up from here
+# Dynamic paths - works on any server.
+# The app is usually at <bench>/apps/verenigingen, but a git worktree lives outside
+# the bench tree entirely, so walk up for the bench's own marker file instead of
+# assuming a fixed depth. BENCH_DIR is empty when no bench is reachable.
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-BENCH_DIR := $(abspath $(MAKEFILE_DIR)/../..)
+BENCH_DIR := $(shell d=$(patsubst %/,%,$(MAKEFILE_DIR)); \
+	while [ "$$d" != "/" ] && [ -n "$$d" ]; do \
+		if [ -f "$$d/sites/common_site_config.json" ]; then echo "$$d"; break; fi; \
+		d=$$(dirname "$$d"); \
+	done)
+
+# bench runs the app it has installed - the main checkout - not the files in this
+# working tree. Running the suite from a linked worktree would therefore report on
+# the main checkout's code while appearing to test this branch, so the test targets
+# refuse rather than hand back a green that means nothing.
+LINKED_WORKTREE := $(shell git rev-parse --git-dir 2>/dev/null | grep -q '/worktrees/' && echo 1)
 SITE ?= $(shell cat $(BENCH_DIR)/sites/currentsite.txt 2>/dev/null || echo "veg11.veganisme.org")
 APP=verenigingen
 MOLLIE_ORCHESTRATOR=verenigingen/tests/mollie_test_orchestrator.py
@@ -36,9 +47,18 @@ test:
 	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --app $(APP)
 
 test-quick:
+ifeq ($(LINKED_WORKTREE),1)
+	@echo "⏭️  Skipping quick tests: this is a linked git worktree, and bench would run"
+	@echo "   the main checkout's code rather than this branch's. Run them from"
+	@echo "   apps/verenigingen, or let CI run the branch."
+else ifeq ($(BENCH_DIR),)
+	@echo "⏭️  Skipping quick tests: no bench found above $(MAKEFILE_DIR)"
+	@echo "   (looked for sites/common_site_config.json in each parent directory)."
+else
 	@echo "Running quick validation tests (SEPA naming + Chapter management)..."
 	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.sepa.test_sepa_mandate_naming
 	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.backend.unit.services.test_chapter_management_service
+endif
 
 test-all:
 	@echo "Running all tests..."

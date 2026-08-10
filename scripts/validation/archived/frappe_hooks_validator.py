@@ -37,7 +37,7 @@ class FrappeHooksValidator:
 
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
-        self.app_name = self.app_path.name
+        self.app_name = self._detect_app_package(self.app_path)
         # Support both hooks.py (file) and hooks/ (package) structures
         hooks_file = self.app_path / self.app_name / "hooks.py"
         hooks_package = self.app_path / self.app_name / "hooks" / "__init__.py"
@@ -48,6 +48,34 @@ class FrappeHooksValidator:
         else:
             self.hooks_path = hooks_file  # Will trigger missing file error
         self.issues: List[HookIssue] = []
+
+    @staticmethod
+    def _detect_app_package(app_path: Path) -> str:
+        """Find the app's Python package by locating the module that defines its hooks.
+
+        The package name is not the checkout's directory name: a git worktree, or any
+        clone not literally named after the app, puts the two out of sync, and deriving
+        one from the other then looks for <checkout>/<checkout>/hooks.py and reports the
+        app's hooks as missing.
+
+        Deliberately duplicated from find_app_package() in scripts/validation/hooks_parser.py.
+        This script is a standalone entry point living under archived/, and making it
+        import live validation code for twelve lines would be the worse coupling.
+        """
+        try:
+            children = sorted(app_path.iterdir())
+        except OSError:
+            return app_path.name
+
+        for child in children:
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            if not (child / "__init__.py").exists():
+                continue
+            if (child / "hooks.py").exists() or (child / "hooks" / "__init__.py").exists():
+                return child.name
+
+        return app_path.name  # Preserve the old message when there is nothing to find
 
     def validate(self) -> List[HookIssue]:
         """Run validation on hooks.py or hooks/__init__.py"""
