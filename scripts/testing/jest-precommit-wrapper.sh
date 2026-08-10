@@ -37,6 +37,10 @@ fi
 
 echo "🔍 Running $TEST_TYPE..."
 
+# NOTE: node_modules resolution is not done here - .pre-commit-config.yaml invokes this
+# script through scripts/testing/with-node-modules.sh, which handles the worktree case
+# for every npm-based hook rather than just this one.
+
 # Create temp directory for test results
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
