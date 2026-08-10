@@ -179,7 +179,15 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             "status": kwargs.get("status", "Active"),
             "auto_generate": kwargs.get("auto_generate", 1),
             "next_invoice_date": kwargs.get("next_invoice_date", today()),
-            "contribution_mode": kwargs.get("contribution_mode", "Tier"),  # Valid options: Tier, Calculator, Custom
+            # Valid options are Fixed / Income-Based / Flexible. This defaulted to
+            # "Tier" -- and the comment here claimed Tier/Calculator/Custom were valid --
+            # which are the pre-v2_0 Membership Type values, removed when billing moved
+            # to Dues Schedule templates. It only persisted because the harness set
+            # frappe.flags.in_import and skipped _validate_selects(). "Fixed" is the
+            # field's own default and matches what this factory builds: one explicit
+            # dues_rate. Behaviour is unchanged, since the only branch reading this field
+            # tests `in ("Income-Based", "Flexible")`, which "Tier" also failed.
+            "contribution_mode": kwargs.get("contribution_mode", "Fixed"),
             **kwargs
         }
 
