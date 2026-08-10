@@ -18,7 +18,18 @@ BENCH_DIR := $(shell d=$(patsubst %/,%,$(MAKEFILE_DIR)); \
 # the main checkout's code while appearing to test this branch, so the test targets
 # refuse rather than hand back a green that means nothing.
 LINKED_WORKTREE := $(shell git rev-parse --git-dir 2>/dev/null | grep -q '/worktrees/' && echo 1)
-SITE ?= $(shell cat $(BENCH_DIR)/sites/currentsite.txt 2>/dev/null || echo "veg11.veganisme.org")
+# `bench use` records the default site as default_site in common_site_config.json.
+# This used to read sites/currentsite.txt, which this version of bench never writes,
+# so the lookup always fell through to the hardcoded live site - which is how the
+# test targets came to run against veg11 regardless of what `bench use` was told.
+# currentsite.txt is still consulted second, for benches old enough to write it.
+SITE ?= $(shell \
+	s=$$(python3 -c "import json;print(json.load(open('$(BENCH_DIR)/sites/common_site_config.json')).get('default_site') or '')" 2>/dev/null); \
+	[ -n "$$s" ] || s=$$(cat $(BENCH_DIR)/sites/currentsite.txt 2>/dev/null); \
+	echo "$$s")
+ifeq ($(strip $(SITE)),)
+SITE := veg11.veganisme.org
+endif
 APP=verenigingen
 MOLLIE_ORCHESTRATOR=verenigingen/tests/mollie_test_orchestrator.py
 
