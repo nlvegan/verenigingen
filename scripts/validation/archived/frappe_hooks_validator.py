@@ -15,6 +15,11 @@ This covers:
 import ast
 import re
 import importlib
+# Explicit: importlib.util is a submodule, so `import importlib` alone does not bind it.
+# It is present under the system interpreter only because something else on the default
+# path imports it first; under the bench's env/bin/python it is not, and _parse_hooks_file
+# then dies with "module 'importlib' has no attribute 'util'".
+import importlib.util
 import inspect
 from pathlib import Path
 from typing import List, Dict, Set, Optional, Tuple
