@@ -632,3 +632,53 @@ class TestWhitelistedEndpoints(VereningingenTestCase):
         for key in ("event_types", "severity_levels", "user_activity", "daily_activity", "table_summary"):
             self.assertIn(key, result)
         self.assertEqual(result["period_days"], 30)
+
+
+class TestSeverityNormalisation(VereningingenTestCase):
+    """log_event() accepts `Union[AuditSeverity, str]`, so a string must work too.
+
+    API Audit Log.severity is a Select of info/warning/error/critical. Only the enum
+    branch was normalised, so a caller passing the level as a string in any other case
+    produced a value the Select rejects. The insert is wrapped in a broad `except`
+    that logs and continues, so the row was dropped while the caller saw success --
+    the audit trail lost entries with no signal at the call site.
+
+    These assert the row LANDS and carries the right value, not merely that nothing
+    raised: the old behaviour did not raise either.
+    """
+
+    def _log_and_fetch(self, severity):
+        event_id = get_audit_logger().log_event(
+            "api_call_success", severity, user="Administrator", details={}, check_alerts=False
+        )
+        self.track_doc("API Audit Log", event_id)
+        return _fetch_api_log(event_id)
+
+    def test_uppercase_string_severity_is_persisted(self):
+        row = self._log_and_fetch("INFO")
+        self.assertIsNotNone(row, "audit row was dropped instead of stored")
+        self.assertEqual(row.severity, "info")
+
+    def test_mixed_case_string_severity_is_persisted(self):
+        row = self._log_and_fetch("Warning")
+        self.assertIsNotNone(row, "audit row was dropped instead of stored")
+        self.assertEqual(row.severity, "warning")
+
+    def test_lowercase_string_severity_still_works(self):
+        """Guard: normalising must not disturb the already-correct path."""
+        row = self._log_and_fetch("critical")
+        self.assertIsNotNone(row)
+        self.assertEqual(row.severity, "critical")
+
+    def test_enum_severity_still_works(self):
+        """Guard: the pre-existing enum branch is unchanged."""
+        row = self._log_and_fetch(AuditSeverity.ERROR)
+        self.assertIsNotNone(row)
+        self.assertEqual(row.severity, "error")
+
+    def test_unrecognised_severity_still_records_the_event(self):
+        """An audit trail that drops what it cannot classify is worse than one that
+        records it under a fallback: the event itself is the thing being protected."""
+        row = self._log_and_fetch("NOT_A_LEVEL")
+        self.assertIsNotNone(row, "unrecognised severity must not discard the audit row")
+        self.assertIn(row.severity, ("info", "warning", "error", "critical"))

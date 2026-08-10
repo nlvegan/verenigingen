@@ -60,6 +60,10 @@ class SEPAAuditLogger:
     - General API/security events go to API Audit Log
     """
 
+    # The values API Audit Log.severity accepts. Derived from the enum so the two
+    # cannot drift apart silently; both are info/warning/error/critical.
+    _SEVERITY_VALUES = frozenset(level.value for level in AuditSeverity)
+
     # SEPA-specific event types that should go to SEPA Audit Log
     SEPA_EVENT_TYPES = {
         "sepa_batch_created",
@@ -107,6 +111,35 @@ class SEPAAuditLogger:
     def _is_sepa_event(self, event_type: str) -> bool:
         """Determine if event should be stored in SEPA Audit Log"""
         return event_type in self.SEPA_EVENT_TYPES
+
+    @classmethod
+    def _normalise_severity(cls, severity) -> str:
+        """Coerce a severity to one of the values the Select actually offers.
+
+        log_event() advertises ``Union[AuditSeverity, str]`` but only ever converted the
+        enum, so a caller passing the level as a string in any other case produced a
+        value API Audit Log.severity rejects. Because the insert is wrapped in a broad
+        ``except`` that logs and continues, the cost was a silently missing audit row
+        while the caller saw success. Two other paths read this value expecting
+        lowercase and quietly misbehave otherwise: _map_severity_for_sepa() falls
+        through to "Pending Review" instead of the mapped status, and the escalation in
+        _log_to_file() compares against "critical"/"error"/"warning" and so skips
+        straight to info-level logging.
+
+        Reads ``.value`` off anything that has one rather than isinstance-checking
+        AuditSeverity, because a second AuditSeverity enum exists at
+        verenigingen_payments.core.compliance.audit_trail and an isinstance check
+        against this one does not recognise its members.
+
+        An unrecognised value is recorded as "warning" rather than passed through: the
+        audit row is the thing being protected, and discarding an event because its
+        label was unfamiliar is the worse failure.
+        """
+        text = str(getattr(severity, "value", severity)).strip().lower()
+        if text in cls._SEVERITY_VALUES:
+            return text
+        frappe.logger().warning(f"Unrecognised audit severity {severity!r}; recording the event as 'warning'")
+        return "warning"
 
     def _map_severity_for_sepa(self, severity: str) -> str:
         """Map severity to SEPA Audit Log compliance_status options"""
@@ -167,8 +200,7 @@ class SEPAAuditLogger:
         # Convert enums to strings
         if isinstance(event_type, AuditEventType):
             event_type = event_type.value
-        if isinstance(severity, AuditSeverity):
-            severity = severity.value
+        severity = self._normalise_severity(severity)
 
         # Get default values
         if not user:
