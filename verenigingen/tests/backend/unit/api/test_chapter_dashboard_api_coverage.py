@@ -70,7 +70,13 @@ class _ChapterDashboardBase(PortalSelfServiceTestMixin, EnhancedTestCase):
         )
         chapter_doc.save()
 
-    def _make_board_user(self, role_permissions_level="Membership", chapter_role_name=None):
+    # Default was "Membership", which Chapter Role.permissions_level does not offer
+    # (Basic/Financial/Admin only); it persisted solely because the harness suppressed
+    # _validate_selects(). "Admin" keeps the same effective access, since the code that
+    # reads this field treats "Membership" as a synonym for "Admin" via a legacy string
+    # no real role can carry. Approval in this file is driven by chapter_role NAME
+    # rather than by level, so this default is incidental to most cases here.
+    def _make_board_user(self, role_permissions_level="Admin", chapter_role_name=None):
         """Create a member->volunteer->active board seat on self.chapter, link a
         User whose email matches Member.email (so get_user_board_chapters resolves
         it), and return (member, user, volunteer)."""

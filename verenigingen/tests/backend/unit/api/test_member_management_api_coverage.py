@@ -79,12 +79,19 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
         )
 
     def _make_board_admin_member(self, chapter):
-        """Create a member who is an active board member (Membership level) of
-        ``chapter``, link a User, and return (member, user)."""
+        """Create a member who is an active board member (Admin level) of
+        ``chapter``, link a User, and return (member, user).
+
+        Was "Membership", which is not one of Chapter Role.permissions_level's options
+        (Basic/Financial/Admin) and only persisted because the harness suppressed
+        _validate_selects(). member_management.py's queries match
+        ``permissions_level IN ('Admin', 'Membership')``, so "Admin" preserves exactly
+        the access this helper was granting.
+        """
         member = self._make_member()
         volunteer = self.factory.create_volunteer(member_name=member.name)
         role = self.factory.ensure_chapter_role(
-            f"MM Board Role {self.uid}", attributes={"permissions_level": "Membership"}
+            f"MM Board Role {self.uid}", attributes={"permissions_level": "Admin"}
         )
         chapter_doc = frappe.get_doc("Chapter", chapter.name)
         chapter_doc.board_manager.add_board_member(  # ast-skip: @property not field
