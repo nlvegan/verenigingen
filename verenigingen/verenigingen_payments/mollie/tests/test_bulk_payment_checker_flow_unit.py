@@ -473,7 +473,7 @@ class TestLogBulkOperationAudit(EnhancedTestCase):
 
         row = self._find_audit_row("discovery")
         self.assertIsNotNone(row, "discovery audit row must be persisted")
-        self.assertEqual(row["severity"], "INFO")
+        self.assertEqual(row["severity"], "info")
         self.assertIn("bulk_payment_discovery", row["details"])
         self.assertIn('"date_range": "7_days"', row["details"])
 
@@ -494,7 +494,7 @@ class TestLogBulkOperationAudit(EnhancedTestCase):
 
         row = self._find_audit_row("processing")
         self.assertIsNotNone(row, "processing audit row must be persisted")
-        self.assertEqual(row["severity"], "WARNING")
+        self.assertEqual(row["severity"], "warning")
         self.assertIn("bulk_payment_processing", row["details"])
 
 
