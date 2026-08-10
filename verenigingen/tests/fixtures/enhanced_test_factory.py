@@ -3739,15 +3739,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 "email": email,
                 "first_name": first_name,
                 "send_welcome_email": 0,
-                # Explicit, as create_test_user also does. setUp sets
-                # frappe.flags.in_import = True to bypass Frappe's user-creation
-                # throttling, and Document._set_defaults() early-returns on that flag
-                # (frappe/model/document.py:1069), so NO DocType default reaches a doc
-                # built inside this harness -- User.enabled's default of "1" included,
-                # leaving the Check at 0. A disabled board member is not a scenario
-                # worth testing (they cannot log in) and has_permission denies disabled
-                # accounts outright, so the seat would be invisible for a reason the
-                # test is not about.
+                # Explicit, as create_test_user also does. This used to be load-bearing:
+                # setUp set frappe.flags.in_import, which made Document._set_defaults()
+                # early-return, so User.enabled's default of "1" never reached the doc and
+                # the account landed disabled. setUp no longer sets that flag, so the
+                # default now applies and this is belt-and-braces rather than a fix -- kept
+                # because a disabled board member is not a scenario worth testing (they
+                # cannot log in, and has_permission denies disabled accounts outright), so
+                # the seat would go invisible for a reason the test is not about.
                 "enabled": 1,
                 "roles": [{"role": "Verenigingen Member"}],
             })
