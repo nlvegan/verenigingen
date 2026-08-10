@@ -3,13 +3,23 @@ import json
 from typing import Dict, List, Optional
 
 import frappe
-from frappe import _
+from frappe import STANDARD_USERS, _
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 from .base_manager import BaseManager
+
+
+class BoardAccessWithdrawalError(frappe.ValidationError):
+    """A board seat was vacated but the access it conferred is still attached to the user.
+
+    Deliberately not swallowed like the other per-member board failures: a failed
+    *grant* fails safe (nobody gains anything), a failed *revocation* does not — it
+    leaves standing access behind a UI that reports the seat as gone.
+    """
 
 
 class BoardManager(BaseManager):
@@ -732,8 +742,9 @@ class BoardManager(BaseManager):
                     board_member.volunteer, board_member.chapter_role, change_date  # Use new role
                 )
 
-                # Recalculate role profile (may change if chapter uses role-specific profiles)
-                self._sync_role_profile_for_volunteer(board_member.volunteer)
+                # Recalculate role profile (may change if chapter uses role-specific
+                # profiles). Deferred: the new chapter_role is not in the database yet.
+                self._defer_board_access_recalculation(board_member.volunteer)
 
                 self.log_action(
                     "Board member role changed",
@@ -760,18 +771,9 @@ class BoardManager(BaseManager):
                     board_member.to_date,
                 )
 
-                # Remove Frappe role if no longer on any active board
-                try:
-                    board_member.remove_board_member_role()
-                except Exception as e:
-                    self._log_or_reraise(
-                        "Failed to remove board member role",
-                        {"volunteer": board_member.volunteer},
-                        e,
-                    )
-
-                # Recalculate role profile (may downgrade from Board Member to Volunteer/Member)
-                self._sync_role_profile_for_volunteer(board_member.volunteer)
+                # Withdraw the Frappe role and recalculate the role profile once the
+                # deactivation is in the database (see _defer_board_access_recalculation).
+                self._defer_board_access_recalculation(board_member.volunteer)
 
                 self.log_action(
                     "Deactivated board member",
@@ -821,18 +823,9 @@ class BoardManager(BaseManager):
                     end_date,
                 )
 
-                # Remove Frappe role if no longer on any active board
-                try:
-                    old_board_member.remove_board_member_role()
-                except Exception as e:
-                    self._log_or_reraise(
-                        "Failed to remove board member role on deletion",
-                        {"volunteer": old_board_member.volunteer},
-                        e,
-                    )
-
-                # Recalculate role profile (may downgrade from Board Member to Volunteer/Member)
-                self._sync_role_profile_for_volunteer(old_board_member.volunteer)
+                # Withdraw the Frappe role and recalculate the role profile once the row
+                # is really gone (see _defer_board_access_recalculation).
+                self._defer_board_access_recalculation(old_board_member.volunteer)
 
                 self.log_action(
                     "Board member deleted from chapter",
@@ -908,11 +901,7 @@ class BoardManager(BaseManager):
                 # `tabChapter Board Member`, so running the sync now would compute a
                 # non-board profile and overwrite the "Verenigingen Chapter Board Member"
                 # role that assign_board_member_role() just added — silently dropping it.
-                # Chapter.after_save() drains this list once the rows are committed.
-                if not hasattr(self.chapter_doc, "_pending_board_profile_syncs"):
-                    self.chapter_doc._pending_board_profile_syncs = []
-                if board_member.volunteer not in self.chapter_doc._pending_board_profile_syncs:
-                    self.chapter_doc._pending_board_profile_syncs.append(board_member.volunteer)
+                self._defer_board_access_recalculation(board_member.volunteer)
 
                 # Add to chapter members if they have an associated member
                 try:
@@ -1105,12 +1094,43 @@ class BoardManager(BaseManager):
         except frappe.DoesNotExistError:
             return False
 
-    def flush_pending_board_profile_syncs(self):
-        """Run deferred role-profile syncs for board members added during this save.
+    def _defer_board_access_recalculation(self, volunteer_name: str):
+        """Queue a volunteer's board access to be recalculated after this save.
 
-        Called from Chapter.after_save() once the Chapter Board Member child rows
-        are persisted, so get_board_member_profiles() can see them and compute the
-        correct (board-inclusive) role profile.
+        Every board change — seating, unseating, deactivating, changing role — is
+        applied to the in-memory child table during validate(), so at that point the
+        database still describes the *previous* board. Both halves of the derived
+        access read the database:
+
+        - get_board_member_profiles() queries `tabChapter Board Member`, so
+          calculate_user_role_profile() still returns the old profile and
+          sync_user_role_profile() reports changed=False;
+        - withdraw_board_member_role_if_unseated() counts live seats there too.
+
+        Deferring to Chapter.on_update (_flush_deferred_board_profile_syncs) is the
+        only frame in the save where those reads are truthful. Additions were deferred
+        for this reason already; removals were not, which is why vacating a seat never
+        withdrew the board role profile (issue #211).
+        """
+        if not volunteer_name:
+            return
+        if not hasattr(self.chapter_doc, "_pending_board_profile_syncs"):
+            self.chapter_doc._pending_board_profile_syncs = []
+        if volunteer_name not in self.chapter_doc._pending_board_profile_syncs:
+            self.chapter_doc._pending_board_profile_syncs.append(volunteer_name)
+
+    def flush_pending_board_profile_syncs(self):
+        """Recalculate deferred board access for everyone whose seat changed in this save.
+
+        Called from Chapter.on_update() once the Chapter Board Member child rows are
+        persisted, so get_board_member_profiles() can see them and compute the correct
+        role profile — and, for anyone left without a seat, so the Frappe role can be
+        withdrawn from a database that agrees they no longer sit on any board.
+
+        Order matters. The profile is applied first because a User carrying a board
+        role profile has its `roles` child table reset to that profile's roles on every
+        save (User.populate_role_profile_roles), which would immediately undo a role
+        removal performed before it.
         """
         pending = getattr(self.chapter_doc, "_pending_board_profile_syncs", None)
         if not pending:
@@ -1119,6 +1139,108 @@ class BoardManager(BaseManager):
         self.chapter_doc._pending_board_profile_syncs = []
         for volunteer_name in pending:
             self._sync_role_profile_for_volunteer(volunteer_name)
+            self._withdraw_board_role_if_unseated(volunteer_name)
+            self._assert_board_access_withdrawn(volunteer_name)
+
+    def _withdraw_board_role_if_unseated(self, volunteer_name: str):
+        """Drop the Frappe board role from a volunteer who no longer holds a seat.
+
+        A no-op for the additions path (the volunteer demonstrably has a live seat),
+        so the whole pending list can go through it without branching on why each
+        entry was queued.
+        """
+        from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+            withdraw_board_member_role_if_unseated,
+        )
+
+        try:
+            # No exclude_row: the save has persisted the change, so every row the query
+            # can still see is a seat the volunteer genuinely holds.
+            withdraw_board_member_role_if_unseated(volunteer_name)
+        except Exception as e:
+            self._log_or_reraise("Failed to withdraw board member role", {"volunteer": volunteer_name}, e)
+
+    def _assert_board_access_withdrawn(self, volunteer_name: str):
+        """Post-condition: a volunteer with no seat left must not still hold board access.
+
+        Only checked for a volunteer who now sits on no active board at all, so the
+        additions path and anyone who kept another seat never reach the raise.
+
+        This is deliberately louder than the rest of this manager. _log_or_reraise()
+        logs and continues, which is right for a failed *grant* — nobody gains access
+        from it. A failed *withdrawal* is the opposite: the seat disappears from the
+        UI while the role profile and its permissions stay attached, and nothing in
+        the removal's return value says otherwise. Raising aborts the Chapter save, so
+        the board record and the access it implies stay consistent and the operator
+        gets told, instead of the removal silently reporting success.
+        """
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            calculate_user_role_profile,
+            get_user_role_profiles,
+        )
+
+        if frappe.db.count("Chapter Board Member", {"volunteer": volunteer_name, "is_active": 1}):
+            return  # Still seated somewhere: the access is earned, not leaked.
+
+        member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+        user = frappe.db.get_value("Member", member, "user") if member else None
+        if not user:
+            return  # No account, no access.
+        if not frappe.db.get_value("User", user, "enabled"):
+            return  # A disabled account cannot use what it still holds; sync skips it too.
+        if user in STANDARD_USERS:
+            # frappe.get_roles("Administrator") returns every role that exists, and
+            # populate_role_profile_roles() refuses to touch these accounts anyway, so
+            # there is nothing here to read as a leaked board grant.
+            return
+
+        # frappe.get_roles() memoises per user in frappe.local and this save rewrote
+        # User.roles underneath it.
+        frappe.clear_cache(user=user)
+
+        outstanding = []
+        if Roles.CHAPTER_BOARD_MEMBER in frappe.get_roles(user):
+            outstanding.append(_("role '{0}'").format(Roles.CHAPTER_BOARD_MEMBER))
+
+        applied = set(get_user_role_profiles(user))
+        expected = calculate_user_role_profile(user)
+        for profile in self._board_conferred_profiles():
+            # `!= expected` keeps a chapter that configures an ordinary profile (say
+            # Verenigingen Volunteer) as its board profile from reporting the correct
+            # post-withdrawal profile as a leak.
+            if profile in applied and profile != expected:
+                outstanding.append(_("role profile '{0}'").format(profile))
+
+        if not outstanding:
+            return
+
+        # File logger, not log_action(level="error"): that writes an Error Log row,
+        # and the exception below aborts the save whose transaction the row would
+        # live in, so it would be rolled back with it. The log file survives.
+        frappe.logger().error(
+            f"Chapter {self.chapter_name}: board access {', '.join(outstanding)} survived the "
+            f"seat withdrawal for volunteer {volunteer_name} (user {user})"
+        )
+        raise BoardAccessWithdrawalError(
+            _(
+                "Board membership for {0} ended but {1} is still attached to {2} — access was not withdrawn."
+            ).format(volunteer_name, ", ".join(outstanding), user)
+        )
+
+    def _board_conferred_profiles(self) -> set:
+        """Role profiles this chapter's board seats can confer."""
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            PROFILE_BOARD_MEMBER,
+        )
+
+        profiles = {PROFILE_BOARD_MEMBER}
+        if self.chapter_doc.get("default_board_role_profile"):
+            profiles.add(self.chapter_doc.default_board_role_profile)
+        if self.chapter_doc.get("enable_board_role_specific_profiles"):
+            for mapping in self.chapter_doc.get("board_role_specific_profiles") or []:
+                if mapping.role_profile:
+                    profiles.add(mapping.role_profile)
+        return profiles
 
     def _sync_role_profile_for_volunteer(self, volunteer_name: str):
         """Recalculate and apply the correct role profile for a volunteer's user account.

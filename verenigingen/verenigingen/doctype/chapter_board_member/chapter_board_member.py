@@ -87,76 +87,13 @@ class ChapterBoardMember(Document):
                 )
 
     def remove_board_member_role(self):
-        """Remove Chapter Board Member role if user is no longer on any board"""
-        if not self.volunteer:
-            return
+        """Remove Chapter Board Member role if user is no longer on any board.
 
-        # Get the member and user associated with this volunteer
-        volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-        if not volunteer_doc.member:
-            return
-
-        user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-        if not user:
-            return
-
-        # Check if this volunteer is on any other ACTIVE boards.
-        # Frappe's "is" filter operator accepts only "set" / "not set"; "null"
-        # was rejected with `'is' operator only supports 'set' and 'not set'`.
-        # The DocType is "Chapter Board Member" — "Verenigingen Chapter Board
-        # Member" is the role name, not the DocType.
-        active_board_positions = frappe.db.count(
-            "Chapter Board Member",
-            {
-                "volunteer": self.volunteer,
-                "name": ["!=", self.name],
-                "is_active": 1,
-                "to_date": ["is", "not set"],
-            },
-        )
-
-        # Also check for positions with future end dates
-        future_positions = frappe.db.count(
-            "Chapter Board Member",
-            {
-                "volunteer": self.volunteer,
-                "name": ["!=", self.name],
-                "is_active": 1,
-                "to_date": [">=", frappe.utils.today()],
-            },
-        )
-
-        total_active_positions = active_board_positions + future_positions
-
-        # Only remove role if they're not on any other active boards
-        if total_active_positions == 0:
-            # Has Role is a child table with no permissions defined — direct
-            # delete fails for every user (including System Manager and the
-            # background service user). Remove the role row from the parent
-            # User document and save it instead, mirroring assign_board_member_role.
-            if not frappe.db.exists(
-                "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
-            ):
-                return
-
-            user_doc = frappe.get_doc("User", user)
-            existing = {d.role: d for d in user_doc.roles}
-            row_to_remove = existing.get("Verenigingen Chapter Board Member")
-            if not row_to_remove:
-                return
-            user_doc.roles.remove(row_to_remove)
-
-            save_result = secure_document_operation(
-                operation="save",
-                doc=user_doc,
-                justification=f"Remove Chapter Board Member role from user {user} (no longer on any board)",
-                required_permissions=["User:write"],
-            )
-
-            if save_result.success:
-                frappe.msgprint(f"Removed Chapter Board Member role from {user}")
-            else:
-                frappe.log_error(f"Could not remove board member role from user {user}: Permission denied")
+        ``exclude_row=self.name`` because this runs from the row's own controller
+        hooks (``on_trash``/``on_update``), where the row is still in the database
+        and would otherwise count as a seat that justifies keeping the role.
+        """
+        withdraw_board_member_role_if_unseated(self.volunteer, exclude_row=self.name)
 
     def validate(self):
         """Validate board member data and relationships"""
@@ -261,4 +198,83 @@ class ChapterBoardMember(Document):
             },
             reference_doctype="Chapter Board Member",
             reference_name=self.name,
+        )
+
+
+def withdraw_board_member_role_if_unseated(volunteer: str, exclude_row: str = None) -> None:
+    """Drop the Chapter Board Member role unless the volunteer still holds a live seat.
+
+    Split out of ChapterBoardMember.remove_board_member_role() so BoardManager can run
+    the same decision from Chapter.on_update, i.e. *after* the child rows are written.
+    Run from validate() the decision reads a database that still shows the seat being
+    withdrawn and — worse — the User.save() below is undone by Frappe itself: with a
+    board role profile still attached, User.populate_role_profile_roles() resets
+    ``roles`` to exactly the attached profiles' roles, putting the role straight back.
+    See issue #211.
+
+    Args:
+        volunteer: Volunteer whose board access is being re-evaluated.
+        exclude_row: Chapter Board Member row to ignore when counting live seats. Pass
+            the row's own name from a row controller hook (the row is still in the
+            database there); pass None once the parent save has persisted the change.
+    """
+    if not volunteer:
+        return
+
+    volunteer_doc = frappe.get_doc("Volunteer", volunteer)
+    if not volunteer_doc.member:
+        return
+
+    user = frappe.db.get_value("Member", volunteer_doc.member, "user")
+    if not user:
+        return
+
+    # Frappe's "is" filter operator accepts only "set" / "not set"; "null"
+    # was rejected with `'is' operator only supports 'set' and 'not set'`.
+    # The DocType is "Chapter Board Member" — "Verenigingen Chapter Board
+    # Member" is the role name, not the DocType.
+    open_ended = {"volunteer": volunteer, "is_active": 1, "to_date": ["is", "not set"]}
+    future_dated = {"volunteer": volunteer, "is_active": 1, "to_date": [">=", frappe.utils.today()]}
+    if exclude_row:
+        open_ended["name"] = ["!=", exclude_row]
+        future_dated["name"] = ["!=", exclude_row]
+
+    total_active_positions = frappe.db.count("Chapter Board Member", open_ended) + frappe.db.count(
+        "Chapter Board Member", future_dated
+    )
+
+    # Only remove the role if they are not on any other active board
+    if total_active_positions:
+        return
+
+    # Has Role is a child table with no permissions defined — direct
+    # delete fails for every user (including System Manager and the
+    # background service user). Remove the role row from the parent
+    # User document and save it instead, mirroring assign_board_member_role.
+    if not frappe.db.exists("Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}):
+        return
+
+    user_doc = frappe.get_doc("User", user)
+    existing = {d.role: d for d in user_doc.roles}
+    row_to_remove = existing.get("Verenigingen Chapter Board Member")
+    if not row_to_remove:
+        return
+    user_doc.roles.remove(row_to_remove)
+
+    save_result = secure_document_operation(
+        operation="save",
+        doc=user_doc,
+        justification=f"Remove Chapter Board Member role from user {user} (no longer on any board)",
+        required_permissions=["User:write"],
+    )
+
+    if save_result.success:
+        frappe.msgprint(f"Removed Chapter Board Member role from {user}")
+    else:
+        # Report what actually failed rather than assuming a permission refusal:
+        # secure_document_operation() flattens every non-fatal exception into
+        # success=False, and this log is the only record of it.
+        frappe.log_error(
+            f"Could not remove board member role from user {user}: "
+            f"{'; '.join(save_result.errors) or 'no reason reported'}"
         )
