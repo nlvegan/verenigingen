@@ -652,13 +652,93 @@ class TestMemberLinkedFactory(PermissionsCoverageBase):
 
 
 class TestMiscPermissionHelpers(PermissionsCoverageBase):
-    def test_has_membership_permission_admin_and_fallback(self):
+    def test_has_membership_permission_is_member_scoped(self):
+        """The Membership controller hook vetoes by member and by chapter.
+
+        This asserts the HOOK in isolation. The hook is a veto layer, not the
+        answer: frappe composes it with role DocPerms, user permissions and the
+        `if_owner` overlay (see test_membership_composed_permission_is_chapter_scoped
+        for the answer the system actually gives).
+
+        This test used to require None for a non-admin and described it as "defer to
+        DocPerm + query", which is the opposite of what Frappe does:
+        has_controller_permissions treats a falsy hook result as a hard DENY
+        (`if not controller_permission: return bool(...)`), so None short-circuited
+        the check to False and made this doctype's DocPerms for Verenigingen Chapter
+        Board Member and Verenigingen Member unreachable.
+
+        The correction is NOT an unconditional True -- see the cross-chapter
+        assertions, which are what separate the fix from the hole.
+        """
         from verenigingen.permissions import has_membership_permission
 
-        # Admin -> True.
+        own = self.create_test_membership(member=self.regular_member.name)
+        other = self.create_test_membership(member=self.other_member.name)
+
+        # Admin -> True, including for a name that does not exist.
         self.assertTrue(has_membership_permission("any", self.staff_user.name))
-        # Non-admin -> None (defer to DocPerm + query).
-        self.assertIsNone(has_membership_permission("any", self.regular_user.name))
+
+        self.assertTrue(
+            has_membership_permission(own.name, self.regular_user.name),
+            "hook does not veto a member's own membership",
+        )
+        self.assertFalse(
+            has_membership_permission(other.name, self.regular_user.name),
+            "a member must not reach another member's membership",
+        )
+
+        self.assertTrue(
+            has_membership_permission(own.name, self.board_user.name), "board of the member's chapter"
+        )
+        self.assertFalse(
+            has_membership_permission(other.name, self.board_user.name),
+            "a board member must not reach a membership outside their chapters",
+        )
+
+        # No Member record at all -> denied.
+        self.assertFalse(has_membership_permission(own.name, self.bare_user.name))
+
+    def test_membership_composed_permission_is_chapter_scoped(self):
+        """The same policy through frappe.has_permission -- the layer that matters.
+
+        The hook test above exercises the controller alone. This one goes through
+        the full composition (role DocPerms -> if_owner overlay -> user permissions
+        -> controller), which is what `/api/resource/Membership/<name>` and
+        doc.check_permission() actually consult. Nothing else in the suite covered
+        it, and it is the assertion that would have caught an unconditional
+        `return True` through the real chain rather than through the hook.
+        """
+        own = self.create_test_membership(member=self.regular_member.name)
+        other = self.create_test_membership(member=self.other_member.name)
+
+        self.assertTrue(
+            frappe.has_permission("Membership", "read", doc=own.name, user=self.board_user.name),
+            "board member must reach a membership in their own chapter",
+        )
+        self.assertFalse(
+            frappe.has_permission("Membership", "read", doc=other.name, user=self.board_user.name),
+            "board member must NOT reach a membership outside their chapters",
+        )
+        self.assertFalse(
+            frappe.has_permission("Membership", "write", doc=other.name, user=self.board_user.name),
+            "board member must NOT write a membership outside their chapters",
+        )
+
+        # A plain member is denied even their OWN membership, and not by the hook --
+        # the hook returns True for it (asserted above). `Verenigingen Member`'s only
+        # DocPerm row on Membership is `if_owner: 1, read: 1`, and memberships are
+        # owned by whoever ran the approval, never by the member. The DocPerm encodes
+        # an intent the ownership model cannot satisfy. Pinned here so that dropping
+        # `if_owner` is a deliberate change with a failing test, not a silent one.
+        self.assertNotEqual(
+            frappe.db.get_value("Membership", own.name, "owner"),
+            self.regular_user.name,
+            "fixture invalid: the member must not own their own membership",
+        )
+        self.assertFalse(
+            frappe.has_permission("Membership", "read", doc=own.name, user=self.regular_user.name),
+            "member cannot read their own membership: if_owner DocPerm, and they are not the owner",
+        )
 
     def test_service_account_deferral(self):
         from verenigingen.permissions import _check_service_account_permission
@@ -696,6 +776,415 @@ class TestMiscPermissionHelpers(PermissionsCoverageBase):
 
         # Should not raise.
         clear_permission_cache()
+
+
+class TestEmployeeDocLevelPermissions(PermissionsCoverageBase):
+    """Employee must be scoped at DOC level, not only in list views.
+
+    get_employee_permission_query has scoped Employee LISTS for a long time, but a
+    query condition only ever reaches list views: frappe/model/db_query.py calls
+    frappe.has_permission WITHOUT a doc, while frappe.client.get calls
+    doc.check_permission() (frappe/client.py:104), which never consults the query.
+    With no has_permission registered for Employee, doc-level access fell entirely
+    to DocPerms -- and fixtures/custom_docperm.json grants the ERPNext `Employee`
+    role read with no if_owner, while 8 of 11 role profiles hand out that role.
+
+    Net effect before this fix, MEASURED against real config: a plain volunteer got
+    `1=0` from the list query (zero employees visible anywhere) and True from
+    frappe.has_permission("Employee", "read", doc=<any employee>) -- personal data
+    (date of birth, personal email, phone, address) readable by name.
+    """
+
+    def _make_employee(self, user_name=None, member_name=None):
+        company = frappe.get_value("Verenigingen Settings", None, "company")
+        emp = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"Emp {frappe.generate_hash(length=6)}",
+                "last_name": "DocLevel",
+                "status": "Active",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": today(),
+                "company": company,
+                "user_id": user_name,
+            }
+        )
+        emp.insert(ignore_permissions=True)
+        if member_name:
+            frappe.db.set_value("Member", member_name, "employee", emp.name, update_modified=False)
+        return emp
+
+    def _make_employee_role_holder(self, user_name):
+        """Give `user_name` the ERPNext `Employee` role and NO Employee record.
+
+        That combination is the exposed population, and it has to be built exactly
+        this way for the test to mean anything:
+
+        - No Employee record: ERPNext's Employee.update_user_permissions() creates a
+          User Permission on Employee for anyone who has one, so such users are
+          already scoped by that mechanism. Giving the actor a record would make the
+          denial come from User Permissions rather than from the check under test.
+        - Inserted as a Has Role row, not appended to the User: saving a User
+          re-syncs its roles and drops an ad-hoc one, and the role profiles on a
+          fresh test site do not necessarily carry the Employee role that
+          fixtures/role_profile.json ships.
+        """
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": user_name,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": "Employee",
+            }
+        ).insert(ignore_permissions=True)
+        frappe.clear_cache(user=user_name)
+        return user_name
+
+    def test_unrelated_user_cannot_read_employee_by_name(self):
+        """The regression guard: an `Employee`-role holder with no relationship.
+
+        The actor must actually hold the ERPNext `Employee` role, which is what
+        fixtures/role_profile.json hands to Verenigingen Volunteer, Chapter Board
+        Member, Treasurer, Team Leader, Staff, Auditor and National Board Member.
+        Without it the role layer denies first and this test would pass against the
+        hole as readily as against the fix.
+        """
+        target = self._make_employee(member_name=self.other_member.name)
+
+        self._make_employee_role_holder(self.bare_user.name)
+
+        self.assertIn("Employee", frappe.get_roles(self.bare_user.name), "fixture invalid")
+        self.assertFalse(
+            frappe.db.exists("Employee", {"user_id": self.bare_user.name}),
+            "fixture invalid: actor must have no Employee record of their own",
+        )
+
+        self.assertFalse(
+            frappe.has_permission("Employee", "read", doc=target.name, user=self.bare_user.name),
+            "an Employee-role holder with no relationship must not read it by name",
+        )
+
+    def test_employee_can_read_own_record(self):
+        """Self-access must survive the fix -- Employee Self Service depends on it."""
+        own = self._make_employee(user_name=self.regular_user.name, member_name=self.regular_member.name)
+
+        # regular_user is declared with only the Verenigingen Member role, which has no
+        # Employee DocPerm; this test reaches the role layer at all because ERPNext's
+        # Employee.update_user() grants the `Employee` role as a side effect of creating
+        # an Employee with a user_id. Assert that explicitly -- if ERPNext ever stops
+        # doing it, the test should fail as an invalid fixture rather than as a
+        # regression in the code under test.
+        self.assertIn(
+            "Employee",
+            frappe.get_roles(self.regular_user.name),
+            "fixture invalid: creating an Employee with user_id should grant the Employee role",
+        )
+
+        self.assertTrue(
+            frappe.has_permission("Employee", "read", doc=own.name, user=self.regular_user.name),
+            "an employee must be able to read their own record",
+        )
+
+    def test_board_member_scoped_to_own_chapter(self):
+        """Board access matches what the list query already grants them."""
+        own_chapter = self._make_employee(member_name=self.regular_member.name)
+        other_chapter = self._make_employee(member_name=self.other_member.name)
+
+        self.assertTrue(
+            frappe.has_permission("Employee", "read", doc=own_chapter.name, user=self.board_user.name),
+            "board member must reach an employee of a member in their chapter",
+        )
+        self.assertFalse(
+            frappe.has_permission("Employee", "read", doc=other_chapter.name, user=self.board_user.name),
+            "board member must NOT reach an employee outside their chapters",
+        )
+
+    def test_list_query_and_doc_check_agree_on_self(self):
+        """The two halves must encode the same policy.
+
+        The list query used to fall through to `1=0` for a plain employee, so a user
+        could not see their own record in a list while being able to read every
+        record by name -- wrong in both directions at once.
+        """
+        from verenigingen.permissions import get_employee_permission_query
+
+        own = self._make_employee(user_name=self.regular_user.name, member_name=self.regular_member.name)
+        cond = get_employee_permission_query(self.regular_user.name)
+        # Not assertTrue(cond): "1=0" is a truthy string, so that would pass against
+        # the pre-fix state this test exists to catch. Both ends must be excluded --
+        # "" means unrestricted, "1=0" means the member cannot see their own record.
+        self.assertTrue(cond, "expected a scoping condition, not an empty (unrestricted) string")
+        self.assertNotIn("1=0", cond, "expected a real condition, not a blanket denial")
+
+        visible = bool(
+            frappe.db.sql(f"SELECT name FROM `tabEmployee` WHERE name = %s AND {cond}", own.name)
+        )
+        self.assertTrue(visible, "own employee record must be visible in list views")
+        self.assertTrue(
+            frappe.has_permission("Employee", "read", doc=own.name, user=self.regular_user.name),
+            "and readable at doc level -- the two halves must agree",
+        )
+
+
+class TestTeamDocLevelPermissions(PermissionsCoverageBase):
+    """Team must be scoped at DOC level, not only in list views.
+
+    Same defect as Employee above, third occurrence in this repo (see PR #191,
+    #256, #259): get_team_permission_query_conditions has scoped Team LISTS for a
+    long time, but a query condition only ever reaches list views, and Team had no
+    has_permission registered -- so doc-level access fell entirely to DocPerms, and
+    team.json grants `Verenigingen Member` read with no if_owner.
+
+    Net effect before this fix, MEASURED against real config: a plain member got
+    `` `tabTeam`.name = '' `` from the list query (zero teams anywhere) and True
+    from frappe.has_permission("Team", "read", doc=<any team>). The Team Member
+    child rows travel with the parent, so that exposed team rosters -- volunteer,
+    role, dates, status -- plus team_lead, chapter and description.
+    """
+
+    def _make_team_with_member(self, volunteer_name=None):
+        """A Team, optionally carrying an ACTIVE Team Member row for `volunteer_name`."""
+        team = self.create_test_team(team_name=f"Perm Team {frappe.generate_hash(length=6)}")
+        if volunteer_name:
+            self.create_test_team_member(team.name, volunteer_name)
+        return frappe.get_doc("Team", team.name)
+
+    def _make_team_lead_user(self):
+        """A user holding the `Team Lead` role, which is what team.json grants create on.
+
+        Inserted as a Has Role row rather than appended to the User: saving a User
+        re-syncs its roles from its role profiles and drops an ad-hoc one, and no role
+        profile in this app grants `Team Lead`.
+        """
+        lead_user = self.create_test_user(
+            email=f"perm-teamlead-{self.token}@test.com", roles=[Roles.VERENIGINGEN_MEMBER]
+        )
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": lead_user.name,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": "Team Lead",
+            }
+        ).insert(ignore_permissions=True)
+        frappe.clear_cache(user=lead_user.name)
+        return lead_user
+
+    def _insert_team_as(self, user_name):
+        """Insert a Team while acting as `user_name`, so the row is really theirs.
+
+        The insert itself is permission-checked -- that is the point, it exercises the
+        create path through the hook -- and Administrator is restored either way.
+        """
+        frappe.set_user(user_name)
+        try:
+            return self.create_test_team(team_name=f"Perm Owned Team {frappe.generate_hash(length=6)}")
+        finally:
+            frappe.set_user("Administrator")
+
+    def _assert_team_role_layer_grants_read(self, user_name):
+        """Guard against a test that would pass against the hole as readily as the fix.
+
+        frappe.has_permission WITHOUT a doc consults only the role layer
+        (frappe/permissions.py:152-167), so this asserts the actor really holds
+        Team's `Verenigingen Member` read DocPerm. Without it the role layer would
+        deny first and the doc-level assertions below would mean nothing.
+        """
+        self.assertTrue(
+            frappe.has_permission("Team", "read", user=user_name),
+            "fixture invalid: actor must hold a Team read DocPerm at role level",
+        )
+
+    def test_unrelated_member_cannot_read_team_by_name(self):
+        """The regression guard: a volunteer who is on A team, but not on THIS one.
+
+        The actor must have a Volunteer record and an active membership elsewhere.
+        Without them the check exits at its "no volunteer" guard, and the test would
+        pass just as well against an implementation that denies everyone lacking a
+        Volunteer while handing every team to anyone who has one -- which is the
+        interesting half of the policy.
+        """
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        self._make_team_with_member(volunteer.name)
+        target = self._make_team_with_member()
+
+        self._assert_team_role_layer_grants_read(self.regular_user.name)
+
+        self.assertFalse(
+            frappe.has_permission("Team", "read", doc=target.name, user=self.regular_user.name),
+            "a member unrelated to the team must not read it by name",
+        )
+        self.assertFalse(
+            frappe.has_permission("Team", "write", doc=target.name, user=self.regular_user.name),
+            "and must not write it either",
+        )
+
+    def test_active_team_member_can_read_own_team(self):
+        """Team access must survive the fix for the people the list query already grants."""
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(volunteer.name)
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=own.name, user=self.regular_user.name),
+            "an active team member must be able to read their own team",
+        )
+
+    def test_inactive_team_member_is_denied(self):
+        """is_active=0 is the query's boundary; the doc check must use the same one."""
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        team = self._make_team_with_member(volunteer.name)
+
+        team.team_members[0].is_active = 0
+        team.team_members[0].status = "Inactive"
+        team.save()
+
+        self._assert_team_role_layer_grants_read(self.regular_user.name)
+        self.assertFalse(
+            frappe.has_permission("Team", "read", doc=team.name, user=self.regular_user.name),
+            "a deactivated team member must lose doc-level access, as they lose list access",
+        )
+
+    def test_roster_rows_are_governed_by_the_parent(self):
+        """The disclosure this fixes is the roster, so assert the roster directly.
+
+        frappe/permissions.py::has_child_permission delegates a child-table check to the
+        parent document, so registering Team is what closes it -- Team Member has a
+        query condition of its own but, like Team did, no doc-level check.
+        """
+        own_volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(own_volunteer.name)
+
+        other_volunteer = self.create_test_volunteer(self.other_member.name)
+        other = self._make_team_with_member(other_volunteer.name)
+
+        own_row = frappe.get_doc("Team Member", own.team_members[0].name)
+        other_row = frappe.get_doc("Team Member", other.team_members[0].name)
+
+        self.assertTrue(
+            frappe.has_permission(
+                "Team Member", "read", doc=own_row, parent_doctype="Team", user=self.regular_user.name
+            ),
+            "a member must reach the roster of their own team",
+        )
+        self.assertFalse(
+            frappe.has_permission(
+                "Team Member", "read", doc=other_row, parent_doctype="Team", user=self.regular_user.name
+            ),
+            "and must not reach another team's roster",
+        )
+
+    # test_second_volunteer_record_still_grants_access lived here. It built its
+    # fixture from two Volunteer records for one Member, which #267 made
+    # unconstructible: Volunteer.member is unique, so the second insert now raises.
+    #
+    # _user_active_team_names still iterates all of a member's volunteers on purpose.
+    # The constraint stops NEW duplicates; it does not remove ones an existing
+    # deployment already carries, and the pre_model_sync patch reports those rather
+    # than merging them.
+
+    def test_team_lead_reaches_the_team_they_lead(self):
+        """Pins the reason has_team_permission carries no team_lead branch.
+
+        The claim is that Team._update_team_lead derives team_lead from an ACTIVE Team
+        Member row carrying an is_team_leader Team Role, so a lead is always also a
+        member. If that ever stops holding, team leads lose their own team and only
+        this test says so.
+        """
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        leader_role = self.ensure_team_role("Team Leader")
+        self.assertTrue(leader_role.is_team_leader, "fixture invalid: role must be a leader role")
+
+        team = self.create_test_team(team_name=f"Perm Lead Team {frappe.generate_hash(length=6)}")
+        self.create_test_team_member(team.name, volunteer.name, team_role_name=leader_role.name)
+        team.reload()
+
+        self.assertEqual(
+            team.team_lead,
+            self.regular_user.name,
+            "fixture invalid: the leader row should have populated team_lead",
+        )
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=team.name, user=self.regular_user.name),
+            "a team lead must reach the team they lead",
+        )
+
+    def test_creator_keeps_the_team_they_created(self):
+        """`Team Lead` holds create AND write on Team with no if_owner.
+
+        Without an owner branch that role could insert a team and be denied on the very
+        next read: at insert time there is no Team Member row yet and team_lead is
+        empty, so the team would immediately become administrator-only -- and its
+        creator could not even add themselves to it.
+        """
+        lead_user = self._make_team_lead_user()
+        created = self._insert_team_as(lead_user.name)
+
+        self.assertEqual(created.owner, lead_user.name, "fixture invalid: creator must own the team")
+        self.assertFalse(
+            frappe.db.get_all("Team Member", filters={"parent": created.name}),
+            "fixture invalid: a freshly created team must have no member rows",
+        )
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=created.name, user=lead_user.name),
+            "the creator must still be able to read the team they just created",
+        )
+        self.assertTrue(
+            frappe.has_permission("Team", "write", doc=created.name, user=lead_user.name),
+            "and to write it -- otherwise they cannot add members to it",
+        )
+
+    def test_admin_reads_any_team(self):
+        """The query's admin short-circuit ("" = unrestricted) must have a doc-level twin.
+
+        Both arms of _is_team_admin are exercised: a one-role test would leave the other
+        free to be deleted.
+        """
+        target = self._make_team_with_member()
+
+        for role in (Roles.VERENIGINGEN_ADMIN, Roles.SYSTEM_MANAGER):
+            with self.subTest(role=role):
+                admin_user = self.create_test_user(
+                    email=f"perm-teamadmin-{role.replace(' ', '-').lower()}-{self.token}@test.com",
+                    roles=[role],
+                )
+                self.assertTrue(
+                    frappe.has_permission("Team", "read", doc=target.name, user=admin_user.name),
+                    f"{role} must reach every team",
+                )
+
+    def test_list_query_and_doc_check_agree(self):
+        """The two halves must encode the same policy, on both sides of the boundary."""
+        from verenigingen.verenigingen.doctype.team.team import get_team_permission_query_conditions
+
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(volunteer.name)
+        other = self._make_team_with_member()
+
+        cond = get_team_permission_query_conditions(self.regular_user.name)
+        # Not assertTrue(cond): "`tabTeam`.name = ''" is a truthy string, so that
+        # would pass against a blanket denial. Both ends must be excluded -- ""
+        # means unrestricted, `name = ''` means no team is visible at all.
+        self.assertTrue(cond, "expected a scoping condition, not an empty (unrestricted) string")
+        self.assertNotIn("name = ''", cond, "expected a real condition, not a blanket denial")
+
+        visible = {
+            row[0] for row in frappe.db.sql(f"SELECT name FROM `tabTeam` WHERE {cond}")  # nosec B608
+        }
+        self.assertIn(own.name, visible, "own team must be visible in list views")
+        self.assertNotIn(other.name, visible, "an unrelated team must not be visible in list views")
+
+        self.assertTrue(
+            frappe.has_permission("Team", "read", doc=own.name, user=self.regular_user.name),
+            "and readable at doc level -- the two halves must agree",
+        )
+        self.assertFalse(
+            frappe.has_permission("Team", "read", doc=other.name, user=self.regular_user.name),
+            "and unreadable at doc level -- the two halves must agree",
+        )
 
 
 class TestExpenseClaimPermissions(PermissionsCoverageBase):

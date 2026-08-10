@@ -83,9 +83,16 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
         # Confirmed paid: finalize the installment FIRST, mark the intent Paid only
         # AFTER it returns (a mid-finalize failure must leave the intent
         # re-processable, not a Paid intent with an unfinalized installment).
-        # Security: webhook context; finalization runs as the webhook user (defaults
-        # to Administrator; a restricted webhook_user must hold the FINANCIAL tier,
-        # since PaymentPlan.process_payment is decorated @high_security_api(FINANCIAL)).
+        # Security: webhook context; finalization runs as the configured webhook user.
+        #
+        # It needs the HIGH tier, NOT "the FINANCIAL tier" as this comment used to
+        # claim. @high_security_api hardcodes security_level=SecurityLevel.HIGH
+        # (api_security_framework.py, high_security_api -> api_security_framework);
+        # its operation_type argument -- FINANCIAL here -- is a rate-limiting
+        # classification and is never mapped to a required tier. Granting the service
+        # account CRITICAL on the strength of the old wording would have been a real
+        # privilege escalation. The Verenigingen Webhook User role profile already
+        # grants HIGH.
         plan = frappe.get_doc("Payment Plan", row.payment_plan)
         plan.process_payment(
             installment_number=row.installment_number,

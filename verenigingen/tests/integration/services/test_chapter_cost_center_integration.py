@@ -36,22 +36,29 @@ def _get_root_cost_center(company, company_abbr):
     return f"{company} - {company_abbr}"
 
 
-def _get_any_membership_type():
-    """Get any available membership type from the database."""
-    types = frappe.get_all("Membership Type", limit=1)
-    return types[0].name if types else None
-
-
 class TestChapterCostCenterInvoiceGenerator(EnhancedTestCase):
     """Integration tests: chapter cost center resolution in canonical InvoiceGenerator."""
 
     def setUp(self):
         super().setUp()
 
-        # Resolve a valid membership type dynamically
-        self.membership_type_name = _get_any_membership_type()
-        if not self.membership_type_name:
-            self.skipTest("No Membership Type exists in the database")
+        # Own the membership type instead of borrowing whichever one the database
+        # happens to surface. The previous helper did
+        # `frappe.get_all("Membership Type", limit=1)` with no order_by, so Frappe
+        # falls back to the doctype's own sort — Membership Type declares
+        # `sort_field: modified, sort_order: DESC` — and it returned whichever type
+        # the PREVIOUS test in the process last touched, out of 289 on a warm site.
+        # When that borrowed type produced no Active dues schedule, setUp raised
+        # "No schedule was created with membership" and errored all five tests:
+        # green in isolation, red only in the shard that ran the wrong neighbour
+        # first (CI run 31333421464, shard 3/12). The factory creates a
+        # uniquely-named type and aligns its auto-created template's rate, so the
+        # membership below always yields a schedule.
+        # See #248 (shard re-partition exposes latent contamination) and #263/#264
+        # (shared membership-type fixtures).
+        self.membership_type_name = self.create_test_membership_type(
+            membership_type_name="CostCenterType", amount=25.0
+        ).name
 
         # Create test member with customer (uid ensures uniqueness across runs)
         self.member = self.create_test_member(
@@ -174,7 +181,7 @@ class TestChapterCostCenterInvoiceGenerator(EnhancedTestCase):
 
         # Explicitly clear cost center (factory may have set one via after_insert hook)
         chapter.cost_center = None
-        chapter.save(ignore_permissions=True)
+        chapter.save()
 
         # Add member to chapter
         frappe.get_doc(
@@ -188,7 +195,7 @@ class TestChapterCostCenterInvoiceGenerator(EnhancedTestCase):
                 "status": "Active",
                 "chapter_join_date": today(),
             }
-        ).insert(ignore_permissions=True)
+        ).insert()
 
         # Verify member IS in the chapter
         primary_chapter = get_member_primary_chapter(self.member.name)

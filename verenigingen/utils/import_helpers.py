@@ -102,7 +102,12 @@ def persist_full_error_log(
         frappe.logger().info(f"Persisted full error log ({len(error_log)} entries) as {filename}")
         return filename
 
-    except Exception as e:
+    # Deliberately swallowed: the only consumer (_default_finalize) uses the return
+    # value solely to embed a filename in the truncated on-screen log. If the
+    # attachment cannot be written the import outcome is unchanged, the first 100
+    # error lines are still displayed, and the cause is on the logger. Failing the
+    # whole import because an audit convenience failed would be worse.
+    except Exception as e:  # swallow-ok: best-effort
         frappe.logger().error(f"Failed to persist full error log: {str(e)}")
         return ""
 

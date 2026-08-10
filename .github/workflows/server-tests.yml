@@ -69,8 +69,14 @@ jobs:
       # the kill — over-budget, not hung). The runner LPT-balances by test
       # count, so adding shards lowers per-shard wall-clock; 12 brings the
       # heaviest shard well under the timeout with headroom for further growth.
-      # (Time-based balancing via a committed test_timings.json is a possible
-      # future optimization that would let us hold the shard count lower.)
+      # Time-based balancing via the committed test_timings.json is now ACTIVE (the
+      # setup action patches frappe's runner to read it), so the count-based
+      # reasoning above describes why the shard count grew, not how work is split
+      # today. Shards are still 12: the balancing changes how evenly the same work
+      # is spread, not how much there is. Revisit lowering the count only after a
+      # green run's job timings show the heaviest shard with real headroom - and
+      # regenerate test_timings.json first, since a stale table quietly degrades
+      # back toward count-based behaviour for every file missing from it.
       parallel-runs: 12
       # On push/PR coverage is always collected; on manual dispatch the
       # checkbox still wins so you can run a fast, coverage-free dispatch.

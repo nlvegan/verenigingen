@@ -1,6 +1,7 @@
 # Webhook User Setup for Verenigingen App
 # Creates and configures a secure webhook user during app installation
 
+import re
 import secrets
 import string
 
@@ -20,13 +21,26 @@ def setup_webhook_user():
         dict: Status and details of the webhook user setup
     """
     try:
+        if frappe.db.get_single_value("Verenigingen Payments Settings", "disable_webhook_user_autosetup"):
+            # Escape hatch. Without this there is no supported way to stop the
+            # after_migrate hook recreating/re-enabling the account: clearing
+            # webhook_user does not help, because generate_webhook_user_email falls
+            # through to the canonical address and the setting is rewritten.
+            frappe.logger().info("Webhook user auto-setup disabled in Verenigingen Payments Settings")
+            return {"success": True, "skipped": True, "message": "Auto-setup disabled in settings"}
+
         print("🔐 Setting up secure webhook user...")
 
-        # Generate secure webhook user credentials
         webhook_user_email = generate_webhook_user_email()
-        webhook_password = generate_secure_password()
 
-        # Create the webhook user account
+        # Only mint a password when we are actually going to set one. This used to be
+        # generated unconditionally and PRINTED on every successful run -- including
+        # runs where the user already existed and the password was never applied, so
+        # migrate logs filled with secret-shaped strings that did not open the account.
+        webhook_password = None
+        if not frappe.db.exists("User", webhook_user_email):
+            webhook_password = generate_secure_password()
+
         user_result = create_webhook_user_account(webhook_user_email, webhook_password)
         if not user_result["success"]:
             return user_result
@@ -43,16 +57,27 @@ def setup_webhook_user():
 
         print("✅ Webhook user setup completed successfully")
         print(f"   📧 User: {webhook_user_email}")
-        print(f"   🔐 Password: {webhook_password}")
         print("   🛡️ Role: Verenigingen Webhook User")
         print("   ⚙️ Configured in Verenigingen Payments Settings")
+        if webhook_password:
+            # The password is deliberately NOT printed. This runs on every migrate,
+            # so it would land in migrate/CI/supervisor logs -- CodeQL flags it as
+            # py/clear-text-logging-sensitive-data, correctly. Nothing needs it to
+            # operate: the gateways assume this identity via frappe.set_user, never
+            # by logging in. Retrieve it deliberately if a human ever needs it.
+            print("   🔐 Password set; retrieve via get_webhook_credentials_manual()")
 
-        return {
+        result = {
             "success": True,
             "webhook_user_email": webhook_user_email,
-            "webhook_password": webhook_password,
             "message": "Webhook user created and configured successfully",
         }
+        # Absent, not None, when no password was set -- callers (including the
+        # whitelisted setup_webhook_user_manual) must not present a fiction as
+        # the account's credential.
+        if webhook_password:
+            result["webhook_password"] = webhook_password
+        return result
 
     except Exception as e:
         error_msg = f"Failed to setup webhook user: {str(e)}"
@@ -62,7 +87,44 @@ def setup_webhook_user():
 
 
 def generate_webhook_user_email():
-    """Generate a unique webhook user email based on site name"""
+    """Resolve the webhook user's email. DETERMINISTIC -- the same site always
+    resolves to the same address.
+
+    This used to walk a counter *while the user existed*, so it deliberately
+    returned an address that did NOT exist yet. The existence check in
+    create_webhook_user_account could therefore never fire, and every run minted a
+    fresh user (webhook-user-1@, webhook-user-2@, ...). That made setup_webhook_user
+    non-idempotent, which is why it could only ever be wired into after_install and
+    why sites that missed that one-shot could never converge.
+
+    Resolution order:
+      1. Whatever is already configured in Verenigingen Payments Settings, so an
+         existing deployment keeps its identity (and a deleted user is recreated at
+         the SAME address rather than beside it).
+      2. The canonical webhook-user@<site>.
+    """
+    canonical = _canonical_webhook_email()
+
+    try:
+        configured = frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user")
+        if configured:
+            # One-time normalisation: `webhook-user-<n>@<this site>` is the fingerprint
+            # of the old counter bug. Keeping it would canonicalise that artefact
+            # forever and make every future reader re-diagnose it. Only rewrite when
+            # the suffixed user does NOT exist -- if it is a live account, moving off
+            # it would orphan the identity that documents are attributed to.
+            if re.fullmatch(r"webhook-user-\d+@" + re.escape(canonical.split("@", 1)[1]), configured):
+                if not frappe.db.exists("User", configured):
+                    return canonical
+            return configured
+    except Exception:
+        pass
+
+    return canonical
+
+
+def _canonical_webhook_email():
+    """webhook-user@<site>, with the site name made valid as an email domain."""
     try:
         site_name = frappe.conf.site_name or frappe.local.site
         # Clean the site name for use as an email domain. Dots MUST be preserved
@@ -72,25 +134,10 @@ def generate_webhook_user_email():
         clean_site = site_name.replace("_", "-")
         if "." not in clean_site:
             clean_site = f"{clean_site}.local"
-        webhook_email = f"webhook-user@{clean_site}"
-
-        # Ensure uniqueness by adding suffix if needed
-        counter = 1
-        # Store original for reference if needed later
-        while frappe.db.exists("User", webhook_email):
-            webhook_email = f"webhook-user-{counter}@{clean_site}"
-            counter += 1
-
-        return webhook_email
+        return f"webhook-user@{clean_site}"
 
     except Exception:
-        # Fallback to a generic webhook user email
-        counter = 1
-        webhook_email = "webhook-user@verenigingen-app.local"
-        while frappe.db.exists("User", webhook_email):
-            webhook_email = f"webhook-user-{counter}@verenigingen-app.local"
-            counter += 1
-        return webhook_email
+        return "webhook-user@verenigingen-app.local"
 
 
 def generate_secure_password(length=16):
@@ -105,6 +152,32 @@ def create_webhook_user_account(webhook_email, webhook_password):
     """Create the webhook user account with proper security settings"""
     try:
         if frappe.db.exists("User", webhook_email):
+            # Converge rather than no-op: get_service_user() treats a DISABLED user
+            # exactly like an unset one and silently falls back to Administrator, so
+            # leaving it disabled would leave the whole scoped-service-user model off.
+            if not frappe.db.get_value("User", webhook_email, "enabled"):
+                # Save the doc rather than db_set: db_set bypasses User.on_update, so
+                # the role cache is never cleared and no Version row records the
+                # change -- an account re-enabled behind an operator's back with no
+                # audit trail. Someone may have disabled it deliberately, so this is
+                # also logged, and the whole hook can be switched off via
+                # Verenigingen Payments Settings.disable_webhook_user_autosetup.
+                existing = frappe.get_doc("User", webhook_email)
+                existing.enabled = 1
+                existing.save(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.log_error(
+                    title="Webhook User Re-enabled by Setup",
+                    message=(
+                        f"{webhook_email} was disabled and has been re-enabled by "
+                        f"setup_webhook_user (runs on every migrate). If this was "
+                        f"disabled deliberately, set "
+                        f"Verenigingen Payments Settings.disable_webhook_user_autosetup."
+                    ),
+                )
+                print(f"   ✅ Re-enabled existing webhook user: {webhook_email}")
+                return {"success": True, "message": f"Webhook user {webhook_email} re-enabled"}
+
             print(f"   ℹ️ Webhook user {webhook_email} already exists")
             return {"success": True, "message": "Webhook user already exists"}
 
@@ -175,10 +248,17 @@ def assign_webhook_roles(webhook_email):
                 sync_module_profiles()
             finally:
                 frappe.flags.in_install = original_in_install
-        user_doc.module_profile = "Verenigingen Webhook User"
+        needs_module_profile = user_doc.module_profile != "Verenigingen Webhook User"
+        if needs_module_profile:
+            user_doc.module_profile = "Verenigingen Webhook User"
 
-        user_doc.save(ignore_permissions=True)
-        frappe.db.commit()
+        # Save ONLY when something actually changed. This runs on every migrate now,
+        # and an unconditional save bumps `modified` and re-fires the whole User
+        # on_update chain (role-cache invalidation, field sync, desk settings,
+        # chapter permission cleanup) plus Frappe's own share/role work, every time.
+        if not (has_webhook_role and has_role_profile) or needs_module_profile:
+            user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
 
         print(f"   ✅ Assigned webhook role and profiles to {webhook_email}")
         return {"success": True, "message": "Webhook roles assigned"}
@@ -203,10 +283,13 @@ def configure_webhook_user_in_settings(webhook_email):
         else:
             settings_doc = frappe.get_doc("Verenigingen Payments Settings", "Verenigingen Payments Settings")
 
-        # Set the webhook user
-        settings_doc.webhook_user = webhook_email
-        settings_doc.save(ignore_permissions=True)
-        frappe.db.commit()
+        # Only save when it actually changes -- this runs on every migrate, and an
+        # unconditional save bumps `modified` on the Single and re-runs its validate()
+        # each time.
+        if settings_doc.webhook_user != webhook_email:
+            settings_doc.webhook_user = webhook_email
+            settings_doc.save(ignore_permissions=True)
+            frappe.db.commit()
 
         print(f"   ✅ Configured {webhook_email} in Verenigingen Payments Settings")
         return {"success": True, "message": "Webhook user configured in settings"}

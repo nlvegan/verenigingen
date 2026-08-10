@@ -321,10 +321,26 @@ def has_chapter_approval_permission(chapter_name: str = None, user: str = None):
     if Roles.VERENIGINGEN_ADMIN in user_roles or Roles.VERENIGINGEN_STAFF in user_roles:
         return True
 
-    # Check if user is a board member of this specific chapter
+    # Check if user is a board member of this specific chapter.
+    #
+    # This previously filtered Chapter Board Member on a `member` field, which that
+    # doctype does not have - its columns are volunteer, volunteer_name, email,
+    # chapter_role, from_date, to_date, is_active, notes - so the query could never
+    # answer the question it was asked. It also resolved the Member by email alone,
+    # which disagrees with permissions.assign_chapter_board_role() (the lookup that
+    # decides who IS a board member) and with get_user_board_chapters()/
+    # get_user_board_role(). Board membership hangs off the VOLUNTEER, so resolve
+    # user -> member -> volunteer -> board row, the way the rest of the app does.
+    from verenigingen.utils.member_utils import get_member_name_for_user
+
+    member = get_member_name_for_user(user)
+    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+    if not volunteer:
+        return False
+
     board_member = frappe.db.exists(
         "Chapter Board Member",
-        {"parent": chapter_name, "member": frappe.db.get_value("Member", {"email": user}), "is_active": 1},
+        {"parent": chapter_name, "volunteer": volunteer, "is_active": 1},
     )
 
     return bool(board_member)

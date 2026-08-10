@@ -42,6 +42,14 @@ required a live Mollie SettlementsClient and so was never exercised by tests):
      Fixed by stamping erpnext.get_default_cost_center(company) on each row.
      See TestCreateMollieFeeEntry.test_full_path_creates_balanced_journal_entry.
 
+  4. _create_mollie_payment_entry inserted its Payment Entry unconditionally but
+     submitted it only `if frappe.has_permission("Payment Entry", "submit")` (and
+     _create_mollie_fee_entry did the same for the fee Journal Entry). Every
+     duplicate guard here filters `docstatus: 1`, so the resulting drafts were
+     invisible: the settlement read as "nothing posted", stayed retryable, and each
+     run inserted another full set. Fixed by refusing the settlement up front, before
+     any insert. See TestSettlementSubmitPermission.
+
 DEAD CODE flagged (not seeded): _get_payment_processing_fees_account's final
 fallback queries Account with filters={"account_type": "Expense", ...}, but
 "Expense" is not a valid ERPNext account_type (the options are "Expense Account",
@@ -53,9 +61,10 @@ unreachable; left uncovered and reported rather than seeded.
 import contextlib
 import unittest
 from decimal import Decimal
+from unittest import mock
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
@@ -332,6 +341,899 @@ class TestCreateReconciliationMollieBranch(MollieBase):
         self.assertTrue(ok)
         bt.reload()
         self.assertEqual(bt.status, "Reconciled")
+
+
+# =============================================================================
+# create_reconciliation "mollie_settlement" branch under PRODUCTION validation
+# =============================================================================
+class TestCreateReconciliationMollieBranchProduction(MollieBase):
+    """The Mollie branch with ``frappe.flags.in_import`` False, as production runs it.
+
+    ``EnhancedTestCase.setUp`` sets ``in_import = True`` (to bypass user-creation
+    throttling). ``BaseDocument._validate_selects()`` early-returns on that flag, so
+    the sibling class above never checks that the value the branch writes to
+    ``custom_processing_status`` is one of the Custom Field's Select options. In
+    production the flag is False and an out-of-options value raises on ``save()`` --
+    AFTER ``process_mollie_settlement`` has already inserted and SUBMITTED the
+    Payment Entries and the fee Journal Entry, which are not rolled back.
+    """
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    def _match(self, settlement_id, amount="30.00"):
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
+        }
+
+    @contextlib.contextmanager
+    def _boom_client(self, message="mollie api down"):
+        """Mollie API outage: the settlement fetch fails, so NOTHING is posted."""
+
+        class _BoomClient:
+            def get_payments_for_settlement(self, _sid):
+                raise RuntimeError(message)
+
+        original = btr.SettlementsClient
+        btr.SettlementsClient = _BoomClient
+        try:
+            yield
+        finally:
+            btr.SettlementsClient = original
+
+    @contextlib.contextmanager
+    def _select_option_not_deployed(self):
+        """Reproduce a deploy whose fixtures have not been synced yet: the
+        "Mollie Settlement Processed" Select option is absent, so the branch's
+        ``save()`` raises -- AFTER ``process_mollie_settlement`` has submitted the
+        Payment Entries. This is the exact production incident 4db12397 fixed."""
+        field = "Bank Transaction-custom_processing_status"
+        original = frappe.db.get_value("Custom Field", field, "options")
+        stripped = "\n".join(
+            line for line in (original or "").split("\n") if line != "Mollie Settlement Processed"
+        )
+        frappe.db.set_value("Custom Field", field, "options", stripped, update_modified=False)
+        frappe.clear_cache(doctype="Bank Transaction")
+        try:
+            yield
+        finally:
+            frappe.db.set_value("Custom Field", field, "options", original, update_modified=False)
+            frappe.clear_cache(doctype="Bank Transaction")
+
+    @contextlib.contextmanager
+    def _capture_error_logs(self):
+        """Collect the Error Log rows written inside the block."""
+        marker = frappe.utils.now_datetime()
+        before = {
+            r.name for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
+        }
+        rows = []
+        yield rows
+        rows.extend(
+            r
+            for r in frappe.get_all(
+                "Error Log",
+                filters={"creation": [">=", marker]},
+                fields=["name", "method", "error"],
+            )
+            if r.name not in before
+        )
+
+    def test_settlement_reconciles_and_persists_processing_status(self):
+        """The happy path must actually reconcile -- and actually book the accounting.
+
+        Every per-payment failure inside ``process_mollie_settlement`` is swallowed
+        into the result's ``details`` and the branch still returns True, so status
+        assertions alone stay green in a world where ZERO Payment Entries were booked.
+        """
+        it = self._make_member_with_invoice(first_name="MollieProd", grand_total=30.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        match = self._match("stl_PROD")
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+        with self._stub_client(payments=[payment]):
+            # Only the reconciliation call runs with production validation; the
+            # fixtures above create Users, which throttle when in_import is False.
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        bt.reload()
+        self.assertTrue(
+            ok,
+            "Mollie settlement reconciliation returned False. Bank Transaction "
+            f"status={bt.status!r} custom_processing_status="
+            f"{bt.custom_processing_status!r}; comments={self._bt_comments(bt.name)}",
+        )
+        self.assertEqual(bt.status, "Reconciled")
+        self.assertEqual(bt.custom_processing_status, "Mollie Settlement Processed")
+
+        # The deploy-critical artifact: the option must exist on the DEPLOYED Custom
+        # Field, not merely in the working copy of fixtures/custom_field.json. On a
+        # long-lived site the doc keeps validating against whatever was last synced,
+        # so reverting the fixture would otherwise leave this suite green.
+        self.assertIn(
+            "Mollie Settlement Processed",
+            frappe.db.get_value("Custom Field", "Bank Transaction-custom_processing_status", "options"),
+        )
+
+        # The accounting really happened.
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"], "docstatus": 1}),
+            f"no SUBMITTED Payment Entry for Mollie payment {payment['id']}",
+        )
+        self.assertEqual(
+            flt(frappe.db.get_value("Sales Invoice", it["invoice"].name, "outstanding_amount")),
+            0.0,
+            "the settlement's Payment Entry did not clear the invoice",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any("Processed 1/1 payments" in c for c in comments),
+            f"settlement summary does not report every payment as processed; comments={comments}",
+        )
+
+    def test_failure_error_log_keeps_the_traceback(self):
+        """``frappe.utils.error.log_error`` takes ``title`` FIRST and, when a second
+        argument is given, uses it AS the traceback -- ``frappe.get_traceback()`` is
+        never called. ``log_error(f"...{e}", "Some Title")`` therefore writes an Error
+        Log row whose stack trace is the literal title string, and swaps the two the
+        moment the exception text contains a newline. The stack is the only thing that
+        says WHERE a swallowed failure came from."""
+        self.expectErrorLog("mollie api down")
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        with self._capture_error_logs() as rows:
+            with self._boom_client():
+                with self.production_validation():
+                    self.mgr.create_reconciliation(self._txn_dict(bt), self._match("stl_TRACE"))
+
+        handler_rows = [r for r in rows if "Mollie Settlement Reconciliation" in f"{r.method}\n{r.error}"]
+        self.assertTrue(
+            handler_rows,
+            f"the Mollie branch handler logged nothing; rows={[r.method for r in rows]}",
+        )
+        for row in handler_rows:
+            # "most recent call last" matches both the plain and the with_context
+            # ("Traceback with variables ...") header frappe.get_traceback emits.
+            self.assertIn(
+                "most recent call last",
+                row.error or "",
+                f"Error Log row {row.method!r} carries no stack frame -- its 'error' field is "
+                f"{row.error!r}, i.e. log_error's title/message arguments were used as the traceback",
+            )
+            self.assertIn("bank_transaction_reconciliation.py", row.error or "")
+            self.assertIn("mollie api down", row.error or "")
+
+    def test_transient_failure_before_posting_stays_retryable(self):
+        """A Mollie API outage fails BEFORE anything is posted.
+
+        ``reconcile_bank_transactions`` only ever selects ``{"status": "Pending"}``
+        and nothing anywhere moves a Bank Transaction back out of "Unreconciled", so
+        marking it Unreconciled removes the deposit from auto-reconciliation forever.
+        For a failure that posted no accounting the next run would simply have
+        succeeded, so the status must be left alone and only the reason recorded."""
+        self.expectErrorLog("mollie api down")
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        with self._boom_client():
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match("stl_RETRY"))
+
+        self.assertFalse(ok)
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"custom_mollie_settlement_id": "stl_RETRY"}),
+            "staging error: this must be the nothing-was-posted case",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Pending",
+            "a settlement that failed before posting anything must stay in the "
+            "'Pending' auto-reconciliation pool; nothing ever moves an 'Unreconciled' "
+            "transaction back, so marking it here makes a transient outage permanent",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any("mollie api down" in c for c in comments),
+            f"no Comment records why the settlement failed; comments={comments}",
+        )
+
+    def test_failure_after_posting_marks_unreconciled_without_success_comment(self):
+        """The settlement HAS posted (and submitted) its Payment Entries and then the
+        save() fails because the Select option is not deployed. The transaction must
+        NOT stay retryable -- a re-run cannot re-post the payments (the dedup guard
+        skips them), and precisely because of that its fee Journal Entry would be for
+        the ENTIRE settlement amount rather than the fees (every payment goes to the
+        ``duplicate`` branch, which never adds to ``total_reconciled``) -- and the
+        misleading success comment must not be persisted next to the failure."""
+        self.expectErrorLog("custom_processing_status", "Mollie Settlement Reconciliation")
+        it = self._make_member_with_invoice(first_name="MollieAfterPost", grand_total=30.0)
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        match = self._match("stl_AFTERPOST")
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+        with self._stub_client(payments=[payment]):
+            with self._select_option_not_deployed():
+                with self.production_validation():
+                    ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertFalse(ok)
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"], "docstatus": 1}),
+            "staging error: nothing was posted, so this is not the after-posting case",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "a settlement whose accounting was already posted must be taken out of the "
+            "retry pool and put in front of an operator",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertFalse(
+            any("Auto-reconciled" in c for c in comments),
+            "add_comment() inserts immediately and is not rolled back by the failing "
+            f"save(), so an 'Auto-reconciled' comment ends up directly above "
+            f"'Reconciliation failed'; comments={comments}",
+        )
+        # ...but the settlement summary is factually TRUE on this path -- those Payment
+        # Entries really were submitted -- and this is the one place an operator needs
+        # to read what got booked before the failure. Suppressing it along with the
+        # misleading "Auto-reconciled" line threw away the only record.
+        self.assertTrue(
+            any("Processed 1/1 payments" in c for c in comments),
+            "the failure path lost the settlement summary; an operator looking at an "
+            "Unreconciled transaction has no record of the Payment Entries that WERE "
+            f"submitted; comments={comments}",
+        )
+
+    def test_fee_entry_failure_after_posting_marks_unreconciled(self):
+        """The other after-posting shape: ``process_mollie_settlement`` itself raises
+        (the fee Journal Entry cannot be booked) AFTER submitting the Payment Entries,
+        so it never returns and its result is never bound. Retryability must be decided
+        on whether accounting was posted, not on whether that call returned."""
+        self.expectErrorLog("stl_FEEBOOM", "Mollie Settlement Reconciliation")
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing FeeBoom", root_type="Asset", account_type="Bank")
+        it = self._make_member_with_invoice(first_name="MollieFeeBoom", grand_total=30.0)
+        # Mollie kept 1.50 in fees, so the settlement payout is 28.50 -> the fee
+        # Journal Entry branch fires, and its fees account does not exist.
+        bt = self._make_bank_transaction(
+            deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        match = self._match("stl_FEEBOOM", amount="28.50")
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+        with self._mollie_settings(
+            clearing_account=clearing, fees_account="Mollie Fees Account That Does Not Exist"
+        ):
+            with self._stub_client(payments=[payment]):
+                with self.production_validation():
+                    ok = self.mgr.create_reconciliation(self._txn_dict(bt), match)
+
+        self.assertFalse(ok)
+        self.assertTrue(
+            frappe.db.exists("Payment Entry", {"custom_mollie_payment_id": payment["id"], "docstatus": 1}),
+            "staging error: nothing was posted, so this is not the after-posting case",
+        )
+        bt.reload()
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "the Payment Entries were already submitted, so this settlement must not "
+            "go back into the auto-reconciliation pool",
+        )
+
+
+# =============================================================================
+# Settlement-level idempotency + retry bound
+# =============================================================================
+class TestSettlementIdempotency(MollieBase):
+    """A settlement must book its fee Journal Entry AT MOST ONCE, ever.
+
+    ``mollie_fees = total_reconciled - settlement_amount`` and ``total_reconciled``
+    is only incremented on the per-payment SUCCESS path. Every other outcome
+    (``no_invoice_match``, ``invoice_not_found``, ``amount_mismatch``, and -- on a
+    re-run -- ``duplicate``) leaves it at 0, so ``mollie_fees`` becomes
+    ``-settlement_amount``, ``abs(...) > 0.01`` passes, and ``_create_mollie_fee_entry``
+    inserts and SUBMITS a Journal Entry for the ENTIRE settlement amount booked
+    against the payment-processing-fees expense account.
+
+    Before the retryability change this was bounded at one occurrence: any failure
+    marked the Bank Transaction "Unreconciled", which permanently removed it from
+    the ``{"status": "Pending"}`` pool ``reconcile_bank_transactions`` selects. Now a
+    failure that posted nothing stays "Pending", and ``reconcile_bank_transactions``
+    is scheduled with no date bound while ``match_mollie_settlement`` re-fetches
+    settlements in a +/-3 day window -- so the same settlement is re-matched and the
+    bogus Journal Entry re-booked on every run.
+    """
+
+    def _fee_journal_entries(self, settlement_id):
+        """Fee Journal Entries for a settlement.
+
+        Matched on ``user_remark`` rather than the tracking field so the query is
+        identical before and after the tracking field exists.
+        """
+        return frappe.get_all(
+            "Journal Entry",
+            filters={"user_remark": ["like", f"%{settlement_id}%"], "docstatus": 1},
+            fields=["name", "total_debit"],
+        )
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    def _match(self, settlement_id, amount):
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
+        }
+
+    def test_unmatched_settlement_never_books_a_fee_entry(self):
+        """No payment resolved to an invoice -> nothing was reconciled -> there are no
+        fees to book. The arithmetic says otherwise: ``0 - 30.00`` is a 30.00 "fee",
+        i.e. the WHOLE settlement expensed as Mollie charges, once per scheduled run."""
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing NoMatch", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees NoMatch", root_type="Expense")
+        settlement_id = f"stl_NOMATCH_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        # A payment whose description carries no invoice reference -> no_invoice_match.
+        payment = self._mollie_payment(value="30.00", description="grocery store purchase")
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[payment]):
+                self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "30.00"))
+                after_first = self._fee_journal_entries(settlement_id)
+                # A second scheduled run re-matches the same settlement.
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "30.00")
+                )
+                after_second = self._fee_journal_entries(settlement_id)
+
+        self.assertEqual(
+            after_first,
+            [],
+            "zero payments were reconciled, so there are no Mollie fees; the entries "
+            f"booked expense the full settlement amount: {after_first}",
+        )
+        self.assertEqual(
+            len(after_second),
+            len(after_first),
+            "the second run booked another fee Journal Entry for the same settlement -- "
+            f"unbounded, once per scheduled run: {after_second}",
+        )
+
+    def test_rerun_of_processed_settlement_books_exactly_one_fee_entry(self):
+        """The settlement really did reconcile (invoice 30.00, payout 28.50 -> 1.50 of
+        fees). On a re-run every payment is skipped as a ``duplicate``, which does NOT
+        add to ``total_reconciled``, so the fee arithmetic re-books the full 28.50."""
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing Rerun", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees Rerun", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieRerun", grand_total=30.0)
+        settlement_id = f"stl_RERUN_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[payment]):
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id, "28.50"))
+                self.assertTrue(ok)
+                after_first = self._fee_journal_entries(settlement_id)
+                # A fresh manager, as the next scheduled run would use (the in-memory
+                # dedup set is empty; the DB-backed guard still sees the submitted PE).
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "28.50")
+                )
+                after_second = self._fee_journal_entries(settlement_id)
+
+        self.assertEqual(len(after_first), 1, f"the first run must book the 1.50 fee once: {after_first}")
+        self.assertEqual(
+            len(after_second),
+            1,
+            "re-running the settlement booked a SECOND fee Journal Entry, this one for "
+            f"the entire 28.50 payout: {after_second}",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Journal Entry", after_first[0].name, "custom_mollie_settlement_id"),
+            settlement_id,
+            "the fee Journal Entry must carry the settlement id as a queryable field -- "
+            "free-text user_remark is invisible to both the idempotency guard and the "
+            "posted-accounting discriminator in _record_settlement_failure",
+        )
+
+    def test_repeated_pre_posting_failure_eventually_stops_retrying(self):
+        """Leaving a failed-before-posting settlement "Pending" is right for a transient
+        outage, but with no cap a permanently broken settlement re-runs -- and re-comments
+        -- forever. After a handful of attempts it must be handed to an operator."""
+        self.expectErrorLog("mollie api down")
+        settlement_id = f"stl_CAP_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+
+        class _BoomClient:
+            def get_payments_for_settlement(self, _sid):
+                raise RuntimeError("mollie api down")
+
+        original = btr.SettlementsClient
+        btr.SettlementsClient = _BoomClient
+        try:
+            for _ in range(5):
+                btr.PaymentReconciliationManager().create_reconciliation(
+                    self._txn_dict(bt), self._match(settlement_id, "30.00")
+                )
+        finally:
+            btr.SettlementsClient = original
+
+        bt.reload()
+        comments = self._bt_comments(bt.name)
+        self.assertEqual(
+            bt.status,
+            "Unreconciled",
+            "a settlement that has failed on every attempt must eventually leave the "
+            f"retry pool; comments={comments}",
+        )
+        self.assertTrue(
+            any("giving up" in c.lower() for c in comments),
+            f"nothing tells the operator the retries were abandoned; comments={comments}",
+        )
+        retry_comments = [c for c in comments if "will retry" in c]
+        self.assertLessEqual(
+            len(retry_comments),
+            btr.PaymentReconciliationManager.MAX_SETTLEMENT_RETRIES,
+            f"one 'will retry' comment per run, unbounded; comments={comments}",
+        )
+
+
+# =============================================================================
+# Settlement processing when the acting user cannot SUBMIT (issue #210)
+# =============================================================================
+class TestSettlementSubmitPermission(MollieBase):
+    """A settlement must post everything or nothing -- never inserted-but-unsubmitted.
+
+    ``_create_mollie_payment_entry`` used to ``insert()`` unconditionally and
+    ``submit()`` only ``if frappe.has_permission("Payment Entry", "submit")``, and
+    ``_create_mollie_fee_entry`` had the same shape for the fee Journal Entry. Every
+    guard downstream filters ``docstatus: 1`` -- ``_is_mollie_payment_processed``,
+    ``_existing_settlement_fee_entry`` and ``_settlement_has_posted_accounting`` --
+    so a draft is invisible to all of them. Run 1 inserted N drafts and left the
+    transaction retryable; run 2 saw "nothing posted" and inserted another N. No GL
+    impact until someone bulk-submits them, at which point the invoices are
+    over-allocated.
+
+    The permission is simulated for real: a User with ``System Manager`` (Mollie
+    Settings access + Bank Transaction write) and ``Accounts User`` (Payment Entry
+    create), with SUBMIT revoked from that role through the same Custom DocPerm
+    mechanism the Role Permission Manager uses. That is an ordinary "clerks prepare,
+    managers submit" setup, not a patched ``frappe.has_permission``.
+    """
+
+    # The role that carries Payment Entry / Journal Entry create+submit in ERPNext.
+    # Revoking only its `submit` is what an administrator does to split preparation
+    # from posting.
+    NO_SUBMIT_ROLE = "Accounts User"
+
+    def _clerk_user(self):
+        """A real User who may CREATE the settlement's documents but not SUBMIT them."""
+        email = f"mollie.clerk.{frappe.generate_hash(length=8)}@example.invalid"
+        user = frappe.new_doc("User")
+        user.email = email
+        user.first_name = "Mollie"
+        user.last_name = "Clerk"
+        user.enabled = 1
+        user.send_welcome_email = 0
+        # System Manager: Mollie Settings (MollieConfigurationService.ALLOWED_ROLES)
+        # and Bank Transaction write. Accounts User: Payment Entry create.
+        user.append("roles", {"role": "System Manager"})
+        user.append("roles", {"role": self.NO_SUBMIT_ROLE})
+        user.insert()
+        return email
+
+    @contextlib.contextmanager
+    def _submit_revoked(self, doctype, user):
+        """Actually revoke SUBMIT on *doctype* from every role *user* holds.
+
+        ``setup_custom_perms`` is what the Role Permission Manager calls before any
+        customisation: it copies the standard DocPerms into Custom DocPerm rows (and
+        is a no-op when the DocType is already customised, which both Payment Entry
+        and Journal Entry are in this app). Flipping ``submit`` on the rows is then
+        exactly what an administrator does in the UI.
+
+        Every one of the user's roles has to be covered, not just the accounting one:
+        this app ships a ``Custom DocPerm-Journal Entry-System Manager`` row with
+        ``submit`` set, so revoking only ``Accounts User`` would leave the right
+        intact and the test would silently stop testing anything.
+        """
+        from frappe.permissions import setup_custom_perms
+
+        setup_custom_perms(doctype)
+        user_roles = set(frappe.get_roles(user))
+        rows = [
+            row.name
+            for row in frappe.get_all(
+                "Custom DocPerm", filters={"parent": doctype, "submit": 1}, fields=["name", "role"]
+            )
+            if row.role in user_roles
+        ]
+        self.assertTrue(rows, f"staging error: {user} holds no SUBMIT right on {doctype} to revoke")
+        for name in rows:
+            frappe.db.set_value("Custom DocPerm", name, "submit", 0)
+        frappe.clear_cache(doctype=doctype)
+        # The DB writes are undone by the per-test rollback, but the meta cache is
+        # rebuilt lazily; clear it again after that rollback so no later test in the
+        # shard inherits a customised permission set.
+        self.addCleanup(frappe.clear_cache, doctype=doctype)
+        try:
+            yield
+        finally:
+            for name in rows:
+                frappe.db.set_value("Custom DocPerm", name, "submit", 1)
+            frappe.clear_cache(doctype=doctype)
+
+    @contextlib.contextmanager
+    def _as(self, user):
+        original = frappe.session.user
+        frappe.set_user(user)
+        try:
+            yield
+        finally:
+            frappe.set_user(original)
+
+    def _settlement_entries(self, settlement_id):
+        """EVERY document this settlement booked, at ANY docstatus.
+
+        Deliberately unfiltered by ``docstatus``: the whole defect is that the
+        production guards cannot see docstatus 0, so a test that filtered the same
+        way would be blind to exactly the rows it must catch.
+        """
+        found = []
+        for doctype in ("Payment Entry", "Journal Entry"):
+            found.extend(
+                (doctype, row.name, row.docstatus)
+                for row in frappe.get_all(
+                    doctype,
+                    filters={"custom_mollie_settlement_id": settlement_id},
+                    fields=["name", "docstatus"],
+                )
+            )
+        return sorted(found)
+
+    def _bt_comments(self, bank_transaction_name):
+        return [
+            (c.get("content") or "")
+            for c in frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                },
+                fields=["content"],
+            )
+        ]
+
+    def _match(self, settlement_id, amount="30.00"):
+        return {
+            "type": "mollie_settlement",
+            "reference": settlement_id,
+            "confidence": 0.98,
+            "match_reason": "Mollie settlement exact match",
+            "settlement_data": {"id": settlement_id, "amount": {"value": amount, "currency": "EUR"}},
+        }
+
+    def test_without_payment_entry_submit_rights_nothing_is_posted_or_multiplied(self):
+        """The reported defect. Two runs by a user who cannot submit Payment Entries
+        must leave ZERO settlement documents behind -- not N drafts, and certainly not
+        2N."""
+        self.expectErrorLog("Insufficient permissions to submit")
+        it = self._make_member_with_invoice(first_name="MollieNoSubmit", grand_total=30.0)
+        clerk = self._clerk_user()
+        settlement_id = f"stl_NOSUBMIT_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._stub_client(payments=[payment]):
+            with self._submit_revoked("Payment Entry", clerk):
+                with self._as(clerk):
+                    self.assertTrue(
+                        frappe.has_permission("Payment Entry", "create"),
+                        "staging error: the clerk must be able to CREATE Payment Entries, "
+                        "otherwise create_reconciliation refuses before the settlement runs "
+                        "and this test proves nothing",
+                    )
+                    self.assertFalse(
+                        frappe.has_permission("Payment Entry", "submit"),
+                        "staging error: SUBMIT was not actually revoked",
+                    )
+                    with self.production_validation():
+                        first = btr.PaymentReconciliationManager().create_reconciliation(
+                            self._txn_dict(bt), self._match(settlement_id)
+                        )
+                        after_first = self._settlement_entries(settlement_id)
+                        # The next scheduled run: a fresh manager, so the in-memory
+                        # `_processed_mollie_payments` set is empty and only the
+                        # DB-backed guards stand between it and a duplicate.
+                        btr.PaymentReconciliationManager().create_reconciliation(
+                            self._txn_dict(bt), self._match(settlement_id)
+                        )
+                        after_second = self._settlement_entries(settlement_id)
+
+        self.assertEqual(
+            after_first,
+            [],
+            "the settlement inserted documents it could not submit; every duplicate "
+            "guard filters docstatus 1, so these are invisible and will be re-created "
+            f"on every run until someone bulk-submits them: {after_first}",
+        )
+        self.assertEqual(
+            after_second,
+            after_first,
+            f"a second run booked another set of entries for the same settlement: {after_second}",
+        )
+        self.assertEqual(
+            flt(frappe.db.get_value("Sales Invoice", it["invoice"].name, "outstanding_amount")),
+            30.0,
+            "the invoice was allocated against by a settlement that never posted",
+        )
+        self.assertFalse(first, "a settlement that posted nothing must not report success")
+        bt.reload()
+        self.assertNotEqual(
+            bt.status,
+            "Reconciled",
+            "the deposit was marked Reconciled although no accounting was booked",
+        )
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any("Insufficient permissions to submit" in c for c in comments),
+            f"nothing tells the operator WHY the settlement was refused; comments={comments}",
+        )
+
+    def test_missing_journal_entry_submit_refuses_before_any_payment_entry(self):
+        """The fee Journal Entry is booked LAST, after every Payment Entry is already
+        submitted. Checking its permission only when it is reached would refuse a
+        settlement that has ALREADY posted -- the exact half-posted state this fix
+        exists to prevent -- so the check has to be a precondition."""
+        self.expectErrorLog("Insufficient permissions to submit")
+        self._ensure_company_cost_center()
+        clearing = self._make_gl_account("Mollie Clearing NoJESubmit", root_type="Asset", account_type="Bank")
+        fees = self._make_gl_account("Payment Processing Fees NoJESubmit", root_type="Expense")
+        it = self._make_member_with_invoice(first_name="MollieNoJESubmit", grand_total=30.0)
+        clerk = self._clerk_user()
+        settlement_id = f"stl_NOJE_{frappe.generate_hash(length=6)}"
+        # Mollie kept 1.50, so the payout is 28.50 and the fee Journal Entry branch fires.
+        bt = self._make_bank_transaction(
+            deposit=28.50, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with self._mollie_settings(clearing_account=clearing, fees_account=fees):
+            with self._stub_client(payments=[payment]):
+                with self._submit_revoked("Journal Entry", clerk):
+                    with self._as(clerk):
+                        self.assertTrue(
+                            frappe.has_permission("Payment Entry", "submit"),
+                            "staging error: only the Journal Entry submit right may be missing here",
+                        )
+                        self.assertFalse(
+                            frappe.has_permission("Journal Entry", "submit"),
+                            "staging error: Journal Entry SUBMIT was not actually revoked",
+                        )
+                        with self.production_validation():
+                            ok = btr.PaymentReconciliationManager().create_reconciliation(
+                                self._txn_dict(bt), self._match(settlement_id, amount="28.50")
+                            )
+
+        self.assertEqual(
+            self._settlement_entries(settlement_id),
+            [],
+            "the settlement submitted its Payment Entries and only then discovered it "
+            "could not submit the fee Journal Entry, leaving the ledger half-posted and "
+            "a draft JE that defeats _existing_settlement_fee_entry",
+        )
+        self.assertFalse(ok, "a settlement that posted nothing must not report success")
+        self.assertEqual(
+            flt(frappe.db.get_value("Sales Invoice", it["invoice"].name, "outstanding_amount")),
+            30.0,
+            "the invoice was paid by a settlement that could not be completed",
+        )
+
+    def test_leftover_draft_from_an_earlier_run_blocks_reprocessing(self):
+        """Drafts already on disk from a pre-fix run are not fixed by the precondition.
+
+        The permission check stops NEW drafts, but the ``docstatus: 1`` guards still
+        cannot see the old ones, so a later fully-privileged run would book a complete
+        second set beside them. Rather than teaching those guards to count drafts as
+        "processed" -- which would make ``_settlement_has_posted_accounting`` claim a
+        settlement posted when it did not, and let one abandoned draft block a payment
+        forever -- the settlement is refused until a human deals with them."""
+        self.expectErrorLog("still has unsubmitted entries")
+        it = self._make_member_with_invoice(first_name="MollieLeftover", grand_total=30.0)
+        settlement_id = f"stl_LEFTOVER_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        # Exactly what the pre-fix code left behind: the same Payment Entry
+        # _create_mollie_payment_entry builds, inserted and never submitted. Built here
+        # rather than through the (now-fixed) helper so the fixture does not depend on
+        # the code under test.
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        stale = get_payment_entry(dt="Sales Invoice", dn=it["invoice"].name, party_amount=Decimal("30.00"))
+        stale.posting_date = bt.date
+        stale.reference_no = payment["id"]
+        stale.reference_date = bt.date
+        stale.mode_of_payment = "Mollie"
+        stale.custom_mollie_payment_id = payment["id"]
+        stale.custom_mollie_settlement_id = settlement_id
+        stale.custom_bank_transaction = bt.name
+        stale.insert()
+
+        with self._stub_client(payments=[payment]):
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id))
+
+        self.assertEqual(
+            self._settlement_entries(settlement_id),
+            [("Payment Entry", stale.name, 0)],
+            "the run booked a second set of entries alongside the leftover draft",
+        )
+        self.assertFalse(ok, "a settlement that posted nothing must not report success")
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any(stale.name in c for c in comments),
+            f"the operator is not told WHICH documents block the settlement; comments={comments}",
+        )
+
+    def test_leftover_draft_beside_a_submitted_fee_entry_is_still_refused(self):
+        """The state a pre-fix run ACTUALLY leaves: draft Payment Entries AND a
+        submitted fee Journal Entry.
+
+        This is not a variant of the test above, it is the common case. The pre-fix
+        loop counted a draft Payment Entry as a success and incremented
+        ``total_reconciled``, so ``processed_count`` was non-zero and the fee entry was
+        booked -- and submitted, because the shipped Custom DocPerms grant Journal
+        Entry submit to System Manager while Payment Entry submit comes only from
+        Accounts User. So the clerk who cannot post Payment Entries CAN post the fee
+        entry, and leaves both behind.
+
+        With the draft scan running after the idempotency short-circuit, that state
+        reads as "already processed": success, no mention of the drafts, and the
+        deposit permanently out of the retry pool. The drafts then sit there until
+        someone bulk-submits them and over-allocates the invoice."""
+        self.expectErrorLog("still has unsubmitted entries")
+        it = self._make_member_with_invoice(first_name="MollieLeftoverFee", grand_total=30.0)
+        settlement_id = f"stl_LEFTOVERFEE_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        stale = get_payment_entry(dt="Sales Invoice", dn=it["invoice"].name, party_amount=Decimal("30.00"))
+        stale.posting_date = bt.date
+        stale.reference_no = payment["id"]
+        stale.reference_date = bt.date
+        stale.mode_of_payment = "Mollie"
+        stale.custom_mollie_payment_id = payment["id"]
+        stale.custom_mollie_settlement_id = settlement_id
+        stale.custom_bank_transaction = bt.name
+        stale.insert()
+
+        # The submitted fee entry from that same pre-fix run. Built by hand rather than
+        # through _create_mollie_fee_entry so the fixture does not depend on the code
+        # under test; two balance-sheet accounts keep it out of the cost-centre rules
+        # that only apply to P&L rows. All the idempotency key reads is the settlement
+        # id at docstatus 1.
+        debit_account = self._make_gl_account("Mollie Leftover Clearing", account_type="Bank")
+        credit_account = self._make_gl_account("Mollie Leftover Holding", account_type="Bank")
+        fee_je = frappe.new_doc("Journal Entry")
+        fee_je.posting_date = bt.date
+        fee_je.company = self.company
+        fee_je.custom_mollie_settlement_id = settlement_id
+        fee_je.append("accounts", {"account": debit_account, "debit_in_account_currency": 1.5})
+        fee_je.append("accounts", {"account": credit_account, "credit_in_account_currency": 1.5})
+        fee_je.insert()
+        fee_je.submit()
+
+        with self._stub_client(payments=[payment]):
+            with self.production_validation():
+                ok = self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id))
+
+        self.assertEqual(
+            self._settlement_entries(settlement_id),
+            sorted([("Payment Entry", stale.name, 0), ("Journal Entry", fee_je.name, 1)]),
+            "the run booked new entries instead of refusing the leftover draft",
+        )
+        self.assertFalse(ok, "a settlement carrying leftover drafts must not report success")
+        comments = self._bt_comments(bt.name)
+        self.assertTrue(
+            any(stale.name in c for c in comments),
+            "the submitted fee entry short-circuited the run, so the operator was never "
+            f"told about the draft that still needs handling; comments={comments}",
+        )
+
+    def test_a_payment_entry_whose_submit_fails_leaves_no_draft_behind(self):
+        """``_require_submit_permission`` is a doctype-level check, so it cannot see the
+        reasons a submit fails at DOCUMENT level.
+
+        ``insert()`` and ``submit()`` are two statements. The permission precondition
+        stops the case where submit was never attempted, but a submit that IS attempted
+        and throws -- a frozen account, a closed period, a Company User Permission --
+        leaves the inserted row behind, and the per-payment ``except`` swallows the
+        error and lets the loop continue. The draft is then invisible to every
+        ``docstatus: 1`` guard, so it survives both the leftover-draft scan (which runs
+        on the NEXT run, and only if the settlement is retried at all) and any duplicate
+        check. Whatever the settlement then reports, the row is on disk.
+
+        The failure is injected rather than provoked, for the same reason
+        ``tests/chapter/test_board_role_failure_propagation.py`` injects its deadlocks:
+        what is under test is this module's insert/submit atomicity, not ERPNext's
+        enforcement of any particular submit-time rule. Raising from ``submit()`` is
+        precisely the branch that matters and is indifferent to which real condition
+        (frozen account, closed period, restricted company) produced it. Nothing else
+        is stubbed -- the real insert runs, and the real per-payment handler swallows."""
+        self.expectErrorLog("submit refused")
+        it = self._make_member_with_invoice(first_name="MollieSubmitFail", grand_total=30.0)
+        settlement_id = f"stl_SUBMITFAIL_{frappe.generate_hash(length=6)}"
+        bt = self._make_bank_transaction(
+            deposit=30.0, date=today(), bank_account=self._eur_bank_account, status="Pending"
+        )
+        payment = self._mollie_payment(value="30.00", invoice_id=it["invoice"].name)
+
+        with mock.patch(
+            "erpnext.accounts.doctype.payment_entry.payment_entry.PaymentEntry.submit",
+            side_effect=frappe.ValidationError("submit refused at document level"),
+        ):
+            with self._stub_client(payments=[payment]):
+                with self.production_validation():
+                    self.mgr.create_reconciliation(self._txn_dict(bt), self._match(settlement_id))
+
+        self.assertEqual(
+            self._settlement_entries(settlement_id),
+            [],
+            "the submit failed but its inserted Payment Entry survived as a draft, "
+            "invisible to every docstatus:1 guard",
+        )
 
 
 # =============================================================================

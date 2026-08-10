@@ -509,6 +509,7 @@ class TestQualityEnforcer:
                         'teardown' in context_lower or      # teardown variants
                         context.startswith('create_test') or  # test data creation
                         context.startswith('ensure_test') or  # test setup utilities
+                        context.startswith('ensure_') or    # get-or-create fixture helpers
                         context.startswith('make_') or      # factory-style helpers
                         context.startswith('build_') or     # builder helpers
                         context.startswith('setup_') or     # public setup helpers

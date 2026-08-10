@@ -133,9 +133,9 @@ def _ensure_dues_item():
 
 
 def _make_eur_invoice(
-    company, customer, income_account, amount=25.0, *, coverage_start=None, coverage_end=None
+    company, customer, income_account, amount=25.0, *, coverage_start=None, coverage_end=None, submit=True
 ):
-    """Setup helper: a submitted, unpaid EUR Sales Invoice.
+    """Setup helper: an unpaid EUR Sales Invoice, submitted unless submit=False.
 
     Lives at module scope (a recognised fixture/setup location) so the
     permission-bypass insert is allowed. Currency is pinned to EUR explicitly
@@ -171,7 +171,8 @@ def _make_eur_invoice(
     )
     inv.flags.ignore_links = True
     inv.insert(ignore_permissions=True)
-    inv.submit()
+    if submit:
+        inv.submit()
     frappe.db.commit()
     return inv
 
@@ -308,6 +309,204 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         # Invoice is now fully paid.
         inv.reload()
         self.assertEqual(inv.outstanding_amount, 0)
+        # paid_to comes from the clearing account passed THROUGH to ERPNext rather than
+        # assigned after the fact - ERPNext derives the account and its currency
+        # together, so a post-hoc assignment would move one and leave the other.
+        self.assertEqual(pe.paid_to, self.clearing_account)
+
+    def test_overpayment_records_the_full_cash_as_an_unallocated_credit(self):
+        """A payment above the invoice's outstanding must post the WHOLE cash.
+
+        This is the Mollie side of the `cash_received` opt-in. The allocation is
+        still capped at what the invoice can absorb - ERPNext refuses a reference row
+        above outstanding - but the entry now records the full amount Mollie moved,
+        with the excess landing in `unallocated_amount` as a credit on the member's
+        customer that Payment Reconciliation can apply elsewhere.
+
+        Before the opt-in the excess was simply dropped, silently: the entry posted
+        only the capped figure, so the Mollie clearing account was debited less than
+        the settlement actually moved and could not be reconciled against the Mollie
+        settlement file.
+
+        `allocated_amount` is IDENTICAL under the bug and the fix, so asserting it
+        alone pins nothing - which is exactly how this went uncovered. The four
+        assertions that discriminate are paid_amount (the cash), unallocated_amount
+        (the credit), difference_amount (the entry still balances, so it submits) and
+        the clearing account carrying the full figure.
+        """
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        # 40.00 against a 25.00 invoice -> 25.00 allocated, 15.00 left as credit.
+        payment = FakeMolliePayment(id=f"tr_pe_over_{frappe.generate_hash()[:8]}", value="40.00")
+
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
+
+        self.assertTrue(pe_name)
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1, "the overpayment entry must submit, not sit as a draft")
+
+        # Allocation is capped at the invoice, and the invoice fully settles.
+        refs = [r for r in pe.references if r.reference_name == inv.name]
+        self.assertEqual(len(refs), 1)
+        self.assertAlmostEqual(float(refs[0].allocated_amount), 25.0, places=2)
+        inv.reload()
+        self.assertEqual(inv.outstanding_amount, 0)
+
+        # ...and the entry carries the full cash Mollie moved.
+        self.assertAlmostEqual(float(pe.paid_amount), 40.0, places=2)
+        self.assertAlmostEqual(float(pe.unallocated_amount), 15.0, places=2)
+        self.assertAlmostEqual(float(pe.difference_amount), 0.0, places=2)
+        # The clearing account is the reason the excess must be recorded: it has to
+        # match the Mollie settlement, which moved 40.00, not 25.00.
+        self.assertEqual(pe.paid_to, self.clearing_account)
+
+    def test_exact_payment_records_no_unallocated_credit(self):
+        """The opt-in must not manufacture a credit when nothing was overpaid.
+
+        `cash_received` is passed unconditionally by this caller, so the equal case
+        runs through the same argument. It must remain a plain full settlement, and a
+        bug that treated the opt-in as "always split" would otherwise leave every
+        ordinary dues payment carrying a phantom credit.
+
+        WHAT THIS DOES NOT CATCH, stated because the obvious reading is wrong: it does
+        not pin the `>` in `cash_received > amount`. Relaxing that to `>=` leaves this
+        test passing, because on the equal case the override assigns
+        `paid = received = 25` - byte-identical to what set_paid_amount_and_received_amount
+        already produced, so unallocated_amount is 0 either way. The boundary is
+        observable ONLY across a currency boundary, where `>=` would send every exact
+        payment into the service's refusal. Closing that needs the foreign-currency
+        fixture this suite still lacks (handoff 2026-08-07 6a item 2), which would
+        close this gap and the discount-argument-swap gap together.
+        """
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        payment = FakeMolliePayment(id=f"tr_pe_exact_{frappe.generate_hash()[:8]}", value="25.00")
+
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
+
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertAlmostEqual(float(pe.paid_amount), 25.0, places=2)
+        self.assertAlmostEqual(float(pe.unallocated_amount), 0.0, places=2)
+
+    def test_allocated_remarks_survive_validate(self):
+        """The Mollie wording must reach the stored document, not just the object.
+
+        Payment Entry.validate() calls set_remarks(), which rebuilds the field and
+        returns early only when custom_remarks is truthy. This path assigned remarks
+        alone until the PaymentEntryCreationService migration, so its text was
+        discarded on save. Read back from the database - the in-memory doc looks
+        correct either way, which is exactly why this went unnoticed.
+        """
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        payment = FakeMolliePayment(id=f"tr_pe_rem_{frappe.generate_hash()[:8]}", value="25.00")
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
+
+        stored = frappe.db.get_value("Payment Entry", pe_name, ["remarks", "custom_remarks"], as_dict=True)
+        self.assertEqual(
+            stored.custom_remarks, 1, "custom_remarks must be set or validate() overwrites remarks"
+        )
+        self.assertIn("awaiting settlement", stored.remarks or "")
+        # The payment id is asserted explicitly: ERPNext's generated text would also
+        # contain it (as "Transaction reference no ..."), so the wording above is what
+        # actually discriminates - but an operator reading the list view needs both.
+        self.assertIn(payment.id, stored.remarks or "")
+
+    def test_race_condition_falls_back_to_unallocated_entry(self):
+        """Invoice paid by another process between the outstanding check and the insert.
+
+        The service submits internally, so the handler wraps the whole service call.
+        Stubbing the collaborator (the service) rather than the logic under test is
+        what lets this branch be reached at all - it cannot be provoked from real data
+        deterministically, and it had ZERO coverage before.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.services import dues_payment_processor as dpp
+
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member, amount=25.0)
+        payment = FakeMolliePayment(id=f"tr_pe_race_{frappe.generate_hash()[:8]}", value="25.00")
+
+        def raise_already_paid(*args, **kwargs):
+            # Settle the invoice DURING the call, which is what losing the race means:
+            # the processor checked outstanding > 0 and only then did a concurrent
+            # writer take it to zero. Recovery is decided on this state rather than on
+            # the wording of the exception, so the state has to actually be true.
+            frappe.db.set_value("Sales Invoice", inv.name, "outstanding_amount", 0)
+            raise frappe.ValidationError(f"Sales Invoice {inv.name} has already been fully paid.")
+
+        with patch.object(
+            dpp.payment_entry_service, "create_payment_entry_from_invoice", side_effect=raise_already_paid
+        ):
+            pe_name = self.processor._create_payment_entry_for_dues(
+                member.name, payment, invoice_name=inv.name
+            )
+
+        self.assertTrue(pe_name, "the race must still record the payment, not drop it")
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(len(pe.references), 0, "the fallback entry must be unallocated")
+        stored_remarks = frappe.db.get_value("Payment Entry", pe_name, "remarks") or ""
+        self.assertIn("was paid during processing", stored_remarks)
+        self.assertIn(payment.id, stored_remarks)
+
+    def test_race_recovery_survives_a_translated_error_message(self):
+        """The recovery must not depend on the site language.
+
+        ERPNext raises _("{0} {1} has already been fully paid.") - a TRANSLATED string.
+        Recovery used to be decided by an English substring test, so on a Dutch site
+        (this app's entire audience) the match failed, the exception propagated, and a
+        payment the PSP had already taken was recorded nowhere.
+
+        Here the exception carries the Dutch text while the invoice really is settled.
+        Message-matching recovery fails this; state-based recovery passes it.
+        """
+        from verenigingen.verenigingen_payments.mollie.services import dues_payment_processor as dpp
+
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member)
+        payment = FakeMolliePayment(id=f"tr_pe_nl_{frappe.generate_hash()[:8]}", value="25.00")
+
+        def raise_dutch_already_paid(*args, **kwargs):
+            frappe.db.set_value("Sales Invoice", inv.name, "outstanding_amount", 0)
+            raise frappe.ValidationError(f"Verkoopfactuur {inv.name} is al volledig betaald.")
+
+        with patch.object(
+            dpp.payment_entry_service,
+            "create_payment_entry_from_invoice",
+            side_effect=raise_dutch_already_paid,
+        ):
+            pe_name = self.processor._create_payment_entry_for_dues(
+                member.name, payment, invoice_name=inv.name
+            )
+
+        self.assertTrue(pe_name, "a translated error must recover exactly like the English one")
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe_name, "docstatus"), 1)
+
+    def test_unrelated_validation_error_is_not_swallowed_as_a_race(self):
+        """Recovery must stay narrow: only an over-allocated invoice counts as a race.
+
+        The counterpart to the test above. State-based detection must not become a
+        blanket except-and-continue - an unrelated ValidationError, with the invoice
+        still fully outstanding, has to propagate rather than quietly produce an
+        unallocated entry that hides a real configuration fault.
+        """
+        from verenigingen.verenigingen_payments.mollie.services import dues_payment_processor as dpp
+
+        member = self._member_with_customer()
+        inv = self._invoice_for_member(member)
+        payment = FakeMolliePayment(id=f"tr_pe_other_{frappe.generate_hash()[:8]}", value="25.00")
+
+        # The invoice stays fully outstanding: nothing raced, so nothing to recover.
+        def raise_unrelated(*args, **kwargs):
+            raise frappe.ValidationError("Account 1234 is frozen for the current period")
+
+        with patch.object(
+            dpp.payment_entry_service, "create_payment_entry_from_invoice", side_effect=raise_unrelated
+        ):
+            with self.assertRaises(frappe.ValidationError):
+                self.processor._create_payment_entry_for_dues(member.name, payment, invoice_name=inv.name)
 
     def test_idempotent_returns_existing_payment_entry(self):
         member = self._member_with_customer()
@@ -339,6 +538,13 @@ class TestCreatePaymentEntryForDues(DuesCreationTestBase):
         self.assertAlmostEqual(float(pe.paid_amount), 30.0, places=2)
         # Unallocated -> no Sales Invoice references.
         self.assertEqual(len(pe.references), 0)
+        # The wording must survive validate() - this is the entry whose whole purpose
+        # is "a human must look at this", so losing "Manual reconciliation may be
+        # required" to set_remarks() removes the only signal saying so.
+        stored = frappe.db.get_value("Payment Entry", pe_name, ["remarks", "custom_remarks"], as_dict=True)
+        self.assertEqual(stored.custom_remarks, 1)
+        self.assertIn("Manual reconciliation may be required", stored.remarks or "")
+        self.assertIn(ref, stored.remarks or "")
 
     def test_require_invoice_refuses_unallocated_pe(self):
         # recovery mode: require_invoice=True with no invoice -> returns None
@@ -394,14 +600,33 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
         self.assertEqual(found, existing.name)
 
     def test_overlap_without_exact_match_skips_creation(self):
-        # An overlapping (but not exact) invoice -> the processor refuses to
-        # create a new invoice and returns None (manual review required).
+        """An overlapping (but not exact) invoice -> the processor refuses to create a
+        new invoice and returns None (manual review required).
+
+        The overlapping invoice must NOT contain the payment date. Since 176a41dc
+        ("anchor duplicate detection and payment matching on the member's own
+        periods"), `_coverage_period_from_member_sequence` prefers *an invoice whose
+        coverage already contains payment_date* and returns that invoice's own period
+        verbatim. An overlapping invoice that spans the payment date therefore becomes
+        the proposed period, `check_coverage_overlap` reports an EXACT match, and the
+        processor reuses the invoice instead of refusing - so the fixture would no
+        longer be constructing the case this test is named for.
+
+        The window is shifted FORWARD from the payment date rather than backward, and
+        the payment date is pinned to `cov_start` rather than `today()`, so "the
+        invoice starts after the payment" holds on every day of the month. The
+        previous fixture shifted backwards by 3 days, which contains today for all but
+        the last 3 days of a period - it passed only because it happened to be written
+        and merged inside that window.
+        """
         member = self._member_with_customer()
         cov_start, cov_end = self._coverage(member.name)
-        # Build an invoice whose coverage overlaps the proposed period but is not
-        # an exact match (shift the window by a few days so it overlaps).
-        overlap_start = add_days(cov_start, -3)
-        overlap_end = add_days(cov_end, -3)
+        # Pay on the first day of the member's own period; cov_start <= today because
+        # that period is the one containing today, so this never trips the
+        # payment-date-in-the-future guard.
+        payment_date = cov_start
+        overlap_start = add_days(cov_start, 5)
+        overlap_end = add_days(cov_end, 5)
         _make_eur_invoice(
             self.company,
             member.customer,
@@ -410,8 +635,87 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
             coverage_start=overlap_start,
             coverage_end=overlap_end,
         )
-        result = self.processor._get_or_create_historical_invoice(member.name, today(), 25.0)
+        result = self.processor._get_or_create_historical_invoice(member.name, payment_date, 25.0)
         self.assertIsNone(result)
+
+    def test_draft_invoice_with_exact_coverage_is_not_returned_as_payable(self):
+        """A DRAFT invoice covering the period must never be handed back to be paid.
+
+        `check_coverage_overlap` matches `docstatus < 2`, so a draft can be the
+        `exact_match`. A draft is not free of outstanding: ERPNext's
+        `calculate_outstanding_amount` runs from `calculate_total_advance` on every
+        save that is not cancelled, so a draft carries its full grand_total as
+        `outstanding_amount` (measured on veg11: 144 of 144 drafts non-zero). The
+        `outstanding > 0` test therefore reads a draft as a reusable unpaid invoice.
+
+        Returning it is not survivable downstream: `_create_payment_entry_for_dues`
+        feeds the name to `get_payment_entry`, and Payment Entry rejects a reference
+        to an unsubmitted document ("... must be submitted", in
+        `PaymentEntry.validate_reference_documents`),
+        which matches neither string in that method's race-condition handler - so it
+        re-raises and the payment records nowhere.
+        """
+        member = self._member_with_customer()
+        cov_start, cov_end = self._coverage(member.name)
+        draft = _make_eur_invoice(
+            self.company,
+            member.customer,
+            self.income_account,
+            amount=25.0,
+            coverage_start=cov_start,
+            coverage_end=cov_end,
+            submit=False,
+        )
+        # Pin the premise this test rests on rather than assuming it.
+        self.assertEqual(draft.docstatus, 0)
+        self.assertGreater(
+            frappe.db.get_value("Sales Invoice", draft.name, "outstanding_amount"),
+            0,
+            "a draft carries a non-zero outstanding_amount - this case is not reachable "
+            "via the already-paid branch",
+        )
+
+        found = self.processor._get_or_create_historical_invoice(member.name, today(), 25.0)
+        # None, not merely "some other invoice": creating a second invoice for a period
+        # a draft already covers would duplicate it, so neither branch is correct here.
+        # Asserting only `!= draft.name` would accept exactly that duplicate.
+        self.assertIsNone(found, "a draft invoice must not be returned as an invoice to allocate against")
+
+    def test_draft_exact_coverage_still_records_the_payment_unallocated(self):
+        """The consequence of the above: the money must still land on the ledger.
+
+        With a draft occupying the member's period there is no invoice this payment
+        can be allocated to, and creating a second invoice for the same period would
+        duplicate the draft. The correct outcome is an unallocated Payment Entry -
+        the member's balance stays right and Payment Reconciliation surfaces it for a
+        human, instead of the payment being dropped by a re-raised submit error.
+        """
+        member = self._member_with_customer()
+        cov_start, cov_end = self._coverage(member.name)
+        _make_eur_invoice(
+            self.company,
+            member.customer,
+            self.income_account,
+            amount=25.0,
+            coverage_start=cov_start,
+            coverage_end=cov_end,
+            submit=False,
+        )
+        # paid_at drives the coverage lookup (extract_date(payment, "paid_at")); the
+        # fake's default is 2025-01-15, whose period does not overlap the draft at
+        # all - the draft would never be consulted and the test would pass without
+        # exercising anything.
+        payment = FakeMolliePayment(
+            id=f"tr_draft_cov_{frappe.generate_hash()[:8]}",
+            value="25.00",
+            paid_at=f"{today()}T12:00:00+00:00",
+        )
+        pe_name = self.processor._create_payment_entry_for_dues(member.name, payment)
+
+        self.assertTrue(pe_name, "the payment must be recorded even when only a draft covers the period")
+        pe = frappe.get_doc("Payment Entry", pe_name)
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(list(pe.references), [], "the PE must not reference a draft invoice")
 
 
 # NOTE — uncovered write path: _create_simple_invoice (the historical-invoice

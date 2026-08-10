@@ -18,12 +18,12 @@ PURE-LOGIC and DB-DRIVEN helpers that don't require a live Mollie HTTP call:
   * _get_or_create_orphan_customer (create + idempotent reuse) - real Customer
   * process_payments_batch dry-run aggregation
   * _validate_payment_preconditions already-complete short-circuit
+  * _create_orphan_payment_entry success path against a real clearing account
 
 OUT OF SCOPE (require a live Mollie REST call / real token — skipped, not mocked):
   process_payment full flow (fetches payment from Mollie), process_orphaned_*
-  with Mollie customer fetch, _create_orphan_payment_entry (needs Mollie clearing
-  account config), process_bt_only_payment fetch path. We exercise only the
-  precondition/idempotency branches that short-circuit before any HTTP boundary.
+  with Mollie customer fetch, process_bt_only_payment fetch path. We exercise only
+  the precondition/idempotency branches that short-circuit before any HTTP boundary.
 """
 
 from datetime import datetime
@@ -36,6 +36,9 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.services import mollie_payment_orchestrator as orch_mod
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+    MollieConfigurationService,
+)
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
     MolliePaymentOrchestrator,
     PaymentProcessingResult,
@@ -77,9 +80,7 @@ class OrchestratorBase(EnhancedTestCase):
         member = self.sepa.create_test_member(first_name=first_name)
         customer = member.customer
         if not customer:
-            customer = self.sepa.create_test_customer(
-                customer_name=f"Cust {member.full_name}"
-            ).name
+            customer = self.sepa.create_test_customer(customer_name=f"Cust {member.full_name}").name
             member.db_set("customer", customer)
         frappe.db.set_value("Customer", customer, "member", member.name)
         member.reload()
@@ -241,9 +242,7 @@ class TestInvoiceResolution(OrchestratorBase):
     def test_resolve_invoice_uses_cached_when_still_payable(self):
         """status.sales_invoice present and still has outstanding -> returned as-is
         without a fresh lookup (TOCTOU short-circuit)."""
-        si = self._make_sales_invoice(
-            self.customer, today(), add_days(today(), 30), outstanding=10.0
-        )
+        si = self._make_sales_invoice(self.customer, today(), add_days(today(), 30), outstanding=10.0)
         status = ProcessingStatus(payment_id=self.pid)
         status.sales_invoice = si.name
         result = PaymentProcessingResult(payment_id=self.pid)
@@ -263,17 +262,13 @@ class TestInvoiceResolution(OrchestratorBase):
                 status, self.member.name, getdate(today()), 999.0, False, result
             )
         self.assertIsNone(resolved)
-        self.assertTrue(
-            any("No matching invoice found" in a for a in result.actions_taken)
-        )
+        self.assertTrue(any("No matching invoice found" in a for a in result.actions_taken))
 
     def test_resolve_invoice_cached_paid_falls_back_to_fresh(self):
         """Cached invoice that is now fully paid (outstanding=0) triggers the
         TOCTOU fallback path searching for an alternative; with no alternative
         in discovery mode the result is None and a 'now fully paid' note added."""
-        si_paid = self._make_sales_invoice(
-            self.customer, today(), add_days(today(), 30), outstanding=10.0
-        )
+        si_paid = self._make_sales_invoice(self.customer, today(), add_days(today(), 30), outstanding=10.0)
         # Force outstanding to 0 to simulate it being paid between status & exec.
         frappe.db.set_value("Sales Invoice", si_paid.name, "outstanding_amount", 0)
         status = ProcessingStatus(payment_id=self.pid)
@@ -308,9 +303,7 @@ class TestCreateInvoiceIfSafe(OrchestratorBase):
             member.reload()
         result = PaymentProcessingResult(payment_id=self.pid)
         with self.assertNoErrorLog():
-            invoice = self.orch._create_invoice_if_safe(
-                member.name, today(), 10.0, result
-            )
+            invoice = self.orch._create_invoice_if_safe(member.name, today(), 10.0, result)
         self.assertIsNone(invoice)
         self.assertTrue(
             any("no customer" in a.lower() for a in result.actions_taken),
@@ -327,17 +320,44 @@ class TestCreateInvoiceIfSafe(OrchestratorBase):
         member = self._make_member_with_customer(first_name="Overlap")
         pay_date = today()
         cov_start, cov_end = calculate_coverage_for_payment_date(member.name, pay_date)
-        existing = self._make_sales_invoice(
-            member.customer, cov_start, cov_end, outstanding=10.0
+        existing = self._make_sales_invoice(member.customer, cov_start, cov_end, outstanding=10.0)
+        result = PaymentProcessingResult(payment_id=self.pid)
+        with self.assertNoErrorLog():
+            invoice = self.orch._create_invoice_if_safe(member.name, pay_date, 10.0, result)
+        self.assertEqual(invoice, existing.name)
+        self.assertTrue(
+            any("existing unpaid invoice" in a.lower() for a in result.actions_taken),
+            result.actions_taken,
         )
+
+    def test_exact_draft_overlap_is_neither_reused_nor_duplicated(self):
+        """A DRAFT with exact coverage stops the path for manual review.
+
+        A draft is not payable (Payment Entry refuses an unsubmitted reference) and it
+        is not "already paid" either - ERPNext computes outstanding_amount on every
+        non-cancelled save, so a draft carries its full grand_total and would otherwise
+        be reused as an unpaid invoice. Creating a second invoice instead would
+        duplicate the draft, so neither branch is correct: return None.
+        """
+        from verenigingen.services.billing.coverage_calculator import (
+            calculate_coverage_for_payment_date,
+        )
+
+        member = self._make_member_with_customer(first_name="DraftOverlap")
+        pay_date = today()
+        cov_start, cov_end = calculate_coverage_for_payment_date(member.name, pay_date)
+        draft = self._make_sales_invoice(
+            member.customer, cov_start, cov_end, outstanding=10.0, submit=False
+        )
+        self.assertEqual(draft.docstatus, 0)
         result = PaymentProcessingResult(payment_id=self.pid)
         with self.assertNoErrorLog():
             invoice = self.orch._create_invoice_if_safe(
                 member.name, pay_date, 10.0, result
             )
-        self.assertEqual(invoice, existing.name)
+        self.assertIsNone(invoice)
         self.assertTrue(
-            any("existing unpaid invoice" in a.lower() for a in result.actions_taken),
+            any("draft invoice" in a.lower() for a in result.actions_taken),
             result.actions_taken,
         )
 
@@ -416,9 +436,7 @@ class TestValidatePreconditions(OrchestratorBase):
         self.orch.get_processing_status = lambda pid: complete_status
         try:
             result = PaymentProcessingResult(payment_id=self.pid)
-            s, p, m = self.orch._validate_payment_preconditions(
-                self.pid, None, None, result
-            )
+            s, p, m = self.orch._validate_payment_preconditions(self.pid, None, None, result)
         finally:
             self.orch.get_processing_status = original
 
@@ -426,3 +444,98 @@ class TestValidatePreconditions(OrchestratorBase):
         self.assertEqual(result.status, "already_processed")
         self.assertEqual(result.bank_transaction, "BT-x")
         self.assertEqual(result.skipped_reason, "Already fully processed")
+
+
+# =============================================================================
+# _create_orphan_payment_entry (real DB, real clearing account)
+#
+# Previously listed OUT OF SCOPE in this file's header on the grounds that it
+# "needs Mollie clearing account config". That config is fixture-able - the dues
+# creation-unit suite already pins it - so the gap is closed here rather than
+# left as the only success path in the orphan flow with no coverage.
+# =============================================================================
+class TestCreateOrphanPaymentEntry(OrchestratorBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from verenigingen.verenigingen_payments.mollie.tests.fixtures.payment_entry_fixtures import (
+            ensure_mollie_bank_gl_account,
+        )
+
+        # A DEDICATED clearing account, always. Reusing whatever Bank account the
+        # company happens to have can pick the company default, and then asserting
+        # paid_to == clearing_account proves nothing: it would hold whether or not
+        # bank_account reached ERPNext.
+        cls.clearing_account = ensure_mollie_bank_gl_account(cls._company)
+        # The fixture returns None when it can find no parent group to hang the
+        # account under. Writing that into the Single below would surface three
+        # layers away as "Mollie Clearing Account not configured" from inside
+        # _create_orphan_payment_entry, i.e. as a test failure rather than as the
+        # setup problem it is. Fail here, where the message names the cause.
+        assert cls.clearing_account, f"no Mollie clearing account could be ensured for {cls._company}"
+
+        # SETUP-only Single writes (class fixture, not a test body). Written with
+        # set_single_value and restored via addClassCleanup: these Singles survive the
+        # harness rollback, and Mollie Settings.mollie_clearing_account has no harness
+        # restore at all, so leaving it repointed drifts every later suite in the shard
+        # that reads it.
+        for doctype, field, value in (
+            ("Verenigingen Settings", "company", cls._company),
+            ("Mollie Settings", "mollie_clearing_account", cls.clearing_account),
+        ):
+            previous = frappe.db.get_single_value(doctype, field)
+            frappe.db.set_single_value(doctype, field, value)
+            cls.addClassCleanup(frappe.db.set_single_value, doctype, field, previous)
+        cls.addClassCleanup(frappe.db.commit)
+        frappe.db.commit()
+
+        # MollieConfigurationService caches Mollie Settings in Redis for 5 minutes
+        # under a single key. MollieSettings.on_update clears it, but set_single_value
+        # above writes the column directly and fires no doc hook — so without this the
+        # clearing account written above stays invisible to get_clearing_account() and
+        # _create_orphan_payment_entry() throws "Mollie Clearing Account not
+        # configured", returning None. That only happens when an earlier test in the
+        # same process already warmed the cache, which is why it surfaced solely as a
+        # shard-composition failure (CI run 31337755629, shard 8/12). Clear it again on
+        # teardown so the restored previous values are what later suites observe.
+        MollieConfigurationService.clear_cache()
+        cls.addClassCleanup(MollieConfigurationService.clear_cache)
+
+    def setUp(self):
+        super().setUp()
+        self.orch = MolliePaymentOrchestrator()
+
+    def test_orphan_banner_survives_validation_and_lands_on_the_entry(self):
+        """The "requires manual review" banner must reach the document an operator reads.
+
+        This is the whole point of an orphan Payment Entry: nobody knows which member
+        paid, so the entry itself has to say so. Assigning `remarks` is not enough -
+        Payment Entry.validate() calls set_remarks(), which regenerates the field from
+        the amount and party unless `custom_remarks` is set. The value is therefore
+        read back from the DB; asserting the in-memory doc would pass even when the
+        text is discarded on save.
+        """
+        member = self._make_member_with_customer(first_name="OrphanRemark")
+        cov_start, cov_end = today(), today()
+        invoice = self._make_sales_invoice(member.customer, cov_start, cov_end, outstanding=25.0)
+
+        pe_name = self.orch._create_orphan_payment_entry(
+            payment_id=self.pid,
+            customer=member.customer,
+            invoice_name=invoice.name,
+            amount=25.0,
+            payment_date=today(),
+        )
+
+        self.assertIsNotNone(pe_name, "the orphan payment must be recorded")
+        pe = frappe.db.get_value(
+            "Payment Entry", pe_name, ["docstatus", "remarks", "paid_to", "reference_no"], as_dict=True
+        )
+        self.assertEqual(pe.docstatus, 1)
+        self.assertEqual(pe.reference_no, self.pid)
+        self.assertEqual(pe.paid_to, self.clearing_account, "orphan payments land in Mollie clearing")
+        self.assertIn(
+            "ORPHANED PAYMENT",
+            pe.remarks or "",
+            "the operator-facing banner was discarded by set_remarks()",
+        )

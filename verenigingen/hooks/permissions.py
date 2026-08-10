@@ -35,6 +35,7 @@ permission_query_conditions = {
 # Each function receives (doc, user, permission_type) and returns True/False
 has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
+    "Employee": "verenigingen.permissions.has_employee_permission",
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",
     "Address": "verenigingen.permissions.has_address_permission",
@@ -42,6 +43,7 @@ has_permission = {
     "SEPA Mandate": "verenigingen.permissions.has_sepa_mandate_permission",
     "Donation": "verenigingen.permissions.has_donation_permission",
     "Volunteer": "verenigingen.permissions.has_volunteer_permission",
+    "Team": "verenigingen.verenigingen.doctype.team.team.has_team_permission",
     "Chapter": "verenigingen.verenigingen.doctype.chapter.chapter.has_chapter_permission",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.has_permission",
     "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",

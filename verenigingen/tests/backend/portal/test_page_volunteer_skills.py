@@ -25,7 +25,11 @@ class TestVolunteerSkillsPage(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._ensure_chapter_role("Test Board Role")
-        self.user_email = f"skills-{frappe.generate_hash()[:8]}@test.invalid"
+        # Trailing digit is load-bearing - see test_chapter_board_chapters.setUp.
+        # EnhancedTestDataFactory.create_member() rewrites a supplied email unless the
+        # last 5 characters of the local part contain a digit, so a bare hex run-id
+        # diverges Member.email from the login user on ~1 run in 135.
+        self.user_email = f"skills-{frappe.generate_hash()[:8]}0@test.invalid"
         self.member = self._make_member_with_user(self.user_email)
         self.volunteer = self.create_test_volunteer(
             member=self.member.name, volunteer_name="Skills Board Volunteer"
@@ -166,8 +170,34 @@ class TestVolunteerSkillsPage(EnhancedTestCase):
 
     def test_get_user_board_chapters(self):
         with self.as_user(self.user_email):
+            # Captured INSIDE the block: as_user restores the session in a finally, so
+            # reading frappe.session.user afterwards reports the runner's user and can
+            # never show a switch that failed to take.
+            session_user = frappe.session.user
             chapters = skills.get_user_board_chapters()
-        self.assertTrue(any(c["chapter_name"] == self.chapter.name for c in chapters))
+
+        # `assertTrue(any(...))` reported only "False is not true". The helper returns
+        # [] from two silent not-found early returns, so name them; see PR #228 and the
+        # memory topic file board-chapters-deadlock-flake-2026-07-27.
+        from verenigingen.utils.constants import Roles
+
+        member = frappe.db.get_value("Member", {"email": self.user_email}, "name")
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+        board_row = (
+            frappe.db.exists(
+                "Chapter Board Member",
+                {"volunteer": volunteer, "parent": self.chapter.name, "is_active": 1},
+            )
+            if volunteer
+            else None
+        )
+        admin_roles = sorted(set(frappe.get_roles(self.user_email)) & Roles.ADMIN_ROLES)
+        self.assertIn(
+            self.chapter.name,
+            {c["chapter_name"] for c in chapters},
+            f"member={member} volunteer={volunteer} board_row={board_row} "
+            f"admin_roles={admin_roles} session_user={session_user} chapters={chapters!r}",
+        )
 
     def test_get_chapter_member_ids(self):
         ids = skills.get_chapter_member_ids([self.chapter.name])

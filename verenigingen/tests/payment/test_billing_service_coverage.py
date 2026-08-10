@@ -460,11 +460,15 @@ class TestDuesScheduleCreationService(EnhancedTestCase):
     def test_max_retries_constant(self):
         self.assertEqual(self.svc.MAX_RETRIES, 3)
 
-    def test_retry_delays_exponential(self):
-        """Retry delays should be in increasing order."""
-        delays = self.svc.RETRY_DELAYS
-        self.assertEqual(len(delays), 3)
-        self.assertTrue(all(delays[i] < delays[i + 1] for i in range(len(delays) - 1)))
+    # test_retry_delays_exponential removed with RETRY_DELAYS. The constant described
+    # a 60s/300s/1800s backoff that never applied: it was fed to frappe.enqueue as
+    # `at_time`, which is not an enqueue parameter, so every retry fired immediately.
+    # The ladder cannot be reinstated *via frappe.enqueue* -- frappe runs its workers
+    # with with_scheduler=False, so RQ's scheduled registry is never drained. It could
+    # be rebuilt the way utils/bulk_retry_processor.py does (scheduled sweep + stored
+    # next-attempt timestamp), which is a redesign rather than a kwarg fix. Retries
+    # still happen, just without delay, so there is no ordering left to assert.
+    # See dues_schedule_creation_service._enqueue_retry.
 
 
 # ---------------------------------------------------------------------------

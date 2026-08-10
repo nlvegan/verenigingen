@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cstr, flt, getdate, today
+from frappe.utils import cint, cstr, flt, getdate, today
 
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.services.member.member_lookup_service import get_member_lookup_service
@@ -48,6 +48,11 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
+
+# Upper bound on the in-job wait in update_import_tracking_after_retry_job. The sole
+# caller passes 60; the clamp exists so a future caller cannot leave the remaining
+# work (a full tracking recompute plus save) short of the job's 300s timeout.
+MAX_TRACKING_RETRY_WAIT_SECONDS = 120
 
 
 def _sanitize_error_message(message: str) -> str:
@@ -959,11 +964,16 @@ class MijnroodCSVImport(Document):
             if result.get("success"):
                 # Update tracking fields after retry
                 frappe.enqueue(
-                    method="verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.update_import_tracking_after_retry",
-                    queue="short",
+                    method="verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.update_import_tracking_after_retry_job",
+                    # "long", not "short": this job deliberately sleeps before it
+                    # recomputes, and the short queue carries sub-second work.
+                    queue="long",
                     timeout=300,
                     import_doc_name=self.name,
-                    delay=60,  # Wait 60 seconds for retry to process
+                    # `delay` is NOT a frappe.enqueue parameter; it used to land in
+                    # **kwargs and reach the job, which raised TypeError in the worker.
+                    # The wait belongs to the job itself.
+                    wait_seconds=60,  # give the queued retry time to process
                 )
 
                 frappe.msgprint(
@@ -1778,6 +1788,30 @@ def get_import_template():
 
 
 # Background Processing Functions
+
+
+def update_import_tracking_after_retry_job(import_doc_name: str, wait_seconds: int = 0):
+    """Background-job entry point: wait, then recompute tracking.
+
+    The wait lives here rather than on the whitelisted function below, and rather
+    than on frappe.enqueue (which has no `delay` parameter -- passing one forwards
+    it to the job and raises TypeError in the worker). Keeping it off the
+    whitelisted signature matters: over HTTP a caller-supplied sleep parks a
+    gunicorn worker, which is scarcer than a background one.
+
+    Args:
+        import_doc_name: Name of the Mijnrood CSV Import document
+        wait_seconds: Seconds to wait before recomputing, giving the queued
+            account-creation work time to progress. Clamped to
+            MAX_TRACKING_RETRY_WAIT_SECONDS.
+    """
+    import time
+
+    capped = min(max(cint(wait_seconds), 0), MAX_TRACKING_RETRY_WAIT_SECONDS)
+    if capped:
+        time.sleep(capped)
+
+    update_import_tracking_after_retry(import_doc_name)
 
 
 @frappe.whitelist()

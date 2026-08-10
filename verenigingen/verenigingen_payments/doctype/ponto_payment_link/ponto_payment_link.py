@@ -338,88 +338,45 @@ class PontoPaymentLink(Document):
         """
         Process received payment.
 
-        Creates Payment Entry and marks linked Sales Invoice as paid.
+        Delegates to the single Ponto Payment Entry creator rather than building one
+        here. This method previously hand-rolled a Payment Entry and set
+        paid_from_account_currency / paid_to_account_currency but never paid_from /
+        paid_to, so every insert raised MandatoryError and was swallowed by its own
+        `except` - it has never successfully created an entry. Because it therefore
+        never set `self.payment_entry`, the webhook's `not doc.payment_entry` retry
+        guard could not latch, which is one of the routes by which the same payment
+        could be posted twice.
+
+        It also keyed reference_no on `self.name` while the webhook path keys on
+        `ponto_request_id`, so the two creators were mutually invisible for idempotency.
+        There is now one creator and one key.
         """
         if self.payment_entry:
             return  # Already processed
 
-        # Determine company
-        settings = frappe.get_single("Verenigingen Settings")
-        company = settings.company
-
-        # Get bank account from creditor_account or settings
-        bank_account = self.creditor_account
-        if not bank_account:
-            # Try to find from Ponto Settings
-            ponto_settings = frappe.get_single("Ponto Settings")
-            for mapping in ponto_settings.bank_account_mappings:
-                if mapping.enabled:
-                    bank_account = mapping.bank_account
-                    break
-
-        # Determine party from member or reference
-        party_type = "Customer"
-        party = None
-
-        if self.member:
-            # Get customer linked to member
-            party = frappe.db.get_value("Member", self.member, "customer")
-
-        if not party and self.reference_doctype == "Customer":
-            party = self.reference_name
-
-        if not party and self.sales_invoice:
-            party = frappe.db.get_value("Sales Invoice", self.sales_invoice, "customer")
-
-        if not party:
-            frappe.logger().warning(f"Cannot determine party for Ponto Payment Link {self.name}")
+        if not self.sales_invoice:
+            # Nothing to allocate against. The webhook path records an Error Log for the
+            # unmatched case; here the caller is interactive, so a message is enough.
+            frappe.logger().warning(
+                f"Ponto Payment Link {self.name} has no linked Sales Invoice - " f"no Payment Entry created"
+            )
             return
 
-        # Create Payment Entry
-        try:
-            pe = frappe.new_doc("Payment Entry")
-            pe.payment_type = "Receive"
-            pe.company = company
-            pe.mode_of_payment = "Bank Transfer"
-            pe.party_type = party_type
-            pe.party = party
-            pe.paid_from_account_currency = self.currency
-            pe.paid_to_account_currency = self.currency
-            pe.paid_amount = self.amount
-            pe.received_amount = self.amount
-            pe.reference_no = self.name
-            pe.reference_date = frappe.utils.today()
+        # Function-local to keep controller import cost down. There is no import cycle:
+        # the service reaches this DocType only through frappe.get_doc, a runtime lookup.
+        from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
+            create_ponto_payment_entry,
+        )
 
-            if bank_account:
-                pe.bank_account = bank_account
+        pe_name = create_ponto_payment_entry(self, self.sales_invoice)
+        if not pe_name:
+            return
 
-            # Link to Sales Invoice if available
-            if self.sales_invoice:
-                pe.append(
-                    "references",
-                    {
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": self.sales_invoice,
-                        "total_amount": frappe.db.get_value(
-                            "Sales Invoice", self.sales_invoice, "grand_total"
-                        ),
-                        "allocated_amount": self.amount,
-                    },
-                )
-
-            pe.insert()
-            pe.submit()
-
-            self.payment_entry = pe.name
-            self.save()
-
-            frappe.logger().info(f"Created Payment Entry {pe.name} for Ponto Payment Link {self.name}")
-
-        except Exception as e:
-            frappe.log_error(
-                title=f"Failed to create Payment Entry for {self.name}",
-                message=str(e),
-            )
+        self.payment_entry = pe_name
+        # Security: reached from a verified webhook as well as from the desk; the link
+        # write must not be refused, or the retry guard never latches.
+        self.save(ignore_permissions=True)
+        frappe.logger().info(f"Created Payment Entry {pe_name} for Ponto Payment Link {self.name}")
 
     def update_status_from_webhook(self, new_status: str, debtor_info: dict = None):
         """

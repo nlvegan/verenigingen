@@ -5,8 +5,7 @@
 DuesScheduleCreationService - Reliable dues schedule creation with retry logic.
 
 Provides a production-grade service for creating membership dues schedules with:
-- Background job retry using frappe.enqueue()
-- Exponential backoff for transient failures
+- Background job retry using frappe.enqueue() (no delay; see _enqueue_retry)
 - Structured error handling and alerting
 - Job status tracking and monitoring
 
@@ -15,7 +14,7 @@ Replaces the problematic cache-based retry queue with proper background job proc
 
 # Module-level logger for background job function
 import logging
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe.utils import now
@@ -36,7 +35,9 @@ class DuesScheduleCreationService(StatelessService):
 
     Features:
     - Immediate creation attempt with fallback to background retry
-    - Exponential backoff (retry_count: 0→1min, 1→5min, 2→30min)
+    - NO backoff: frappe.enqueue has no at_time/delay, so the former
+      1min/5min/30min ladder never applied. Retries run as soon as a worker
+      is free, bounded by MAX_RETRIES (see _enqueue_retry)
     - Maximum 3 retry attempts before alerting administrators
     - Structured error categorization for debugging
     - Job tracking for monitoring and observability
@@ -57,7 +58,6 @@ class DuesScheduleCreationService(StatelessService):
 
     # Retry configuration
     MAX_RETRIES = 3
-    RETRY_DELAYS: ClassVar[list[int]] = [60, 300, 1800]  # 1min, 5min, 30min in seconds
     QUEUE_CONGESTION_THRESHOLD = 500  # Max pending jobs before backpressure
 
     # Circuit breaker configuration
@@ -82,8 +82,9 @@ class DuesScheduleCreationService(StatelessService):
         """
         Create dues schedule with automatic retry on failure.
 
-        Attempts immediate creation. If it fails with a retryable error,
-        enqueues a background job with exponential backoff.
+        Attempts immediate creation. If it fails with a retryable error, enqueues a
+        background job that runs as soon as a worker is free. There is no backoff --
+        see _enqueue_retry for why the advertised ladder never existed.
 
         Args:
             member_name: Member document name
@@ -186,7 +187,7 @@ class DuesScheduleCreationService(StatelessService):
 
             # Determine if error is retryable
             if self._is_retryable_error(error_category) and retry_count < self.MAX_RETRIES:
-                # Enqueue retry with exponential backoff
+                # Enqueue retry (no backoff; see _enqueue_retry)
                 retry_job_id = self._enqueue_retry(
                     member_name=member_name,
                     membership_name=membership_name,
@@ -243,7 +244,33 @@ class DuesScheduleCreationService(StatelessService):
         retry_count: int,
     ) -> str:
         """
-        Enqueue background job for retry with exponential backoff.
+        Enqueue a background job to retry creation. Runs as soon as a worker is free.
+
+        There is no delay, and there never was: this used to pass at_time=<future> to
+        frappe.enqueue, which has no such parameter, so the value was forwarded to the
+        job and swallowed by its **kwargs. The former 60s/300s/1800s ladder never
+        applied. Only the fiction is removed here -- the retry itself is kept, because
+        it carries the caller's `custom_amount` and therefore produces the right rate.
+
+        A real backoff cannot be built on frappe.enqueue (frappe forces
+        with_scheduler=False on its workers, so RQ's scheduled registry is never
+        drained). It CAN be built the way utils/bulk_retry_processor.py does it -- a
+        scheduled sweep plus a stored next-attempt timestamp. That is a redesign, not
+        a kwarg fix.
+
+        Do NOT "simplify" this into deferring to the daily auto-creator task. That task
+        creates schedules at the membership type's template/minimum rate
+        (dues_schedule_auto_creator.py, dues_rate = template rate), NOT at the member's
+        agreed amount -- and Membership.create_or_update_dues_schedule (membership.py:89)
+        clears csv_import_custom_fee at membership.py:157, BEFORE the create at :158
+        that we are retrying, so the agreed amount is already gone by the time we get
+        here. Deferring would silently bill an imported member at the template rate.
+
+        KNOWN BUG, not introduced here and not fixed here: the backpressure branch
+        below does exactly that. On a congested queue it returns None and leaves
+        recovery to the daily task, mispricing the member. Bulk CSV import is both the
+        only source of csv_import_custom_fee and the likeliest cause of queue
+        congestion, so this is not a rare path.
 
         Implements queue backpressure to prevent congestion during bulk failures.
 
@@ -251,7 +278,8 @@ class DuesScheduleCreationService(StatelessService):
             All parameters from create_schedule_with_retry
 
         Returns:
-            Job ID for tracking, or None if backpressure applied
+            A correlation token for the enqueued retry (NOT a lookup-able RQ job id --
+            see the comment at the return), or None if backpressure applied.
         """
         # Check for queue congestion before enqueuing
         try:
@@ -276,22 +304,19 @@ class DuesScheduleCreationService(StatelessService):
                 f"[DUES SCHEDULE] Could not check queue depth: {queue_check_error}. Proceeding with enqueue."
             )
 
-        delay_seconds = self.RETRY_DELAYS[min(retry_count - 1, len(self.RETRY_DELAYS) - 1)]
-
-        # Schedule job for future execution using at_time parameter
-        # This avoids timeout issues from time.sleep() in the job
-        import frappe.utils
-
-        scheduled_time = frappe.utils.add_to_date(None, seconds=delay_seconds)
-
+        # No at_time / delay: neither is a frappe.enqueue parameter (v16), and there is
+        # no delayed-enqueue facility at all -- frappe forces with_scheduler=False on
+        # its workers, so RQ's scheduled registry is never drained. The wait cannot move
+        # into the job either: the old 1800s step exceeds this job's 600s timeout.
+        # The retry therefore runs as soon as a worker picks it up, which is what has
+        # actually happened all along.
         job = frappe.enqueue(
             "verenigingen.services.billing.dues_schedule_creation_service.retry_create_dues_schedule_job",
             queue="long",
-            timeout=600,  # Increased timeout for actual processing
+            timeout=600,
             now=False,
             enqueue_after_commit=True,
             at_front=False,
-            at_time=scheduled_time,  # Schedule for later execution
             job_name=f"retry_dues_schedule_{member_name}_{retry_count}",
             # Job arguments
             member_name=member_name,
@@ -303,15 +328,18 @@ class DuesScheduleCreationService(StatelessService):
             retry_count=retry_count,
         )
 
-        # Get actual RQ job ID from returned Job object
-        job_id = job.id if hasattr(job, "id") else f"retry_dues_schedule_{member_name}_{retry_count}"
+        # `job` is always None: enqueue_after_commit=True makes frappe.enqueue register
+        # a callback and return before building the RQ job (background_jobs.py:205-207).
+        # So this is a correlation token for logs and result metadata, NOT an RQ job id
+        # -- the real id is a UUID minted later, and nothing can look this one up.
+        retry_token = f"retry_dues_schedule_{member_name}_{retry_count}"
 
         self.logger.info(
             f"[DUES SCHEDULE] Enqueued retry {retry_count} for {member_name} "
-            f"with {delay_seconds}s delay (job ID: {job_id})"
+            f"(no delay; runs when a worker is free) (token: {retry_token})"
         )
 
-        return job_id
+        return retry_token
 
     def _categorize_error(self, error_str: str) -> str:
         """
@@ -529,17 +557,21 @@ def retry_create_dues_schedule_job(
     custom_amount_reason: Optional[str] = None,
     custom_amount_approved: int = 0,
     retry_count: int = 0,
-    **kwargs,  # Catch scheduling metadata (at_time, etc.) from frappe.enqueue()
+    **kwargs,
 ):
     """
     Background job entry point for retry operations.
 
-    Called by frappe.enqueue() to retry failed dues schedule creation.
-    Job is scheduled with at_time parameter for exponential backoff.
+    Enqueued by _enqueue_retry with NO delay. The previous docstring claimed
+    "scheduled with at_time parameter for exponential backoff" and the **kwargs
+    above was annotated as catching "scheduling metadata from frappe.enqueue()".
+    Both described a mechanism that does not exist: frappe.enqueue has no `at_time`,
+    so the caller's value was forwarded here as an ordinary job argument and
+    silently swallowed. Every retry has always run immediately.
 
     Args:
         All parameters from DuesScheduleCreationService.create_schedule_with_retry
-        **kwargs: Ignored scheduling metadata passed by frappe.enqueue()
+        **kwargs: Ignored.
     """
     _module_logger.info(f"[DUES SCHEDULE] Background job starting for {member_name} (retry {retry_count})")
 

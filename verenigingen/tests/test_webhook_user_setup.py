@@ -93,6 +93,15 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     @classmethod
     def _sweep_webhook_users(cls):
+        # REFUSE to sweep on a non-test site. This deletes every webhook-user% User
+        # on whatever site the suite runs against, and the webhook service user is
+        # now a real dependency: gateway services fall back to Administrator without
+        # it (get_service_user), silently, until the next migrate re-creates it.
+        # The comment above notes this suite has been pointed at the live site before.
+        site = getattr(frappe.local, "site", "") or ""
+        if not (site.startswith("test_site") or site.endswith(".localhost") or frappe.conf.get("developer_mode")):
+            frappe.logger().warning(f"Refusing to sweep webhook users on non-test site {site!r}")
+            return
         for email in frappe.get_all("User", filters={"email": ["like", "webhook-user%"]}, pluck="name"):
             cls._delete_webhook_user(email)
 
@@ -115,17 +124,45 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # Frappe must accept it as a real email address.
         frappe.utils.validate_email_address(email, throw=True)
 
-    def test_generate_webhook_user_email_increments_on_collision(self):
-        """When the base email already exists, a numbered suffix is used."""
+    def test_generate_webhook_user_email_is_deterministic(self):
+        """The same site must always resolve to the same address.
+
+        This previously asserted the OPPOSITE -- that an existing user causes a
+        numbered suffix -- which pinned the bug: the generator walked a counter
+        *while the user existed*, so it deliberately returned an address that did
+        not exist yet. create_webhook_user_account's existence check could never
+        fire, every run minted a new user, and setup could therefore never be made
+        to converge (which is why it could only live in after_install).
+        """
         base = w.generate_webhook_user_email()
         result = w.create_webhook_user_account(base, w.generate_secure_password())
         self.assertTrue(result["success"], result)
         self._track_if_exists(base)
 
-        # Now the base exists -> generator must return a different, incremented email.
-        second = w.generate_webhook_user_email()
-        self.assertNotEqual(second, base)
-        self.assertFalse(frappe.db.exists("User", second))
+        # Pin the precondition: the old generator's counter only fired when the user
+        # actually existed, so without this the test would pass against a no-op
+        # create and prove nothing.
+        self.assertTrue(frappe.db.exists("User", base), "precondition: the user must exist")
+
+        # Now that the user exists, the generator must still resolve to it.
+        self.assertEqual(w.generate_webhook_user_email(), base)
+
+    def test_generate_webhook_user_email_prefers_the_configured_user(self):
+        """A configured address wins, so a deleted user is recreated in place.
+
+        On a real site the configured user had been deleted, leaving the setting
+        pointing at a nonexistent account. get_service_user() treats that exactly
+        like an unset one (frappe.db.get_value returns None for a missing user) and
+        silently falls back to Administrator -- while the setting still reads as
+        configured. Resolving to the configured address means setup recreates it
+        rather than creating a second user beside it.
+        """
+        configured = "webhook-user-preexisting@example.test"
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, "webhook_user", configured)
+        frappe.db.commit()
+
+        self.assertEqual(w.generate_webhook_user_email(), configured)
+        self.assertFalse(frappe.db.exists("User", configured), "precondition: user must not exist")
 
     # ---- generate_secure_password -----------------------------------------
 
@@ -261,11 +298,14 @@ class TestWebhookUserSetup(VereningingenTestCase):
         verify = w.verify_webhook_user_setup()
         self.assertTrue(verify["setup_complete"], verify)
 
-    def test_setup_webhook_user_run_twice_does_not_error(self):
-        """Running setup twice must not error. NOTE: because the email generator
-        always produces a fresh unique email, the second run creates a SECOND
-        webhook user rather than reusing the first (see reported design issue).
-        This test documents that observed behaviour."""
+    def test_setup_webhook_user_is_idempotent(self):
+        """Running setup twice must CONVERGE on one user, not create a second.
+
+        This is what lets setup_webhook_user live in after_migrate. It previously
+        asserted that both runs produced different users and called that "observed
+        behaviour"; running that version on every migrate would have minted a
+        webhook user per migration.
+        """
         first = w.setup_webhook_user()
         first_email = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
         self._track_if_exists(first_email)
@@ -273,12 +313,91 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
         second = w.setup_webhook_user()
         second_email = frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user")
-        self._track_if_exists(second_email)
         self.assertTrue(second["success"], second)
 
-        # Neither run errored. Both users exist.
+        self.assertEqual(second_email, first_email, "second run must reuse the same webhook user")
         self.assertTrue(frappe.db.exists("User", first_email))
-        self.assertTrue(frappe.db.exists("User", second_email))
+
+        # And exactly one webhook user exists for this site.
+        domain = first_email.split("@", 1)[1]
+        matches = frappe.get_all("User", filters={"name": ["like", f"webhook-user%@{domain}"]}, pluck="name")
+        self.assertEqual(len(matches), 1, f"expected exactly one webhook user, found {matches}")
+
+    def test_setup_recreates_a_configured_non_canonical_user_that_was_deleted(self):
+        """The exact state found on test_site_1: a NON-canonical configured address
+        whose User has been deleted.
+
+        The address must be non-canonical, otherwise the configured-preference
+        branch is indistinguishable from the canonical fallback and the test proves
+        nothing about it. `webhook-user-1@<site>` is the real-world value -- the
+        fingerprint of the old counter bug, left behind after test-data cleanup
+        removed the User.
+        """
+        canonical = w.generate_webhook_user_email()
+        domain = canonical.split("@", 1)[1]
+        stale = f"webhook-user-7@{domain}"
+
+        # Configure the stale address AND create the account, so the normalisation
+        # branch (which only rewrites when the suffixed user is absent) does not fire.
+        self._set_settings_webhook_user(stale)
+        self.assertTrue(w.create_webhook_user_account(stale, w.generate_secure_password())["success"])
+        self._track_if_exists(stale)
+        self.assertNotEqual(stale, canonical)
+
+        # The configured, existing, non-canonical address wins over the canonical one.
+        self.assertEqual(w.generate_webhook_user_email(), stale)
+
+        again = w.setup_webhook_user()
+        self.assertTrue(again["success"], again)
+        self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), stale)
+        # Converged on the stale address rather than creating the canonical one beside it.
+        self.assertFalse(frappe.db.exists("User", canonical))
+
+    def test_a_deleted_suffixed_user_is_normalised_back_to_canonical(self):
+        """A `webhook-user-<n>@` setting with no such User is the counter bug's
+        artefact; keep it and every future reader re-diagnoses the old bug."""
+        canonical = w.generate_webhook_user_email()
+        domain = canonical.split("@", 1)[1]
+        stale = f"webhook-user-9@{domain}"
+
+        self._set_settings_webhook_user(stale)
+        self.assertFalse(frappe.db.exists("User", stale), "precondition: the stale user is gone")
+
+        self.assertEqual(w.generate_webhook_user_email(), canonical)
+
+    def test_create_account_re_enables_a_disabled_user(self):
+        """A disabled service user is equivalent to no user: get_service_user reads
+        `enabled` and falls back to Administrator, so setup must converge on it."""
+        email = w.generate_webhook_user_email()
+        self.assertTrue(w.create_webhook_user_account(email, w.generate_secure_password())["success"])
+        self._track_if_exists(email)
+
+        user = frappe.get_doc("User", email)
+        user.enabled = 0
+        user.save(ignore_permissions=True)
+        frappe.db.commit()
+        self.assertFalse(frappe.db.get_value("User", email, "enabled"))
+
+        result = w.create_webhook_user_account(email, None)
+        self.assertTrue(result["success"], result)
+        self.assertIn("re-enabled", result["message"])
+        self.assertTrue(frappe.db.get_value("User", email, "enabled"))
+
+    def test_autosetup_can_be_disabled(self):
+        """Without an opt-out there is no supported way to stop after_migrate
+        recreating the account -- clearing webhook_user does not help."""
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, "disable_webhook_user_autosetup", 1)
+        frappe.db.commit()
+        try:
+            result = w.setup_webhook_user()
+            self.assertTrue(result["success"], result)
+            self.assertTrue(result.get("skipped"), result)
+            # setUp clears the field, which persists as "" rather than None.
+            self.assertFalse(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"))
+            self.assertFalse(frappe.db.exists("User", w.generate_webhook_user_email()))
+        finally:
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, "disable_webhook_user_autosetup", 0)
+            frappe.db.commit()
 
     # ---- get_webhook_credentials_for_display ------------------------------
 

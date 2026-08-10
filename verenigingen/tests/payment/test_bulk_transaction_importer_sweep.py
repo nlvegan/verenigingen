@@ -128,7 +128,16 @@ class _BulkImporterSweepBase(EnhancedTestCase):
 
         gl_account = cls._persist_bank_gl_account(company)
         ba = frappe.new_doc("Bank Account")
-        ba.account_name = "TEST Mollie Sweep Account"
+        # Bank Account.autoname is ``account_name + " - " + bank`` with NO company
+        # component (erpnext bank_account.py), so a fixed account_name is a GLOBAL
+        # unique key. This helper is per-company, and is called with two different
+        # companies in one run -- the EUR test company from this base class, and
+        # whatever default company test_bulk_transaction_importer_branches resolves
+        # -- so a fixed name made the second call die with DuplicateEntryError.
+        # The GL account below needs no such treatment: erpnext already suffixes
+        # Account names with the company abbreviation.
+        abbr = frappe.db.get_value("Company", company, "abbr") or company
+        ba.account_name = f"TEST Mollie Sweep Account {abbr}"
         ba.bank = bank_name
         ba.company = company
         ba.account = gl_account

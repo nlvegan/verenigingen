@@ -571,26 +571,6 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
     return False
 
 
-def has_membership_permission(doc, user=None, permission_type=None):
-    """Direct permission check for Membership doctype"""
-    if not user:
-        user = frappe.session.user
-
-    # Log for debugging
-    frappe.logger().debug(
-        f"Checking Membership permissions for user {user} with roles {frappe.get_roles(user)}"
-    )
-
-    # Admin roles always have access
-    if _has_admin_access(frappe.get_roles(user)):
-        return True
-
-    # Other permission checks would go here
-
-    # Return None to fall back to standard permission system if no match
-    return None
-
-
 def _make_member_linked_permission(doctype, member_field="member"):
     """Build the (has_permission, permission_query) pair for a doctype that links to
     Member via a direct ``member`` Link field and must be member-scoped.
@@ -625,6 +605,21 @@ def _make_member_linked_permission(doctype, member_field="member"):
     slug = doctype.lower().replace(" ", "_")
 
     def has_permission(doc, user=None, permission_type=None):
+        # WARNING: `permission_type` is ALWAYS None when this is reached through the
+        # has_permission hook. frappe/permissions.py::has_controller_permissions calls
+        # frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs
+        # drops kwargs that are not in the callee's signature -- our parameter is named
+        # permission_type, not ptype, so the value never arrives. MEASURED:
+        # frappe.get_newargs(has_donor_permission, {...,"ptype":"write",...}) -> ['doc','user'].
+        #
+        # Consequences: _check_service_account_permission below always evaluates the
+        # "read" DocPerm (perm_type = permission_type or "read"), and this check returns
+        # the same verdict for read/write/create/submit. Do NOT add ptype-dependent
+        # logic here expecting it to work, and do NOT "fix" this by renaming the
+        # parameter to ptype -- that would start feeding real ptypes into the service
+        # account branch and silently change webhook answers for non-read operations.
+        # (Sibling checks in this repo differ: chapter.py and project_permissions.py
+        # name the parameter ptype and DO receive it.)
         if not user:
             user = frappe.session.user
 
@@ -747,6 +742,37 @@ has_donor_permission, get_donor_permission_query = _make_member_linked_permissio
 has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_linked_permission(
     "SEPA Mandate"
 )
+
+# Membership has the same shape (a required `member` Link) and the same intended policy,
+# so its doc-level check is generated here too. It previously had a hand-written stub that
+# returned None for every non-admin, which is a hard DENY, not "no opinion":
+# frappe/permissions.py::has_controller_permissions does
+#     if not controller_permission:
+#         return bool(controller_permission)
+# so the doctype's DocPerms for `Verenigingen Chapter Board Member` and `Verenigingen
+# Member` were unreachable -- a board member could not insert the Membership that
+# approving an application creates, and the failure surfaced as an empty "Error creating
+# membership: " because frappe.PermissionError is raised bare
+# (frappe/model/document.py::raise_no_permission_to). Same falsy-return class as PR #191,
+# inverted: there a falsy result read as "unrestricted", here it read as "locked out".
+#
+# The stub must NOT simply return True instead. `Verenigingen Chapter Board Member` holds
+# create/read/write/submit on Membership with no `if_owner`, and a permission_query_condition
+# scopes LIST views only -- frappe.client.get calls doc.check_permission() -- so an
+# unconditional True would grant every board member read and write on every Membership in
+# the database by name, across all chapters. The factory applies the chapter scope the
+# query condition already describes.
+#
+# Only the has_permission half is taken. get_membership_permission_query below is kept
+# hand-written because it mirrors get_member_permission_query's
+# `status NOT IN ('Quit', 'Banned', 'Deceased')` exclusion, which Donor and SEPA Mandate do
+# not have; generating it here would silently widen board list visibility to quit and
+# banned members. The resulting doc-level/list divergence already exists for Member
+# (has_member_permission does not apply that exclusion either).
+#
+# Indexed rather than unpacked into `_`: this module does not import frappe's translation
+# function today, but binding `_` at module scope would silently shadow it if anyone does.
+has_membership_permission = _make_member_linked_permission("Membership")[0]
 
 
 def has_donation_permission(doc, user=None, permission_type=None):
@@ -1134,15 +1160,126 @@ def get_membership_permission_query(user):
     return "1=0"
 
 
+def _employee_board_chapter_condition(user):
+    """SQL limiting `tabEmployee` to employees of members in the user's board chapters.
+
+    Returns None when the user holds no active board seat. Shared by
+    get_employee_permission_query and has_employee_permission so the list and
+    document halves cannot drift apart.
+    """
+    user_member = get_member_name_for_user(user)
+    if not user_member:
+        return None
+
+    board_chapters = _get_board_chapters_for_member(user_member)
+    if not board_chapters:
+        return None
+
+    chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+    return f"""
+        (`tabEmployee`.name IN (
+            SELECT DISTINCT m.employee
+            FROM `tabMember` m
+            JOIN `tabChapter Member` cm ON cm.member = m.name
+            WHERE cm.parent IN ({','.join(chapter_names)})
+              AND cm.status = 'Active'
+              AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
+              AND m.employee IS NOT NULL
+        ))
+    """
+
+
+def has_employee_permission(doc, user=None, ptype=None):
+    """Document-level check for Employee. Mirrors get_employee_permission_query.
+
+    The third parameter is named `ptype`, not `permission_type`, because that is the
+    keyword frappe actually passes: has_controller_permissions calls
+    frappe.call(method, doc=doc, ptype=ptype, ...) and frappe.call's get_newargs drops
+    kwargs absent from the callee's signature. Every sibling in this module names it
+    `permission_type` and therefore always receives None -- which matters for the ones
+    that forward it into _check_service_account_permission, where
+    `perm_type = permission_type or "read"` silently evaluates every operation as a
+    read. This check ignores the value entirely, but it should not join that family.
+
+    Employee had a permission query and NO has_permission hook. Those two halves
+    have disjoint coverage -- frappe/model/db_query.py calls frappe.has_permission
+    WITHOUT a doc, so the hook never runs for lists, and frappe.client.get calls
+    doc.check_permission() (frappe/client.py:104), which never consults the query --
+    so doc-level access fell entirely to DocPerms. fixtures/custom_docperm.json
+    grants the ERPNext `Employee` role read with no if_owner, and 8 of the 11 role
+    profiles hand out that role, so any volunteer could read any Employee record by
+    name (date of birth, personal email, phone, address) while seeing none of them
+    in any list view. MEASURED against production config before this fix:
+    get_employee_permission_query -> "1=0", frappe.has_permission(read, doc=...) -> True.
+
+    ERPNext's own answer to this is a User Permission per employee-user, which is
+    why its DocPerm is deliberately broad. That mechanism cannot cover this app: the
+    `Employee` role is granted by role profile to volunteers who have no Employee
+    record at all, and a user with no User Permission is unrestricted, so the users
+    most exposed are exactly the ones User Permissions would not reach.
+
+    Access:
+    - Admin / HR roles: all employees
+    - The employee themselves (Employee.user_id): their own record
+    - Chapter board members: employees of members in their chapters
+    """
+    if not user:
+        user = frappe.session.user
+
+    user_roles = frappe.get_roles(user)
+
+    if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES | {Roles.HR_USER}):
+        return True
+
+    # A document being inserted is not yet in the database, so there is nothing to
+    # scope: creation is governed by the create DocPerm (HR roles only, both of which
+    # short-circuit above). Test __islocal rather than "name is empty" -- the name is
+    # empty today only because Employee uses a naming series and
+    # frappe/model/document.py checks create permission BEFORE set_new_name(); a
+    # switch to prompt naming, or any caller that assigns doc.name itself, would make
+    # the name-based test silently start denying legitimate inserts.
+    if not isinstance(doc, str) and doc.get("__islocal"):
+        return True
+
+    employee_name = doc if isinstance(doc, str) else getattr(doc, "name", None)
+    if not employee_name:
+        return True
+
+    # The employee's own record. Employee Self Service depends on this.
+    if frappe.db.get_value("Employee", employee_name, "user_id") == user:
+        return True
+
+    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
+        # Deliberately NOT wrapped in try/except. This is an authorization decision:
+        # a swallowed failure here returns False, which is indistinguishable from
+        # "policy says no" and is exactly the failure mode services/chapter/
+        # chapter_utils.py documents at length when it stopped swallowing in
+        # get_user_accessible_chapters -- and _employee_board_chapter_condition sits
+        # on that same call chain via get_member_name_for_user. A permission check
+        # that throws is visible; one that quietly denies is not. It is also unsafe
+        # after a deadlock (1213), where the transaction is already dead.
+        condition = _employee_board_chapter_condition(user)
+        if condition and frappe.db.sql(
+            f"SELECT name FROM `tabEmployee` WHERE name = %s AND {condition}", employee_name
+        ):
+            return True
+
+    return False
+
+
 def get_employee_permission_query(user):
     """
     Permission query for Employee doctype to restrict VBCM users to employees
     linked to members in their chapters only.
 
     Returns SQL WHERE conditions:
-    - Admin roles: No restrictions (see all employees)
-    - Chapter Board Members: See only employees linked to members in their chapters
-    - Others: Default ERPNext permissions apply
+    - Admin / HR roles: No restrictions (see all employees)
+    - The employee themselves: their own record
+    - Chapter Board Members: employees linked to members in their chapters
+    - Others: no access
+
+    Kept in lockstep with has_employee_permission -- see its docstring for why both
+    halves are required.
     """
     if not user:
         user = frappe.session.user
@@ -1153,27 +1290,29 @@ def get_employee_permission_query(user):
     if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES | {Roles.HR_USER}):
         return ""
 
+    conditions = []
+
+    # An employee can always see their own record. This branch was missing, so the
+    # fall-through below denied a plain employee their own record in list views
+    # while DocPerms granted them every record by name -- wrong in both directions.
+    #
+    # Gated on actually having an Employee record so that a user without one still
+    # falls through to "1=0" rather than to a condition that matches nothing. Same
+    # result, but it keeps "no access" expressed as no access.
+    if frappe.db.exists("Employee", {"user_id": user}):
+        conditions.append(f"`tabEmployee`.user_id = {frappe.db.escape(user)}")
+
     # Chapter Board Members can only see employees for members in their chapters
     if Roles.CHAPTER_BOARD_MEMBER in user_roles:
         try:
-            user_member = get_member_name_for_user(user)
-            if user_member:
-                board_chapters = _get_board_chapters_for_member(user_member)
-                if board_chapters:
-                    chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
-                    return f"""
-                        (`tabEmployee`.name IN (
-                            SELECT DISTINCT m.employee
-                            FROM `tabMember` m
-                            JOIN `tabChapter Member` cm ON cm.member = m.name
-                            WHERE cm.parent IN ({','.join(chapter_names)})
-                              AND cm.status = 'Active'
-                              AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
-                              AND m.employee IS NOT NULL
-                        ))
-                    """
+            board_condition = _employee_board_chapter_condition(user)
+            if board_condition:
+                conditions.append(board_condition)
         except Exception as e:
             frappe.log_error(f"Error building employee permission query: {str(e)}")
+
+    if conditions:
+        return f"({' OR '.join(conditions)})"
 
     # No access for non-admin, non-VBCM users
     return "1=0"

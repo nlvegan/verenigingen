@@ -27,7 +27,14 @@ class TestPageChapterDashboard(EnhancedTestCase):
         )
 
         # A board member: member -> volunteer -> Chapter Board Member row.
-        self.board_email = f"board-{frappe.generate_hash()[:8]}@example.com"
+        # Trailing digit is load-bearing - see test_chapter_board_chapters.setUp.
+        # EnhancedTestDataFactory.create_member() rewrites a supplied email unless the
+        # last 5 characters of the local part contain a digit, so a bare hex run-id
+        # diverges Member.email from the login user on ~1 run in 135. That divergence
+        # is what made test_board_member_sees_their_chapter fail intermittently; it is
+        # exercised deliberately in
+        # test_board_role_resolves_when_member_email_differs_from_login_user instead.
+        self.board_email = f"board-{frappe.generate_hash()[:8]}0@example.com"
         self.board_member = self.create_test_member(
             first_name="Board",
             last_name="Member",
@@ -114,6 +121,42 @@ class TestPageChapterDashboard(EnhancedTestCase):
             role = get_user_board_role(self.chapter.name)
             self.assertEqual(role["role"], "Chapter Head")
             self.assertTrue(role["permissions"]["can_manage_board"])
+
+    def test_board_role_resolves_when_member_email_differs_from_login_user(self):
+        """The board-role gate must resolve the member by user, not by email alone.
+
+        get_user_board_role() used to query Member.email only, which disagreed with
+        both assign_chapter_board_role() and the sibling get_user_board_chapters():
+        a board member whose login user differs from their contact email was granted
+        the role and then read here as having none. That gates board mutations, so it
+        is an access-control answer, not a display detail.
+
+        This is also the mechanism behind the intermittent board-chapter failures.
+        EnhancedTestDataFactory.create_member() appends a unique suffix to a supplied
+        email unless the last 5 characters of the local part contain a digit, so a
+        test using a hex run-id silently produced Member.email != Member.user on about
+        1 run in 135 - and only on those runs did the two helpers disagree. This test
+        forces that divergence instead of waiting for the lottery.
+        """
+        from verenigingen.templates.pages.chapter_dashboard import get_user_board_role
+
+        contact_email = f"contact-{frappe.generate_hash()[:8]}@example.com"
+        self.board_member.db_set("email", contact_email)
+        self.assertNotEqual(
+            frappe.db.get_value("Member", self.board_member.name, "email"),
+            frappe.db.get_value("Member", self.board_member.name, "user"),
+            "the divergence under test must actually be in place",
+        )
+
+        with self.as_user(self.board_user):
+            role = get_user_board_role(self.chapter.name)
+
+        self.assertIsNotNone(
+            role,
+            "Board role resolved to None because the member was looked up by email "
+            "alone; it must fall back through Member.user like the rest of the app.",
+        )
+        self.assertEqual(role["role"], "Chapter Head")
 
     def test_non_board_user_sees_no_chapters(self):
         from verenigingen.templates.pages.chapter_dashboard import (

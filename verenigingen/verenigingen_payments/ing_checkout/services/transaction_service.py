@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, getdate, today
 
 
 class TransactionService:
@@ -164,28 +164,53 @@ class TransactionService:
         allocation_amount = min(transaction_amount, outstanding_amount)
 
         try:
-            # Use ERPNext's get_payment_entry for proper account handling
-            from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+            # Delegate to PaymentEntryCreationService so this path shares one
+            # payment-entry contract with the rest of the app; Ponto and the Mollie
+            # orphan path already do. Two behaviours change with it:
+            #
+            # * the remarks WORDING now persists. The service sets custom_remarks
+            #   alongside the text; without it Payment Entry.validate() calls
+            #   set_remarks(), which rebuilds the field and discards what was assigned.
+            #   Note what this does NOT mean: the transaction id survived either way,
+            #   because ERPNext's generated text appends "Transaction reference no
+            #   {reference_no} dated {date}" (PaymentEntry.set_remarks). What was
+            #   lost is the "ING Checkout payment" phrasing that tells an operator
+            #   which gateway the entry came from.
+            # * permissions are enforced rather than bypassed. This used
+            #   ignore_permissions=True on the grounds that there is "no user session
+            #   during webhook processing", which is not the case: the webhook entry
+            #   point calls frappe.set_user() with the service account from
+            #   Verenigingen Payments Settings.webhook_user (ing_checkout/utils/
+            #   webhook_security.py) - the same account the Mollie path runs as, which
+            #   holds Payment Entry create/write/submit.
+            #
+            # paid_to is no longer assigned after the fact: bank_account is passed
+            # through to ERPNext, which derives paid_to AND the matching account
+            # currency from it. The old post-hoc assignment was redundant here (the
+            # same account was already passed in) but is a trap worth not copying.
+            from decimal import Decimal
 
-            payment_entry = get_payment_entry(
-                dt="Sales Invoice",
-                dn=reference_name,
-                party_amount=allocation_amount,
+            from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+            payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=reference_name,
+                amount=Decimal(str(allocation_amount)),
+                posting_date=getdate(today()),
+                reference_no=transaction_id or transaction_name,
+                reference_date=getdate(today()),
+                mode_of_payment="iDEAL",
                 bank_account=bank_account,
+                remarks=f"ING Checkout payment: {transaction_id}",
+                # Record the whole transaction, not just the part this invoice can
+                # absorb. The cap above still decides what SETTLES the invoice; the
+                # excess becomes an unallocated credit on the customer instead of
+                # vanishing. Without this the ING clearing account was debited the
+                # capped figure while Pay.nl had settled the full amount, so the
+                # account could not reconcile against the settlement file. The
+                # overpayment detection above is unchanged and still populates
+                # result["overpayment"].
+                cash_received=Decimal(str(transaction_amount)),
             )
-
-            # Override with ING Checkout specific fields
-            payment_entry.posting_date = frappe.utils.today()
-            payment_entry.reference_no = transaction_id or transaction_name
-            payment_entry.reference_date = frappe.utils.today()
-            payment_entry.mode_of_payment = "iDEAL"
-            payment_entry.paid_to = bank_account
-            payment_entry.remarks = f"ING Checkout payment: {transaction_id}"
-
-            # SECURITY JUSTIFICATION: Creating Payment Entry from webhook callback.
-            # No user session during webhook processing. Audit trail via Payment Entry.
-            payment_entry.insert(ignore_permissions=True)
-            payment_entry.submit()
 
             result["success"] = True
             result["payment_entry"] = payment_entry.name

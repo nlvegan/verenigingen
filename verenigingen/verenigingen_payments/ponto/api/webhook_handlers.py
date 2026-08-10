@@ -11,9 +11,13 @@ Split from webhook.py as part of HIGH-4 (PSP Integration Consolidation Plan).
 """
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import frappe
+
+from verenigingen.verenigingen_payments.ponto.services.payment_entry_service import (
+    create_ponto_payment_entry,
+)
 
 from .webhook_utils import (
     extract_account_id,
@@ -38,6 +42,29 @@ def _get_webhook_user() -> str:
         user_field="webhook_user",
         service_name="Ponto Webhook",
     )
+
+
+def import_transactions_job(account_id: str) -> Dict[str, Any]:
+    """Background entry point for webhook-triggered transaction import.
+
+    Exists because the identity has to be set INSIDE the job. frappe.enqueue has no
+    `user` parameter (frappe/utils/background_jobs.py:76-93) - anything outside its
+    signature lands in **kwargs and execute_job passes it straight to the job function
+    (`retval = method(**kwargs)`), so `user=...` raises TypeError in the worker rather
+    than changing who it runs as. The worker adopts `queue_args["user"] =
+    frappe.session.user`, i.e. the ENQUEUING session, which is Guest for these
+    allow_guest webhooks.
+
+    frappe.set_user cannot go inside import_new_transactions itself: it has interactive
+    callers (ponto_settings.py trigger_manual_sync, import_all_accounts) whose identity
+    must be left alone.
+    """
+    from verenigingen.verenigingen_payments.ponto.services.transaction_import_service import (
+        import_new_transactions,
+    )
+
+    frappe.set_user(_get_webhook_user())
+    return import_new_transactions(account_id=account_id)
 
 
 def _safe_savepoint_name(prefix: str, doc_name: str) -> str:
@@ -82,11 +109,10 @@ def handle_sync_succeeded(
     if account_id:
         # Queue transaction import job with proper user context
         frappe.enqueue(
-            "verenigingen.verenigingen_payments.ponto.services.transaction_import_service.import_new_transactions",
+            "verenigingen.verenigingen_payments.ponto.api.webhook_handlers.import_transactions_job",
             account_id=account_id,
             queue="short",
             timeout=300,
-            user=_get_webhook_user(),
         )
         return {"handled": True, "action": "transaction_import_queued", "account_id": account_id}
 
@@ -179,11 +205,10 @@ def handle_transactions_created(event_data: Dict[str, Any]) -> Dict[str, Any]:
     # Queue transaction import job
     if account_id:
         frappe.enqueue(
-            "verenigingen.verenigingen_payments.ponto.services.transaction_import_service.import_new_transactions",
+            "verenigingen.verenigingen_payments.ponto.api.webhook_handlers.import_transactions_job",
             account_id=account_id,
             queue="short",
             timeout=300,
-            user=_get_webhook_user(),
         )
         return {"handled": True, "action": "transaction_import_queued", "account_id": account_id}
 
@@ -388,7 +413,7 @@ def _update_payment_link_status(
     if mapped_status:
         updated_links = []
         failed_links = []
-        payment_entries_created = []
+        payment_entries_queued = []
 
         for pl in payment_links:
             # Use savepoint for each update to isolate failures
@@ -400,11 +425,38 @@ def _update_payment_link_status(
                 frappe.logger().info(f"Updated Ponto Payment Link {pl.name} to status {mapped_status}")
                 updated_links.append(pl.name)
 
-                # If payment is executed, try to find invoice and create Payment Entry
+                # If payment is executed, find the invoice and create a Payment Entry -
+                # as the configured webhook user, not inline in this Guest request.
+                # handle_ponto_webhook is allow_guest=True and never elevates, and Guest
+                # can neither insert a Payment Entry nor save its name back onto the
+                # link, which is what leaves the guard below unlatched and lets a retry
+                # post the payment twice.
+                #
+                # enqueue_after_commit stops the worker starting before this request
+                # commits and reading the PRE-webhook row (status not yet Executed).
+                # It does NOT rescue the savepoint path: db.rollback(save_point=...)
+                # returns before after_commit.reset() (database.py:1196-1203), so a
+                # savepoint rollback leaves the callback registered either way. Only a
+                # full request rollback drops it.
+                #
+                # job_id + deduplicate collapse a redelivery that arrives while the
+                # first job is still queued or running. They do NOT dedup two
+                # concurrent uncommitted requests: the dedup lookup happens here, the
+                # push happens later from after_commit, so both can pass. The real
+                # protection against a double post is the reference_no check inside
+                # _process_executed_payment.
                 if mapped_status == "Executed" and not doc.payment_entry:
-                    pe_result = _process_executed_payment(doc)
-                    if pe_result.get("payment_entry"):
-                        payment_entries_created.append(pe_result["payment_entry"])
+                    frappe.enqueue(
+                        "verenigingen.verenigingen_payments.ponto.api.webhook_handlers."
+                        "process_executed_payment_job",
+                        payment_link_name=pl.name,
+                        queue="short",
+                        timeout=300,
+                        enqueue_after_commit=True,
+                        job_id=f"ponto_executed_{pl.name}",
+                        deduplicate=True,
+                    )
+                    payment_entries_queued.append(pl.name)
 
             except Exception as e:
                 frappe.db.rollback(save_point=savepoint_name)
@@ -422,10 +474,38 @@ def _update_payment_link_status(
             "new_status": mapped_status,
             "updated_links": updated_links,
             "failed_links": failed_links if failed_links else None,
-            "payment_entries_created": payment_entries_created if payment_entries_created else None,
+            # Queued, not created: the Payment Entry is written by a background job
+            # running as the webhook user, so its name is not known here.
+            "payment_entries_queued": payment_entries_queued or None,
         }
 
     return {"handled": True, "action": "logged", "reason": "unknown_status"}
+
+
+def process_executed_payment_job(payment_link_name: str) -> Dict[str, Any]:
+    """Background entry point for the executed-payment branch.
+
+    Sets the identity HERE rather than via an `enqueue(user=...)` kwarg: frappe.enqueue
+    has no such parameter, so it would be forwarded to this function and raise TypeError
+    in the worker (see import_transactions_job for the full mechanism).
+
+    Re-checks status rather than trusting the enqueue. The job is queued after commit,
+    but a link can still be re-read after some later change, and acting on a row that is
+    no longer Executed would post money against pre-webhook state.
+
+    Module-level (not underscore-private) because frappe.enqueue resolves it by dotted
+    path.
+    """
+    frappe.set_user(_get_webhook_user())
+    doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
+
+    if doc.status != "Executed":
+        frappe.logger().info(
+            f"Skipping Ponto Payment Link {payment_link_name}: status is {doc.status}, not Executed"
+        )
+        return {"payment_entry": None, "sales_invoice": None, "matched_by": None, "skipped": True}
+
+    return _process_executed_payment(doc)
 
 
 def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
@@ -479,26 +559,74 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
             )
 
             if matched_invoice:
-                # Link the invoice to the payment link
+                # Link the invoice to the payment link. ignore_permissions matches the
+                # DocType's own webhook method (ponto_payment_link.py:450): this runs
+                # from a webhook, and a silently-refused save here is what leaves the
+                # link unlatched and lets a retry post the payment twice.
                 payment_link_doc.sales_invoice = matched_invoice
-                payment_link_doc.save()
+                # Security: webhook-initiated write under the configured webhook user;
+                # a refused save leaves the link unlatched and lets a retry post twice.
+                payment_link_doc.save(ignore_permissions=True)
                 result["sales_invoice"] = matched_invoice
                 result["matched_by"] = "invoice_matcher"
                 frappe.logger().info(
                     f"Matched Ponto Payment Link {payment_link_doc.name} to Sales Invoice {matched_invoice}"
                 )
+            else:
+                # An EXECUTED payment that matches no invoice must not pass silently.
+                # There is no else-branch below either, so without this the money is
+                # received, nothing is written, and nothing is logged - the link simply
+                # sits at Executed with no Payment Entry forever. Recorded as an Error
+                # Log (not just a logger call) because it needs a human to reconcile.
+                frappe.log_error(
+                    title=f"Ponto payment matched no invoice: {payment_link_doc.name}",
+                    message=(
+                        f"Executed Ponto Payment Link {payment_link_doc.name} for member "
+                        f"{member_name} (amount {amount}) matched no Sales Invoice. "
+                        f"No Payment Entry was created - manual reconciliation required."
+                    ),
+                )
 
         # Create Payment Entry if we have an invoice
         if result.get("sales_invoice"):
-            pe_name = _create_ponto_payment_entry(
+            # Idempotency, independent of the link field. Writing payment_entry back is
+            # a SECOND transaction-visible step after the entry is submitted, so the two
+            # can diverge (a failed save-back, a crash between them) and the caller's
+            # `not doc.payment_entry` guard would then let a retried webhook post the
+            # same money again.
+            #
+            # Both keys are searched. The link name is included because the DocType's
+            # former hand-rolled creator keyed reference_no on it; any entry it managed
+            # to write on an older release would otherwise be invisible here and get
+            # duplicated. New entries all use the request id.
+            candidate_refs = [payment_link_doc.ponto_request_id, payment_link_doc.name]
+            candidate_refs = [r for r in candidate_refs if r]
+            existing_pe = frappe.db.get_value(
+                "Payment Entry", {"reference_no": ("in", candidate_refs), "docstatus": 1}, "name"
+            )
+            if existing_pe:
+                frappe.logger().info(
+                    f"Payment Entry {existing_pe} already exists for Ponto link "
+                    f"{payment_link_doc.name} - relinking rather than creating a second one"
+                )
+                result["payment_entry"] = existing_pe
+                payment_link_doc.payment_entry = existing_pe
+                # Security: webhook-initiated write under the configured webhook user;
+                # relinking an existing entry is what prevents a duplicate posting.
+                payment_link_doc.save(ignore_permissions=True)
+                return result
+
+            pe_name = create_ponto_payment_entry(
                 payment_link_doc=payment_link_doc,
                 invoice_name=result["sales_invoice"],
             )
             if pe_name:
                 result["payment_entry"] = pe_name
-                # Link payment entry back to payment link
+                # Link payment entry back to payment link.
+                # Security: webhook-initiated write under the configured webhook user;
+                # this is the step whose silent failure enabled the double post.
                 payment_link_doc.payment_entry = pe_name
-                payment_link_doc.save()
+                payment_link_doc.save(ignore_permissions=True)
 
         return result
 
@@ -509,100 +637,6 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
             message=str(e),
         )
         return result
-
-
-def _create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional[str]:
-    """
-    Create a Payment Entry for a Ponto payment.
-
-    Args:
-        payment_link_doc: Ponto Payment Link document
-        invoice_name: Sales Invoice to allocate payment to
-
-    Returns:
-        Payment Entry name if created, None otherwise
-    """
-    from frappe.utils import flt, getdate, today
-
-    try:
-        # Get invoice document
-        invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
-
-        if invoice_doc.outstanding_amount <= 0:
-            frappe.logger().info(
-                f"Sales Invoice {invoice_name} already paid (outstanding: {invoice_doc.outstanding_amount})"
-            )
-            return None
-
-        # Get settings
-        settings = frappe.get_single("Verenigingen Settings")
-        company = invoice_doc.company or settings.company
-
-        # Get Ponto bank account from settings. ponto_bank_account_parent lives
-        # on Verenigingen Payments Settings.
-        from verenigingen.utils.settings_utils import get_payments_settings
-
-        ponto_bank_account = getattr(get_payments_settings(), "ponto_bank_account_parent", None)
-        if not ponto_bank_account:
-            # Try to find a Ponto account
-            ponto_bank_account = frappe.db.get_value(
-                "Account",
-                {"company": company, "account_name": ["like", "%Ponto%"], "is_group": 0},
-                "name",
-            )
-        if not ponto_bank_account:
-            ponto_bank_account = frappe.get_cached_value("Company", company, "default_bank_account")
-
-        if not ponto_bank_account:
-            frappe.logger().error(f"No Ponto bank account configured for company {company}")
-            return None
-
-        # Calculate allocation amount
-        amount = flt(payment_link_doc.amount)
-        allocation_amount = min(amount, flt(invoice_doc.outstanding_amount))
-
-        # Use ERPNext's get_payment_entry for proper account handling
-        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
-        payment_entry = get_payment_entry(
-            dt="Sales Invoice",
-            dn=invoice_name,
-            party_amount=allocation_amount,
-            bank_account=ponto_bank_account,
-        )
-
-        # Override with Ponto-specific fields
-        payment_entry.posting_date = getdate(today())
-        payment_entry.reference_no = payment_link_doc.ponto_request_id or payment_link_doc.name
-        payment_entry.reference_date = getdate(today())
-        payment_entry.mode_of_payment = "Bank Transfer"
-        payment_entry.paid_to = ponto_bank_account
-        payment_entry.remarks = (
-            f"Ponto payment via payment link {payment_link_doc.name}. "
-            f"Description: {payment_link_doc.description or 'N/A'}"
-        )
-
-        # Link to member if available
-        if payment_link_doc.member:
-            payment_entry.custom_member = payment_link_doc.member
-
-        payment_entry.insert()
-        payment_entry.submit()
-
-        frappe.logger().info(
-            f"Created Payment Entry {payment_entry.name} for Ponto Payment Link {payment_link_doc.name} "
-            f"(amount: {allocation_amount}, invoice: {invoice_name})"
-        )
-
-        return payment_entry.name
-
-    except Exception as e:
-        frappe.logger().error(f"Failed to create Payment Entry for {payment_link_doc.name}: {e}")
-        frappe.log_error(
-            title=f"Ponto Payment Entry creation failed: {payment_link_doc.name}",
-            message=str(e),
-        )
-        return None
 
 
 def handle_payment_initiation_updated(event_data: Dict[str, Any]) -> Dict[str, Any]:

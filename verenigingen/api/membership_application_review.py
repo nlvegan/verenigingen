@@ -421,6 +421,27 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
 
 
 @frappe.whitelist()
+@standard_api()  # Read-only permission probe
+def can_review_application(member_name: str) -> bool:
+    """Whether the CURRENT user may approve or reject this application.
+
+    Exists so the UI can ASK the server instead of re-deriving chapter/board rules
+    in JavaScript. member.js previously gated its Review Actions buttons on a
+    client-side stub that always returned False, so chapter board members never saw
+    them; the alternative -- reimplementing the board lookup in JS -- would be a
+    second copy of the rule that can drift from this one.
+
+    This is a UX affordance, NOT the access control. Approval and rejection are
+    enforced server-side by validate_chapter_permission_or_throw regardless of what
+    the client renders, so a stale or bypassed check here cannot grant anything.
+    """
+    from verenigingen.services.chapter.chapter_security import can_user_manage_application
+
+    member_name = _validate_member_for_review(member_name, "review permission check")
+    return can_user_manage_application(member_name)
+
+
+@frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application(
     member_name: str,

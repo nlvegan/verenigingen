@@ -163,6 +163,39 @@ class TestEnqueueTrackedJob(EnhancedTestCase):
         self.assertEqual(status["reference_doctype"], "Payment Entry")
         self.assertEqual(status["reference_name"], "PE-DONOR")
 
+    def test_tracked_enqueue_does_not_hand_the_job_name_to_enqueue_itself(self):
+        """The tracking name must reach the job, not be eaten by frappe.enqueue.
+
+        REGRESSION GUARD. _enqueue_tracked_job passed `job_name=`, which is one of
+        frappe.enqueue's OWN parameters: enqueue consumed it and the executors were
+        invoked with job_name=None, so every `if job_name:` guard fell through and
+        update_job_status() never ran -- the record stayed "Queued" for the life of
+        the job.
+
+        This has to assert on the CALL SITE. The repo-wide sweep in
+        test_enqueue_bind_contracts cannot see it (this enqueue passes a *variable*
+        target, which static resolution skips), and calling the executors directly
+        only pins their signature, not what the producer hands to enqueue. Verified
+        by mutation: reverting to `job_name=` fails this test and nothing else.
+
+        `retry=` is asserted absent for the same reason -- it is not an enqueue
+        parameter, so it used to be forwarded to the executors and swallowed by
+        their **kwargs, having never retried anything.
+        """
+        captured = {}
+        original = frappe.enqueue
+        frappe.enqueue = lambda *a, **k: captured.update(k)
+        try:
+            BackgroundJobManager.queue_donor_auto_creation(payment_doc_name="PE-KWARG")
+        finally:
+            frappe.enqueue = original
+
+        self.assertTrue(captured, "expected queue_donor_auto_creation to enqueue a job")
+        self.assertIn("tracking_job_name", captured)
+        self.assertTrue(captured["tracking_job_name"].startswith("donor_auto_creation_PE-KWARG_"))
+        self.assertNotIn("job_name", captured)
+        self.assertNotIn("retry", captured)
+
     def test_enqueue_with_tracking_creates_record_and_notifies(self):
         captured = []
         original = frappe.publish_realtime
@@ -238,7 +271,7 @@ class TestRetryLogic(EnhancedTestCase):
             reference_name="PE-NONEXISTENT-XYZ",
         )
 
-        retry_job_execution(job_name=job_name, delay=0)
+        retry_job_execution(target_job_name=job_name, delay=0)
 
         status = BackgroundJobManager.get_job_status(job_name)
         self.assertEqual(status["status"], "Completed")
@@ -250,7 +283,7 @@ class TestRetryLogic(EnhancedTestCase):
             job_name=job_name, job_type="totally_unknown_type", status="Failed"
         )
 
-        retry_job_execution(job_name=job_name, delay=0)
+        retry_job_execution(target_job_name=job_name, delay=0)
 
         status = BackgroundJobManager.get_job_status(job_name)
         self.assertEqual(status["status"], "Failed")
@@ -264,7 +297,7 @@ class TestExecuteDonorAutoCreation(EnhancedTestCase):
             job_name=job_name, job_type="donor_auto_creation", status="Queued"
         )
 
-        result = execute_donor_auto_creation(payment_doc_name="PE-MISSING-ABC", job_name=job_name)
+        result = execute_donor_auto_creation(payment_doc_name="PE-MISSING-ABC", tracking_job_name=job_name)
         self.assertEqual(result["status"], "skipped")
         self.assertIn("no longer exists", result["reason"])
 
@@ -286,7 +319,7 @@ class TestExecuteExpenseEventProcessing(EnhancedTestCase):
 
         with self.assertRaises(ValueError):
             execute_expense_event_processing(
-                expense_doc_name="EXP-X", event_type="not_a_real_event", job_name=job_name
+                expense_doc_name="EXP-X", event_type="not_a_real_event", tracking_job_name=job_name
             )
 
         status = BackgroundJobManager.get_job_status(job_name)
@@ -307,7 +340,7 @@ class TestExecuteMemberPaymentHistoryUpdate(EnhancedTestCase):
 
         with self.assertNoErrorLog():
             result = execute_member_payment_history_update(
-                member_name="MEMBER-DOES-NOT-EXIST", job_name=job_name
+                member_name="MEMBER-DOES-NOT-EXIST", tracking_job_name=job_name
             )
 
         self.assertEqual(result.get("status"), "skipped")
@@ -323,7 +356,7 @@ class TestExecuteMemberPaymentHistoryUpdate(EnhancedTestCase):
             job_name=job_name, job_type="member_payment_history_update", status="Queued"
         )
 
-        result = execute_member_payment_history_update(member_name=member.name, job_name=job_name)
+        result = execute_member_payment_history_update(member_name=member.name, tracking_job_name=job_name)
         self.assertIn(result.get("status"), {"completed", "cached", "skipped"})
 
         status = BackgroundJobManager.get_job_status(job_name)

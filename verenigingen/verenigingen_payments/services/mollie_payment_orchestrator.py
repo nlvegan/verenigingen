@@ -717,9 +717,24 @@ class MolliePaymentOrchestrator:
         if overlap_result.has_overlap:
             if overlap_result.exact_match:
                 # Exact match found - but only use it if it has outstanding amount
-                outstanding = frappe.db.get_value(
-                    "Sales Invoice", overlap_result.exact_match, "outstanding_amount"
+                exact = frappe.db.get_value(
+                    "Sales Invoice",
+                    overlap_result.exact_match,
+                    ["outstanding_amount", "docstatus"],
+                    as_dict=True,
                 )
+                if exact and exact.docstatus == 0:
+                    # A DRAFT covers this period: not payable (Payment Entry refuses an
+                    # unsubmitted reference) and not "already paid" either, since ERPNext
+                    # computes outstanding_amount on every non-cancelled save. Creating a
+                    # second invoice would duplicate the draft.
+                    result.actions_taken.append(
+                        f"Draft invoice {overlap_result.exact_match} covers this period; "
+                        f"cannot allocate to a draft and will not duplicate it. "
+                        f"Manual review required."
+                    )
+                    return None
+                outstanding = exact.outstanding_amount if exact else None
                 if outstanding and float(outstanding) > 0:
                     result.actions_taken.append(
                         f"Found existing unpaid invoice with exact coverage: {overlap_result.exact_match}"
@@ -917,6 +932,26 @@ class MolliePaymentOrchestrator:
         result = PaymentProcessingResult(payment_id=payment_id)
 
         try:
+            # Idempotency. Mollie retries a webhook until it gets a 2xx, and this path
+            # previously checked nothing before creating documents: a redelivery produced
+            # a SECOND orphan Sales Invoice and a SECOND Payment Entry for the same
+            # payment. The other three gateway paths all guard (Mollie dues via
+            # UnifiedIdempotencyManager.payment_entry_exists, Ponto on reference_no, ING
+            # on transaction status); this one was the gap.
+            #
+            # get_processing_status() already answers all of it - has_payment_entry,
+            # has_sales_invoice, has_bank_transaction - and this function already called
+            # it further down, but consulted only the Bank Transaction. Fetch it once,
+            # up front, and honour the whole answer.
+            status = self.get_processing_status(payment_id)
+            if status.has_payment_entry:
+                result.status = "skipped"
+                result.skipped_reason = f"Payment Entry {status.payment_entry} already exists"
+                result.payment_entry = status.payment_entry
+                result.sales_invoice = status.sales_invoice
+                result.bank_transaction = status.bank_transaction
+                return result
+
             # Fetch payment if not provided
             if not payment:
                 payment = self.mollie_client.get_payment(payment_id)
@@ -952,14 +987,21 @@ class MolliePaymentOrchestrator:
 
             result.actions_taken.append(f"Using fallback customer: {orphan_customer}")
 
-            # Create Sales Invoice for orphan
-            invoice_name = self._create_orphan_invoice(
-                payment_id=payment_id,
-                customer=orphan_customer,
-                amount=payment_amount,
-                payment_date=payment_date,
-                payment_description=getattr(payment, "description", None),
-            )
+            # Reuse an invoice from a partially-completed earlier run rather than
+            # creating a second one for the same payment. Without this, a redelivery
+            # that got past invoice creation but failed before the Payment Entry left a
+            # duplicate invoice behind on every retry.
+            invoice_name = status.sales_invoice
+            if invoice_name:
+                result.actions_taken.append(f"Reusing existing orphan Sales Invoice: {invoice_name}")
+            else:
+                invoice_name = self._create_orphan_invoice(
+                    payment_id=payment_id,
+                    customer=orphan_customer,
+                    amount=payment_amount,
+                    payment_date=payment_date,
+                    payment_description=getattr(payment, "description", None),
+                )
 
             if invoice_name:
                 result.sales_invoice = invoice_name
@@ -969,8 +1011,7 @@ class MolliePaymentOrchestrator:
                 result.error = "Failed to create orphan invoice"
                 return result
 
-            # Create Bank Transaction
-            status = self.get_processing_status(payment_id)
+            # Create Bank Transaction (status was fetched once, up front)
             if not status.has_bank_transaction:
                 bt_name = self._create_orphan_bank_transaction(
                     payment=payment,
@@ -1194,42 +1235,35 @@ class MolliePaymentOrchestrator:
         amount: float,
         payment_date: date,
     ) -> Optional[str]:
-        """Create Payment Entry for orphaned payment."""
+        """Create Payment Entry for orphaned payment.
+
+        Delegates to PaymentEntryCreationService so the orphan path shares one
+        payment-entry contract with the rest of the app. The service also sets
+        custom_remarks alongside the text, without which Payment Entry.validate()
+        regenerates remarks from the amount and party - which is what used to discard
+        the "requires manual review" banner this entry exists to carry.
+        """
         try:
-            from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
-            settings = frappe.get_single("Verenigingen Settings")
-            company = settings.company or frappe.defaults.get_global_default("company")
-
-            # Get Mollie clearing account
             from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
                 get_mollie_config,
             )
+            from verenigingen.verenigingen_payments.services.payment import payment_entry_service
 
-            mollie_config = get_mollie_config()
-            mollie_clearing_account = mollie_config.get_clearing_account()
+            settings = frappe.get_single("Verenigingen Settings")
 
-            # Use ERPNext's get_payment_entry for proper account handling
-            payment_entry = get_payment_entry(
-                dt="Sales Invoice",
-                dn=invoice_name,
-                party_amount=amount,
-                bank_account=mollie_clearing_account,
+            payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=invoice_name,
+                amount=Decimal(str(amount)),
+                posting_date=payment_date,
+                reference_no=payment_id,
+                reference_date=payment_date,
+                mode_of_payment=getattr(settings, "mode_of_payment", None) or "Mollie",
+                bank_account=get_mollie_config().get_clearing_account(),
+                remarks=(
+                    f"⚠️ ORPHANED PAYMENT - Mollie ID: {payment_id}\n"
+                    f"This payment requires manual review to identify the member."
+                ),
             )
-
-            payment_entry.posting_date = payment_date
-            payment_entry.reference_no = payment_id
-            payment_entry.reference_date = payment_date
-            payment_entry.mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
-            payment_entry.paid_to = mollie_clearing_account
-            payment_entry.remarks = (
-                f"⚠️ ORPHANED PAYMENT - Mollie ID: {payment_id}\n"
-                f"This payment requires manual review to identify the member."
-            )
-
-            # Security: System creates orphan payment entry during authenticated webhook - required for financial reconciliation
-            payment_entry.insert(ignore_permissions=True)
-            payment_entry.submit()
 
             return payment_entry.name
 

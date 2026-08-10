@@ -110,51 +110,105 @@ def authenticate_mollie_webhook() -> str:
     return payload
 
 
+# Doctypes required for donation and membership payment processing
+# - Donation: Core donation records
+# - Bank Transaction: Financial transaction records for bank reconciliation
+# - Journal Entry: Accounting entries for donations (income recognition)
+# - Member: Member payment history updates
+# - Donor: Donor subscription and payment history updates
+# - Mollie Audit Log: Webhook event logging
+#
+# - Payment Entry: created and submitted by PaymentEntryCreationService on the dues path
+# - Sales Invoice (read-only, below): the invoice that entry is allocated against
+#
+# The two are not alike in how they are granted: Payment Entry comes directly from the
+# literal "Verenigingen Webhook User" role (fixtures/custom_docperm.json grants
+# create/write/submit), whereas Sales Invoice arrives only through Accounts User in that
+# user's role PROFILE (fixtures/role_profile.json). Both are visible to the check below
+# because it evaluates the session user's EFFECTIVE roles - which is exactly why listing
+# them was reverted on 2026-08-01 (f8c7f59f) and is safe now: the previous checker read
+# DocPerm rows for the literal role, could not see the profile grant, and would have
+# logged an Error Log on every webhook forever.
+#
+# Module-level so tests can substitute a different list; the contents are the contract.
+# Tuple, not list: this is the contract the webhook user is checked against, and a
+# module-level mutable would let any importer append to it for the whole process.
+# Tests override it with patch.object rather than mutating in place.
+REQUIRED_DOCTYPES = (
+    "Donation",
+    "Bank Transaction",
+    "Journal Entry",
+    "Member",
+    "Donor",
+    "Mollie Audit Log",
+    # Submittable, so "submit" is demanded automatically below - which is the gate
+    # PaymentEntryCreationService relies on most.
+    "Payment Entry",
+)
+
+# Checked for "read" only. Splitting these out rather than widening REQUIRED_DOCTYPES
+# keeps the list an honest statement of what the gateway path needs:
+# payment_entry_creation_service's own contract (its module docstring) is "Payment
+# Entry create/submit and Sales Invoice read". Demanding create/write on Sales Invoice
+# would pass today - the role profile happens to grant them via Accounts User - but it
+# would turn any future least-privilege narrowing to read-only into a permanent
+# false alarm, and this check runs on every webhook.
+REQUIRED_READ_DOCTYPES = ("Sales Invoice",)
+
+
 def validate_webhook_user_permissions():
     """
     Validate that the webhook user has necessary permissions.
 
-    For service accounts (like Verenigingen Webhook User), we check DocPerm entries
-    directly since list-level frappe.has_permission() doesn't invoke custom
-    has_permission methods on Documents.
+    Uses frappe.has_permission, which resolves the session user's effective roles --
+    so permissions materialised by a role profile (e.g. Accounts User) count.
+
+    This used to consult DocPerm/Custom DocPerm rows directly for service accounts,
+    justified as "list-level frappe.has_permission() doesn't invoke custom
+    has_permission methods on Documents". That is a non-reason for a doctype-level
+    check: there is no document, so no controller hook applies, and a doctype-level
+    has_permission call is exactly the semantics wanted. The hand-rolled version was
+    also wrong in BOTH directions -- Meta.set_custom_permissions() discards every
+    standard DocPerm once any Custom DocPerm row exists for a doctype, so a stale
+    DocPerm row that Frappe ignores still read as a grant, and it saw nothing of
+    User Permissions, if_owner or permlevel. A sweep of all 78 Custom-DocPerm
+    doctypes on the live site found 5 doctypes where it disagreed with reality.
+
+    "submit" is checked only for submittable doctypes - a non-submittable doctype has no
+    submit DocPerm at all, so requiring one would report a miss that means nothing.
+
+    REQUIRED_READ_DOCTYPES are checked for "read" alone. See the constant for why the
+    distinction is kept rather than demanding create/write everywhere.
+
+    Returns True if every required permission is present, False otherwise. Callers treat
+    a False as a warning; this function never blocks webhook processing.
     """
-    # Doctypes required for donation and membership payment processing
-    # - Donation: Core donation records
-    # - Bank Transaction: Financial transaction records for bank reconciliation
-    # - Journal Entry: Accounting entries for donations (income recognition)
-    # - Member: Member payment history updates
-    # - Donor: Donor subscription and payment history updates
-    # - Mollie Audit Log: Webhook event logging
-    required_doctypes = [
-        "Donation",
-        "Bank Transaction",
-        "Journal Entry",
-        "Member",
-        "Donor",
-        "Mollie Audit Log",
-    ]
-
     current_user = frappe.session.user
-    user_roles = frappe.get_roles(current_user)
-
-    # Service account roles that should be checked via DocPerm directly
-    service_roles = ["Verenigingen Webhook User"]
-    is_service_account = any(role in user_roles for role in service_roles)
-
     missing_permissions = []
 
-    for doctype in required_doctypes:
-        for perm_type in ["create", "write"]:
-            has_perm = False
+    for doctype in REQUIRED_DOCTYPES + REQUIRED_READ_DOCTYPES:
+        read_only = doctype in REQUIRED_READ_DOCTYPES
 
-            if is_service_account:
-                # Check DocPerm entries directly for service accounts
-                has_perm = _check_docperm_for_roles(doctype, perm_type, service_roles)
-            else:
-                # Standard permission check for regular users
-                has_perm = frappe.has_permission(doctype, perm_type)
+        # Screen out unknown doctypes ONCE, before anything that would raise on one.
+        # Both frappe.get_meta and frappe.has_permission raise DoesNotExistError for a
+        # doctype that does not exist, and this function is called unguarded from
+        # authenticate_mollie_webhook, whose only handler is a generic `except
+        # Exception` -> HTTP 500 -> Mollie retries. This check must only ever report.
+        if not frappe.db.exists("DocType", doctype):
+            missing_permissions.append(f"{doctype} (no such doctype)")
+            continue
 
-            if not has_perm:
+        if read_only:
+            perm_types = ["read"]
+        else:
+            perm_types = ["create", "write"]
+            # "submit" only for submittable doctypes: a non-submittable one has no submit
+            # DocPerm at all, so requiring it would report a miss that means nothing.
+            if frappe.get_meta(doctype).is_submittable:
+                perm_types.append("submit")
+
+        for perm_type in perm_types:
+            if not frappe.has_permission(doctype, perm_type):
                 missing_permissions.append(f"{doctype} ({perm_type})")
 
     if missing_permissions:
@@ -167,47 +221,6 @@ def validate_webhook_user_permissions():
         return False
 
     return True
-
-
-def _check_docperm_for_roles(doctype: str, perm_type: str, roles: list) -> bool:
-    """
-    Check if any of the given roles have the specified permission type for a DocType.
-
-    This checks both DocPerm and Custom DocPerm entries directly, bypassing Frappe's
-    standard permission system which may not invoke custom has_permission methods
-    for list-level checks.
-
-    Args:
-        doctype: The DocType to check permissions for
-        perm_type: Permission type ('read', 'write', 'create', 'delete', 'submit')
-        roles: List of role names to check
-
-    Returns:
-        True if any role has the permission, False otherwise
-    """
-    # Check regular DocPerm table (for custom DocTypes in our app)
-    if frappe.db.exists(
-        "DocPerm",
-        {
-            "parent": doctype,
-            "role": ["in", roles],
-            perm_type: 1,
-        },
-    ):
-        return True
-
-    # Check Custom DocPerm table (for core Frappe/ERPNext DocTypes)
-    if frappe.db.exists(
-        "Custom DocPerm",
-        {
-            "parent": doctype,
-            "role": ["in", roles],
-            perm_type: 1,
-        },
-    ):
-        return True
-
-    return False
 
 
 def log_webhook_security_event(event_type: str, details: dict):

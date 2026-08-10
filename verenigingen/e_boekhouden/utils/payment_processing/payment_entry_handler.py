@@ -276,9 +276,15 @@ class PaymentEntryHandler:
             validate_and_insert(pe)
             self._log(f"Created Payment Entry {pe.name}")
         except Exception as e:
-            if "has already been fully paid" in str(e) or "cannot be greater than outstanding amount" in str(
-                e
-            ):
+            # Detect the over-allocation by STATE, not by error message. ERPNext wraps
+            # both messages in _(), so the English substring test this used to perform
+            # silently stopped working under a non-English site language - and the
+            # fallback below is the only thing that keeps the payment from being lost.
+            from verenigingen.verenigingen_payments.utils.payment_allocation import (
+                any_reference_cannot_absorb,
+            )
+
+            if isinstance(e, frappe.ValidationError) and any_reference_cannot_absorb(pe):
                 self._log(f"Allocation error: {str(e)} - creating unallocated payment entry as fallback")
                 # Clear allocations and create unallocated payment
                 pe.references = []

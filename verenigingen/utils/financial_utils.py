@@ -365,8 +365,10 @@ def get_total_outstanding_amount(customer_name: str) -> float:
         return flt(result[0].get("total")) if result else 0.0
 
     except Exception as e:
+        # 0.0 is indistinguishable from "this customer owes nothing" -- the one
+        # answer a caller is most likely to act on. Fail loudly instead.
         frappe.logger().error(f"Error calculating outstanding amount for {customer_name}: {str(e)}")
-        return 0.0
+        raise
 
 
 def is_customer_overdue(customer_name: str) -> bool:

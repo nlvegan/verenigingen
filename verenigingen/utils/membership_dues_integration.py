@@ -297,9 +297,12 @@ def _calculate_member_paid_ytd_python(customer: str) -> float:
         return round(total, 2)
 
     except Exception as e:
-        # Final fallback - log error and return 0
+        # Both the SQL aggregation and this Python fallback have now failed, so this
+        # is infrastructure failure, not a data edge case (per-invoice conversion
+        # errors are already absorbed by the loop above). Returning 0.0 here would
+        # report "paid nothing year-to-date", which someone could act on.
         frappe.logger().error(f"Python fallback calculation failed for member YTD: {str(e)}")
-        return 0.0
+        raise
 
 
 @frappe.whitelist()

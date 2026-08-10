@@ -6,7 +6,7 @@ Integration tests for approval/application_payments.py.
 
 Drives REAL Member / Membership / Membership Type / Customer / Sales Invoice
 documents through the payment helpers to verify:
-- payment-amount validation (exact, under, over -> donation)
+- payment-amount validation (exact, under, over -> credit)
 - discount-aware amount calculation from the dues-schedule template
 - payment-method listing with descriptions
 - currency formatting
@@ -41,10 +41,18 @@ class TestValidatePaymentAmount(EnhancedTestCase):
         self.assertFalse(result["valid"])
         self.assertIn("less than", result["message"])
 
-    def test_overpayment_treated_as_donation(self):
+    def test_overpayment_is_reported_as_a_credit_not_a_donation(self):
+        """Renamed with the behaviour: an overpayment is a credit, not a gift.
+
+        The sibling copy of this test lives in
+        tests/backend/unit/utils/test_application_payments_coverage.py and asserts the
+        message wording; this one asserts the amount. Both exist, so a rename applied to
+        only one leaves "donation" as the apparent framing in the suite.
+        """
         result = ap.validate_payment_amount(self._invoice(50.0), 70.0)
         self.assertTrue(result["valid"])
         self.assertAlmostEqual(result["overpayment"], 20.0, places=2)
+        self.assertNotIn("donation", result["message"].lower())
 
 
 class TestCalculateAmountWithDiscounts(EnhancedTestCase):

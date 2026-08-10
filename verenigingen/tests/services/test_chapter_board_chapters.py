@@ -31,7 +31,16 @@ class TestGetUserBoardChapters(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        run = frappe.generate_hash(length=8)
+        # The trailing digit is load-bearing. EnhancedTestDataFactory.create_member()
+        # appends its own uniqueness token to a supplied email UNLESS the last 5
+        # characters of the local part contain a digit
+        # (tests/fixtures/enhanced_test_factory.py:690). generate_hash() is lowercase
+        # hex, so a bare hex run-id is all letters - and therefore rewritten - on
+        # (6/16)^5 = about 1 run in 135. On those runs Member.email silently diverged
+        # from the login user, and assertions that compare a stored Member.email
+        # against this literal (and any helper resolving the member by email) failed
+        # for reasons unrelated to what they test. That is the board-chapter flake.
+        run = f"{frappe.generate_hash(length=8)}0"
 
         self.chapter = self.create_test_chapter(
             chapter_name=f"TEST Board Chapters {run}",
@@ -108,8 +117,59 @@ class TestGetUserBoardChapters(EnhancedTestCase):
                 ignore_permissions=True
             )
 
+    def _create_active_board_member(self, chapter_name, volunteer_name, role="Chapter Head"):
+        """Attach an active board row. Privileged data creation belongs in a helper,
+        not a test body - test-quality-enforcer rejects ignore_permissions there."""
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer_name,
+                "chapter_role": role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+
     def _names(self, rows):
         return {r.get("chapter_name") for r in rows}
+
+    def _board_diag(self, session_user=None):
+        """Name the silent causes of an empty board-chapter result.
+
+        get_user_board_chapters() returns [] from two not-found early returns, and
+        returns rows WITHOUT chapter_role from the admin/staff short-circuit. All
+        three are silent, so a bare empty-result failure is indistinguishable from a
+        real regression. Establishing that on 2026-08-05 took a CI-log and
+        failure-artifact investigation; see the memory topic file
+        board-chapters-deadlock-flake-2026-07-27.
+
+        Pass session_user captured INSIDE an as_user block - read afterwards it
+        reports the runner's user and proves nothing.
+        """
+        from verenigingen.utils.constants import Roles
+
+        # Resolve the way production does. Resolving by email alone made these
+        # diagnostics report "member=None" on exactly the runs where the factory had
+        # rewritten Member.email - the runs they exist to explain.
+        from verenigingen.utils.member_utils import get_member_name_for_user
+
+        member = get_member_name_for_user(self.board_email)
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+        board_row = (
+            frappe.db.exists(
+                "Chapter Board Member",
+                {"volunteer": volunteer, "parent": self.chapter.name, "is_active": 1},
+            )
+            if volunteer
+            else None
+        )
+        admin_roles = sorted(set(frappe.get_roles(self.board_email)) & Roles.ADMIN_ROLES)
+        return (
+            f"member={member} volunteer={volunteer} board_row={board_row} "
+            f"admin_roles={admin_roles} session_user={session_user}"
+        )
 
     # ------------------------------------------------------------------
     # The divergence this consolidation fixed
@@ -133,13 +193,33 @@ class TestGetUserBoardChapters(EnhancedTestCase):
 
         The staff user holds no Chapter Board Member row, so without the
         short-circuit this would be empty.
+
+        Asserts on a SECOND chapter that the board member is deliberately not on,
+        rather than comparing the two result lengths. The length comparison only
+        held because other chapters happened to exist: setUp creates exactly one
+        chapter, so on a database with no other chapters staff saw 1 and the board
+        member saw 1, and `assertGreater(1, 1)` failed. It passed on long-lived
+        test sites purely through accumulated rows (test_site_3 carries ~1200
+        chapters) and in CI only when something earlier in the shard committed a
+        chapter first - which shard composition does not guarantee.
         """
+        # Reuse the region the setUp chapter resolved to: the factory normalises a
+        # region label into a Region docname ("Test Region Board" -> "test-region-board"),
+        # so passing the label again fails link validation.
+        other_chapter = self.create_test_chapter(
+            chapter_name=f"TEST Board Chapters Other {frappe.generate_hash(length=8)}",
+            region=self.chapter.region,
+        )
+
         with self.as_user(self.staff_email):
             staff_chapters = get_user_board_chapters()
         with self.as_user(self.board_email):
             board_chapters = get_user_board_chapters()
 
-        self.assertGreater(len(staff_chapters), len(board_chapters))
+        # Staff reaches a chapter they hold no board row on; the board member does not.
+        self.assertIn(other_chapter.name, self._names(staff_chapters))
+        self.assertNotIn(other_chapter.name, self._names(board_chapters))
+        self.assertEqual(self._names(board_chapters), {self.chapter.name})
 
     def test_both_portal_pages_use_this_one_implementation(self):
         """Regression guard against the copy-paste re-appearing.
@@ -298,9 +378,23 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     def test_board_member_rows_carry_role_fields(self):
         """chapter_dashboard.html reads more than chapter_name on the board path."""
         with self.as_user(self.board_email):
+            # Captured INSIDE the block: as_user restores the session in a finally, so
+            # reading frappe.session.user after it reports the runner's user and can
+            # never show a switch that failed to take.
+            session_user = frappe.session.user
             chapters = get_user_board_chapters()
 
-        row = next(c for c in chapters if c.get("chapter_name") == self.chapter.name)
+        # This assertion used to be `next(c for c in chapters if ...)`, which raised a
+        # bare StopIteration naming nothing - the same opacity PR #228 removed from
+        # test_query_failure_propagates. An empty result here has several silent causes,
+        # so state them rather than making the next reader re-derive them.
+        rows = [c for c in chapters if c.get("chapter_name") == self.chapter.name]
+        self.assertEqual(
+            len(rows),
+            1,
+            f"expected one row for {self.chapter.name}, got {rows!r}; {self._board_diag(session_user)}",
+        )
+        row = rows[0]
         self.assertEqual(row.get("chapter_role"), "Chapter Head")
         self.assertEqual(row.get("is_active"), 1)
         self.assertIn("region", row)
@@ -341,6 +435,42 @@ class TestGetUserBoardChapters(EnhancedTestCase):
     # An empty result must mean "no chapters", never "the query broke"
     # ------------------------------------------------------------------
 
+    def test_board_member_whose_login_user_differs_from_member_email(self):
+        """Resolve the member the way the rest of the app does: user field first.
+
+        The board ROLE grant resolves through get_member_name_for_user()
+        (utils/member_utils.py, via permissions.assign_chapter_board_role), which
+        tries Member.user first and falls back to Member.email. This helper
+        resolved by Member.email ALONE, so a board member whose login user differs
+        from their contact email was granted the Chapter Board Member role and then
+        told they had no chapters - role present, access denied.
+
+        That is not hypothetical bookkeeping: this helper is the only chapter gate
+        for eight whitelisted endpoints and both board portal pages, and the two
+        fields legitimately diverge in production whenever a member's login account
+        is not their contact address.
+        """
+        login_email = f"bc-login-{frappe.generate_hash(length=8)}@example.com"
+        contact_email = f"bc-contact-{frappe.generate_hash(length=8)}@example.com"
+
+        member = self.create_test_member(
+            first_name="Split", last_name="Identity", email=contact_email, birth_date="1988-01-01"
+        )
+        member.db_set("status", "Active")
+        member.db_set("user", self._ensure_user(login_email, "Split"))
+        volunteer = self.create_test_volunteer(member_name=member.name)
+        self._create_active_board_member(self.chapter.name, volunteer.name)
+
+        with self.as_user(login_email):
+            chapters = get_user_board_chapters()
+
+        self.assertIn(
+            self.chapter.name,
+            self._names(chapters),
+            "a board member whose Member.user differs from Member.email must still "
+            f"see their chapter; got {chapters!r}",
+        )
+
     def test_volunteer_with_no_board_rows_sees_no_chapters(self):
         """The genuine empty case: a volunteer holding no Chapter Board Member row.
 
@@ -372,8 +502,11 @@ class TestGetUserBoardChapters(EnhancedTestCase):
         """
         from unittest.mock import patch
 
+        from verenigingen.utils.constants import Roles
+
         deadlock = Exception("(1213, 'Deadlock found when trying to get lock; try restarting transaction')")
         real_from = frappe.qb.from_
+        board_seen = []
 
         def fail_only_the_board_query(table, *args, **kwargs):
             """Break the board lookup and nothing else.
@@ -384,15 +517,43 @@ class TestGetUserBoardChapters(EnhancedTestCase):
             propagation being asserted here even when the error is still swallowed.
             """
             if getattr(table, "get_table_name", lambda: None)() == "tabChapter Board Member":
+                board_seen.append(True)
                 raise deadlock
             return real_from(table, *args, **kwargs)
 
+        # Captured BEFORE patching. get_user_board_chapters() has three returns that
+        # run before the query under test - the admin/staff short-circuit and the two
+        # not-found early returns - and all three are silent. Without these locals a
+        # miss reports only "Exception not raised", which is indistinguishable from
+        # the swallow bug this test exists to catch. That cost a full CI-log and
+        # artifact investigation on 2026-08-05 to rule out; see the memory topic file
+        # board-chapters-deadlock-flake-2026-07-27.
+        # Resolve the way production does. Resolving by email alone made these
+        # diagnostics report "member=None" on exactly the runs where the factory had
+        # rewritten Member.email - the runs they exist to explain.
+        from verenigingen.utils.member_utils import get_member_name_for_user
+
+        member = get_member_name_for_user(self.board_email)
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name") if member else None
+        admin_roles = sorted(set(frappe.get_roles(self.board_email)) & Roles.ADMIN_ROLES)
+
+        # Passed explicitly rather than via self.as_user(): every branch of the helper
+        # resolves from this argument (frappe.get_all does not check permissions), so
+        # the session switch adds nothing here except a way for the test to miss the
+        # branch it is aiming at. test_explicit_user_argument_is_honoured pins the
+        # argument path; test_board_member_sees_only_their_chapter pins the session one.
+        #
         # Patches the query builder, not the permission decision: a deadlock cannot
         # be provoked deterministically from a test, and the branch under test is
         # exactly the one that runs when the database misbehaves.
-        with self.as_user(self.board_email):
-            with patch("frappe.qb.from_", side_effect=fail_only_the_board_query):
-                with self.assertRaises(Exception) as caught:
-                    get_user_board_chapters()
+        raised = None
+        with patch("frappe.qb.from_", side_effect=fail_only_the_board_query):
+            try:
+                get_user_board_chapters(user=self.board_email)
+            except Exception as exc:  # noqa: BLE001 - identity is asserted below
+                raised = exc
 
-        self.assertIn("1213", str(caught.exception))
+        diag = f"member={member} volunteer={volunteer} admin_roles={admin_roles} raised={raised!r}"
+        self.assertTrue(board_seen, f"never reached the board query; {diag}")
+        self.assertIsNotNone(raised, f"board query ran but the error was swallowed; {diag}")
+        self.assertIn("1213", str(raised), diag)

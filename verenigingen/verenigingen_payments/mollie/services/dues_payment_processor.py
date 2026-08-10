@@ -14,16 +14,12 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
-from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
-from verenigingen.services.billing.coverage_calculator import (
-    calculate_coverage_for_payment_date,
-    find_invoice_for_payment,
-)
+from verenigingen.services.billing.coverage_calculator import calculate_coverage_for_payment_date
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
@@ -388,9 +384,23 @@ class DuesPaymentProcessor:
                     exact_invoice = frappe.db.get_value(
                         "Sales Invoice",
                         overlap_result.exact_match,
-                        ["name", "outstanding_amount"],
+                        ["name", "outstanding_amount", "docstatus"],
                         as_dict=True,
                     )
+                    if exact_invoice and exact_invoice.docstatus == 0:
+                        # A DRAFT covers this period. It is not payable - Payment Entry
+                        # refuses a reference to an unsubmitted document - and it is not
+                        # "already paid" either: ERPNext computes outstanding_amount on
+                        # every non-cancelled save, so a draft carries its full
+                        # grand_total and would otherwise pass the test below. Creating a
+                        # second invoice would duplicate the draft, so leave it to a human.
+                        frappe.logger().warning(
+                            f"[Mollie] Draft invoice {exact_invoice.name} covers "
+                            f"{coverage_start} to {coverage_end} for member {member_name}. "
+                            f"Cannot allocate to a draft and will not duplicate it - "
+                            f"submit or remove the draft. Manual review required."
+                        )
+                        return None
                     if exact_invoice and exact_invoice.outstanding_amount > 0:
                         frappe.logger().info(
                             f"[Mollie] Found existing invoice {exact_invoice.name} for coverage period "
@@ -496,7 +506,13 @@ class DuesPaymentProcessor:
         # Fallback to default from settings (cached)
         if self._default_membership_type is None:
             settings = frappe.get_single("Verenigingen Settings")
-            self._default_membership_type = settings.default_membership_type
+            # Normalise to None. An unset Link on a Single reads back as "" once the
+            # field has ever been written, and only as None when the row was never
+            # created — so this returned "" on some sites and None on others while
+            # the signature and docstring promise Optional[str]. The one caller uses
+            # `if not membership_type`, so behaviour is unchanged; what changes is
+            # that the contract is now true on every site.
+            self._default_membership_type = settings.default_membership_type or None
             frappe.logger().info(f"Cached default membership type: {self._default_membership_type}")
 
         return self._default_membership_type
@@ -997,8 +1013,13 @@ class DuesPaymentProcessor:
             invoice_name: Optional specific invoice to allocate to (skips lookup)
             allow_invoice_creation: If False, won't create invoices when none found.
                                    Used by orchestrator in discovery mode.
-            require_invoice: If True, refuses to create unallocated PE when no invoice
-                           is available. Used in recovery mode to prevent orphaned PEs.
+            require_invoice: If True, refuses to create an unallocated PE when NO INVOICE
+                           WAS EVER IDENTIFIED. Used in recovery mode to prevent orphaned
+                           PEs. Deliberately narrow: it does not cover the case where an
+                           invoice was matched and a concurrent process consumed it while
+                           this one was writing. That payment has already been taken, so
+                           it is recorded unallocated rather than discarded - see the lost
+                           race handler below.
 
         Returns:
             str: Payment Entry name if created, None otherwise
@@ -1072,34 +1093,97 @@ class DuesPaymentProcessor:
         if invoice_name is None and allow_invoice_creation:
             invoice_name = self._get_or_create_historical_invoice(member_name, payment_date, amount)
 
-        # If we have a valid invoice, use ERPNext's get_payment_entry for proper account handling
-        # This ensures paid_from matches the invoice's debit_to account (critical for validation)
+        # Allocated case: delegate to PaymentEntryCreationService so this path shares
+        # one payment-entry contract with ING, Ponto and the Mollie orphan path. The
+        # service passes bank_account THROUGH to ERPNext (which derives paid_to and the
+        # matching account currency together) and sets custom_remarks alongside the
+        # remarks text, so the wording actually reaches the stored document.
+        payment_entry = None
         if invoice_name:
             invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
             if invoice_doc.outstanding_amount > 0:
-                # Use ERPNext's standard get_payment_entry which properly handles accounts
-                payment_entry = get_payment_entry(
-                    dt="Sales Invoice",
-                    dn=invoice_name,
-                    party_amount=min(amount, invoice_doc.outstanding_amount),
-                    bank_account=mollie_clearing_account,
-                )
-                # Override/set additional fields for Mollie tracking
-                payment_entry.posting_date = payment_date
-                payment_entry.reference_no = payment_id
-                payment_entry.reference_date = payment_date
-                payment_entry.mode_of_payment = mode_of_payment
-                payment_entry.paid_to = mollie_clearing_account
-                payment_entry.remarks = (
-                    f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
-                    f"Linked to invoice {invoice_name}"
-                )
-                payment_entry.custom_member = member_name
+                allocation = min(amount, invoice_doc.outstanding_amount)
+                try:
+                    payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                        invoice_name=invoice_name,
+                        amount=Decimal(str(allocation)),
+                        posting_date=payment_date,
+                        reference_no=payment_id,
+                        reference_date=payment_date,
+                        mode_of_payment=mode_of_payment,
+                        bank_account=mollie_clearing_account,
+                        remarks=(
+                            f"Membership dues payment via Mollie for {member.full_name} "
+                            f"(awaiting settlement). Payment {payment_id}. "
+                            f"Linked to invoice {invoice_name}"
+                        ),
+                        custom_fields={"custom_member": member_name},
+                        # Record the whole payment. `allocation` still settles the
+                        # invoice; any excess becomes an unallocated credit on the
+                        # member's customer rather than being dropped. The Mollie
+                        # clearing account must carry the full cash or it cannot
+                        # reconcile against the Mollie settlement.
+                        cash_received=Decimal(str(amount)),
+                    )
+                except Exception as e:
+                    # Race: the invoice was paid by another process between the
+                    # outstanding check above and the insert. The service submits
+                    # internally, so this must wrap the whole call, not just an insert.
+                    #
+                    # This fallback does NOT honour require_invoice, and that is now a
+                    # DECIDED distinction rather than the inconsistency it looks like.
+                    # require_invoice gates INVENTING a payment for which no invoice was
+                    # ever identified - the no-invoice path below, which returns None and
+                    # asks for manual intervention. It does not gate this case, where an
+                    # invoice WAS matched and a concurrent process consumed it in flight.
+                    # The cash has already been taken; refusing to record it does not
+                    # un-take it, it only removes the ledger's evidence that it arrived.
+                    # So the payment is recorded unallocated against the customer, where
+                    # Payment Reconciliation can apply it to whatever the member still
+                    # owes.
+                    #
+                    # Detection is by STATE, not by error message. Both errors ERPNext
+                    # raises here are wrapped in _(), so the English substring test this
+                    # used to perform stopped matching under a Dutch site language and
+                    # dropped a payment that had already been taken. Both messages mean
+                    # the same thing - the invoice can no longer absorb this allocation -
+                    # and the database answers that in any language.
+                    from verenigingen.verenigingen_payments.utils.payment_allocation import (
+                        invoice_cannot_absorb,
+                    )
 
-                frappe.logger().info(
-                    f"Using get_payment_entry for invoice {invoice_name} "
-                    f"(outstanding: {invoice_doc.outstanding_amount}, paid_from: {payment_entry.paid_from})"
-                )
+                    # Tested against `allocation`, NOT `amount`. The predicate is
+                    # `outstanding < figure`, so handing it the full cash makes every
+                    # overpayment satisfy it whether or not a race occurred - and any
+                    # ValidationError raised for an unrelated reason (frozen account,
+                    # closed period, the service's currency guard) would then be
+                    # misread as a lost race and silently become an unallocated PE.
+                    # `allocation` is what this attempt actually tried to book.
+                    if isinstance(e, frappe.ValidationError) and invoice_cannot_absorb(
+                        invoice_name, allocation
+                    ):
+                        frappe.logger().warning(
+                            f"[Mollie] Invoice {invoice_name} was paid by another process during PE "
+                            f"creation, creating unallocated PE instead. Original error: {e}"
+                        )
+                        payment_entry = self._create_unallocated_payment_entry(
+                            customer=customer,
+                            company=company,
+                            clearing_account=mollie_clearing_account,
+                            amount=amount,
+                            payment_id=payment_id,
+                            payment_date=payment_date,
+                            mode_of_payment=mode_of_payment,
+                            member_name=member_name,
+                            remarks=(
+                                f"Membership dues payment via Mollie for {member.full_name} "
+                                f"(awaiting settlement). Payment {payment_id}. Invoice "
+                                f"{invoice_name} was paid during processing. Manual "
+                                f"reconciliation may be required."
+                            ),
+                        )
+                    else:
+                        raise
             else:
                 frappe.logger().warning(
                     f"Invoice {invoice_name} has no outstanding amount ({invoice_doc.outstanding_amount}), "
@@ -1108,7 +1192,7 @@ class DuesPaymentProcessor:
                 invoice_name = None  # Fall through to unallocated PE creation
 
         # Fallback: Create unallocated PE if no valid invoice
-        if not invoice_name:
+        if payment_entry is None:
             # In recovery mode (require_invoice=True), don't create orphaned PEs
             if require_invoice:
                 frappe.logger().warning(
@@ -1117,87 +1201,20 @@ class DuesPaymentProcessor:
                 )
                 return None
 
-            # dues_payments_receivable_account lives on Verenigingen Payments Settings.
-            from verenigingen.utils.settings_utils import get_payments_settings
-
-            customer_account = getattr(get_payments_settings(), "dues_payments_receivable_account", None)
-            if not customer_account:
-                customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
-            if not customer_account:
-                frappe.throw(f"Missing customer receivable account for company {company}")
-
-            payment_entry = frappe.get_doc(
-                {
-                    "doctype": "Payment Entry",
-                    "payment_type": "Receive",
-                    "party_type": "Customer",
-                    "party": customer,
-                    "company": company,
-                    "paid_from": customer_account,
-                    "paid_to": mollie_clearing_account,
-                    "paid_amount": amount,
-                    "received_amount": amount,
-                    "reference_no": payment_id,
-                    "reference_date": payment_date,
-                    "posting_date": payment_date,
-                    "mode_of_payment": mode_of_payment,
-                    "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
-                    "Manual reconciliation may be required.",
-                    "custom_member": member_name,
-                }
+            payment_entry = self._create_unallocated_payment_entry(
+                customer=customer,
+                company=company,
+                clearing_account=mollie_clearing_account,
+                amount=amount,
+                payment_id=payment_id,
+                payment_date=payment_date,
+                mode_of_payment=mode_of_payment,
+                member_name=member_name,
+                remarks=(
+                    f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
+                    f"Payment {payment_id}. Manual reconciliation may be required."
+                ),
             )
-
-        try:
-            payment_entry.insert()
-            payment_entry.submit()
-        except Exception as e:
-            error_msg = str(e).lower()
-            # Handle race condition: invoice was paid between our check and insert
-            if (
-                "already been fully paid" in error_msg
-                or "cannot be greater than outstanding amount" in error_msg
-            ):
-                frappe.logger().warning(
-                    f"[Mollie] Invoice {invoice_name} was paid by another process during PE creation, "
-                    f"creating unallocated PE instead. Original error: {e}"
-                )
-                # Create unallocated PE as fallback. dues_payments_receivable_account
-                # lives on Verenigingen Payments Settings.
-                from verenigingen.utils.settings_utils import get_payments_settings
-
-                customer_account = getattr(get_payments_settings(), "dues_payments_receivable_account", None)
-                if not customer_account:
-                    customer_account = frappe.get_cached_value(
-                        "Company", company, "default_receivable_account"
-                    )
-                if not customer_account:
-                    frappe.throw(f"Missing customer receivable account for company {company}")
-
-                payment_entry = frappe.get_doc(
-                    {
-                        "doctype": "Payment Entry",
-                        "payment_type": "Receive",
-                        "party_type": "Customer",
-                        "party": customer,
-                        "company": company,
-                        "paid_from": customer_account,
-                        "paid_to": mollie_clearing_account,
-                        "paid_amount": amount,
-                        "received_amount": amount,
-                        "reference_no": payment_id,
-                        "reference_date": payment_date,
-                        "posting_date": payment_date,
-                        "mode_of_payment": mode_of_payment,
-                        "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
-                        f"Invoice {invoice_name} was paid during processing. Manual reconciliation may be required.",
-                        "custom_member": member_name,
-                    }
-                )
-                payment_entry.insert()
-                payment_entry.submit()
-            else:
-                # Re-raise unexpected errors
-                raise
 
         frappe.logger().info(
             f"[Mollie] Created Payment Entry {payment_entry.name} for member {member_name} "
@@ -1205,6 +1222,76 @@ class DuesPaymentProcessor:
         )
 
         return payment_entry.name
+
+    def _create_unallocated_payment_entry(
+        self,
+        *,
+        customer: str,
+        company: str,
+        clearing_account: str,
+        amount,
+        payment_id: str,
+        payment_date,
+        mode_of_payment: str,
+        member_name: str,
+        remarks: str,
+    ):
+        """Build, insert and submit a Payment Entry with no invoice allocation.
+
+        PaymentEntryCreationService deliberately cannot serve this: its contract is
+        create_payment_entry_from_invoice, and there is no invoice here. Keeping the
+        unallocated construction local rather than widening that service keeps the
+        service's contract honest.
+
+        This is one helper because the no-invoice path and the race-condition handler
+        in _create_payment_entry_for_dues built the SAME document from the same receivable-account fallback, in two
+        copies that had to be kept in step by hand.
+
+        custom_remarks is set alongside remarks: Payment Entry.validate() calls
+        set_remarks(), which rebuilds the field and returns early only when
+        custom_remarks is truthy. Both copies assigned remarks alone, so the wording -
+        including "Manual reconciliation may be required", the one signal telling an
+        operator this entry needs attention - never reached the stored document.
+        """
+        payment_entry = frappe.get_doc(
+            {
+                "doctype": "Payment Entry",
+                "payment_type": "Receive",
+                "party_type": "Customer",
+                "party": customer,
+                "company": company,
+                "paid_from": self._resolve_receivable_account(company),
+                "paid_to": clearing_account,
+                "paid_amount": amount,
+                "received_amount": amount,
+                "reference_no": payment_id,
+                "reference_date": payment_date,
+                "posting_date": payment_date,
+                "mode_of_payment": mode_of_payment,
+                "remarks": remarks,
+                "custom_remarks": 1,
+                "custom_member": member_name,
+            }
+        )
+        payment_entry.insert()
+        payment_entry.submit()
+        return payment_entry
+
+    @staticmethod
+    def _resolve_receivable_account(company: str) -> str:
+        """Receivable account for an unallocated dues PE.
+
+        dues_payments_receivable_account lives on Verenigingen Payments Settings and
+        falls back to the company default.
+        """
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        customer_account = getattr(get_payments_settings(), "dues_payments_receivable_account", None)
+        if not customer_account:
+            customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
+        if not customer_account:
+            frappe.throw(_("Missing customer receivable account for company {0}").format(company))
+        return customer_account
 
     def _create_bank_transaction_for_dues(self, member_name: str, payment) -> Optional[str]:
         """

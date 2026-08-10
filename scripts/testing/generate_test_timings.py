@@ -21,6 +21,20 @@ This script produces a per-file weight that approximates real runtime:
 Usage (from frappe-bench root):
     python3 apps/verenigingen/scripts/testing/generate_test_timings.py /tmp/v20_shard*.log /tmp/v21_shard*.log
 Writes apps/verenigingen/verenigingen/tests/test_timings.json
+
+Getting fresh logs: take them from a GREEN server-tests run on develop. The workflow
+uploads test_output_*.txt only `if: failure()`, so there is no artifact to download
+from a passing run - use the job logs, which carry the same teed output:
+
+    RUN=<run id from: gh run list --workflow=server-tests.yml --branch develop>
+    gh api "repos/nlvegan/verenigingen/actions/runs/$RUN/jobs?per_page=100" \\
+      --jq '.jobs[] | select(.name|test("Tests \\\\(")) | "\\(.id) \\(.name)"'
+    # then per job id:
+    gh api "repos/nlvegan/verenigingen/actions/jobs/<id>/logs" > /tmp/shard_<n>.log
+
+Regenerate whenever the suite's shape changes materially (a coverage sweep, a large
+module added or deleted). A stale table is not inert: files missing from it fall back
+to the count heuristic, so the balance silently degrades toward where it started.
 """
 
 import glob
@@ -35,6 +49,13 @@ FAST_TEST_COST = 0.55  # seconds per sub-2s test method (calibrated from baselin
 OUT = f"apps/{APP}/{APP}/tests/test_timings.json"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# GitHub Actions prefixes every job-log line with an ISO timestamp. Job logs are the
+# ONLY source of timing data from a green run: the workflow uploads test_output_*.txt
+# as an artifact `if: failure()` only, so a passing run keeps nothing to download.
+# Without stripping this, HEADER (anchored with ^) matches nothing and every module
+# silently falls back to its count-based weight - a table that looks generated but
+# carries no measurements at all.
+GHA_TS = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z ", re.M)
 HEADER = re.compile(rf"^({APP}[\w.]+)\s*$")  # e.g. verenigingen.tests.payment.test_x.TestClass
 DURATION = re.compile(r"\((\d+\.\d+)s\)")
 
@@ -50,7 +71,7 @@ def measured_slow_seconds(log_paths):
     bestcnt = {}
     for path in log_paths:
         with open(path, errors="ignore") as f:
-            txt = ANSI.sub("", f.read())
+            txt = GHA_TS.sub("", ANSI.sub("", f.read()))
         cur = None
         per_run = {}
         per_cnt = {}

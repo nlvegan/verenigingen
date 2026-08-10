@@ -469,13 +469,23 @@ class SEPAMandateNotificationManager:
                 )
 
                 if result.success and result.document:
-                    # Queue for actual email delivery
-                    frappe.enqueue(
-                        method="frappe.core.doctype.communication.email.send_communication_email",
-                        queue="default",
-                        timeout=300,
-                        communication=result.document.name,
-                    )
+                    # Deliver the Communication. There is no
+                    # `frappe.core.doctype.communication.email.send_communication_email`
+                    # -- enqueueing that path died on AttributeError in the worker, so
+                    # the Communication row was written but no mail was ever sent.
+                    # Communication.send_email() is the real entry point. Only the SMTP
+                    # transmission is deferred (frappe.sendmail writes an Email Queue row
+                    # for the scheduler to flush); account lookup, attachment collection
+                    # and recipient resolution all run inline here.
+                    #
+                    # KNOWN LIMITATION, not fixed here: send_email() is silent when it
+                    # cannot build a payload. sendmail_input_dict() returns {} if there
+                    # is no outgoing email account (mixins.py:281) or no resolvable
+                    # recipient after Administrator/standard-user filtering
+                    # (mixins.py:292), and the walrus guard then does nothing -- no
+                    # exception, no log. Detecting that reliably needs an Email Queue
+                    # probe, which is not worth it while this path has no caller.
+                    result.document.send_email()
 
             except Exception as e:
                 frappe.log_error(
@@ -562,13 +572,9 @@ class SEPAMandateNotificationManager:
             )
 
             if result.success and result.document:
-                # Queue for actual email delivery
-                frappe.enqueue(
-                    method="frappe.core.doctype.communication.email.send_communication_email",
-                    queue="default",
-                    timeout=300,
-                    communication=result.document.name,
-                )
+                # See _send_email_batch: send_communication_email does not exist, and
+                # send_email() is silent when it cannot build a payload.
+                result.document.send_email()
 
             # Queue comment logging as background job for better performance
             if member:

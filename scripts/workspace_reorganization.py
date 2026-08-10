@@ -41,7 +41,6 @@ def reorganize_workspace(force_enable=False):
         # === APPLICATIONS & ONBOARDING ===
         ("Card Break", "Applications & Onboarding", None, None, 0, 3),
         ("Link", "Public Application Form", "Page", "/membership_application", 0, 0),
-        ("Link", "Membership Application Workflow Demo", "Page", "/workflow_demo", 0, 0),
         ("Link", "Member Portal", "Page", "/member_portal", 0, 0),
         
         # === DONATIONS & ANBI ===

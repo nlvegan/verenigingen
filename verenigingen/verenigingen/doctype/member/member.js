@@ -1129,9 +1129,24 @@ function create_donor_from_member(frm) {
 
 function add_membership_review_button(frm) {
 	// Add application review buttons if member is pending
-	if (frm.doc.application_status === 'Pending' && frm.doc.status === 'Pending') {
-		// Check if user has appropriate permissions
-		if (frappe.user.has_role(['Verenigingen Administrator']) || is_chapter_board_member_with_permissions(frm)) {
+	if (frm.doc.application_status !== 'Pending' || frm.doc.status !== 'Pending') {
+		return;
+	}
+
+	// Ask the SERVER whether this user may review, rather than re-deriving the
+	// chapter/board rule here. The previous client-side check was a stub that
+	// always returned false, so chapter board members never saw these buttons even
+	// though they are entitled to review their own chapter's applications.
+	// Reimplementing the lookup in JS would be a second copy of the rule, free to
+	// drift from the server's. This call is a UX affordance only: approve/reject
+	// are enforced server-side regardless of what is rendered here.
+	frappe.call({
+		method: 'verenigingen.api.membership_application_review.can_review_application',
+		args: { member_name: frm.doc.name },
+		callback(r) {
+			if (!r.message) {
+				return;
+			}
 			// Add approve button
 			frm.add_custom_button(
 				__('Approve Application'),
@@ -1162,7 +1177,7 @@ function add_membership_review_button(frm) {
 			// Add dashboard indicator
 			frm.dashboard.add_indicator(__('Pending Review'), 'orange');
 		}
-	}
+	});
 }
 
 function add_membership_creation_button(frm) {
@@ -2642,17 +2657,6 @@ function request_more_info(frm) {
 	});
 
 	d.show();
-}
-
-function is_chapter_board_member_with_permissions(frm) {
-	// Check if current user is a board member of the suggested chapter with appropriate permissions
-	if (!frm.doc.suggested_chapter) {
-		return false;
-	}
-
-	// This would need a server call to check properly
-	// For now, returning false - you'd implement the actual check
-	return false;
 }
 
 function create_default_email_templates() {

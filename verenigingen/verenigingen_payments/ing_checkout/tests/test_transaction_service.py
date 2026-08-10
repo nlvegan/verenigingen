@@ -306,6 +306,51 @@ class TestCreatePaymentEntryWithInvoice(FrappeTestCase):
         allocated = sum(flt(r.allocated_amount) for r in pe.references)
         self.assertEqual(allocated, outstanding)
 
+        # ...but the ENTRY records the full cash Pay.nl settled, with the excess held
+        # as an unallocated credit on the customer. Previously the excess was dropped:
+        # the entry posted only the capped figure, so the ING clearing account was
+        # debited less than the settlement actually moved and could not be reconciled.
+        # Asserting `allocated` alone cannot see that difference - the reference row is
+        # identical either way - which is why these three assertions exist.
+        self.assertEqual(flt(pe.paid_amount, 2), flt(outstanding + 15.00, 2))
+        self.assertEqual(flt(pe.unallocated_amount, 2), 15.00)
+        self.assertEqual(flt(pe.difference_amount, 2), 0.00)
+
+    def test_remarks_wording_reaches_the_saved_document(self):
+        """The gateway's own wording must survive validate().
+
+        Payment Entry.validate() calls set_remarks(), which rebuilds the field and
+        returns early only when custom_remarks is truthy. This path used to assign
+        remarks alone, so its text was discarded on save - the in-memory document
+        looked correct and the stored one did not.
+
+        Assert on the PHRASING, not on the transaction id: ERPNext's generated text
+        appends "Transaction reference no {reference_no} dated {date}"
+        (PaymentEntry.set_remarks), so the id is present either way and asserting
+        on it would pass against the broken behaviour. "ING Checkout payment" is what
+        tells an operator which gateway produced the entry, and only the custom text
+        carries it. Read back from the database rather than trusting the returned doc.
+        """
+        self.service._settings = {"ing_checkout_bank_account": TEST_BANK_ACCOUNT}
+        self.invoice.reload()
+        result = self.service.create_payment_entry_for_transaction(
+            transaction_name="TXN-REMARKS",
+            transaction_id="EX-REMARKS-9",
+            reference_doctype="Sales Invoice",
+            reference_name=self.invoice.name,
+            amount=flt(self.invoice.outstanding_amount),
+        )
+        self.assertTrue(result["success"], msg=result["error"])
+
+        stored = frappe.db.get_value(
+            "Payment Entry", result["payment_entry"], ["remarks", "custom_remarks"], as_dict=True
+        )
+        self.assertIn("ING Checkout payment", stored.remarks or "")
+        self.assertIn("EX-REMARKS-9", stored.remarks or "")
+        self.assertEqual(
+            stored.custom_remarks, 1, "custom_remarks must be set or validate() overwrites remarks"
+        )
+
 
 class TestAlertDelegation(FrappeTestCase):
     """The alert methods delegate to the shared PaymentAlertService."""

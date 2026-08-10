@@ -25,12 +25,20 @@ Usage:
 
     cache = PerformanceCache()
 
-    # Cache chapter access data
-    chapters = cache.get_or_set(
-        key=f"user_chapters:{user_email}",
-        getter=lambda: get_user_accessible_chapters(user_email),
-        ttl=900  # 15 minutes
+    settings = cache.get_or_set(
+        "settings",
+        "billing_defaults",
+        getter=lambda: load_billing_defaults(),
+        ttl=900,  # 15 minutes
     )
+
+DO NOT cache a value whose None/empty form is an AUTHORIZATION answer.
+    get_or_set() logs and returns None when the getter raises. That is harmless for
+    data, and dangerous for a permission result: get_user_accessible_chapters()
+    returns None to mean "admin - sees ALL chapters", so wrapping it here would turn
+    a database outage into full access for every caller. (This docstring used to
+    demonstrate exactly that, with a signature that did not match the method either.)
+    Those resolvers deliberately propagate their errors; let them.
 """
 
 import json

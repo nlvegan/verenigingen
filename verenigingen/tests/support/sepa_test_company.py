@@ -10,9 +10,11 @@ company.
 
 Besides EUR, the company must have an active Fiscal Year covering today's date,
 or ``erpnext.accounts.utils.get_fiscal_year`` raises ``FiscalYearError`` on
-Sales Invoice save. ``TEST-Payment-Integration-Company`` is the app's own EUR
-test company and is the sole company scoped to the current ``FY-2026`` fiscal
-year; the ERPNext ``_Test Company 2`` is EUR but has no current Fiscal Year.
+Sales Invoice save -- AND a usable Chart of Accounts, without which a Sales
+Invoice cannot resolve an Income Account or a Debit To account at all.
+``TEST-Payment-Integration-Company`` is the app's own EUR test company, built
+and repaired here so it satisfies all three regardless of what any other test
+has created. ``_unusable_reasons`` is the single definition of "usable".
 """
 
 import frappe
@@ -20,56 +22,60 @@ from frappe.utils import today
 
 # The app's EUR test company, scoped to the current fiscal year. Preferred.
 _PREFERRED_EUR_COMPANY = "TEST-Payment-Integration-Company"
+# Kept beside the name because the two must move together: every account this
+# company owns is suffixed with the abbreviation ("Debtors - TPIC"), and Company
+# rejects an abbreviation another company already holds.
+_PREFERRED_EUR_COMPANY_ABBR = "TPIC"
 
 
 def get_eur_test_company() -> str:
-    """Return a EUR company that also has an active Fiscal Year for today.
+    """Return ``TEST-Payment-Integration-Company``, creating or repairing it as needed.
 
-    Prefers ``TEST-Payment-Integration-Company`` (EUR + current FY); otherwise
-    falls back to the first EUR company whose Fiscal Year covers today --
-    EXCLUDING erpnext's volatile ``_Test Company*`` defaults (see the loop comment);
-    otherwise CREATES the preferred company (get-or-create). The company used to be created
-    only as a side effect of one e_boekhouden test, so SEPA tests raised
-    RuntimeError on any shard/order where that test had not run first. Creating it
-    on demand here makes SEPA tests self-sufficient regardless of suite ordering.
+    This helper OWNS its company; it never borrows another test's. An earlier
+    version fell back to "the first EUR company whose Fiscal Year covers today",
+    which is what broke CI when the shards were rebalanced by measured runtime
+    (PR #237): two e_boekhouden tests deliberately build EUR companies with an
+    EMPTY Chart of Accounts under ``ignore_chart_of_accounts`` --
+    ``EBH Migration Test Co`` and ``EBH Account Migration Test Co`` -- and the
+    borrow accepted them, because it checked only currency and fiscal year.
+
+    Any shard that ran one of those e_boekhouden modules before a SEPA/payment
+    module handed every later caller a company with no accounts at all, producing
+    101 failures across two shards: "Income Account None cannot be same as Debit To
+    (Party Account) None", "no parent account found for company ...",
+    "[Account, Income - EBHMT]: parent_account", and "No parent bank account group
+    configured in Verenigingen Settings". The borrow also defeated the very purpose
+    this helper was written for -- being independent of suite ordering.
     """
-    if _company_is_eur_with_current_fy(_PREFERRED_EUR_COMPANY):
+    if _company_is_usable(_PREFERRED_EUR_COMPANY):
         return _PREFERRED_EUR_COMPANY
-
-    for company in frappe.get_all("Company", filters={"default_currency": "EUR"}, pluck="name"):
-        # Never borrow erpnext's own default companies (_Test Company /
-        # _Test Company 2). They share the current calendar-year Fiscal Year, and
-        # erpnext's lazy make_test_records rewrites that FY's company restrictions
-        # on the FIRST dated Sales Invoice of a shard -- re-scoping it to
-        # _Test Company and excluding the others. A shard that resolves to
-        # _Test Company 2 here BEFORE that rewrite then fails mid-submit with
-        # "Date <today> is not in any active Fiscal Year for _Test Company 2": an
-        # order-dependent flake that passes in isolation but fails on some shard
-        # orderings. _create_eur_test_company() builds
-        # TEST-Payment-Integration-Company with its OWN dedicated FY that erpnext
-        # never touches, so it resolves deterministically regardless of suite order.
-        if company.startswith("_Test Company"):
-            continue
-        if _company_is_eur_with_current_fy(company):
-            return company
 
     return _create_eur_test_company()
 
 
 def _create_eur_test_company() -> str:
-    """Get-or-create the EUR test company with a Fiscal Year covering today.
+    """Get-or-create the EUR test company, then repair and verify it.
 
-    Mirrors the company that test_e_boekhouden_migration_integration builds, but
-    makes it available to any SEPA test. ERPNext creates a default Chart of
-    Accounts on company insert, so the standard Receivable/Payable/Income accounts
-    exist afterwards.
+    ERPNext creates a default Chart of Accounts on company insert, so the standard
+    Receivable/Payable/Income/Bank accounts exist afterwards.
+
+    Also the REPAIR path for an existing-but-unusable company: the insert is
+    skipped when it already exists, but ``_ensure_current_fiscal_year`` below then
+    restores the one failure mode that is genuinely recoverable (a missing or
+    out-of-date Fiscal Year). Anything still wrong after that is a broken Chart of
+    Accounts, which this helper will not silently paper over -- see the
+    post-condition at the end.
+
+    The ``frappe.db.commit()`` is pre-existing and fires at most once per site: the
+    company persists for the rest of the run, so every later call short-circuits on
+    the usability check in ``get_eur_test_company``.
     """
     company_name = _PREFERRED_EUR_COMPANY
 
     if not frappe.db.exists("Company", company_name):
         company = frappe.new_doc("Company")
         company.company_name = company_name
-        company.abbr = "TPIC"
+        company.abbr = _PREFERRED_EUR_COMPANY_ABBR
         company.default_currency = "EUR"
         company.country = "Netherlands"
         company.insert(ignore_permissions=True)
@@ -89,6 +95,19 @@ def _create_eur_test_company() -> str:
 
     _ensure_current_fiscal_year(company_name)
     frappe.db.commit()
+
+    # Fail loudly rather than hand back a company that cannot back a Sales Invoice.
+    # Returning one quietly is exactly what the old borrow did, and the resulting
+    # errors surfaced hundreds of lines away in ERPNext with no mention of the
+    # company that caused them.
+    unusable = _unusable_reasons(company_name)
+    if unusable:
+        raise RuntimeError(
+            f"{company_name} exists but cannot be used by SEPA/payment tests: "
+            + "; ".join(unusable)
+            + ". Its Chart of Accounts is missing or was wiped; delete the company "
+            "and let this helper rebuild it."
+        )
     return company_name
 
 
@@ -121,16 +140,70 @@ def _ensure_current_fiscal_year(company_name: str = None) -> None:
     ensure_fiscal_year_exists(today(), company)
 
 
-def _company_is_eur_with_current_fy(company: str) -> bool:
-    if frappe.db.get_value("Company", company, "default_currency") != "EUR":
-        return False
+def _company_is_usable(company: str) -> bool:
+    return not _unusable_reasons(company)
+
+
+def _unusable_reasons(company: str) -> list:
+    """Return the reasons ``company`` cannot back a SEPA/payment test; empty if it can.
+
+    Checking currency and fiscal year alone is what let a company with an EMPTY
+    Chart of Accounts pass (see ``get_eur_test_company``), so each check below is
+    tied to a failure actually observed in CI run 31168194632.
+    """
+    if not frappe.db.exists("Company", company):
+        return [f"company {company!r} does not exist"]
+
+    reasons = []
+    defaults = frappe.db.get_value(
+        "Company",
+        company,
+        ["default_currency", "default_receivable_account", "default_income_account"],
+        as_dict=True,
+    )
+
+    if defaults.default_currency != "EUR":
+        # InvoiceManagementUtilities.validate_invoice_for_sepa rejects non-EUR.
+        reasons.append(f"default_currency is {defaults.default_currency!r}, not 'EUR'")
+
+    # Sales Invoice resolves Income Account and Debit To from these two Company
+    # fields. ERPNext only stamps them when it builds a Chart of Accounts, so a
+    # company created under ``ignore_chart_of_accounts`` has both NULL -- which is
+    # literally the "Income Account None cannot be same as Debit To (Party Account)
+    # None" failure, 41 occurrences.
+    for field in ("default_receivable_account", "default_income_account"):
+        value = defaults.get(field)
+        if not value:
+            reasons.append(f"{field} is not set")
+        elif not frappe.db.exists("Account", value):
+            reasons.append(f"{field} points at missing account {value!r}")
+
+    # Needed to PARENT a new income account, which the company defaults above do
+    # not guarantee: "[Account, Income - EBHMT]: parent_account", 19 occurrences.
+    # Must be matched on root_type, NOT account_type -- ERPNext stamps
+    # account_type="Income Account" only on LEAF income accounts, so every group
+    # income account has an empty account_type.
+    if not frappe.db.get_value(
+        "Account", {"company": company, "root_type": "Income", "is_group": 1}, "name"
+    ):
+        reasons.append("no is_group Income account to parent new income accounts under")
+
+    # Needed to parent a new bank account: "no parent account found for company ..."
+    # (22) and "No parent bank account group configured in Verenigingen Settings" (4).
+    if not frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+    ):
+        reasons.append("no is_group Bank account to parent new bank accounts under")
+
+    # Without this erpnext.accounts.utils.get_fiscal_year raises on Sales Invoice save.
     from erpnext.accounts.utils import get_fiscal_year
 
     try:
         get_fiscal_year(date=today(), company=company, as_dict=True)
-        return True
     except Exception:
-        return False
+        reasons.append(f"no active Fiscal Year covering {today()}")
+
+    return reasons
 
 
 def ensure_sepa_payment_terms_template() -> str:

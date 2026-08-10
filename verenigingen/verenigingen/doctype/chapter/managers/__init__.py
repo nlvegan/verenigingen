@@ -20,13 +20,14 @@ Usage:
 """
 
 from .base_manager import BaseManager
-from .board_manager import BoardManager
+from .board_manager import BoardAccessWithdrawalError, BoardManager
 from .communication_manager import CommunicationManager
 from .member_manager import MemberManager
 from .volunteer_integration_manager import VolunteerIntegrationManager
 
 __all__ = [
     "BaseManager",
+    "BoardAccessWithdrawalError",
     "BoardManager",
     "MemberManager",
     "CommunicationManager",

@@ -359,3 +359,39 @@ class ServiceInfrastructureEnhancedTests(EnhancedTestCase):
         # Verify member found
         members = result["data"]["members"]
         self.assertGreater(len(members), 0)
+
+
+class ServiceFieldValidatorFailureTests(EnhancedTestCase):
+    """A metadata lookup failure must not be cached, nor reported as "not found".
+
+    `get_doctype_meta` used to log, write `self._doctype_cache[doctype] = None`,
+    and return None. Two distinct faults: the failure became PERMANENT for the
+    life of the process, and its caller reads a falsy result as
+    "DocType {x} does not exist" -- a database error presented as a confidently
+    wrong diagnosis.
+    """
+
+    def _validator(self):
+        from verenigingen.services.infrastructure.field_validator import ServiceFieldValidator
+
+        return ServiceFieldValidator()
+
+    def test_raises_instead_of_returning_none(self):
+        validator = self._validator()
+        with patch.object(frappe, "get_meta", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                validator.get_doctype_meta("Member")
+
+    def test_failure_is_not_cached(self):
+        validator = self._validator()
+        with patch.object(frappe, "get_meta", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                validator.get_doctype_meta("Member")
+
+        self.assertNotIn(
+            "Member",
+            validator._doctype_cache,
+            "the failed lookup was cached, so every later call replays the failure",
+        )
+        # A subsequent healthy call must succeed rather than replay the failure.
+        self.assertTrue(validator.get_doctype_meta("Member"))
