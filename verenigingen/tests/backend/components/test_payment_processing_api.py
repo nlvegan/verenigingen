@@ -181,7 +181,11 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         invoice.customer = customer
         invoice.posting_date = posting_date
         invoice.due_date = due_date if due_date else posting_date
-        
+        # Without set_posting_time, validate_posting_time() overwrites posting_date
+        # with today, so a backdated invoice silently becomes a today invoice and
+        # its past due_date then fails validate_due_date.
+        invoice.set_posting_time = 1
+
         # Add custom fields if provided
         if custom_is_membership_dues:
             setattr(invoice, 'custom_is_membership_dues', custom_is_membership_dues)

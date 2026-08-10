@@ -108,9 +108,13 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
         # Create real sales invoice. For overdue invoices the posting_date must
         # also be in the past, otherwise ERPNext resets the due_date forward to
         # the posting_date and the "due_date < today" report filter excludes it.
+        # set_posting_time is what makes that backdating stick -- without it
+        # validate_posting_time() overwrites posting_date with today, and the
+        # past due_date then fails validate_due_date outright.
         invoice = frappe.new_doc("Sales Invoice")
         invoice.company = self._get_test_company()
         invoice.customer = member.customer
+        invoice.set_posting_time = 1
         if status == "Overdue":
             invoice.posting_date = add_days(today(), -45)
             invoice.due_date = add_days(today(), -15)

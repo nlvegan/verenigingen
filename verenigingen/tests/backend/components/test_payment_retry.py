@@ -47,9 +47,15 @@ class TestPaymentRetryManager(EnhancedTestCase):
 
         # Use EnhancedTestCase factory method which properly handles
         # Cost Centers, Income Accounts, and other ERPNext requirements
+        # The posting_date must be backdated too, not just the due_date: ERPNext
+        # rejects a due_date that precedes the posting_date, so "posted today,
+        # due five days ago" is not a valid overdue invoice. It only ever
+        # persisted because in_import made validate_due_date silently move the
+        # due_date forward to the posting date -- i.e. the invoice this test
+        # thought was overdue was in fact due today.
         self.test_invoice = self.create_test_sales_invoice(
             customer=self.test_customer.name,
-            posting_date=today(),
+            posting_date=add_days(today(), -35),
             due_date=add_days(today(), -5),  # Already overdue
             items=[{
                 "item_code": self.get_or_create_test_item(),
