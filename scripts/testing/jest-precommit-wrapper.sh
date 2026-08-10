@@ -37,22 +37,9 @@ fi
 
 echo "🔍 Running $TEST_TYPE..."
 
-# node_modules is gitignored, so it is absent from every git worktree - and worktrees
-# are how branch work is done here, because bench serves the live site straight out of
-# the main checkout. Borrow the main checkout's install rather than failing on a cause
-# that has nothing to do with the diff: a hook that fails for an unrelated reason
-# teaches people to reach for SKIP=, which switches off the checks that do matter.
-if [[ ! -x "node_modules/.bin/jest" ]]; then
-    MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")
-    if [[ -x "$MAIN_CHECKOUT/node_modules/.bin/jest" ]]; then
-        echo "ℹ️  No node_modules in this checkout - using $MAIN_CHECKOUT/node_modules"
-        export PATH="$MAIN_CHECKOUT/node_modules/.bin:$PATH"
-        export NODE_PATH="$MAIN_CHECKOUT/node_modules"
-    else
-        echo "⏭️  Skipping $TEST_TYPE: jest is not installed. Run 'npm install' to enable it."
-        exit 0
-    fi
-fi
+# NOTE: node_modules resolution is not done here - .pre-commit-config.yaml invokes this
+# script through scripts/testing/with-node-modules.sh, which handles the worktree case
+# for every npm-based hook rather than just this one.
 
 # Create temp directory for test results
 TEMP_DIR=$(mktemp -d)
