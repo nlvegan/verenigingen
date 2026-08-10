@@ -24,6 +24,37 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+
+def find_app_package(app_path: Path) -> str:
+    """Return the name of the Python package inside ``app_path`` that defines the hooks.
+
+    The package name is not the checkout's directory name. A git worktree - or any
+    clone not literally named after the app - puts the two out of sync, and deriving
+    one from the other then looks for <checkout>/<checkout>/hooks.py. Falls back to the
+    directory name so callers keep their existing "not found" message when there really
+    is no app here.
+
+    Kept as a local helper rather than shared with the copy in
+    scripts/validation/archived/frappe_hooks_validator.py: that script is a standalone
+    entry point in an archived directory, and importing live code into it for twelve
+    lines would be the worse coupling.
+    """
+    try:
+        children = sorted(app_path.iterdir())
+    except OSError:
+        return app_path.name
+
+    for child in children:
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if not (child / "__init__.py").exists():
+            continue
+        if (child / "hooks.py").exists() or (child / "hooks" / "__init__.py").exists():
+            return child.name
+
+    return app_path.name
+
+
 @dataclass
 class EventMapping:
     """Represents an event handler mapping"""
@@ -42,8 +73,11 @@ class HooksParser:
         self.event_mappings: Dict[str, List[EventMapping]] = {}
         self.function_to_doctype: Dict[str, Set[str]] = {}
 
-        # Derive app module name from directory (e.g., "verenigingen" from the app root)
-        app_name = self.app_path.name
+        # Find the app module by locating the package that defines the hooks, rather
+        # than assuming it is named after the checkout directory - a git worktree makes
+        # those two differ, and the parser then quietly finds no hooks at all, which
+        # downgrades every caller to hook-blind analysis instead of failing outright.
+        app_name = find_app_package(self.app_path)
 
         # Parse hooks file (in the main app module directory)
         # Support both hooks.py (file) and hooks/ (package) structures

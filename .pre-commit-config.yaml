@@ -193,7 +193,7 @@ repos:
         # eslint would lint the whole tree). No `--fix` (avoids piecemeal
         # reformat churn) and no trailing echo (so the hook's exit code is
         # eslint's, instead of always 0).
-        entry: bash -c 'npx eslint --max-warnings=1000 "$@"' --
+        entry: scripts/testing/with-node-modules.sh bash -c 'eslint --max-warnings=1000 "$@"' --
         language: system
         files: \.js$
         stages: [pre-commit]
@@ -208,7 +208,7 @@ repos:
         # staged filenames land in "$@" (not $0); a lone staged file would
         # otherwise leave "$@" empty and Prettier would scan nothing.
         # `--check` respects .prettierignore, so ignored paths are skipped.
-        entry: bash -c 'npx prettier --check "$@"' --
+        entry: scripts/testing/with-node-modules.sh bash -c 'prettier --check "$@"' --
         language: system
         files: \.(js|vue)$
         stages: [pre-commit]
@@ -489,6 +489,10 @@ repos:
         language: system
         pass_filenames: false
         files: '\.(py)$'
+        # pre-commit hides the stdout of hooks that pass, so without this the target's
+        # "skipping, this is a worktree" message would be invisible and the skip would
+        # read as a successful test run.
+        verbose: true
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
@@ -519,7 +523,7 @@ repos:
       - id: api-contract-validation
         name: 🔍 API Contract Validation (Pre-commit)
         description: Run API contract validation tests
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-simple --type "API Contract Validation"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-simple --type "API Contract Validation"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -530,7 +534,7 @@ repos:
       - id: controller-testing-focused
         name: 🎮 Controller Testing (Pre-commit)
         description: Run focused controller tests to validate form behavior
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern focused --type "Controller Testing"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern focused --type "Controller Testing"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -541,7 +545,7 @@ repos:
       - id: external-api-contracts
         name: 🏦 External API Contracts (Pre-push)
         description: Validate eBoekhouden and Mollie API contracts
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern external-api-contracts --type "External API Contract Validation"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern external-api-contracts --type "External API Contract Validation"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -552,7 +556,7 @@ repos:
       - id: performance-benchmarking
         name: ⚡ Performance Benchmarking (Pre-push)
         description: Run performance benchmark tests for regression detection
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-performance --type "Performance Benchmarking"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-performance --type "Performance Benchmarking"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -564,7 +568,7 @@ repos:
       - id: jest-testing
         name: 🧪 Jest JavaScript Testing
         description: Run Jest tests for JavaScript components
-        entry: npm run test:coverage
+        entry: scripts/testing/with-node-modules.sh npm run test:coverage
         language: system
         pass_filenames: false
         files: '\.(js|vue)$'
@@ -575,7 +579,7 @@ repos:
       - id: cypress-e2e-tests
         name: 🌲 Cypress E2E Tests
         description: Run Cypress end-to-end tests
-        entry: npm run cypress:run
+        entry: scripts/testing/with-node-modules.sh npm run cypress:run
         language: system
         pass_filenames: false
         files: '\.(js|vue|html)$'
