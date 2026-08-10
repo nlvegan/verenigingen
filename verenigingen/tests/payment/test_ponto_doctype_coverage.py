@@ -182,7 +182,8 @@ class TestPontoPaymentLink(EnhancedTestCase):
     def _create_link(self, **kwargs):
         """Create a Ponto Payment Link with defaults."""
         doc = frappe.new_doc("Ponto Payment Link")
-        doc.payment_type = kwargs.pop("payment_type", "One-off")
+        # "One-Time" is the only option the field offers, and what production writes.
+        doc.payment_type = kwargs.pop("payment_type", "One-Time")
         doc.amount = kwargs.pop("amount", 25.00)
         doc.currency = kwargs.pop("currency", "EUR")
         doc.description = kwargs.pop("description", "Test payment")
