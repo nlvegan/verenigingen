@@ -52,8 +52,8 @@ class ImportPathValidator:
     """Validates Python import statements against actual file system"""
     
     def __init__(self, app_path: str, verbose: bool = False):
-        self.app_path = Path(app_path)
-        self.bench_path = self.app_path.parent.parent
+        self.app_path = Path(app_path).resolve()
+        self.bench_path = self._find_bench_path(self.app_path)
         self.verbose = verbose
         
         # Build module search paths (mimicking Python's import system)
@@ -70,10 +70,27 @@ class ImportPathValidator:
             print(f"   App path: {self.app_path}")
             print(f"   Search paths: {len(self.search_paths)} directories")
     
+    @staticmethod
+    def _find_bench_path(app_path: Path) -> Path:
+        """Locate the bench that owns this checkout by looking for its marker file.
+
+        The app is not always exactly two levels below the bench: a git worktree lives
+        outside the bench tree entirely, and assuming the fixed depth there resolves to
+        a directory with no apps/ or env/ under it, which strips the search paths down
+        to whatever happens to be on sys.path.
+        """
+        for candidate in (app_path, *app_path.parents):
+            if (candidate / "sites" / "common_site_config.json").exists():
+                return candidate
+        return app_path.parent.parent  # Detached checkout; app_path still carries the app
+
     def _build_search_paths(self) -> List[Path]:
         """Build Python module search paths for the Frappe environment"""
-        paths = []
-        
+        # The checkout under validation comes first, so first-party imports are
+        # resolved against the files being linted rather than the installed copy of
+        # the app - which is a different tree whenever the linting runs in a worktree.
+        paths = [self.app_path]
+
         # Add all app directories
         apps_path = self.bench_path / "apps"
         if apps_path.exists():
