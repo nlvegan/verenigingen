@@ -108,6 +108,13 @@ jobs:
     - name: Unit-test the validator itself
       run: python -m unittest discover -s scripts/validation/tests -p 'test_error_swallow_validator.py' -v
 
+    # The failed-write guard is the sibling rule (a broad except around a DATABASE
+    # WRITE whose failure never reaches the caller). It is ADVISORY for now, so it
+    # gets no ratchet/growth gate here — only its unit tests, which are stdlib-only
+    # and include a check that the tree is still at or below its baseline.
+    - name: Unit-test the failed-write guard
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_failed_write_validator.py' -v
+
     - name: Ratchet check (whole tree)
       run: python scripts/validation/error_swallow_validator.py
 
