@@ -35,7 +35,7 @@
       "fieldname": "billing_frequency",
       "fieldtype": "Select",
       "label": "Billing Frequency",
-      "options": "Daily\nMonthly\nQuarterly\nSemi-Annual\nAnnual\nCustom"
+      "options": "Daily\nWeekly\nMonthly\nQuarterly\nSemi-Annual\nAnnual\nCustom"
     },
     {
       "fieldname": "old_dues_rate",

@@ -1,6 +1,7 @@
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestMembershipType(EnhancedTestCase):
@@ -113,3 +114,41 @@ class TestMembershipType(EnhancedTestCase):
         # Should raise an error
         with self.assertRaises(frappe.exceptions.ValidationError):
             membership_type.insert()
+
+
+class TestMembershipItemDefaults(VereningingenTestCase):
+    """
+    get_or_create_membership_item() appends an item_defaults row with
+    default_warehouse: None, meaning "no warehouse". _set_defaults() fills child rows
+    too and only skips a value that is not None, so None was replaced by the acting
+    user's default warehouse — which ERPNext rejects when it belongs to a different
+    company than Verenigingen Settings.company. secure_document_operation turned that
+    into success=False, and the user was told to "check permissions".
+
+    On VereningingenTestCase, not EnhancedTestCase: the latter sets in_import, which
+    makes _set_defaults() return immediately, so the None was never replaced.
+    """
+
+    def test_membership_item_is_created_without_a_warehouse(self):
+        membership_type = frappe.new_doc("Membership Type")
+        membership_type.update(
+            {
+                "membership_type_name": f"WH Test {frappe.generate_hash(length=8)}",
+                "description": "Warehouse default regression",
+                "billing_period": "Annual",
+                "minimum_amount": 10,
+                "is_active": 1,
+            }
+        )
+        membership_type.insert()
+        self.track_doc("Membership Type", membership_type.name)
+
+        item_name = membership_type.get_or_create_membership_item()
+        self.assertTrue(item_name)
+        self.track_doc("Item", item_name)
+
+        item = frappe.get_doc("Item", item_name)
+        self.assertEqual(len(item.item_defaults), 1)
+        # The user default warehouse must not have leaked into the row; this is a
+        # service item, so it wants no warehouse at all.
+        self.assertFalse(item.item_defaults[0].default_warehouse)

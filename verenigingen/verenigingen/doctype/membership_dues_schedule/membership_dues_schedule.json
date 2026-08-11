@@ -173,7 +173,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Billing Frequency",
-   "options": "\nAnnual\nSemi-Annual\nQuarterly\nMonthly\nDaily\nCustom",
+   "options": "\nAnnual\nSemi-Annual\nQuarterly\nMonthly\nWeekly\nDaily\nCustom",
    "reqd": 1
   },
   {

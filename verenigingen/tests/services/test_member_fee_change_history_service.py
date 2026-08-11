@@ -35,7 +35,9 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
 
     def test_validate_billing_frequency_invalid_value(self):
         """Test that invalid billing frequencies default to Custom"""
-        invalid_frequencies = ["Weekly", "Biweekly", "InvalidValue", "random_string"]
+        # NB: "Weekly" is a valid frequency -- the calculator has always supported it
+        # and it is now one of billing_frequency's options.
+        invalid_frequencies = ["Biweekly", "Fortnightly", "InvalidValue", "random_string"]
 
         for freq in invalid_frequencies:
             result = get_member_fee_change_history_service()._validate_billing_frequency(freq)
@@ -57,7 +59,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
 
     def test_valid_billing_frequencies_constant(self):
         """Test that class constant contains expected values"""
-        expected = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
+        expected = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
         self.assertEqual(
             MemberFeeChangeHistoryService.VALID_BILLING_FREQUENCIES,
             expected,
@@ -75,7 +77,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
             "change_date": "2024-01-15",
             "dues_rate": 50.0,
             "old_dues_rate": 25.0,
-            "billing_frequency": "Weekly",  # Invalid - should become "Custom"
+            "billing_frequency": "Biweekly",  # Invalid - should become "Custom"
             "change_type": "Schedule Created",
             "reason": "Test schedule",
             "changed_by": "Administrator",
@@ -206,7 +208,7 @@ class TestMemberFeeChangeHistoryService(FrappeTestCase):
         # Verify it's accessible and has correct type
         frequencies = MemberFeeChangeHistoryService.VALID_BILLING_FREQUENCIES
         self.assertIsInstance(frequencies, list)
-        self.assertEqual(len(frequencies), 6)
+        self.assertEqual(len(frequencies), 7)
 
 
 def run_tests():

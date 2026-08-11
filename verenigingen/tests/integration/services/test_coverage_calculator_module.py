@@ -18,6 +18,8 @@ All tests use real DB fixtures via Enhanced Test Factory - no business-logic moc
 Expected values are derived from the data each test creates.
 """
 
+import inspect
+import re
 import unittest
 from datetime import date
 
@@ -31,6 +33,8 @@ from verenigingen.services.billing.coverage_calculator import (
     get_coverage_calculator,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.select_options import get_select_options
 
 
 class TestCoverageCalculatorCutoffMethod(EnhancedTestCase):
@@ -642,6 +646,37 @@ class TestFindInvoiceForPayment(EnhancedTestCase):
             self.member.name, date(2025, 11, 15), 9999.99, remittance_info="no reference here"
         )
         self.assertIsNone(found)
+
+
+class TestBillingFrequencyOptionsMatchTheCalculator(VereningingenTestCase):
+    """
+    billing_period_calculator handles "Weekly" in four places and lists it in
+    valid_frequencies, the SEPA batch processor and two reports branch on it, and the
+    amendment annualiser gives it a factor — but neither billing_frequency Select
+    offered it, so a weekly schedule could not be saved at all.
+
+    On VereningingenTestCase, not EnhancedTestCase: the latter sets in_import, which
+    skips _validate_selects(), so the Weekly tests above passed against the defect.
+    """
+
+    def test_every_frequency_the_calculator_accepts_is_a_schedule_option(self):
+        from verenigingen.services.billing import billing_period_calculator
+
+        source = inspect.getsource(billing_period_calculator.derive_coverage_from_invoice_data)
+        declared = re.search(r"valid_frequencies = \[([^\]]+)\]", source)
+        self.assertIsNotNone(declared, "valid_frequencies moved; update this test")
+        accepted = re.findall(r'"([^"]+)"', declared.group(1))
+
+        options = get_select_options("Membership Dues Schedule", "billing_frequency")
+        for frequency in accepted:
+            self.assertIn(frequency, options)
+
+    def test_fee_change_history_accepts_the_same_frequencies(self):
+        # A history row copies the schedule's frequency, so a value the schedule
+        # allows but the history does not is silently downgraded to "Custom".
+        schedule_options = set(get_select_options("Membership Dues Schedule", "billing_frequency"))
+        history_options = set(get_select_options("Member Fee Change History", "billing_frequency"))
+        self.assertEqual(schedule_options - history_options, set())
 
 
 if __name__ == "__main__":
