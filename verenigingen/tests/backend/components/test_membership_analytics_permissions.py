@@ -346,7 +346,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
 
         # Should be able to create via API
         from verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot import create_snapshot
-        new_snapshot_name = create_snapshot("Manual")
+        new_snapshot_name = create_snapshot("Daily")  # "Manual" is not a snapshot_type option
         self.assertTrue(frappe.db.exists("Membership Analytics Snapshot", new_snapshot_name))
 
         # Manager - read only

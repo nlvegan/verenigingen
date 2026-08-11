@@ -442,7 +442,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
             first_name="Application",
             last_name="TestMember",
             email="application@example.com",
-            status="Application Pending"
+            status="Pending"  # Member.status has no "Application Pending"; that lives on application_status
         )
         
         # The membership item creation path requires a "Memberships" Item Group.
