@@ -819,34 +819,27 @@ def create_volunteer_from_member(
 
             if isinstance(interested_skills, list):
                 for skill in interested_skills:
+                    # Both shapes build the same row with the same fallbacks, so a bare
+                    # skill name is just a dict with no category or level.
                     if isinstance(skill, str):
-                        volunteer.append(
-                            "skills_and_qualifications",
-                            {
-                                "volunteer_skill": skill,
-                                "skill_category": "Other",
-                                "proficiency_level": "1 - Beginner",
-                            },
-                        )
-                    elif isinstance(skill, dict):
-                        # category/level come from the membership application, so they
-                        # are free text. A value outside the Select's options fails the
-                        # whole volunteer creation, not just the one skill row.
-                        volunteer.append(
-                            "skills_and_qualifications",
-                            {
-                                "volunteer_skill": skill.get("name", skill.get("skill", "Unknown")),
-                                "skill_category": coerce_select_option(
-                                    "Volunteer Skill", "skill_category", skill.get("category"), "Other"
-                                ),
-                                "proficiency_level": coerce_select_option(
-                                    "Volunteer Skill",
-                                    "proficiency_level",
-                                    skill.get("level"),
-                                    "1 - Beginner",
-                                ),
-                            },
-                        )
+                        skill = {"name": skill}
+                    if not isinstance(skill, dict):
+                        continue
+                    # category and level are free text out of the membership
+                    # application; a value outside the Select's options fails the whole
+                    # volunteer creation, not just the one skill row.
+                    volunteer.append(
+                        "skills_and_qualifications",
+                        {
+                            "volunteer_skill": skill.get("name", skill.get("skill", "Unknown")),
+                            "skill_category": coerce_select_option(
+                                "Volunteer Skill", "skill_category", skill.get("category"), "Other"
+                            ),
+                            "proficiency_level": coerce_select_option(
+                                "Volunteer Skill", "proficiency_level", skill.get("level"), "1 - Beginner"
+                            ),
+                        },
+                    )
 
         # Save volunteer with proper permissions - no bypasses
         # User must have proper permissions to create volunteer records
