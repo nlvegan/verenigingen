@@ -172,10 +172,14 @@ class MembershipType(Document):
             else frappe.defaults.get_global_default("company")
         )
 
-        # Set item defaults
+        # Set item defaults. default_warehouse is "" rather than None on purpose:
+        # _set_defaults() fills child rows too and only skips a value that is not
+        # None, so None here is replaced by the acting user's default warehouse —
+        # which ERPNext then rejects if it belongs to a different company. This is
+        # a service item (is_stock_item = 0), so it wants no warehouse at all.
         item.append(
             "item_defaults",
-            {"company": company, "default_warehouse": None},
+            {"company": company, "default_warehouse": ""},
         )
 
         item.flags.ignore_mandatory = True
@@ -188,7 +192,14 @@ class MembershipType(Document):
         )
 
         if not item_result.success:
-            frappe.throw(_("Unable to create membership item. Please check permissions or create manually."))
+            # secure_document_operation turns every exception into success=False, so
+            # a validation failure used to be reported as a permission problem.
+            reason = "; ".join(str(error) for error in item_result.errors)
+            frappe.throw(
+                _("Unable to create membership item: {0}").format(reason)
+                if reason
+                else _("Unable to create membership item. Please check permissions or create manually.")
+            )
             return None
 
         frappe.msgprint(_("Item {0} created for membership type").format(item.name))

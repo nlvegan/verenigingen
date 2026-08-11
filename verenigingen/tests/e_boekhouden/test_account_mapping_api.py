@@ -40,6 +40,7 @@ from verenigingen.e_boekhouden.doctype.e_boekhouden_account_mapping.api import (
     update_account_mapping,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 CACHE_KEY = "ebh_staged_data"
 LAST_KEY = "ebh_last_staging_date"
@@ -270,6 +271,11 @@ class TestMappingCrud(EnhancedTestCase):
         # priority defaulted to 100 for manual
         doc = frappe.get_doc("E-Boekhouden Account Mapping", result["mapping"]["id"])
         self.assertEqual(doc.priority, 100)
+        # Notes land in their own field. They used to be written into
+        # transaction_category, a Select with a fixed vocabulary, which both
+        # rejected the save and destroyed a meaningful value.
+        self.assertEqual(doc.notes, "manual test")
+        self.assertFalse(doc.transaction_category)
 
     def test_add_existing_updates(self):
         first = add_account_mapping("99002", "Journal Entry")
@@ -279,6 +285,9 @@ class TestMappingCrud(EnhancedTestCase):
         self.assertEqual(second["mapping"]["id"], first_id)
         self.assertEqual(second["mapping"]["account_type"], "Sales Invoice")
         self.assertEqual(second["mapping"]["notes"], "updated")
+        doc = frappe.get_doc("E-Boekhouden Account Mapping", first_id)
+        self.assertEqual(doc.notes, "updated")
+        self.assertFalse(doc.transaction_category)
 
     def test_update_account_mapping(self):
         created = add_account_mapping("99001", "Purchase Invoice")
@@ -287,6 +296,9 @@ class TestMappingCrud(EnhancedTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["mapping"]["account_type"], "Journal Entry")
         self.assertEqual(result["mapping"]["notes"], "changed")
+        doc = frappe.get_doc("E-Boekhouden Account Mapping", mapping_id)
+        self.assertEqual(doc.notes, "changed")
+        self.assertFalse(doc.transaction_category)
 
     def test_remove_account_mapping(self):
         created = add_account_mapping("99001", "Purchase Invoice")
@@ -449,25 +461,6 @@ class TestBulkAndSuggested(EnhancedTestCase):
         self.assertEqual(doc.document_type, "Journal Entry")
         self.assertEqual(doc.priority, 5)
 
-    def test_bulk_update_writes_account_type_string_verbatim_into_document_type(self):
-        # KNOWN DESIGN SMELL characterized: the `account_type` param is written
-        # straight into the `document_type` field (a Select whose only valid
-        # options are Sales/Purchase Invoice, Expense Claim, Journal Entry). The
-        # live JS sends ERPNext *account types* ("Bank", "Asset", ...). Select
-        # options are NOT enforced on this programmatic save, so the value
-        # persists verbatim — producing a mapping whose document_type ("Bank")
-        # matches no real document type and is therefore inert. This pins the
-        # real behavior so that adding a proper account_type field later is a
-        # deliberate, test-visible change rather than a silent one.
-        created = add_account_mapping("BULK03", "Purchase Invoice")
-        mapping_id = created["mapping"]["id"]
-        result = bulk_update_mappings(json.dumps([{"mapping_id": mapping_id, "account_type": "Bank"}]))
-        self.assertTrue(result["success"])
-        self.assertEqual(result["updated_count"], 1)
-        doc = frappe.get_doc("E-Boekhouden Account Mapping", mapping_id)
-        # The account-type string lands verbatim in document_type (the overload).
-        self.assertEqual(doc.document_type, "Bank")
-
     def test_bulk_update_priority_only(self):
         created = add_account_mapping("BULK02", "Sales Invoice")
         mapping_id = created["mapping"]["id"]
@@ -532,6 +525,55 @@ class TestBulkAndSuggested(EnhancedTestCase):
         result = apply_suggested_mappings(json.dumps(suggestions))
         self.assertTrue(result["success"])
         self.assertEqual(result["created_count"], 0)
+
+
+class TestBulkUpdateRejection(VereningingenTestCase):
+    """
+    The `account_type` param is the target document type, but the bulk dialog
+    offered ERPNext account types ("Bank", "Asset", ...), which are not among
+    document_type's options. Such a row is rejected, and that has to reach the
+    caller rather than leaving it with success=True and no sign that nothing
+    changed.
+
+    On VereningingenTestCase, not EnhancedTestCase: the latter sets in_import,
+    which skips _validate_selects(), so "Bank" is written verbatim and the whole
+    defect is invisible.
+    """
+
+    def setUp(self):
+        super().setUp()
+        existing = frappe.db.exists("E-Boekhouden Account Mapping", {"account_code": "BULK03"})
+        if existing:
+            frappe.delete_doc("E-Boekhouden Account Mapping", existing, force=True)
+
+    def test_bulk_update_reports_a_rejected_account_type_instead_of_swallowing_it(self):
+        created = add_account_mapping("BULK03", "Purchase Invoice")
+        mapping_id = created["mapping"]["id"]
+        self.track_doc("E-Boekhouden Account Mapping", mapping_id)
+
+        result = bulk_update_mappings(json.dumps([{"mapping_id": mapping_id, "account_type": "Bank"}]))
+        self.assertEqual(result["updated_count"], 0)
+        self.assertEqual(len(result["failed"]), 1)
+        self.assertEqual(result["failed"][0]["mapping_id"], mapping_id)
+
+        # The original value survives the rejected update.
+        doc = frappe.get_doc("E-Boekhouden Account Mapping", mapping_id)
+        self.assertEqual(doc.document_type, "Purchase Invoice")
+
+    def test_a_valid_document_type_still_applies(self):
+        created = add_account_mapping("BULK03", "Purchase Invoice")
+        mapping_id = created["mapping"]["id"]
+        self.track_doc("E-Boekhouden Account Mapping", mapping_id)
+
+        result = bulk_update_mappings(
+            json.dumps([{"mapping_id": mapping_id, "account_type": "Journal Entry"}])
+        )
+        self.assertEqual(result["updated_count"], 1)
+        self.assertEqual(result["failed"], [])
+        self.assertEqual(
+            frappe.db.get_value("E-Boekhouden Account Mapping", mapping_id, "document_type"),
+            "Journal Entry",
+        )
 
 
 if __name__ == "__main__":

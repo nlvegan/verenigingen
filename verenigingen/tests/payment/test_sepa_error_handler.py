@@ -24,6 +24,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils import sepa_error_handler as seh
 from verenigingen.verenigingen_payments.utils.sepa_error_handler import (
     SEPAErrorHandler,
@@ -455,8 +456,10 @@ class TestCreateRetryBatch(EnhancedTestCase):
             batch = frappe.get_doc("SEPA Retry Batch", result["retry_batch"])
             self.assertTrue(batch.created_by_error_handler)
             self.assertEqual(len(batch.operations), 2)
+            # operation_type is a Select: the caller's raw operation name is
+            # normalised onto an option, and anything unrecognised becomes "Other".
             op_types = {op.operation_type for op in batch.operations}
-            self.assertEqual(op_types, {"validate_mandate", "weird"})
+            self.assertEqual(op_types, {"Mandate Validation", "Other"})
         finally:
             if result.get("retry_batch"):
                 frappe.delete_doc("SEPA Retry Batch", result["retry_batch"], force=True)
@@ -560,6 +563,50 @@ class TestSingletonAndAPIs(EnhancedTestCase):
             [{"operation": "x", "error_category": "data"}]
         )
         self.assertFalse(result["success"])
+
+
+class TestCreateRetryBatchPersists(VereningingenTestCase):
+    """
+    The "operation" key is a Python function name (execute_with_retry passes
+    ``operation.__name__``) or free text from an API caller, and it was written
+    straight into the operation_type Select — where even the hardcoded "unknown"
+    fallback is not an option. No retry batch could ever be saved.
+
+    On VereningingenTestCase, not EnhancedTestCase: the latter sets in_import,
+    which skips _validate_selects() and hides the whole defect.
+    """
+
+    def setUp(self):
+        super().setUp()
+        seh._error_handler = None
+        self.handler = get_sepa_error_handler()
+
+    def _retryable(self, operation):
+        return [{"operation": operation, "error": "gateway timeout", "error_category": "temporary"}]
+
+    def test_function_name_maps_onto_the_matching_option(self):
+        result = self.handler.create_retry_batch(self._retryable("validate_mandate"))
+        self.assertTrue(result["success"], result)
+        self.track_doc("SEPA Retry Batch", result["retry_batch"])
+        batch = frappe.get_doc("SEPA Retry Batch", result["retry_batch"])
+        self.assertEqual(batch.operations[0].operation_type, "Mandate Validation")
+
+    def test_unrecognised_operation_becomes_other_and_keeps_the_original_name(self):
+        result = self.handler.create_retry_batch(self._retryable("reticulate_splines"))
+        self.assertTrue(result["success"], result)
+        self.track_doc("SEPA Retry Batch", result["retry_batch"])
+        batch = frappe.get_doc("SEPA Retry Batch", result["retry_batch"])
+        self.assertEqual(batch.operations[0].operation_type, "Other")
+        # The caller's own name is the only way to tell two "Other" rows apart.
+        self.assertEqual(batch.operations[0].retry_notes, "reticulate_splines")
+
+    def test_caller_supplied_option_is_passed_through_unchanged(self):
+        result = self.handler.create_retry_batch(self._retryable("Batch Processing"))
+        self.assertTrue(result["success"], result)
+        self.track_doc("SEPA Retry Batch", result["retry_batch"])
+        batch = frappe.get_doc("SEPA Retry Batch", result["retry_batch"])
+        self.assertEqual(batch.operations[0].operation_type, "Batch Processing")
+        self.assertFalse(batch.operations[0].retry_notes)
 
 
 if __name__ == "__main__":

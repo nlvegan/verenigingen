@@ -92,7 +92,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Account Type",
-      "options": "Bank\nCash",
+      "options": "Bank\nCash\nReceivable\nPayable",
       "reqd": 1
     },
     {

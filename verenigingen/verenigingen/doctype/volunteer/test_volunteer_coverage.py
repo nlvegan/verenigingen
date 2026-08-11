@@ -33,6 +33,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.services.volunteer.assignment_query_builder import invalidate_volunteer_assignment_cache
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestVolunteerControllerCoverage(EnhancedTestCase):
@@ -569,3 +570,58 @@ class TestVolunteerSkillSearchHelpers(EnhancedTestCase):
         # Expert (level 5) skill should surface in expert_skills.
         expert_names = [s["volunteer_skill"] for s in insights["expert_skills"]]
         self.assertIn(self.unique_skill, expert_names)
+
+
+class TestVolunteerSkillSelectCoercion(VereningingenTestCase):
+    """
+    skill_category and proficiency_level are Selects, but create_volunteer_from_member
+    copied the caller's values in verbatim — and interested_skills comes from the
+    membership application, so the values are free text. A category outside the
+    options failed the *entire* volunteer creation, not just the one skill row.
+
+    proficiency_level additionally declared a default of "3", which is not one of its
+    own options, so any row saved without an explicit level was rejected too.
+
+    On VereningingenTestCase, not EnhancedTestCase: the latter sets in_import, which
+    skips _validate_selects() and hides both defects.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.verenigingen.doctype.volunteer import volunteer as volunteer_module
+
+        self.create_volunteer_from_member = volunteer_module.create_volunteer_from_member
+
+    def _create(self, interested_skills):
+        member = self.create_test_member()
+        result = self.create_volunteer_from_member(member.name, interested_skills=interested_skills)
+        self.assertTrue(result["success"], result)
+        self.track_doc("Volunteer", result["volunteer_name"])
+        return frappe.get_doc("Volunteer", result["volunteer_name"])
+
+    def test_unknown_category_falls_back_to_other_instead_of_failing_creation(self):
+        volunteer = self._create([{"name": "Vegan baking", "category": "Hospitality"}])
+        self.assertEqual(len(volunteer.skills_and_qualifications), 1)
+        row = volunteer.skills_and_qualifications[0]
+        self.assertEqual(row.volunteer_skill, "Vegan baking")
+        self.assertEqual(row.skill_category, "Other")
+
+    def test_known_category_and_level_are_kept(self):
+        volunteer = self._create([{"name": "Bookkeeping", "category": "Financial", "level": "4 - Advanced"}])
+        row = volunteer.skills_and_qualifications[0]
+        self.assertEqual(row.skill_category, "Financial")
+        self.assertEqual(row.proficiency_level, "4 - Advanced")
+
+    def test_unknown_level_falls_back_to_beginner(self):
+        volunteer = self._create([{"name": "Driving", "category": "Other", "level": "Guru"}])
+        self.assertEqual(volunteer.skills_and_qualifications[0].proficiency_level, "1 - Beginner")
+
+    def test_skill_row_without_a_level_uses_the_declared_default(self):
+        volunteer = self._create(["Poster design"])
+        volunteer.append(
+            "skills_and_qualifications", {"volunteer_skill": "Flyering", "skill_category": "Other"}
+        )
+        volunteer.save()
+        volunteer.reload()
+        row = next(r for r in volunteer.skills_and_qualifications if r.volunteer_skill == "Flyering")
+        self.assertEqual(row.proficiency_level, "3 - Intermediate")
