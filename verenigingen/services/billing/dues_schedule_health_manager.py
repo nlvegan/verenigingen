@@ -246,6 +246,8 @@ class DuesScheduleHealthManager:
             # Set next invoice date
             if billing_frequency == "Daily":
                 dues_schedule.next_invoice_date = add_days(today(), 1)
+            elif billing_frequency == "Weekly":
+                dues_schedule.next_invoice_date = add_days(today(), 7)
             elif billing_frequency == "Monthly":
                 dues_schedule.next_invoice_date = add_months(today(), 1)
             elif billing_frequency == "Quarterly":
