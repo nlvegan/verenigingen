@@ -3115,9 +3115,19 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             self._ensure_required_roles()
 
         except Exception as e:
-            frappe.logger().error(f"Failed to ensure production-ready setup: {str(e)}")
-            # Continue without failing tests
-            pass
+            # Do NOT continue. This block creates the master data that fixtures link
+            # to (company, fiscal year, accounts, the Netherlands territory), and
+            # `frappe.logger()` writes to a log FILE, not stdout -- so swallowing here
+            # produced no CI output at all. The failure then reappeared much later as
+            # a LinkValidationError in an unrelated test, attributed to whichever PR
+            # happened to reshuffle the shards (#291).
+            #
+            # A test that cannot get its master data has not passed; it has not run.
+            # Fail here, where the message still names the actual cause.
+            raise RuntimeError(
+                f"Test master-data setup failed, so fixtures would link to records that "
+                f"do not exist. Fix the setup rather than the downstream test: {e}"
+            ) from e
 
     def _ensure_required_roles(self):
         """
@@ -3596,22 +3606,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                             f"Failed to create parent department {parent_dept_name}: {dept_error}"
                         )
 
-            # Ensure Netherlands territory exists (used by Customer/Supplier tests)
-            if not frappe.db.exists("Territory", "Netherlands"):
-                try:
-                    territory = frappe.get_doc(
-                        {
-                            "doctype": "Territory",
-                            "territory_name": "Netherlands",
-                            "parent_territory": "All Territories",
-                        }
-                    )
-                    territory.insert(ignore_permissions=True)
-                    # NOT tracked: country-level Territory is shared with production
-                    # Customer/Supplier records. Per-method drain MUST NOT delete it.
-                    frappe.logger().info("Created Netherlands territory for tests")
-                except Exception as terr_error:
-                    frappe.logger().warning(f"Failed to create Netherlands territory: {terr_error}")
+            # Netherlands territory (fixtures across this app hardcode it). Owned by
+            # verenigingen.tests.setup so BOTH harnesses get it -- this factory only
+            # runs for EnhancedTestCase, and it used to be the sole creator.
+            from verenigingen.tests.setup import ensure_netherlands_territory
+
+            ensure_netherlands_territory()
 
             # Note: Donation Type DocType was removed from the codebase
 
