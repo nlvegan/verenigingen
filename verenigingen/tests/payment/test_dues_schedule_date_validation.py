@@ -8,8 +8,9 @@ These tests exercise the CURRENT date behaviour of Membership Dues Schedule:
 
 NOTE: The legacy "auto-correct unreasonable next_invoice_date" behaviour and the
 verenigingen.api.test_fixes helper module no longer exist; tests that asserted
-them were removed. "Weekly" is also no longer a valid billing frequency for a
-Membership Dues Schedule (Daily/Monthly/Quarterly/Semi-Annual/Annual/Custom).
+them were removed. The valid billing frequencies are Daily/Weekly/Monthly/
+Quarterly/Semi-Annual/Annual/Custom -- "Weekly" was re-added to the Select in
+PR #280 and is exercised in tests/billing/test_weekly_billing_frequency.py.
 """
 
 import frappe

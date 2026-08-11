@@ -331,6 +331,7 @@
  "verenigingen.tests.backend.workflows.test_suspension_api_import_fallback": 4,
  "verenigingen.tests.backend.workflows.test_volunteer_journey": 1,
  "verenigingen.tests.billing.test_fix_stuck_dues_schedule_api": 6,
+ "verenigingen.tests.billing.test_weekly_billing_frequency": 18,
  "verenigingen.tests.chapter.test_base_manager": 10,
  "verenigingen.tests.chapter.test_board_manager": 29,
  "verenigingen.tests.chapter.test_board_member_validator": 10,

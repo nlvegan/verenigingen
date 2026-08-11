@@ -23,6 +23,8 @@ def _calculate_next_invoice_date(billing_frequency):
     """Calculate next invoice date based on billing frequency"""
     if billing_frequency == "Daily":
         return add_days(today(), 1)
+    elif billing_frequency == "Weekly":
+        return add_days(today(), 7)
     elif billing_frequency == "Monthly":
         return add_months(today(), 1)
     elif billing_frequency == "Quarterly":

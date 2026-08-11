@@ -198,6 +198,42 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         self.assertEqual(dsac._calculate_next_invoice_date("Custom"), add_months(today(), 1))
         self.assertEqual(dsac._calculate_next_invoice_date(None), add_months(today(), 1))
 
+    def test_every_declared_frequency_has_its_own_branch(self):
+        """Assert the branch table against the SCHEMA, not against a hand-written list.
+
+        The enumerated tests above only cover the frequencies someone remembered to
+        add one at a time, so a frequency that is missing from the table is also
+        missing from its test and nothing fails. "Weekly" sat in exactly that hole:
+        it took the `else` and was billed MONTHLY, and the second copy of this same
+        table in dues_schedule_health_manager was additionally missing "Semi-Annual".
+
+        Reading the options off the Select means the next frequency added to the
+        schema cannot fall through unnoticed -- this test fails until the branch
+        exists.
+        """
+        options = frappe.get_meta("Membership Dues Schedule").get_field("billing_frequency").options
+        declared = [o.strip() for o in (options or "").split("\n") if o.strip()]
+        # Guard the guard: if the Select is ever emptied or renamed, an empty list
+        # would make every assertion below vacuous.
+        self.assertIn("Semi-Annual", declared, "billing_frequency Select is not shaped as expected")
+
+        monthly = add_months(today(), 1)
+        # "Custom" carries its interval elsewhere and is documented above as
+        # deliberately falling back to monthly. Every other declared frequency
+        # must produce an interval of its own.
+        falls_back_by_design = {"Monthly", "Custom"}
+        for freq in declared:
+            got = dsac._calculate_next_invoice_date(freq)
+            if freq in falls_back_by_design:
+                self.assertEqual(got, monthly, f"{freq} should use the monthly default")
+            else:
+                self.assertNotEqual(
+                    got,
+                    monthly,
+                    f"{freq!r} is offered by the Select but has no branch in "
+                    f"_calculate_next_invoice_date -- it silently bills monthly",
+                )
+
     # ==================================================================
     # Pure helper: _get_template_dues_rate
     # ==================================================================
