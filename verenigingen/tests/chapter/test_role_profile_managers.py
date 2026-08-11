@@ -164,18 +164,24 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
     
     def cleanup_test_data(self):
         """Remove test data from database"""
+        # Member and Volunteer are autonamed, so they can only be removed under the
+        # name their insert actually produced; create_test_data records it. On the
+        # first call (from setUp, before create_test_data) there is nothing to drop.
+        member_names = [n for n in [getattr(self, "test_member_name", None)] if n]
+        volunteer_names = [n for n in [getattr(self, "test_volunteer_name", None)] if n]
+
         # Delete test data
         test_items = [
             ("Team", ["Test Team Valid", "Test Team No Config", "Test Team Role Specific"]),
             ("Role Profile", ["Test Team Profile", "Test Chair Profile", "Test Member Profile"]),
             ("User", ["test.volunteer@example.com"]),
-            ("Volunteer", ["Test Volunteer"]),
-            ("Member", ["Test Member"])
+            ("Volunteer", volunteer_names),
+            ("Member", member_names)
         ]
 
         # Delete in the listed order (children before masters they link to).
-        # These records use hardcoded primary keys that the factory does not
-        # uniquify, so they must be explicitly removed to avoid PRIMARY-key
+        # The remaining records use hardcoded primary keys that the factory does
+        # not uniquify, so they must be explicitly removed to avoid PRIMARY-key
         # collisions between tests in this class and across re-runs.
         for doctype, names in test_items:
             for name in names:
@@ -248,9 +254,11 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         })
         test_user.insert()
         
+        # Member and Volunteer are autonamed (Assoc-Member-.../Assoc-Vol-...), so a
+        # "name" supplied here is discarded and every link must use the produced
+        # name instead of the string this fixture asked for.
         test_member = frappe.get_doc({
             "doctype": "Member",
-            "name": "Test Member",
             "first_name": "Test",
             "last_name": "Volunteer",
             "email": "test.volunteer@example.com",
@@ -258,14 +266,15 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
             "status": "Active"
         })
         test_member.insert()
-        
+        self.test_member_name = test_member.name
+
         test_volunteer = frappe.get_doc({
             "doctype": "Volunteer",
-            "name": "Test Volunteer",
             "volunteer_name": "Test Volunteer",
-            "member": "Test Member"
+            "member": test_member.name
         })
         test_volunteer.insert()
+        self.test_volunteer_name = test_volunteer.name
     
     def test_get_entity_role_profile_config_valid(self):
         """Test getting role profile config for valid team"""
@@ -359,7 +368,7 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         # Add test volunteer to team using proper parent-child relationship
         team_doc = frappe.get_doc("Team", "Test Team Valid")
         team_doc.append("team_members", {
-            "volunteer": "Test Volunteer",
+            "volunteer": self.test_volunteer_name,
             "team_role": "Team Member",
             "from_date": frappe.utils.today(),
             "status": "Active"

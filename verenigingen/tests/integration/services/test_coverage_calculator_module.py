@@ -56,6 +56,10 @@ class TestCoverageCalculatorCutoffMethod(EnhancedTestCase):
         self._orig_end_day = getattr(self.settings, "book_year_end_day", 31)
 
     def tearDown(self):
+        # Reload first: a test that fails part-way has already written the Single, so
+        # saving the stale in-memory copy raises TimestampMismatchError and masks the
+        # real failure.
+        self.settings.reload()
         self.settings.billing_cutoff_frequency = self._orig_freq
         self.settings.book_year_start_month = self._orig_start
         self.settings.book_year_end_month = self._orig_end_month
@@ -111,9 +115,13 @@ class TestCoverageCalculatorCutoffMethod(EnhancedTestCase):
 
         self.assertEqual(cutoff.day, calendar.monthrange(cutoff.year, cutoff.month)[1])
 
-    def test_unknown_cutoff_frequency_defaults_to_month_end(self):
-        # An unrecognised value should fall through the else branch -> end of month.
-        self._set(billing_cutoff_frequency="Weekly")  # not a handled cutoff value
+    def test_unconfigured_cutoff_frequency_defaults_to_month_end(self):
+        # calculate_cutoff_date_for_period() branches on Monthly/Quarterly/Yearly,
+        # which are exactly the Select's non-empty options -- so the else branch is
+        # reached by the one storable value that matches none of them: the empty
+        # first option, i.e. a site that has not configured the setting. The old
+        # version used "Weekly", which the field cannot hold at all.
+        self._set(billing_cutoff_frequency="")
         calc = CoverageCalculator(None)
         cutoff = getdate(calc.calculate_cutoff_date_for_period())
         today = getdate(frappe.utils.today())

@@ -2,7 +2,7 @@
 # See license.txt
 
 import frappe
-from frappe.utils import now_datetime, add_months, getdate
+from frappe.utils import now_datetime, add_days, add_months, getdate
 from verenigingen.tests.test_utils import BaseTestCase
 import unittest
 
@@ -346,7 +346,9 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
 
         # Should be able to create via API
         from verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot import create_snapshot
-        new_snapshot_name = create_snapshot("Manual")
+        # "Manual" is not a snapshot_type option. Use a different date from the
+        # setUp fixture's, since create_snapshot() rejects a duplicate (date, type).
+        new_snapshot_name = create_snapshot("Daily", add_days(getdate(), -1))
         self.assertTrue(frappe.db.exists("Membership Analytics Snapshot", new_snapshot_name))
 
         # Manager - read only

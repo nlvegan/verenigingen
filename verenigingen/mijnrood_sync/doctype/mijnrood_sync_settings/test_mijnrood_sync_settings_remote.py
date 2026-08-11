@@ -544,7 +544,7 @@ class TestMijnRoodSyncSettingsRemote(EnhancedTestCase):
                 "mijnrood_folder_id": 1,
                 "folder_name": "Notulen",
                 "organization_type": "Chapter",
-                "document_type": "Minutes",
+                "document_type": "Meeting Minutes",
             },
         )
         self.settings.save()

@@ -393,7 +393,7 @@ class TestSEPABatchProcessorIntegration(EnhancedTestCase):
     def test_generate_invoice_description_includes_coverage_and_frequency(self):
         member = self._member_with_membership("1997-08-08")
         schedule = self._sepa_schedule(
-            member.name, billing_frequency="Monthly", contribution_mode="Tier"
+            member.name, billing_frequency="Monthly", contribution_mode="Fixed"
         )
         desc = self.processor.generate_invoice_description(
             schedule, getdate("2026-01-01"), getdate("2026-01-31")

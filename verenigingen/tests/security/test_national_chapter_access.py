@@ -55,12 +55,20 @@ class NationalChapterAccessBase(EnhancedTestCase):
         )
         self.board_volunteer = self.create_test_volunteer(self.board_member.name)
 
-        # Membership-level role -> qualifies for the application-review surfaces.
+        # Admin-level role -> qualifies for the application-review surfaces.
+        #
+        # This said "Membership" until the harness stopped suppressing
+        # _validate_selects(). Chapter Role.permissions_level offers only
+        # Basic/Financial/Admin, so no such role can exist in production -- the value
+        # only ever persisted here because frappe.flags.in_import skipped Select
+        # validation, which made get_user_chapter_access's `level in ("Admin",
+        # "Membership")` arm reachable in tests and nowhere else. "Admin" is the only
+        # level that actually reaches the branch under test.
         self.membership_role = frappe.get_doc(
             {
                 "doctype": "Chapter Role",
                 "role_name": f"Nat Membership {self.token}",
-                "permissions_level": "Membership",
+                "permissions_level": "Admin",
                 "is_active": 1,
             }
         )

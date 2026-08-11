@@ -960,7 +960,8 @@ class TestUpdateExistingDuesSchedule(EnhancedTestCase):
             "billing_frequency": "Monthly",
             "dues_rate": rate,
             "currency": "EUR",
-            "contribution_mode": "Custom",
+            # Fixed is the field's default; "Custom" is a removed pre-v2_0 value.
+            "contribution_mode": "Fixed",
             "minimum_amount": 0,
             "suggested_amount": rate,
         }).insert(ignore_permissions=True)

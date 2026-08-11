@@ -50,7 +50,10 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
             "name",
         )
         self.test_dues_schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-        self.test_dues_schedule.contribution_mode = "Custom"
+        # "Custom" is a removed pre-v2_0 contribution mode; the field offers
+        # Fixed/Income-Based/Flexible. The custom amount is carried by
+        # uses_custom_amount below, and no production branch reads "Custom".
+        self.test_dues_schedule.contribution_mode = "Fixed"
         self.test_dues_schedule.uses_custom_amount = 1
         self.test_dues_schedule.custom_amount_approved = 1
         self.test_dues_schedule.dues_rate = 100.0  # respect membership type minimum

@@ -163,16 +163,19 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         self.assertEqual(len(member_mandates), 1)
         self.assertEqual(member_mandates[0]["name"], mandate.name)
         
-        # Stage 4: Test mandate revocation
+        # Stage 4: Test mandate cancellation. "Revoked"/revocation_date/
+        # revocation_reason are not a status option nor field names on the doctype;
+        # production cancels a mandate the way sepa_mandate_manager.py:745 does.
         with self.as_user(self.admin_user.email):
-            mandate.status = "Revoked"
-            mandate.revocation_date = today()
-            mandate.revocation_reason = "Integration test revocation"
+            mandate.status = "Cancelled"
+            mandate.is_active = 0
+            mandate.cancelled_date = today()
+            mandate.cancellation_reason = "Integration test cancellation"
             mandate.save()
-        
+
         mandate.reload()
-        self.assertEqual(mandate.status, "Revoked")
-        self.assertIsNotNone(mandate.revocation_date)
+        self.assertEqual(mandate.status, "Cancelled")
+        self.assertIsNotNone(mandate.cancelled_date)
         
         # Validate no active mandates remain
         active_mandates = frappe.get_all(

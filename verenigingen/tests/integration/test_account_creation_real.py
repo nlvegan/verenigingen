@@ -89,7 +89,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
             "full_name": self.member.full_name,
             "status": "Queued",
             "business_justification": "Integration test account creation",
-            "priority": "Standard"
+            "priority": "Normal"  # the field offers Low/Normal/High/Urgent
         })
         
         # Add role requests

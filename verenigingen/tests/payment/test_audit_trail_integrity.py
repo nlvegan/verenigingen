@@ -130,7 +130,7 @@ class TestAuditTrailIntegrity(EnhancedTestCase):
         # event_data WITHOUT a previous_hash marker, no chain participation.
         self._make_audit_log_entry(
             event_type="webhook_validation",
-            event_category="Security",
+            event_category="security",  # the Select is lowercase; "Security" is rejected
             description="standalone non-chain entry",
             event_data=json.dumps({"foo": "bar"}),
             severity="info",

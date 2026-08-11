@@ -565,12 +565,18 @@ class TestSEPARetryBatchController(EnhancedTestCase):
         self.assertEqual(batch.total_operations, 0)
 
     def test_validate_operation_requires_type(self):
+        # A new row cannot reach this check: _set_defaults() fills an empty child
+        # Select with its first option on insert, so operation_type is only ever
+        # missing on an existing batch whose value was cleared.
         batch = frappe.new_doc("SEPA Retry Batch")
         batch.batch_date = today()
-        # operation_type omitted -> validate_operations throws.
-        batch.append("operations", {"status": "Pending"})
+        batch.append("operations", {"operation_type": "Other", "status": "Pending"})
+        batch.insert()
+        self.addCleanup(frappe.delete_doc, "SEPA Retry Batch", batch.name, force=True)
+
+        batch.operations[0].operation_type = None
         with self.assertRaises(frappe.ValidationError):
-            batch.insert()
+            batch.save()
 
     def test_validate_invalid_error_category_throws(self):
         batch = frappe.new_doc("SEPA Retry Batch")
