@@ -82,6 +82,16 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             ensure_default_company()
             frappe.flags._test_fiscal_year_ensured = True
 
+        # The "Netherlands" Territory is hardcoded by fixtures throughout this app
+        # and nothing else creates it on a fresh site (hrms's before_tests runs
+        # setup_complete with country="India"). It used to be created only by
+        # EnhancedTestDataFactory, so classes on THIS base never got it and merely
+        # inherited whatever an earlier EnhancedTestCase happened to leave behind.
+        # Cheap: one db.exists once the row is present.
+        from verenigingen.tests.setup import ensure_netherlands_territory
+
+        ensure_netherlands_territory()
+
     @classmethod
     def tearDownClass(cls):
         """Clean up class-level test data"""
