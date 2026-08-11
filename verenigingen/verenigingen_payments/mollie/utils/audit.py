@@ -183,7 +183,7 @@ class MollieAuditLogger:
 
         self._create_audit_log(
             event_type="webhook_received",
-            event_category="webhook",
+            event_category="webhook_processing",
             description="Mollie webhook received",
             data={
                 "webhook_data": (
@@ -206,7 +206,7 @@ class MollieAuditLogger:
         """
         self._create_audit_log(
             event_type="webhook_processed",
-            event_category="webhook",
+            event_category="webhook_processing",
             description=f"Webhook processed: {webhook_id}",
             data={
                 "webhook_id": webhook_id,
@@ -225,7 +225,7 @@ class MollieAuditLogger:
         """
         self._create_audit_log(
             event_type="webhook_error",
-            event_category="webhook",
+            event_category="webhook_processing",
             description=f"Webhook processing error: {error_message}",
             data={
                 "error_message": error_message,
@@ -248,7 +248,7 @@ class MollieAuditLogger:
         """
         self._create_audit_log(
             event_type="webhook_ping",
-            event_category="webhook",
+            event_category="webhook_processing",
             description="Mollie webhook ping received",
             data={"ping_data": ping_data, "test_mode": ping_data.get("test_mode", True)},
         )
