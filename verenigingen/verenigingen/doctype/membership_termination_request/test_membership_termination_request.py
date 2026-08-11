@@ -33,7 +33,12 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
             member_since=add_months(today(), -12),
         )
 
-        # Create test membership type
+        # Create test membership type. enforce_minimum_period is off: it defaults to 1,
+        # which makes set_commitment_end_date() put commitment_end_date 12 months after
+        # the membership start, and validate_commitment_period() then refuses to
+        # terminate before that date. These tests are about the termination workflow,
+        # not the welcome-gift commitment rule (covered by
+        # tests/member/test_membership_commitment_period.py).
         if not frappe.db.exists("Membership Type", "Test Termination Type"):
             self.test_membership_type = frappe.get_doc(
                 {
@@ -43,17 +48,19 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
                     "currency": "EUR",
                     "billing_period": "Annual",
                     "is_active": 1,
+                    "enforce_minimum_period": 0,
                 }
             )
             self.test_membership_type.insert()
         else:
-            # Ensure the pre-existing type is active for membership creation
+            # Ensure the pre-existing type is active and unconstrained for membership
+            # creation (a type left behind by an older run still enforces the period).
             self.test_membership_type = frappe.get_doc("Membership Type", "Test Termination Type")
-            if not self.test_membership_type.is_active:
+            if not self.test_membership_type.is_active or self.test_membership_type.enforce_minimum_period:
                 self.test_membership_type.is_active = 1
+                self.test_membership_type.enforce_minimum_period = 0
                 self.test_membership_type.save()
 
-        # Create test membership
         self.test_membership = frappe.get_doc(
             {
                 "doctype": "Membership",
