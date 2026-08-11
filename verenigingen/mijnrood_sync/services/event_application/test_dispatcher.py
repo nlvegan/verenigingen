@@ -282,15 +282,32 @@ class TestApplyEventGuards(TestDispatcherBase):
             pass
         frappe.db.commit()
 
-    def test_unknown_event_type_returns_failure(self):
-        # event_type is a Select field; build a valid doc then poke a bad value
-        # straight onto the loaded doc the service reads (bypassing validation).
-        ev = self._make_event("New", "admin_member", new_data={"id": _next_id()})
-        ev.approve()
-        frappe.db.set_value("MijnRood Sync Event", ev.name, "event_type", "Frobnicate")
-        result = get_event_application_service().apply_event(ev.name)
-        self.assertFalse(result["success"])
-        self.assertIn("Unknown event type", result["message"])
+    def test_every_event_type_option_has_a_dispatch_branch(self):
+        """apply_event()'s "Unknown event type" guard cannot be reached by a document.
+
+        event_type is a required Select, so a persisted event always carries one of
+        its declared options; and the guard's own failure path calls event.save(),
+        which would itself be rejected for a value the Select does not accept. The
+        old test only reached the guard by writing "Frobnicate" past validation with
+        db.set_value, which in_import then let the recording save through.
+
+        What the guard is really there for is an option gaining no handler, so assert
+        that invariant directly instead: it fails the moment someone adds a fifth
+        event_type without extending the dispatch chain.
+        """
+        import inspect
+        import re
+
+        source = inspect.getsource(type(get_event_application_service()).apply_event)
+        handled = set(re.findall(r'event\.event_type == "([^"]+)"', source))
+        self.assertTrue(handled, "dispatch chain moved; update this test")
+
+        declared = [
+            option.strip()
+            for option in frappe.get_meta("MijnRood Sync Event").get_field("event_type").options.split("\n")
+            if option.strip()
+        ]
+        self.assertEqual(set(declared), handled)
 
 
 class TestDispatchRouting(TestDispatcherBase):
