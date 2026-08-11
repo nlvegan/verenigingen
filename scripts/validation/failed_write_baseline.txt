@@ -1,0 +1,153 @@
+# Known failed-write swallows -- the ratchet baseline for
+# scripts/validation/failed_write_validator.py. Format:
+#     <path>::<qualified function>::<number of sites>
+#
+# A site is a broad `except` over a try body that WRITES TO THE DATABASE,
+# where the failure never reaches the caller: the row is silently lost and
+# the operation reports success. PR #280 found nine production defects of
+# this shape at once, three of which had never worked in any deployment.
+#
+# A run reports only a site NOT covered here, or an extra site in a function
+# already listed. Line numbers are deliberately absent -- they rot on any
+# edit above them.
+#
+# This file should only ever SHRINK. Do not regenerate it to make a new
+# finding go away; either make the failure reach the caller or mark it
+# `# failed-write-ok: <reason>`. The one legitimate reason it may GROW is a
+# change to the validator's own detection rules, which must land in the same
+# commit as the regeneration.
+#
+# Totals at generation: 162 sites across 132 functions -- LOOP_CONTINUES 5, RETURNS_TRUTHY 16, FALLS_THROUGH 141
+
+scripts/cleanup/robust_cleanup_all_data.py::robust_cleanup_all_imported_data::1
+scripts/debug/board/debug_board_addition.py::debug_board_addition_flow::1
+scripts/debug/chapter/bench_debug_chapter.py::debug_parko_issue::1
+scripts/debug/fix_expense_claim_accounts.py::create_missing_expense_accounts::1
+scripts/debug/fix_expense_claim_accounts.py::setup_company_expense_defaults::2
+scripts/debug/fix_expense_claim_accounts.py::setup_expense_claim_type_accounts::1
+scripts/generate_test_database.py::PersistentTestDataGenerator.cleanup_test_data::1
+scripts/generate_test_database.py::PersistentTestDataGenerator.generate_version_tracking_test_data::1
+scripts/migration/add_member_field_to_sales_invoice.py::populate_existing_invoices::1
+scripts/migration/consolidate_chapter_roles.py::migrate_chapter_roles::4
+scripts/migration/create_actual_item_mappings.py::create_actual_failing_mappings::2
+scripts/migration/create_missing_item_mappings.py::create_common_item_mappings::2
+scripts/migration/migrate_to_native_expense_system.py::cleanup_department_hierarchy::1
+scripts/migration/migrate_to_native_expense_system.py::ensure_board_members_have_approver_roles::1
+scripts/migration/migrate_to_native_expense_system.py::update_employee_approvers::1
+scripts/migration/migration_commands.py::migrate_data::1
+scripts/monitoring/zabbix_integration.py::log_alert::1
+scripts/rollback/phase2_2_rollback.py::Phase22RollbackManager._clear_background_job_queues::1
+scripts/rollback/rollback_manager.py::RollbackManager.drop_performance_indexes::1
+scripts/setup/configure_role_profiles.py::main::1
+scripts/setup/create_all_email_templates.py::create_comprehensive_email_templates::2
+scripts/setup/deploy_role_profiles.py::deploy_module_profiles::1
+scripts/setup/deploy_role_profiles.py::deploy_role_profiles_from_file::1
+scripts/setup/deploy_role_profiles.py::link_module_profiles::1
+scripts/setup/migrate_role_profile_configuration.py::migrate_chapter_configurations::1
+scripts/setup/migrate_role_profile_configuration.py::migrate_team_configurations::1
+scripts/setup/migrate_role_profile_configuration.py::setup_example_team::1
+scripts/setup/setup_department_hierarchy.py::rollback_departments::1
+scripts/setup/setup_policy_expenses.py::setup_policy_covered_expenses::1
+scripts/validate_secure_account_creation.py::validate_account_creation_integration::1
+verenigingen/api/admin_membership_operations.py::migrate_active_application_status::1
+verenigingen/api/email_template_manager.py::create_comprehensive_email_templates::1
+verenigingen/api/mollie_payment.py::update_mollie_bank_account::2
+verenigingen/api/payment_plan_management.py::initiate_installment_payment::1
+verenigingen/api/sepa_phantom_hash_admin.py::retry_phantom_attachment::1
+verenigingen/e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py::import_opening_balances_only::1
+verenigingen/e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py::import_single_mutation::4
+verenigingen/e_boekhouden/utils/cleanup_utils.py::cleanup_cancelled_payment_gl_entries::1
+verenigingen/e_boekhouden/utils/eboekhouden_cost_center_fix.py::create_cost_center_safe::1
+verenigingen/e_boekhouden/utils/eboekhouden_cost_center_fix.py::fix_cost_center_groups::1
+verenigingen/e_boekhouden/utils/eboekhouden_improved_item_naming.py::_ensure_item_group_exists::1
+verenigingen/e_boekhouden/utils/eboekhouden_improved_item_naming.py::get_or_create_item_improved::2
+verenigingen/e_boekhouden/utils/eboekhouden_improved_item_naming.py::migrate_existing_items::1
+verenigingen/e_boekhouden/utils/invoice_helpers.py::create_customer_from_relation::1
+verenigingen/e_boekhouden/utils/invoice_helpers.py::get_or_create_payment_terms::1
+verenigingen/e_boekhouden/utils/security_helper.py::batch_insert::1
+verenigingen/e_boekhouden/utils/uom_manager.py::UOMManager._ensure_uom_exists::1
+verenigingen/email/email_group_sync.py::add_to_email_group::1
+verenigingen/email/email_group_sync.py::create_initial_email_groups::2
+verenigingen/fix_test_issues.py::analyze_test_failures::1
+verenigingen/mijnrood_sync/services/event_application/related_records_orchestrator.py::MijnRoodRelatedRecordsOrchestrator._ensure_address::1
+verenigingen/mijnrood_sync/services/event_application/volunteer_sync_service.py::MijnRoodVolunteerSyncService._ensure_chapter_board_membership::1
+verenigingen/mijnrood_sync/services/event_application/volunteer_sync_service.py::MijnRoodVolunteerSyncService._ensure_team_membership::1
+verenigingen/mijnrood_sync/services/polling_service.py::MijnRoodPollingService._run_sync_locked::2
+verenigingen/patches/v1_0/add_membership_analytics.py::create_default_alert_rules::1
+verenigingen/patches/v2_0/migrate_membership_type_billing_to_dues_schedule.py::execute::2
+verenigingen/patches/v2_0/migrate_team_role_integration.py::ensure_team_roles_exist::1
+verenigingen/patches/v2_0/remove_membership_legacy_fields.py::handle_membership_type_templates::1
+verenigingen/patches/v2_1/cleanup_duplicate_dues_schedule_templates.py::execute::1
+verenigingen/patches/v2_2/drop_orphan_volunteer_doctype_rows.py::execute::1
+verenigingen/repositories/dues_schedule_repository.py::DuesScheduleRepository.cancel_schedule::1
+verenigingen/security_validation_test.py::test_security_improvements::1
+verenigingen/services/approval/contribution_amendment_approval_service.py::ContributionAmendmentApprovalService.cancel_conflicting_amendments::1
+verenigingen/services/billing/dues_schedule_auto_creator.py::auto_create_missing_dues_schedules_enhanced::1
+verenigingen/services/chapter/chapter_assignment_service.py::ChapterAssignmentService._cleanup_board_memberships::1
+verenigingen/services/chapter/chapter_assignment_service.py::ChapterAssignmentService._cleanup_chapter_memberships::1
+verenigingen/services/csv_import/member_import_service.py::MemberImportService._create_new_member::1
+verenigingen/services/csv_import/member_import_service.py::MemberImportService._update_existing_member::1
+verenigingen/services/donation/donor_service.py::DonationDonorService.get_or_create_from_public_form::1
+verenigingen/services/member/account/account_creation_api.py::process_bulk_account_creation_batch::1
+verenigingen/services/member/approval/application_helpers.py::ensure_payment_modes_exist::1
+verenigingen/services/member/approval/member_approval_service.py::create_member_iban_history::1
+verenigingen/services/member/approval/member_approval_service.py::resolve_membership_type::1
+verenigingen/services/member/donor/donor_auto_creation.py::create_donor_from_customer::1
+verenigingen/services/member/lifecycle/member_cleanup_service.py::MemberCleanupService.handle_member_deletion::6
+verenigingen/services/member_merge_service.py::MemberMergeService._delete_source_member_and_dependencies::3
+verenigingen/services/mollie_debug_service.py::MollieDebugService.admin_revoke_mandate::2
+verenigingen/services/termination/termination_execution_service.py::TerminationExecutionService._handle_error::1
+verenigingen/services/termination/termination_integration.py::end_board_positions_safe::1
+verenigingen/services/termination/termination_integration.py::restore_team_memberships_safe::1
+verenigingen/services/termination/termination_integration.py::suspend_team_memberships_safe::2
+verenigingen/services/volunteer/bulk_volunteer_creation_service.py::BulkVolunteerCreationService._create_volunteer_for_member::1
+verenigingen/setup/__init__.py::create_application_email_templates::2
+verenigingen/setup/__init__.py::create_default_membership_types::1
+verenigingen/setup/__init__.py::create_default_payment_modes::1
+verenigingen/setup/__init__.py::create_default_regions::1
+verenigingen/setup/__init__.py::create_default_team_roles::1
+verenigingen/setup/__init__.py::create_default_teams::1
+verenigingen/setup/__init__.py::create_membership_items::2
+verenigingen/setup/__init__.py::ensure_prerequisites::3
+verenigingen/setup/__init__.py::install_and_link_onboarding::1
+verenigingen/setup/__init__.py::load_application_fixtures::1
+verenigingen/setup/__init__.py::setup_email_templates::2
+verenigingen/setup/__init__.py::setup_termination_roles_and_permissions::1
+verenigingen/setup/add_settings_fields.py::add_missing_email_settings_fields::1
+verenigingen/setup/role_profile_setup.py::setup_role_profiles::1
+verenigingen/setup/role_profile_setup.py::setup_role_profiles_cli::1
+verenigingen/setup/workflow_setup.py::setup_workflows_corrected::1
+verenigingen/tasks/address_optimization.py::cleanup_orphaned_address_data::1
+verenigingen/utils/account_group_project_framework.py::setup_nvv_default_mappings::1
+verenigingen/utils/document_save_retry.py::save_with_rollback::1
+verenigingen/utils/migration/stock_migration.py::StockTransactionMigrator.get_or_create_migration_item_group::1
+verenigingen/utils/migration/stock_migration_warehouse_fix.py::clean_duplicate_migration_warehouses::1
+verenigingen/utils/orphaned_child_table_cleanup.py::_batch_delete_orphans::1
+verenigingen/utils/settings_utils.py::get_payments_settings::1
+verenigingen/verenigingen/doctype/account_group_project_mapping/account_group_project_mapping.py::setup_default_mappings::1
+verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py::process_pending_amendments::1
+verenigingen/verenigingen/doctype/member/member_id_manager.py::MemberIDManager.get_next_member_id::1
+verenigingen/verenigingen/doctype/member/scheduler.py::refresh_all_member_financial_histories::1
+verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py::send_follow_up_reminders::1
+verenigingen/verenigingen/doctype/member_import/member_import.py::MemberImport._create_addresses::1
+verenigingen/verenigingen/doctype/membership/membership.py::Membership.create_or_update_dues_schedule::1
+verenigingen/verenigingen/doctype/membership/membership.py::Membership.on_trash::1
+verenigingen/verenigingen/doctype/membership/membership.py::process_membership_statuses::1
+verenigingen/verenigingen/doctype/membership/scheduler.py::_process_expired_memberships_impl::1
+verenigingen/verenigingen/doctype/membership_type/membership_type.py::MembershipType.update_dues_schedule_template::1
+verenigingen/verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py::process_import_background::1
+verenigingen/verenigingen_payments/api/dd_batch_optimizer.py::create_dd_batch_document::1
+verenigingen/verenigingen_payments/doctype/direct_debit_batch/sepa_processor.py::_create_monthly_dues_collection_batch_impl::1
+verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::PaymentPlan.cancel_plan::1
+verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::process_failed_payment::1
+verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._resolve_customer_by_email::1
+verenigingen/verenigingen_payments/mollie/services/dues_payment_processor.py::DuesPaymentProcessor._get_or_create_dues_item::1
+verenigingen/verenigingen_payments/mollie/services/webhook_wrapper_service_unified.py::UnifiedWebhookWrapperService._process_pending_refunds::1
+verenigingen/verenigingen_payments/mollie/services/webhook_wrapper_service_unified.py::UnifiedWebhookWrapperService.process_reversal_webhook::1
+verenigingen/verenigingen_payments/ponto/api/webhook_handlers.py::_process_executed_payment::1
+verenigingen/verenigingen_payments/ponto/services/oauth2_service.py::PontoOAuth2Service._store_tokens::1
+verenigingen/verenigingen_payments/ponto/services/oauth2_service.py::PontoOAuth2Service.revoke_tokens::1
+verenigingen/verenigingen_payments/ponto/utils/token_manager.py::PontoTokenManager._fetch_new_token::1
+verenigingen/verenigingen_payments/services/settlement_bank_transaction_processor.py::SettlementBankTransactionProcessor._link_payment_entries::2
+verenigingen/verenigingen_payments/templates/pages/mollie_checkout.py::make_payment::1
+verenigingen/verenigingen_payments/utils/payment_gateways.py::_activate_direct_subscription_after_first_payment::1
