@@ -3108,6 +3108,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # ENHANCED FIXTURE LOADING: Load all essential fixtures
             self._load_essential_fixtures()
 
+            # The Netherlands territory is created FIRST and independently of
+            # _ensure_master_data. It used to live near the end of that method, so
+            # any earlier failure in there (company, fiscal year, accounts) skipped
+            # it -- and _ensure_master_data swallows its own exceptions, so the skip
+            # never propagated to the handler below. The territory has no dependency
+            # on any of that; only on the "All Territories" root.
+            from verenigingen.tests.setup import ensure_netherlands_territory
+
+            ensure_netherlands_territory()
+
             # Ensure master data exists
             self._ensure_master_data()
 
@@ -3618,9 +3628,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # NO COMMIT - Test framework manages transactions automatically
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create test master data: {str(e)}")
-            # Don't fail tests due to master data creation issues
-            pass
+            # Do NOT swallow. This is the inner half of the same defect fixed one
+            # level up in #295: that change made _ensure_production_ready_setup
+            # raise, but THIS handler caught first, so a failure here still skipped
+            # the rest of the method silently and nothing propagated. The symptom
+            # was `LinkValidationError: Could not find Territory: Netherlands` in
+            # whichever test built a Customer first (#291) -- a full level away from
+            # the cause, and with the cause itself written only to a log file.
+            raise RuntimeError(
+                f"Test master data could not be created, so fixtures would link to "
+                f"records that do not exist: {e}"
+            ) from e
 
     def unique_name(self, base: str) -> str:
         """Make any test name unique by appending the test's uid.
