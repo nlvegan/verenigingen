@@ -439,7 +439,9 @@ class TestCreateVolunteerFromMember(EnhancedTestCase):
         member = self.create_test_member()
         skills = [
             {"name": "Welding", "category": "Technical", "level": "4 - Advanced"},
-            {"skill": "Cooking", "category": "Hospitality"},
+            # "Hospitality" is not a skill_category option, and the category is
+            # copied verbatim from the caller, so it would fail the whole create.
+            {"skill": "Cooking", "category": "Other"},
         ]
         with self.assertNoErrorLog():
             result = self.create_volunteer_from_member(member.name, interested_skills=skills)
