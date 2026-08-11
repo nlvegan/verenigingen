@@ -397,3 +397,50 @@ class TestCapturedInsertDrain(EnhancedTestCase):
         frappe.db.set_value("System Settings", "System Settings", "language", "en")
         new = [k for k in self._captured_inserts if k not in before]
         self.assertEqual(new, [], "Singles set_value must not be captured as an insert")
+
+
+class TestFactoryExistsBeforeMasterDataSetup(EnhancedTestCase):
+    """Pin the setUp ordering contract that hid a nine-month-old failure.
+
+    `_ensure_production_ready_setup()` reaches `_get_or_create_income_account` and
+    `_ensure_company_cost_center`, both of which call `self.factory.track_document()`.
+    `self.factory` was assigned AFTER that call, so on the first EnhancedTestCase
+    test of a shard process -- the only one that finds the income account missing --
+    setUp raised AttributeError. `_ensure_master_data` swallowed it and aborted,
+    skipping the rest of the master data including the Netherlands territory, which
+    then surfaced as `LinkValidationError: Could not find Territory: Netherlands` in
+    whichever unrelated test built a Customer first (#291).
+
+    Asserting on the ordering rather than on the symptom: the symptom only appears
+    on a fresh site, which is why this went unnoticed for nine months.
+    """
+
+    def test_factory_is_available_to_master_data_setup(self):
+        """The factory must exist by the time master-data setup runs."""
+        seen = {}
+        original = type(self)._ensure_production_ready_setup
+
+        def spy(inner_self):
+            seen["had_factory"] = hasattr(inner_self, "factory")
+            return original(inner_self)
+
+        # Drive a second setUp on a throwaway instance of this same class, with
+        # _ensure_production_ready_setup instrumented, so we observe the real
+        # ordering rather than re-implementing it.
+        probe = type(self)(self._testMethodName)
+        type(self)._ensure_production_ready_setup = spy
+        try:
+            probe.setUp()
+        finally:
+            type(self)._ensure_production_ready_setup = original
+            try:
+                probe.tearDown()
+            except Exception:
+                pass
+
+        self.assertTrue(
+            seen.get("had_factory"),
+            "self.factory must be assigned BEFORE _ensure_production_ready_setup(); "
+            "without it, master-data setup dies on AttributeError and silently "
+            "skips the rest of the master data",
+        )

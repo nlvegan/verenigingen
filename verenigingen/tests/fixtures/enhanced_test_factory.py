@@ -1999,10 +1999,19 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         self.ensure_test_user_has_role("System Manager")
         self.ensure_test_user_has_role("Verenigingen Administrator")
 
+        # The factory MUST exist before _ensure_production_ready_setup(): that call
+        # reaches _get_or_create_income_account / _ensure_company_cost_center, which
+        # call self.factory.track_document(). Assigning it afterwards raised
+        # AttributeError on the FIRST EnhancedTestCase test of every shard process
+        # (the only one that finds the income account missing). _ensure_master_data
+        # swallowed it, aborting before the rest of the master data -- including the
+        # Netherlands territory -- was created. Latent since 2dbea04e (2025-11-20);
+        # surfaced as `Could not find Territory: Netherlands` in whichever test built
+        # a Customer first (#291).
+        self.factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
+
         # Ensure required system settings and master data exist
         self._ensure_production_ready_setup()
-
-        self.factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
 
         # Unique identifier for this test instance (microsecond precision)
         # Use this to make test data unique and prevent Customer/Member name collisions
@@ -4414,7 +4423,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             income_group.report_type = "Profit and Loss"
             income_group.is_group = 1
             income_group.save()
-            self.factory.track_document("Account", income_group.name, priority=1)
+            self.factory.track_document("Account", income_group.name, priority=-1)
             income_parent = income_group.name
 
         # Create new income account under proper parent
@@ -4427,7 +4436,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         account.report_type = "Profit and Loss"
         account.is_group = 0
         account.save()
-        self.factory.track_document("Account", account.name, priority=1)
+        # priority=-1, not 1: these are SHARED master data created once per site, not
+        # per-test fixtures. _drain_tracked_documents force-deletes everything with
+        # priority >= 0 on every tearDown, so tracking them at 1 would delete the
+        # company's income accounts out from under the next test -- and this method
+        # only runs when the account is missing, so it would recreate and re-delete
+        # them on a loop. See the priority contract in _drain_tracked_documents.
+        self.factory.track_document("Account", account.name, priority=-1)
         return account.name
 
     def _get_or_create_receivable_account(self, company):
@@ -4981,7 +4996,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 root_cc.is_group = 1
                 root_cc.parent_cost_center = ""
                 root_cc.insert()
-                self.factory.track_document("Cost Center", root_cc.name, priority=1)
+                self.factory.track_document("Cost Center", root_cc.name, priority=-1)
                 parent_cc = root_cc.name
             else:
                 parent_cc = root_name
@@ -4993,7 +5008,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         cc.parent_cost_center = parent_cc
         cc.is_group = 0
         cc.insert()
-        self.factory.track_document("Cost Center", cc.name, priority=1)
+        self.factory.track_document("Cost Center", cc.name, priority=-1)
         return cc.name
 
     def _ensure_test_item(self, item_code):
