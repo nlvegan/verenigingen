@@ -11,7 +11,7 @@ not predict.
 
 ## 0. State at handoff
 
-`develop` is at `03b9d8f1`. The working tree — which is the veg11 deploy — is clean and
+`develop` is at `7195fae5`. The working tree — which is the veg11 deploy — is clean and
 current.
 
 | PR | What | State |
@@ -19,14 +19,21 @@ current.
 | #282 | previous handoff (worktree hooks + in_import triage) | MERGED `9f29fd26` |
 | #288 | previous handoff (Select-field bug class) | MERGED `90389858` |
 | #292 | failed-write ratchet: new validator, baseline, advisory hook | MERGED `03b9d8f1` |
-| #289 | Weekly + Semi-Annual billing frequency | **OPEN**, CI running |
+| #295 | own the Netherlands territory; stop swallowing setup failures | MERGED `197567f2` |
+| #298 | **the real root cause** — factory assigned before master-data setup | MERGED `a21770da` |
+| #289 | Weekly + Semi-Annual billing frequency | MERGED `7195fae5` |
 | #293 | retire the dead membership-type billing migration | **OPEN** |
+| #294 | this handoff | **OPEN** |
+| #296 | teach the swallow ratchet this repo's own error helpers | **OPEN** |
 
-New issues: **#290** (Mollie recurring e2e), **#291** (shard order-dependence).
+New issues: **#290** (Mollie recurring e2e), **#291** (shard reshuffle / root cause),
+**#297** (`_propagates()` gap in the new guard), **#299** (harness borrows a Company and
+deletes its chart of accounts).
 
-Remote branches went from 84 to 13. A restore script for every deleted branch
-(`git push origin <sha>:refs/heads/<name>`, 72 entries) is in the session scratchpad —
-copy it somewhere durable if that matters.
+Remote branches went from 84 to 12; local branches from 108 to ~18. Restore scripts for
+every deleted branch and local ref (`git push origin <sha>:refs/heads/<name>`) are in the
+session scratchpad — **copy them somewhere durable if that matters**, they are the only
+record of the deleted SHAs.
 
 ---
 
@@ -185,6 +192,75 @@ until today. `fix/edge-session-user-patch` was deliberately rejected (PR #76 clo
 
 ---
 
+## 5b. The shard-1 failure: three wrong answers before the right one
+
+§4 said the reshuffle "exposed pre-existing order-dependent failures". That was the first
+of **three** explanations, and the first two were symptoms. The sequence is worth reading
+in full, because the failure mode was the same each time: *a plausible cause that the
+evidence also fit.*
+
+**Answer 1 — test pollution.** Wrong. Nothing corrupts anything.
+
+**Answer 2 — a hidden inter-test dependency.** `test_sales_invoice_hooks` hardcodes
+`territory="Netherlands"` and never creates it; nothing else creates it either, because
+the only `before_tests` hook on this bench is hrms's, which runs
+`setup_complete(country="India")`. Closer, and #295 shipped on this basis: single owner
+`ensure_netherlands_territory()`, wired into both harnesses, and
+`_ensure_production_ready_setup` made to **raise** instead of swallow.
+
+**#295 did not work.** `_ensure_master_data` has its *own* trailing `except Exception`
+that logs and returns. It catches first, so the outer raise was unreachable. #289
+reproduced the identical error afterwards. Fixing only the outer layer of a stack of
+swallows is precisely the trap this repo already documented.
+
+**Answer 3 — the actual cause.** `EnhancedTestCase.setUp` called
+`_ensure_production_ready_setup()` at `:2003` but assigned `self.factory` at `:2005`. That
+call reaches `_get_or_create_income_account` and `_ensure_company_cost_center`, both of
+which call `self.factory.track_document()` — so it raised `AttributeError` on the **first
+`EnhancedTestCase` test of every shard process**, the only one that finds the income
+account missing. `_ensure_master_data` swallowed it and aborted, skipping the rest of the
+master data including the territory.
+
+**Latent since `2dbea04e` (2025-11-20): for nine months the first `EnhancedTestCase` test
+in every shard ran with no master data at all.**
+
+Fixed in #298, which also had to track four shared master-data records at `priority=-1`:
+`_drain_tracked_documents` force-deletes anything `>= 0` every tearDown, so moving the
+factory earlier *without* that would have deleted the company's income accounts and cost
+centers out from under the next test, on a loop.
+
+Two things about how this was found:
+
+- **A skeptical review found it, not me.** My two attempts both treated symptoms. The
+  review read the code and measured `self.factory` missing with a probe.
+- **The `raise` is what made it findable.** #298's first CI run went red on all 12 shards
+  with `'…' object has no attribute 'factory'` — the swallow's removal converted an
+  invisible nine-month skip into a diagnosable failure in one run. A red CI run was the
+  most valuable output of the evening.
+
+## 5c. Process failures worth not repeating
+
+Three of these cost real time and none were code bugs.
+
+**A three-dot diff cannot answer "did this branch land?"** `git diff develop...branch`
+shows a branch's own changes whether or not they already landed, so it called three
+fully-merged branches "live". `git cherry` compares by **patch-id**: `+` = not upstream,
+`-` = an equivalent patch is already in. Stacked PRs that landed rewritten still show `+`,
+so confirm those **by content**.
+
+**A CI monitor can report a false verdict from stale data.** A watcher polling
+`statusCheckRollup` saw zero pending and two failures and announced "run complete" — while
+GitHub was still serving the *previous* commit's checks. Catching it needed comparing the
+failing job's timestamp against the head SHA. Any such watcher must pin to the expected
+head SHA **and** require the full shard count before concluding. Note the irony: this is
+the same defect class as the bug being chased — success reported on state never observed.
+
+**A PR can be closed out from under you and look identical to a stalled one.** #289 was
+closed unmerged at `21:26:52Z`; pushes to its branch then triggered only Pylint, because
+every other workflow is gated on a `pull_request` event. Diagnosis was `gh api
+.../pulls/289 --jq .state`. Reopening restored the head and triggered the full suite.
+**Check `state` before diagnosing "CI isn't running".**
+
 ## 6. Rules this session produced
 
 1. **A green swallow ratchet says nothing about failed writes.** §1.
@@ -200,16 +276,36 @@ until today. `fix/edge-session-user-patch` was deliberately rejected (PR #76 clo
    for the case nobody added. §3.
 6. **A new test file perturbs every shard.** Give it a `test_timings.json` entry, and do
    not attribute a reshuffle's failures to the diff that triggered it. §4.
+7. **Fix the innermost swallow, not the first one you find.** They come in stacks here.
+   After changing one, prove the failure now propagates rather than assuming it. §5b.
+8. **A plausible explanation that fits the evidence is not a root cause.** Three
+   successive explanations fit every observation and the first two were wrong. Ask what
+   the code *must* do, not what would account for the symptom. §5b.
+9. **Making a silent failure loud is progress even when CI goes redder.** #298's 12-shard
+   red run was the single most informative event of the session. §5b.
+10. **Verify a monitor's verdict against the head SHA before acting on it.** §5c.
 
 ---
 
 ## 7. Open threads
 
-- **#289** — CI running on `832875f9`/`6c957e36`. A different set of order-dependent
-  failures is a plausible outcome of the re-rolled split; that is §4, not a regression.
 - **#293** — ready; re-verified against today's `develop` (successor patch present at
-  `patches.txt:46`, merges clean, no lingering references).
-- **#291** — the order-dependence itself. The higher-value of the two test findings.
+  `patches.txt:46`, merges clean, no lingering references). Its own analysis is better
+  than §2's: the patch could only ever have been a **silent no-op**, established from the
+  code rather than from veg11's data.
+- **#296** — ready and verified against today's tree: its baseline is not stale (validator
+  exits 0), its 32 tests pass, and #292's 30 still pass alongside. Pushed with
+  `SKIP=test-quality-enforcer`, which flagged **pre-existing** violations in a file the
+  branch does not touch; see the note in the PR body.
+- **#297** — `_propagates()` in the new failed-write guard knows only `raise`/`frappe.throw`,
+  so it does not know `handle_error`/`handle_service_error` re-raise by default. Its
+  162-site baseline likely contains false positives. **Resolve before `--strict`.**
+- **#299** — the harness borrows an arbitrary Company (`get_all(..., limit=1)`, no
+  `order_by`) and deletes its chart of accounts. Note honestly: **removing the swallow
+  made this more reachable**, since that path used to abort early on the `AttributeError`.
+- **#291** — the reshuffle trigger is unchanged and still real; only the thing it exposed
+  is fixed. **Round 1's six failures were never root-caused** — they went green when the
+  split changed. Do not assume the factory bug explains them.
 - **#290** — Mollie recurring e2e. Note the constraint that shapes it: SEPA DD with a test
   key stays `pending` with no success callback, so the test must drive **credit card**
   with `Recurring`; a SEPA-DD test would hang or pass vacuously.
@@ -218,3 +314,8 @@ until today. `fix/edge-session-user-patch` was deliberately rejected (PR #76 clo
 - **`Custom` still falls back to monthly** in `_calculate_next_invoice_date`. Left
   deliberately (a Custom frequency plausibly carries its own interval); the new invariant
   test now pins that as intentional rather than accidental.
+- **A shard-replication helper is worth committing.** Recomputing the LPT split locally
+  (walk `get_all_tests()`, weight from `test_timings.json`, LPT into N bins, print bin K)
+  turned "which tests share this shard, and in what order?" from guesswork into a
+  five-minute answer, and is what showed the failing file had moved to **position 1**.
+  It currently exists only in a session scratchpad.
