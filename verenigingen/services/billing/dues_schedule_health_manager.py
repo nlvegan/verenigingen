@@ -8,7 +8,7 @@ Member records, Membership records, and Membership Dues Schedule records.
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_months, add_years, getdate, today
+from frappe.utils import getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
@@ -222,6 +222,9 @@ class DuesScheduleHealthManager:
 
         try:
             # Create dues schedule
+            from verenigingen.services.billing.dues_schedule_auto_creator import (
+                _calculate_next_invoice_date,
+            )
             from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
             member_doc = frappe.get_doc("Member", member_name)
@@ -243,17 +246,11 @@ class DuesScheduleHealthManager:
             dues_schedule.contribution_mode = "Fixed"
             dues_schedule.auto_generate = 1
 
-            # Set next invoice date
-            if billing_frequency == "Daily":
-                dues_schedule.next_invoice_date = add_days(today(), 1)
-            elif billing_frequency == "Monthly":
-                dues_schedule.next_invoice_date = add_months(today(), 1)
-            elif billing_frequency == "Quarterly":
-                dues_schedule.next_invoice_date = add_months(today(), 3)
-            elif billing_frequency == "Annual":
-                dues_schedule.next_invoice_date = add_years(today(), 1)
-            else:
-                dues_schedule.next_invoice_date = add_months(today(), 1)  # Default to monthly
+            # Set next invoice date. Delegated rather than re-branched here: this
+            # was a second copy of the same table and it had already drifted --
+            # it was missing Semi-Annual, so a Semi-Annual schedule reconstructed
+            # by the health check was billed one MONTH out instead of six.
+            dues_schedule.next_invoice_date = _calculate_next_invoice_date(billing_frequency)
 
             dues_schedule.notes = (
                 f"Reconstructed via health check on {today()} from source: {dues_data['source']}"

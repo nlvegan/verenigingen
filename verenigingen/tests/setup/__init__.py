@@ -286,6 +286,7 @@ def ensure_erpnext_base_masters():
     once seeded.
     """
     if frappe.db.exists("Territory", "All Territories"):
+        ensure_netherlands_territory()
         return
 
     import erpnext.tests.utils  # noqa: F401  (module-level BootStrapTestData() runs on import)
@@ -304,6 +305,41 @@ def ensure_erpnext_base_masters():
     # set_defaults_for_tests restricts the current-year Fiscal Year to the default
     # company; undo that here too so --module self-seeding matches before_tests.
     ensure_test_fiscal_year_for_all_companies()
+
+    ensure_netherlands_territory()
+
+
+def ensure_netherlands_territory():
+    """Guarantee the "Netherlands" Territory exists. Idempotent.
+
+    Nothing else creates it. ERPNext's country Territory comes from the setup
+    wizard, and the only ``before_tests`` hook on this bench is hrms's, which calls
+    ``setup_complete()`` with ``country="India"`` -- so a fresh site gets the
+    *India* territory (this is also where the site's Asia/Kolkata timezone comes
+    from). Meanwhile fixtures across this app hardcode ``territory="Netherlands"``.
+
+    It used to be created only inside ``EnhancedTestDataFactory._ensure_master_data``,
+    behind two nested swallows that logged to a file rather than stdout. When a
+    shard reshuffle moved a test that builds a Customer to position 1 of its shard,
+    the missing territory surfaced as ``LinkValidationError: Could not find
+    Territory: Netherlands`` in a test that had nothing to do with the change that
+    triggered it (#291). Owning it here means both harnesses get it -- the factory
+    covers the 780 EnhancedTestCase files, but the 289 VereningingenTestCase files
+    never called it.
+
+    Deliberately NOT tracked for cleanup: a country-level Territory is shared with
+    production Customer/Supplier records, so per-test drains must not delete it.
+    """
+    if frappe.db.exists("Territory", "Netherlands"):
+        return
+
+    frappe.get_doc(
+        {
+            "doctype": "Territory",
+            "territory_name": "Netherlands",
+            "parent_territory": "All Territories",
+        }
+    ).insert(ignore_permissions=True)
 
 
 def ensure_test_fiscal_year_for_all_companies():
