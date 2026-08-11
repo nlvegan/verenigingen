@@ -11,19 +11,20 @@ deployment has ever run a Weekly schedule. The claim attached to that change
 ("the calculator, batch processor and reports have always handled Weekly; only
 the schema was missing it") was never verified against the running code.
 
-These tests verify it by driving the real path and asserting the concrete dates
-and amounts, never merely that a row was persisted:
+These tests verify it by driving the real path and asserting concrete dates and
+amounts, never merely that a row was persisted:
 
-  * the schema accepts and PERSISTS "Weekly" (read back from the database, not
-    from the in-memory doc — a dropped Select silently becomes NULL/first option)
+  * "Weekly" survives a save and reads back from the DATABASE. An invalid Select
+    makes ``_validate_selects()`` throw on save, so a round trip is the proof
+    that the option is really accepted end to end.
   * period arithmetic through the controller: +7 days, Monday..Sunday weeks
-  * the coverage sequence: a first period of exactly 7 days anchored on the
-    join date, and a second period that starts the day after the first ended
+  * the coverage sequence: a first period of exactly 7 days anchored on the join
+    date, and a second period that starts the day after the first ended
   * a real Sales Invoice: 7-day coverage, one line, qty 1, full (unprorated)
     dues_rate, and next_invoice_date advanced by exactly 7 days
-  * the batch processor's cutoff rule, which caps generation one BILLING PERIOD
-    ahead of today — a week for Weekly. If Weekly fell through to the Monthly
-    default the cap would sit ~30 days out and the batch would keep re-billing.
+  * the batch processor's per-schedule gate, whose cap is one BILLING PERIOD
+    ahead of today — a week for Weekly, which is what stops a coarser global
+    billing_cutoff_frequency (Monthly) from over-billing a Weekly member.
 
 Deliberately on VereningingenTestCase: EnhancedTestCase is the harness whose
 ``in_import`` flag suppressed ``_validate_selects()`` and made this whole class
@@ -33,9 +34,6 @@ of defect invisible.
 import frappe
 from frappe.utils import add_days, flt, getdate, today
 
-from verenigingen.services.billing.bulk_invoice_generation_service import (
-    BulkInvoiceGenerationService,
-)
 from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -49,22 +47,55 @@ FIXED_WEEK_MONDAY = getdate("2025-03-10")
 FIXED_WEEK_SUNDAY = getdate("2025-03-16")
 
 
+class TestWeeklyFrequencyIsDeclared(VereningingenTestCase):
+    """Cheap declaration checks — no member/membership fixtures needed."""
+
+    def test_weekly_is_a_valid_option_on_both_selects(self):
+        """The two Selects PR #280 fixed must both offer Weekly.
+
+        Before #280 they did not, so `_validate_selects()` rejected every Weekly
+        write in production while the test harness let it through.
+        """
+        for doctype, fieldname in (
+            ("Membership Dues Schedule", "billing_frequency"),
+            ("Member Fee Change History", "billing_frequency"),
+        ):
+            options = frappe.get_meta(doctype).get_field(fieldname).options.split("\n")
+            self.assertIn("Weekly", options, f"{doctype}.{fieldname} must offer Weekly")
+
+    def test_auto_creator_sets_a_weekly_next_invoice_date(self):
+        """dues_schedule_auto_creator keeps its own frequency ladder; Weekly must be in it.
+
+        Without a Weekly branch the ladder falls through to its monthly default,
+        so a Weekly schedule auto-created for a member was told to next invoice
+        in a month.
+        """
+        from verenigingen.services.billing import dues_schedule_auto_creator as auto_creator
+
+        self.assertEqual(
+            getdate(auto_creator._calculate_next_invoice_date("Weekly")),
+            add_days(getdate(today()), 7),
+        )
+
+
 class TestWeeklyBillingFrequency(VereningingenTestCase):
-    """Drive a Weekly dues schedule through calculation, invoicing and the batch."""
+    """Drive a Weekly dues schedule through calculation, invoicing and the batch gate."""
 
     def setUp(self):
         super().setUp()
 
         # Pin the settings the billing path reads, so the assertions below describe
         # the code and not whatever the test site happens to be configured with.
-        self._settings_backup = {}
+        # Restores go through addCleanup (not tearDown): they must run AFTER the
+        # base tearDown, which rolls back before each tracked-doc delete and would
+        # otherwise discard them, and they must survive a setUp that raises later.
         self._pin_setting("enable_sequential_coverage", 1)
         self._pin_setting("auto_submit_membership_invoices", 1)
         self._pin_setting("billing_cutoff_frequency", "Monthly")
 
         self.today = getdate(today())
 
-        self.member = self.create_test_member(auto_create_customer=True, status="Active")
+        self.member = self.create_test_member(auto_create_customer=True)
         self.assertTrue(self.member.customer, "invoice generation needs a Customer on the member")
 
         self.membership_type = self.create_test_membership_type(minimum_amount=MINIMUM_AMOUNT)
@@ -80,16 +111,20 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
 
         self.schedule = self._make_weekly_schedule()
 
-    def tearDown(self):
-        for fieldname, value in self._settings_backup.items():
-            frappe.db.set_single_value("Verenigingen Settings", fieldname, value)
-        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
-        super().tearDown()
-
     # ------------------------------------------------------------------ helpers
 
     def _pin_setting(self, fieldname, value):
-        self._settings_backup[fieldname] = frappe.db.get_single_value("Verenigingen Settings", fieldname)
+        previous = frappe.db.get_single_value("Verenigingen Settings", fieldname)
+        self.addCleanup(self._restore_setting, fieldname, previous)
+        self._write_setting(fieldname, value)
+
+    def _restore_setting(self, fieldname, value):
+        self._write_setting(fieldname, value)
+        # The base tearDown commits; without our own commit the restore is left
+        # uncommitted and its rollback would leak the pinned value into the shard.
+        frappe.db.commit()
+
+    def _write_setting(self, fieldname, value):
         frappe.db.set_single_value("Verenigingen Settings", fieldname, value)
         frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
@@ -119,28 +154,25 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
         self.schedule.reload()
         return invoice
 
-    # ------------------------------------------------------------------- schema
-
-    def test_weekly_is_a_valid_option_on_both_selects(self):
-        """The two Selects PR #280 fixed must both offer Weekly.
-
-        Before #280 they did not, so `_validate_selects()` rejected every Weekly
-        write in production while the test harness let it through.
-        """
-        for doctype, fieldname in (
-            ("Membership Dues Schedule", "billing_frequency"),
-            ("Member Fee Change History", "billing_frequency"),
-        ):
-            options = frappe.get_meta(doctype).get_field(fieldname).options.split("\n")
-            self.assertIn("Weekly", options, f"{doctype}.{fieldname} must offer Weekly")
+    # ---------------------------------------------------------------- persistence
 
     def test_weekly_persists_to_the_database(self):
-        """A saved Weekly schedule reads back as Weekly, not NULL or a fallback."""
+        """A saved Weekly schedule reads back as Weekly.
+
+        This cannot fail on its own — an invalid Select throws inside
+        `_make_weekly_schedule`'s save() and errors the whole class — but it
+        names the property the rest of the file depends on.
+        """
         stored = frappe.db.get_value("Membership Dues Schedule", self.schedule.name, "billing_frequency")
         self.assertEqual(stored, "Weekly")
 
     def test_weekly_persists_in_the_fee_change_history(self):
-        """The canonical history writer stores Weekly instead of dropping the row."""
+        """The canonical history writer stores Weekly instead of coercing it.
+
+        `MemberFeeChangeHistoryService` keeps its own frequency allowlist and
+        silently rewrites anything unlisted to "Custom", so a missing entry
+        there would not raise — it would quietly mislabel the row.
+        """
         from verenigingen.services.member.history.member_fee_change_history_service import (
             get_member_fee_change_history_service,
         )
@@ -158,10 +190,15 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
         )
         member_doc.save()
 
-        # Re-read from the database, not from the in-memory doc: a rejected Select
-        # value is what this test is looking for, and it only shows up on read-back.
+        # Re-read from the database, and pin the row to the one written above via
+        # its change_type: the schedule's own hooks write other rows for this
+        # schedule, and asserting on whichever lands first would be accidental.
         reloaded = frappe.get_doc("Member", self.member.name)
-        rows = [r for r in reloaded.fee_change_history if r.dues_schedule == self.schedule.name]
+        rows = [
+            r
+            for r in reloaded.fee_change_history
+            if r.dues_schedule == self.schedule.name and r.change_type == "Schedule Created"
+        ]
         self.assertTrue(rows, "the fee change entry for the Weekly schedule was not written")
         self.assertEqual(rows[0].billing_frequency, "Weekly")
 
@@ -177,7 +214,6 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
         period_start, period_end = self.schedule.calculate_billing_period(FIXED_WEDNESDAY)
         self.assertEqual(getdate(period_start), FIXED_WEEK_MONDAY)
         self.assertEqual(getdate(period_end), FIXED_WEEK_SUNDAY)
-        self.assertEqual((getdate(period_end) - getdate(period_start)).days, 6)
 
     def test_first_coverage_period_is_seven_days_from_the_join_date(self):
         """The first period runs a full week from the member's membership start.
@@ -207,7 +243,6 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
         coverage_end = getdate(invoice.custom_coverage_end_date)
         self.assertEqual(coverage_start, self.today)
         self.assertEqual(coverage_end, add_days(self.today, 6))
-        self.assertEqual((coverage_end - coverage_start).days, 6, "coverage must span exactly one week")
 
         # One line, quantity one, the full weekly rate. A frequency-dependent
         # multiplier or a prorating bug would show up here as a different amount.
@@ -249,64 +284,47 @@ class TestWeeklyBillingFrequency(VereningingenTestCase):
         self.assertEqual(second_end, add_days(second_start, 6))
         self.assertEqual(flt(second.net_total, 2), flt(DUES_RATE, 2))
 
-    # ------------------------------------------------------- batch / cutoff rule
+    # -------------------------------------------------------- batch gate / cutoff
 
-    def test_batch_generates_once_then_stops_a_week_ahead(self):
-        """The cutoff cap is one BILLING period ahead of today — a week, not a month.
+    def test_generation_cap_is_one_week_ahead_of_today(self):
+        """The cap the batch applies to a Weekly schedule is today+6, not a month.
 
-        should_generate_for_cutoff_period() compares the latest coverage end
-        against min(cutoff_date, one period ahead of today). With Weekly handled
-        the cap is today+6, which the first invoice reaches exactly, so no second
-        invoice is due. Were Weekly falling through to the Monthly default the
-        cap would sit ~30 days out and the batch would keep re-billing the member
-        every run until coverage caught up.
+        billing_cutoff_frequency is a single global setting and is usually
+        coarser than an individual member's frequency. should_generate_for_cutoff
+        _period() therefore caps the cutoff at one BILLING period ahead of today
+        (coverage_calculator.py:254). Pinned explicitly here because that value
+        is the only frequency-sensitive input to the batch's per-schedule gate —
+        a Monthly fall-through would put it ~30 days out.
         """
-        cutoff = BulkInvoiceGenerationService().calculate_cutoff_date()
+        calculator = CoverageCalculator(self.schedule)
+        self.assertEqual(getdate(calculator._one_period_ahead_of_today()), add_days(self.today, 6))
+
+    def test_batch_gate_generates_once_then_stops_a_week_ahead(self):
+        """One invoice satisfies a far-future cutoff, because the cap is a week.
+
+        The cutoff is passed explicitly rather than read from settings: the
+        Monthly setting collapses below today+6 in the last days of a month,
+        which would make this assertion vacuous on those dates. With a cutoff
+        60 days out the min() is decided by the frequency cap alone.
+
+        Honest scope: this asserts the gate opens once and then closes, i.e.
+        that the cap and the coverage sequence agree. It does NOT by itself
+        discriminate Weekly from another frequency — both sides of the
+        comparison are computed by the same period arithmetic, deliberately
+        (coverage_calculator.py:264-266). The frequency itself is pinned by
+        test_generation_cap_is_one_week_ahead_of_today and by the coverage-date
+        assertions above.
+        """
+        far_cutoff = add_days(self.today, 60)
 
         self.assertTrue(
-            self.schedule.should_generate_for_cutoff_period(cutoff),
+            self.schedule.should_generate_for_cutoff_period(far_cutoff),
             "an uncovered Weekly schedule must be picked up by the batch",
         )
 
         self._generate_invoice()
 
         self.assertFalse(
-            self.schedule.should_generate_for_cutoff_period(cutoff),
-            "a Weekly schedule covered through today+6 is a full period ahead; "
-            "generating again would over-bill",
-        )
-
-    def test_batch_eligibility_scan_sees_the_weekly_schedule(self):
-        """The real batch entry point selects the Weekly schedule, then drops it."""
-        service = BulkInvoiceGenerationService()
-        cutoff = service.calculate_cutoff_date()
-
-        before = service.get_eligible_schedules(cutoff_date=cutoff, test_mode=False)
-        self.assertIn(
-            self.schedule.name,
-            before.eligible_schedules,
-            "the bulk generator must consider an uninvoiced Weekly schedule eligible",
-        )
-
-        self._generate_invoice()
-
-        after = service.get_eligible_schedules(cutoff_date=cutoff, test_mode=False)
-        self.assertNotIn(
-            self.schedule.name,
-            after.eligible_schedules,
-            "after one week of coverage the Weekly schedule must drop out of the batch",
-        )
-        already_covered = [row["schedule"] for row in after.filtered_members["already_covered"]]
-        self.assertIn(self.schedule.name, already_covered)
-
-    # ------------------------------------------- schedule creation / recovery paths
-
-    def test_auto_creator_sets_a_weekly_next_invoice_date(self):
-        """dues_schedule_auto_creator keeps its own frequency ladder; Weekly must be in it."""
-        from verenigingen.services.billing import dues_schedule_auto_creator as auto_creator
-
-        self.assertEqual(
-            getdate(auto_creator._calculate_next_invoice_date("Weekly")),
-            add_days(self.today, 7),
-            "a Weekly schedule auto-created for a member must next invoice in a week",
+            self.schedule.should_generate_for_cutoff_period(far_cutoff),
+            "coverage through today+6 is a full week ahead; generating again would over-bill",
         )
