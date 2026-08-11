@@ -36,6 +36,7 @@ def get_migration_config_status():
                 "account_name",
                 "document_type",
                 "transaction_category",
+                "notes",
                 "is_active",
             ],
         )
@@ -210,7 +211,7 @@ def add_account_mapping(account_code, account_type, notes=None):
             doc = frappe.get_doc("E-Boekhouden Account Mapping", existing)
             doc.document_type = account_type
             if notes:
-                doc.transaction_category = notes
+                doc.notes = notes
             doc.save()
         else:
             # Create new mapping
@@ -219,7 +220,7 @@ def add_account_mapping(account_code, account_type, notes=None):
             doc.document_type = account_type
             doc.priority = 100  # High priority for manual mappings
             if notes:
-                doc.transaction_category = notes
+                doc.notes = notes
 
             # Try to get account name from staged data
             staged_data = get_staged_data_from_cache()
@@ -237,7 +238,7 @@ def add_account_mapping(account_code, account_type, notes=None):
                 "id": doc.name,
                 "account_code": doc.account_code,
                 "account_type": doc.document_type,
-                "notes": doc.transaction_category,
+                "notes": doc.notes,
             },
         }
 
@@ -377,6 +378,7 @@ def export_migration_config():
                 "account_name",
                 "document_type",
                 "transaction_category",
+                "notes",
                 "priority",
                 "is_active",
                 "usage_count",
@@ -434,6 +436,7 @@ def import_migration_config(config):
                 "account_name",
                 "document_type",
                 "transaction_category",
+                "notes",
                 "priority",
                 "is_active",
                 "account_range_start",
@@ -553,7 +556,7 @@ def update_account_mapping(mapping_id, account_type, notes=None):
         doc = frappe.get_doc("E-Boekhouden Account Mapping", mapping_id)
         doc.document_type = account_type
         if notes is not None:
-            doc.transaction_category = notes
+            doc.notes = notes
         doc.save()
 
         return {
@@ -562,7 +565,7 @@ def update_account_mapping(mapping_id, account_type, notes=None):
                 "id": doc.name,
                 "account_code": doc.account_code,
                 "account_type": doc.document_type,
-                "notes": doc.transaction_category,
+                "notes": doc.notes,
             },
         }
     except Exception as e:
@@ -579,6 +582,7 @@ def bulk_update_mappings(updates):
             updates = json.loads(updates)
 
         updated_count = 0
+        failed = []
         for update in updates:
             try:
                 doc = frappe.get_doc("E-Boekhouden Account Mapping", update["mapping_id"])
@@ -595,11 +599,16 @@ def bulk_update_mappings(updates):
                 doc.save()
                 updated_count += 1
             except Exception as e:
+                # Report the skip as well as logging it. A row rejected here (most
+                # often an account_type that is not one of document_type's options)
+                # used to leave the caller with success=True and no indication that
+                # its change had not been applied.
                 frappe.log_error(
                     f"Error updating mapping {update.get('mapping_id')}: {str(e)}", "E-Boekhouden"
                 )
+                failed.append({"mapping_id": update.get("mapping_id"), "error": str(e)})
 
-        return {"success": True, "updated_count": updated_count}
+        return {"success": True, "updated_count": updated_count, "failed": failed}
     except Exception as e:
         frappe.log_error(f"Error in bulk update: {str(e)}", "E-Boekhouden")
         frappe.throw(str(e))
