@@ -459,6 +459,27 @@ class SilentHandlerTest(unittest.TestCase):
         )
 
 
+class NestedScopeTest(unittest.TestCase):
+    def test_a_handler_in_a_nested_def_is_reported_once(self):
+        """_qualnames yields the inner function separately.
+
+        If _own_nodes descended into it as well, the same handler would be counted
+        twice — and the baseline would carry a phantom site under the outer name.
+        """
+        findings = _flagged(
+            "def outer(doc):\n"
+            "    def inner():\n"
+            "        try:\n"
+            "            doc.insert()\n"
+            "        except Exception as e:\n"
+            "            frappe.log_error(str(e))\n"
+            "        return doc.name\n"
+            "    return inner\n"
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0][0], "outer.inner")
+
+
 class PragmaTest(unittest.TestCase):
     def test_valid_pragma_suppresses(self):
         findings, bad = _scan(

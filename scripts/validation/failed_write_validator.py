@@ -223,11 +223,12 @@ def _own_nodes(fn: ast.AST):
     stack = list(getattr(fn, "body", []))
     while stack:
         node = stack.pop()
+        # Stop AT the nested scope, not inside it: _qualnames yields the nested
+        # function separately, so descending here would report its handlers twice.
+        if isinstance(node, NESTED_DEFS):
+            continue
         yield node
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, NESTED_DEFS):
-                continue
-            stack.append(child)
+        stack.extend(ast.iter_child_nodes(node))
 
 
 def _qualnames(tree: ast.AST):
