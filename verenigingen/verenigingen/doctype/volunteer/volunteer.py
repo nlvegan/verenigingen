@@ -70,6 +70,7 @@ from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.select_options import coerce_select_option
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -828,12 +829,22 @@ def create_volunteer_from_member(
                             },
                         )
                     elif isinstance(skill, dict):
+                        # category/level come from the membership application, so they
+                        # are free text. A value outside the Select's options fails the
+                        # whole volunteer creation, not just the one skill row.
                         volunteer.append(
                             "skills_and_qualifications",
                             {
                                 "volunteer_skill": skill.get("name", skill.get("skill", "Unknown")),
-                                "skill_category": skill.get("category", "Other"),
-                                "proficiency_level": skill.get("level", "1 - Beginner"),
+                                "skill_category": coerce_select_option(
+                                    "Volunteer Skill", "skill_category", skill.get("category"), "Other"
+                                ),
+                                "proficiency_level": coerce_select_option(
+                                    "Volunteer Skill",
+                                    "proficiency_level",
+                                    skill.get("level"),
+                                    "1 - Beginner",
+                                ),
                             },
                         )
 

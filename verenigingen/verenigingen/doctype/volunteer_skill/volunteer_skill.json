@@ -28,7 +28,7 @@
       "reqd": 1
     },
     {
-      "default": "3",
+      "default": "3 - Intermediate",
       "fieldname": "proficiency_level",
       "fieldtype": "Select",
       "in_list_view": 1,

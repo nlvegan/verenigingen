@@ -11,7 +11,31 @@ import frappe
 from frappe.utils import now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.select_options import coerce_select_option
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
+
+
+def normalize_operation_type(operation: str) -> str:
+    """
+    Map a free-form operation name onto a SEPA Retry Operation.operation_type option.
+
+    The operation name reaching create_retry_batch() is either a Python function
+    name (execute_with_retry uses ``operation.__name__``) or whatever an API caller
+    put in the "operation" key, so it is almost never one of the Select's options.
+    Anything unrecognised becomes "Other", which the Select carries for this purpose.
+    """
+    # Function names for the operations the Select does have a value for.
+    known = {
+        "validate_mandate": "Mandate Validation",
+        "create_invoice": "Invoice Creation",
+        "process_batch": "Batch Processing",
+        "determine_sequence_type": "Sequence Type Determination",
+        "process_payment": "Payment Processing",
+        "send_notification": "Notification Sending",
+    }
+    return coerce_select_option(
+        "SEPA Retry Operation", "operation_type", known.get(operation, operation), "Other"
+    )
 
 
 class SEPAErrorHandler:
@@ -290,10 +314,15 @@ class SEPAErrorHandler:
             retry_batch.created_by_error_handler = True
 
             for op in retryable_operations:
+                operation = op.get("operation", "")
+                operation_type = normalize_operation_type(operation)
                 retry_batch.append(
                     "operations",
                     {
-                        "operation_type": op.get("operation", "unknown"),
+                        "operation_type": operation_type,
+                        # Keep the caller's own name for the operation; it is the only
+                        # way to tell two "Other" rows apart when reviewing the batch.
+                        "retry_notes": operation if operation_type == "Other" else None,
                         "original_error": op.get("error", ""),
                         "error_category": op.get("error_category", "unknown"),
                         "retry_attempts": op.get("retries_attempted", 0),

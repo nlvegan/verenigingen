@@ -25,6 +25,8 @@ from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.select_options import get_select_options
 from verenigingen.verenigingen_payments.services.sepa_batch_processor import SEPABatchProcessor
 
 
@@ -277,3 +279,31 @@ class TestScheduleHelpers(_ReturnsBase):
         self.assertIsNotNone(schedule.last_invoice_coverage_start)
         self.assertIsNotNone(schedule.last_invoice_coverage_end)
         self.assertEqual(str(schedule.last_invoice_date), today())
+
+
+class TestBatchStatusLiteralsAreDeclaredOptions(VereningingenTestCase):
+    """
+    process_batch_returns() records a partial failure by setting the batch status to
+    "Partially Failed", which was not one of the status Select's options — so the save
+    recording it was rejected inside a broad except that only log_errors, and the
+    partial-failure state was unrepresentable.
+
+    Asserts against the module source rather than a saved document so that *any*
+    future invented status is caught, not just this one. The sibling behavioural test
+    above runs on EnhancedTestCase, which sets in_import and therefore skips
+    _validate_selects() entirely — it passed against the defect throughout.
+    """
+
+    def test_every_batch_status_assigned_by_the_processor_is_an_option(self):
+        import inspect
+        import re
+
+        from verenigingen.verenigingen_payments.services import sepa_batch_processor
+
+        source = inspect.getsource(sepa_batch_processor)
+        assigned = set(re.findall(r'batch\.status = "([^"]+)"', source))
+        self.assertTrue(assigned, "expected the processor to assign batch.status somewhere")
+
+        options = get_select_options("Direct Debit Batch", "status")
+        for status in sorted(assigned):
+            self.assertIn(status, options)
