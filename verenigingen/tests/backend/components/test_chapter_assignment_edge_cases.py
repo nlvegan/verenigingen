@@ -122,23 +122,23 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         # deterministic "Test Member1" name previously triggered a
         # DuplicateEntryError during customer creation on re-run.
         run_token = frappe.generate_hash(length=6)
-        self.test_member_name = f"TEST-MEMBER-{run_token}-{self.test_counter:03d}"
         self.test_email = f"chapter_edge_test_{run_token}_{self.test_counter}@example.com"
 
-        if not frappe.db.exists("Member", self.test_member_name):
-            member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "name": self.test_member_name,
-                    "first_name": "Test",
-                    "last_name": f"Member{run_token}{self.test_counter}",
-                    "full_name": f"Test Member{run_token}{self.test_counter}",
-                    "email": self.test_email,
-                    "status": "Active",
-                    "birth_date": "1990-01-01",
-                    "application_status": "Approved"}
-            )
-            member.insert()
+        # Member is autonamed (Assoc-Member-YYYY-MM-####), so a "name" supplied
+        # here is discarded and every later lookup must use the produced name.
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Test",
+                "last_name": f"Member{run_token}{self.test_counter}",
+                "full_name": f"Test Member{run_token}{self.test_counter}",
+                "email": self.test_email,
+                "status": "Active",
+                "birth_date": "1990-01-01",
+                "application_status": "Approved"}
+        )
+        member.insert()
+        self.test_member_name = member.name
 
     def tearDown(self):
         """Clean up after each test"""
@@ -480,23 +480,22 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         # Create member with special characters in the NAME fields. The email
         # must remain a valid address (Frappe rejects accented characters in
         # email addresses), so only the name carries the special characters.
-        special_member_name = f"SPECIAL-MEMBER-{self.test_counter}"
-        special_email = f"special_test_{self.test_counter}@example.com"
+        special_email = f"special_test_{frappe.generate_hash(length=6)}_{self.test_counter}@example.com"
 
-        if not frappe.db.exists("Member", special_member_name):
-            special_member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "name": special_member_name,
-                    "first_name": "José-María",
-                    "last_name": "Ñoël-O'Connor",
-                    "full_name": "José-María Ñoël-O'Connor",
-                    "email": special_email,
-                    "status": "Active",
-                    "birth_date": "1990-01-01",
-                    "application_status": "Approved"}
-            )
-            special_member.insert()
+        # Autonamed, so the assignment below must use the produced name.
+        special_member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "José-María",
+                "last_name": "Ñoël-O'Connor",
+                "full_name": "José-María Ñoël-O'Connor",
+                "email": special_email,
+                "status": "Active",
+                "birth_date": "1990-01-01",
+                "application_status": "Approved"}
+        )
+        special_member.insert()
+        special_member_name = special_member.name
 
         # Test assignment
         result = assign_member_to_chapter(special_member_name, "Test Chapter Alpha")
@@ -549,24 +548,26 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         roster_size = 20
         chapter = frappe.get_doc("Chapter", perf_chapter_name)
         created_perf_members = []
+        # Member is autonamed, so the roster rows must reference the names the
+        # inserts produce; the emails carry the per-run token that used to live
+        # in the (discarded) hardcoded name, so a re-run cannot collide.
+        perf_token = frappe.generate_hash(length=6)
         for i in range(roster_size):
-            perf_member_name = f"PERF-ROSTER-MEMBER-{i:03d}"
-            if not frappe.db.exists("Member", perf_member_name):
-                frappe.get_doc(
-                    {
-                        "doctype": "Member",
-                        "name": perf_member_name,
-                        "first_name": "Perf",
-                        "last_name": f"Roster{i}",
-                        "full_name": f"Perf Roster{i}",
-                        "email": f"perf_roster_{i}@example.com",
-                        "status": "Active",
-                        "birth_date": "1990-01-01",
-                        "application_status": "Approved",
-                    }
-                ).insert()
-            created_perf_members.append(perf_member_name)
-            chapter.append("members", {"member": perf_member_name, "enabled": 1})
+            perf_member = frappe.get_doc(
+                {
+                    "doctype": "Member",
+                    "first_name": "Perf",
+                    "last_name": f"Roster{perf_token}{i}",
+                    "full_name": f"Perf Roster{perf_token}{i}",
+                    "email": f"perf_roster_{perf_token}_{i}@example.com",
+                    "status": "Active",
+                    "birth_date": "1990-01-01",
+                    "application_status": "Approved",
+                }
+            )
+            perf_member.insert()
+            created_perf_members.append(perf_member.name)
+            chapter.append("members", {"member": perf_member.name, "enabled": 1})
         chapter.save()
 
         # Measure assignment performance

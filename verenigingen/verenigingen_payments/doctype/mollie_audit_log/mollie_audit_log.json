@@ -40,7 +40,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Event Category",
-   "options": "\npayment\nsubscription\nwebhook_processing\nsecurity\nreconciliation\nconfiguration",
+   "options": "\npayment\nsubscription\nwebhook_processing\napi\nsecurity\nreconciliation\nconfiguration",
    "read_only": 1,
    "description": "Category of the event for filtering and reporting"
   },

@@ -24,10 +24,12 @@ Targets (verenigingen/verenigingen_payments/mollie/utils/audit.py):
 """
 
 import json
+import re
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.mollie.utils.audit import (
     MollieAuditLogger,
     log_mollie_payment_event,
@@ -299,3 +301,47 @@ class TestMollieAuditConvenienceFunctions(EnhancedTestCase):
         self.assertIsNotNone(row)
         # default severity is "warning"
         self.assertEqual(row.severity, "warning")
+
+
+class TestMollieAuditCategoryIsValid(VereningingenTestCase):
+    """The event_category written must be one of the DocType's Select options.
+
+    Deliberately NOT on EnhancedTestCase: that harness sets frappe.flags.in_import,
+    which skips _validate_selects() and hides a rejected value entirely. The insert
+    in _create_audit_log() sits inside a broad `except`, so a rejected row is logged
+    and discarded while the caller still sees success -- these tests assert the row
+    actually lands.
+    """
+
+    def _valid_categories(self):
+        options = frappe.get_meta("Mollie Audit Log").get_field("event_category").options
+        return {opt for opt in options.split("\n") if opt}
+
+    def test_webhook_received_uses_a_valid_category(self):
+        token = frappe.generate_hash()[:10]
+        logger = MollieAuditLogger()
+        logger.log_settings = {
+            "enable_audit_logging": True,
+            "log_webhooks": True,
+            "detailed_logging": False,
+        }
+        logger.log_webhook_received({"id": f"tr_cat_{token}"}, headers={"Content-Type": "application/json"})
+
+        row = _latest_log("webhook_received")
+        self.assertIsNotNone(row, "webhook audit row must be persisted")
+        self.assertIn(row.event_category, self._valid_categories())
+
+    def test_every_logged_category_is_a_declared_option(self):
+        """Guard the whole vocabulary, not just the path exercised above."""
+        import inspect
+
+        from verenigingen.verenigingen_payments.mollie.utils import audit as audit_module
+
+        source = inspect.getsource(audit_module)
+        written = set(re.findall(r'event_category="([a-z_]+)"', source))
+        self.assertTrue(written, "expected to find event_category literals in the module")
+        self.assertEqual(
+            written - self._valid_categories(),
+            set(),
+            "these categories are not options on Mollie Audit Log, so their rows are silently dropped",
+        )

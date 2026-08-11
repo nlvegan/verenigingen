@@ -116,7 +116,8 @@
    "fieldname": "member",
    "fieldtype": "Link",
    "label": "Member",
-   "options": "Member"
+   "options": "Member",
+   "unique": 1
   },
   {
    "fetch_from": "member.pronouns",

@@ -43,7 +43,10 @@ def execute():
             create_snapshot,
         )
 
-        create_snapshot("Manual", frappe.utils.today())
+        # "Manual" is not a snapshot_type option, and calculate_period() has no
+        # branch for it either — it falls through to Yearly. A snapshot taken at a
+        # single point in time is a Daily one.
+        create_snapshot("Daily", frappe.utils.today())
     except Exception as e:
         # Snapshot creation might fail if no data exists
         frappe.log_error(f"Could not create initial analytics snapshot: {str(e)}")

@@ -281,8 +281,11 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
         )
         self.assertEqual(self.svc.calculate_cutoff_date(), date(getdate(today()).year, 12, 31))
 
-    def test_calculate_cutoff_date_unknown_frequency_falls_back_to_monthly(self):
-        self._set_cutoff_settings(billing_cutoff_frequency="Weekly")  # unsupported
+    def test_unconfigured_cutoff_frequency_falls_back_to_monthly(self):
+        # "" is the Select's first option, so an unconfigured site is the reachable
+        # way into the fallback. The old value ("Weekly") is not a valid option and
+        # only persisted because _set_cutoff_settings writes with db.set_value.
+        self._set_cutoff_settings(billing_cutoff_frequency="")
         expected = self.svc._calculate_monthly_cutoff(getdate(today()))
         self.assertEqual(self.svc.calculate_cutoff_date(), expected)
 

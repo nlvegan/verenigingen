@@ -40,11 +40,23 @@ def query_counter():
         query_count["queries"].append(args[0] if args else "Unknown query")
         return original_sql(*args, **kwargs)
     
+    had_own_sql = "sql" in frappe.db.__dict__
     frappe.db.sql = counting_sql
     try:
         yield query_count
     finally:
-        frappe.db.sql = original_sql
+        # Delete the instance attribute rather than re-assigning it. `frappe.db.sql`
+        # is normally a CLASS attribute; assigning `original_sql` back here leaves a
+        # permanent instance attribute on frappe.db that shadows the class for the
+        # rest of the process. Any later helper that patches
+        # `frappe.db.__class__.sql` -- e.g. _count_queries in
+        # tests/member/test_member_performance_optimization.py -- then observes
+        # nothing and silently counts zero queries, which is order-dependent and
+        # therefore only ever reproduced in CI.
+        if had_own_sql:
+            frappe.db.sql = original_sql
+        else:
+            del frappe.db.sql
 
 
 @contextlib.contextmanager

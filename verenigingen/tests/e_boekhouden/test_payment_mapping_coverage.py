@@ -25,6 +25,8 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_mapping import (
     setup_default_payment_mappings,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.select_options import get_select_options
 
 
 def _ensure_mode_of_payment(name):
@@ -209,6 +211,48 @@ class TestSetupDefaultPaymentMappings(_PayMapBase):
         setup_default_payment_mappings(self.company)
         after = frappe.db.count("E-Boekhouden Payment Mapping", {"company": self.company})
         self.assertEqual(before, after)
+
+
+class TestPaymentMappingAccountTypeOptions(VereningingenTestCase):
+    """
+    setup_default_payment_mappings() builds mappings for four account types, but the
+    account_type Select only offered Bank and Cash — so the very first insert
+    (Receivable) was rejected and no defaults were ever created, for any company.
+
+    On VereningingenTestCase rather than EnhancedTestCase deliberately: the latter
+    sets frappe.flags.in_import, which skips _validate_selects() entirely, so a test
+    on that harness cannot see this class of defect at all.
+    """
+
+    def test_every_configured_account_type_is_a_declared_option(self):
+        options = get_select_options("E-Boekhouden Payment Mapping", "account_type")
+        for account_type in ("Bank", "Cash", "Receivable", "Payable"):
+            self.assertIn(account_type, options)
+
+    def test_receivable_mapping_can_be_saved(self):
+        company = _persist_eur_company()
+        account = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        doc = frappe.new_doc("E-Boekhouden Payment Mapping")
+        doc.update(
+            {
+                "company": company,
+                "mapping_type": "Account Type",
+                "account_type": "Receivable",
+                "erpnext_account": account,
+                "mode_of_payment": _ensure_mode_of_payment("Bank Transfer"),
+                "account_name": "Receivable default",
+                "eboekhouden_account_code": f"RECV-{frappe.generate_hash(length=6)}",
+                "active": 1,
+                "priority": 100,
+            }
+        )
+        doc.insert()
+        self.track_doc("E-Boekhouden Payment Mapping", doc.name)
+        self.assertEqual(
+            frappe.db.get_value("E-Boekhouden Payment Mapping", doc.name, "account_type"), "Receivable"
+        )
 
 
 if __name__ == "__main__":

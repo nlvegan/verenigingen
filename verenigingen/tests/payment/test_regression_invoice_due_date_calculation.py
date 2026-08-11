@@ -7,6 +7,10 @@ import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.test_data_factory import (
+    PAYMENT_TEST_DAILY_TYPE,
+    ensure_payment_test_daily_type,
+)
 
 
 class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
@@ -25,12 +29,12 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # These tests hardcode the "Daglid" (daily) membership type, which is a
-        # production master absent on a fresh test site. Seed it so the dues
-        # schedules referencing it validate.
-        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+        # Seed the payment tests' own EUR2 membership type. The daily behaviour under
+        # test comes from the SCHEDULE (schedule.billing_frequency = "Daily" below),
+        # not from the type -- the type is only referenced so the dues schedules
+        # validate. See PAYMENT_TEST_DAILY_TYPE for why it is not a shared name (#248).
 
-        ensure_membership_type_exists("Daglid", amount=2.0)
+        ensure_payment_test_daily_type()
 
     def setUp(self):
         super().setUp()
@@ -82,7 +86,7 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
             frappe.db.commit()
 
     def _active_daily_schedule(self, member, next_invoice_date, payment_terms_template=None):
-        """Give the member an active Daglid membership and return its (reused)
+        """Give the member an active daily membership and return its (reused)
         active daily dues schedule configured for the regression scenario.
 
         generate_invoice() requires the member to have an active membership, and
@@ -90,7 +94,7 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         membership (which auto-creates the schedule) and reuse that schedule rather
         than inserting a second one.
         """
-        self.create_test_membership(member=member.name, membership_type="Daglid")
+        self.create_test_membership(member=member.name, membership_type=PAYMENT_TEST_DAILY_TYPE)
         schedule_name = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": member.name, "is_template": 0, "status": "Active"},
@@ -192,7 +196,7 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         self.link_member_to_customer(member)
 
         # Reuse the membership's auto-created schedule; make it a Monthly "Lid"-style
-        # schedule (not the daily Daglid) to match the failing audit data.
+        # schedule (not the daily one) to match the failing audit data.
         schedule = self._active_daily_schedule(member, next_invoice_date=today())
         schedule.billing_frequency = "Monthly"
         schedule.save()
@@ -470,7 +474,7 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         Original conditions:
         - Member: Assoc-Member-2025-07-0025 (Parko Janssen)
         - Invoice: ACC-SINV-2025-20221
-        - Membership type: Daglid (daily billing)
+        - Billing: daily (set on the schedule, not the membership type)
         - Issue: posting_date = 2025-07-22, due_date = 2025-07-21
         """
         # Create member similar to Parko Janssen
@@ -491,7 +495,7 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
         # schedule (after_insert), and production enforces one active schedule per
         # member -- so reuse that schedule rather than inserting a second one
         # (which raises "already has an active dues schedule").
-        membership = self.create_test_membership(member=member.name, membership_type="Daglid")
+        membership = self.create_test_membership(member=member.name, membership_type=PAYMENT_TEST_DAILY_TYPE)
 
         existing_schedule = frappe.db.get_value(
             "Membership Dues Schedule",

@@ -398,11 +398,14 @@ class MemberPerformanceOptimizer:
         # Clear function caches
         self.get_doctype_meta_cached.cache_clear()
 
-        # Clear Redis caches with member pattern
-        cache = frappe.cache()
-        keys = cache.get_keys("member_dashboard:*")
-        for key in keys:
-            cache.delete_value(key)
+        # Clear Redis caches with member pattern.
+        #
+        # Use delete_keys(pattern), NOT a get_keys(pattern) + delete_value(key) loop.
+        # get_keys() returns keys with the site namespace already applied
+        # ("_<hash>|member_dashboard:X"), and delete_value() defaults to make_keys=True
+        # and applies it again, so the loop targeted "_<hash>|_<hash>|member_dashboard:X"
+        # and silently deleted nothing. delete_keys() passes make_keys=False internally.
+        frappe.cache().delete_keys("member_dashboard:")
 
 
 @frappe.whitelist()

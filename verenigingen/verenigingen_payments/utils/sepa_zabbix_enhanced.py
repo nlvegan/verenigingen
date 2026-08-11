@@ -101,6 +101,17 @@ class SEPAZabbixIntegration:
                 "units": "batches",
                 "update_interval": "1m",
             },
+            "sepa.batch.collection_errors": {
+                "name": "SEPA Batch Metric Collection Errors",
+                "type": "integer",
+                "description": (
+                    "Number of batch metrics that failed to compute this run. Non-zero means "
+                    "some sepa.batch.* item is ABSENT rather than merely unchanged - last() "
+                    "would otherwise keep returning a frozen value with no indication."
+                ),
+                "units": "metrics",
+                "update_interval": "1m",
+            },
             # Mandate Management Metrics
             "sepa.mandate.count.active": {
                 "name": "SEPA Active Mandates",
@@ -329,54 +340,64 @@ class SEPAZabbixIntegration:
                 "error": str(e),
             }
 
+    def _batch_success_rate(self, since) -> float:
+        """Percentage of batches submitted successfully since ``since``."""
+        total_recent = frappe.db.count("Direct Debit Batch", {"creation": [">=", since]})
+        successful_recent = frappe.db.count("Direct Debit Batch", {"creation": [">=", since], "docstatus": 1})
+        return float((successful_recent / total_recent * 100) if total_recent > 0 else 100)
+
     def _get_batch_metrics(self) -> Dict[str, Union[int, float]]:
-        """Get SEPA batch processing metrics"""
-        try:
-            today_start = get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)
+        """Get SEPA batch processing metrics, collected INDEPENDENTLY per metric.
 
-            # Total batches
-            total_batches = frappe.db.count("Direct Debit Batch")
+        All seven used to be computed inside one try/except that returned ``{}``, so a
+        single failing calculation removed every key -- including
+        ``sepa.batch.success_rate``, ``.stuck_count`` and ``.count.daily``, which are
+        the three carrying Zabbix triggers (see get_zabbix_trigger_prototypes; the two
+        ``amount`` metrics have none). No ``nodata()`` trigger is defined anywhere in
+        this file, and Zabbix's ``last()`` keeps returning the previously stored value
+        indefinitely, so a blanked metric does not alert -- it silently freezes. Losing
+        one number must not blind the alerts that are still computable.
 
-            # Daily batches
-            daily_batches = frappe.db.count("Direct Debit Batch", {"creation": [">=", today_start]})
+        ``sepa.batch.collection_errors`` counts the collectors that failed, so a missing
+        metric is observable rather than merely stale. It is 0 on a healthy run.
+        """
+        metrics: Dict[str, Union[int, float]] = {}
+        failed: List[str] = []
 
-            # Total amount with enhanced calculation
-            total_amount = self._calculate_total_batch_amount_optimized()
+        def collect(key, compute):
+            try:
+                metrics[key] = compute()
+            except Exception as e:
+                failed.append(key)
+                frappe.logger().error(f"SEPA batch metric {key} failed: {str(e)}")
 
-            # Daily amount with enhanced calculation
-            daily_amount = self._calculate_daily_batch_amount_optimized(today_start)
+        today_start = get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)
+        last_24h = get_datetime() - timedelta(hours=24)
+        stuck_threshold = get_datetime() - timedelta(hours=2)
 
-            # Success rate (last 24 hours)
-            last_24h = get_datetime() - timedelta(hours=24)
-            total_recent = frappe.db.count("Direct Debit Batch", {"creation": [">=", last_24h]})
-            successful_recent = frappe.db.count(
-                "Direct Debit Batch", {"creation": [">=", last_24h], "docstatus": 1}
-            )
-
-            success_rate = (successful_recent / total_recent * 100) if total_recent > 0 else 100
-
-            # Average processing time (simplified - would need actual timing data)
-            avg_processing_time = 5000.0  # Placeholder - implement actual timing
-
-            # Stuck batches (draft for more than 2 hours)
-            stuck_threshold = get_datetime() - timedelta(hours=2)
-            stuck_batches = frappe.db.count(
+        collect("sepa.batch.count.total", lambda: frappe.db.count("Direct Debit Batch"))
+        collect(
+            "sepa.batch.count.daily",
+            lambda: frappe.db.count("Direct Debit Batch", {"creation": [">=", today_start]}),
+        )
+        collect("sepa.batch.amount.total", lambda: float(self._calculate_total_batch_amount_optimized()))
+        collect(
+            "sepa.batch.amount.daily",
+            lambda: float(self._calculate_daily_batch_amount_optimized(today_start)),
+        )
+        collect("sepa.batch.success_rate", lambda: self._batch_success_rate(last_24h))
+        collect(
+            "sepa.batch.stuck_count",
+            lambda: frappe.db.count(
                 "Direct Debit Batch", {"status": "Draft", "creation": ["<", stuck_threshold]}
-            )
+            ),
+        )
 
-            return {
-                "sepa.batch.count.total": total_batches,
-                "sepa.batch.count.daily": daily_batches,
-                "sepa.batch.amount.total": float(total_amount),
-                "sepa.batch.amount.daily": float(daily_amount),
-                "sepa.batch.success_rate": float(success_rate),
-                "sepa.batch.avg_processing_time": avg_processing_time,
-                "sepa.batch.stuck_count": stuck_batches,
-            }
+        # Placeholder - implement actual timing. Cannot fail, so it is not collected.
+        metrics["sepa.batch.avg_processing_time"] = 5000.0
+        metrics["sepa.batch.collection_errors"] = len(failed)
 
-        except Exception as e:
-            frappe.logger().error(f"Error getting batch metrics: {str(e)}")
-            return {}
+        return metrics
 
     def _calculate_total_batch_amount_optimized(self) -> float:
         """
@@ -453,11 +474,9 @@ class SEPAZabbixIntegration:
             return round(total, 2)
 
         except Exception as e:
-            # Both the SQL aggregation and this fallback have failed. Reporting 0.0
-            # to monitoring is a false all-clear -- zero SEPA batch volume looks
-            # normal. A failed metric collection is the honest signal.
+            # Final fallback - log error and return 0
             frappe.logger().error(f"Python fallback calculation failed for total batch amount: {str(e)}")
-            raise
+            return 0.0
 
     def _calculate_daily_batch_amount_optimized(self, cutoff_date) -> float:
         """
@@ -537,9 +556,9 @@ class SEPAZabbixIntegration:
             return round(total, 2)
 
         except Exception as e:
-            # As above: 0.0 here is a false all-clear on daily SEPA volume.
+            # Final fallback - log error and return 0
             frappe.logger().error(f"Python fallback calculation failed for daily batch amount: {str(e)}")
-            raise
+            return 0.0
 
     def _get_mandate_metrics(self) -> Dict[str, Union[int, float]]:
         """Get SEPA mandate management metrics"""

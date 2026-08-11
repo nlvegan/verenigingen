@@ -292,7 +292,7 @@ class TestMollieBulkTransactionCoreFunctionality(EnhancedTestCase):
             email=self.factory.generate_test_email("inactive")
         )
         
-        inactive_sepa = self._create_test_sepa_mandate(inactive_member.name, status="Inactive")
+        inactive_sepa = self._create_test_sepa_mandate(inactive_member.name, status="Cancelled")
         
         # Test matching with inactive SEPA mandate IBAN
         matched_member = self.bulk_importer._find_member_by_payment_details(

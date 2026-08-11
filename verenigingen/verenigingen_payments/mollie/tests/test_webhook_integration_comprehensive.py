@@ -429,7 +429,7 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
                 "payment_method": "Mollie",
                 "payment_id": payment_id,
                 "payment_reference": payment_id,
-                "payment_status": "Failed (failed)",
+                "payment_status": "Failed",
                 "mollie_payment_id": payment_id,
             },
         )

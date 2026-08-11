@@ -419,7 +419,7 @@ def get_chapter_permission_service() -> ChapterPermissionService:
     return ChapterPermissionService()
 
 
-def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
+def get_user_board_chapters(user: Optional[str] = None, *, strict_user_link: bool = False) -> List[dict]:
     """Chapters a user may act on in board-facing portal pages, with region and role.
 
     Returns dicts carrying at least ``chapter_name`` and ``region``; the board-member path
@@ -486,9 +486,21 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
     # from their contact email was therefore granted the Chapter Board Member role and
     # then read as having no chapters, which for the endpoints listed above IS the
     # access-control answer.
-    from verenigingen.utils.member_utils import get_member_name_for_user
+    #
+    # strict_user_link=True drops that email fallback and matches ONLY an explicit
+    # Member.user link. chapter_security.get_user_manageable_chapters passes it,
+    # because the fallback admits a User who merely SHARES an address with a Member
+    # they are not linked to: on this database 126 Members have an email equal to an
+    # existing User while their `user` field is empty or points elsewhere, and for one
+    # of them that Member's volunteer holds an active board seat. Gaining a board
+    # seat by email collision is a different (looser) authorization rule than the
+    # gate that guards approvals, so the approval path opts out of it deliberately.
+    if strict_user_link:
+        member = frappe.db.get_value("Member", {"user": user}, "name")
+    else:
+        from verenigingen.utils.member_utils import get_member_name_for_user
 
-    member = get_member_name_for_user(user)
+        member = get_member_name_for_user(user)
     if not member:
         return []
 

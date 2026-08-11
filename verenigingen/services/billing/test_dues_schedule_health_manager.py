@@ -107,7 +107,7 @@ class TestDuesRatePriorityHierarchy(_HealthBase):
         newer.change_date = "2025-01-01"
         newer.new_dues_rate = 22.0
         newer.billing_frequency = "Quarterly"
-        newer.change_type = "Fee Change"
+        newer.change_type = "Fee Adjustment"  # what fee_change_tracking_service writes
         newer.reason = "test new"
         newer.changed_by = frappe.session.user
         doc.save()

@@ -6,6 +6,10 @@ Tests the exact scenario that caused payment history sync to fail.
 import frappe
 from frappe.utils import today, add_days, getdate
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.test_data_factory import (
+    PAYMENT_TEST_DAILY_TYPE,
+    ensure_payment_test_daily_type,
+)
 
 
 class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
@@ -32,10 +36,11 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
 
         ensure_member_test_masters()
 
-        # "Daglid" is a production membership type absent on fresh test sites.
-        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+        # A EUR2 type owned by the payment tests. It used to reference the name
+        # "Daglid", which create_test_membership also creates -- see
+        # PAYMENT_TEST_DAILY_TYPE for why that made the amount order-dependent (#248).
 
-        ensure_membership_type_exists("Daglid", amount=2.0)
+        ensure_payment_test_daily_type()
 
     def test_payment_history_sync_with_auto_generated_invoice(self):
         """
@@ -70,7 +75,7 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
         # member to have an active membership, which the membership provides.
         membership = self.create_test_membership(
             member=member.name,
-            membership_type="Daglid"
+            membership_type=PAYMENT_TEST_DAILY_TYPE
         )
         if membership.docstatus == 0:
             membership.submit()  # submit -> member has active membership + auto schedule

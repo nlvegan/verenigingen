@@ -34,32 +34,50 @@ def get_user_manageable_chapters(user=None):
     ):
         return "all"
 
-    # Get member record for user
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return []
+    # Board seats are held by a VOLUNTEER, not a Member: a member with a volunteer
+    # profile is what gets registered on a chapter's board roster. This function used
+    # to resolve the caller's Member and compare THAT name against
+    # `Chapter Board Member.volunteer`, which holds a Volunteer name -- the two are
+    # different namespaces (Assoc-Member-... vs Assoc-Vol-...), so the query never
+    # matched and every board member was read as managing no chapters. Since this is
+    # the gate `validate_chapter_permission_or_throw` uses, board members could not
+    # approve applications for their own chapter at all; it only ever appeared to
+    # work for users who also held one of the admin/staff roles short-circuited above.
+    #
+    # Delegate rather than re-derive. chapter_permission_service.get_user_board_chapters
+    # already resolves user -> Member -> Volunteer -> board roster, and is the lookup
+    # the chapter dashboard trusts. Keeping a second implementation here is what let
+    # the two silently diverge in the first place.
+    #
+    # strict_user_link=True keeps the IDENTITY rule this function already had. The
+    # delegate's default resolution falls back to matching Member.email when no
+    # Member.user link matches, which would admit a User who merely shares an address
+    # with a Member they are not linked to -- 126 such Members exist on this database,
+    # one of whose volunteers holds an active board seat. That is a looser rule than
+    # the gate guarding approvals, and adopting it here would have been an
+    # authorization change smuggled in as a lookup fix. The board dashboard keeps the
+    # fallback; this path does not.
+    from verenigingen.services.chapter.chapter_permission_service import get_user_board_chapters
 
     manageable_chapters = []
 
-    # Get chapters where user is a board member with membership permissions
-    board_positions = frappe.db.sql(
-        """
-        SELECT DISTINCT cbm.parent as chapter_name, cbm.chapter_role
-        FROM `tabChapter Board Member` cbm
-        WHERE cbm.volunteer = %s
-        AND cbm.is_active = 1
-    """,
-        (user_member,),
-        as_dict=True,
-    )
+    for position in get_user_board_chapters(user, strict_user_link=True):
+        chapter_name = position.get("chapter_name")
+        chapter_role = position.get("chapter_role")
+        if not chapter_name or not chapter_role or chapter_name in manageable_chapters:
+            continue
 
-    for position in board_positions:
-        # Check if the chapter role has membership management permissions
-        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-        if hasattr(role_doc, "can_approve_memberships") and role_doc.can_approve_memberships:
-            manageable_chapters.append(position.chapter_name)
-        elif hasattr(role_doc, "permissions_level") and role_doc.permissions_level in ["Admin", "Membership"]:
-            manageable_chapters.append(position.chapter_name)
+        # Unchanged acceptance rule -- this fix is about WHO is found, not about
+        # widening what a board role may do. Note both arms are narrower than they
+        # read: Chapter Role has no `can_approve_memberships` field, and
+        # `permissions_level` offers only Basic/Financial/Admin, so in practice
+        # "Admin" is the only level that grants approval today. Changing that is an
+        # authorization decision, not a bug fix.
+        role_doc = frappe.get_doc("Chapter Role", chapter_role)
+        if getattr(role_doc, "can_approve_memberships", None):
+            manageable_chapters.append(chapter_name)
+        elif getattr(role_doc, "permissions_level", None) in ["Admin", "Membership"]:
+            manageable_chapters.append(chapter_name)
 
     return manageable_chapters
 

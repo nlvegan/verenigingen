@@ -1882,6 +1882,15 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     Provides 28 factory methods with field safety validation and business rules.
     """
 
+    # Doctypes holding shared master data that `tests.setup.before_tests` seeds
+    # ONCE per process. Production code called from a test body may legitimately
+    # RE-create one of these rows (ensure_payment_modes_exist() restoring a Mode
+    # of Payment a test removed). The insert hook cannot tell that apart from a
+    # test's own throwaway record, so draining it destroys the seed for the rest
+    # of the process and every later test in the shard fails link validation
+    # against it. Keep this set SMALL: entries here leak between tests by design.
+    DRAIN_EXEMPT_DOCTYPES = frozenset({"Mode of Payment"})
+
     def setUp(self):
         super().setUp()
 
@@ -1957,11 +1966,34 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Set global test flags for appropriate test behavior
         frappe.flags.skip_volunteer_account_creation = True
 
-        # Bypass User creation throttling in tests
-        # Frappe's throttle_user_creation() checks frappe.flags.in_import to skip throttling
-        # Save original value to restore in tearDown
-        self._original_in_import = getattr(frappe.flags, "in_import", False)
-        frappe.flags.in_import = True
+        # Bypass User creation throttling WITHOUT suppressing production document behavior.
+        #
+        # This used to set frappe.flags.in_import = True, purely so Frappe's
+        # throttle_user_creation() would return early. That flag is far too broad: it also
+        # disables _set_defaults(), _validate_selects(), _validate_constants() and autoname
+        # regeneration, so every test on this harness ran against a document model
+        # production never sees. Concretely, User.enabled has default "1", so suppressing
+        # defaults created *disabled* test users.
+        #
+        # throttle_user_creation() reads throttle_user_limit from conf, so raise that
+        # instead: same bypass, none of the collateral.
+        # See docs/superpowers/specs/2026-07-30-in-import-harness-phase1-design.md
+        # Registered via addCleanup rather than tearDown: if setUp raises anywhere below
+        # this line, unittest skips tearDown but still runs cleanups, so the override
+        # cannot leak into the rest of the process.
+        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
+        self.addCleanup(self._restore_throttle_user_limit)
+        frappe.local.conf["throttle_user_limit"] = 1000000
+
+        # NOTE: do NOT set frappe.flags.in_bulk_import here as a stand-in for in_import.
+        # It is not equivalent and suppresses strictly more: the event *emitters* in
+        # events/team_events.py, events/member_events.py and events/chapter_events.py gate
+        # on `bulk_*_operations or in_bulk_import` and never look at in_import, so under
+        # in_import they emit normally. Setting in_bulk_import short-circuits them before
+        # event_emitter.emit_event() is reached, which breaks three tests in
+        # tests/events/test_team_events_coverage.py (verified). Only the *subscriber* side
+        # (events/subscribers/subscriber_utils.py:45, chapter_subscribers.py:132) consults
+        # in_import.
 
         # Ensure test user has necessary roles instead of bypassing permissions
         self.ensure_test_user_has_role("System Manager")
@@ -2063,7 +2095,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         seen = set()
         ordered = []
         for key in reversed(captured):
-            if key in seen:
+            if key in seen or key[0] in self.DRAIN_EXEMPT_DOCTYPES:
                 continue
             seen.add(key)
             ordered.append(key)
@@ -2102,6 +2134,26 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 f"(may persist as orphans; usually link/docstatus constraints)."
             )
 
+    def _restore_throttle_user_limit(self):
+        """Undo the setUp override of conf["throttle_user_limit"].
+
+        The key must be *deleted* rather than set back to None when it was absent to
+        begin with: throttle_user_creation() does
+        `count > conf.get("throttle_user_limit", 60)`, and a stored None would make that
+        comparison raise TypeError instead of falling back to the default of 60.
+        `is None` rather than falsiness, so a deliberate 0 survives.
+
+        This only matters for non-EnhancedTestCase tests sharing the same process — the
+        conf dict outlives an individual test. Do not delete as dead code.
+        """
+        try:
+            if self._original_throttle_limit is None:
+                frappe.local.conf.pop("throttle_user_limit", None)
+            else:
+                frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
+        except Exception:
+            pass  # Never let cleanup mask a test result
+
     def tearDown(self):
         """
         Clean up test environment with per-method transaction rollback.
@@ -2136,6 +2188,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # rolled-back data in a later test (see setUp for the full rationale).
         self._reset_financial_history_batch_queue()
 
+        # NOTE: throttle_user_limit is restored via addCleanup in setUp, not here — see
+        # _restore_throttle_user_limit().
+
         # EMAIL MOCKING CLEANUP: Stop all email patches
         try:
             # Stop comprehensive email patches
@@ -2158,12 +2213,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         except Exception:
             pass  # Continue cleanup even if rate limit patch cleanup fails
 
-        # IMPORT FLAG CLEANUP: Restore original in_import flag value
-        try:
-            if hasattr(self, "_original_in_import"):
-                frappe.flags.in_import = self._original_in_import
-        except Exception:
-            pass  # Continue cleanup even if flag restoration fails
 
         # IMPLEMENT PER-METHOD ROLLBACK (as documented above)
         # This is critical for test isolation - prevents User/Customer duplicate entries
@@ -3656,6 +3705,140 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             member_name = kwargs.pop("member")
         return self.factory.create_volunteer(member_name, **kwargs)
 
+    def create_test_board_member(
+        self, chapter_name, permissions_level="Admin", role_name=None, first_name="Board"
+    ):
+        """Seat a real, non-admin board member on `chapter_name`.
+
+        A board seat is held by a VOLUNTEER, and the permission gates resolve
+        user -> Member -> Volunteer -> `Chapter Board Member`. Every link in that
+        chain has to exist or the seat is invisible to
+        chapter_security.get_user_manageable_chapters, and a permission test
+        silently passes (or fails) for the wrong reason. Assembling it by hand is
+        ~15 lines that were previously copy-pasted per test file; the persona
+        `create_board_member_bob` does NOT do this -- it builds a Team assignment,
+        which is a different doctype and grants no chapter rights.
+
+        `permissions_level` defaults to "Admin" because that is the only level that
+        actually grants approval: `Chapter Role` has no `can_approve_memberships`
+        field and its permissions_level options are Basic/Financial/Admin, so the
+        `"Membership"` arm in get_user_manageable_chapters is dead.
+
+        Returns a frappe._dict with `user`, `member`, `volunteer`, `chapter` and
+        `chapter_role`.
+        """
+        # Trailing digit is required: the factory rewrites Member.email unless the
+        # local part's last 5 characters contain one, which silently decouples
+        # Member.email from Member.user and breaks user-linked lookups ~1 run in 135.
+        run = f"{frappe.generate_hash(length=8)}0"
+        email = f"board-{run}@example.com"
+
+        if not frappe.db.exists("User", email):
+            user = frappe.get_doc({
+                "doctype": "User",
+                "email": email,
+                "first_name": first_name,
+                "send_welcome_email": 0,
+                # Explicit, as create_test_user also does. This used to be load-bearing:
+                # setUp set frappe.flags.in_import, which made Document._set_defaults()
+                # early-return, so User.enabled's default of "1" never reached the doc and
+                # the account landed disabled. setUp no longer sets that flag, so the
+                # default now applies and this is belt-and-braces rather than a fix -- kept
+                # because a disabled board member is not a scenario worth testing (they
+                # cannot log in, and has_permission denies disabled accounts outright), so
+                # the seat would go invisible for a reason the test is not about.
+                "enabled": 1,
+                "roles": [{"role": "Verenigingen Member"}],
+            })
+            user.insert(ignore_permissions=True)
+            self.factory.track_document("User", user.name, priority=2)
+
+        member = self.create_test_member(
+            first_name=first_name, last_name=f"Seat{run[:6]}", email=email, birth_date="1985-01-01"
+        )
+        member.db_set("status", "Active")
+        member.db_set("user", email)
+
+        volunteer = self.create_test_volunteer(member_name=member.name)
+
+        role_name = role_name or f"Test Board Approver {permissions_level}"
+        existing = frappe.db.get_value(
+            "Chapter Role", role_name, ["permissions_level", "is_active"], as_dict=True
+        )
+        if not existing:
+            role = frappe.get_doc({
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "permissions_level": permissions_level,
+                "is_active": 1,
+            })
+            role.insert(ignore_permissions=True)
+            self.factory.track_document("Chapter Role", role.name, priority=3)
+        elif existing.permissions_level != permissions_level or not existing.is_active:
+            # The default role_name is NOT tokenized, so this row is shared across
+            # tests and across runs. A prior run that left it inactive, or that asked
+            # for a different permissions_level, would otherwise be silently reused --
+            # and get_user_manageable_chapters only accepts permissions_level "Admin",
+            # so the seat would grant nothing in a fixture whose entire purpose is that
+            # the seat is visible. Repair rather than skip.
+            frappe.db.set_value(
+                "Chapter Role",
+                role_name,
+                {"permissions_level": permissions_level, "is_active": 1},
+                update_modified=False,
+            )
+
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": role_name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+
+        # The roles alone are not enough. APISecurityFramework authorizes on Frappe ROLE
+        # PROFILES, not roles (authorization_policy.ROLE_PROFILE_SECURITY_MAPPING), and
+        # approve_membership_application is @high_security_api. Without the profile the
+        # user is capped below HIGH and denied at the tier gate -- so a chapter-scope
+        # test would be denied before the chapter check ever ran, and a denial test
+        # would pass for entirely the wrong reason.
+        from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
+
+        assign_role_profile_to_user(email, "Verenigingen Chapter Board Member")
+
+        return frappe._dict(
+            user=email,
+            member=member.name,
+            volunteer=volunteer.name,
+            chapter=chapter_name,
+            chapter_role=role_name,
+        )
+
+    def add_member_to_test_chapter(self, member_name, chapter_name):
+        """Give `member_name` an ACTIVE Chapter Member row on `chapter_name`.
+
+        can_user_manage_application() matches manageable chapters against
+        `tabChapter Member` rows with enabled=1 AND status='Active'. A member
+        without one belongs to no chapter as far as the approval gate is
+        concerned, so a board-member permission test would be unreachable.
+        """
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter_doc.get("members", []):
+            if row.member == member_name:
+                row.enabled = 1
+                row.status = "Active"
+                break
+        else:
+            chapter_doc.append(
+                "members", {"member": member_name, "enabled": 1, "status": "Active"}
+            )
+        chapter_doc.save(ignore_permissions=True)
+        return chapter_doc
+
     def create_test_application_data(self, with_skills=True):
         """Convenience method for creating application data"""
         return self.factory.create_application_data(with_volunteer_skills=with_skills)
@@ -4099,6 +4282,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "doctype": "Sales Invoice",
             "customer": actual_customer,
             "posting_date": kwargs.get("posting_date", frappe.utils.today()),
+            # Honor the posting_date above. Without this, ERPNext's
+            # TransactionBase.validate_posting_time() overwrites posting_date with
+            # now() (erpnext/utilities/transaction_base.py). That used to be masked
+            # because frappe.flags.in_import set set_posting_time implicitly; the
+            # harness no longer sets that flag, so it must be explicit. A backdated
+            # invoice silently becoming "today" also pushes posting_date past
+            # due_date, which fails validate_due_date.
+            "set_posting_time": 1,
             "due_date": kwargs.get("due_date", frappe.utils.add_days(frappe.utils.today(), 30)),
             "company": company,
             "currency": company_currency,  # Use company currency
@@ -5333,6 +5524,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "mode_of_payment": kwargs.get("mode_of_payment", "Bank Transfer"),
             "party_type": kwargs.get("party_type", "Customer"),
             "posting_date": kwargs.get("posting_date", frappe.utils.today()),
+            # See create_test_sales_invoice: ERPNext overwrites posting_date with now()
+            # unless set_posting_time is set, and the harness no longer sets in_import.
+            "set_posting_time": 1,
             # Currency and exchange rate
             "paid_from_account_currency": company_currency,
             "paid_to_account_currency": company_currency,

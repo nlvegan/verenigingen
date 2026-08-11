@@ -718,11 +718,16 @@ class BulkPaymentChecker:
         try:
             from verenigingen.utils.security.audit_logging import log_security_event
 
-            severity = "INFO"
+            # Lowercase to match the Select on API Audit Log.severity. These were "INFO"
+            # and "WARNING", which the field rejects, so every audit row this method
+            # produced was discarded by log_event's broad except -- the missing
+            # compliance row in #197. log_event now normalises the case as a safety net,
+            # but emitting a valid value here keeps the intent visible at the source.
+            severity = "info"
             if result.get("circuit_breaker_triggered"):
-                severity = "WARNING"
+                severity = "warning"
             elif result.get("errors", 0) > 0:
-                severity = "WARNING"
+                severity = "warning"
 
             details = {
                 "user": frappe.session.user,

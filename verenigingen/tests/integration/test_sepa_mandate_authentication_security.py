@@ -222,13 +222,19 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         """Create SEPA mandate records for testing"""
         mandates = {}
 
+        # Member names are autonamed "Assoc-Member-YYYY-MM-####", so name[:8] is
+        # "Assoc-Me" for every member and cannot make mandate_id (unique) unique.
+        # Suffix each id per run instead -- otherwise one failing test leaves an
+        # "ACTIVE-..." row behind and every later test in the class collides on it.
+        run_id = frappe.generate_hash(length=8)
+
         # Active SEPA mandate
         active_member = self.sepa_members["sepa_active"]
         mandates["active"] = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
                 "member": active_member.name,
-                "mandate_id": f"ACTIVE-{active_member.name[:8]}",
+                "mandate_id": f"ACTIVE-{run_id}",
                 "iban": active_member.iban,
                 "bic": active_member.bic,
                 "account_holder_name": active_member.bank_account_name,
@@ -247,11 +253,14 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": inactive_member.name,
-                "mandate_id": f"INACTIVE-{inactive_member.name[:8]}",
+                "mandate_id": f"INACTIVE-{run_id}",
                 "iban": inactive_member.iban,
                 "bic": inactive_member.bic,
                 "account_holder_name": inactive_member.bank_account_name,
-                "status": "Inactive",
+                # SEPA Mandate.status offers Draft/Active/Cancelled/Expired/Suspended.
+                # "Cancelled" is what production writes when a mandate stops being
+                # usable (termination_utils), so it is the real deactivated state.
+                "status": "Cancelled",
                 "is_active": 0,
                 "sign_date": add_days(getdate(), -60),  # Signed 60 days ago, then deactivated
                 "mandate_type": "RCUR",
@@ -266,11 +275,12 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": pending_member.name,
-                "mandate_id": f"PENDING-{pending_member.name[:8]}",
+                "mandate_id": f"PENDING-{run_id}",
                 "iban": pending_member.iban,
                 "bic": pending_member.bic,
                 "account_holder_name": pending_member.bank_account_name,
-                "status": "Pending",
+                # "Draft" is the valid not-yet-active state; "Pending" is not an option.
+                "status": "Draft",
                 "is_active": 0,
                 "sign_date": getdate(),  # Just signed today
                 "mandate_type": "RCUR",
@@ -334,7 +344,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         with self.as_user(self.sepa_users["member_sepa_inactive"].email):
             mandate = get_member_sepa_mandate(self.sepa_members["sepa_inactive"].name, active_only=False)
             self.assertIsNotNone(mandate, "Should find inactive mandate when not requiring active")
-            self.assertEqual(mandate["status"], "Inactive")
+            self.assertEqual(mandate["status"], "Cancelled")
 
     def test_sepa_mandate_guest_access_prevention(self):
         """Test guest users cannot access SEPA mandate data"""

@@ -7,6 +7,10 @@ import frappe
 from frappe import _
 from frappe.utils import today, add_days, getdate
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.test_data_factory import (
+    PAYMENT_TEST_DAILY_TYPE,
+    ensure_payment_test_daily_type,
+)
 
 
 class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
@@ -39,14 +43,14 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
             self.member.save()
             self.track_doc("Customer", customer.name)
 
-        # Ensure the "Daglid" membership type exists and is active.
-        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+        # The payment tests' own EUR2 type, not the shared name "Daglid" whose amount
+        # depended on which caller created it first -- see PAYMENT_TEST_DAILY_TYPE (#248).
 
-        ensure_membership_type_exists("Daglid", amount=2.0)
+        ensure_payment_test_daily_type()
 
         # Create membership and submit so it is ACTIVE (the factory only inserts
         # a Draft; the dues schedule controller requires an Active membership).
-        self.membership = self.create_test_membership(member=self.member.name, membership_type="Daglid")
+        self.membership = self.create_test_membership(member=self.member.name, membership_type=PAYMENT_TEST_DAILY_TYPE)
         self.membership.submit()
 
         # Submitting may auto-create an Active dues schedule; cancel it so the
@@ -63,7 +67,7 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
         self.dues_schedule.schedule_name = f"Test Schedule {self.member.name}"
         self.dues_schedule.member = self.member.name
         self.dues_schedule.member_name = self.member.full_name
-        self.dues_schedule.membership_type = "Daglid"
+        self.dues_schedule.membership_type = PAYMENT_TEST_DAILY_TYPE
         self.dues_schedule.currency = "EUR"
         self.dues_schedule.status = "Active"
         self.dues_schedule.billing_frequency = "Daily"

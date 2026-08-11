@@ -190,8 +190,6 @@ verenigingen/setup/__init__.py::create_default_verenigingen_settings::1
 verenigingen/setup/__init__.py::fix_btw_installation::1
 verenigingen/setup/__init__.py::install_missing_btw_fields::1
 verenigingen/setup/document_links.py::get_member_from_expense_claim::1
-verenigingen/setup/membership_application_workflow_setup.py::create_membership_application_workflow::1
-verenigingen/setup/membership_application_workflow_setup.py::setup_membership_application_workflow::1
 verenigingen/setup/security_setup.py::generate_session_secret::1
 verenigingen/setup/security_setup.py::setup_password_policy::1
 verenigingen/setup/simple_dd_workflow_setup.py::create_simple_dd_batch_workflow::1
@@ -372,6 +370,7 @@ verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process
 verenigingen/verenigingen_payments/doctype/ponto_settings/ponto_settings.py::PontoSettings._fix_bank_account_currency::1
 verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEPAAuditLog.log_sepa_event::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
+verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::find_member_for_payment::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::update_donation_payment_history::1
@@ -434,7 +433,8 @@ verenigingen/verenigingen_payments/utils/sepa_return_parser.py::SEPAReturnParser
 verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPARollbackManager._create_compensation_transaction::1
 verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPARollbackManager._get_batch_info::1
 verenigingen/verenigingen_payments/utils/sepa_rollback_manager.py::SEPARollbackManager._get_notification_recipients::1
-verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_batch_metrics::1
+verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._calculate_daily_batch_amount_python::1
+verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._calculate_total_batch_amount_python::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_business_metrics::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_financial_metrics::1
 verenigingen/verenigingen_payments/utils/sepa_zabbix_enhanced.py::SEPAZabbixIntegration._get_health_metrics::1

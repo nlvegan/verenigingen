@@ -80,7 +80,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
                 "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1))
                 if status == "Active"
                 else None,
-                "contribution_mode": kwargs.get("contribution_mode", "Tier"),
+                "contribution_mode": kwargs.get("contribution_mode", "Fixed"),
                 "currency": kwargs.get("currency", "EUR"),  # Mandatory field
                 "docstatus": 0,  # Draft status to ensure it's not filtered out
                 **{
@@ -432,7 +432,7 @@ class TestUpdateScheduleRate(EnhancedTestCase):
                 "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1))
                 if status == "Active"
                 else None,
-                "contribution_mode": kwargs.get("contribution_mode", "Tier"),
+                "contribution_mode": kwargs.get("contribution_mode", "Fixed"),
                 "docstatus": 0,
                 **{
                     k: v

@@ -24,8 +24,11 @@ after_migrate = [
     "verenigingen.setup.ensure_required_payment_modes",
     # Brand settings initialization
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
-    # Workflow setup - DISABLED: Workflow not in use, has bugs in action master creation
-    # "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
+    # (No membership-application workflow setup here. The native Frappe Workflow that
+    # used to govern Member.application_status was removed in
+    # patches/v2_2/remove_membership_application_workflow.py -- a global role list
+    # cannot express "board member of THIS chapter", which is the actual approval rule.
+    # Authorization lives in chapter_security.validate_chapter_permission_or_throw.)
     # Security framework
     "verenigingen.utils.security.setup_all_security",
     # Database indexes

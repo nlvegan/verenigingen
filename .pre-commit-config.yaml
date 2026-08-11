@@ -193,7 +193,7 @@ repos:
         # eslint would lint the whole tree). No `--fix` (avoids piecemeal
         # reformat churn) and no trailing echo (so the hook's exit code is
         # eslint's, instead of always 0).
-        entry: bash -c 'npx eslint --max-warnings=1000 "$@"' --
+        entry: scripts/testing/with-node-modules.sh bash -c 'eslint --max-warnings=1000 "$@"' --
         language: system
         files: \.js$
         stages: [pre-commit]
@@ -208,7 +208,7 @@ repos:
         # staged filenames land in "$@" (not $0); a lone staged file would
         # otherwise leave "$@" empty and Prettier would scan nothing.
         # `--check` respects .prettierignore, so ignored paths are skipped.
-        entry: bash -c 'npx prettier --check "$@"' --
+        entry: scripts/testing/with-node-modules.sh bash -c 'prettier --check "$@"' --
         language: system
         files: \.(js|vue)$
         stages: [pre-commit]
@@ -268,6 +268,40 @@ repos:
         files: '\.py$'
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
+
+      - id: failed-write-validator
+        name: 💾 Failed-Write Guard (ratchet) [advisory]
+        description: >-
+          Sibling of the Swallowed-Exception Guard, for the case it cannot see by
+          design: a broad `except` around a DATABASE WRITE whose failure never
+          reaches the caller — the row is silently lost and the operation reports
+          success. PR #280 found NINE production defects of this exact shape at once,
+          three of which had never worked in ANY deployment (no default payment
+          mapping was ever created, no SEPA retry batch was ever saved, every
+          Volunteer Skill row without a level was rejected). Several had thorough,
+          PASSING tests, because the tests asserted the reported outcome and the
+          reported outcome was "success". The four shapes reported are CLAIMS_SUCCESS
+          (returns an explicit success flag), RETURNS_TRUTHY, LOOP_CONTINUES (the
+          dropped row is the bug, not the loop) and FALLS_THROUGH — each one an
+          exclusion the swallowed-exception rule makes on purpose. Fix by re-raising,
+          or by returning/recording an explicit failure the caller reads; a genuinely
+          best-effort write opts out with
+          `# failed-write-ok: best-effort|caller-verifies|reported-elsewhere|false-positive`.
+          Ratcheted against scripts/validation/failed_write_baseline.txt (162 known
+          sites) so existing code does not block commits — the baseline should only
+          ever shrink. ADVISORY while that inventory is triaged: it prints and exits
+          0; add --strict to the entry below to make a new site fail the commit.
+          The files/exclude below must stay a SUBSET of SCAN_ROOTS in the validator —
+          anything scanned here but absent from the baseline fails on first edit.
+        entry: python scripts/validation/failed_write_validator.py
+        language: system
+        pass_filenames: true
+        files: '^(verenigingen|scripts)/.*\.py$'
+        stages: [pre-commit]
+        # verbose: pre-commit hides stdout for passing hooks, and this one passes
+        # (advisory) even when it has findings — without this they are invisible.
+        verbose: true
+        exclude: '^(scripts/validation/archived/|scripts/validation/tests/|verenigingen/tests/)'
 
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
@@ -489,6 +523,10 @@ repos:
         language: system
         pass_filenames: false
         files: '\.(py)$'
+        # pre-commit hides the stdout of hooks that pass, so without this the target's
+        # "skipping, this is a worktree" message would be invisible and the skip would
+        # read as a successful test run.
+        verbose: true
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
@@ -519,7 +557,7 @@ repos:
       - id: api-contract-validation
         name: 🔍 API Contract Validation (Pre-commit)
         description: Run API contract validation tests
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-simple --type "API Contract Validation"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-simple --type "API Contract Validation"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -530,7 +568,7 @@ repos:
       - id: controller-testing-focused
         name: 🎮 Controller Testing (Pre-commit)
         description: Run focused controller tests to validate form behavior
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern focused --type "Controller Testing"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern focused --type "Controller Testing"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -541,7 +579,7 @@ repos:
       - id: external-api-contracts
         name: 🏦 External API Contracts (Pre-push)
         description: Validate eBoekhouden and Mollie API contracts
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern external-api-contracts --type "External API Contract Validation"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern external-api-contracts --type "External API Contract Validation"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -552,7 +590,7 @@ repos:
       - id: performance-benchmarking
         name: ⚡ Performance Benchmarking (Pre-push)
         description: Run performance benchmark tests for regression detection
-        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-performance --type "Performance Benchmarking"
+        entry: scripts/testing/with-node-modules.sh scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-performance --type "Performance Benchmarking"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
@@ -564,7 +602,7 @@ repos:
       - id: jest-testing
         name: 🧪 Jest JavaScript Testing
         description: Run Jest tests for JavaScript components
-        entry: npm run test:coverage
+        entry: scripts/testing/with-node-modules.sh npm run test:coverage
         language: system
         pass_filenames: false
         files: '\.(js|vue)$'
@@ -575,7 +613,7 @@ repos:
       - id: cypress-e2e-tests
         name: 🌲 Cypress E2E Tests
         description: Run Cypress end-to-end tests
-        entry: npm run cypress:run
+        entry: scripts/testing/with-node-modules.sh npm run cypress:run
         language: system
         pass_filenames: false
         files: '\.(js|vue|html)$'

@@ -58,7 +58,7 @@ class TestPriorityHierarchyBranches(EnhancedTestCase):
         row.change_date = frappe.utils.now()
         row.new_dues_rate = 42.0
         row.billing_frequency = "Quarterly"
-        row.change_type = "Fee Change"
+        row.change_type = "Fee Adjustment"  # what fee_change_tracking_service writes
         row.reason = "Test fee change for priority-2 coverage"
         row.changed_by = frappe.session.user
         member_doc.save()

@@ -424,8 +424,8 @@ frappe.ready(() => {
                                     <input type="checkbox" class="mapping-checkbox" value="${index}">
                                 </td>
                                 <td><code>${mapping.account_code}</code></td>
-                                <td><span class="badge badge-primary">${mapping.target_account_type || mapping.account_type}</span></td>
-                                <td>${mapping.description || mapping.notes || '-'}</td>
+                                <td><span class="badge badge-primary">${mapping.document_type || '-'}</span></td>
+                                <td>${mapping.notes || '-'}</td>
                                 <td>
                                     <button class="btn btn-sm btn-info" onclick="editMapping(${index})">
                                         <i class="fa fa-edit"></i>
@@ -765,28 +765,17 @@ frappe.ready(() => {
 					read_only: 1
 				},
 				{
-					label: __('Account Type'),
+					label: __('Target Document Type'),
 					fieldname: 'account_type',
 					fieldtype: 'Select',
-					options: [
-						'Asset',
-						'Liability',
-						'Equity',
-						'Income',
-						'Expense',
-						'Bank',
-						'Cash',
-						'Receivable',
-						'Payable',
-						'Tax'
-					],
-					default: mapping.target_account_type || mapping.account_type
+					options: ['Sales Invoice', 'Purchase Invoice', 'Expense Claim', 'Journal Entry'],
+					default: mapping.document_type
 				},
 				{
 					label: __('Notes'),
 					fieldname: 'notes',
 					fieldtype: 'Small Text',
-					default: mapping.description || mapping.notes
+					default: mapping.notes
 				}
 			],
 			primary_action_label: __('Update'),
@@ -807,8 +796,8 @@ frappe.ready(() => {
 						// Update local state
 						state.mappings[index] = {
 							...mapping,
-							target_account_type: values.account_type,
-							description: values.notes
+							document_type: values.account_type,
+							notes: values.notes
 						};
 						displayMappings();
 						frappe.show_alert({
@@ -842,22 +831,10 @@ frappe.ready(() => {
 			title: __('Bulk Edit Account Mappings'),
 			fields: [
 				{
-					label: __('Account Type'),
+					label: __('Target Document Type'),
 					fieldname: 'account_type',
 					fieldtype: 'Select',
-					options: [
-						'',
-						'Asset',
-						'Liability',
-						'Equity',
-						'Income',
-						'Expense',
-						'Bank',
-						'Cash',
-						'Receivable',
-						'Payable',
-						'Tax'
-					],
+					options: ['', 'Sales Invoice', 'Purchase Invoice', 'Expense Claim', 'Journal Entry'],
 					description: __('Leave empty to keep existing values')
 				},
 				{
@@ -876,7 +853,7 @@ frappe.ready(() => {
 						if (values.account_type || values.priority) {
 							updates.push({
 								mapping_id: mapping.name || mapping.id,
-								account_type: values.account_type || mapping.target_account_type,
+								account_type: values.account_type || mapping.document_type,
 								priority: values.priority || mapping.priority
 							});
 						}

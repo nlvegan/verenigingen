@@ -36,6 +36,9 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.services import mollie_payment_orchestrator as orch_mod
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+    MollieConfigurationService,
+)
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
     MolliePaymentOrchestrator,
     PaymentProcessingResult,
@@ -464,6 +467,12 @@ class TestCreateOrphanPaymentEntry(OrchestratorBase):
         # paid_to == clearing_account proves nothing: it would hold whether or not
         # bank_account reached ERPNext.
         cls.clearing_account = ensure_mollie_bank_gl_account(cls._company)
+        # The fixture returns None when it can find no parent group to hang the
+        # account under. Writing that into the Single below would surface three
+        # layers away as "Mollie Clearing Account not configured" from inside
+        # _create_orphan_payment_entry, i.e. as a test failure rather than as the
+        # setup problem it is. Fail here, where the message names the cause.
+        assert cls.clearing_account, f"no Mollie clearing account could be ensured for {cls._company}"
 
         # SETUP-only Single writes (class fixture, not a test body). Written with
         # set_single_value and restored via addClassCleanup: these Singles survive the
@@ -479,6 +488,18 @@ class TestCreateOrphanPaymentEntry(OrchestratorBase):
             cls.addClassCleanup(frappe.db.set_single_value, doctype, field, previous)
         cls.addClassCleanup(frappe.db.commit)
         frappe.db.commit()
+
+        # MollieConfigurationService caches Mollie Settings in Redis for 5 minutes
+        # under a single key. MollieSettings.on_update clears it, but set_single_value
+        # above writes the column directly and fires no doc hook — so without this the
+        # clearing account written above stays invisible to get_clearing_account() and
+        # _create_orphan_payment_entry() throws "Mollie Clearing Account not
+        # configured", returning None. That only happens when an earlier test in the
+        # same process already warmed the cache, which is why it surfaced solely as a
+        # shard-composition failure (CI run 31337755629, shard 8/12). Clear it again on
+        # teardown so the restored previous values are what later suites observe.
+        MollieConfigurationService.clear_cache()
+        cls.addClassCleanup(MollieConfigurationService.clear_cache)
 
     def setUp(self):
         super().setUp()

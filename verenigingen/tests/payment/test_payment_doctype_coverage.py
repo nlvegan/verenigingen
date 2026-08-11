@@ -157,9 +157,14 @@ class TestPaymentPlan(EnhancedTestCase):
 
     def test_frequency_required_for_equal_installments(self):
         """Missing frequency should raise validation error for equal installments."""
-        plan = self._create_plan(frequency=None)
+        # A new document cannot reach this check: _set_defaults() fills an empty
+        # Select with its first option ("Weekly") on insert, so frequency is only
+        # ever missing on an existing plan whose value was cleared.
+        plan = self._create_plan()
+        plan.insert()
+        plan.frequency = None
         with self.assertRaises(frappe.ValidationError):
-            plan.insert()
+            plan.save()
 
     def test_weekly_frequency_dates(self):
         """Weekly frequency should space installments 7 days apart."""
@@ -290,7 +295,8 @@ class TestDonationCampaign(EnhancedTestCase):
             "campaign_name",
             f"Test Campaign {frappe.generate_hash(length=6)}",
         )
-        doc.campaign_type = kwargs.pop("campaign_type", "General")
+        # "General" is not one of the field's options; "Other" is the generic one.
+        doc.campaign_type = kwargs.pop("campaign_type", "Other")
         doc.status = kwargs.pop("status", "Draft")
         doc.start_date = kwargs.pop("start_date", today())
         doc.update(kwargs)
@@ -460,7 +466,8 @@ class TestMollieReconciliationLog(EnhancedTestCase):
             "reconciliation_id", f"RECON-{frappe.generate_hash(length=6)}"
         )
         doc.date = kwargs.get("date", today())
-        doc.status = kwargs.get("status", "Completed")
+        # The field offers Success/Partial/Failed; "Completed" is not an option.
+        doc.status = kwargs.get("status", "Success")
         doc.error_count = kwargs.get("error_count", 0)
         doc.warning_count = kwargs.get("warning_count", 0)
         doc.correction_count = kwargs.get("correction_count", 0)
@@ -513,7 +520,8 @@ class TestSEPABatchUploadLog(EnhancedTestCase):
         """Create a SEPA Batch Upload Log."""
         doc = frappe.new_doc("SEPA Batch Upload Log")
         doc.batch_name = kwargs.get("batch_name", "TEST-BATCH-001")
-        doc.batch_status = kwargs.get("batch_status", "Pending")
+        # The field's own default; plain "Pending" is not one of its options.
+        doc.batch_status = kwargs.get("batch_status", "Pending Upload")
         doc.file_hash = kwargs.get("file_hash", frappe.generate_hash(length=64))
         doc.update(kwargs)
         return doc
@@ -583,7 +591,8 @@ class TestSEPAReturnFileLog(EnhancedTestCase):
         doc.file_hash = kwargs.get("file_hash", frappe.generate_hash(length=64))
         doc.processing_date = kwargs.get("processing_date", today())
         doc.processed_by = kwargs.get("processed_by", "Administrator")
-        doc.status = kwargs.get("status", "Pending")
+        # The field's own default; "Pending" is not one of its options.
+        doc.status = kwargs.get("status", "Processing")
         doc.update(kwargs)
         return doc
 

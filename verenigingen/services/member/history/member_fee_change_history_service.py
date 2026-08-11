@@ -59,7 +59,7 @@ class MemberFeeChangeHistoryService(StatelessService):
     """
 
     # Valid billing frequencies for fee change history
-    VALID_BILLING_FREQUENCIES = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
+    VALID_BILLING_FREQUENCIES = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
 
     def __init__(self) -> None:
         """Initialize the fee change history service."""

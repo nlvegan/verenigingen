@@ -504,37 +504,148 @@ def debug_team_assignments():
     return _debug_team_assignments()
 
 
+def _is_team_admin(user):
+    """Roles that see every team. Shared so both permission halves use one list."""
+    user_roles = frappe.get_roles(user)
+    return Roles.SYSTEM_MANAGER in user_roles or Roles.VERENIGINGEN_ADMIN in user_roles
+
+
+def _user_active_team_names(user):
+    """Teams where `user` holds an ACTIVE Team Member row, resolved via Member -> Volunteer.
+
+    Returns an empty list when the actor has no Member record, no Volunteer record,
+    or no active membership. Shared by get_team_permission_query_conditions and
+    has_team_permission so the list and document halves cannot drift apart.
+
+    A team_lead needs no branch of its own: Team._update_team_lead derives that field
+    from an active Team Member row whose Team Role carries is_team_leader, so a team
+    lead is always also an active member of the team they lead.
+
+    ALL of the member's volunteers are considered, not just one. `tabVolunteer` has no
+    unique index on `member`, and utils/member_utils.py documents a production path
+    where a swallowed error creates a second Volunteer for a member who already has
+    one. Resolving a single record with frappe.db.get_value (which orders by creation
+    ASC) would silently pick the older duplicate and drop every team reached through
+    the other -- and now that a doc-level check consumes this, that is an access
+    denial, not just a thin list. permissions.py:1500, :1533 and :1578 iterate for the
+    same reason.
+
+    The actor is resolved by the `user` LINK only, deliberately not via
+    get_member_name_for_user, whose Member.email fallback would let an email match
+    stand in for an account link inside an authorization gate.
+    """
+    member = frappe.db.get_value("Member", {"user": user}, "name")
+    if not member:
+        return []
+
+    # get_all, not get_list: a permission helper must not recurse into permission
+    # checks (Volunteer has a permission query of its own).
+    volunteers = frappe.get_all("Volunteer", filters={"member": member}, pluck="name")
+    if not volunteers:
+        return []
+
+    TM = DocType("Team Member")
+    team_memberships = (
+        frappe.qb.from_(TM)
+        .select(TM.parent)
+        .distinct()
+        .where(TM.volunteer.isin(volunteers) & (TM.is_active == 1))
+    ).run(as_dict=True)
+
+    return [team.parent for team in team_memberships]
+
+
+def has_team_permission(doc, user=None, ptype=None):
+    """Document-level check for Team. Mirrors get_team_permission_query_conditions.
+
+    Team had a permission query and NO has_permission hook. Those two halves have
+    disjoint coverage -- frappe/model/db_query.py calls frappe.has_permission WITHOUT
+    a doc, so the hook never runs for lists, and frappe.client.get calls
+    doc.check_permission() (frappe/client.py:104), which never consults the query --
+    so doc-level access fell entirely to DocPerms, and team.json grants
+    `Verenigingen Member` read with no if_owner. MEASURED against real config before
+    this fix: get_team_permission_query_conditions -> `` `tabTeam`.name = '' `` (zero
+    teams in any list view) and frappe.has_permission("Team", "read", doc=<any>) ->
+    True. Because the Team Member child rows travel with the parent, that disclosed
+    team rosters -- volunteer, role, dates, status -- plus team_lead and chapter.
+
+    The third parameter is named `ptype` rather than `permission_type` because that is
+    the keyword frappe actually passes; see has_employee_permission in
+    verenigingen/permissions.py for why the distinction matters. The value is ignored
+    here: this check narrows an existing DocPerm grant and never widens one, so read
+    and write both resolve to "is the actor on this team". Team's only non-admin write
+    grant is the `Team Lead` role, which this scopes from every team to their own.
+
+    Access:
+    - System Manager / Verenigingen Administrator: all teams
+    - The creator of the team: that team
+    - Anyone holding an active Team Member row on that team: that team
+    """
+    if not user:
+        user = frappe.session.user
+
+    if _is_team_admin(user):
+        return True
+
+    # A document being inserted is not yet in the database, so there is nothing to
+    # scope: creation is governed by the create DocPerm (System Manager, Verenigingen
+    # Administrator, Team Lead), and the first two short-circuit above. Test __islocal
+    # rather than an empty name -- Team autonames from team_name, so a new document
+    # already HAS a name and a name-based test would deny every insert.
+    if not isinstance(doc, str) and doc.get("__islocal"):
+        return True
+
+    team_name = doc if isinstance(doc, str) else getattr(doc, "name", None)
+    if not team_name:
+        return True
+
+    # The creator keeps the team they created. `Team Lead` holds create AND write on
+    # Team with no if_owner, so without this branch that role could insert a team (the
+    # __islocal arm above) and be denied on the very next read: at insert time there is
+    # no Team Member row yet and _update_team_lead leaves team_lead empty, so nothing
+    # below would match and the team would be editable only by an administrator.
+    owner = doc.get("owner") if not isinstance(doc, str) else frappe.db.get_value("Team", team_name, "owner")
+    if owner and owner == user:
+        return True
+
+    # Deliberately NOT wrapped in try/except, unlike the query below. This is an
+    # authorization decision, and a swallowed failure here returns False, which is
+    # indistinguishable from "policy says no". A permission check that throws is
+    # visible; one that quietly denies is not.
+    return team_name in _user_active_team_names(user)
+
+
 def get_team_permission_query_conditions(user=None):
-    """Get permission query conditions for Teams"""
+    """Get permission query conditions for Teams.
+
+    Kept in lockstep with has_team_permission -- see its docstring for why both halves
+    are required. One asymmetry is deliberate: this half swallows a failure and returns
+    a blanket denial (fail closed, with an Error Log row), while the doc-level check
+    lets it raise. A quietly empty list view is recoverable; a quietly wrong
+    authorization answer is not.
+    """
     try:
         if not user:
             user = frappe.session.user
 
-        if Roles.SYSTEM_MANAGER in frappe.get_roles(user) or Roles.VERENIGINGEN_ADMIN in frappe.get_roles(
-            user
-        ):
+        if _is_team_admin(user):
             return ""
 
-        # Get member record for the user
-        member = frappe.db.get_value("Member", {"user": user}, "name")
-        if not member:
-            return "`tabTeam`.name = ''"
+        conditions = []
 
-        # Get volunteer record for the member
-        volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-        if not volunteer:
-            return "`tabTeam`.name = ''"
+        # Gated on actually owning a team so that a user who owns none still falls
+        # through to the blanket denial below rather than to a condition that matches
+        # nothing. Same result, but it keeps "no access" expressed as no access.
+        if frappe.db.exists("Team", {"owner": user}):
+            conditions.append(f"`tabTeam`.owner = {frappe.db.escape(user)}")
 
-        # Get teams where user is a team member using Query Builder
-        TM = DocType("Team Member")
-        team_memberships = (
-            frappe.qb.from_(TM).select(TM.parent).where((TM.volunteer == volunteer) & (TM.is_active == 1))
-        ).run(as_dict=True)
-
-        if team_memberships:
-            team_names = [team.parent for team in team_memberships]
+        team_names = _user_active_team_names(user)
+        if team_names:
             escaped_teams = [frappe.db.escape(name) for name in team_names]
-            return f"`tabTeam`.name in ({', '.join(escaped_teams)})"
+            conditions.append(f"`tabTeam`.name in ({', '.join(escaped_teams)})")
+
+        if conditions:
+            return f"({' OR '.join(conditions)})"
 
         return "`tabTeam`.name = ''"
 

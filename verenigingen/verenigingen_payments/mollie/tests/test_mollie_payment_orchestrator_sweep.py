@@ -161,15 +161,24 @@ class TestFindOrCreateCustomerFromMollieCreate(EnhancedTestCase):
         self.assertEqual(out, existing)
         self.assertTrue(any("Found existing Customer" in a for a in result.actions_taken))
 
-    def test_duplicate_name_collision_is_handled_without_raising_to_caller(self):
-        # A different Customer already owns the computed "(Orphaned)" name but with
-        # a different (no) Mollie id. The initial id-lookup misses, insert raises
-        # DuplicateEntryError, the re-lookup by id still misses, so the resolver
-        # swallows it and reports a warning (returns None) rather than exploding.
+    def test_name_collision_is_resolved_by_suffix_and_the_customer_is_still_created(self):
+        # A different Customer already owns the computed "(Orphaned)" name and has no
+        # Mollie id, so the initial id-lookup misses. ERPNext resolves the name clash
+        # by appending a counter, so the insert SUCCEEDS -- the sweep must still end
+        # up with a Customer carrying our Mollie id.
+        #
+        # The previous version of this test asserted the opposite (None returned, no
+        # Customer created) and passed only because EnhancedTestCase sets in_import,
+        # which makes set_new_name() skip the de-duplication (naming.py:158) so the
+        # insert hit the primary key instead. The resolver's
+        # `except DuplicateEntryError` branch is not reachable this way: the only
+        # unique key a clash here can violate is `name`, and custom_mollie_customer_id
+        # carries a non-unique index, so the concurrent-insert race that branch
+        # describes cannot raise either.
         token = frappe.generate_hash()[:10]
         cid = f"cst_{token}"
         clash_label = f"Clash {token}"
-        self._make_customer_plain(f"{clash_label} (Orphaned)")
+        squatter = self._make_customer_plain(f"{clash_label} (Orphaned)")
 
         mollie_customer = SimpleNamespace(name=clash_label, email=None)
         orch = _bare_orchestrator(mollie=_FakeMollieClient(customer=mollie_customer))
@@ -177,10 +186,12 @@ class TestFindOrCreateCustomerFromMollieCreate(EnhancedTestCase):
 
         out = orch._find_or_create_customer_from_mollie(cid, _paid_payment(), result)
 
-        self.assertIsNone(out)
-        # No customer with OUR mollie id was created.
-        self.assertIsNone(frappe.db.get_value("Customer", {"custom_mollie_customer_id": cid}, "name"))
-        self.assertTrue(any("Could not create Customer" in a for a in result.actions_taken))
+        self.assertTrue(out)
+        self.factory.track_document("Customer", out)
+        self.assertNotEqual(out, squatter)
+        # It is the new Customer that carries our Mollie id, not the squatter.
+        self.assertEqual(frappe.db.get_value("Customer", {"custom_mollie_customer_id": cid}, "name"), out)
+        self.assertTrue(any("Created Customer" in a for a in result.actions_taken))
 
     def test_email_present_still_creates_customer(self):
         # Regression guard for a fixed bug: mollie_payment_orchestrator.py:1390
