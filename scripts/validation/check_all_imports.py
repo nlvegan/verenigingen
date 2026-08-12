@@ -30,6 +30,7 @@ Exit codes:
 """
 
 import importlib
+import json
 import os
 import pkgutil
 import sys
@@ -45,12 +46,31 @@ def get_bench_dir():
 
 
 def get_site(bench_dir):
-    """Determine the Frappe site to connect to."""
+    """Determine the Frappe site to connect to.
+
+    `bench use` records the default as `default_site` in common_site_config.json;
+    it does not write sites/currentsite.txt, which this only consulted first and
+    which does not exist on this bench. The alphabetical auto-discovery below was
+    therefore always what ran, and it answers with whatever sorts first rather
+    than with the configured default (#313).
+    """
     sites_dir = os.path.join(bench_dir, "sites")
+
+    try:
+        with open(os.path.join(sites_dir, "common_site_config.json")) as f:
+            default_site = json.load(f).get("default_site")
+        if default_site:
+            return default_site
+    except (OSError, ValueError):
+        pass
+
+    # For benches old enough to write it.
     currentsite = os.path.join(sites_dir, "currentsite.txt")
     if os.path.exists(currentsite):
         with open(currentsite) as f:
-            return f.read().strip()
+            site = f.read().strip()
+            if site:
+                return site
 
     # Auto-discover: find directories containing site_config.json
     for entry in sorted(os.listdir(sites_dir)):
