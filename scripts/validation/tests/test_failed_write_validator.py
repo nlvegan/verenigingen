@@ -436,6 +436,81 @@ class PropagationTest(unittest.TestCase):
             [],
         )
 
+    def test_bare_handle_error_is_not_flagged(self):
+        """`handle_service_error(raise_error=True)` is the DEFAULT and BaseService's
+        `handle_error` delegates to it, so a bare `self.handle_error(e, op)` re-raises
+        and the write failure DOES reach the caller. Flagging it would invert the one
+        question this validator exists to answer."""
+        self.assertEqual(
+            _flagged(
+                "def f(self, doc):\n"
+                "    try:\n"
+                "        doc.insert()\n"
+                "    except Exception as e:\n"
+                "        self.handle_error(e, 'insert member')\n"
+                "    return doc.name\n"
+            ),
+            [],
+        )
+
+    def test_handle_service_error_is_not_flagged(self):
+        self.assertEqual(
+            _flagged(
+                "def f(doc):\n"
+                "    try:\n"
+                "        doc.insert()\n"
+                "    except Exception as e:\n"
+                "        handle_service_error(e, 'members', 'insert')\n"
+                "    return doc.name\n"
+            ),
+            [],
+        )
+
+    def test_handle_error_with_raise_error_false_is_flagged(self):
+        """An explicit literal `raise_error=False` really does swallow it."""
+        self.assertEqual(
+            _outcomes(
+                "def f(self, doc):\n"
+                "    try:\n"
+                "        doc.insert()\n"
+                "    except Exception as e:\n"
+                "        self.handle_error(e, 'insert', {}, raise_error=False)\n"
+                "    return doc.name\n"
+            ),
+            ["FALLS_THROUGH"],
+        )
+
+    def test_handle_error_with_user_facing_false_is_flagged(self):
+        """FinancialErrorHandler.handle_error throws only when user_facing=True; with
+        user_facing=False it returns a FinancialError instead, so that is a swallow.
+        Its off-switch is a different keyword from the other two definitions."""
+        self.assertEqual(
+            _outcomes(
+                "def f(self, doc):\n"
+                "    try:\n"
+                "        doc.insert()\n"
+                "    except Exception:\n"
+                "        self.handle_error('F1001', user_facing=False)\n"
+                "    return doc.name\n"
+            ),
+            ["FALLS_THROUGH"],
+        )
+
+    def test_handle_error_with_non_literal_raise_error_is_not_flagged(self):
+        """`raise_error=flag` cannot be resolved statically; assume it raises, so the
+        failure mode is a missed detection rather than an invented swallow."""
+        self.assertEqual(
+            _flagged(
+                "def f(self, doc, flag):\n"
+                "    try:\n"
+                "        doc.insert()\n"
+                "    except Exception as e:\n"
+                "        self.handle_error(e, 'insert', raise_error=flag)\n"
+                "    return doc.name\n"
+            ),
+            [],
+        )
+
 
 class SilentHandlerTest(unittest.TestCase):
     """Unlike the sibling rule, a handler that logs NOTHING is still reported.

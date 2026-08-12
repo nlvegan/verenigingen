@@ -45,7 +45,8 @@ A ``try``/``except`` is reported when ALL of these hold:
    ``frappe.db.sql()`` whose literal statement writes;
 2. the ``except`` is broad (bare, ``Exception``, ``BaseException``);
 3. the failure never leaves the handler -- no ``raise``, no ``frappe.throw``, no
-   ``msgprint(raise_exception=True)``;
+   ``msgprint(raise_exception=True)``, and no call to one of this repo's own
+   re-raising error helpers (``handle_error``/``handle_service_error``);
 4. the handler does NOT record the failure anywhere the caller can read it; and
 5. the handler exits in a way that tells the caller nothing went wrong.
 
@@ -186,6 +187,28 @@ BROAD_EXCEPTIONS = {"Exception", "BaseException"}
 # disguise; `msgprint` only raises with raise_exception=True.
 PROPAGATING_CALLS = {"throw", "exit", "_exit"}
 
+# This repo's own error helpers re-raise BY DEFAULT: `handle_service_error` takes
+# `raise_error=True`, and BaseService's `handle_error` delegates straight to it, so a
+# bare `self.handle_error(e, op)` propagates and the failure DOES reach the caller.
+# Without this the validator saw no `raise`, concluded the write was swallowed, and
+# recorded the site -- inverting the one question it exists to answer.
+#
+# Three separate definitions share the bare attribute name `handle_error` and the AST
+# cannot tell them apart, so the rule has to hold for all three:
+#   services/infrastructure/base_service.py       raise_error=True default
+#   verenigingen_payments/core/error_handler.py   ends in `raise error`, no off-switch
+#   .../utils/financial_error_handler.py          throws only when user_facing=True
+# Anything non-literal is assumed to raise, so the failure mode is a missed detection
+# rather than an invented swallow where the failure actually escapes.
+RAISE_UNLESS_DISABLED = {"handle_error", "handle_service_error"}
+
+# Keyword arguments that turn one of the above back into a swallow; only a literal
+# False counts. `user_facing` belongs here because of the third definition above --
+# it currently appears only in tests, which this validator skips, but the rule matches
+# that `handle_error` by name, so omitting it would mis-classify the first production
+# caller to use it.
+RAISE_DISABLING_KWARGS = {"raise_error", "user_facing"}
+
 NESTED_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 # Methods that push a record into a collection the caller can inspect.
@@ -299,7 +322,17 @@ def _propagates(handler: ast.ExceptHandler) -> bool:
                 return True
             if name == "msgprint" and any(k.arg == "raise_exception" for k in n.keywords):
                 return True
+            if name in RAISE_UNLESS_DISABLED and not _disables_raise(n):
+                return True
     return False
+
+
+def _disables_raise(call: ast.Call) -> bool:
+    """True only for a literal ``raise_error=False`` / ``user_facing=False``."""
+    return any(
+        k.arg in RAISE_DISABLING_KWARGS and isinstance(k.value, ast.Constant) and k.value.value is False
+        for k in call.keywords
+    )
 
 
 # --------------------------------------------------------------------------
