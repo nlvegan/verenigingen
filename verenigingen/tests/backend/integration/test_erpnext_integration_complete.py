@@ -24,6 +24,20 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         
         # Ensure test company exists
         cls.company = cls._ensure_test_company()
+
+        # Pin the document currency to the company's own. Left unset, a Sales
+        # Invoice takes its currency from the customer / the site's default price
+        # list -- which on a CI site is INR from the ERPNext fixtures -- while the
+        # party account (Debtors - TPIC) is EUR, and ERPNext rejects the pair:
+        # "Party Account Debtors - TPIC currency (EUR) and document currency (INR)
+        # should be same".
+        #
+        # This was previously invisible because the company was BORROWED: on a
+        # fresh shard the old lookup fell through to `get_all("Company", limit=1)`,
+        # which returns the OLDEST company (_Test Company, INR), so an INR invoice
+        # under an INR company happened to agree. Owning a EUR company makes the
+        # currency an explicit decision rather than a coincidence.
+        cls.currency = frappe.db.get_value("Company", cls.company.name, "default_currency")
         
         # Create test accounts
         cls.test_accounts = cls._create_test_accounts()
@@ -239,6 +253,8 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "customer": self.test_member.customer,
             "company": self.company.name,
             "selling_price_list": self.selling_price_list,
+            "currency": self.currency,
+            "conversion_rate": 1,
             "posting_date": today(),
             "due_date": add_days(today(), 30),
             "items": [{
@@ -327,6 +343,8 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "customer": self.test_member.customer,
             "company": self.company.name,
             "selling_price_list": self.selling_price_list,
+            "currency": self.currency,
+            "conversion_rate": 1,
             "posting_date": today(),
             "items": [{
                 "item_code": self._get_or_create_membership_item(),
@@ -474,6 +492,8 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "customer": self.test_member.customer,
             "company": self.company.name,
             "selling_price_list": self.selling_price_list,
+            "currency": self.currency,
+            "conversion_rate": 1,
             "project": project.name,
             "posting_date": today(),
             "cost_center": self.cost_centers["main"],
@@ -613,6 +633,8 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
             "customer": self.test_member.customer,
             "company": self.company.name,
             "selling_price_list": self.selling_price_list,
+            "currency": self.currency,
+            "conversion_rate": 1,
             "posting_date": today(),
             "cost_center": self.cost_centers["chapter"],
             "items": [{
