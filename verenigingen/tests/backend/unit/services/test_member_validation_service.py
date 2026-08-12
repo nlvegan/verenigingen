@@ -40,11 +40,21 @@ class TestMemberValidationServiceExecute(unittest.TestCase):
         mock_member.flags = MagicMock()
         mock_member.flags.ignore_status_validation = False
 
-        with patch.object(self.service, "_validate_core_fields", return_value={"success": True}):
-            with patch.object(self.service, "_validate_payment_fields", return_value={"success": True}):
-                with patch.object(self.service, "_validate_member_id_and_fees", return_value={"success": True}):
-                    with patch.object(self.service, "_sync_status_fields_if_needed", return_value={"success": True}):
-                        result = self.service.execute_validation(mock_member)
+        # _validate_unique_user_link is patched for the same reason as the four below: this
+        # is an ORCHESTRATION test over a MagicMock member, and that step queries the
+        # database. Unpatched, `mock_member.get("user")` is a truthy MagicMock and the guard
+        # hands it to frappe.db.get_value as a filter value. Its actual behaviour is covered
+        # against real documents in doctype/member/test_member.py (#269).
+        with patch.object(self.service, "_validate_unique_user_link", return_value=None):
+            with patch.object(self.service, "_validate_core_fields", return_value={"success": True}):
+                with patch.object(self.service, "_validate_payment_fields", return_value={"success": True}):
+                    with patch.object(
+                        self.service, "_validate_member_id_and_fees", return_value={"success": True}
+                    ):
+                        with patch.object(
+                            self.service, "_sync_status_fields_if_needed", return_value={"success": True}
+                        ):
+                            result = self.service.execute_validation(mock_member)
 
         # All validations should be in the result. execute_validation returns an
         # OperationResult whose .data holds the per-validation results dict.

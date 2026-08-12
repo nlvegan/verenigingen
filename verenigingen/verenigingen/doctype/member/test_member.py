@@ -241,6 +241,98 @@ class TestMember(EnhancedTestCase):
         except (frappe.PermissionError, frappe.ValidationError) as e:
             self.skipTest(f"Skipping test_create_user: {e}")
 
+    def test_second_member_cannot_claim_the_same_user(self):
+        """One Member per User -- #269.
+
+        42 production call sites resolve this link with a single-row
+        frappe.db.get_value("Member", {"user": user}, "name") and NONE iterate. That
+        lookup emits ORDER BY creation DESC, so a duplicate silently hands every one of
+        them the NEWEST row, including the authorization paths in permissions.py,
+        utils/project_permissions.py and dues_schedule_permission_service.py.
+
+        The second member is given the user by SAVE, which is the shape the live defect
+        takes: member_user_account_service's "link an existing user with this email rather
+        than creating a duplicate" branch sets member_doc.user and saves without checking
+        whether that User already belongs to another member.
+        """
+        unique_id = f"{int(time.time() * 1000000) % 100000000}"
+
+        first = frappe.new_doc("Member")
+        first.update(
+            {
+                "first_name": f"Owner{unique_id}",
+                "last_name": "Member",
+                "email": f"owner{unique_id}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+            }
+        )
+        first.insert()
+        self.track_doc("Member", first.name)
+
+        user = self.create_test_user(email=f"shared.login.{unique_id}@example.com")
+        first.user = user.name
+        first.save()
+        self.assertEqual(
+            frappe.db.get_value("Member", first.name, "user"),
+            user.name,
+            "fixture invalid: the first member must actually hold the link",
+        )
+
+        second = frappe.new_doc("Member")
+        second.update(
+            {
+                "first_name": f"Claimant{unique_id}",
+                "last_name": "Member",
+                "email": f"claimant{unique_id}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+            }
+        )
+        second.insert()
+        self.track_doc("Member", second.name)
+
+        second.user = user.name
+        with self.assertRaises(frappe.UniqueValidationError) as caught:
+            second.save()
+
+        # The message must name the member already holding the link -- a bare
+        # DuplicateEntryError from the index tells an operator nothing actionable.
+        self.assertIn(first.name, str(caught.exception))
+
+        self.assertEqual(
+            frappe.db.get_value("Member", second.name, "user"),
+            None,
+            "the rejected member must not have kept the link",
+        )
+
+    def test_a_member_can_keep_its_own_user_on_resave(self):
+        """The guard must exclude the document being saved, or every update would fail."""
+        unique_id = f"{int(time.time() * 1000000) % 100000000}"
+
+        member = frappe.new_doc("Member")
+        member.update(
+            {
+                "first_name": f"Resave{unique_id}",
+                "last_name": "Member",
+                "email": f"resave{unique_id}@example.com",
+                "contact_number": "+31612345678",
+                "payment_method": "Bank Transfer",
+            }
+        )
+        member.insert()
+        self.track_doc("Member", member.name)
+
+        user = self.create_test_user(email=f"keeps.login.{unique_id}@example.com")
+        member.user = user.name
+        member.save()
+
+        member.reload()
+        member.contact_number = "+31612345679"
+        member.save()
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "user"), user.name)
+
     def test_payment_history(self):
         """Test payment history loading"""
         # Create unique member data for this test

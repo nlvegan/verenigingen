@@ -67,6 +67,22 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         """Set up SEPA mandate authentication test scenario"""
         super().setUp()
 
+        # Per-TEST login identities, so a leaked Member cannot block the next run.
+        #
+        # These emails were fixed while setUp builds a fresh Member for each of the 12 test
+        # methods and links it to that User. Within a healthy run that is fine -- MEASURED
+        # on test_site_2: per-test cleanup deletes each Member before the next is created,
+        # 0 rows remain afterwards, and all 12 tests pass with Member.user unique. But if a
+        # run dies before cleanup the rows persist, and test_site_1 holds 11 such leftovers
+        # right now from one aborted run. Under the unique index added in #269 those
+        # leftovers make the NEXT run's first test fail on a collision it did not cause --
+        # on the bench default site, where developers run tests by hand.
+        #
+        # Unique per test rather than get-or-create on the Member: reusing a Member left by
+        # an earlier test would carry its mutations forward, which is the order-dependence
+        # class #291 is about.
+        self.sepa_email_suffix = frappe.generate_hash(length=6)
+
         # Create comprehensive test scenario for SEPA operations
         self.sepa_users = self._create_sepa_test_users()
         self.sepa_members = self._create_sepa_test_members()
@@ -75,13 +91,17 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         # Store original session
         self.original_user = frappe.session.user
 
+    def _sepa_email(self, local_part):
+        """A login email unique to this test method -- see setUp for why."""
+        return f"{local_part}.{self.sepa_email_suffix}@test.verenigingen.invalid"
+
     def _create_sepa_test_users(self):
         """Create test users for SEPA mandate scenarios"""
         users = {}
 
         # System administrator with financial oversight
         users["admin"] = self.create_test_user_with_roles(
-            email="admin.sepa@test.verenigingen.invalid",
+            email=self._sepa_email("admin.sepa"),
             roles=["System Manager", "Verenigingen Administrator"],
             first_name="SEPA",
             last_name="Administrator",
@@ -89,7 +109,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
         # Financial manager with SEPA authority (Staff -> HIGH, but NOT CRITICAL)
         users["financial_manager"] = self.create_test_user_with_roles(
-            email="financial.manager@test.verenigingen.invalid",
+            email=self._sepa_email("financial.manager"),
             roles=["Verenigingen Staff"],
             first_name="Financial",
             last_name="Manager",
@@ -97,7 +117,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
         # Volunteer user (MEDIUM/LOW only -> denied for HIGH/CRITICAL endpoints)
         users["volunteer"] = self.create_test_user_with_roles(
-            email="volunteer.sepa@test.verenigingen.invalid",
+            email=self._sepa_email("volunteer.sepa"),
             roles=["Verenigingen Volunteer"],
             first_name="SEPA",
             last_name="Volunteer",
@@ -105,7 +125,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
         # Member with active SEPA mandate
         users["member_sepa_active"] = self.create_test_user_with_roles(
-            email="member.sepa.active@test.verenigingen.invalid",
+            email=self._sepa_email("member.sepa.active"),
             roles=["Verenigingen Member"],
             first_name="SEPA",
             last_name="Active Member",
@@ -113,7 +133,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
         # Member with inactive SEPA mandate
         users["member_sepa_inactive"] = self.create_test_user_with_roles(
-            email="member.sepa.inactive@test.verenigingen.invalid",
+            email=self._sepa_email("member.sepa.inactive"),
             roles=["Verenigingen Member"],
             first_name="SEPA",
             last_name="Inactive Member",
@@ -121,7 +141,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
         # Member without SEPA mandate
         users["member_no_sepa"] = self.create_test_user_with_roles(
-            email="member.no.sepa@test.verenigingen.invalid",
+            email=self._sepa_email("member.no.sepa"),
             roles=["Verenigingen Member"],
             first_name="No SEPA",
             last_name="Member",
@@ -129,7 +149,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
 
         # Member with pending SEPA mandate
         users["member_sepa_pending"] = self.create_test_user_with_roles(
-            email="member.sepa.pending@test.verenigingen.invalid",
+            email=self._sepa_email("member.sepa.pending"),
             roles=["Verenigingen Member"],
             first_name="SEPA",
             last_name="Pending Member",
@@ -152,7 +172,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         members["sepa_active"] = self.create_test_member(
             first_name="SEPA",
             last_name="Active Member",
-            email="member.sepa.active@test.verenigingen.invalid",
+            email=self._sepa_email("member.sepa.active"),
             birth_date=add_days(getdate(), -9000),  # Adult member
             status="Active",
             payment_method="SEPA Direct Debit",
@@ -165,7 +185,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         members["sepa_inactive"] = self.create_test_member(
             first_name="SEPA",
             last_name="Inactive Member",
-            email="member.sepa.inactive@test.verenigingen.invalid",
+            email=self._sepa_email("member.sepa.inactive"),
             birth_date=add_days(getdate(), -8000),
             status="Active",
             payment_method="SEPA Direct Debit",
@@ -178,7 +198,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         members["no_sepa"] = self.create_test_member(
             first_name="No SEPA",
             last_name="Member",
-            email="member.no.sepa@test.verenigingen.invalid",
+            email=self._sepa_email("member.no.sepa"),
             birth_date=add_days(getdate(), -7000),
             status="Active",
             payment_method="Manual",
@@ -188,7 +208,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         members["sepa_pending"] = self.create_test_member(
             first_name="SEPA",
             last_name="Pending Member",
-            email="member.sepa.pending@test.verenigingen.invalid",
+            email=self._sepa_email("member.sepa.pending"),
             birth_date=add_days(getdate(), -7500),
             status="Active",
             payment_method="SEPA Direct Debit",

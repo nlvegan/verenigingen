@@ -614,7 +614,8 @@
    "fieldtype": "Link",
    "label": "User record",
    "options": "User",
-   "show_dashboard": 1
+   "show_dashboard": 1,
+   "unique": 1
   },
   {
    "description": "Link to ERPNext Employee record for expense claims and HR operations",
