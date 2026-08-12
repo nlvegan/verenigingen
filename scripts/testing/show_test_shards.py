@@ -99,15 +99,67 @@ def _default_site(bench_root: str) -> str | None:
         return None
 
 
-def _dotted(test: list[str]) -> str:
+def _dotted(test: list[str], app_path: str | None = None) -> str:
     """Dotted module path for a [dir, filename] test entry.
 
-    Mirrors the conversion in the patched `get_test_weight` so the names printed here are
-    the same keys used by test_timings.json and accepted by `--modules`.
+    Produces the same keys as test_timings.json and `--modules`. Derived from the app
+    package directory rather than by splitting on "/apps/" (which is what frappe's own
+    `get_test_weight` does): the split raises IndexError for an app checked out anywhere
+    that does not sit under a directory called `apps`, e.g. a git worktree in a temp dir,
+    and that is exactly where this script gets used. `app_path` is optional so the
+    function still degrades to the old behaviour rather than crashing.
     """
     file_name = "/".join(test)
+    if app_path:
+        rel = os.path.relpath(file_name, os.path.dirname(os.path.normpath(app_path)))
+        return rel[: -len(".py")].replace(os.sep, ".")
     after = file_name.split("/apps/", 1)[1]
     return ".".join(after.split("/")[1:])[: -len(".py")]
+
+
+def _frappe_timings_key(file_name: str) -> str | None:
+    """Exactly how frappe derives a timings key, INCLUDING its dependency on "/apps/".
+
+    Deliberately NOT the robust `_dotted` above. This function must reproduce frappe's
+    limitation, because the question it answers is "what will frappe find?", not "what
+    key would be correct?". Returns None where frappe's own split raises.
+    """
+    try:
+        after = file_name.split("/apps/", 1)[1]
+    except IndexError:
+        return None
+    return ".".join(after.split("/")[1:])[: -len(".py")]
+
+
+def _measured_coverage(ptr, tests: list[list[str]]) -> tuple[int, int]:
+    """How many test files frappe will actually find a MEASURED weight for.
+
+    Asks frappe, via its own `_get_measured_weights` and its own key derivation, rather
+    than reimplementing either. That distinction is the whole point: a first version of
+    this check used the corrected `_dotted` and reported 1306/1310 even in the broken
+    case, so the warning it guarded could never fire.
+
+    The failure being detected is silent and total. `_get_measured_weights`
+    (parallel_test_runner.py) locates the timings table by splitting the file path on
+    "/apps/" and returns `{}` on ValueError, so an app checked out anywhere outside a
+    directory called `apps` gets NO measured weights and every file falls back to the
+    `def test_` count heuristic. MEASURED on this bench: 17094 total weight from the
+    installed checkout versus 22584 from a worktree in /tmp -- same code, same site, and
+    `patched=True` printed both times.
+    """
+    if not hasattr(ptr, "_get_measured_weights"):
+        return 0, len(tests)
+
+    matched = 0
+    for test in tests:
+        file_name = "/".join(test)
+        table = ptr._get_measured_weights(file_name)
+        if not table:
+            continue
+        key = _frappe_timings_key(file_name)
+        if key is not None and key in table:
+            matched += 1
+    return matched, len(tests)
 
 
 def main() -> int:
@@ -141,18 +193,34 @@ def main() -> int:
     # The layout is only CI's if the weighting patch is in place. Say so rather than
     # presenting the stock count-based split as though it were what CI runs.
     patched = hasattr(ptr, "_get_measured_weights")
-    timings = os.path.join(bench_root, "apps", args.app, args.app, "tests", "test_timings.json")
+
+    # Resolve the app from the IMPORTED package, not from bench_root: get_all_tests walks
+    # whatever Python imported, so a PYTHONPATH-shadowed worktree is what we must describe.
+    app_path = frappe.get_app_path(args.app)
+    timings = os.path.join(app_path, "tests", "test_timings.json")
 
     tests = ptr.get_all_tests(args.app)
     weights = [ptr.ParallelTestRunner.get_test_weight(t) for t in tests]
     chunks = ptr.split_by_weight(tests, weights, chunk_count=args.total)
     weight_of = {"/".join(t): w for t, w in zip(tests, weights, strict=True)}
+    measured, total_files = _measured_coverage(ptr, tests)
 
     # --modules-for is machine-readable: no banner, nothing but the list on stdout.
     if args.modules_for:
         chunk = chunks[args.modules_for - 1]
-        print(",".join(_dotted(t) for t in chunk))
+        print(",".join(_dotted(t, app_path) for t in chunk))
         return 0
+
+    if patched and os.path.exists(timings) and not measured:
+        print(
+            "WARNING: frappe found NO measured weights, so this is the count-based fallback\n"
+            "         layout, NOT the one CI runs. `_get_measured_weights` locates the timings\n"
+            f"        table by splitting on '/apps/', and the app is at:\n"
+            f"           {app_path}\n"
+            "         which has no '/apps/' component. Re-run against the installed checkout,\n"
+            "         or place the worktree under a directory named 'apps'.\n",
+            file=sys.stderr,
+        )
 
     if not patched:
         print(
@@ -171,11 +239,11 @@ def main() -> int:
         hits = 0
         for shard_no, chunk in enumerate(chunks, 1):
             for pos, test in enumerate(chunk, 1):
-                if args.find in "/".join(test) or args.find in _dotted(test):
+                if args.find in "/".join(test) or args.find in _dotted(test, app_path):
                     hits += 1
                     print(
                         f"shard {shard_no:>2}  position {pos:>4}/{len(chunk)}  "
-                        f"weight {weight_of['/'.join(test)]:>8.1f}  {_dotted(test)}"
+                        f"weight {weight_of['/'.join(test)]:>8.1f}  {_dotted(test, app_path)}"
                     )
         if not hits:
             print(f"no test file matching {args.find!r}")
@@ -189,7 +257,7 @@ def main() -> int:
         print(f"First file of each shard ({args.total} shards) -- these run with no earlier")
         print("test in the shard to have left master data behind:\n")
         for shard_no, chunk in enumerate(chunks, 1):
-            print(f"  shard {shard_no:>2}: {_dotted(chunk[0])}")
+            print(f"  shard {shard_no:>2}: {_dotted(chunk[0], app_path)}")
         return 0
 
     if args.shard:
@@ -197,10 +265,14 @@ def main() -> int:
         total = sum(weight_of["/".join(t)] for t in chunk)
         print(f"shard {args.shard}/{args.total}: {len(chunk)} files, weight {total:.1f}\n")
         for pos, test in enumerate(chunk, 1):
-            print(f"  {pos:>4}. {weight_of['/'.join(test)]:>8.1f}  {_dotted(test)}")
+            print(f"  {pos:>4}. {weight_of['/'.join(test)]:>8.1f}  {_dotted(test, app_path)}")
         return 0
 
     print(f"app={args.app} site={site} shards={args.total} patched={patched}")
+    print(
+        f"measured weights: {measured}/{total_files} files"
+        + ("" if measured else "  <-- NONE, see warning above")
+    )
     print(f"{len(tests)} test files, total weight {sum(weights):.1f}\n")
     for shard_no, chunk in enumerate(chunks, 1):
         total = sum(weight_of["/".join(t)] for t in chunk)

@@ -85,6 +85,14 @@ class DottedPathTest(unittest.TestCase):
         test = ["/home/x/frappe-bench/apps/verenigingen/verenigingen/tests/payment", "test_mt940.py"]
         self.assertEqual(sts._dotted(test), "verenigingen.tests.payment.test_mt940")
 
+    def test_app_path_form_survives_a_path_with_no_apps_component(self):
+        """The worktree case: frappe's own split would raise here, `_dotted` must not."""
+        test = ["/tmp/scratch/wt-269/verenigingen/tests/payment", "test_x.py"]
+        self.assertEqual(
+            sts._dotted(test, app_path="/tmp/scratch/wt-269/verenigingen"),
+            "verenigingen.tests.payment.test_x",
+        )
+
     def test_a_bench_path_containing_apps_skews_the_name_like_frappe_does(self):
         """KNOWN LIMITATION, shared with frappe on purpose.
 
@@ -97,6 +105,24 @@ class DottedPathTest(unittest.TestCase):
         """
         test = ["/srv/apps/frappe-bench/apps/verenigingen/verenigingen/tests", "test_x.py"]
         self.assertEqual(sts._dotted(test), "apps.verenigingen.verenigingen.tests.test_x")
+
+
+class FrappeTimingsKeyTest(unittest.TestCase):
+    """`_frappe_timings_key` must reproduce frappe's limitation, not correct it."""
+
+    def test_matches_frappe_for_a_normal_bench_path(self):
+        key = sts._frappe_timings_key(
+            "/home/x/frappe-bench/apps/verenigingen/verenigingen/tests/payment/test_x.py"
+        )
+        self.assertEqual(key, "verenigingen.tests.payment.test_x")
+
+    def test_returns_none_when_there_is_no_apps_component(self):
+        """This None is the whole detection: frappe finds no weight for such a path.
+
+        If this ever starts returning a key, the "no measured weights" warning stops
+        firing and the tool goes back to presenting a fallback layout as CI's.
+        """
+        self.assertIsNone(sts._frappe_timings_key("/tmp/scratch/wt/verenigingen/tests/test_x.py"))
 
 
 if __name__ == "__main__":
