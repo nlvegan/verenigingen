@@ -985,6 +985,50 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
         finally:
             frappe.set_user("Administrator")
 
+    def _grant_team_lead(self, user_name):
+        """Give an EXISTING user the `Team Lead` role, which is Team's only non-admin write.
+
+        Call this AFTER the volunteer and team fixtures, not before. Granted first, the role
+        silently disappeared: building those rows re-saves the User, which re-syncs its
+        roles from its role profiles and drops an ad-hoc one, and no role profile in this
+        app grants `Team Lead`. Same reason _make_team_lead_user inserts a Has Role row
+        rather than appending to the User.
+        """
+        frappe.get_doc(
+            {
+                "doctype": "Has Role",
+                "parent": user_name,
+                "parenttype": "User",
+                "parentfield": "roles",
+                "role": "Team Lead",
+            }
+        ).insert(ignore_permissions=True)
+        frappe.clear_cache(user=user_name)
+
+    def _sync_all_teams_as_user(self, user_name):
+        """Call sync_team_with_volunteers() with NO team_name while acting as `user_name`.
+
+        Returns (teams visible to that user, endpoint result). Administrator is restored
+        either way. The role-layer gate is asserted here rather than by the caller: the
+        ad-hoc Has Role row is only reliably reflected once set_user has rebuilt the role
+        cache, and checking it beforehand reported False for a role the actor does hold.
+        Without that assertion a regression could make the endpoint throw at the doctype
+        gate and never reach the fan-out branch, and the test would pass having proved
+        nothing.
+        """
+        from verenigingen.api.team_management import sync_team_with_volunteers
+
+        frappe.set_user(user_name)
+        try:
+            self.assertTrue(
+                frappe.has_permission("Team", "write"),
+                "fixture invalid: actor must pass the doctype-level write gate",
+            )
+            visible = frappe.get_list("Team", fields=["name"], limit=0, pluck="name")
+            return visible, sync_team_with_volunteers()
+        finally:
+            frappe.set_user("Administrator")
+
     def _assert_team_role_layer_grants_read(self, user_name):
         """Guard against a test that would pass against the hole as readily as the fix.
 
@@ -1155,6 +1199,41 @@ class TestTeamDocLevelPermissions(PermissionsCoverageBase):
                     frappe.has_permission("Team", "read", doc=target.name, user=admin_user.name),
                     f"{role} must reach every team",
                 )
+
+    def test_fan_out_sync_is_scoped_to_the_callers_own_teams(self):
+        """#266: sync_team_with_volunteers() with no team_name must not touch every team.
+
+        That branch was `frappe.get_all("Team")`, which bypasses permissions by design,
+        gated only by a doctype-level `has_permission("Team", "write")`. With no doc that
+        check consults just the role layer, and team.json grants `Team Lead` write with no
+        if_owner -- so any Team Lead holder could sync every team in the system.
+
+        The actor is on ONE team while a second team exists that they have no relationship
+        to. That asymmetry is the point: the broken implementation syncs BOTH, so a test
+        that only asserted "the actor can sync their own team" would pass against the hole.
+        """
+        volunteer = self.create_test_volunteer(self.regular_member.name)
+        own = self._make_team_with_member(volunteer.name)
+        foreign = self._make_team_with_member()
+
+        # Granted LAST, deliberately -- see _grant_team_lead for why order matters here.
+        self._grant_team_lead(self.regular_user.name)
+
+        self.assertNotEqual(
+            foreign.owner,
+            self.regular_user.name,
+            "fixture invalid: the foreign team must not be owned by the actor",
+        )
+        visible, result = self._sync_all_teams_as_user(self.regular_user.name)
+
+        self.assertIn(own.name, visible, "the actor's own team must be in scope")
+        self.assertNotIn(foreign.name, visible, "a team the actor has no row on must not be")
+        self.assertEqual(
+            result["updated_count"],
+            1,
+            "the fan-out must cover exactly the actor's own team; syncing more means it "
+            "reached teams the caller cannot write",
+        )
 
     def test_list_query_and_doc_check_agree(self):
         """The two halves must encode the same policy, on both sides of the boundary."""
