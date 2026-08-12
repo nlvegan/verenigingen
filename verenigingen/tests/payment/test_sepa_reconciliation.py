@@ -39,8 +39,34 @@ from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
+
+
+def _cancel_and_delete(doctype, name):
+    """Cancel a submitted document before deleting it, tolerating either step.
+
+    The harness drain deletes without cancelling, which is why submitted
+    Payment Entries survived it. Failures here are deliberately swallowed: the
+    row may already be gone, or be linked from something a sibling test owns,
+    and a cleanup that raises would mask the test's own result.
+    """
+    if not frappe.db.exists(doctype, name):
+        return
+    try:
+        doc = frappe.get_doc(doctype, name)
+        if doc.docstatus == 1:
+            # No ignore_permissions flag: these tests run as Administrator (see
+            # the module docstring), so the cancel is already permitted, and
+            # test-quality-enforcer rightly rejects a permission bypass outside
+            # a factory helper.
+            doc.cancel()
+        frappe.delete_doc(doctype, name, force=True, ignore_permissions=True, delete_permanently=True)
+        frappe.db.commit()
+    except Exception as e:
+        frappe.db.rollback()
+        get_harness_logger("sepa-recon").warning(f"could not clean up {doctype} {name}: {e}")
 
 
 class ReconBase(EnhancedTestCase):
@@ -65,6 +91,14 @@ class ReconBase(EnhancedTestCase):
             seed=frappe.generate_hash(length=4).__hash__() & 0xFFFF, use_faker=True
         )
         self.company = self._company
+
+        # addCleanup, not tearDown: these rows are COMMITTED (setUpClass commits,
+        # and reconcile_full_sepa_batch runs its own begin/commit), so the base
+        # rollback cannot remove them and a subclass overriding tearDown without
+        # calling super() would skip the cleanup entirely.
+        self._made_bank_transactions = []
+        self._started_at = frappe.utils.now()
+        self.addCleanup(self._cleanup_bank_transactions)
 
     @classmethod
     def _ensure_modes_of_payment(cls):
@@ -198,10 +232,14 @@ class ReconBase(EnhancedTestCase):
         bt.deposit = deposit
         bt.withdrawal = withdrawal
         bt.reference_number = reference_number or frappe.generate_hash(length=10)
-        # Bank Transaction requires a bank account; reuse company default if present.
-        bank_account = frappe.db.get_value(
-            "Bank Account", {"is_company_account": 1}, "name"
-        ) or frappe.db.get_value("Bank Account", {}, "name")
+        # Bank Transaction requires a bank account. Use the one belonging to the
+        # company THIS class owns (setUpClass -> get_eur_test_company +
+        # _ensure_default_bank_account guarantee it exists). This used to be
+        # `get_value("Bank Account", {"is_company_account": 1}) or
+        # get_value("Bank Account", {})` -- "whichever account is there", which
+        # attaches these transactions to a company this module does not own and
+        # is one of the five borrow sites named in #308.
+        bank_account = self._owned_bank_account()
         if bank_account:
             bt.bank_account = bank_account
             # Pin the transaction currency to the bank account's own currency.
@@ -216,7 +254,50 @@ class ReconBase(EnhancedTestCase):
         bt.insert()
         if submit:
             bt.submit()
+        self._made_bank_transactions.append(bt.name)
         return bt
+
+    def _owned_bank_account(self):
+        """The Bank Account of the company this class owns."""
+        default = frappe.db.get_value("Company", self._company, "default_bank_account")
+        if default and frappe.db.exists("Bank Account", default):
+            return default
+        return frappe.db.get_value(
+            "Bank Account", {"company": self._company, "is_company_account": 1}, "name"
+        ) or frappe.db.get_value("Bank Account", {"company": self._company}, "name")
+
+    def _cleanup_bank_transactions(self):
+        """Cancel and delete the transactions this test made, and the Payment
+        Entries reconciliation attached to them.
+
+        The harness cannot do this itself. Its captured-insert drain deletes
+        without cancelling, so a SUBMITTED Payment Entry refuses to go and is
+        reported as "Captured-insert drain: N record(s) could not be deleted
+        (may persist as orphans)" -- 32 such warnings in a single run of this
+        module, invisible until #311 made the harness logger emit.
+
+        The orphans are not harmless. A leftover unreconciled Payment Entry is
+        matched against a LATER test's Bank Transaction by
+        `Payment Entry.custom_bank_transaction`, and that test's `bt.cancel()`
+        then fails with LinkExistsError. That is the CI failure in shard 3 that
+        led here: `test_bank_transaction_creator_coverage` breaking on rows this
+        module left behind (#308).
+        """
+        # Every Payment Entry this test produced under the company it owns, not
+        # only the ones already linked to one of its Bank Transactions. That
+        # narrower filter was measured to be insufficient: reconciliation leaves
+        # Payment Entries UNLINKED, and it is precisely those that a later test's
+        # Bank Transaction gets matched against.
+        for pe_name in frappe.get_all(
+            "Payment Entry",
+            filters={"company": self._company, "creation": [">=", self._started_at]},
+            pluck="name",
+        ):
+            _cancel_and_delete("Payment Entry", pe_name)
+
+        for bt_name in reversed(self._made_bank_transactions):
+            _cancel_and_delete("Bank Transaction", bt_name)
+        self._made_bank_transactions = []
 
 
 # =============================================================================
