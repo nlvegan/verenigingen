@@ -7,6 +7,8 @@ verenigingen.patches.v15_0.rename_procurios_csv_import_to_member_import
 # schema sync builds from volunteer.json. In post_model_sync the sync has already
 # died on a raw MySQL 1062. See #267.
 verenigingen.patches.v2_2.enforce_unique_volunteer_per_member
+# Same contract for tabMember/member.json's now-unique `user`. See #269.
+verenigingen.patches.v2_2.enforce_unique_user_per_member
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated

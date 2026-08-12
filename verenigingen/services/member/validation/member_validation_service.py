@@ -60,6 +60,12 @@ class MemberValidationService(StatelessService):
         validations = {}
         errors = []
 
+        # 0. One Member per User. Deliberately NOT one of the `validations` entries below:
+        # those collect into OperationResult.fail, and Member.validate() discards this
+        # method's return value, so a collected error does not block the save. A guard that
+        # must refuse the write has to throw. See _validate_unique_user_link.
+        self._validate_unique_user_link(member_doc)
+
         # 1. Core validations (always required)
         validations["core_fields"] = self._validate_core_fields(member_doc)
 
@@ -89,6 +95,49 @@ class MemberValidationService(StatelessService):
             )
 
         return OperationResult.ok(validations, member=member_doc.name)
+
+    def _validate_unique_user_link(self, member_doc: "Document") -> None:
+        """Refuse a second Member for a User who already has one.
+
+        This is for the MESSAGE, not the enforcement: two concurrent inserts both pass
+        validate() and only the unique index on `user` stops the second. It exists because
+        one production path links a User to a member WITHOUT checking whether that User is
+        already linked to a different one -- member_user_account_service.py's
+        "link an existing user with this email rather than creating a duplicate" branch
+        sets member_doc.user and saves, and it is that save this guard intercepts. The
+        sibling path in account/account_creation_service.py does check first, but it writes
+        with frappe.db.set_value, which bypasses validate() entirely, so only the index
+        covers that one.
+
+        Duplicates are not merely redundant data. 42 production call sites resolve this
+        link with a single-row frappe.db.get_value("Member", {"user": user}, "name") and
+        NONE iterate. That lookup emits ORDER BY creation DESC, so a second row silently
+        hands every one of them the newest member -- including the authorization paths in
+        permissions.py, utils/project_permissions.py and
+        services/billing/dues_schedule_permission_service.py. See #269, and #257/#267 for
+        the same failure class.
+
+        Throws rather than returning an error dict: execute_validation collects those into
+        OperationResult.fail, and Member.validate() discards its return value, so a
+        collected error would not stop the write.
+
+        member_doc.name is already set here: insert() calls set_new_name
+        (document.py:479) before _validate (:485), so excluding the document being saved
+        works on insert as well as on update.
+        """
+        if not member_doc.get("user"):
+            return
+
+        filters = {"user": member_doc.user}
+        if member_doc.name:
+            filters["name"] = ("!=", member_doc.name)
+
+        existing = frappe.db.get_value("Member", filters, "name")
+        if existing:
+            frappe.throw(
+                frappe._("User {0} is already linked to Member {1}").format(member_doc.user, existing),
+                frappe.UniqueValidationError,
+            )
 
     def _validate_core_fields(self, member_doc: "Document") -> dict:
         """Validate core member fields.
