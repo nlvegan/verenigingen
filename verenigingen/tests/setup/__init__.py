@@ -6,6 +6,12 @@ This module provides the before_tests hook that ensures ERPNext test fixtures
 """
 import frappe
 
+from verenigingen.tests.harness_logger import get_harness_logger
+
+# Not `frappe.logger()`: that one sits at ERROR under `bench run-tests`, so every
+# warning below was discarded. See verenigingen/tests/harness_logger.py.
+logger = get_harness_logger("setup")
+
 
 def disable_workflow_action_emails():
     """Neutralize synchronous workflow-action emails for the whole test run.
@@ -41,7 +47,7 @@ def disable_workflow_action_emails():
 
         workflow_action.send_workflow_action_email = _noop_send_workflow_action_email
     except Exception as e:  # pragma: no cover - defensive: never block the test run
-        frappe.logger().warning(f"Could not disable workflow action emails for tests: {e}")
+        logger.warning(f"Could not disable workflow action emails for tests: {e}")
 
 
 def _erpnext_before_tests_v16():
@@ -70,7 +76,7 @@ def _erpnext_before_tests_v16():
         enable_all_roles_and_domains()
         set_defaults_for_tests()
     except Exception as e:  # pragma: no cover - defensive
-        frappe.logger().warning(f"erpnext test defaults setup failed: {e}")
+        logger.warning(f"erpnext test defaults setup failed: {e}")
 
     frappe.db.commit()
 
@@ -97,7 +103,7 @@ def before_tests():
     except ImportError:
         _erpnext_before_tests_v16()
     except Exception as e:
-        frappe.logger().info(f"ERPNext before_tests: {e}")
+        logger.info(f"ERPNext before_tests: {e}")
 
     # Ensure all test companies exist by loading Company test records
     # ERPNext Account fixtures require: _Test Company, _Test Company 1,
@@ -118,7 +124,7 @@ def before_tests():
             make_test_records("Company", verbose=False, force=True, commit=True)
             frappe.db.commit()
     except Exception as e:
-        frappe.logger().warning(f"Company test record creation failed: {e}")
+        logger.warning(f"Company test record creation failed: {e}")
 
     # NOTE: the current-year Fiscal Year company-restriction fix is applied from
     # EnhancedTestCase.setUp (once per session), NOT here. before_tests runs too
@@ -135,7 +141,7 @@ def before_tests():
             make_test_records("Customer", verbose=False, force=True, commit=True)
             frappe.db.commit()
     except Exception as e:
-        frappe.logger().warning(f"Customer test record creation failed: {e}")
+        logger.warning(f"Customer test record creation failed: {e}")
 
     # Seed the Mode of Payment records the app and many tests depend on
     # (Bank Transfer, SEPA Direct Debit, Mollie, Manual, Cash). The same helper
@@ -150,7 +156,7 @@ def before_tests():
 
         ensure_payment_modes_exist()
     except Exception as e:
-        frappe.logger().warning(f"Payment mode seeding failed: {e}")
+        logger.warning(f"Payment mode seeding failed: {e}")
 
     # Seed Verenigingen Settings.creation_user (reqd=1) with a dedicated
     # non-Administrator test user. Required by utils.secure_operations
@@ -169,7 +175,7 @@ def before_tests():
     try:
         _seed_verenigingen_test_system_user()
     except Exception as e:
-        frappe.logger().warning(f"Verenigingen Settings creation_user seeding failed: {e}")
+        logger.warning(f"Verenigingen Settings creation_user seeding failed: {e}")
 
     # Reset Selling Settings.customer_group away from the root "All Customer
     # Groups" that erpnext_before_tests() sets. ERPNext's Customer controller
@@ -181,7 +187,7 @@ def before_tests():
     try:
         _seed_default_leaf_customer_group()
     except Exception as e:
-        frappe.logger().warning(f"Customer Group default reset failed: {e}")
+        logger.warning(f"Customer Group default reset failed: {e}")
 
     # Seed dummy values for MijnRood Sync Settings reqd fields (ssh_host,
     # ssh_username, db_name, db_username, db_password). The event_application
@@ -197,7 +203,7 @@ def before_tests():
     try:
         _seed_mijnrood_sync_settings_dummy_credentials()
     except Exception as e:
-        frappe.logger().warning(f"MijnRood Sync Settings seeding failed: {e}")
+        logger.warning(f"MijnRood Sync Settings seeding failed: {e}")
 
     # Seed the default Team Role master records (Team Leader, Team Member,
     # Coordinator, Secretary, Treasurer, Verenigingen Auditor) once for the whole
@@ -208,7 +214,7 @@ def before_tests():
     try:
         _seed_default_team_roles()
     except Exception as e:
-        frappe.logger().warning(f"Team Role seeding failed: {e}")
+        logger.warning(f"Team Role seeding failed: {e}")
 
 
 def ensure_member_test_masters():
@@ -239,12 +245,12 @@ def ensure_member_test_masters():
     try:
         ensure_erpnext_base_masters()
     except Exception as e:
-        frappe.logger().warning(f"ERPNext base master seeding failed: {e}")
+        logger.warning(f"ERPNext base master seeding failed: {e}")
 
     try:
         _seed_verenigingen_test_system_user()
     except Exception as e:
-        frappe.logger().warning(f"creation_user seeding failed: {e}")
+        logger.warning(f"creation_user seeding failed: {e}")
 
     try:
         from verenigingen.services.member.approval.application_helpers import (
@@ -253,7 +259,7 @@ def ensure_member_test_masters():
 
         ensure_payment_modes_exist()
     except Exception as e:
-        frappe.logger().warning(f"Payment mode seeding failed: {e}")
+        logger.warning(f"Payment mode seeding failed: {e}")
 
     # A leaf Customer Group WITH a default selling Price List is required for the
     # membership-application invoice path (Sales Invoice.selling_price_list is a
@@ -262,12 +268,12 @@ def ensure_member_test_masters():
     try:
         _seed_default_leaf_customer_group()
     except Exception as e:
-        frappe.logger().warning(f"Customer Group default seeding failed: {e}")
+        logger.warning(f"Customer Group default seeding failed: {e}")
 
     try:
         _seed_default_team_roles()
     except Exception as e:
-        frappe.logger().warning(f"Team Role seeding failed: {e}")
+        logger.warning(f"Team Role seeding failed: {e}")
 
 
 def ensure_erpnext_base_masters():
@@ -298,7 +304,7 @@ def ensure_erpnext_base_masters():
         enable_all_roles_and_domains()
         set_defaults_for_tests()
     except Exception as e:  # pragma: no cover - defensive
-        frappe.logger().warning(f"erpnext test defaults setup failed: {e}")
+        logger.warning(f"erpnext test defaults setup failed: {e}")
 
     frappe.db.commit()
 
@@ -381,11 +387,11 @@ def ensure_test_fiscal_year_for_all_companies():
             cleared = frappe.db.count("Fiscal Year Company", {"parent": fy_name})
             frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
         frappe.db.commit()
-        frappe.logger().info(
+        logger.info(
             f"ensure_test_fiscal_year_for_all_companies: fy={fy_name} cleared_company_restrictions={cleared}"
         )
     except Exception as e:
-        frappe.logger().warning(f"Test fiscal-year seeding failed: {e}")
+        logger.warning(f"Test fiscal-year seeding failed: {e}")
 
 
 def ensure_default_company():
@@ -413,9 +419,9 @@ def ensure_default_company():
         frappe.db.set_single_value("Global Defaults", "default_company", company)
         frappe.db.set_default("company", company)
         frappe.db.commit()
-        frappe.logger().info(f"ensure_default_company: set global default company={company}")
+        logger.info(f"ensure_default_company: set global default company={company}")
     except Exception as e:
-        frappe.logger().warning(f"Default-company seeding failed: {e}")
+        logger.warning(f"Default-company seeding failed: {e}")
 
 
 def _seed_verenigingen_test_system_user():
@@ -558,7 +564,7 @@ def _seed_verenigingen_test_system_user():
                 frappe.defaults.clear_default("default_warehouse")
                 frappe.db.commit()
     except Exception as e:  # pragma: no cover - defensive
-        frappe.logger().warning(f"default_warehouse default cleanup failed: {e}")
+        logger.warning(f"default_warehouse default cleanup failed: {e}")
 
 
 def _seed_default_leaf_customer_group():

@@ -192,9 +192,14 @@ from faker import Faker
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate
 
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 
 from .field_validator import FieldValidationError, FieldValidator
+
+# Not `frappe.logger()`: that one sits at ERROR under `bench run-tests`, so every
+# warning below was discarded. See verenigingen/tests/harness_logger.py.
+logger = get_harness_logger("factory")
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
 # Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
@@ -307,7 +312,7 @@ except Exception as e:  # pragma: no cover - defensive: never block test collect
     # Log the failure so a future move/rename of disable_workflow_action_emails
     # doesn't silently regress the hang. Mirrors the warning emitted by the
     # before_tests caller.
-    frappe.logger().warning(f"disable_workflow_action_emails import failed: {e}")
+    logger.warning(f"disable_workflow_action_emails import failed: {e}")
 
 
 class BusinessRuleError(Exception):
@@ -586,7 +591,7 @@ class EnhancedTestDataFactory:
                 frappe.local.login_manager.user = current_user
         except Exception as e:
             # Fallback: Skip role assignment error during tests to avoid blocking
-            frappe.logger().info(f"Role assignment skipped in test environment: {e}")
+            logger.info(f"Role assignment skipped in test environment: {e}")
             pass
 
     def validate_field_exists(self, doctype: str, fieldname: str) -> bool:
@@ -2126,7 +2131,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             frappe.db.rollback()
         except Exception as e:
-            frappe.logger().warning(f"Captured-insert drain pre-rollback failed (skipping): {e}")
+            logger.warning(f"Captured-insert drain pre-rollback failed (skipping): {e}")
             return
 
         delete_failures = 0
@@ -2146,10 +2151,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             frappe.db.commit()
         except Exception as e:
-            frappe.logger().warning(f"Captured-insert drain commit failed: {e}")
+            logger.warning(f"Captured-insert drain commit failed: {e}")
 
         if delete_failures:
-            frappe.logger().warning(
+            logger.warning(
                 f"Captured-insert drain: {delete_failures} record(s) could not be deleted "
                 f"(may persist as orphans; usually link/docstatus constraints)."
             )
@@ -2240,7 +2245,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # Rollback any uncommitted changes from this test method
             frappe.db.rollback()
         except Exception as e:
-            frappe.logger().warning(f"Rollback failed in tearDown: {e}")
+            logger.warning(f"Rollback failed in tearDown: {e}")
 
         # DRAIN TRACKED DOCUMENTS: rollback above only undoes uncommitted writes;
         # this step deletes records that survived because the test (or production
@@ -2249,7 +2254,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             self._drain_tracked_documents()
         except Exception as e:
-            frappe.logger().warning(f"Tracked doc drain failed in tearDown: {e}")
+            logger.warning(f"Tracked doc drain failed in tearDown: {e}")
 
         # DRAIN CAPTURED INSERTS: catch committed records the factory tracker missed
         # (raw frappe inserts / production-code inserts). This is what makes failures
@@ -2258,7 +2263,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             self._drain_captured_inserts()
         except Exception as e:
-            frappe.logger().warning(f"Captured-insert drain failed in tearDown: {e}")
+            logger.warning(f"Captured-insert drain failed in tearDown: {e}")
 
         # SETTINGS RESTORATION: Restore Verenigingen Settings to original values
         # This undoes changes made by _ensure_verenigingen_settings() which commits
@@ -2266,7 +2271,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             self.factory._restore_verenigingen_settings()
         except Exception as e:
-            frappe.logger().warning(f"Settings restoration failed in tearDown: {e}")
+            logger.warning(f"Settings restoration failed in tearDown: {e}")
 
         super().tearDown()
 
@@ -2297,7 +2302,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             FinancialHistoryBatchProcessor._payment_queue.clear()
             FinancialHistoryBatchProcessor._expense_queue.clear()
         except Exception as e:  # pragma: no cover - defensive
-            frappe.logger().warning(f"Financial batch queue reset failed: {e}")
+            logger.warning(f"Financial batch queue reset failed: {e}")
 
     def _drain_tracked_documents(self):
         """Delete factory-tracked documents that survived per-method rollback.
@@ -2363,7 +2368,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             frappe.db.rollback()
         except Exception as e:
-            frappe.logger().warning(f"Drain pre-rollback failed (skipping drain): {e}")
+            logger.warning(f"Drain pre-rollback failed (skipping drain): {e}")
             self.factory.created_documents = []
             if core is not None:
                 core.created_records = []
@@ -2379,7 +2384,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 pass
             except Exception as e:
                 delete_failures += 1
-                frappe.logger().warning(f"Drain delete failed for {doctype}/{name}: {e}")
+                logger.warning(f"Drain delete failed for {doctype}/{name}: {e}")
 
         self.factory.created_documents = []
         if core is not None:
@@ -2388,10 +2393,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         try:
             frappe.db.commit()
         except Exception as e:
-            frappe.logger().warning(f"Drain commit failed: {e}")
+            logger.warning(f"Drain commit failed: {e}")
 
         if delete_failures:
-            frappe.logger().warning(
+            logger.warning(
                 f"Drain completed with {delete_failures} unresolved deletion(s); "
                 f"records may persist into next run and require _cleanup_stale_test_data"
             )
@@ -2441,19 +2446,19 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 break  # Success, exit retry loop
             except frappe.exceptions.QueryTimeoutError as e:
                 if attempt < max_retries - 1:
-                    frappe.logger().warning(
+                    logger.warning(
                         f"Lock timeout cleaning up {doc_info['doctype']} {doc_info['name']}, retrying (attempt {attempt + 1}/{max_retries})..."
                     )
                     time.sleep(retry_delay)
                     # Rollback any stuck transaction before retrying
                     frappe.db.rollback()
                 else:
-                    frappe.logger().warning(
+                    logger.warning(
                         f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}"
                     )
             except Exception as e:
                 # For other exceptions, log and continue
-                frappe.logger().warning(
+                logger.warning(
                     f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {str(e)}"
                 )
                 # Rollback to clean up any partial transaction
@@ -2547,7 +2552,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 patch_obj.start()
             except Exception as e:
                 # Log patch failures but continue (some methods may not exist)
-                frappe.logger().warning(f"Email patch failed: {str(e)}")
+                logger.warning(f"Email patch failed: {str(e)}")
 
     def _extract_recipients(self, args, kwargs):
         """Extract recipient list from various email method signatures"""
@@ -2838,15 +2843,15 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
                 except Exception as e:
                     # Table might not exist, skip
-                    frappe.logger().debug(f"Skipped orphan check for {doctype}: {e}")
+                    logger.debug(f"Skipped orphan check for {doctype}: {e}")
                     continue
 
             if total_deleted > 0:
                 frappe.db.commit()  # Commit the cleanup
-                frappe.logger().info(f"🧹 ETC orphan cleanup: Removed {total_deleted} orphaned Dynamic Links")
+                logger.info(f"🧹 ETC orphan cleanup: Removed {total_deleted} orphaned Dynamic Links")
 
         except Exception as e:
-            frappe.logger().warning(f"Orphaned Dynamic Link cleanup failed: {e}")
+            logger.warning(f"Orphaned Dynamic Link cleanup failed: {e}")
             # Don't fail tests if cleanup fails
 
     def _cleanup_stale_test_data(self):
@@ -2876,13 +2881,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
             # SAFETY CHECK 2: Only in developer mode
             if not frappe.conf.get("developer_mode"):
-                frappe.logger().warning("Test cleanup skipped - not in developer mode")
+                logger.warning("Test cleanup skipped - not in developer mode")
                 return
 
             # SAFETY CHECK 3: Only on approved test sites
             approved_test_sites = ["dev.veganisme.net", "test_site"]
             if frappe.local.site not in approved_test_sites:
-                frappe.logger().error(f"Test cleanup blocked on site: {frappe.local.site}")
+                logger.error(f"Test cleanup blocked on site: {frappe.local.site}")
                 return
 
             # Use Administrator context for cleanup operations
@@ -2930,7 +2935,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     members_deleted += 1
 
                 # Log cleanup operation
-                frappe.logger().info(f"Test cleanup removed {members_deleted} member patterns")
+                logger.info(f"Test cleanup removed {members_deleted} member patterns")
 
                 # Clean up test customers (created from test members)
                 # Customers are created automatically when members are created
@@ -2970,7 +2975,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                             continue
 
                     if customers_deleted > 0:
-                        frappe.logger().info(f"Test cleanup removed {customers_deleted} customer patterns")
+                        logger.info(f"Test cleanup removed {customers_deleted} customer patterns")
 
                 # Clean up orphaned Membership Dues Schedules
                 # These are schedules where the linked member or membership no longer exists
@@ -3001,7 +3006,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         continue
 
                 if schedules_deleted > 0:
-                    frappe.logger().info(f"Test cleanup removed {schedules_deleted} orphaned dues schedules")
+                    logger.info(f"Test cleanup removed {schedules_deleted} orphaned dues schedules")
 
                 # Clean up test volunteers (to prevent email duplicate key violations)
                 # Include both @test.invalid and @verenigingen.test patterns
@@ -3025,7 +3030,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         continue
 
                 if volunteers_deleted > 0:
-                    frappe.logger().info(f"Test cleanup removed {volunteers_deleted} test volunteers")
+                    logger.info(f"Test cleanup removed {volunteers_deleted} test volunteers")
 
                 # Clean up test chapters
                 test_chapters = frappe.get_all(
@@ -3082,7 +3087,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         except Exception as e:
             # Don't fail tests if cleanup fails - just log
-            frappe.logger().warning(f"Stale test data cleanup encountered error: {str(e)}")
+            logger.warning(f"Stale test data cleanup encountered error: {str(e)}")
 
     def _validate_fixtures(self):
         """
@@ -3147,8 +3152,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         except Exception as e:
             # Do NOT continue. This block creates the master data that fixtures link
             # to (company, fiscal year, accounts, the Netherlands territory), and
-            # `frappe.logger()` writes to a log FILE, not stdout -- so swallowing here
-            # produced no CI output at all. The failure then reappeared much later as
+            # the `frappe.logger()` this used to warn through sat at ERROR under
+            # `bench run-tests`, so the warning was not written anywhere at all --
+            # not stdout, not `logs/frappe.log`. Swallowing here therefore
+            # produced no CI output. The failure then reappeared much later as
             # a LinkValidationError in an unrelated test, attributed to whichever PR
             # happened to reshuffle the shards (#291).
             #
@@ -3187,7 +3194,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     frappe.db.commit()
                 except Exception as e:
                     # Role might have been created by another concurrent test
-                    frappe.logger().warning(f"Could not create role {role_name}: {e}")
+                    logger.warning(f"Could not create role {role_name}: {e}")
 
     def ensure_test_user_has_role(self, role_name):
         """
@@ -3273,7 +3280,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     self._load_fixture_file(fixture_path, fixture_file)
                 except Exception as e:
                     # Log but don't fail tests - fixture might have dependency issues
-                    frappe.logger().warning(f"Could not load fixture {fixture_file}: {str(e)}")
+                    logger.warning(f"Could not load fixture {fixture_file}: {str(e)}")
                     continue
 
     def _load_fixture_file(self, file_path, fixture_name):
@@ -3303,7 +3310,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     # QCE FIX: Proper fixture validation before loading
                     validation_result = self._validate_fixture_before_load(record, doctype)
                     if not validation_result["valid"]:
-                        frappe.logger().warning(
+                        logger.warning(
                             f"Fixture validation failed for {doctype} {name}: {validation_result['error']}"
                         )
                         continue
@@ -3330,24 +3337,24 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     # Enhanced error handling with specific error categorization
                     error_msg = str(e)
                     if "Link" in error_msg and "does not exist" in error_msg:
-                        frappe.logger().info(f"Dependency missing for {doctype} {name}: {error_msg}")
+                        logger.info(f"Dependency missing for {doctype} {name}: {error_msg}")
                     elif "Duplicate" in error_msg or "already exists" in error_msg:
                         skipped_count += 1  # Count as skipped, not failed
-                        frappe.logger().debug(f"Fixture {doctype} {name} already exists, skipping")
+                        logger.debug(f"Fixture {doctype} {name} already exists, skipping")
                         continue
                     else:
-                        frappe.logger().warning(
+                        logger.warning(
                             f"Failed to load {doctype} {name} from {fixture_name}: {error_msg}"
                         )
                     continue
 
             if loaded_count > 0:
-                frappe.logger().info(
+                logger.info(
                     f"Loaded {loaded_count} records from {fixture_name} (skipped {skipped_count} existing)"
                 )
 
         except Exception as e:
-            frappe.logger().warning(f"Failed to process fixture file {fixture_name}: {str(e)}")
+            logger.warning(f"Failed to process fixture file {fixture_name}: {str(e)}")
 
     def _validate_fixture_before_load(self, record: dict, doctype: str) -> dict:
         """
@@ -3573,7 +3580,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
                     frappe.db.commit()
                 except Exception as fy_error:
-                    frappe.logger().warning(f"Failed to ensure fiscal year for {target}: {fy_error}")
+                    logger.warning(f"Failed to ensure fiscal year for {target}: {fy_error}")
 
             # Don't set default fiscal year on company - ERPNext handles this automatically
 
@@ -3602,9 +3609,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         parent_dept.insert()
                         # NOT tracked: "All Departments" is the ERPNext root, shared with
                         # production data. Per-method drain MUST NOT delete it.
-                        frappe.logger().info(f"Created parent department: {parent_dept_name}")
+                        logger.info(f"Created parent department: {parent_dept_name}")
                     except Exception as dept_error:
-                        frappe.logger().warning(
+                        logger.warning(
                             f"Failed to create parent department {parent_dept_name}: {dept_error}"
                         )
 
