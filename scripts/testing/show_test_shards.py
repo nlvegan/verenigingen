@@ -53,18 +53,28 @@ import os
 import sys
 
 
-def _bench_root(override: str | None = None) -> str | None:
-    """Locate the bench: a directory holding both `apps/` and `sites/`.
+def _bench_root(override: str | None = None, starts: tuple[str, ...] | None = None) -> str | None:
+    """Locate the bench: the nearest ancestor holding both `apps/` and `sites/`.
 
-    Deliberately a search rather than a fixed number of `..` hops. This file also lives in
-    git worktrees under a temp dir, where the installed-checkout layout
-    (<bench>/apps/verenigingen/scripts/testing/) does not hold -- and hardcoding the hops
+    Deliberately a search rather than a fixed number of `..` hops. This file is run both
+    from the installed checkout (<bench>/apps/verenigingen/scripts/testing/) and from git
+    worktrees under a temp dir, where that layout does not hold -- and hardcoding the hops
     silently found the wrong directory instead of failing.
+
+    PRECEDENCE: this file's own location first, then the cwd. A script in a bench should
+    describe *that* bench regardless of where it was invoked from; cwd is the fallback for
+    the worktree case, where the file sits outside any bench.
+
+    `starts` exists so the precedence can be tested without depending on where this file
+    happens to live -- the first version of that test asserted cwd won, which was only
+    true when run from a worktree and broke the moment the script was installed.
     """
     if override:
         return os.path.abspath(override)
-    for start in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
-        path = start
+    if starts is None:
+        starts = (os.path.dirname(os.path.abspath(__file__)), os.getcwd())
+    for start in starts:
+        path = os.path.abspath(start)
         while True:
             if os.path.isdir(os.path.join(path, "apps")) and os.path.isdir(os.path.join(path, "sites")):
                 return path

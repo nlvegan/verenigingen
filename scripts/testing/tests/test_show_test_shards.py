@@ -33,33 +33,49 @@ class BenchRootTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(sts._bench_root(d), os.path.abspath(d))
 
-    def test_finds_bench_from_cwd_regardless_of_depth(self):
-        """The worktree case: the script is nowhere near the bench, so cwd has to work."""
+    def _make_bench(self, root: Path, name: str = "frappe-bench") -> Path:
+        bench = root / name
+        (bench / "apps" / "verenigingen").mkdir(parents=True)
+        (bench / "sites").mkdir()
+        return bench
+
+    def test_walks_up_from_a_start_to_find_the_bench(self):
+        """A deep start resolves to the enclosing bench, however many levels up it is."""
         with tempfile.TemporaryDirectory() as d:
-            bench = Path(d) / "frappe-bench"
-            (bench / "apps" / "verenigingen").mkdir(parents=True)
-            (bench / "sites").mkdir()
+            bench = self._make_bench(Path(d))
             deep = bench / "apps" / "verenigingen" / "scripts" / "testing"
             deep.mkdir(parents=True)
-            prev = os.getcwd()
-            os.chdir(deep)
-            try:
-                self.assertEqual(sts._bench_root(), str(bench))
-            finally:
-                os.chdir(prev)
+            self.assertEqual(sts._bench_root(starts=(str(deep),)), str(bench))
+
+    def test_file_location_takes_precedence_over_cwd(self):
+        """Documented precedence: the bench the script lives in wins over the cwd's.
+
+        Asserted through `starts` rather than by relying on where this test file sits. The
+        first version of this test asserted the OPPOSITE (that cwd wins) and passed only
+        because it was run from a worktree, where __file__ is outside any bench. Installed
+        under a real bench, it failed -- a location-dependent test about location handling.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            script_bench = self._make_bench(Path(d), "bench-of-the-script")
+            cwd_bench = self._make_bench(Path(d), "bench-of-the-cwd")
+            resolved = sts._bench_root(starts=(str(script_bench), str(cwd_bench)))
+            self.assertEqual(resolved, str(script_bench))
+
+    def test_cwd_is_used_when_the_script_is_outside_any_bench(self):
+        """The worktree case: __file__ is in a temp dir, so the cwd fallback must answer."""
+        with tempfile.TemporaryDirectory() as d:
+            orphan = Path(d) / "worktree-somewhere"
+            orphan.mkdir()
+            cwd_bench = self._make_bench(Path(d), "the-real-bench")
+            resolved = sts._bench_root(starts=(str(orphan), str(cwd_bench)))
+            self.assertEqual(resolved, str(cwd_bench))
 
     def test_a_dir_with_only_apps_is_not_a_bench(self):
         """Both markers are required; `apps/` alone is not enough to claim a bench."""
         with tempfile.TemporaryDirectory() as d:
             half = Path(d) / "not-a-bench"
             (half / "apps").mkdir(parents=True)
-            prev = os.getcwd()
-            os.chdir(half)
-            try:
-                # Either None, or some real bench above the temp dir -- but never this one.
-                self.assertNotEqual(sts._bench_root(), str(half))
-            finally:
-                os.chdir(prev)
+            self.assertIsNone(sts._bench_root(starts=(str(half),)))
 
 
 class DottedPathTest(unittest.TestCase):
