@@ -3152,10 +3152,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         except Exception as e:
             # Do NOT continue. This block creates the master data that fixtures link
             # to (company, fiscal year, accounts, the Netherlands territory), and
-            # the `frappe.logger()` this used to warn through sat at ERROR under
-            # `bench run-tests`, so the warning was not written anywhere at all --
-            # not stdout, not `logs/frappe.log`. Swallowing here therefore
-            # produced no CI output. The failure then reappeared much later as
+            # nothing that reported a failure here was readable. This handler used
+            # `frappe.logger().error()`, which does clear the ERROR level frappe
+            # gives these loggers under `bench run-tests` -- but only into
+            # `logs/frappe.log`, never stdout. The inner handlers were worse: their
+            # `.warning()` calls were below the level and wrote nothing anywhere at
+            # all (see verenigingen/tests/harness_logger.py). Between the two, a
+            # swallow here produced no CI output. The failure then reappeared as
             # a LinkValidationError in an unrelated test, attributed to whichever PR
             # happened to reshuffle the shards (#291).
             #
