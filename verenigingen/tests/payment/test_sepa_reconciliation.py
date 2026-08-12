@@ -40,20 +40,33 @@ from frappe.utils import add_days, flt, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.harness_logger import get_harness_logger
-from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 
 
 def _cancel_and_delete(doctype, name):
-    """Cancel a submitted document before deleting it, tolerating either step.
+    """Cancel a submitted document, delete it, and remove its ledger rows.
+
+    Returns True if the row is gone afterwards.
 
     The harness drain deletes without cancelling, which is why submitted
-    Payment Entries survived it. Failures here are deliberately swallowed: the
-    row may already be gone, or be linked from something a sibling test owns,
-    and a cleanup that raises would mask the test's own result.
+    Payment Entries survived it.
+
+    The ledger cleanup is not optional. `AccountsController.on_trash` removes
+    `GL Entry` / `Payment Ledger Entry` rows only when
+    `Accounts Settings.delete_linked_ledger_entries` is set, and it is 0 by
+    default (measured). Deleting a submitted Payment Entry without that leaves
+    ledger rows whose `voucher_no` names a document that no longer exists --
+    which is precisely the orphan class #308 blames for one of its OTHER
+    failures. Trading one orphan for another is not a fix.
+
+    Failures are reported rather than swallowed. An earlier version justified a
+    bare `except` with "a cleanup that raises would mask the test's own
+    result"; that is false -- `unittest.doCleanups` records cleanup errors IN
+    ADDITION to the test result, so nothing is masked. The caller decides.
     """
     if not frappe.db.exists(doctype, name):
-        return
+        return True
     try:
         doc = frappe.get_doc(doctype, name)
         if doc.docstatus == 1:
@@ -63,10 +76,14 @@ def _cancel_and_delete(doctype, name):
             # a factory helper.
             doc.cancel()
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True, delete_permanently=True)
+        for ledger in ("GL Entry", "Payment Ledger Entry"):
+            frappe.db.delete(ledger, {"voucher_type": doctype, "voucher_no": name})
         frappe.db.commit()
+        return True
     except Exception as e:
         frappe.db.rollback()
         get_harness_logger("sepa-recon").warning(f"could not clean up {doctype} {name}: {e}")
+        return False
 
 
 class ReconBase(EnhancedTestCase):
@@ -79,7 +96,7 @@ class ReconBase(EnhancedTestCase):
         # transaction opens. Committing inside a test method corrupts the
         # transaction state used by reconcile_full_sepa_batch's frappe.db.begin().
         cls._company = get_eur_test_company()
-        cls._ensure_default_bank_account(cls._company)
+        get_eur_bank_account(cls._company)
         cls._ensure_modes_of_payment()
         frappe.db.commit()
 
@@ -111,42 +128,6 @@ class ReconBase(EnhancedTestCase):
                 doc.mode_of_payment = mop
                 doc.type = "Bank"
                 doc.insert(ignore_permissions=True)
-
-    @classmethod
-    def _ensure_default_bank_account(cls, company):
-        """Ensure the EUR test company has a default Bank-type GL account.
-
-        reconcile_full_sepa_batch / create_manual_payment_entry resolve the
-        deposit account via erpnext.get_default_bank_cash_account(company,
-        "Bank"), which needs either Company.default_bank_account set or exactly
-        one Bank-type account. Fresh test companies have neither in a
-        deterministic way, so provision one here (get-or-create + set default).
-        Also self-heals a dangling default left by a rolled-back prior run.
-        """
-        existing = frappe.db.get_value("Company", company, "default_bank_account")
-        if existing and frappe.db.exists("Account", existing):
-            return existing
-        bank_acc = frappe.db.get_value(
-            "Account",
-            {"company": company, "account_type": "Bank", "is_group": 0},
-            "name",
-        )
-        if not bank_acc:
-            parent = frappe.db.get_value(
-                "Account",
-                {"company": company, "is_group": 1, "root_type": "Asset"},
-                "name",
-            )
-            acc = frappe.new_doc("Account")
-            acc.account_name = "Test SEPA Bank"
-            acc.company = company
-            acc.account_type = "Bank"
-            acc.parent_account = parent
-            acc.account_currency = "EUR"
-            acc.insert(ignore_permissions=True)
-            bank_acc = acc.name
-        frappe.db.set_value("Company", company, "default_bank_account", bank_acc)
-        return bank_acc
 
     # ---- builders ----------------------------------------------------------
 
@@ -258,51 +239,170 @@ class ReconBase(EnhancedTestCase):
         return bt
 
     def _owned_bank_account(self):
-        """The Bank Account of the company this class owns."""
-        default = frappe.db.get_value("Company", self._company, "default_bank_account")
-        if default and frappe.db.exists("Bank Account", default):
-            return default
-        return frappe.db.get_value(
-            "Bank Account", {"company": self._company, "is_company_account": 1}, "name"
-        ) or frappe.db.get_value("Bank Account", {"company": self._company}, "name")
+        """The Bank Account this module owns, created if absent.
+
+        An earlier version of this read `Company.default_bank_account` and fell
+        back to `get_value("Bank Account", {"company": ...})`. Both halves were
+        wrong: that field is a Link to **Account**, not to `Bank Account`, so
+        the first branch could never be true, and the fallback returned
+        whichever account another module created most recently -- swapping a
+        cross-company borrow for a cross-module one. See #308.
+        """
+        return get_eur_bank_account(self._company)
 
     def _cleanup_bank_transactions(self):
-        """Cancel and delete the transactions this test made, and the Payment
-        Entries reconciliation attached to them.
+        """Remove the committed rows this test leaves behind.
 
-        The harness cannot do this itself. Its captured-insert drain deletes
-        without cancelling, so a SUBMITTED Payment Entry refuses to go and is
-        reported as "Captured-insert drain: N record(s) could not be deleted
-        (may persist as orphans)" -- 32 such warnings in a single run of this
-        module, invisible until #311 made the harness logger emit.
+        The harness cannot do it. Its captured-insert drain deletes without
+        cancelling, so a SUBMITTED Payment Entry refuses to go and is reported
+        as "Captured-insert drain: N record(s) could not be deleted (may persist
+        as orphans)" -- 32 such warnings in a single run of this module,
+        invisible until #311 made the harness logger emit.
 
-        The orphans are not harmless. A leftover unreconciled Payment Entry is
-        matched against a LATER test's Bank Transaction by
-        `Payment Entry.custom_bank_transaction`, and that test's `bt.cancel()`
-        then fails with LinkExistsError. That is the CI failure in shard 3 that
-        led here: `test_bank_transaction_creator_coverage` breaking on rows this
-        module left behind (#308).
+        The orphans are not harmless: a later test's `bt.cancel()` fails with
+        LinkExistsError because a leftover Payment Entry names its Bank
+        Transaction in `custom_bank_transaction`. That is the CI failure in
+        shard 3 that led here.
+
+        On the MECHANISM, since the obvious story is wrong: nothing re-links an
+        existing Payment Entry to a new Bank Transaction -- every writer of
+        `custom_bank_transaction` sets it at creation. The likelier explanation
+        is naming-series reuse: `tabSeries` increments are transactional, so a
+        rolled-back test frees `ACC-BTN-...NN` and a later Bank Transaction is
+        issued a name an orphan Payment Entry already points at. Either way the
+        cure is the same -- do not leave the orphan -- but the wrong story would
+        send the next reader hunting for a matching routine that does not exist.
+
+        Filtered by company+creation rather than by `custom_bank_transaction`:
+        the Payment Entries that matter are UNLINKED at this point, which is
+        exactly why they are available to collide later. That is safe only
+        because tests in a process run serially and CI shards each get their own
+        site, so no concurrent writer shares this window.
         """
-        # Every Payment Entry this test produced under the company it owns, not
-        # only the ones already linked to one of its Bank Transactions. That
-        # narrower filter was measured to be insufficient: reconciliation leaves
-        # Payment Entries UNLINKED, and it is precisely those that a later test's
-        # Bank Transaction gets matched against.
+        survivors = []
         for pe_name in frappe.get_all(
             "Payment Entry",
             filters={"company": self._company, "creation": [">=", self._started_at]},
             pluck="name",
         ):
-            _cancel_and_delete("Payment Entry", pe_name)
+            if not _cancel_and_delete("Payment Entry", pe_name):
+                survivors.append(pe_name)
 
         for bt_name in reversed(self._made_bank_transactions):
             _cancel_and_delete("Bank Transaction", bt_name)
+        self._made_bank_transactions = []
+
+        # Fail rather than leak. A cleanup whose only failure signal is a log
+        # line is how this bug survived in the first place, and the failure is
+        # reachable: `doc.cancel()` enqueues (doc_events registers a payment
+        # history handler on Payment Entry.on_cancel) and frappe refuses to
+        # enqueue past a queue-length guard -- "Too many queued background jobs".
+        if survivors:
+            raise AssertionError(
+                f"{len(survivors)} Payment Entry row(s) survived cleanup and will pollute later "
+                f"tests: {', '.join(survivors)}. See the warnings above for why each failed."
+            )
         self._made_bank_transactions = []
 
 
 # =============================================================================
 # find_matching_sepa_batches (helper)
 # =============================================================================
+class TestReconBaseCleansUpAfterItself(ReconBase):
+    """The cleanup that keeps this module from poisoning the rest of the shard.
+
+    Without these, its correctness rests on a manual orphan count someone ran
+    once -- which is exactly how the leak survived: nothing failed when the
+    rows stayed behind. Each assertion below corresponds to a way the cleanup
+    silently stopped working during review.
+    """
+
+    def test_cleanup_removes_a_submitted_payment_entry_and_its_ledger_rows(self):
+        it = self._make_member_with_invoice(grand_total=25.0)
+        bt = self._make_bank_transaction(deposit=25.0, description="cleanup probe")
+        result = recon.create_manual_payment_entry(
+            bt, {"member": it["member"].name, "invoice": it["invoice"].name, "amount": 25.0}
+        )
+        pe_name = result.name if hasattr(result, "name") else (result or {}).get("payment_entry")
+        if not pe_name:
+            self.skipTest(f"reconciliation did not produce a Payment Entry: {result!r}")
+        frappe.db.commit()  # reproduce the committed-survivor condition
+        self.assertTrue(frappe.db.exists("Payment Entry", pe_name))
+
+        self._cleanup_bank_transactions()
+
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", pe_name),
+            "a submitted Payment Entry survived cleanup and will pollute later tests",
+        )
+        for ledger in ("GL Entry", "Payment Ledger Entry"):
+            self.assertEqual(
+                frappe.db.count(ledger, {"voucher_type": "Payment Entry", "voucher_no": pe_name}),
+                0,
+                f"{ledger} rows outlived the Payment Entry they belong to -- the orphan class "
+                f"#308 blames for a different failure",
+            )
+        self.assertFalse(frappe.db.exists("Bank Transaction", bt.name))
+
+    def test_the_bank_account_is_owned_not_borrowed(self):
+        """`_owned_bank_account` must own, not borrow.
+
+        The version this replaced read `Company.default_bank_account` (a Link to
+        **Account**, so that guard was dead code) and fell back to a
+        `Bank Account` query, which returns whichever row was created most
+        recently -- another module's.
+
+        Asserting only "belongs to my company" does NOT catch that: measured,
+        reverting to the global borrow still passed, because this module's own
+        account happened to be the newest match. So plant a decoy that a borrow
+        would prefer, and require the owned one anyway.
+        """
+        # A company that already has a Bank-type GL account: `is_company_account`
+        # makes `account` mandatory, and the decoy needs that flag to be the row
+        # a borrowing lookup would prefer.
+        decoy_gl = frappe.db.get_value(
+            "Account",
+            {"company": ["!=", self._company], "account_type": "Bank", "is_group": 0},
+            ["name", "company"],
+            as_dict=True,
+        )
+        if not decoy_gl:
+            self.skipTest("needs another company with a bank account to tell owning from borrowing")
+
+        decoy = self._make_decoy_bank_account_(decoy_gl)
+
+        account = self._owned_bank_account()
+
+        self.assertTrue(account, "no Bank Account resolved; the Bank Transaction would carry none")
+        self.assertNotEqual(account, decoy.name, "resolved a foreign Bank Account -- still borrowing")
+        self.assertEqual(frappe.db.get_value("Bank Account", account, "company"), self._company)
+        self.assertEqual(
+            frappe.db.get_value("Bank Account", account, "account"),
+            frappe.db.get_value("Company", self._company, "default_bank_account"),
+            "the resolved Bank Account is not the one keyed on this company's default GL account",
+        )
+
+    def _make_decoy_bank_account_(self, decoy_gl):
+        """A rival `is_company_account` row that a borrowing lookup would prefer."""
+        bank_name = frappe.db.get_value("Bank", {}, "name")
+        if not bank_name:
+            bank = frappe.new_doc("Bank")
+            bank.bank_name = f"Decoy Bank {frappe.generate_hash(length=6)}"
+            bank.insert(ignore_permissions=True)
+            self.addCleanup(frappe.delete_doc, "Bank", bank.name, force=True)
+            bank_name = bank.name
+
+        decoy = frappe.new_doc("Bank Account")
+        decoy.account_name = f"Decoy {frappe.generate_hash(length=6)}"
+        decoy.bank = bank_name
+        decoy.is_company_account = 1
+        decoy.company = decoy_gl.company
+        decoy.account = decoy_gl.name
+        decoy.insert(ignore_permissions=True)
+        self.addCleanup(frappe.delete_doc, "Bank Account", decoy.name, force=True)
+        return decoy
+
+
 class TestFindMatchingSepaBatches(ReconBase):
     def test_exact_amount_match_high_confidence(self):
         it = self._make_member_with_invoice(first_name="ExactMatch", grand_total=30.0)

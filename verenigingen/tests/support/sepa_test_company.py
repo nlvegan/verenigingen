@@ -262,3 +262,88 @@ def ensure_membership_dues_item(billing_frequency: str = "Daily") -> str:
     )
     frappe.db.commit()
     return item_name
+
+
+def get_eur_bank_account(company: str | None = None) -> str:
+    """Return a Bank Account **document** owned by the EUR test company.
+
+    Bank Transaction needs a `Bank Account`, and the obvious way to get one --
+    `get_value("Bank Account", {"is_company_account": 1})`, optionally narrowed
+    by company -- is a borrow: it returns whichever account some other module
+    created most recently (`get_value` orders by `creation` and the query
+    builder defaults that DESC). On these sites that resolves to accounts owned
+    by `test_bank_transaction_reconciliation` or the Mollie sweep tests. It can
+    also return None on a fresh shard, and `Bank Transaction.bank_account` is
+    not mandatory, so the transaction then silently carries no account and the
+    currency pin that depends on it never applies.
+
+    Keyed on the company's default GL bank account, so repeated calls -- and
+    the near-identical helper in `test_bank_transaction_reconciliation.py`,
+    which should eventually call this instead -- converge on the same row
+    rather than racing to create rivals.
+    """
+    company = company or get_eur_test_company()
+    gl_account = _ensure_default_gl_bank_account(company)
+
+    existing = frappe.db.get_value("Bank Account", {"account": gl_account}, "name")
+    if existing:
+        return existing
+
+    return _make_bank_account_(company, gl_account)
+
+
+def _make_bank_account_(company: str, gl_account: str) -> str:
+    """Create the Bank Account (and its Bank) this module owns."""
+    bank_name = "SEPA Test Bank"
+    if not frappe.db.exists("Bank", bank_name):
+        bank = frappe.new_doc("Bank")
+        bank.bank_name = bank_name
+        bank.insert(ignore_permissions=True)
+
+    account = frappe.new_doc("Bank Account")
+    account.account_name = "SEPA Test Company Account"
+    account.bank = bank_name
+    account.is_company_account = 1
+    account.company = company
+    account.account = gl_account
+    account.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return account.name
+
+
+def _ensure_default_gl_bank_account(company: str) -> str:
+    """The company's default Bank-type GL Account, created if absent.
+
+    `Company.default_bank_account` is a Link to **Account**, not to
+    `Bank Account` -- a distinction worth stating, because reading it and then
+    testing `frappe.db.exists("Bank Account", ...)` on the result is a branch
+    that can never be true.
+    """
+    existing = frappe.db.get_value("Company", company, "default_bank_account")
+    if existing and frappe.db.exists("Account", existing):
+        return existing
+
+    gl_account = frappe.db.get_value(
+        "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+    )
+    if not gl_account:
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 1, "root_type": "Asset"}, "name"
+        )
+        gl_account = _make_gl_bank_account_(company, parent)
+
+    frappe.db.set_value("Company", company, "default_bank_account", gl_account)
+    frappe.db.commit()
+    return gl_account
+
+
+def _make_gl_bank_account_(company: str, parent: str) -> str:
+    """Create the Bank-type GL Account backing the owned Bank Account."""
+    account = frappe.new_doc("Account")
+    account.account_name = "Test SEPA Bank"
+    account.company = company
+    account.account_type = "Bank"
+    account.parent_account = parent
+    account.account_currency = "EUR"
+    account.insert(ignore_permissions=True)
+    return account.name
