@@ -115,13 +115,17 @@ jobs:
     - name: Unit-test the failed-write guard
       run: python -m unittest discover -s scripts/validation/tests -p 'test_failed_write_validator.py' -v
 
-    # show_test_shards.py replicates CI's own shard layout. Its tests live outside the
-    # verenigingen package, and get_all_tests() only walks apps/verenigingen/verenigingen,
-    # so the app suite never sees them -- they were added green and unrun, and a
-    # location-dependent test in them went unnoticed until the script was invoked from its
-    # installed path. Run them here, where the rest of the scripts/ tests already run.
-    - name: Unit-test the shard-layout replicator
-      run: python -m unittest discover -s scripts/testing/tests -p 'test_show_test_shards.py' -v
+    # Tests for the scripts/testing tools live outside the verenigingen package, and
+    # get_all_tests() only walks apps/verenigingen/verenigingen, so the app suite never
+    # sees them -- they were added green and unrun, and a location-dependent test in them
+    # went unnoticed until the script was invoked from its installed path. Run them here,
+    # where the rest of the scripts/ tests already run.
+    #
+    # The pattern is test_*.py, not one named file: pinning it to a single name is how a
+    # second test module would repeat the "added green and unrun" failure this comment
+    # exists to describe.
+    - name: Unit-test the scripts/testing tools
+      run: python -m unittest discover -s scripts/testing/tests -p 'test_*.py' -v
 
     - name: Ratchet check (whole tree)
       run: python scripts/validation/error_swallow_validator.py
