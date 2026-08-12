@@ -45,12 +45,12 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
     def _ensure_selling_price_list(cls):
         """Ensure a selling Price List in the company's currency exists."""
         currency = frappe.db.get_value("Company", cls.company.name, "default_currency") or "EUR"
-        existing = frappe.db.get_value(
-            "Price List", {"selling": 1, "currency": currency, "enabled": 1}, "name"
-        )
-        if existing:
-            return existing
 
+        # Named, not queried. Asking for "any enabled selling price list in this
+        # currency" is the same borrow as the company one directly above: it
+        # answers with whatever another test left behind, and a neighbour that
+        # disables or reprices that list changes this class's results. The list
+        # below is created here if absent, so it is this class's own.
         price_list_name = f"Test Selling {currency}"
         if not frappe.db.exists("Price List", price_list_name):
             frappe.get_doc(
@@ -67,35 +67,33 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
 
     @classmethod
     def _ensure_test_company(cls):
-        """Ensure test company exists - use existing company to avoid complex setup"""
-        # Prefer existing test company or any company with proper chart of accounts
-        # Creating a new company programmatically often fails due to ERPNext's complex hooks
+        """Return the app's own EUR test company. Never borrows another test's.
 
-        # Try to use existing companies in order of preference
-        preferred_companies = ["Test Company", "Ned Ver Vegan", "TEST-EBoekhouden-Integration-Company"]
+        This used to walk a hardcoded preference list ("Test Company", "Ned Ver
+        Vegan", ...) and then fall back to ``get_all("Company", limit=1)``,
+        creating nothing. That is an INVERTED dependency: it passes only while a
+        suitable company happens to exist, and it broke when one did — an EUR
+        ``Test Company`` created three positions earlier in the same shard by
+        ``tests/utils/base.py`` reddened ``test_accounting_dimensions``,
+        ``test_project_tracking_integration`` and
+        ``test_sales_invoice_creation_flow`` (#291 round 1, shard 11; #308).
 
-        for company_name in preferred_companies:
-            if frappe.db.exists("Company", company_name):
-                return frappe.get_doc("Company", company_name)
+        ``get_all(..., limit=1)`` is worse than it looks: the order is META
+        driven, and ``Company``'s sort_field is creation ASC, so it answers with
+        the OLDEST company on the site — whichever unrelated test or fixture got
+        there first.
 
-        # Fallback: Use first available company
-        first_company = frappe.get_all("Company", limit=1)
-        if first_company:
-            return frappe.get_doc("Company", first_company[0].name)
+        ``get_eur_test_company()`` owns ``TEST-Payment-Integration-Company`` and
+        guarantees the three things this class actually needs: EUR currency, a
+        Fiscal Year covering today, and a usable Chart of Accounts. The account
+        and cost-center lookups below all scope by ``cls.company.name``, so they
+        become deterministic once the company is.
+        """
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 
-        # Last resort: Try to create new company (may fail due to ERPNext hooks)
-        company_name = "Test Association ERPNext"
-        company = frappe.get_doc({
-            "doctype": "Company",
-            "company_name": company_name,
-            "country": "Netherlands",
-            "default_currency": "EUR",
-            "create_chart_of_accounts_based_on": "Standard Template",
-            "chart_of_accounts": "Standard"
-        })
-        company.insert()
-        return company
-        
+        return frappe.get_doc("Company", get_eur_test_company())
+
+
     @classmethod
     def _create_test_accounts(cls):
         """Get existing accounts from company's chart of accounts"""
@@ -189,6 +187,46 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         factory = CoreTestDataFactory()
         return factory.create_test_volunteer(member=cls.test_member)
         
+    def test_company_is_owned_not_borrowed(self):
+        """This class must resolve its own company, not whatever the shard left behind.
+
+        Two assertions, because neither is sufficient alone:
+
+        * The identity check catches a reintroduced borrow *deterministically*,
+          on any site. The three failures behind #291 round 1 came from
+          ``_ensure_test_company`` returning a neighbour's ``Test Company``.
+        * The usability checks are what the borrow actually got wrong — a company
+          can exist and still have no Income account or a non-EUR currency, which
+          is how #237's 101 failures happened. These would pass under a borrow on
+          a warm site like test_site_1, where ``Test Company`` has a committed
+          chart of accounts; that is exactly why the identity check is here too.
+        """
+        from verenigingen.tests.support.sepa_test_company import _PREFERRED_EUR_COMPANY
+
+        self.assertEqual(
+            self.company.name,
+            _PREFERRED_EUR_COMPANY,
+            "the test company was borrowed rather than owned; see #308",
+        )
+        self.assertEqual(self.company.default_currency, "EUR")
+
+        # root_type, not account_type: income GROUP accounts carry no account_type,
+        # so filtering on it silently misses a usable chart of accounts.
+        self.assertTrue(
+            frappe.db.exists(
+                "Account",
+                {"company": self.company.name, "root_type": "Income", "is_group": 0},
+            ),
+            f"{self.company.name} has no leaf Income account; its chart of accounts is unusable",
+        )
+        self.assertTrue(
+            frappe.db.exists(
+                "Account",
+                {"company": self.company.name, "account_type": "Receivable", "is_group": 0},
+            ),
+            f"{self.company.name} has no Receivable account; Sales Invoice cannot resolve Debit To",
+        )
+
     def test_sales_invoice_creation_flow(self):
         """Test sales invoice creation (draft mode - full submission requires accounting setup)"""
         # Skip if income account not available
