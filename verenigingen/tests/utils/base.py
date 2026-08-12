@@ -92,6 +92,25 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         ensure_netherlands_territory()
 
+        # OWN the company production code resolves from Verenigingen Settings,
+        # instead of inheriting whatever ran before us. Much of the code under
+        # test reads that single rather than taking a company argument
+        # (sepa_config_manager, chapter_finance_service, invoice_generator,
+        # department_sync_service...), so a test whose fixtures live under the
+        # harness company fails when the single points elsewhere.
+        #
+        # Classes on this base used to pass only because an EnhancedTestCase
+        # test earlier in the same shard set it and the restore that should have
+        # undone it was never reached (#312) -- the same shape as the territory
+        # note above. Pinning here is that same value, made deterministic. See #308.
+        #
+        # Class scope, not setUp: this commits, and the compat FrappeTestCase
+        # this inherits rolls back only once per CLASS. A per-test commit would
+        # make every untracked row a test creates durable.
+        from verenigingen.tests.support.verenigingen_settings import own_settings_company
+
+        own_settings_company(cls)
+
     @classmethod
     def tearDownClass(cls):
         """Clean up class-level test data"""
@@ -138,21 +157,6 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
         self.factory = CoreTestDataFactory()
-
-        # OWN the company that production code resolves from Verenigingen
-        # Settings, instead of inheriting whatever ran before us. A lot of code
-        # under test reads that single rather than taking a company argument
-        # (sepa_config_manager, chapter_finance_service, invoice_generator,
-        # department_sync_service...), so a test whose fixtures live under the
-        # harness company fails when the single points somewhere else.
-        #
-        # These tests used to pass only because an EnhancedTestCase test earlier
-        # in the same shard set it and the restore that should have undone it
-        # was never reached (#312). Pinning it here is the same value, made
-        # deterministic and independent of execution order. See #308.
-        from verenigingen.tests.support.verenigingen_settings import own_settings_company
-
-        own_settings_company(self)
 
         # Set up test request context for API security framework
         self._setup_test_request_context()

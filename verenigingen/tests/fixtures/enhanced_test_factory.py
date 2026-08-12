@@ -2555,15 +2555,33 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # harness would report captured_emails == [] and the test would read that
         # as "no mail was sent" when the truth is "nothing was watching". The old
         # code logged and continued, which is how three dead targets survived here.
+        #
+        # Registered BEFORE the loop: unittest does not call tearDown when setUp
+        # raises, so without this the patches started before the failing one stay
+        # started for the rest of the process, bound to a dead test's
+        # captured_emails list.
+        self.addCleanup(self._stop_email_patches)
         for patch_obj in self.email_patches:
             try:
                 patch_obj.start()
             except Exception as e:
+                # `patch_obj.target` is only assigned inside __enter__ AFTER the
+                # target module resolves, so it is absent in exactly this failure.
+                # `attribute` is set in the constructor and always readable.
+                target = getattr(patch_obj, "attribute", patch_obj)
                 raise RuntimeError(
-                    f"Email capture could not be installed on {getattr(patch_obj, 'target', patch_obj)!r} "
-                    f"({e}). Tests would silently see zero emails instead of the real ones -- "
-                    f"retarget or remove the patch rather than letting it fail."
+                    f"Email capture could not be installed on {target!r} ({e}). Tests would "
+                    f"silently see zero emails instead of the real ones -- retarget or remove "
+                    f"the patch rather than letting it fail."
                 ) from e
+
+    def _stop_email_patches(self):
+        """Stop every started email patch, tolerating ones never started."""
+        for patch_obj in getattr(self, "email_patches", []):
+            try:
+                patch_obj.stop()
+            except RuntimeError:
+                pass  # never started, or already stopped by tearDown
 
     def _extract_recipients(self, args, kwargs):
         """Extract recipient list from various email method signatures"""

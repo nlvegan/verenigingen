@@ -60,6 +60,159 @@ def _settings():
     )
 
 
+class TestVereningingenTestCaseOwnsTheSettingsCompany(unittest.TestCase):
+    """`VereningingenTestCase` must pin the company, not inherit it.
+
+    Its tests read `Verenigingen Settings.company` through production code
+    (`sepa_config_manager`, `invoice_generator`, `chapter_finance_service`...)
+    but the base class never set it, so they passed only when an
+    `EnhancedTestCase` test had run earlier in the same shard and leaked the
+    value (#312, #308).
+
+    All test sites already carry that leaked value, so these tests set a
+    sentinel first -- otherwise the pin is a no-op and the assertions pass
+    against a base class that does nothing.
+    """
+
+    def setUp(self):
+        self.original = _settings()
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        frappe.db.set_value("Verenigingen Settings", None, "company", self.original[0], update_modified=False)
+        frappe.db.set_value(
+            "Verenigingen Payments Settings",
+            None,
+            "dues_income_account",
+            self.original[1],
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _run_case(self, body):
+        from verenigingen.tests.utils.base import VereningingenTestCase
+
+        class _Case(VereningingenTestCase):
+            def test_body(inner):
+                body()
+
+        result = unittest.TestResult()
+        unittest.TestLoader().loadTestsFromTestCase(_Case).run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+
+    def _pin_sentinel(self):
+        """Point BOTH singles at a company the harness does not own.
+
+        Setting only `company` is not adversarial enough: every test site's
+        `dues_income_account` already belongs to the harness company, so a
+        helper that pins half the pair looks correct. Measured — that exact
+        mutation survived until this method also moved the account.
+        """
+        sentinel = _a_company_the_harness_will_not_pick()
+        frappe.db.set_value("Verenigingen Settings", None, "company", sentinel, update_modified=False)
+        foreign_account = frappe.db.get_value(
+            "Account", {"company": sentinel, "root_type": "Income", "is_group": 0}, "name"
+        )
+        if foreign_account:
+            frappe.db.set_value(
+                "Verenigingen Payments Settings",
+                None,
+                "dues_income_account",
+                foreign_account,
+                update_modified=False,
+            )
+        frappe.db.commit()
+        return sentinel
+
+    def test_company_is_pinned_during_the_test(self):
+        self._pin_sentinel()
+        seen = []
+
+        self._run_case(lambda: seen.append(frappe.db.get_value("Verenigingen Settings", None, "company")))
+
+        self.assertEqual(len(seen), 1)
+        self.assertIn(
+            seen[0],
+            HARNESS_OWNED_COMPANIES,
+            "VereningingenTestCase did not pin the settings company; its tests are still "
+            "reading whatever ran before them",
+        )
+
+    def test_the_previous_value_is_put_back(self):
+        sentinel = self._pin_sentinel()
+
+        self._run_case(lambda: None)
+
+        self.assertEqual(
+            frappe.db.get_value("Verenigingen Settings", None, "company"),
+            sentinel,
+            "the pin was not restored, so the harness now leaks the value it was written to stop leaking",
+        )
+
+    def test_a_mutation_by_the_test_body_is_also_restored(self):
+        """The case the early-return version of this helper got wrong.
+
+        When the site value already equals the harness company there is nothing
+        to write -- but a cleanup must still be registered, or a test that
+        changes the single itself leaves it changed.
+        """
+        harness_company = _harness_company_or_skip()
+        frappe.db.set_value(
+            "Verenigingen Settings", None, "company", harness_company, update_modified=False
+        )
+        frappe.db.commit()
+        other = _a_company_the_harness_will_not_pick()
+
+        def mutate():
+            frappe.db.set_value("Verenigingen Settings", None, "company", other, update_modified=False)
+            frappe.db.commit()
+
+        self._run_case(mutate)
+
+        self.assertEqual(
+            frappe.db.get_value("Verenigingen Settings", None, "company"),
+            harness_company,
+            "a test body's mutation of the single outlived the class that made it",
+        )
+
+    def test_the_income_account_belongs_to_the_pinned_company(self):
+        """Pinning half the pair reproduces the error this module quotes.
+
+        `invoice_generator._get_income_account` returns `dues_income_account`
+        if the Account merely exists -- it never checks whose company it is.
+        """
+        self._pin_sentinel()
+        seen = {}
+
+        def observe():
+            company = frappe.db.get_value("Verenigingen Settings", None, "company")
+            account = frappe.db.get_value(
+                "Verenigingen Payments Settings", None, "dues_income_account"
+            )
+            seen["company"] = company
+            seen["account_company"] = frappe.db.get_value("Account", account, "company") if account else None
+
+        self._run_case(observe)
+
+        if seen["account_company"] is None:
+            self.skipTest("no income account resolvable for the harness company on this site")
+        self.assertEqual(
+            seen["account_company"],
+            seen["company"],
+            "dues_income_account belongs to a different company than the pinned one",
+        )
+
+
+def _harness_company_or_skip():
+    from verenigingen.tests.support.verenigingen_settings import _harness_company
+
+    company = _harness_company()
+    if not company:
+        raise unittest.SkipTest("no harness-owned Company on this site")
+    return company
+
+
 def _a_company_the_harness_will_not_pick():
     """Any Company outside `HARNESS_OWNED_COMPANIES` and the pinned test company.
 
@@ -116,13 +269,12 @@ class TestHarnessRestoresVerenigingenSettings(unittest.TestCase):
         self.assertEqual(result.errors, [])
         self.assertEqual(result.failures, [])
 
-        company_after, _ = _settings()
         self.assertEqual(
-            company_after,
-            sentinel,
-            "Verenigingen Settings.company was left pointing at the harness test company. "
-            "_ensure_verenigingen_settings() commits, so only the tearDown restore can "
-            "undo it -- see #312.",
+            _settings(),
+            (sentinel, self.original_income_account),
+            "Verenigingen Settings was left pointing at the harness test company. "
+            "_ensure_verenigingen_settings() commits BOTH singles, so only the tearDown "
+            "restore can undo them -- see #312.",
         )
 
     def test_the_sentinel_is_actually_overwritten_during_the_test(self):
@@ -142,12 +294,16 @@ class TestHarnessRestoresVerenigingenSettings(unittest.TestCase):
             def test_observe(self):
                 seen.append(frappe.db.get_value("Verenigingen Settings", None, "company"))
 
-        suite = unittest.TestLoader().loadTestsFromTestCase(_ObservingCase)
-        suite.run(unittest.TestResult())
+        result = unittest.TestResult()
+        unittest.TestLoader().loadTestsFromTestCase(_ObservingCase).run(result)
+        self.assertEqual(result.errors, [])
 
         self.assertEqual(len(seen), 1)
-        self.assertNotEqual(
-            seen[0], sentinel, "setUp did not repoint Verenigingen Settings; nothing to restore"
+        self.assertIn(
+            seen[0],
+            HARNESS_OWNED_COMPANIES,
+            "setUp did not repoint Verenigingen Settings at a harness-owned company; "
+            f"got {seen[0]!r}, so the restoration test above would pass vacuously",
         )
 
     def test_email_capture_is_actually_installed(self):
@@ -163,9 +319,14 @@ class TestHarnessRestoresVerenigingenSettings(unittest.TestCase):
 
         class _CapturingCase(EnhancedTestCase):
             def test_capture(inner):
+                from frappe.email import sendmail_to_system_managers
                 from frappe.email.doctype.email_queue.email_queue import EmailQueue
 
                 frappe.sendmail(recipients=["nobody@example.invalid"], subject="probe", message="x")
+                # The patch on this was DELETED, on the argument that it is a
+                # one-line wrapper around frappe.sendmail and therefore already
+                # covered. That argument is only worth making if it is checked.
+                sendmail_to_system_managers("probe-via-wrapper", "x")
                 observed["captured"] = list(inner.captured_emails)
                 observed["queue_send_patched"] = isinstance(EmailQueue.send, MagicMock)
 
@@ -174,7 +335,7 @@ class TestHarnessRestoresVerenigingenSettings(unittest.TestCase):
         self.assertEqual(result.errors, [])
         self.assertEqual(result.failures, [])
 
-        self.assertEqual(len(observed["captured"]), 1, "frappe.sendmail was not captured")
+        self.assertEqual(len(observed["captured"]), 2, "not every send pathway was captured")
         self.assertEqual(observed["captured"][0]["subject"], "probe")
         self.assertTrue(observed["queue_send_patched"], "EmailQueue.send was left unpatched")
 
