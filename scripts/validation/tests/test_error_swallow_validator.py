@@ -337,6 +337,121 @@ class PropagationTest(unittest.TestCase):
         )
 
 
+class ProjectLoggingHelpersTest(unittest.TestCase):
+    """`LOG_NAMES` has to know THIS repo's error helpers, not just Frappe's.
+
+    A handler that records the failure through `safe_log_error` or a service's
+    `handle_error` is a log-and-swallow exactly like one calling
+    `frappe.log_error` -- but it was invisible, because the validator only
+    recognised the framework's own names.
+    """
+
+    def test_safe_log_error_counts_as_logging(self):
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception as e:\n"
+                    "        safe_log_error(f'boom: {e}')\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_log_action_counts_as_logging(self):
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(self, x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception as e:\n"
+                    "        self.log_action('failed', {'error': str(e)}, level='error')\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_log_error_with_traceback_counts_as_logging(self):
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception as e:\n"
+                    "        _log_error_with_traceback('Title', str(e))\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_handle_error_with_raise_error_false_is_flagged(self):
+        """Explicitly told NOT to raise, so the failure really is swallowed."""
+        self.assertEqual(
+            len(
+                _flagged(
+                    "def f(self, x):\n"
+                    "    try:\n"
+                    "        return compute(x)\n"
+                    "    except Exception as e:\n"
+                    "        self.handle_error(e, 'op', {}, raise_error=False)\n"
+                    "        return None\n"
+                )
+            ),
+            1,
+        )
+
+    def test_handle_error_without_raise_error_is_NOT_flagged(self):
+        """`handle_service_error(raise_error=True)` is the DEFAULT, so a bare
+        `self.handle_error(e, 'op')` re-raises. Treating the name as pure logging
+        would invent a swallow where the failure actually propagates -- the same
+        trap `frappe.throw` set for condition (2)."""
+        self.assertEqual(
+            _flagged(
+                "def f(self, x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        self.handle_error(e, 'op')\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+    def test_handle_service_error_default_is_NOT_flagged(self):
+        self.assertEqual(
+            _flagged(
+                "def f(x):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        handle_service_error(e, 'svc', 'op')\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+    def test_handle_error_with_non_literal_raise_error_is_NOT_flagged(self):
+        """`raise_error=flag` cannot be resolved statically; assume it raises."""
+        self.assertEqual(
+            _flagged(
+                "def f(self, x, flag):\n"
+                "    try:\n"
+                "        return compute(x)\n"
+                "    except Exception as e:\n"
+                "        self.handle_error(e, 'op', raise_error=flag)\n"
+                "        return None\n"
+            ),
+            [],
+        )
+
+
 class WidenedConditionThreeNegativesTest(unittest.TestCase):
     """The disqualifiers that keep the widened (3) from over-reaching."""
 
