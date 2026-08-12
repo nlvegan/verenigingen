@@ -12,6 +12,10 @@ from verenigingen.tests.harness_logger import get_harness_logger
 # warning below was discarded. See verenigingen/tests/harness_logger.py.
 logger = get_harness_logger("setup")
 
+# Marks the workflow-action-email no-op so the patch can be recognised whichever
+# of its two application sites installed it. See disable_workflow_action_emails.
+_NOOP_MARKER = "_verenigingen_test_noop"
+
 
 def disable_workflow_action_emails():
     """Neutralize synchronous workflow-action emails for the whole test run.
@@ -38,16 +42,42 @@ def disable_workflow_action_emails():
     this hook — for them the same patch is applied at import time of
     ``verenigingen.tests.fixtures.enhanced_test_factory``. The patch is
     idempotent, so applying it from both places is harmless.
+
+    Raises rather than logging on failure. A test run in which this did not take
+    is not a degraded test run, it is a test run where every Member insert
+    renders a PDF and can raise ``OSError: ... HostNotFoundError`` — a storm of
+    unrelated failures far from this cause, which is the #291 shape exactly
+    (#314).
     """
-    try:
-        from frappe.workflow.doctype.workflow_action import workflow_action
+    from frappe.workflow.doctype.workflow_action import workflow_action
 
-        def _noop_send_workflow_action_email(*args, **kwargs):
-            return None
+    def _noop_send_workflow_action_email(*args, **kwargs):
+        return None
 
-        workflow_action.send_workflow_action_email = _noop_send_workflow_action_email
-    except Exception as e:  # pragma: no cover - defensive: never block the test run
-        logger.warning(f"Could not disable workflow action emails for tests: {e}")
+    setattr(_noop_send_workflow_action_email, _NOOP_MARKER, True)
+    workflow_action.send_workflow_action_email = _noop_send_workflow_action_email
+
+    # Assert the postcondition instead of trusting the assignment. The entire
+    # purpose of this function is a side effect on another module's namespace,
+    # and "it did not raise" is not evidence that the side effect took.
+    if not workflow_action_emails_disabled():
+        raise RuntimeError(
+            "disable_workflow_action_emails() ran but "
+            "workflow_action.send_workflow_action_email is not the test no-op. "
+            "Every Member insert will render a PDF synchronously."
+        )
+
+
+def workflow_action_emails_disabled() -> bool:
+    """True when the workflow-action email function is this module's no-op.
+
+    Identified by a marker attribute rather than by object identity: the patch is
+    applied from two places (this hook and the enhanced factory's import) and
+    idempotency must not depend on which function object won.
+    """
+    from frappe.workflow.doctype.workflow_action import workflow_action
+
+    return getattr(workflow_action.send_workflow_action_email, _NOOP_MARKER, False)
 
 
 def _erpnext_before_tests_v16():
@@ -69,14 +99,16 @@ def _erpnext_before_tests_v16():
     """
     import erpnext.tests.utils  # noqa: F401  (module-level BootStrapTestData() runs on import)
 
-    # These helpers still exist in erpnext.setup.utils (only before_tests was removed)
-    try:
-        from erpnext.setup.utils import enable_all_roles_and_domains, set_defaults_for_tests
+    # These helpers still exist in erpnext.setup.utils (only before_tests was
+    # removed). Not guarded: this seeds the global default Company and fiscal
+    # year for the whole suite, and continuing without them means every later
+    # Customer / Member / Donation creation fails somewhere else with a message
+    # that does not name this cause (#309, #314). If a future erpnext drops or
+    # renames them, an ImportError naming them is the outcome worth having.
+    from erpnext.setup.utils import enable_all_roles_and_domains, set_defaults_for_tests
 
-        enable_all_roles_and_domains()
-        set_defaults_for_tests()
-    except Exception as e:  # pragma: no cover - defensive
-        logger.warning(f"erpnext test defaults setup failed: {e}")
+    enable_all_roles_and_domains()
+    set_defaults_for_tests()
 
     frappe.db.commit()
 
@@ -211,10 +243,12 @@ def before_tests():
     # site they don't exist, so several test modules created them ad-hoc in setUp.
     # The production seeder (setup/__init__.py:create_default_team_roles) is
     # idempotent (existence-checked per role), so this is safe to run every run.
-    try:
-        _seed_default_team_roles()
-    except Exception as e:
-        logger.warning(f"Team Role seeding failed: {e}")
+    #
+    # Not guarded, for the same reason as the call in ensure_member_test_masters:
+    # a missing Team Role surfaces as a link-validation failure in an unrelated
+    # test, and the seeder being existence-checked means raising cannot cause a
+    # spurious failure (#309, #314).
+    _seed_default_team_roles()
 
 
 def ensure_member_test_masters():
@@ -270,10 +304,11 @@ def ensure_member_test_masters():
     except Exception as e:
         logger.warning(f"Customer Group default seeding failed: {e}")
 
-    try:
-        _seed_default_team_roles()
-    except Exception as e:
-        logger.warning(f"Team Role seeding failed: {e}")
+    # Not guarded. Team Role is hardcoded-by-name master data that tests resolve
+    # by that name; a missing one surfaces as a link-validation failure in an
+    # unrelated test rather than here. The seeder is existence-checked and
+    # idempotent, so raising cannot cause a spurious failure (#309, #314).
+    _seed_default_team_roles()
 
 
 def ensure_erpnext_base_masters():
@@ -298,13 +333,17 @@ def ensure_erpnext_base_masters():
     import erpnext.tests.utils  # noqa: F401  (module-level BootStrapTestData() runs on import)
 
     # set_defaults_for_tests wires the global default Company / fiscal year etc.
-    try:
-        from erpnext.setup.utils import enable_all_roles_and_domains, set_defaults_for_tests
+    #
+    # Not guarded. This runs only on the branch where the Territory tree was
+    # absent, i.e. a site with no ERPNext base masters at all; continuing past a
+    # failure here leaves the global defaults unset and every later Customer /
+    # Member / Donation creation fails somewhere else with a message that does
+    # not name this cause (#309, #314). If a future erpnext drops or renames
+    # these, an ImportError naming them is the outcome worth having.
+    from erpnext.setup.utils import enable_all_roles_and_domains, set_defaults_for_tests
 
-        enable_all_roles_and_domains()
-        set_defaults_for_tests()
-    except Exception as e:  # pragma: no cover - defensive
-        logger.warning(f"erpnext test defaults setup failed: {e}")
+    enable_all_roles_and_domains()
+    set_defaults_for_tests()
 
     frappe.db.commit()
 
