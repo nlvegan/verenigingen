@@ -7,7 +7,8 @@ file. See `docs/plans/2026-05-27-test-failure-triage-plan.md` for the rubric.
 
 
 DUES_SCHEMA_GONE = (
-    "Membership Type schema migrated in patches/v2_0/migrate_membership_type_billing_to_dues_schedule.py: "
+    "Membership Type schema migrated to Membership Dues Schedule templates (the v2_0 migration patch "
+    "was retired 2026-07-31; value mapping now lives in patches/v2_1/migrate_contribution_mode_values.py): "
     "predefined_tiers, contribution_mode, enable_income_calculator, income_percentage_rate, "
     "suggested_contribution moved to Membership Dues Schedule templates. On the new target doctype, "
     "contribution_mode is `Fixed|Income-Based|Flexible` - the affected tests write 'Tier', 'Tiers', "
