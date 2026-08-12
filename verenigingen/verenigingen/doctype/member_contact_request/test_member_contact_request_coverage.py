@@ -21,7 +21,7 @@ assert real field state, raised exceptions and linked-record creation.
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import getdate, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -62,11 +62,15 @@ class TestMemberContactRequestController(VereningingenTestCase):
     # --------------------------------------------------------------- defaults
     def test_field_defaults_applied_on_insert(self):
         """v16 doesn't apply JSON defaults on programmatic insert; controller does."""
+        # Bracket the insert with the controller's own date source so a midnight
+        # rollover between the stamp and the assertion can't fail this spuriously.
+        before = getdate(today())
         doc = self._make_request(request_type=None, status=None, request_date=None)
+        after = getdate(today())
         self.assertEqual(doc.request_type, "General Inquiry")
         self.assertEqual(doc.preferred_contact_method, "Email")
         self.assertEqual(doc.status, "Open")
-        self.assertEqual(str(doc.request_date), today())
+        self.assertIn(getdate(doc.request_date), (before, after))
 
     # --------------------------------------------------------- member gate
     def test_rejects_missing_member(self):
@@ -170,14 +174,18 @@ class TestMemberContactRequestController(VereningingenTestCase):
         # see the post-write mutation).
         doc = self._make_request()
         doc.status = "In Progress"
+        before = getdate(today())
         doc.save()
-        self.assertEqual(str(doc.response_date), today())
+        after = getdate(today())
+        self.assertIn(getdate(doc.response_date), (before, after))
 
     def test_status_closed_sets_closed_date(self):
         doc = self._make_request()
         doc.status = "Closed"
+        before = getdate(today())
         doc.save()
-        self.assertEqual(str(doc.closed_date), today())
+        after = getdate(today())
+        self.assertIn(getdate(doc.closed_date), (before, after))
 
     def test_resolved_status_syncs_linked_lead_to_converted(self):
         if not frappe.db.exists("DocType", "Lead"):
