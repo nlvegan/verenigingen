@@ -72,7 +72,26 @@ def sync_team_with_volunteers(team_name: str | None = None):
             frappe.throw(_("Insufficient permissions to sync team {0}").format(team_name))
         teams_to_sync = [{"name": team_name}]
     else:
-        teams_to_sync = frappe.get_all("Team", fields=["name"])
+        # get_list, NOT get_all. `get_all` bypasses permissions by design, so this branch
+        # fanned out over EVERY team in the system while being gated only by the
+        # doctype-level check above -- and that check passes a doc of None, so it consults
+        # only the role layer (frappe/permissions.py), never the has_permission hook.
+        # team.json grants `Team Lead` write on Team with no if_owner, so any Team Lead
+        # holder could sync teams they have no relationship to. See #266.
+        #
+        # get_list applies get_team_permission_query_conditions, which scopes Team to
+        # admin -> all, owner -> own, active Team Member -> those teams. That is the right
+        # scope here only because has_team_permission deliberately ignores `ptype` and is
+        # kept in lockstep with the query, so "visible" and "writable" are the same set for
+        # Team. If a write-specific rule is ever added to has_team_permission, this branch
+        # needs a per-team frappe.has_permission("Team", "write", name) filter as well.
+        #
+        # limit=0 is explicit because frappe.get_list's docstring claims a default page
+        # length of 20. MEASURED on this bench it does not truncate either way, but a silent
+        # cap here would quietly stop syncing teams rather than fail, so the intent is
+        # stated rather than inherited. `limit`, not the older `limit_page_length`, which
+        # frappe deprecates for removal in v17.
+        teams_to_sync = frappe.get_list("Team", fields=["name"], limit=0)
 
     updated_count = 0
 
