@@ -19,6 +19,7 @@ The case is driven through `unittest` rather than by calling
 installs.
 """
 
+import importlib
 import unittest
 from unittest.mock import MagicMock
 
@@ -38,8 +39,9 @@ class TestHarnessEmailCapture(unittest.TestCase):
 
                 frappe.sendmail(recipients=["nobody@example.invalid"], subject="probe", message="x")
                 sendmail_to_system_managers("probe-via-wrapper", "x")
+                # Drive the queue path for real rather than inspecting the mock.
+                EmailQueue({"doctype": "Email Queue"}).send()
                 observed["captured"] = list(inner.captured_emails)
-                observed["queue_send_patched"] = isinstance(EmailQueue.send, MagicMock)
 
         result = unittest.TestResult()
         unittest.TestLoader().loadTestsFromTestCase(_CapturingCase).run(result)
@@ -70,50 +72,64 @@ class TestHarnessEmailCapture(unittest.TestCase):
             "sendmail_to_system_managers escaped capture -- it needs its own patch again",
         )
 
-    def test_the_queue_send_path_is_patched(self):
+    def test_the_queue_send_path_is_captured(self):
         """Was `email_queue.send_one`, which no longer exists.
 
         This is the path that would open a real SMTP connection for an Email
         Queue row created without going through `frappe.sendmail`.
+
+        Asserting `isinstance(EmailQueue.send, MagicMock)` was not enough: it
+        proves something replaced the attribute, so a patch that intercepts and
+        records nothing passes. Measured — that mutant survived. Drive a send.
         """
         observed = self._run_capturing_case()
 
-        self.assertTrue(observed["queue_send_patched"], "EmailQueue.send was left unpatched")
+        methods = [e["method"] for e in observed["captured"]]
+        self.assertIn(
+            "EmailQueue.send",
+            methods,
+            "a real EmailQueue.send() was not captured; the queue path is unwatched",
+        )
 
-    def test_a_failure_after_some_patches_started_does_not_leak_them(self):
-        """unittest skips tearDown when setUp raises.
+    def test_a_dead_target_fails_loudly_and_leaks_nothing(self):
+        """The two behaviours this PR is actually about, in one path.
 
-        The harness stops its email patches in `tearDown`, so without an
-        `addCleanup` registered BEFORE the start loop, the patches that started
-        before a failing one stay started for the rest of the process, bound to
-        a dead test case's `captured_emails` list. Every later test in that
-        process then sends mail into a list nobody reads.
+        A dead patch target must (a) raise out of `setUp` rather than be logged
+        and continued, and (b) not leave the patches that started BEFORE it live
+        for the rest of the process -- unittest skips `tearDown` when `setUp`
+        raises, and `tearDown` is where the harness stops them.
 
-        This drives the real path: `super()._setup_email_mocking()` starts the
-        genuine patches, then a dead target raises out of setUp. What the
-        assertion checks is whether the harness's own cleanup put them back.
+        The failure is induced INSIDE the production start loop, by removing the
+        third patch's target, so ordering of `addCleanup` relative to that loop
+        is what decides the outcome. An earlier version of this test raised its
+        own RuntimeError from a subclass after `super()` had already completed:
+        it asserted on a message the test itself produced, so reverting the
+        production `raise` to a warning, and moving the `addCleanup` after the
+        loop, BOTH still passed. Measured.
         """
+        comm_email = importlib.import_module("frappe.core.doctype.communication.email")
+        original_make = comm_email.make
 
-        class _FailingSetUpCase(EnhancedTestCase):
-            def _setup_email_mocking(inner):
-                from unittest.mock import patch
-
-                super()._setup_email_mocking()  # starts the real patches
-                try:
-                    patch("frappe.utils.email_lib.send").start()
-                except Exception as e:
-                    raise RuntimeError(f"Email capture could not be installed: {e}") from e
-
+        class _DeadTargetCase(EnhancedTestCase):
             def test_never_runs(inner):
                 raise AssertionError("setUp should have raised before the test body")
 
         result = unittest.TestResult()
-        unittest.TestLoader().loadTestsFromTestCase(_FailingSetUpCase).run(result)
+        del comm_email.make
+        try:
+            unittest.TestLoader().loadTestsFromTestCase(_DeadTargetCase).run(result)
+        finally:
+            comm_email.make = original_make
 
-        self.assertEqual(len(result.errors), 1, "the dead patch target did not fail the test")
-        self.assertIn("Email capture could not be installed", result.errors[0][1])
+        self.assertEqual(len(result.errors), 1, "a dead patch target did not fail the test")
+        traceback_text = result.errors[0][1]
+        # Wording only the PRODUCTION handler emits, so a revert to log-and-continue
+        # cannot pass this.
+        self.assertIn("Tests would silently see zero emails", traceback_text)
+        self.assertIn("frappe.core.doctype.communication.email.make", traceback_text)
+
         self.assertFalse(
             isinstance(frappe.sendmail, MagicMock),
-            "frappe.sendmail is STILL patched after a setUp that raised -- the patches leaked "
-            "into the rest of the process",
+            "frappe.sendmail is STILL patched after a setUp that raised -- the patches that "
+            "started before the failing one leaked into the rest of the process",
         )
