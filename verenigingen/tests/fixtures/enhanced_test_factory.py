@@ -208,6 +208,17 @@ try:
 except Exception:  # pragma: no cover - defensive: never block factory import
     pass
 
+# Companies the test harness OWNS, in preference order. before_tests
+# (verenigingen/tests/setup/__init__.py) guarantees these exist by loading ERPNext's
+# Company test records. `_get_test_company()` picks from this list BY NAME instead of
+# taking whichever company the database happens to return first -- see #299 for why
+# borrowing is unsafe: the chosen company's chart of accounts can get deleted.
+HARNESS_OWNED_COMPANIES = (
+    "_Test Company",
+    "_Test Company 1",
+    "_Test Company with perpetual inventory",
+)
+
 
 class MockRolesContext:
     """
@@ -3502,38 +3513,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         companies, fiscal years, accounts, and donation types.
         """
         try:
-            # Use existing company if available, don't try to rename it
-            # This avoids company/account mismatch issues in tests
-            existing_company = self._get_test_company()
-
-            if not existing_company:
-                # Only create new company if none exists (rare case)
-                company = frappe.get_doc(
-                    {
-                        "doctype": "Company",
-                        "company_name": "Test Company",
-                        "abbr": "TC",
-                        "default_currency": "EUR",
-                        "country": "Netherlands",
-                    }
-                )
-
-                # Use secure operations for company creation
-                from verenigingen.utils.secure_operations import secure_document_operation
-
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=company,
-                    justification="Test environment: creating test company for donation functionality",
-                    allow_system_user=True,  # Allow system user fallback for test infrastructure
-                )
-
-                if not result.success:
-                    frappe.logger().warning(f"Failed to create test company: {result.errors}")
-                    # Fallback to direct creation only if secure operation fails.
-                    # NOT tracked: Company is session-scoped infrastructure shared by
-                    # subsequent tests; per-method drain would tear down before next setUp.
-                    company.insert()
+            # `_get_test_company()` either returns a company name or raises, so the
+            # `if not existing_company:` create-a-company fallback that used to live here
+            # was unreachable. Removed rather than left as decoration -- the companies the
+            # harness uses are created by before_tests (tests/setup/__init__.py). See #299.
 
             # Ensure Test Company has round_off_cost_center configured for GL entries
             # This is required by ERPNext for invoice submission
@@ -4636,19 +4619,32 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         if hasattr(frappe.local, "test_company_name"):
             return frappe.local.test_company_name
 
-        # Look for existing company to use
-        existing_companies = frappe.get_all("Company", limit=1, pluck="name")
-        if existing_companies:
-            company = existing_companies[0]
-            # Ensure company has Chart of Accounts for accounting tests
-            self._ensure_company_chart_of_accounts(company)
-            frappe.local.test_company_name = company
-            return company
+        # Pick a company the harness OWNS, by name.
+        #
+        # This used to be `frappe.get_all("Company", limit=1, pluck="name")`, which is not
+        # "whatever company happens to be there": Company's meta sorts `creation ASC`, so it
+        # deterministically took the OLDEST company on the site. On a test site that is
+        # `_Test Company` and all is well. On a site with real data it is the real
+        # organisation's company -- which was then handed straight to
+        # `_ensure_company_chart_of_accounts()`, whose partial-CoA path deletes that
+        # company's GL entries and force-deletes its accounts. See issue #299.
+        for candidate in HARNESS_OWNED_COMPANIES:
+            if frappe.db.exists("Company", candidate):
+                company = candidate
+                break
+        else:
+            raise ValueError(
+                "No harness-owned Company found. Expected one of: "
+                f"{', '.join(HARNESS_OWNED_COMPANIES)}. These are created by before_tests "
+                "(verenigingen/tests/setup/__init__.py); run the suite through `bench run-tests` "
+                "so that hook fires. The harness deliberately will NOT borrow an arbitrary "
+                "company, because initialising its chart of accounts can delete accounts."
+            )
 
-        # No company exists - this shouldn't happen in a configured system
-        raise ValueError(
-            "No Company found in the system. " "Run 'bench setup-requirements' or create a Company manually."
-        )
+        # Ensure company has Chart of Accounts for accounting tests
+        self._ensure_company_chart_of_accounts(company)
+        frappe.local.test_company_name = company
+        return company
 
     def _ensure_company_chart_of_accounts(self, company_name):
         """
@@ -4674,6 +4670,23 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
             self._ensure_company_defaults(company_name)
             return
+
+        # Below this point the method DELETES this company's GL entries and accounts, and
+        # `company_name` may be caller-supplied (see _get_or_create_receivable_account), so
+        # it cannot be taken on trust. A chart of accounts genuinely left half-built by a
+        # failed run has no postings against it; anything with GL entries is real
+        # bookkeeping, and on a developer's site that is live data. Refuse loudly rather
+        # than delete -- a test that cannot get a CoA is a broken test, but a test that
+        # silently erases a ledger is a catastrophe. See #299.
+        posted_entries = frappe.db.count("GL Entry", {"company": company_name})
+        if posted_entries:
+            raise ValueError(
+                f"Refusing to reset the chart of accounts for company {company_name!r}: it has "
+                f"{posted_entries} GL Entry rows, so this is not a partial CoA from a failed "
+                "run. The harness only rebuilds a chart of accounts it can prove is unused. "
+                "If this is a test company, delete its GL entries first; if it is real data, "
+                "the test should not be pointing at it."
+            )
 
         # Clean up any partial accounts from previous failed runs
         # Delete accounts in reverse rgt order (children before parents) to respect tree structure

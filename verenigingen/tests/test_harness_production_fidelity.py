@@ -24,7 +24,66 @@ Design: docs/superpowers/specs/2026-07-30-in-import-harness-phase1-design.md
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import (
+    HARNESS_OWNED_COMPANIES,
+    EnhancedTestCase,
+)
+
+
+class TestHarnessCompanySelection(EnhancedTestCase):
+    """The harness must never adopt a Company it does not own -- issue #299.
+
+    `_get_test_company()` used to be `frappe.get_all("Company", limit=1, pluck="name")`.
+    That is not "any company": Company's meta sorts `creation ASC`, so it deterministically
+    returned the OLDEST company on the site. It then handed that company to
+    `_ensure_company_chart_of_accounts()`, which on the incomplete-CoA path deletes the
+    company's GL entries and force-deletes every one of its accounts.
+
+    On a test site the oldest company is `_Test Company` and nothing bad happens, which is
+    exactly why this went unnoticed. On a site holding real data the oldest company is the
+    real organisation's.
+    """
+
+    def test_selected_company_is_harness_owned(self):
+        """The chosen company must be one before_tests creates, not merely some company."""
+        self.assertIn(self._get_test_company(), HARNESS_OWNED_COMPANIES)
+
+    def test_an_older_foreign_company_is_not_adopted(self):
+        """Plant a company older than every other and confirm the harness still refuses it.
+
+        This is the discriminating case: on a normal test site the oldest company already
+        IS harness-owned, so the assertion above passes with or without the fix. Backdating
+        a foreign company makes the old rule pick it, so this test fails on the old code.
+        """
+        # No chart of accounts: keeps the insert cheap and leaves nothing to clean up.
+        frappe.local.flags.ignore_chart_of_accounts = True
+        try:
+            foreign = frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": "ZZ Foreign Co 299",
+                    "abbr": "ZF299",
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert()
+        finally:
+            frappe.local.flags.ignore_chart_of_accounts = False
+        self.track_doc("Company", foreign.name)
+
+        frappe.db.set_value("Company", foreign.name, "creation", "2000-01-01 00:00:00", update_modified=False)
+
+        # Pin the premise rather than asserting against a remembered one: the old rule
+        # really does return this row, so a pass below is the fix and not an accident.
+        self.assertEqual(frappe.get_all("Company", limit=1, pluck="name")[0], foreign.name)
+
+        # The selection is memoised per process; drop it so the choice is actually remade.
+        cached = getattr(frappe.local, "test_company_name", None)
+        if cached is not None:
+            del frappe.local.test_company_name
+            self.addCleanup(setattr, frappe.local, "test_company_name", cached)
+
+        self.assertIn(self._get_test_company(), HARNESS_OWNED_COMPANIES)
 
 
 class TestHarnessProductionFidelity(EnhancedTestCase):
