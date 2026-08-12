@@ -15,7 +15,7 @@ set).
 """
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen.doctype.membership_termination_request import (
@@ -66,10 +66,15 @@ class TestMembershipTerminationRequest(VereningingenTestCase):
     # ============================================================ insert / defaults
 
     def test_insert_sets_defaults_and_status_draft(self):
+        # Bracket the insert with the controller's own date source: request_date is
+        # stamped during insert, so a midnight rollover between that stamp and the
+        # assertion would otherwise fail a same-day comparison spuriously.
+        before = getdate(today())
         doc = self._make_request()
+        after = getdate(today())
         self.assertEqual(doc.status, "Draft")
         self.assertEqual(doc.requested_by, frappe.session.user)
-        self.assertEqual(str(doc.request_date), today())
+        self.assertIn(getdate(doc.request_date), (before, after))
         # member_name fetched from the linked member
         self.assertEqual(doc.member_name, self.member.full_name)
 

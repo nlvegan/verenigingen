@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 
@@ -1064,9 +1064,13 @@ class TestVIPImportDocLifecycle(FrappeTestCase):
 
     def test_validate_sets_defaults_on_new(self):
         """validate() defaults import_date to today and import_status to Pending on insert."""
+        # Bracket the insert with validate()'s own date source so a midnight rollover
+        # between the stamp and the assertion can't fail this spuriously.
+        before = getdate(today())
         doc = self._make_import()
+        after = getdate(today())
         try:
-            self.assertEqual(str(doc.import_date), today())
+            self.assertIn(getdate(doc.import_date), (before, after))
             self.assertEqual(doc.import_status, "Pending")
         finally:
             frappe.delete_doc(doc.doctype, doc.name, force=True, ignore_permissions=True)
