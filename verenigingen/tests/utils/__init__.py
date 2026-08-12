@@ -18,11 +18,13 @@ The ``before_tests`` hook only fires for the ``integration`` category, and
 same idempotent patch here closes that gap for the ``base.py`` test base class.
 """
 
-import frappe
+from verenigingen.tests.harness_logger import get_harness_logger
 
 try:
     from verenigingen.tests.setup import disable_workflow_action_emails
 
     disable_workflow_action_emails()
 except Exception as e:  # pragma: no cover - defensive: never block test collection
-    frappe.logger().warning(f"disable_workflow_action_emails import failed: {e}")
+    # Not `frappe.logger()`: that one sits at ERROR under `bench run-tests`, so this
+    # warning was discarded. See verenigingen/tests/harness_logger.py.
+    get_harness_logger("tests.utils").warning(f"disable_workflow_action_emails import failed: {e}")
