@@ -121,6 +121,26 @@ runs:
         restore-keys: |
           ${{ runner.os }}-yarn-
 
+    # wkhtmltopdf is taken from the upstream release asset rather than Ubuntu's
+    # package because only the upstream build carries the patched Qt needed for
+    # headless rendering. That asset is 17 MB, and every one of the 12 test
+    # shards fetched it again on every push. GitHub's release-asset host answers
+    # a share of that fan-out with a 5xx or a dropped connection, and `wget`
+    # does not retry HTTP error responses by default - so a single 5xx failed
+    # `Install System Dependencies`, which skipped every later step including
+    # `Initialize Bench Environment` and the tests themselves. The shard then
+    # reported failure having run no tests. Six occurrences in one day (#319).
+    #
+    # Caching the asset takes a warm run off the network entirely. The checksum
+    # is pinned because an unverified body is worse here than a failed download:
+    # a truncated file or an HTML error page would otherwise be installed, or
+    # saved into the cache and inherited by every later run.
+    - name: Cache wkhtmltopdf package
+      uses: actions/cache@v4
+      with:
+        path: /tmp/wkhtmltox.deb
+        key: wkhtmltox-0.12.6.1-2-jammy-amd64
+
     - name: Install System Dependencies
       shell: bash
       run: |
@@ -132,9 +152,37 @@ runs:
           mariadb-client \
           libmariadb-dev
 
-        # Install wkhtmltopdf
-        wget -q -O /tmp/wkhtmltox.deb https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb
-        sudo apt-get install -y /tmp/wkhtmltox.deb
+        # Install wkhtmltopdf (see the cache step above for why this is guarded).
+        WKHTMLTOX_DEB=/tmp/wkhtmltox.deb
+        WKHTMLTOX_SHA256=ee88d74834bdec650f7432c7d3ef1c981e42ae7a762a75a01f7f5da59abc18d5
+        WKHTMLTOX_URL=https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb
+
+        verify_wkhtmltox() {
+          echo "${WKHTMLTOX_SHA256}  ${WKHTMLTOX_DEB}" | sha256sum --check --status 2>/dev/null
+        }
+
+        if verify_wkhtmltox; then
+          echo "wkhtmltopdf restored from cache and matches its pinned checksum."
+        else
+          rm -f "$WKHTMLTOX_DEB"
+          # -nv, not -q: the old -q suppressed the reason for the failure, which
+          # is why six occurrences of this took four log-dives to attribute.
+          # --retry-on-http-error is the one that matters - the observed failure
+          # was exit 8 (server error response), which wget does not retry for.
+          wget -nv \
+            --tries=5 \
+            --waitretry=15 \
+            --retry-connrefused \
+            --retry-on-http-error=429,500,502,503,504 \
+            -O "$WKHTMLTOX_DEB" "$WKHTMLTOX_URL" || true
+        fi
+
+        if ! verify_wkhtmltox; then
+          echo "::error::wkhtmltopdf could not be fetched from ${WKHTMLTOX_URL} after 5 attempts, or the body did not match its pinned checksum. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job."
+          exit 1
+        fi
+
+        sudo apt-get install -y "$WKHTMLTOX_DEB"
 
     - name: Initialize Bench Environment
       shell: bash
