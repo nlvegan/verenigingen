@@ -139,6 +139,21 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         self.factory = CoreTestDataFactory()
 
+        # OWN the company that production code resolves from Verenigingen
+        # Settings, instead of inheriting whatever ran before us. A lot of code
+        # under test reads that single rather than taking a company argument
+        # (sepa_config_manager, chapter_finance_service, invoice_generator,
+        # department_sync_service...), so a test whose fixtures live under the
+        # harness company fails when the single points somewhere else.
+        #
+        # These tests used to pass only because an EnhancedTestCase test earlier
+        # in the same shard set it and the restore that should have undone it
+        # was never reached (#312). Pinning it here is the same value, made
+        # deterministic and independent of execution order. See #308.
+        from verenigingen.tests.support.verenigingen_settings import own_settings_company
+
+        own_settings_company(self)
+
         # Set up test request context for API security framework
         self._setup_test_request_context()
 
