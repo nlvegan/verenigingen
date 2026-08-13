@@ -3322,85 +3322,99 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         for fixture_file in essential_fixtures:
             fixture_path = os.path.join(fixtures_path, fixture_file)
             if os.path.exists(fixture_path):
-                try:
-                    self._load_fixture_file(fixture_path, fixture_file)
-                except Exception as e:
-                    # Log but don't fail tests - fixture might have dependency issues
-                    logger.warning(f"Could not load fixture {fixture_file}: {str(e)}")
-                    continue
+                # Deliberately unguarded. Every file above is master data that later
+                # fixtures and tests reference by hardcoded name, so "could not load"
+                # means those names resolve to nothing -- which surfaces as a
+                # LinkValidationError in whichever test the shard packer ran first,
+                # a full level away from this cause (#291/#309). The swallow that
+                # used to sit here also made the file-level handler inside
+                # _load_fixture_file dead code.
+                self._load_fixture_file(fixture_path, fixture_file)
 
     def _load_fixture_file(self, file_path, fixture_name):
-        """Load a single fixture file with error handling and duplicate detection"""
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                fixture_data = json.load(f)
+        """Load a single fixture file, skipping records that are already there.
 
-            if not isinstance(fixture_data, list):
-                return
+        Raises on anything else. A fixture file that does not load is master data
+        that does not exist, and every file this loads is referenced elsewhere by
+        hardcoded name (#309).
+        """
+        with open(file_path, "r", encoding="utf-8") as f:
+            fixture_data = json.load(f)
 
-            loaded_count = 0
-            skipped_count = 0
+        if not isinstance(fixture_data, list):
+            return
 
-            for record in fixture_data:
-                if not isinstance(record, dict) or "doctype" not in record:
-                    continue
+        loaded_count = 0
+        skipped_count = 0
 
-                doctype = record["doctype"]
-                name = record.get("name")
+        for record in fixture_data:
+            if not isinstance(record, dict) or "doctype" not in record:
+                continue
 
-                if name and frappe.db.exists(doctype, name):
-                    skipped_count += 1
-                    continue
+            doctype = record["doctype"]
+            name = record.get("name")
 
-                try:
-                    # QCE FIX: Proper fixture validation before loading
-                    validation_result = self._validate_fixture_before_load(record, doctype)
-                    if not validation_result["valid"]:
-                        logger.warning(
-                            f"Fixture validation failed for {doctype} {name}: {validation_result['error']}"
-                        )
-                        continue
+            if name and frappe.db.exists(doctype, name):
+                skipped_count += 1
+                continue
 
-                    # Create document with proper role-based access
-                    doc = frappe.get_doc(record)
-                    doc.flags.ignore_links = False  # QCE FIX: Validate links exist initially
-
-                    # Pre-insertion validation
-                    try:
-                        doc.validate()  # Run business rule validation explicitly
-                    except Exception as validation_error:
-                        # Allow certain validation errors that are acceptable for fixtures
-                        if self._is_acceptable_fixture_validation_error(validation_error, doctype):
-                            doc.flags.ignore_links = True  # Allow missing links for this record only
-                        else:
-                            raise validation_error
-
-                    doc.insert()
-                    self.factory.track_document(doctype, doc.name, priority=1)
-                    loaded_count += 1
-
-                except Exception as e:
-                    # Enhanced error handling with specific error categorization
-                    error_msg = str(e)
-                    if "Link" in error_msg and "does not exist" in error_msg:
-                        logger.info(f"Dependency missing for {doctype} {name}: {error_msg}")
-                    elif "Duplicate" in error_msg or "already exists" in error_msg:
-                        skipped_count += 1  # Count as skipped, not failed
-                        logger.debug(f"Fixture {doctype} {name} already exists, skipping")
-                        continue
-                    else:
-                        logger.warning(
-                            f"Failed to load {doctype} {name} from {fixture_name}: {error_msg}"
-                        )
-                    continue
-
-            if loaded_count > 0:
-                logger.info(
-                    f"Loaded {loaded_count} records from {fixture_name} (skipped {skipped_count} existing)"
+            # Pre-load validation. `valid: False` is not a survivable data
+            # condition: it means either this fixture is malformed or the validator
+            # itself raised (its own handler reports an internal exception as
+            # `valid: False` too, so a broken validator silently stopped loading its
+            # whole doctype). Measured across the four fixture files that exist:
+            # zero invalid records, so this cannot fire on healthy data (#309).
+            # Deliberately outside the try below, which is about insertion.
+            validation_result = self._validate_fixture_before_load(record, doctype)
+            if not validation_result["valid"]:
+                raise RuntimeError(
+                    f"Fixture {doctype} {name} from {fixture_name} did not pass pre-load "
+                    f"validation, so it was never loaded: {validation_result['error']}"
                 )
 
-        except Exception as e:
-            logger.warning(f"Failed to process fixture file {fixture_name}: {str(e)}")
+            try:
+                # Create document with proper role-based access
+                doc = frappe.get_doc(record)
+                doc.flags.ignore_links = False  # QCE FIX: Validate links exist initially
+
+                # Pre-insertion validation
+                try:
+                    doc.validate()  # Run business rule validation explicitly
+                except Exception as validation_error:
+                    # Allow certain validation errors that are acceptable for fixtures
+                    if self._is_acceptable_fixture_validation_error(validation_error, doctype):
+                        doc.flags.ignore_links = True  # Allow missing links for this record only
+                    else:
+                        raise validation_error
+
+                doc.insert()
+                self.factory.track_document(doctype, doc.name, priority=1)
+                loaded_count += 1
+
+            except Exception as e:
+                # Only one of these is survivable. Re-seeding a record that is
+                # already there is the normal idempotent case and stays a skip;
+                # anything else means this fixture did not load, and a fixture
+                # that did not load is master data that does not exist.
+                #
+                # The previous version also treated "Link ... does not exist" as
+                # survivable, which is precisely the condition worth failing on:
+                # it says, literally, that this fixture references master data
+                # that is missing. It was logged at INFO and never seen (#309).
+                error_msg = str(e)
+                if "Duplicate" in error_msg or "already exists" in error_msg:
+                    skipped_count += 1  # Count as skipped, not failed
+                    logger.debug(f"Fixture {doctype} {name} already exists, skipping")
+                    continue
+                raise RuntimeError(
+                    f"Fixture {doctype} {name} from {fixture_name} did not load, so "
+                    f"anything referencing it by name will fail somewhere else: {error_msg}"
+                ) from e
+
+        if loaded_count > 0:
+            logger.info(
+                f"Loaded {loaded_count} records from {fixture_name} (skipped {skipped_count} existing)"
+            )
 
     def _validate_fixture_before_load(self, record: dict, doctype: str) -> dict:
         """
@@ -3634,38 +3648,21 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # This prevents company/account mismatch errors in invoice generation
             self._ensure_verenigingen_settings(test_company)
 
-            # Ensure Department infrastructure for Chapter/Department integration
-            # Chapter.after_insert() calls _sync_department() which requires:
-            # 1. Company (already ensured above)
-            # 2. Parent department "All Departments" (ERPNext default root)
-            test_company = self._get_test_company()
-            if test_company:
-                parent_dept_name = "All Departments"
-                if not frappe.db.exists("Department", parent_dept_name):
-                    try:
-                        parent_dept = frappe.get_doc(
-                            {
-                                "doctype": "Department",
-                                "department_name": parent_dept_name,
-                                "is_group": 1,  # Root department is a group
-                                "parent_department": None,  # Root has no parent
-                                "company": test_company,
-                            }
-                        )
-                        parent_dept.insert()
-                        # NOT tracked: "All Departments" is the ERPNext root, shared with
-                        # production data. Per-method drain MUST NOT delete it.
-                        logger.info(f"Created parent department: {parent_dept_name}")
-                    except Exception as dept_error:
-                        logger.warning(
-                            f"Failed to create parent department {parent_dept_name}: {dept_error}"
-                        )
+            # Root department for Chapter/Department integration: Chapter.after_insert()
+            # calls _sync_department(), which parents under "All Departments". Owned by
+            # verenigingen.tests.setup for the same two reasons as the territory below --
+            # both harnesses need it, and its previous home here was a swallow that also
+            # created the record under the wrong name (see the helper's docstring).
+            from verenigingen.tests.setup import (
+                ensure_netherlands_territory,
+                ensure_root_department,
+            )
+
+            ensure_root_department()
 
             # Netherlands territory (fixtures across this app hardcode it). Owned by
             # verenigingen.tests.setup so BOTH harnesses get it -- this factory only
             # runs for EnhancedTestCase, and it used to be the sole creator.
-            from verenigingen.tests.setup import ensure_netherlands_territory
-
             ensure_netherlands_territory()
 
             # Note: Donation Type DocType was removed from the codebase
