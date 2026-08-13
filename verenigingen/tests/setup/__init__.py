@@ -387,6 +387,52 @@ def ensure_netherlands_territory():
     ).insert(ignore_permissions=True)
 
 
+def ensure_root_department():
+    """Guarantee the root ``All Departments`` exists, named exactly that. Idempotent.
+
+    ``Chapter.after_insert()`` calls ``_sync_department()``, which parents its
+    department under the hardcoded name ``All Departments``. Same shape as the
+    Territory above: hardcoded name, ``db.exists``-gated, untracked, and shared
+    with production data, so per-test drains must not delete it (#309).
+
+    It must be created WITHOUT a company. ``Department.autoname`` reads::
+
+        if self.company:
+            self.name = get_abbreviated_name(self.department_name, self.company)
+        else:
+            self.name = self.department_name
+
+    so passing a company yields ``All Departments - _TC``, which satisfies nobody:
+    not the ``db.exists("Department", "All Departments")`` guard that precedes the
+    insert, and not ``_sync_department``'s parent lookup. The factory's version did
+    pass a company, so on any site where its branch actually fired it created the
+    wrong record and then re-created it on every subsequent call. Nobody saw that,
+    because the whole block sat behind a swallow whose warning went nowhere.
+    ERPNext's own ``create_default_departments`` omits company on this record for
+    the same reason; ``company`` is ``reqd``, hence ``ignore_mandatory``.
+    """
+    if frappe.db.exists("Department", "All Departments"):
+        return
+
+    frappe.get_doc(
+        {
+            "doctype": "Department",
+            "department_name": "All Departments",
+            "is_group": 1,
+            "parent_department": "",
+        }
+    ).insert(ignore_permissions=True, ignore_mandatory=True)
+
+    # "It did not raise" is not evidence the record landed under the name every
+    # caller hardcodes -- that is exactly how the company-suffixed version went
+    # unnoticed.
+    if not frappe.db.exists("Department", "All Departments"):
+        raise RuntimeError(
+            "Root Department 'All Departments' still does not exist after creating it; "
+            "Chapter.after_insert() -> _sync_department() will fail for every chapter."
+        )
+
+
 def ensure_test_fiscal_year_for_all_companies():
     """Guarantee a Fiscal Year covers today() and applies to EVERY company.
 

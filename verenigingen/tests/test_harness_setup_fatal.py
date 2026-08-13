@@ -17,7 +17,10 @@ Two kinds of assertion here, because neither kind alone is enough:
 """
 
 import ast
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -35,7 +38,18 @@ _WORKFLOW_ACTION_PKG = "frappe.workflow.doctype.workflow_action"
 # of the surrounding code; the line number does not.
 UNGUARDED_CALLS = {
     "verenigingen/tests/utils/__init__.py": {"disable_workflow_action_emails"},
-    "verenigingen/tests/fixtures/enhanced_test_factory.py": {"disable_workflow_action_emails"},
+    "verenigingen/tests/fixtures/enhanced_test_factory.py": {
+        "disable_workflow_action_emails",
+        # A fixture file that does not load is master data that does not exist.
+        # Both the per-file call and the loop around it must stay unguarded: the
+        # loop swallow alone made the inner one dead code (#309).
+        "_load_fixture_file",
+        # NB: `ensure_root_department` is deliberately NOT listed, for the same
+        # reason `ensure_netherlands_territory` is not. Both sit inside
+        # `_ensure_master_data`'s handler, which re-raises as a RuntimeError
+        # rather than swallowing. This guard flags any handler-bearing `try`, so
+        # listing them would report a re-raise as if it were a swallow.
+    },
     "verenigingen/tests/setup/__init__.py": {
         "_seed_default_team_roles",
         "set_defaults_for_tests",
@@ -136,6 +150,130 @@ class SetupCallsAreNotSwallowedTest(unittest.TestCase):
             "These setup calls are wrapped in an except handler again. A failure "
             "there is not survivable in a useful way -- it resurfaces as unrelated "
             "failures elsewhere. See #309/#314.",
+        )
+
+
+class _TrackingStub:
+    """The only collaborator `_load_fixture_file` needs, and nothing else.
+
+    `_load_fixture_file` is a method of `EnhancedTestCase`, whose real `setUp`
+    builds the whole harness. Standing in for `self` here keeps these tests about
+    the loader's own error handling -- the code under test is the real method.
+    """
+
+    def __init__(self):
+        self.tracked = []
+
+    class _Factory:
+        def __init__(self, outer):
+            self.outer = outer
+
+        def track_document(self, doctype, name, priority=1):
+            self.outer.tracked.append((doctype, name))
+
+    @property
+    def factory(self):
+        return self._Factory(self)
+
+    def __getattr__(self, name):
+        """Borrow every other method from the real class, bound to this stub.
+
+        Without this the stub lacks `_validate_fixture_before_load` and
+        `_is_acceptable_fixture_validation_error`, and the loader dies on
+        `AttributeError` -- which `assertRaises(Exception)` accepts as a pass.
+        The tests below would then be green while proving nothing.
+        """
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        return getattr(EnhancedTestCase, name).__get__(self, type(self))
+
+
+def _load(records_or_text, suffix=".json"):
+    """Run the real `_load_fixture_file` over a temporary fixture file."""
+    from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+    with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="utf-8") as handle:
+        if isinstance(records_or_text, str):
+            handle.write(records_or_text)
+        else:
+            json.dump(records_or_text, handle)
+        path = handle.name
+
+    try:
+        return EnhancedTestCase._load_fixture_file(_TrackingStub(), path, Path(path).name)
+    finally:
+        os.unlink(path)
+
+
+class FixtureLoadFailuresAreNotSwallowedTest(unittest.TestCase):
+    """A fixture that does not load is master data that does not exist.
+
+    Ten fixture files feed this loader -- membership_type, item, item_group,
+    email_template, custom_field, workflow, workflow_state, team_role, role,
+    donation_type -- and every one is referenced elsewhere by hardcoded name. A
+    silent skip here is the #291 shape: the consequence lands in whichever
+    unrelated test the shard packer happens to run first (#309).
+    """
+
+    def test_an_unreadable_fixture_file_raises(self):
+        """The file-level handler swallowed `open`/`json.load` for a whole file.
+
+        Asserting the specific decode error, not bare `Exception`: any typo in
+        this test would raise *something*, and a test that accepts anything
+        cannot tell a working loader from a broken one.
+        """
+        with self.assertRaises(json.JSONDecodeError):
+            _load("{ this is not json")
+
+    def test_a_record_that_cannot_be_inserted_raises(self):
+        """A missing mandatory field is neither a duplicate nor a missing link."""
+        # Role with no `role_name`: passes the pre-load validator (it has a
+        # `name`), then fails `insert()` on mandatory. Deliberately not a Link
+        # failure -- those reach `insert()` with `ignore_links` already set.
+        with self.assertRaises(RuntimeError) as caught:
+            _load([{"doctype": "Role", "name": f"zzz-no-role-name-{frappe.generate_hash(length=8)}"}])
+        self.assertIn("did not load", str(caught.exception))
+
+    def test_a_record_that_already_exists_is_still_skipped(self):
+        """The duplicate path is legitimately best-effort. Do not over-correct.
+
+        Fixtures are re-seeded across a session; re-inserting an existing record
+        must stay a skip, or making the other paths fatal breaks every re-run.
+        """
+        role = f"zzz-harness-dupe-{frappe.generate_hash(length=8)}"
+        frappe.get_doc({"doctype": "Role", "role_name": role}).insert()
+        try:
+            _load([{"doctype": "Role", "role_name": role}])
+        finally:
+            frappe.delete_doc("Role", role, force=True)
+
+
+class RootDepartmentIsOwnedByTestsSetupTest(unittest.TestCase):
+    """`All Departments` is the Territory bug verbatim.
+
+    Hardcoded name, `db.exists`-gated, idempotent, untracked, and
+    `Chapter.after_insert() -> _sync_department()` depends on it. It lived behind
+    a swallow inside the factory, so only the 780 EnhancedTestCase files could
+    ever create it; the VereningingenTestCase files never called it (#309).
+    """
+
+    def test_tests_setup_owns_the_helper(self):
+        from verenigingen.tests import setup
+
+        self.assertTrue(
+            hasattr(setup, "ensure_root_department"),
+            "the root Department must be owned by verenigingen.tests.setup, "
+            "alongside ensure_netherlands_territory, so both harnesses get it",
+        )
+
+    def test_the_root_department_exists_after_it_runs(self):
+        from verenigingen.tests.setup import ensure_root_department
+
+        ensure_root_department()
+        ensure_root_department()  # idempotent
+        self.assertTrue(
+            frappe.db.exists("Department", "All Departments"),
+            "Chapter.after_insert() -> _sync_department() needs this root",
         )
 
 
