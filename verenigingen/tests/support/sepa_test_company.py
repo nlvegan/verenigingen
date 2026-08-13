@@ -28,6 +28,17 @@ _PREFERRED_EUR_COMPANY = "TEST-Payment-Integration-Company"
 _PREFERRED_EUR_COMPANY_ABBR = "TPIC"
 
 
+def _suspend_insert_capture():
+    """Mark the enclosed block as building shared fixture, not per-test records.
+
+    Resolved at call time rather than imported at module scope: the factory pulls in
+    the whole harness, and this module is imported from places that do not need it.
+    """
+    from verenigingen.tests.fixtures.enhanced_test_factory import suspend_insert_capture
+
+    return suspend_insert_capture()
+
+
 def get_eur_test_company() -> str:
     """Return ``TEST-Payment-Integration-Company``, creating or repairing it as needed.
 
@@ -72,6 +83,18 @@ def _create_eur_test_company() -> str:
     """
     company_name = _PREFERRED_EUR_COMPANY
 
+    # This company is process-wide shared state, but it is built lazily -- so the
+    # insert lands inside whichever test body calls first, and the harness's
+    # captured-insert drain claims every row erpnext creates with it (measured: 94
+    # Accounts, 5 Warehouses, 2 Cost Centers, the Company, a Property Setter) as that
+    # one test's property. Its teardown then deletes the lot, and every later class in
+    # the shard fails setUpClass. Suspending capture here marks the whole build as
+    # what it is: shared fixture, owned by no test (#328).
+    with _suspend_insert_capture():
+        return _build_and_verify(company_name)
+
+
+def _build_and_verify(company_name: str) -> str:
     if not frappe.db.exists("Company", company_name):
         company = frappe.new_doc("Company")
         company.company_name = company_name
@@ -219,18 +242,21 @@ def ensure_sepa_payment_terms_template() -> str:
     if frappe.db.exists("Payment Terms Template", name):
         return name
 
-    template = frappe.new_doc("Payment Terms Template")
-    template.template_name = name
-    template.append(
-        "terms",
-        {
-            "due_date_based_on": "Day(s) after invoice date",
-            "credit_days": 14,
-            "invoice_portion": 100,
-        },
-    )
-    template.insert(ignore_permissions=True)
-    frappe.db.commit()
+    # Same shape as the company above: one master, created lazily from inside
+    # whichever test needed it first, then relied on by every later one.
+    with _suspend_insert_capture():
+        template = frappe.new_doc("Payment Terms Template")
+        template.template_name = name
+        template.append(
+            "terms",
+            {
+                "due_date_based_on": "Day(s) after invoice date",
+                "credit_days": 14,
+                "invoice_portion": 100,
+            },
+        )
+        template.insert(ignore_permissions=True)
+        frappe.db.commit()
     return name
 
 

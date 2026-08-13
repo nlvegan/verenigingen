@@ -180,6 +180,7 @@ Version History
 - Added comprehensive document tracking with priority-based cleanup
 """
 
+import contextlib
 import itertools
 import json
 import random
@@ -200,6 +201,38 @@ from .field_validator import FieldValidationError, FieldValidator
 # Not `frappe.logger()`: that one sits at ERROR under `bench run-tests`, so every
 # warning below was discarded. See verenigingen/tests/harness_logger.py.
 logger = get_harness_logger("factory")
+
+# Module-level, not per-instance: the helpers that need it (get_eur_test_company and
+# friends) are plain functions with no reference to the running test case.
+_insert_capture_suspended = False
+
+
+@contextlib.contextmanager
+def suspend_insert_capture():
+    """Keep the captured-insert drain from claiming rows created inside this block.
+
+    For SHARED, process-wide fixtures that are built LAZILY, i.e. on first use from
+    inside some test's body. The capture hook cannot tell "erpnext building a
+    company's chart of accounts" from "this test made a throwaway row", so it claims
+    the whole thing and the drain deletes it at that one test's teardown -- taking
+    the fixture away from every later class in the shard.
+
+    Exempting the doctypes involved was tried and does not scale: building
+    TEST-Payment-Integration-Company was MEASURED to insert 94 Accounts, 5
+    Warehouses, 2 Cost Centers, the Company, and a Property Setter. Exempting
+    Account and Company left Cost Center and Warehouse to fail the next CI run
+    ("Could not find Row #1: Cost Center: Main - TPIC", 65 occurrences on one shard),
+    and a Property Setter is a schema customization that no drain should touch. The
+    number of doctypes a fixture happens to touch is not a stable thing to enumerate;
+    where the fixture is built is.
+    """
+    global _insert_capture_suspended
+    previous = _insert_capture_suspended
+    _insert_capture_suspended = True
+    try:
+        yield
+    finally:
+        _insert_capture_suspended = previous
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
 # Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
@@ -2220,6 +2253,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         def _capturing_db_insert(doc, *args, **kwargs):
             result = orig(doc, *args, **kwargs)
+            if _insert_capture_suspended:
+                # A shared, process-wide fixture is being built. See
+                # suspend_insert_capture() for why claiming these rows is wrong.
+                return result
             try:
                 if doc.doctype and doc.name:
                     captured.append((doc.doctype, doc.name))

@@ -322,6 +322,96 @@ class SharedChartOfAccountsSurvivesTheDrainTest(unittest.TestCase):
         )
 
 
+class SharedFixturesAreNotCapturedTest(unittest.TestCase):
+    """Where a fixture is BUILT is the stable fact; which doctypes it touches is not.
+
+    Exempting doctypes one at a time does not converge. Building
+    TEST-Payment-Integration-Company was measured to insert 94 Accounts, 5
+    Warehouses, 2 Cost Centers, the Company and a Property Setter; exempting Account
+    and Company left Cost Center and Warehouse to fail the next CI run with "Could
+    not find Row #1: Cost Center: Main - TPIC" (65 occurrences on one shard alone).
+
+    So the marker goes where the shared fixture is built, and covers everything that
+    build touches -- now and later.
+    """
+
+    def setUp(self):
+        self.suffix = frappe.generate_hash(length=6)
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _territory(self, label):
+        doc = frappe.get_doc(
+            {
+                "doctype": "Territory",
+                "territory_name": f"zz{label}-{self.suffix}",
+                "parent_territory": "All Territories",
+                "is_group": 0,
+            }
+        ).insert()
+        self.created.append(("Territory", doc.name))
+        return doc
+
+    def test_capture_ignores_inserts_made_while_suspended(self):
+        """Both halves asserted: suspending must not switch capture off for good."""
+        from verenigingen.tests.fixtures.enhanced_test_factory import suspend_insert_capture
+
+        probe = _probe()
+        probe._captured_inserts = []
+        probe._install_insert_capture()
+        try:
+            with suspend_insert_capture():
+                shared = self._territory("shared")
+            own = self._territory("own")
+        finally:
+            probe._uninstall_insert_capture()
+
+        captured = [name for _doctype, name in probe._captured_inserts]
+        self.assertIn(own.name, captured, "capture must resume once the block exits")
+        self.assertNotIn(
+            shared.name,
+            captured,
+            "a row created while capture is suspended belongs to the shared fixture, "
+            "not to the test that happened to trigger it",
+        )
+
+    def test_the_company_builder_runs_with_capture_suspended(self):
+        """Asserts the builder BODY sees the flag set.
+
+        Calling `get_eur_test_company` and checking that nothing was captured would
+        pass for the wrong reason: on any site where the company already exists the
+        helper short-circuits and inserts nothing at all.
+        """
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+        from verenigingen.tests.support import sepa_test_company as company_module
+
+        seen = {}
+        original = company_module._build_and_verify
+
+        def spy(company_name):
+            seen["suspended"] = factory_module._insert_capture_suspended
+            return company_name
+
+        company_module._build_and_verify = spy
+        try:
+            company_module._create_eur_test_company()
+        finally:
+            company_module._build_and_verify = original
+
+        self.assertTrue(
+            seen.get("suspended"),
+            "the whole company build -- chart of accounts, warehouses, cost centers "
+            "-- must run with insert capture suspended",
+        )
+
+
 class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):
     """`force=True` does not bypass the submitted check.
 
