@@ -304,15 +304,16 @@ frappe.mock_roles = _mock_roles
 # cover EnhancedTestCase tests (they are categorized "unspecified-category", so
 # the hook never fires for them), so the patch is applied here at import time —
 # every EnhancedTestCase test module imports this file. The patch is idempotent.
-try:
-    from verenigingen.tests.setup import disable_workflow_action_emails
+#
+# This is deliberately not wrapped in a try/except. The handler that used to be
+# here turned "the patch never went on" into a warning, and the consequence
+# arrived later as an OSError in every test that inserts a Member — the #291
+# shape, a swallowed setup failure resurfacing far from its cause. Collection
+# succeeding with the emails un-disabled is worse than collection failing with a
+# message that names the reason (#314).
+from verenigingen.tests.setup import disable_workflow_action_emails
 
-    disable_workflow_action_emails()
-except Exception as e:  # pragma: no cover - defensive: never block test collection
-    # Log the failure so a future move/rename of disable_workflow_action_emails
-    # doesn't silently regress the hang. Mirrors the warning emitted by the
-    # before_tests caller.
-    logger.warning(f"disable_workflow_action_emails import failed: {e}")
+disable_workflow_action_emails()
 
 
 class BusinessRuleError(Exception):

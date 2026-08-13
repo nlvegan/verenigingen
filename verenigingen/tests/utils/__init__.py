@@ -16,15 +16,17 @@ The ``before_tests`` hook only fires for the ``integration`` category, and
 ``unspecified-category``), so neither the hook nor the
 ``enhanced_test_factory`` import-time patch reaches these tests. Applying the
 same idempotent patch here closes that gap for the ``base.py`` test base class.
+
+Deliberately not wrapped in a try/except. A handler here would convert "the one
+thing this package exists to do did not happen" into a log line, and the
+consequence would arrive later as a storm of unrelated failures in every test
+that touches a Member — the #291 shape, a swallowed setup failure resurfacing
+far from its cause. This is import-time code in a package every
+``VereningingenTestCase`` test imports, so the failure is never survivable in a
+useful way: collection succeeding with the emails un-disabled is worse than
+collection failing with a message that names the reason (#314).
 """
 
-from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.setup import disable_workflow_action_emails
 
-try:
-    from verenigingen.tests.setup import disable_workflow_action_emails
-
-    disable_workflow_action_emails()
-except Exception as e:  # pragma: no cover - defensive: never block test collection
-    # Not `frappe.logger()`: that one sits at ERROR under `bench run-tests`, so this
-    # warning was discarded. See verenigingen/tests/harness_logger.py.
-    get_harness_logger("tests.utils").warning(f"disable_workflow_action_emails import failed: {e}")
+disable_workflow_action_emails()
