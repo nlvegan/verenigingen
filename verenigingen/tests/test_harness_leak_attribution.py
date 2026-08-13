@@ -13,6 +13,8 @@ damage the responsible test has finished and the evidence is a row in a table
 nobody is looking at (#328).
 """
 
+import contextlib
+import io
 import os
 import pathlib
 import types
@@ -653,11 +655,26 @@ class LeakCheckReportingTest(unittest.TestCase):
         else:
             os.environ[self.ENV] = self._orig
 
+    @staticmethod
+    @contextlib.contextmanager
+    def _swallow_stdout():
+        """Keep these fabricated rows out of the shard log.
+
+        `_finalize_leak_check` PRINTS, and `scripts/testing/check_test_leaks.py`
+        greps the shard log for exactly those lines. Left uncaptured, the
+        `Territory::zz-x boom` invented here is indistinguishable from a real leak
+        and this module carries a permanent, fictional entry in the baseline --
+        a ratchet measuring its own test data.
+        """
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            yield buffer
+
     def test_it_raises_when_the_flag_is_set(self):
         probe = _probe()
         probe._leaked_records = [{"doctype": "Territory", "name": "zz-x", "error": "boom"}]
         os.environ[self.ENV] = "1"
-        with self.assertRaises(AssertionError) as caught:
+        with self._swallow_stdout(), self.assertRaises(AssertionError) as caught:
             probe._finalize_leak_check()
         self.assertIn("zz-x", str(caught.exception))
 
@@ -665,12 +682,16 @@ class LeakCheckReportingTest(unittest.TestCase):
         probe = _probe()
         probe._leaked_records = [{"doctype": "Territory", "name": "zz-x", "error": "boom"}]
         os.environ.pop(self.ENV, None)
-        probe._finalize_leak_check()  # must not raise
+        with self._swallow_stdout() as out:
+            probe._finalize_leak_check()  # must not raise
+        self.assertIn("TEST-LEAK", out.getvalue(), "warning mode still has to report")
 
     def test_no_leaks_is_silent(self):
         probe = _probe()
         os.environ[self.ENV] = "1"
-        probe._finalize_leak_check()  # must not raise
+        with self._swallow_stdout() as out:
+            probe._finalize_leak_check()  # must not raise
+        self.assertEqual("", out.getvalue())
 
 
 class VereningingenBaseReportsLeaksTest(unittest.TestCase):

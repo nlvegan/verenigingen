@@ -15,7 +15,82 @@
 # which refuses to raise an entry. To seed a new module, fix the leak instead --
 # an entry here is a debt, not a permit.
 #
-# Empty on purpose at first: the numbers are being seeded from a full CI run, whose
-# fresh per-shard sites are the only faithful measurement. A locally-derived baseline
-# would encode this dev box's committed state (see #308: a green solo run on
-# test_site_1 is not evidence).
+# SEEDED from CI run 31750139376 (PR #332): 594 leaked records across 71 modules,
+# all 12 shards complete. Measured on CI's fresh per-shard sites, not on a bench
+# whose test sites carry committed state (#308).
+#
+# What this does NOT cover: an orphan whose parent deleted cleanly. The instrument
+# reports records the drain FAILED to delete, so ledger rows outliving a deleted
+# voucher are invisible here -- zero GL Entry leaks are reported below, yet orphan
+# GL Entries with a reused voucher_no broke a test in this very run.
+verenigingen.services.billing.test_bulk_invoice_generation_service 1
+verenigingen.services.billing.test_invoice_management 1
+verenigingen.tests.api.test_dues_invoice_workflow 7
+verenigingen.tests.api.test_manual_invoice_generation 10
+verenigingen.tests.api.test_schedule_maintenance 20
+verenigingen.tests.backend.components.test_chapter_assignment_comprehensive 1
+verenigingen.tests.backend.components.test_enhanced_sepa_processing 13
+verenigingen.tests.backend.components.test_financial_reconciliation 11
+verenigingen.tests.backend.components.test_membership_dues_edge_cases 26
+verenigingen.tests.backend.components.test_membership_status 14
+verenigingen.tests.backend.components.test_payment_plan_system 1
+verenigingen.tests.backend.unit.services.test_membership_creation_service_coverage 1
+verenigingen.tests.backend.validation.test_erpnext_inspired_validations 3
+verenigingen.tests.billing.test_fix_stuck_dues_schedule_api 11
+verenigingen.tests.billing.test_weekly_billing_frequency 10
+verenigingen.tests.donor.test_donor_auto_creation 14
+verenigingen.tests.e_boekhouden.test_account_organization_service_sweep 6
+verenigingen.tests.e_boekhouden.test_e_boekhouden_migration_integration 1
+verenigingen.tests.e_boekhouden.test_migration_controller_accounts_coverage 1
+verenigingen.tests.integration.services.test_coverage_calculator 9
+verenigingen.tests.integration.services.test_coverage_calculator_module 14
+verenigingen.tests.integration.services.test_cutoff_date_calculations 2
+verenigingen.tests.integration.services.test_duplicate_invoice_detector 2
+verenigingen.tests.integration.services.test_eligibility_checker 4
+verenigingen.tests.integration.services.test_invoice_generator 5
+verenigingen.tests.integration.test_chapter_membership_approval_integration 2
+verenigingen.tests.integration.test_contribution_mode_template_integration 5
+verenigingen.tests.membership.test_contribution_amendment_request 24
+verenigingen.tests.membership.test_membership_dues_integration 21
+verenigingen.tests.membership.test_membership_dues_schedule 36
+verenigingen.tests.membership.test_membership_endpoints 33
+verenigingen.tests.membership.test_membership_scheduler 15
+verenigingen.tests.member.test_member_renewal_edge_cases 5
+verenigingen.tests.member.test_membership_type_change 8
+verenigingen.tests.member.test_member_status_transitions_enhanced 1
+verenigingen.tests.payment.test_billing_transitions 5
+verenigingen.tests.payment.test_dues_schedule_date_validation 6
+verenigingen.tests.payment.test_dues_validation 32
+verenigingen.tests.payment.test_enhanced_contribution_amendment_system 16
+verenigingen.tests.payment.test_event_driven_payment_history 1
+verenigingen.tests.payment.test_fee_override_migration 7
+verenigingen.tests.payment.test_invoice_generation_and_payment_history_sync 7
+verenigingen.tests.payment.test_invoice_validation_safeguards 2
+verenigingen.tests.payment.test_mollie_debug_service_bulk 1
+verenigingen.tests.payment.test_payment_entry_hook_defers 1
+verenigingen.tests.payment.test_payment_history_reconciliation 1
+verenigingen.tests.payment.test_real_world_dues_amendment_scenarios 33
+verenigingen.tests.payment.test_regression_invoice_due_date_calculation 3
+verenigingen.tests.payment.test_regression_payment_history_draft_status 1
+verenigingen.tests.payment.test_self_service_fee_adjustment 9
+verenigingen.tests.report.test_expiring_memberships 6
+verenigingen.tests.report.test_member_end_date_reconstruction 4
+verenigingen.tests.report.test_membership_dues_coverage_analysis 5
+verenigingen.tests.report.test_membership_dues_coverage_analysis_actions 5
+verenigingen.tests.report.test_membership_dues_coverage_analysis_gapfill 10
+verenigingen.tests.report.test_members_without_active_memberships 4
+verenigingen.tests.report.test_members_without_chapter 1
+verenigingen.tests.report.test_members_without_dues_schedule 7
+verenigingen.tests.report.test_members_without_dues_schedule_gapfill 7
+verenigingen.tests.report.test_new_members 11
+verenigingen.tests.report.test_overdue_member_payments 31
+verenigingen.tests.security.test_integrated_security_payment_system 4
+verenigingen.tests.sepa.test_sepa_mandate_lifecycle 1
+verenigingen.tests.services.test_bulk_invoice_generation_service 1
+verenigingen.tests.volunteer.test_expense_history_batch_processor_coverage 14
+verenigingen.tests.volunteer.test_volunteer_service_coverage 2
+verenigingen.verenigingen.doctype.membership_dues_schedule.test_membership_dues_schedule 1
+verenigingen.verenigingen.doctype.membership.test_membership 1
+verenigingen.verenigingen_payments.mollie.tests.test_dues_payment_processor_coverage_sweep 3
+verenigingen.verenigingen_payments.mollie.tests.test_dues_payment_processor_creation_unit 12
+verenigingen.verenigingen_payments.mollie.tests.test_refund_chargeback_integration 1
