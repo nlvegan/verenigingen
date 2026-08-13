@@ -1,0 +1,21 @@
+# Per-module baseline of records that survive test cleanup (#328).
+#
+# Format: <dotted test module> <count>
+#
+# A "leak" is a record a test created and cleanup could not delete -- submitted,
+# still linked, or locked. It does not fail the test that made it. It fails a LATER
+# test in the same shard, which names neither the record nor the culprit.
+#
+# scripts/testing/check_test_leaks.py compares each shard's TEST-LEAK lines against
+# this file and fails the job when a module leaks MORE than its entry. Modules that
+# did not run in a given shard are untouched by that shard's gate.
+#
+# This is a RATCHET: the numbers may only fall. To lower them after a fix, run
+#     scripts/testing/check_test_leaks.py --results <shard log> --update
+# which refuses to raise an entry. To seed a new module, fix the leak instead --
+# an entry here is a debt, not a permit.
+#
+# Empty on purpose at first: the numbers are being seeded from a full CI run, whose
+# fresh per-shard sites are the only faithful measurement. A locally-derived baseline
+# would encode this dev box's committed state (see #308: a green solo run on
+# test_site_1 is not evidence).
