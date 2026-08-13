@@ -14,6 +14,7 @@ nobody is looking at (#328).
 """
 
 import os
+import pathlib
 import types
 import unittest
 
@@ -279,27 +280,42 @@ class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
     def tearDown(self):
         if self.name:
             try:
-                frappe.delete_doc("Territory", self.name, force=True, ignore_permissions=True)
+                frappe.delete_doc("GL Entry", self.name, force=True, ignore_permissions=True)
             except Exception:
                 pass
             frappe.db.commit()
 
     def test_a_non_submittable_row_with_docstatus_1_is_deleted_not_cancelled(self):
+        """Uses a real GL Entry, because a generic stand-in does not reproduce this.
+
+        A first version of this test used a Territory with docstatus forced to 1.
+        It passed with the fix reverted -- `Document.cancel()` merely sets
+        docstatus=2 and saves, with no submittable check, so cancelling a Territory
+        SUCCEEDS and nothing leaks. The failure needs a controller that refuses,
+        and GL Entry is the real one: `on_cancel` throws "Individual GL Entry
+        cannot be cancelled" (erpnext/.../gl_entry.py:324) while the doctype is
+        `is_submittable = 0` and erpnext still gives it docstatus=1.
+        """
         doc = frappe.get_doc(
             {
-                "doctype": "Territory",
-                "territory_name": f"zzns-{frappe.generate_hash(length=8)}",
-                "parent_territory": "All Territories",
+                "doctype": "GL Entry",
+                "account": frappe.db.get_value("Account", {"is_group": 0}, "name"),
+                "company": frappe.db.get_value("Company", {}, "name"),
+                "posting_date": frappe.utils.today(),
+                "voucher_type": "Journal Entry",
+                "voucher_no": f"zzgl-{frappe.generate_hash(length=8)}",
+                "debit": 0,
+                "credit": 0,
             }
-        ).insert()
+        ).insert(ignore_permissions=True)
         self.name = doc.name
-        # Straight to the column: Territory is not submittable, so there is no
-        # supported API for this -- which is precisely how GL Entry ends up here.
-        frappe.db.set_value("Territory", doc.name, "docstatus", 1, update_modified=False)
+        # Exactly what erpnext does to GL Entry: docstatus=1 on a non-submittable
+        # doctype (general_ledger.py calls gle.submit()).
+        frappe.db.set_value("GL Entry", doc.name, "docstatus", 1, update_modified=False)
         frappe.db.commit()
 
         probe = _probe()
-        probe._captured_inserts = [("Territory", doc.name)]
+        probe._captured_inserts = [("GL Entry", doc.name)]
         probe._drain_captured_inserts()
 
         self.assertEqual(
@@ -307,7 +323,7 @@ class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
             list(probe.leaked_records),
             "a non-submittable row must be force-deleted, never routed through cancel",
         )
-        self.assertFalse(frappe.db.exists("Territory", doc.name))
+        self.assertFalse(frappe.db.exists("GL Entry", doc.name))
         self.name = None
 
 
@@ -348,31 +364,47 @@ class CoreFactoryRecordsAreOrderedTest(unittest.TestCase):
             "customer_address, so it must be removed first",
         )
 
-    def test_enhanced_tracked_transactions_drain_before_the_member(self):
-        """Pins the factory's own tracking priorities, not just the map.
+    def test_the_factory_tracks_transactions_above_the_records_they_pin(self):
+        """Reads the factory's OWN tracking priorities, from its source.
 
-        `_drain_priority_for` is consulted only for core records that are not
-        already tracked, so the map alone cannot fix an enhanced-factory record
-        tracked at the wrong priority. Sales Invoice and Payment Entry were both
-        tracked at 4, below Member at 5 -- and MemberCleanupService keeps the
-        Customer when the Member still has EITHER of them.
+        A behavioural version of this test supplied its own priorities to a fake
+        factory, so it exercised the drain's sort and nothing else -- reverting the
+        factory's `priority=6` back to 4 left it green. The value that matters is
+        the literal at the tracking call site, because `_drain_priority_for` is
+        consulted only for core records that are NOT already tracked, so the map
+        cannot correct an enhanced-factory record tracked too low.
+
+        Parsed structurally rather than grepped: this asserts the argument's value,
+        not that some string appears somewhere.
         """
-        removed = []
+        import ast as _ast
 
-        probe = _probe()
-        probe.factory = _FakeFactory(
-            created_documents=[
-                {"doctype": "Member", "name": "zz-mem", "priority": 5},
-                {"doctype": "Sales Invoice", "name": "zz-si", "priority": 6},
-                {"doctype": "Payment Entry", "name": "zz-pe", "priority": 6},
-            ]
-        )
-        probe._remove_drained_record = lambda doctype, name: removed.append(doctype)
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
 
-        probe._drain_tracked_documents()
+        tree = _ast.parse(pathlib.Path(factory_module.__file__).read_text(encoding="utf-8"))
+        tracked = {}
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            name = getattr(node.func, "attr", None)
+            if name not in ("_track_test_document", "track_document"):
+                continue
+            if not node.args or not isinstance(node.args[0], _ast.Constant):
+                continue
+            doctype = node.args[0].value
+            for kw in node.keywords:
+                if kw.arg == "priority" and isinstance(kw.value, _ast.Constant):
+                    tracked.setdefault(doctype, []).append(kw.value.value)
 
-        self.assertLess(removed.index("Sales Invoice"), removed.index("Member"))
-        self.assertLess(removed.index("Payment Entry"), removed.index("Member"))
+        member_priority = max(tracked.get("Member", [5]))
+        for doctype in ("Sales Invoice", "Payment Entry"):
+            self.assertTrue(tracked.get(doctype), f"no tracked priority found for {doctype}")
+            self.assertTrue(
+                all(p > member_priority for p in tracked[doctype]),
+                f"{doctype} is tracked at {tracked[doctype]}, not above Member at "
+                f"{member_priority}. MemberCleanupService keeps the Customer while the "
+                f"Member still has either, so the Customer stays pinned.",
+            )
 
     def test_an_unknown_doctype_still_gets_a_priority(self):
         from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
