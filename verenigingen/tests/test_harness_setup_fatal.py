@@ -17,8 +17,10 @@ Two kinds of assertion here, because neither kind alone is enough:
 """
 
 import ast
+import inspect
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -54,6 +56,19 @@ UNGUARDED_CALLS = {
         "_seed_default_team_roles",
         "set_defaults_for_tests",
         "enable_all_roles_and_domains",
+        # Every seeder below is existence-checked and idempotent, so raising
+        # cannot cause a spurious failure -- and each one's own comment already
+        # names what breaks when it does not take: payment modes (~119 tests),
+        # creation_user (~91, plus ~71 cascading MandatoryError), the leaf
+        # Customer Group (~72), MijnRood dummy credentials (~33). Those counts
+        # are the argument for failing here rather than logging (#309).
+        "ensure_erpnext_base_masters",
+        "_seed_verenigingen_test_system_user",
+        "ensure_payment_modes_exist",
+        "_seed_default_leaf_customer_group",
+        "_seed_mijnrood_sync_settings_dummy_credentials",
+        "make_test_records",
+        "ensure_fiscal_year_exists",
     },
 }
 
@@ -260,6 +275,36 @@ class FixtureLoadFailuresAreNotSwallowedTest(unittest.TestCase):
             _load([{"doctype": "Role", "role_name": role}])
         finally:
             frappe.delete_doc("Role", role, force=True)
+
+
+class EssentialFixtureListIsHonestTest(unittest.TestCase):
+    """The list named ten files; four exist.
+
+    `os.path.exists` skipped the other six without a word, so the list read as a
+    promise of master data -- team_role, membership_type, donation_type,
+    item_group, item, workflow -- that was never loaded from here at all.
+    """
+
+    def test_every_listed_fixture_file_exists(self):
+        import os
+
+        import frappe
+
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        source = inspect.getsource(EnhancedTestCase._load_essential_fixtures)
+        listed = re.findall(r'"([a-z_]+\.json)"', source)
+        self.assertTrue(listed, "could not find the fixture list; update this test")
+
+        fixtures_path = os.path.join(frappe.get_app_path("verenigingen"), "fixtures")
+        missing = [f for f in listed if not os.path.exists(os.path.join(fixtures_path, f))]
+        self.assertEqual(
+            [],
+            missing,
+            "These fixture files are listed as essential but do not exist. Either ship "
+            "them or drop them from the list -- leaving them listed claims master data "
+            "that nothing loads (#309).",
+        )
 
 
 class RootDepartmentIsOwnedByTestsSetupTest(unittest.TestCase):

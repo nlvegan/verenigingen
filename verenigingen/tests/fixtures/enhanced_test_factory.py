@@ -3226,21 +3226,20 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         ]
 
         for role_name in required_roles:
+            # Unguarded, and `db.exists`-gated so raising cannot be spurious. A
+            # missing Role does not fail here; it surfaces much later as a
+            # permission denial in a test that never mentions roles (#309).
             if not frappe.db.exists("Role", role_name):
-                try:
-                    role = frappe.get_doc(
-                        {
-                            "doctype": "Role",
-                            "role_name": role_name,
-                            "desk_access": 1 if "Administrator" in role_name else 0,
-                            "is_custom": 1,
-                        }
-                    )
-                    role.insert(ignore_permissions=True)
-                    frappe.db.commit()
-                except Exception as e:
-                    # Role might have been created by another concurrent test
-                    logger.warning(f"Could not create role {role_name}: {e}")
+                role = frappe.get_doc(
+                    {
+                        "doctype": "Role",
+                        "role_name": role_name,
+                        "desk_access": 1 if "Administrator" in role_name else 0,
+                        "is_custom": 1,
+                    }
+                )
+                role.insert(ignore_permissions=True)
+                frappe.db.commit()
 
     def ensure_test_user_has_role(self, role_name):
         """
@@ -3304,32 +3303,36 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         import os
 
         # Define essential fixtures in loading order (dependencies first)
+        # Only files that actually ship in verenigingen/fixtures/. The list used
+        # to name ten, six of which have never existed here (team_role,
+        # membership_type, donation_type, item_group, item, workflow) -- the
+        # `os.path.exists` guard below skipped them without a word, so the list
+        # read as a promise of master data that was never loaded. A name added
+        # here that does not resolve is now an error rather than a silent no-op.
         essential_fixtures = [
             "role.json",  # Roles first (referenced by permissions)
-            "team_role.json",  # Team roles for volunteer management
-            "membership_type.json",  # Membership types for member testing
-            "donation_type.json",  # Donation types for ANBI functionality
             "email_template.json",  # Email templates for notifications
             "custom_field.json",  # Custom fields for ERPNext integration
-            "item_group.json",  # Item groups for billing
-            "item.json",  # Items for dues and donations
             "workflow_state.json",  # Workflow states
-            "workflow.json",  # Workflows for approval processes
         ]
 
         fixtures_path = os.path.join(frappe.get_app_path("verenigingen"), "fixtures")
 
         for fixture_file in essential_fixtures:
             fixture_path = os.path.join(fixtures_path, fixture_file)
-            if os.path.exists(fixture_path):
-                # Deliberately unguarded. Every file above is master data that later
-                # fixtures and tests reference by hardcoded name, so "could not load"
-                # means those names resolve to nothing -- which surfaces as a
-                # LinkValidationError in whichever test the shard packer ran first,
-                # a full level away from this cause (#291/#309). The swallow that
-                # used to sit here also made the file-level handler inside
-                # _load_fixture_file dead code.
-                self._load_fixture_file(fixture_path, fixture_file)
+            if not os.path.exists(fixture_path):
+                raise RuntimeError(
+                    f"Essential fixture {fixture_file} is listed but missing from "
+                    f"{fixtures_path}; every record it was meant to seed is absent."
+                )
+            # Deliberately unguarded. Every file above is master data that later
+            # fixtures and tests reference by hardcoded name, so "could not load"
+            # means those names resolve to nothing -- which surfaces as a
+            # LinkValidationError in whichever test the shard packer ran first,
+            # a full level away from this cause (#291/#309). The swallow that
+            # used to sit here also made the file-level handler inside
+            # _load_fixture_file dead code.
+            self._load_fixture_file(fixture_path, fixture_file)
 
     def _load_fixture_file(self, file_path, fixture_name):
         """Load a single fixture file, skipping records that are already there.
@@ -3381,8 +3384,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 try:
                     doc.validate()  # Run business rule validation explicitly
                 except Exception as validation_error:
-                    # Allow certain validation errors that are acceptable for fixtures
+                    # Deliberate policy, not a swallow: fixtures may legitimately
+                    # be loaded before the records they link to. But this is the
+                    # *inverse* Territory bug -- it inserts a record whose Links
+                    # point at nothing -- and it used to be completely silent on
+                    # the accept path, so the resulting dangling link surfaced
+                    # later with nothing tying it back here (#309).
                     if self._is_acceptable_fixture_validation_error(validation_error, doctype):
+                        logger.warning(
+                            f"Fixture {doctype} {name} inserted with unresolved links "
+                            f"(ignore_links): {validation_error}"
+                        )
                         doc.flags.ignore_links = True  # Allow missing links for this record only
                     else:
                         raise validation_error
@@ -3634,13 +3646,15 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # past each test method's rollback.
             for year_offset in [0, 1]:
                 target = date(current_date.year + year_offset, 6, 15)
-                try:
-                    fy_name = ensure_fiscal_year_exists(target, test_company)
-                    if frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
-                        frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
-                    frappe.db.commit()
-                except Exception as fy_error:
-                    logger.warning(f"Failed to ensure fiscal year for {target}: {fy_error}")
+                # Unguarded. The un-restriction and its commit run only after
+                # `ensure_fiscal_year_exists` returns, so a swallow here could
+                # leave a company-RESTRICTED FY behind -- worse than none, and
+                # the cause of the order-dependent "Posting Date ... not in any
+                # active Fiscal Year" cascade described above (#309).
+                fy_name = ensure_fiscal_year_exists(target, test_company)
+                if frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
+                    frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
+                frappe.db.commit()
 
             # Don't set default fiscal year on company - ERPNext handles this automatically
 
@@ -4763,19 +4777,43 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     """,
                     (company_name,),
                 )
-            except Exception:
-                pass  # GL entries may not exist
+            except Exception as gl_error:
+                # Narrowed to the condition the old comment asserted. A DELETE
+                # matching zero rows does not raise, so "GL entries may not
+                # exist" can only mean a missing table; anything else was being
+                # swallowed under that excuse, silently (#309).
+                if not frappe.db.is_missing_table_or_column(gl_error):
+                    raise
+                logger.warning(f"GL Entry table missing while clearing {company_name}: {gl_error}")
 
-            # Delete accounts in reverse rgt order (children first)
+            # Delete accounts in reverse rgt order (children first). Individual
+            # failures are collected rather than raised immediately -- deleting
+            # the rest is still worth doing -- but a survivor is fatal: a
+            # half-deleted chart collides with create_charts below, which is the
+            # #237 cascade ("Income Account None cannot be same as Debit To
+            # None"). Previously both the failure and the collision were silent.
+            undeleted = []
             for (account_name,) in partial_accounts:
                 try:
                     frappe.delete_doc("Account", account_name, force=True, ignore_permissions=True)
-                except Exception:
-                    pass  # Continue deleting other accounts
+                except Exception as delete_error:
+                    undeleted.append(f"{account_name}: {delete_error}")
 
             frappe.db.commit()
 
-        # Initialize Chart of Accounts using ERPNext's built-in method
+            if undeleted:
+                raise RuntimeError(
+                    f"{len(undeleted)} of {len(partial_accounts)} partial accounts for "
+                    f"{company_name} could not be deleted, so the Chart of Accounts about "
+                    f"to be created will collide with them: {'; '.join(undeleted[:5])}"
+                )
+
+        # Initialize Chart of Accounts using ERPNext's built-in method.
+        # The `try` here exists only for the `finally` that clears the flag --
+        # there is no handler. Continuing without a Chart of Accounts guarantees
+        # the #237 cascade ("Income Account None cannot be same as Debit To
+        # None") in tests that never mention accounts; this was the least
+        # invisible of the swallows (it printed) and still cost a full triage.
         try:
             from erpnext.accounts.doctype.account.chart_of_accounts.chart_of_accounts import create_charts
 
@@ -4794,15 +4832,6 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # Set company defaults after creation
             self._ensure_company_defaults(company_name)
 
-        except Exception as e:
-            # If Chart of Accounts creation fails, log and print for visibility
-            import traceback
-
-            error_msg = (
-                f"Failed to initialize Chart of Accounts for {company_name}: {e}\n{traceback.format_exc()}"
-            )
-            print(f"\n⚠️  WARNING: {error_msg}")
-            frappe.log_error(error_msg, "Test CoA Initialization Failed")
         finally:
             # Clean up flag
             if hasattr(frappe.local.flags, "ignore_root_company_validation"):
