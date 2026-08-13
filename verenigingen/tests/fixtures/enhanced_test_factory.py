@@ -1906,7 +1906,75 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     # test's own throwaway record, so draining it destroys the seed for the rest
     # of the process and every later test in the shard fails link validation
     # against it. Keep this set SMALL: entries here leak between tests by design.
-    DRAIN_EXEMPT_DOCTYPES = frozenset({"Mode of Payment"})
+    DRAIN_EXEMPT_DOCTYPES = frozenset(
+        {
+            "Mode of Payment",
+            # These refuse deletion unconditionally in their own `on_trash`
+            # ("compliance requirement" / "audit trail integrity"). No cleanup can
+            # ever remove them, so draining them means retrying the same failure
+            # every teardown and re-reporting the same records forever -- noise that
+            # would otherwise be frozen into the leak baseline (#328).
+            "SEPA Operation Audit Log",
+            "SEPA Batch Upload Log",
+            "Mollie Audit Log",
+            # Ledger derivatives. These are NOT independently removable -- ERPNext
+            # refuses ("Individual GL Entry cannot be cancelled. Please cancel
+            # related transaction.") because they belong to their parent voucher and
+            # are removed when it is cancelled. Draining them directly can only ever
+            # fail, so the parent is the only correct handle (#328).
+            "GL Entry",
+            "Payment Ledger Entry",
+        }
+    )
+
+    # Drained highest-first. Core-factory records carry no priority of their own --
+    # `test_data_factory.track_doc` records only (doctype, name) -- and defaulting
+    # them to 0 drained them LAST, after the very records whose deletion they block.
+    # A core-created Sales Invoice therefore outlived the Customer it pins, which is
+    # why Customers leaked with "You can disable this Address instead of deleting
+    # it": the invoice's `customer_address` still referenced the Address (#328).
+    DRAIN_PRIORITY_BY_DOCTYPE = {
+        # Transaction documents first: they reference parties and addresses.
+        "Sales Invoice": 6,
+        "Payment Entry": 6,
+        "Journal Entry": 6,
+        "Bank Transaction": 6,
+        "Direct Debit Batch": 6,
+        # Then the domain records.
+        "Membership": 5,
+        "Member": 5,
+        "Volunteer": 4,
+        "Donation": 4,
+        "SEPA Mandate": 4,
+        # Parties and their contact records last -- everything above may point here.
+        "Customer": 3,
+        "Address": 3,
+        "Contact": 3,
+    }
+
+    @classmethod
+    def _drain_priority_for(cls, doctype):
+        """Drain priority for a record tracked without one. Higher drains first."""
+        return cls.DRAIN_PRIORITY_BY_DOCTYPE.get(doctype, 0)
+
+    def _remove_drained_record(self, doctype, name):
+        """Delete one record, cancelling it first if it is submitted.
+
+        `frappe.model.delete_doc` runs `check_permission_and_not_submitted(doc)`
+        BEFORE its `if not force:` guard, so `force=True` does NOT bypass the
+        submitted check -- a submitted document simply cannot be force-deleted.
+        Cancelling first is the only route, and it is also what removes the
+        derived ledger rows (GL Entry, Payment Ledger Entry). Deleting the parent
+        without cancelling would strand those, which is itself a leak: a stranded
+        Payment Ledger Entry is what made a later Sales Invoice undeletable (#328).
+        """
+        if not frappe.db.exists(doctype, name):
+            return
+        if frappe.db.get_value(doctype, name, "docstatus") == 1:
+            doc = frappe.get_doc(doctype, name)
+            doc.flags.ignore_permissions = True
+            doc.cancel()
+        frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
 
     def setUp(self):
         super().setUp()
@@ -2140,12 +2208,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             logger.warning(f"Captured-insert drain pre-rollback failed (skipping): {e}")
             return
 
+        # Cleanup must not depend on whichever user the test finished as. At least
+        # one controller refuses deletion based on `frappe.session.user`, and a test
+        # that calls set_user() without restoring would otherwise drain as that user.
+        # Not restored afterwards: tearDown is ending, and setUp re-asserts it (#328).
+        frappe.set_user("Administrator")
+
         delete_failures = 0
         for doctype, name in ordered:
             try:
-                if not frappe.db.exists(doctype, name):
-                    continue
-                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                self._remove_drained_record(doctype, name)
             except frappe.DoesNotExistError:
                 pass
             except Exception as delete_error:
@@ -2420,7 +2492,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 if key in skip:
                     continue
                 if key not in tracked:
-                    tracked[key] = 0
+                    # NOT 0: see DRAIN_PRIORITY_BY_DOCTYPE. Defaulting core records
+                    # to 0 drained transaction documents after the parties they pin.
+                    tracked[key] = self._drain_priority_for(d["doctype"])
 
         unique = [(dt, nm, prio) for (dt, nm), prio in tracked.items()]
 
@@ -2441,12 +2515,18 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 core.created_records = []
             return
 
+        # Same reason as the captured-insert drain: do not inherit the test's user.
+        frappe.set_user("Administrator")
+
         delete_failures = 0
         for doctype, name, _prio in unique:
+            if doctype in self.DRAIN_EXEMPT_DOCTYPES:
+                # Consulted here too. It used to be checked only by the
+                # captured-insert drain, so exempting a doctype silenced one drain
+                # and left this one retrying it every teardown (#328).
+                continue
             try:
-                if not frappe.db.exists(doctype, name):
-                    continue
-                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                self._remove_drained_record(doctype, name)
             except frappe.DoesNotExistError:
                 pass
             except Exception as e:

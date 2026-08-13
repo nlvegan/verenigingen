@@ -13,7 +13,9 @@ damage the responsible test has finished and the evidence is a row in a table
 nobody is looking at (#328).
 """
 
+import inspect
 import os
+import types
 import unittest
 
 import frappe
@@ -127,6 +129,168 @@ class DrainRecordsWhatItCouldNotDeleteTest(unittest.TestCase):
 
         self.assertEqual([], list(probe.leaked_records))
         self.assertFalse(frappe.db.exists("Territory", doc.name))
+
+
+class _FakeFactory:
+    """Minimal stand-in for the factory the tracked drain reads from."""
+
+    def __init__(self, created_documents=None, core_records=None):
+        self.created_documents = created_documents or []
+        self.core = None
+        if core_records is not None:
+            self.core = types.SimpleNamespace(created_records=core_records)
+
+
+class DrainSkipsUndeletableByDesignTest(unittest.TestCase):
+    """Doctypes whose controller refuses deletion must not be retried forever.
+
+    `SEPA Operation Audit Log`, `SEPA Batch Upload Log` and `Mollie Audit Log`
+    each raise unconditionally in `on_trash` ("compliance requirement"). No
+    cleanup can ever remove them, so every teardown re-attempts the delete and
+    re-reports the same record -- permanent noise that would be frozen into any
+    leak baseline.
+
+    The exemption set existed but was consulted by only ONE of the two drains
+    (#328).
+    """
+
+    def test_both_drains_honour_the_exemption_set(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        source = inspect.getsource(EnhancedTestCase._drain_tracked_documents)
+        self.assertIn(
+            "DRAIN_EXEMPT_DOCTYPES",
+            source,
+            "_drain_tracked_documents deletes without checking the exemption set, so "
+            "adding a doctype to it silences only the captured-insert drain (#328)",
+        )
+
+    def test_ledger_derivatives_are_exempt(self):
+        """GL Entry and Payment Ledger Entry have no independent existence.
+
+        ERPNext refuses to cancel them individually ("Individual GL Entry cannot
+        be cancelled. Please cancel related transaction.") because they belong to
+        their parent voucher. Draining them directly can only fail; cancelling the
+        parent is what removes them. Measured: exempting these took one module
+        from 21 leaks to 2 (#328).
+        """
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        for doctype in ("GL Entry", "Payment Ledger Entry"):
+            self.assertIn(doctype, EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES)
+
+    def test_the_unconditional_refusers_are_exempt(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        for doctype in (
+            "SEPA Operation Audit Log",
+            "SEPA Batch Upload Log",
+            "Mollie Audit Log",
+        ):
+            self.assertIn(
+                doctype,
+                EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES,
+                f"{doctype} refuses deletion in its own controller; draining it can "
+                f"never succeed",
+            )
+
+
+class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):
+    """`force=True` does not bypass the submitted check.
+
+    `frappe.model.delete_doc` runs `check_permission_and_not_submitted(doc)`
+    BEFORE its `if not force:` guard, so a submitted document can never be
+    force-deleted. It has to be cancelled first. This was the single largest
+    leak class in the census (#328).
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for name in self.created:
+            try:
+                doc = frappe.get_doc("Performance Optimization Setup", name)
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Performance Optimization Setup", name, force=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _submitted_doc(self):
+        """A submittable doctype with one required field and a no-op on_submit."""
+        doc = frappe.get_doc(
+            {
+                "doctype": "Performance Optimization Setup",
+                "optimization_name": f"zzleak-{frappe.generate_hash(length=8)}",
+            }
+        ).insert()
+        doc.submit()
+        frappe.db.commit()
+        self.created.append(doc.name)
+        return doc.name
+
+    def test_a_submitted_document_is_cancelled_and_deleted(self):
+        name = self._submitted_doc()
+
+        probe = _probe()
+        probe._captured_inserts = [("Performance Optimization Setup", name)]
+        probe._drain_captured_inserts()
+
+        self.assertEqual(
+            [], list(probe.leaked_records), "a submitted record must be cancelled, then deleted"
+        )
+        self.assertFalse(frappe.db.exists("Performance Optimization Setup", name))
+
+
+class CoreFactoryRecordsAreOrderedTest(unittest.TestCase):
+    """Core-factory records were drained LAST, after what depends on them.
+
+    `test_data_factory.track_doc` records no priority, and the drain assigned
+    core records `priority = 0` -- below Customer (3) and Address (3). So a
+    core-created Sales Invoice outlived the Customer whose deletion it blocks,
+    which is why 44 Customers leaked with "You can disable this Address instead
+    of deleting it" (#328).
+    """
+
+    def test_a_transaction_doctype_drains_before_the_party_it_blocks(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        invoice = EnhancedTestCase._drain_priority_for("Sales Invoice")
+        customer = EnhancedTestCase._drain_priority_for("Customer")
+        self.assertGreater(
+            invoice,
+            customer,
+            "a Sales Invoice pins the Customer's Address, so it must be deleted first",
+        )
+
+    def test_an_unknown_doctype_still_gets_a_priority(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        self.assertIsInstance(EnhancedTestCase._drain_priority_for("Some Unknown DocType"), int)
+
+
+class DrainRunsAsAdministratorTest(unittest.TestCase):
+    """tearDown drained as whatever user the test left behind.
+
+    At least one controller refuses deletion based on `frappe.session.user`
+    (`SEPA Audit Log`), and cleanup should not depend on which user a test
+    happened to finish as. The drain asserts its own context (#328).
+    """
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_the_drain_restores_administrator(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+        source = inspect.getsource(EnhancedTestCase._drain_captured_inserts)
+        self.assertIn(
+            'set_user("Administrator")',
+            source,
+            "the drain must not depend on the session user the test left behind",
+        )
 
 
 class LeakCheckReportingTest(unittest.TestCase):
