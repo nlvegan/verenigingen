@@ -54,6 +54,29 @@ def format_leak_lines(rows, test_id: str):
     ]
 
 
+def report_leaks(rows, test_id: str) -> None:
+    """Emit the leak lines, and raise under the env flag.
+
+    Lives here rather than on a base class because the two test bases are
+    siblings, not ancestors: ``EnhancedTestCase`` and ``VereningingenTestCase``
+    both derive from ``FrappeTestCase`` and neither can inherit the other's
+    teardown. They discover their leaks differently -- one from the drains, one
+    from ``cleanup_status == "failed"`` -- but must report them identically, or a
+    ratchet reading the log sees only half the suite.
+
+    Always prints, including in failing mode: a run that fails still needs its
+    inventory in the log.
+    """
+    if not rows:
+        return
+
+    for line in format_leak_lines(rows, test_id):
+        print(line)
+
+    if fail_on_test_leak_enabled():
+        raise AssertionError(format_leak_failure(rows, test_id))
+
+
 def format_leak_failure(rows, test_id: str) -> str:
     """Assertion message for the enforcing mode."""
     lines = "\n  ".join(format_leak_lines(rows, test_id))

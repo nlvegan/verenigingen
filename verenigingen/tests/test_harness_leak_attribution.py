@@ -673,5 +673,86 @@ class LeakCheckReportingTest(unittest.TestCase):
         probe._finalize_leak_check()  # must not raise
 
 
+class VereningingenBaseReportsLeaksTest(unittest.TestCase):
+    """The OTHER test base has to report leaks in the same machine-readable form.
+
+    `VereningingenTestCase` is not a subclass of `EnhancedTestCase` -- it is a
+    parallel base (ErrorLogGuardMixin, FrappeTestCase) carrying ~450 test classes.
+    It already knows which tracked documents it failed to delete: it records
+    `cleanup_status == "failed"` with the error, and prints a "CLEANUP SUMMARY"
+    block for a human. The ratchet greps for `TEST-LEAK`, so every one of those
+    leaks was invisible to it -- a gate reading only the other base would report a
+    clean suite while half of it leaked.
+    """
+
+    def setUp(self):
+        self.suffix = frappe.generate_hash(length=6)
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _probe_case(self):
+        """A real VereningingenTestCase whose tracked Territory cannot be deleted.
+
+        `runTest` rather than `test_*`: unittest's loader collects names starting
+        with "test", so this class runs only when this test drives it -- but it
+        runs the REAL setUp/tearDown lifecycle, which is the point. Asserting on
+        `_finalize_leak_check()` alone would pass with the tearDown wiring absent.
+        """
+        from verenigingen.tests.utils.base import VereningingenTestCase
+
+        outer = self
+
+        class _LeakingCase(VereningingenTestCase):
+            def runTest(self):
+                parent = frappe.get_doc(
+                    {
+                        "doctype": "Territory",
+                        "territory_name": f"zzbase-parent-{outer.suffix}",
+                        "parent_territory": "All Territories",
+                        "is_group": 1,
+                    }
+                ).insert()
+                outer.created.append(("Territory", parent.name))
+                self.track_doc("Territory", parent.name)
+
+                child = frappe.get_doc(
+                    {
+                        "doctype": "Territory",
+                        "territory_name": f"zzbase-child-{outer.suffix}",
+                        "parent_territory": parent.name,
+                    }
+                ).insert()
+                # Untracked on purpose: the parent must still be held when cleanup
+                # reaches it, or there is no leak to report.
+                outer.created.append(("Territory", child.name))
+                frappe.db.commit()
+                outer.leaked_name = parent.name
+
+        return _LeakingCase("runTest")
+
+    def test_a_tracked_document_it_could_not_delete_is_reported_as_a_leak(self):
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self._probe_case().run(unittest.TestResult())
+
+        self.assertIn(
+            f"TEST-LEAK ",
+            buf.getvalue(),
+            "this base's undeletable documents must be reported in the same "
+            "machine-readable form as EnhancedTestCase's, or the ratchet cannot see them",
+        )
+        self.assertIn(self.leaked_name, buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

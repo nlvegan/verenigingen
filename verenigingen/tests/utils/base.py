@@ -198,6 +198,34 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Error Logs. Done after cleanup so a raise here never skips teardown.
         self._finalize_error_log_check()
 
+        # Documents this test tracked and cleanup could not delete. Same ordering
+        # contract, and the same machine-readable form EnhancedTestCase uses (#328).
+        self._finalize_leak_check()
+
+    def _finalize_leak_check(self):
+        """Report tracked documents that survived cleanup.
+
+        `_report_cleanup_summary` above already prints these, but for a human:
+        a "CLEANUP SUMMARY" block the leak ratchet cannot parse. The rows are the
+        same; only the format is machine-readable.
+        """
+        from verenigingen.tests.utils.leak_guard import report_leaks
+
+        rows = [
+            {
+                "doctype": doc["doctype"],
+                "name": doc["name"],
+                "error": doc.get("cleanup_error"),
+            }
+            for doc in getattr(self, "_test_docs", [])
+            if doc.get("cleanup_status") == "failed"
+        ]
+        test_id = (
+            f"{type(self).__module__}.{type(self).__name__}."
+            f"{getattr(self, '_testMethodName', '?')}"
+        )
+        report_leaks(rows, test_id)
+
     def _report_cleanup_summary(self):
         """Report summary of cleanup results, highlighting any failures."""
         if not self._test_docs:
