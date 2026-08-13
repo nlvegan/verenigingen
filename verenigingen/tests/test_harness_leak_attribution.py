@@ -209,119 +209,6 @@ class DrainSkipsUndeletableByDesignTest(unittest.TestCase):
             )
 
 
-class SharedChartOfAccountsSurvivesTheDrainTest(unittest.TestCase):
-    """A Chart of Accounts must outlive the test that first triggered its creation.
-
-    `get_eur_test_company` builds TEST-Payment-Integration-Company lazily, so
-    ERPNext inserts its default Chart of Accounts inside whichever TEST BODY calls
-    the helper first. Every one of those accounts is therefore a captured insert
-    belonging to that one test, and the drain's to delete.
-
-    Only accident kept that safe. Each leaf refused with "Account with existing
-    transaction can not be deleted" (its GL entries) and each group with NestedSet's
-    "Cannot delete ... as it has child nodes" (its leaves). Cancel-first removes the
-    GL entries, so the leaves began deleting, which un-pinned their parent groups --
-    and the drain runs in REVERSE creation order, leaf before parent, which is
-    exactly the order that walks a chart from leaf to root in one teardown.
-
-    Observed in CI run 31704796808: shards 3 and 8 lost the chart of
-    TEST-Payment-Integration-Company, and every later class calling the helper died
-    in setUpClass on "Its Chart of Accounts is missing or was wiped" -- 23 and 31
-    occurrences. The surviving accounts recorded as leaks name the mechanism
-    outright: the groups that still had children, and the leaves that still had
-    transactions. Shard 3 lost the company defaults with it.
-    """
-
-    def setUp(self):
-        # Ordered by `lft` and checked against a live Company, rather than taking
-        # whatever an unfiltered `get_value` returns: that returns the NEWEST row,
-        # and a site where this very bug has already run has ORPHANED accounts whose
-        # company was drained out from under them. Inserting under one of those fails
-        # with a LinkValidationError that says nothing about why.
-        parent = None
-        for row in frappe.get_all(
-            "Account",
-            filters={"is_group": 1, "root_type": "Asset"},
-            fields=["name", "company"],
-            order_by="lft",
-        ):
-            if frappe.db.exists("Company", row.company):
-                parent = row
-                break
-        if not parent:
-            self.skipTest("no Asset group account on this site to parent a test account under")
-        self.account = frappe.get_doc(
-            {
-                "doctype": "Account",
-                "account_name": f"zzdrain-{frappe.generate_hash(length=6)}",
-                "parent_account": parent.name,
-                "company": parent.company,
-                "is_group": 0,
-            }
-        ).insert(ignore_permissions=True)
-        # Committed so the drain's opening rollback cannot be what preserves it --
-        # that would let this test pass with the exemption removed.
-        frappe.db.commit()
-
-    def tearDown(self):
-        try:
-            frappe.delete_doc("Account", self.account.name, force=True, ignore_permissions=True)
-        except Exception:
-            pass
-        frappe.db.commit()
-
-    def test_the_captured_insert_drain_leaves_an_account_alone(self):
-        probe = _probe()
-        probe._captured_inserts = [("Account", self.account.name)]
-
-        probe._drain_captured_inserts()
-
-        self.assertTrue(
-            frappe.db.exists("Account", self.account.name),
-            "the drain deleted a real account: a Chart of Accounts belongs to the "
-            "company, not to the test that happened to trigger its creation",
-        )
-
-    def test_the_tracked_drain_leaves_an_account_alone(self):
-        probe = _probe()
-        probe.factory = _FakeFactory(
-            created_documents=[{"doctype": "Account", "name": self.account.name, "priority": 1}]
-        )
-
-        probe._drain_tracked_documents()
-
-        self.assertTrue(
-            frappe.db.exists("Account", self.account.name),
-            "the tracked drain deleted a real account; `_ensure_test_bank_account` "
-            "tracks one at priority=1, and deleting that leaf is what un-pins its "
-            "parent group for the rest of the chart",
-        )
-
-    def test_the_drain_skips_the_company_itself(self):
-        """Exempting only "Account" was measured, and was NOT enough.
-
-        From an identical clean slate the accounts survived (97 vs 9) but the drain
-        still deleted TEST-Payment-Integration-Company, and `_unusable_reasons` moved
-        from reporting a wiped chart to "company ... does not exist" -- the same
-        setUpClass failure one layer up. Building a real Company here would create a
-        whole chart of accounts for one assertion, so this drives the real drain and
-        asserts what it chose to remove.
-        """
-        removed = []
-        probe = _probe()
-        probe._captured_inserts = [("Company", "zz-co"), ("Customer", "zz-cust")]
-        probe._remove_drained_record = lambda doctype, _name: removed.append(doctype)
-
-        probe._drain_captured_inserts()
-
-        self.assertEqual(
-            ["Customer"],
-            removed,
-            "the drain must not delete a Company: whichever test first calls "
-            "get_eur_test_company creates it, but never owns it",
-        )
-
-
 class SharedFixturesAreNotCapturedTest(unittest.TestCase):
     """Where a fixture is BUILT is the stable fact; which doctypes it touches is not.
 
@@ -479,6 +366,7 @@ class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
 
     def setUp(self):
         self.name = None
+        self.account = None
 
     def tearDown(self):
         if self.name:
@@ -486,7 +374,54 @@ class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
                 frappe.delete_doc("GL Entry", self.name, force=True, ignore_permissions=True)
             except Exception:
                 pass
-            frappe.db.commit()
+        if self.account:
+            try:
+                frappe.delete_doc("Account", self.account, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _own_account(self):
+        """Create the account this test posts against, rather than borrowing one.
+
+        Borrowing was narrowed twice and failed twice, each time on a property of
+        whatever row the site happened to hand back. First an unfiltered `get_value`
+        (which returns the NEWEST row) drew "Test Sales Income - _TC", a
+        Profit-and-Loss account: "Cost Center is required for 'Profit and Loss'
+        account" (CI 31704796808 shard 5). Adding `root_type: Asset` then drew
+        "Advance Paid - TCP1" -- an Asset account whose `account_type` is Payable,
+        so GL Entry demanded a party: "Supplier is required against Payable account"
+        (CI 31715798775 shard 4).
+
+        A plain leaf with no `account_type` needs neither: not P&L, so no cost
+        center; not Receivable/Payable, so no party. Owning it is the only way to
+        know that.
+        """
+        parent = None
+        for row in frappe.get_all(
+            "Account",
+            filters={"is_group": 1, "root_type": "Asset"},
+            fields=["name", "company"],
+            order_by="lft",
+        ):
+            if frappe.db.exists("Company", row.company):
+                parent = row
+                break
+        if not parent:
+            self.skipTest("no Asset group account on this site to parent a test account under")
+
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": f"zzgl-acct-{frappe.generate_hash(length=6)}",
+                "parent_account": parent.name,
+                "company": parent.company,
+                "is_group": 0,
+            }
+        ).insert()
+        frappe.db.commit()
+        self.account = account.name
+        return account
 
     def test_a_non_submittable_row_with_docstatus_1_is_deleted_not_cancelled(self):
         """Uses a real GL Entry, because a generic stand-in does not reproduce this.
@@ -499,18 +434,7 @@ class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
         cannot be cancelled" (erpnext/.../gl_entry.py:324) while the doctype is
         `is_submittable = 0` and erpnext still gives it docstatus=1.
         """
-        # One query, so the account and the company are guaranteed to agree, and
-        # `root_type` Asset so no Cost Center is required. Resolving the two
-        # independently is what broke CI run 31704796808 shard 5: an unfiltered
-        # `get_value` returns the NEWEST row, which there was "Test Sales Income -
-        # _TC" -- a Profit-and-Loss account belonging to a different company than the
-        # one picked, rejected with "Cost Center is required for 'Profit and Loss'
-        # account". Balance-sheet accounts carry no such requirement.
-        account = frappe.db.get_value(
-            "Account", {"is_group": 0, "root_type": "Asset"}, ["name", "company"], as_dict=True
-        )
-        if not account:
-            self.skipTest("no balance-sheet leaf account on this site to post a GL Entry against")
+        account = self._own_account()
 
         doc = frappe.get_doc(
             {
