@@ -1917,6 +1917,30 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "SEPA Operation Audit Log",
             "SEPA Batch Upload Log",
             "Mollie Audit Log",
+            # A Chart of Accounts belongs to its COMPANY, not to the test that
+            # happened to trigger the company's creation. `get_eur_test_company`
+            # builds TEST-Payment-Integration-Company lazily, so erpnext inserts the
+            # whole default chart inside whichever test body calls it first, and every
+            # one of those accounts is captured as that test's own.
+            #
+            # Draining them used to fail harmlessly -- leaves refused with "Account
+            # with existing transaction can not be deleted" and groups with NestedSet's
+            # "has child nodes". Cancel-first removes the GL entries, so the leaves
+            # started deleting, which un-pinned their groups; the drain runs leaf-before-
+            # parent, which is precisely the order that dismantles a chart root-ward in
+            # one teardown. CI run 31704796808 shards 3 and 8: every later class calling
+            # the helper died in setUpClass on "Its Chart of Accounts is missing or was
+            # wiped". The same reasoning is already applied one level down, where
+            # `create_test_income_account` tracks its accounts at priority=-1.
+            "Account",
+            # And the company itself, for the same reason and by measurement:
+            # exempting only "Account" was tried first and is NOT sufficient. From an
+            # identical clean slate the accounts survived (97 vs 9) but the drain still
+            # deleted TEST-Payment-Integration-Company, and `_unusable_reasons` went
+            # from reporting a wiped chart to "company ... does not exist" -- the same
+            # setUpClass failure, one layer up. A Company is the most shared fixture a
+            # payment test has; whoever creates it is never its owner.
+            "Company",
             # NOT exempt: GL Entry / Payment Ledger Entry. An earlier revision of this
             # change exempted them after they showed up as leaks -- but that was
             # self-inflicted. Both are `is_submittable = 0` while erpnext gives them
