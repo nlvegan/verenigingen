@@ -133,30 +133,31 @@ def before_tests():
 
         erpnext_before_tests()
     except ImportError:
+        # Version dispatch, not a swallow: erpnext v16.20 removed this entry
+        # point, and the ImportError branch is the one that runs on this bench
+        # (measured). The generic `except Exception` that used to sit below it
+        # WAS a swallow -- it hid a failure of the whole ERPNext base-master
+        # bootstrap at log level INFO, and everything seeded after it assumes
+        # that bootstrap succeeded.
         _erpnext_before_tests_v16()
-    except Exception as e:
-        logger.info(f"ERPNext before_tests: {e}")
 
     # Ensure all test companies exist by loading Company test records
     # ERPNext Account fixtures require: _Test Company, _Test Company 1,
     # _Test Company with perpetual inventory
-    try:
-        from frappe.test_runner import make_test_records
+    from frappe.test_runner import make_test_records
 
-        required_companies = [
-            "_Test Company",
-            "_Test Company 1",
-            "_Test Company with perpetual inventory",
-        ]
-        missing = [c for c in required_companies if not frappe.db.exists("Company", c)]
+    required_companies = [
+        "_Test Company",
+        "_Test Company 1",
+        "_Test Company with perpetual inventory",
+    ]
+    missing = [c for c in required_companies if not frappe.db.exists("Company", c)]
 
-        if missing:
-            # Force recreate to ensure all companies are created
-            # (test record log may be stale)
-            make_test_records("Company", verbose=False, force=True, commit=True)
-            frappe.db.commit()
-    except Exception as e:
-        logger.warning(f"Company test record creation failed: {e}")
+    if missing:
+        # Force recreate to ensure all companies are created
+        # (test record log may be stale)
+        make_test_records("Company", verbose=False, force=True, commit=True)
+        frappe.db.commit()
 
     # NOTE: the current-year Fiscal Year company-restriction fix is applied from
     # EnhancedTestCase.setUp (once per session), NOT here. before_tests runs too
@@ -166,14 +167,11 @@ def before_tests():
     # ensure_test_fiscal_year_for_all_companies() docstring.
 
     # Ensure Customer test records exist (needed by Item Price and other ERPNext fixtures)
-    try:
-        from frappe.test_runner import make_test_records
+    from frappe.test_runner import make_test_records
 
-        if not frappe.db.exists("Customer", "_Test Customer"):
-            make_test_records("Customer", verbose=False, force=True, commit=True)
-            frappe.db.commit()
-    except Exception as e:
-        logger.warning(f"Customer test record creation failed: {e}")
+    if not frappe.db.exists("Customer", "_Test Customer"):
+        make_test_records("Customer", verbose=False, force=True, commit=True)
+        frappe.db.commit()
 
     # Seed the Mode of Payment records the app and many tests depend on
     # (Bank Transfer, SEPA Direct Debit, Mollie, Manual, Cash). The same helper
@@ -181,14 +179,11 @@ def before_tests():
     # without migrate, so the records are missing at test-time and
     # Member.payment_method / Donation.mode_of_payment link validation fails
     # with "Could not find Payment Method: <name>" across ~119 tests.
-    try:
-        from verenigingen.services.member.approval.application_helpers import (
-            ensure_payment_modes_exist,
-        )
+    from verenigingen.services.member.approval.application_helpers import (
+        ensure_payment_modes_exist,
+    )
 
-        ensure_payment_modes_exist()
-    except Exception as e:
-        logger.warning(f"Payment mode seeding failed: {e}")
+    ensure_payment_modes_exist()
 
     # Seed Verenigingen Settings.creation_user (reqd=1) with a dedicated
     # non-Administrator test user. Required by utils.secure_operations
@@ -204,10 +199,7 @@ def before_tests():
     # Use db.set_single_value to bypass the Singles .save() validation chain
     # (System Settings / Verenigingen Settings both have other reqd fields
     # that would cascade their own MandatoryError).
-    try:
-        _seed_verenigingen_test_system_user()
-    except Exception as e:
-        logger.warning(f"Verenigingen Settings creation_user seeding failed: {e}")
+    _seed_verenigingen_test_system_user()
 
     # Reset Selling Settings.customer_group away from the root "All Customer
     # Groups" that erpnext_before_tests() sets. ERPNext's Customer controller
@@ -216,10 +208,7 @@ def before_tests():
     # services.customer_group_resolver.resolve_non_group_customer_group() to
     # work around the bad default; this matches the resolver's behaviour for
     # tests that bypass it by writing customer.customer_group directly.
-    try:
-        _seed_default_leaf_customer_group()
-    except Exception as e:
-        logger.warning(f"Customer Group default reset failed: {e}")
+    _seed_default_leaf_customer_group()
 
     # Seed dummy values for MijnRood Sync Settings reqd fields (ssh_host,
     # ssh_username, db_name, db_username, db_password). The event_application
@@ -232,10 +221,7 @@ def before_tests():
     # SSH/DB credentials are never actually consumed during tests — the
     # event_application path doesn't open an SFTP connection unless a sync
     # job is triggered, which no test does. Dummy values are safe.
-    try:
-        _seed_mijnrood_sync_settings_dummy_credentials()
-    except Exception as e:
-        logger.warning(f"MijnRood Sync Settings seeding failed: {e}")
+    _seed_mijnrood_sync_settings_dummy_credentials()
 
     # Seed the default Team Role master records (Team Leader, Team Member,
     # Coordinator, Secretary, Treasurer, Verenigingen Auditor) once for the whole
@@ -276,33 +262,21 @@ def ensure_member_test_masters():
     # exist before any of the seeders/tests below that create Customers, Members
     # or Donations — otherwise customer creation fails with
     # "Could not find Territory: All Territories".
-    try:
-        ensure_erpnext_base_masters()
-    except Exception as e:
-        logger.warning(f"ERPNext base master seeding failed: {e}")
+    ensure_erpnext_base_masters()
 
-    try:
-        _seed_verenigingen_test_system_user()
-    except Exception as e:
-        logger.warning(f"creation_user seeding failed: {e}")
+    _seed_verenigingen_test_system_user()
 
-    try:
-        from verenigingen.services.member.approval.application_helpers import (
-            ensure_payment_modes_exist,
-        )
+    from verenigingen.services.member.approval.application_helpers import (
+        ensure_payment_modes_exist,
+    )
 
-        ensure_payment_modes_exist()
-    except Exception as e:
-        logger.warning(f"Payment mode seeding failed: {e}")
+    ensure_payment_modes_exist()
 
     # A leaf Customer Group WITH a default selling Price List is required for the
     # membership-application invoice path (Sales Invoice.selling_price_list is a
     # reqd field resolved from the Customer Group). Without this, isolated module
     # runs fail invoice creation. Idempotent / existence-checked internally.
-    try:
-        _seed_default_leaf_customer_group()
-    except Exception as e:
-        logger.warning(f"Customer Group default seeding failed: {e}")
+    _seed_default_leaf_customer_group()
 
     # Not guarded. Team Role is hardcoded-by-name master data that tests resolve
     # by that name; a missing one surfaces as a link-validation failure in an
@@ -454,29 +428,33 @@ def ensure_test_fiscal_year_for_all_companies():
     Idempotent and date-driven, so it self-heals every January with zero edits --
     no recurrence in 2027 and beyond.
     """
-    try:
-        from frappe.utils import today
+    # Unguarded deliberately. The swallow here was worse than a silent skip: the
+    # un-restriction below and its commit ran ONLY on the success path, so a
+    # failure part-way through left a company-RESTRICTED Fiscal Year in place --
+    # strictly worse than no FY at all, and the exact trap documented at
+    # `tests/setup/__init__.py` for the re-restriction cascade. Failing here says
+    # so; logging produced an order-dependent "Posting Date ... not in any active
+    # Fiscal Year" across whole shards instead (#309).
+    from frappe.utils import today
 
-        from verenigingen.e_boekhouden.utils.consolidated.date_utils import (
-            ensure_fiscal_year_exists,
-        )
+    from verenigingen.e_boekhouden.utils.consolidated.date_utils import (
+        ensure_fiscal_year_exists,
+    )
 
-        company = frappe.defaults.get_global_default("company") or frappe.db.get_value(
-            "Company", {}, "name"
-        )
-        fy_name = ensure_fiscal_year_exists(today(), company)
-        # Drop any single-company restriction so the current FY covers every
-        # company the tests use (multi-company tests post against _Test Company 2).
-        cleared = 0
-        if fy_name and frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
-            cleared = frappe.db.count("Fiscal Year Company", {"parent": fy_name})
-            frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
-        frappe.db.commit()
-        logger.info(
-            f"ensure_test_fiscal_year_for_all_companies: fy={fy_name} cleared_company_restrictions={cleared}"
-        )
-    except Exception as e:
-        logger.warning(f"Test fiscal-year seeding failed: {e}")
+    company = frappe.defaults.get_global_default("company") or frappe.db.get_value(
+        "Company", {}, "name"
+    )
+    fy_name = ensure_fiscal_year_exists(today(), company)
+    # Drop any single-company restriction so the current FY covers every
+    # company the tests use (multi-company tests post against _Test Company 2).
+    cleared = 0
+    if fy_name and frappe.db.exists("Fiscal Year Company", {"parent": fy_name}):
+        cleared = frappe.db.count("Fiscal Year Company", {"parent": fy_name})
+        frappe.db.delete("Fiscal Year Company", {"parent": fy_name})
+    frappe.db.commit()
+    logger.info(
+        f"ensure_test_fiscal_year_for_all_companies: fy={fy_name} cleared_company_restrictions={cleared}"
+    )
 
 
 def ensure_default_company():
@@ -493,20 +471,17 @@ def ensure_default_company():
     leave a global default company set, so those paths get an empty company.
     Production sites always have one; set it here for parity. Idempotent.
     """
-    try:
-        if frappe.defaults.get_global_default("company"):
-            return
-        company = frappe.db.get_value("Company", "_Test Company", "name") or frappe.db.get_value(
-            "Company", {}, "name"
-        )
-        if not company:
-            return
-        frappe.db.set_single_value("Global Defaults", "default_company", company)
-        frappe.db.set_default("company", company)
-        frappe.db.commit()
-        logger.info(f"ensure_default_company: set global default company={company}")
-    except Exception as e:
-        logger.warning(f"Default-company seeding failed: {e}")
+    if frappe.defaults.get_global_default("company"):
+        return
+    company = frappe.db.get_value("Company", "_Test Company", "name") or frappe.db.get_value(
+        "Company", {}, "name"
+    )
+    if not company:
+        return
+    frappe.db.set_single_value("Global Defaults", "default_company", company)
+    frappe.db.set_default("company", company)
+    frappe.db.commit()
+    logger.info(f"ensure_default_company: set global default company={company}")
 
 
 def _seed_verenigingen_test_system_user():
@@ -583,8 +558,11 @@ def _seed_verenigingen_test_system_user():
                 from verenigingen.utils.security.api_security_framework import get_security_framework
 
                 get_security_framework().auth_engine.invalidate_user_cache(test_user_email)
-            except Exception:
-                pass  # best-effort; the cache TTL bounds staleness
+            except Exception as cache_error:
+                # Genuinely best-effort: the cache TTL bounds how long a stale
+                # entry can last. Logged rather than silent, so a systematic
+                # failure here is at least visible (#309).
+                logger.warning(f"Security cache invalidation failed: {cache_error}")
         break
 
     current = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
@@ -595,6 +573,18 @@ def _seed_verenigingen_test_system_user():
             "Verenigingen Settings", "creation_user", test_user_email
         )
         frappe.db.commit()
+
+        # "It did not raise" is not evidence the write took. `set_single_value`
+        # writes the Singles row directly, and an empty `creation_user` makes
+        # `get_system_user_for_operation` raise ConfigurationError (~91 tests)
+        # and cascades MandatoryError on any later `.save()` of the Single
+        # (~71 more) -- none of which name this seeding step (#309).
+        if frappe.db.get_single_value("Verenigingen Settings", "creation_user") != test_user_email:
+            raise RuntimeError(
+                "Verenigingen Settings.creation_user did not take after seeding; "
+                "get_system_user_for_operation will raise ConfigurationError in every "
+                "test that reaches it."
+            )
 
     # Seed Verenigingen Settings.company. The membership-application invoice path
     # (services/member/approval/application_payments.create_membership_invoice_with_amount)
@@ -640,16 +630,18 @@ def _seed_verenigingen_test_system_user():
     # from an unrelated company's tests (e.g. "Stores - TQC" from "Test Quality
     # Company"). Production sites set this default to a warehouse of their own
     # company, so this only bites isolated test runs.
-    try:
-        ver_company = frappe.db.get_single_value("Verenigingen Settings", "company")
-        global_wh = frappe.defaults.get_global_default("default_warehouse")
-        if global_wh:
-            wh_company = frappe.db.get_value("Warehouse", global_wh, "company")
-            if wh_company and ver_company and wh_company != ver_company:
-                frappe.defaults.clear_default("default_warehouse")
-                frappe.db.commit()
-    except Exception as e:  # pragma: no cover - defensive
-        logger.warning(f"default_warehouse default cleanup failed: {e}")
+    # Unguarded: every statement is a read or an existence-gated clear, so there
+    # is no expected failure to absorb. If this does not take, the leftover
+    # default stays and the membership Item insert fails with "Warehouse <x>
+    # doesn't belong to Company <y>" -- which is the failure the comment above
+    # describes, arriving without naming this cause (#309).
+    ver_company = frappe.db.get_single_value("Verenigingen Settings", "company")
+    global_wh = frappe.defaults.get_global_default("default_warehouse")
+    if global_wh:
+        wh_company = frappe.db.get_value("Warehouse", global_wh, "company")
+        if wh_company and ver_company and wh_company != ver_company:
+            frappe.defaults.clear_default("default_warehouse")
+            frappe.db.commit()
 
 
 def _seed_default_leaf_customer_group():
