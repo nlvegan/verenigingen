@@ -266,6 +266,40 @@ class RootDepartmentIsOwnedByTestsSetupTest(unittest.TestCase):
             "alongside ensure_netherlands_territory, so both harnesses get it",
         )
 
+    def test_a_department_with_a_company_is_not_named_bare(self):
+        """The premise the helper rests on: why the root omits `company`.
+
+        `Department.autoname` uses `get_abbreviated_name` whenever `company` is
+        set. The old factory code passed one, so its insert produced
+        `All Departments - _TC` while its own `db.exists("Department",
+        "All Departments")` guard -- and `_sync_department`'s parent lookup --
+        looked for the bare name.
+
+        On a site where ERPNext already seeded the root this is invisible: the
+        helper returns early and never inserts. So this pins the rule directly.
+        If ERPNext ever changes it, the helper's rationale is stale and this
+        fails rather than the harness quietly regressing.
+        """
+        company = frappe.get_all("Company", limit=1)[0].name
+        department_name = f"zzz-harness-{frappe.generate_hash(length=6)}"
+        doc = frappe.get_doc(
+            {
+                "doctype": "Department",
+                "department_name": department_name,
+                "company": company,
+                "parent_department": "All Departments",
+            }
+        ).insert()
+        try:
+            self.assertNotEqual(
+                doc.name,
+                department_name,
+                "Department.autoname no longer appends the company abbreviation; "
+                "ensure_root_department() omits company precisely because it did",
+            )
+        finally:
+            frappe.delete_doc("Department", doc.name, force=True)
+
     def test_the_root_department_exists_after_it_runs(self):
         from verenigingen.tests.setup import ensure_root_department
 
