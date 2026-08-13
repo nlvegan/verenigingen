@@ -92,6 +92,25 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         ensure_netherlands_territory()
 
+        # OWN the company production code resolves from Verenigingen Settings,
+        # instead of inheriting whatever ran before us. Much of the code under
+        # test reads that single rather than taking a company argument
+        # (sepa_config_manager, chapter_finance_service, invoice_generator,
+        # department_sync_service...), so a test whose fixtures live under the
+        # harness company fails when the single points elsewhere.
+        #
+        # Classes on this base used to pass only because an EnhancedTestCase
+        # test earlier in the same shard set it and the restore that should have
+        # undone it was never reached (#312) -- the same shape as the territory
+        # note above. Pinning here is that same value, made deterministic. See #308.
+        #
+        # Class scope, not setUp: this commits, and the compat FrappeTestCase
+        # this inherits rolls back only once per CLASS. A per-test commit would
+        # make every untracked row a test creates durable.
+        from verenigingen.tests.support.verenigingen_settings import own_settings_company
+
+        own_settings_company(cls)
+
     @classmethod
     def tearDownClass(cls):
         """Clean up class-level test data"""

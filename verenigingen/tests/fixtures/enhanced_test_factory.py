@@ -2267,9 +2267,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # SETTINGS RESTORATION: Restore Verenigingen Settings to original values
         # This undoes changes made by _ensure_verenigingen_settings() which commits
-        # and therefore survives the rollback above
+        # and therefore survives the rollback above.
+        #
+        # `self`, not `self.factory`: both methods live on THIS class. Addressing
+        # the factory raised AttributeError on every single test, into a handler
+        # whose logger discarded it, so the repointing was never undone (#312).
         try:
-            self.factory._restore_verenigingen_settings()
+            self._restore_verenigingen_settings()
         except Exception as e:
             logger.warning(f"Settings restoration failed in tearDown: {e}")
 
@@ -2517,42 +2521,67 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         mock_sendmail = lambda *args, **kwargs: capture_email_data("frappe.sendmail", *args, **kwargs)
         self.email_patches.append(patch("frappe.sendmail", side_effect=mock_sendmail))
 
-        # 2. Email queue sending (catches background jobs)
-        mock_queue_send = lambda *args, **kwargs: capture_email_data("email_queue.send_one", *args, **kwargs)
+        # 2. The queue's own send path, which is what would open a real SMTP
+        # connection for any Email Queue row created without going through
+        # frappe.sendmail. Was `email_queue.send_one`, a module-level function
+        # that no longer exists -- this patch had been failing to start on every
+        # test, unnoticed, because the failure was logged through a discarded
+        # logger (#312). `EmailQueue.send` is its successor.
+        mock_queue_send = lambda *args, **kwargs: capture_email_data("EmailQueue.send", *args, **kwargs)
         self.email_patches.append(
-            patch("frappe.email.doctype.email_queue.email_queue.send_one", side_effect=mock_queue_send)
+            patch(
+                "frappe.email.doctype.email_queue.email_queue.EmailQueue.send",
+                side_effect=mock_queue_send,
+            )
         )
 
-        # 3. System manager notifications
-        mock_system_email = lambda *args, **kwargs: capture_email_data(
-            "sendmail_to_system_managers", *args, **kwargs
-        )
-        self.email_patches.append(
-            patch("frappe.utils.email_lib.sendmail_to_system_managers", side_effect=mock_system_email)
-        )
-
-        # 4. Template-based email generation
+        # 3. Template-based email generation
         mock_template_email = lambda *args, **kwargs: capture_email_data(
             "send_template_email", *args, **kwargs
         )
-        try:
-            self.email_patches.append(
-                patch("frappe.core.doctype.communication.email.make", side_effect=mock_template_email)
-            )
-        except ImportError:
-            pass  # Template email methods may not exist in all Frappe versions
+        self.email_patches.append(
+            patch("frappe.core.doctype.communication.email.make", side_effect=mock_template_email)
+        )
 
-        # 5. Direct SMTP sending (fallback)
-        mock_smtp_send = lambda *args, **kwargs: capture_email_data("smtp_send", *args, **kwargs)
-        self.email_patches.append(patch("frappe.utils.email_lib.send", side_effect=mock_smtp_send))
+        # There is deliberately no patch for `sendmail_to_system_managers` or for a
+        # direct-SMTP helper. Both used to target `frappe.utils.email_lib`, a module
+        # that no longer exists, so both had been dead for an unknown length of time.
+        # Neither needs replacing: `frappe.email.sendmail_to_system_managers` is a
+        # one-line wrapper around `frappe.sendmail` (patch 1 above), and SMTP is
+        # reached through `EmailQueue.send` (patch 2). Retargeting them would add
+        # two patches that can only fire after an already-patched call.
 
-        # Start all patches
+        # Start all patches. A patch that fails to start is NOT survivable: the
+        # harness would report captured_emails == [] and the test would read that
+        # as "no mail was sent" when the truth is "nothing was watching". The old
+        # code logged and continued, which is how three dead targets survived here.
+        #
+        # Registered BEFORE the loop: unittest does not call tearDown when setUp
+        # raises, so without this the patches started before the failing one stay
+        # started for the rest of the process, bound to a dead test's
+        # captured_emails list.
+        self.addCleanup(self._stop_email_patches)
         for patch_obj in self.email_patches:
             try:
                 patch_obj.start()
             except Exception as e:
-                # Log patch failures but continue (some methods may not exist)
-                logger.warning(f"Email patch failed: {str(e)}")
+                # `patch_obj.target` is only assigned inside __enter__ AFTER the
+                # target module resolves, so it is absent in exactly this failure.
+                # `attribute` is set in the constructor and always readable.
+                target = getattr(patch_obj, "attribute", patch_obj)
+                raise RuntimeError(
+                    f"Email capture could not be installed on {target!r} ({e}). Tests would "
+                    f"silently see zero emails instead of the real ones -- retarget or remove "
+                    f"the patch rather than letting it fail."
+                ) from e
+
+    def _stop_email_patches(self):
+        """Stop every started email patch, tolerating ones never started."""
+        for patch_obj in getattr(self, "email_patches", []):
+            try:
+                patch_obj.stop()
+            except RuntimeError:
+                pass  # never started, or already stopped by tearDown
 
     def _extract_recipients(self, args, kwargs):
         """Extract recipient list from various email method signatures"""
@@ -4970,21 +4999,28 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         Called from tearDown to ensure production settings are not permanently
         modified by test runs.
+
+        Restores unconditionally, including back to an empty value. The snapshot
+        IS the truth: guarding each write on a truthy original meant a site that
+        had no company configured kept the test company forever, which is the
+        same leak this method exists to prevent, just harder to notice.
         """
         if hasattr(frappe.local, "_original_verenigingen_settings"):
             original = frappe.local._original_verenigingen_settings
-            if original.get("company"):
-                frappe.db.set_value(
-                    "Verenigingen Settings", None, "company", original["company"], update_modified=False
-                )
-            if original.get("dues_income_account"):
-                frappe.db.set_value(
-                    "Verenigingen Payments Settings",
-                    None,
-                    "dues_income_account",
-                    original["dues_income_account"],
-                    update_modified=False,
-                )
+            frappe.db.set_value(
+                "Verenigingen Settings",
+                None,
+                "company",
+                original.get("company"),
+                update_modified=False,
+            )
+            frappe.db.set_value(
+                "Verenigingen Payments Settings",
+                None,
+                "dues_income_account",
+                original.get("dues_income_account"),
+                update_modified=False,
+            )
             frappe.db.commit()
             # Clear the stored original to prevent double-restore
             delattr(frappe.local, "_original_verenigingen_settings")
