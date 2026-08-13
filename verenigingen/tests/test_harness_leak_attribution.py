@@ -304,10 +304,16 @@ class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
                 "posting_date": frappe.utils.today(),
                 "voucher_type": "Journal Entry",
                 "voucher_no": f"zzgl-{frappe.generate_hash(length=8)}",
-                "debit": 0,
+                # GL Entry requires one of these to be non-zero.
+                "debit": 1,
                 "credit": 0,
             }
-        ).insert(ignore_permissions=True)
+        )
+        # voucher_no is a dynamic link to a real Journal Entry. This row only has to
+        # EXIST for the drain to act on it, so skip link validation rather than
+        # building an entire voucher for a cleanup test.
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
         self.name = doc.name
         # Exactly what erpnext does to GL Entry: docstatus=1 on a non-submittable
         # doctype (general_ledger.py calls gle.submit()).
