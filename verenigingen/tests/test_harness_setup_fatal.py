@@ -234,6 +234,20 @@ class FixtureLoadFailuresAreNotSwallowedTest(unittest.TestCase):
             _load([{"doctype": "Role", "name": f"zzz-no-role-name-{frappe.generate_hash(length=8)}"}])
         self.assertIn("did not load", str(caught.exception))
 
+    def test_a_record_that_fails_pre_load_validation_raises(self):
+        """`valid: False` skipped the record and logged the reason nowhere useful.
+
+        The same handler also turns an exception *inside* a validator -- a harness
+        bug, not a data condition -- into `valid: False`, so a broken validator
+        silently stopped loading its doctype. Measured before changing it: all
+        four fixture files that exist produce zero invalid records, so this
+        cannot fire on healthy data (#309).
+        """
+        with self.assertRaises(RuntimeError) as caught:
+            # `_validate_team_role_fixture` rejects a Team Role with no role_name.
+            _load([{"doctype": "Team Role", "name": f"zzz-{frappe.generate_hash(length=6)}"}])
+        self.assertIn("did not pass", str(caught.exception))
+
     def test_a_record_that_already_exists_is_still_skipped(self):
         """The duplicate path is legitimately best-effort. Do not over-correct.
 

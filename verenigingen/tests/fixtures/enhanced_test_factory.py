@@ -3358,15 +3358,21 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 skipped_count += 1
                 continue
 
-            try:
-                # QCE FIX: Proper fixture validation before loading
-                validation_result = self._validate_fixture_before_load(record, doctype)
-                if not validation_result["valid"]:
-                    logger.warning(
-                        f"Fixture validation failed for {doctype} {name}: {validation_result['error']}"
-                    )
-                    continue
+            # Pre-load validation. `valid: False` is not a survivable data
+            # condition: it means either this fixture is malformed or the validator
+            # itself raised (its own handler reports an internal exception as
+            # `valid: False` too, so a broken validator silently stopped loading its
+            # whole doctype). Measured across the four fixture files that exist:
+            # zero invalid records, so this cannot fire on healthy data (#309).
+            # Deliberately outside the try below, which is about insertion.
+            validation_result = self._validate_fixture_before_load(record, doctype)
+            if not validation_result["valid"]:
+                raise RuntimeError(
+                    f"Fixture {doctype} {name} from {fixture_name} did not pass pre-load "
+                    f"validation, so it was never loaded: {validation_result['error']}"
+                )
 
+            try:
                 # Create document with proper role-based access
                 doc = frappe.get_doc(record)
                 doc.flags.ignore_links = False  # QCE FIX: Validate links exist initially
