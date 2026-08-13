@@ -254,15 +254,31 @@ class CoreFactoryRecordsAreOrderedTest(unittest.TestCase):
     of deleting it" (#328).
     """
 
-    def test_a_transaction_doctype_drains_before_the_party_it_blocks(self):
-        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+    def test_a_core_tracked_invoice_drains_before_the_customer(self):
+        """Observes the ORDER the drain actually removes in.
 
-        invoice = EnhancedTestCase._drain_priority_for("Sales Invoice")
-        customer = EnhancedTestCase._drain_priority_for("Customer")
-        self.assertGreater(
-            invoice,
-            customer,
-            "a Sales Invoice pins the Customer's Address, so it must be deleted first",
+        Asserting only that the priority map ranks Sales Invoice above Customer
+        would pass even with the fix reverted -- the map can be correct while the
+        drain ignores it for core records, which is precisely the bug. So this
+        drives the real `_drain_tracked_documents` and records what it removes,
+        in order.
+        """
+        removed = []
+
+        probe = _probe()
+        probe.factory = _FakeFactory(
+            created_documents=[{"doctype": "Customer", "name": "zz-cust", "priority": 3}],
+            core_records=[{"doctype": "Sales Invoice", "name": "zz-si"}],
+        )
+        probe._remove_drained_record = lambda doctype, name: removed.append(doctype)
+
+        probe._drain_tracked_documents()
+
+        self.assertEqual(
+            ["Sales Invoice", "Customer"],
+            removed,
+            "a core-tracked Sales Invoice pins the Customer's Address via "
+            "customer_address, so it must be removed first",
         )
 
     def test_an_unknown_doctype_still_gets_a_priority(self):
