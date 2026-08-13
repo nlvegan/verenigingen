@@ -2516,11 +2516,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # Patch multiple email sending pathways
         self.email_patches = []
+        self._email_patch_targets = {}
 
         # 1. Core sendmail function
         # Mock justified: External Service - email delivery, prevents actual email sending in tests
         mock_sendmail = lambda *args, **kwargs: capture_email_data("frappe.sendmail", *args, **kwargs)
-        self.email_patches.append(patch("frappe.sendmail", side_effect=mock_sendmail))
+        self._add_email_patch("frappe.sendmail", side_effect=mock_sendmail)
 
         # 2. The queue's own send path, which is what would open a real SMTP
         # connection for any Email Queue row created without going through
@@ -2529,19 +2530,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # test, unnoticed, because the failure was logged through a discarded
         # logger (#312). `EmailQueue.send` is its successor.
         mock_queue_send = lambda *args, **kwargs: capture_email_data("EmailQueue.send", *args, **kwargs)
-        self.email_patches.append(
-            patch(
-                "frappe.email.doctype.email_queue.email_queue.EmailQueue.send",
-                side_effect=mock_queue_send,
-            )
+        self._add_email_patch(
+            "frappe.email.doctype.email_queue.email_queue.EmailQueue.send",
+            side_effect=mock_queue_send,
         )
 
         # 3. Template-based email generation
         mock_template_email = lambda *args, **kwargs: capture_email_data(
             "send_template_email", *args, **kwargs
         )
-        self.email_patches.append(
-            patch("frappe.core.doctype.communication.email.make", side_effect=mock_template_email)
+        self._add_email_patch(
+            "frappe.core.doctype.communication.email.make", side_effect=mock_template_email
         )
 
         # There is deliberately no patch for `sendmail_to_system_managers` or for a
@@ -2566,15 +2565,25 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 patch_obj.start()
             except Exception as e:
-                # `patch_obj.target` is only assigned inside __enter__ AFTER the
-                # target module resolves, so it is absent in exactly this failure.
-                # `attribute` is set in the constructor and always readable.
-                target = getattr(patch_obj, "attribute", patch_obj)
+                # The dotted path recorded by _add_email_patch, not a field of the
+                # patcher: `patch_obj.target` is unset when the MODULE fails to
+                # resolve, and `patch_obj.attribute` is only the last segment
+                # ("send"), which does not say which module was being patched.
                 raise RuntimeError(
-                    f"Email capture could not be installed on {target!r} ({e}). Tests would "
-                    f"silently see zero emails instead of the real ones -- retarget or remove "
-                    f"the patch rather than letting it fail."
+                    f"Email capture could not be installed on "
+                    f"{self._email_patch_targets.get(id(patch_obj), patch_obj)!r} ({e}). Tests "
+                    f"would silently see zero emails instead of the real ones -- retarget or "
+                    f"remove the patch rather than letting it fail."
                 ) from e
+
+    def _add_email_patch(self, target, **kwargs):
+        """Register an email patch, remembering its dotted target for errors."""
+        from unittest.mock import patch
+
+        patcher = patch(target, **kwargs)
+        self.email_patches.append(patcher)
+        self._email_patch_targets[id(patcher)] = target
+        return patcher
 
     def _stop_email_patches(self):
         """Stop every started email patch, tolerating ones never started."""
@@ -2656,7 +2665,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             to: Filter by recipient email address
             subject_contains: Filter by text in subject
             message_contains: Filter by text in message
-            method: Filter by sending method (e.g., 'frappe.sendmail', 'email_queue.send_one')
+            method: Filter by sending method. One of 'frappe.sendmail',
+                'EmailQueue.send', 'send_template_email' -- these are the only
+                values _setup_email_mocking records. This used to document
+                'email_queue.send_one', which no longer exists anywhere, so
+                filtering on it silently returned [].
             has_attachments: Filter by attachment presence (True/False)
         """
         filtered_emails = self.captured_emails
