@@ -1915,6 +1915,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # frappe.log_error() written during it (see ErrorLogGuardMixin).
         self._test_start_time = frappe.utils.now()
 
+        # Leak guard: per-TEST, not per-class. The instance is reused across test
+        # methods, so without this reset one method's leak would be re-reported by
+        # every later method and the ratchet would count it repeatedly (#328).
+        self._leaked_records = []
+
         # CRITICAL: Ensure Administrator context for all tests
         # This prevents permission errors and test contamination from other tests
         frappe.set_user("Administrator")
@@ -2143,11 +2148,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
             except frappe.DoesNotExistError:
                 pass
-            except Exception:
-                # Most leftovers (links, docstatus, before_delete hooks) are handled
-                # by the broader factory drain or simply persist as today; don't let
-                # one failure abort the rest or break tearDown.
+            except Exception as delete_error:
+                # Don't let one failure abort the rest or break tearDown -- but record
+                # WHICH record survived, not just how many. The count alone was
+                # unusable: the row stays in the database, a later test in the shard
+                # collides with it, and that test names neither the record nor this
+                # test (#328).
                 delete_failures += 1
+                self._record_leak(doctype, name, delete_error)
 
         try:
             frappe.db.commit()
@@ -2159,6 +2167,56 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 f"Captured-insert drain: {delete_failures} record(s) could not be deleted "
                 f"(may persist as orphans; usually link/docstatus constraints)."
             )
+
+    @property
+    def leaked_records(self):
+        """Records this test created that cleanup could not delete.
+
+        Each entry is ``{"doctype", "name", "error"}``. Populated by the drains
+        during tearDown; read by ``_finalize_leak_check`` (#328).
+        """
+        return getattr(self, "_leaked_records", [])
+
+    def _record_leak(self, doctype, name, error):
+        """Note one record that survived cleanup, with the reason it did."""
+        if not hasattr(self, "_leaked_records"):
+            self._leaked_records = []
+        self._leaked_records.append({"doctype": doctype, "name": name, "error": str(error)})
+
+    def _finalize_leak_check(self):
+        """Warn, or fail under the env flag, on records that survived cleanup.
+
+        MUST be called at the END of tearDown so cleanup still runs before any
+        raise -- the same ordering contract as _finalize_error_log_check.
+
+        Warn-by-default is deliberate. The debt this measures already exists;
+        failing everywhere at once would redden the suite in proportion to it.
+        The flag lets one CI job enforce while a committed baseline ratchets the
+        count down (#328).
+        """
+        rows = self.leaked_records
+        if not rows:
+            return
+
+        from verenigingen.tests.utils.leak_guard import (
+            fail_on_test_leak_enabled,
+            format_leak_failure,
+            format_leak_lines,
+        )
+
+        test_id = (
+            f"{type(self).__module__}.{type(self).__name__}."
+            f"{getattr(self, '_testMethodName', '?')}"
+        )
+
+        # Always emit the machine-readable lines, including in failing mode: the
+        # ratchet script parses stdout, and a run that fails still needs its
+        # inventory recorded.
+        for line in format_leak_lines(rows, test_id):
+            print(line)
+
+        if fail_on_test_leak_enabled():
+            raise AssertionError(format_leak_failure(rows, test_id))
 
     def _restore_throttle_user_limit(self):
         """Undo the setUp override of conf["throttle_user_limit"].
@@ -2284,6 +2342,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Error Logs. Done after cleanup so a raise here never skips teardown.
         self._finalize_error_log_check()
 
+        # Records that survived both drains. Same ordering contract: after
+        # cleanup, so a raise here cannot skip it (#328).
+        self._finalize_leak_check()
+
     def _reset_financial_history_batch_queue(self):
         """Clear the FinancialHistoryBatchProcessor's process-global queues.
 
@@ -2390,6 +2452,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             except Exception as e:
                 delete_failures += 1
                 logger.warning(f"Drain delete failed for {doctype}/{name}: {e}")
+                self._record_leak(doctype, name, e)
 
         self.factory.created_documents = []
         if core is not None:
