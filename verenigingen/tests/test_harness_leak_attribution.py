@@ -298,6 +298,47 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             "-- must run with insert capture suspended",
         )
 
+    def test_shared_fixture_suspends_capture_and_restores_it(self):
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+
+        seen = {}
+
+        @factory_module.shared_fixture
+        def helper():
+            seen["suspended"] = factory_module._insert_capture_suspended
+            return "value"
+
+        self.assertEqual("value", helper(), "the decorator must not swallow the return")
+        self.assertTrue(seen.get("suspended"))
+        self.assertFalse(
+            factory_module._insert_capture_suspended,
+            "capture must be restored afterwards, or every later test in the process "
+            "silently stops being cleaned up",
+        )
+
+    def test_the_shared_master_helpers_are_declared_shared(self):
+        """The accounting masters whose loss was actually observed in CI.
+
+        Each of these is get-or-created once per site and then depended on by every
+        later test: the company's income accounts (35x "no is_group Income account"),
+        its cost centers (65x "Could not find Row #1: Cost Center: Main - TPIC") and
+        its bank account ("no is_group Bank account").
+        """
+        for name in (
+            "_get_or_create_income_account",
+            "_get_or_create_cost_center",
+            "_ensure_test_bank_account",
+            "_ensure_company_chart_of_accounts",
+            "_ensure_company_cost_center",
+            "_ensure_company_defaults",
+        ):
+            method = getattr(EnhancedTestCase, name)
+            self.assertTrue(
+                hasattr(method, "__wrapped__"),
+                f"{name} creates shared master data and must be @shared_fixture, or "
+                f"the captured-insert drain will claim its rows for one test",
+            )
+
 
 class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):
     """`force=True` does not bypass the submitted check.

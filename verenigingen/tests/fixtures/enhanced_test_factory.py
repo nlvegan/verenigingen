@@ -181,6 +181,7 @@ Version History
 """
 
 import contextlib
+import functools
 import itertools
 import json
 import random
@@ -233,6 +234,28 @@ def suspend_insert_capture():
         yield
     finally:
         _insert_capture_suspended = previous
+
+
+def shared_fixture(method):
+    """Declare that a get-or-create helper produces SHARED master data.
+
+    Rows created inside are owned by the site, not by whichever test happened to call
+    first, so the captured-insert drain must not claim them.
+
+    Several of these already say so via `track_document(..., priority=-1)` -- but that
+    binds only the TRACKED drain. The captured-insert drain claimed the rows anyway,
+    and once cancel-first let the deletes through, the company's income accounts, bank
+    account and cost centers went with them: "no is_group Income account to parent new
+    income accounts under" (35×) and "Could not find Row #1: Cost Center: Main - TPIC"
+    (65×). This closes that gap for both drains at once.
+    """
+
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        with suspend_insert_capture():
+            return method(*args, **kwargs)
+
+    return wrapper
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
 # Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
@@ -4680,6 +4703,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         return invoice
 
+    @shared_fixture
     def _get_or_create_income_account(self, company):
         """Get or create a basic income account for testing"""
         account_name = f"Test Sales Income - {company}"
@@ -4943,6 +4967,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         frappe.local.test_company_name = company
         return company
 
+    @shared_fixture
     def _ensure_company_chart_of_accounts(self, company_name):
         """
         Ensure the test company has a Chart of Accounts initialized.
@@ -5070,6 +5095,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             if hasattr(frappe.local.flags, "ignore_root_company_validation"):
                 del frappe.local.flags.ignore_root_company_validation
 
+    @shared_fixture
     def _ensure_company_defaults(self, company_name):
         """
         Ensure company has default receivable, payable accounts, cost center, and round off account.
@@ -5109,6 +5135,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Ensure cost center exists and is set as default
         self._ensure_company_cost_center(company_name)
 
+    @shared_fixture
     def _ensure_company_cost_center(self, company_name):
         """
         Ensure company has a cost center configured.
@@ -5298,6 +5325,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # Clear the stored original to prevent double-restore
             delattr(frappe.local, "_original_verenigingen_settings")
 
+    @shared_fixture
     def _get_or_create_cost_center(self, company):
         """Get or create a Main cost center for testing"""
         # Check for existing Main cost center
@@ -6456,6 +6484,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         else:
             return frappe.get_doc("Customer", customer_name)
 
+    @shared_fixture
     def _ensure_test_bank_account(self, company):
         """Internal method to ensure test bank account exists for a company"""
         account_name = f"Test Bank - {company}"
@@ -6500,7 +6529,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             }
         )
         bank_account.insert(ignore_permissions=True)
-        self.factory.track_document("Account", bank_account.name, priority=1)
+        self.factory.track_document("Account", bank_account.name, priority=-1)
         return bank_account.name
 
     # Bridge methods to specialized factories
