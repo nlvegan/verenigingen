@@ -400,9 +400,16 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
         invoice.submit()
 
         # Verify GL entries for Sales Invoice
+        # Scoped by company as well as voucher: `voucher_no` alone is NOT unique
+        # across the suite. A submitted invoice's GL Entries can outlive the invoice
+        # (deleting the parent does not always take the ledger rows with it), while
+        # the naming series counter rolls back with the test transaction -- so a
+        # later invoice reuses the number and inherits the orphans. Observed in CI:
+        # this query returned 4 rows, two of them another company's `- _TC` accounts
+        # under the same ACC-SINV-2026-00004.
         gl_entries = frappe.get_all(
             "GL Entry",
-            filters={"voucher_no": invoice.name},
+            filters={"voucher_no": invoice.name, "company": self.company_main},
             fields=["account", "debit", "credit", "party", "party_type"],
             order_by="debit desc"
         )
