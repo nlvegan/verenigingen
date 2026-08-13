@@ -1998,7 +1998,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             try:
                 doc.cancel()
             except Exception:
-                frappe.db.rollback(save_point=savepoint)
+                try:
+                    frappe.db.rollback(save_point=savepoint)
+                except Exception:
+                    # The savepoint is gone -- an inner commit dropped it, or a
+                    # deadlock rolled the whole transaction back (MySQL 1305). Letting
+                    # THAT propagate would replace the real cancel failure, and
+                    # `_record_leak` stores str(exception): the recorded reason would
+                    # become "SAVEPOINT ... does not exist", which is untriageable and
+                    # defeats the point of recording it at all (#328).
+                    pass
                 raise
 
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
@@ -5943,7 +5952,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 payment_entry.append("references", ref)
 
         payment_entry.insert()
-        self._track_test_document("Payment Entry", payment_entry.name, priority=4)
+        # 6, matching DRAIN_PRIORITY_BY_DOCTYPE -- the same inversion as Sales
+        # Invoice above. MemberCleanupService.handle_member_deletion keeps the
+        # Customer when the Member still has EITHER a Sales Invoice OR a Payment
+        # Entry, so fixing only the invoice half left the Customer pinned.
+        self._track_test_document("Payment Entry", payment_entry.name, priority=6)
 
         # Submit if requested
         if kwargs.get("submit", False):

@@ -13,7 +13,6 @@ damage the responsible test has finished and the evidence is a row in a table
 nobody is looking at (#328).
 """
 
-import inspect
 import os
 import types
 import unittest
@@ -258,6 +257,60 @@ class DrainCancelsSubmittedDocumentsTest(unittest.TestCase):
         self.assertFalse(frappe.db.exists("Performance Optimization Setup", name))
 
 
+class NonSubmittableRowsAreNotCancelledTest(unittest.TestCase):
+    """`docstatus == 1` alone is not a test for "submitted".
+
+    The framework gate is `meta.is_submittable and docstatus.is_submitted()`.
+    Rows carry docstatus=1 on NON-submittable doctypes all the time -- erpnext
+    calls `gle.submit()` on GL Entry, which is `is_submittable = 0`
+    (erpnext/accounts/general_ledger.py:436), and child rows inherit docstatus
+    from their parent.
+
+    A cancel-first check keyed on docstatus alone tried to cancel those and
+    failed, turning a force-delete that had always worked into a leak. This
+    reproduces that shape without needing accounting fixtures: Territory is
+    non-submittable, and the docstatus is written directly, exactly as erpnext
+    does it to GL Entry.
+    """
+
+    def setUp(self):
+        self.name = None
+
+    def tearDown(self):
+        if self.name:
+            try:
+                frappe.delete_doc("Territory", self.name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+            frappe.db.commit()
+
+    def test_a_non_submittable_row_with_docstatus_1_is_deleted_not_cancelled(self):
+        doc = frappe.get_doc(
+            {
+                "doctype": "Territory",
+                "territory_name": f"zzns-{frappe.generate_hash(length=8)}",
+                "parent_territory": "All Territories",
+            }
+        ).insert()
+        self.name = doc.name
+        # Straight to the column: Territory is not submittable, so there is no
+        # supported API for this -- which is precisely how GL Entry ends up here.
+        frappe.db.set_value("Territory", doc.name, "docstatus", 1, update_modified=False)
+        frappe.db.commit()
+
+        probe = _probe()
+        probe._captured_inserts = [("Territory", doc.name)]
+        probe._drain_captured_inserts()
+
+        self.assertEqual(
+            [],
+            list(probe.leaked_records),
+            "a non-submittable row must be force-deleted, never routed through cancel",
+        )
+        self.assertFalse(frappe.db.exists("Territory", doc.name))
+        self.name = None
+
+
 class CoreFactoryRecordsAreOrderedTest(unittest.TestCase):
     """Core-factory records were drained LAST, after what depends on them.
 
@@ -295,6 +348,32 @@ class CoreFactoryRecordsAreOrderedTest(unittest.TestCase):
             "customer_address, so it must be removed first",
         )
 
+    def test_enhanced_tracked_transactions_drain_before_the_member(self):
+        """Pins the factory's own tracking priorities, not just the map.
+
+        `_drain_priority_for` is consulted only for core records that are not
+        already tracked, so the map alone cannot fix an enhanced-factory record
+        tracked at the wrong priority. Sales Invoice and Payment Entry were both
+        tracked at 4, below Member at 5 -- and MemberCleanupService keeps the
+        Customer when the Member still has EITHER of them.
+        """
+        removed = []
+
+        probe = _probe()
+        probe.factory = _FakeFactory(
+            created_documents=[
+                {"doctype": "Member", "name": "zz-mem", "priority": 5},
+                {"doctype": "Sales Invoice", "name": "zz-si", "priority": 6},
+                {"doctype": "Payment Entry", "name": "zz-pe", "priority": 6},
+            ]
+        )
+        probe._remove_drained_record = lambda doctype, name: removed.append(doctype)
+
+        probe._drain_tracked_documents()
+
+        self.assertLess(removed.index("Sales Invoice"), removed.index("Member"))
+        self.assertLess(removed.index("Payment Entry"), removed.index("Member"))
+
     def test_an_unknown_doctype_still_gets_a_priority(self):
         from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -308,9 +387,6 @@ class DrainRunsAsAdministratorTest(unittest.TestCase):
     (`SEPA Audit Log`), and cleanup should not depend on which user a test
     happened to finish as. The drain asserts its own context (#328).
     """
-
-    def tearDown(self):
-        frappe.set_user("Administrator")
 
     def setUp(self):
         """Leave the session as a non-Administrator, the way a real test can."""
