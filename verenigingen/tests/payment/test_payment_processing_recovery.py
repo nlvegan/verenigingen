@@ -129,10 +129,59 @@ class RecoveryBase(EnhancedTestCase):
                 account = frappe.db.get_value("Bank Account", ba, "account")
                 if account and frappe.db.get_value("Account", account, "account_currency") == "EUR":
                     return ba
-        # Fallback: any account (currency check below is skipped if unset).
-        return frappe.db.get_value("Bank Account", {"is_company_account": 1}, "name") or frappe.db.get_value(
-            "Bank Account", {}, "name"
+        # No EUR account in this process: BUILD one. The previous fallback returned
+        # "any Bank Account", which is the same borrow the loop above exists to avoid
+        # -- it just failed later and less clearly. In CI run 31723633043 shard 12 it
+        # returned "Triodos Test Bank Account", an INR account created in another
+        # module's setUpClass, and all eight Bank Transaction tests died on
+        # "Transaction currency: EUR cannot be different from Bank Account ...
+        # currency". Which account that fallback lands on depends on what else ran in
+        # the shard, so the failure moves whenever the shards re-pack.
+        return cls._build_eur_bank_account(company)
+
+    @classmethod
+    def _build_eur_bank_account(cls, company):
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1}, "name")
+        if not parent:
+            return None
+
+        # A fresh GL account every time, never an existing one: Bank Account enforces
+        # one-Bank-Account-per-Account, so reusing the site's EUR bank account raises
+        # "'Mollie - TPIC' account is already used by Mollie Clearing - Mollie Test
+        # Bank". Any EUR account that ALREADY has a Bank Account is found by the loop
+        # above, so reaching here means we need our own.
+        gl_account = (
+            frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": f"Recovery Test Bank {frappe.generate_hash(length=6)}",
+                    "parent_account": parent,
+                    "company": company,
+                    "account_type": "Bank",
+                    "is_group": 0,
+                    "account_currency": "EUR",
+                }
+            )
+            .insert(ignore_permissions=True)
+            .name
         )
+
+        bank = "Recovery Test Bank"
+        if not frappe.db.exists("Bank", bank):
+            frappe.get_doc({"doctype": "Bank", "bank_name": bank}).insert(ignore_permissions=True)
+
+        bank_account = frappe.new_doc("Bank Account")
+        bank_account.account_name = f"Recovery Test Account {frappe.generate_hash(length=6)}"
+        bank_account.bank = bank
+        bank_account.account = gl_account
+        bank_account.company = company
+        bank_account.is_company_account = 1
+        bank_account.flags.ignore_mandatory = True
+        bank_account.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return bank_account.name
 
     # --- fixture builders -------------------------------------------------
 

@@ -180,6 +180,8 @@ Version History
 - Added comprehensive document tracking with priority-based cleanup
 """
 
+import contextlib
+import functools
 import itertools
 import json
 import random
@@ -200,6 +202,60 @@ from .field_validator import FieldValidationError, FieldValidator
 # Not `frappe.logger()`: that one sits at ERROR under `bench run-tests`, so every
 # warning below was discarded. See verenigingen/tests/harness_logger.py.
 logger = get_harness_logger("factory")
+
+# Module-level, not per-instance: the helpers that need it (get_eur_test_company and
+# friends) are plain functions with no reference to the running test case.
+_insert_capture_suspended = False
+
+
+@contextlib.contextmanager
+def suspend_insert_capture():
+    """Keep the captured-insert drain from claiming rows created inside this block.
+
+    For SHARED, process-wide fixtures that are built LAZILY, i.e. on first use from
+    inside some test's body. The capture hook cannot tell "erpnext building a
+    company's chart of accounts" from "this test made a throwaway row", so it claims
+    the whole thing and the drain deletes it at that one test's teardown -- taking
+    the fixture away from every later class in the shard.
+
+    Exempting the doctypes involved was tried and does not scale: building
+    TEST-Payment-Integration-Company was MEASURED to insert 94 Accounts, 5
+    Warehouses, 2 Cost Centers, the Company, and a Property Setter. Exempting
+    Account and Company left Cost Center and Warehouse to fail the next CI run
+    ("Could not find Row #1: Cost Center: Main - TPIC", 65 occurrences on one shard),
+    and a Property Setter is a schema customization that no drain should touch. The
+    number of doctypes a fixture happens to touch is not a stable thing to enumerate;
+    where the fixture is built is.
+    """
+    global _insert_capture_suspended
+    previous = _insert_capture_suspended
+    _insert_capture_suspended = True
+    try:
+        yield
+    finally:
+        _insert_capture_suspended = previous
+
+
+def shared_fixture(method):
+    """Declare that a get-or-create helper produces SHARED master data.
+
+    Rows created inside are owned by the site, not by whichever test happened to call
+    first, so the captured-insert drain must not claim them.
+
+    Several of these already say so via `track_document(..., priority=-1)` -- but that
+    binds only the TRACKED drain. The captured-insert drain claimed the rows anyway,
+    and once cancel-first let the deletes through, the company's income accounts, bank
+    account and cost centers went with them: "no is_group Income account to parent new
+    income accounts under" (35×) and "Could not find Row #1: Cost Center: Main - TPIC"
+    (65×). This closes that gap for both drains at once.
+    """
+
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        with suspend_insert_capture():
+            return method(*args, **kwargs)
+
+    return wrapper
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
 # Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
@@ -1906,7 +1962,123 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
     # test's own throwaway record, so draining it destroys the seed for the rest
     # of the process and every later test in the shard fails link validation
     # against it. Keep this set SMALL: entries here leak between tests by design.
-    DRAIN_EXEMPT_DOCTYPES = frozenset({"Mode of Payment"})
+    DRAIN_EXEMPT_DOCTYPES = frozenset(
+        {
+            "Mode of Payment",
+            # These refuse deletion unconditionally in their own `on_trash`
+            # ("compliance requirement" / "audit trail integrity"). No cleanup can
+            # ever remove them, so draining them means retrying the same failure
+            # every teardown and re-reporting the same records forever -- noise that
+            # would otherwise be frozen into the leak baseline (#328).
+            "SEPA Operation Audit Log",
+            "SEPA Batch Upload Log",
+            "Mollie Audit Log",
+            # NOT exempt: Account / Company. Both were exempted here to stop the drain
+            # dismantling TEST-Payment-Integration-Company's chart of accounts, and
+            # both were WRONG. A chart is protected at the point it is BUILT, by
+            # `suspend_insert_capture()` -- which also covers the Cost Centers,
+            # Warehouses and Property Setter the same build creates, and which
+            # exempting doctypes never could.
+            #
+            # Exempting them here made accounts and companies leak BETWEEN tests
+            # instead, which broke three e_boekhouden `clear_existing_accounts` tests
+            # that legitimately assert on how many accounts exist -- one of them named
+            # `..._none_to_clear`. A test's own throwaway account must still drain.
+            #
+            # NOT exempt either: GL Entry / Payment Ledger Entry. An earlier revision of this
+            # change exempted them after they showed up as leaks -- but that was
+            # self-inflicted. Both are `is_submittable = 0` while erpnext gives them
+            # `docstatus = 1` (`gle.submit()`, erpnext/accounts/general_ledger.py:436),
+            # so a cancel-first check keyed on docstatus alone tried to cancel them and
+            # hit "Individual GL Entry cannot be cancelled". Force-deleting them works
+            # and always did. `_remove_drained_record` gates on `is_submittable` now,
+            # so exempting them would only hide rows the drain can genuinely remove.
+        }
+    )
+
+    # Drained highest-first. Core-factory records carry no priority of their own --
+    # `test_data_factory.track_doc` records only (doctype, name) -- and defaulting
+    # them to 0 drained them LAST, after the very records whose deletion they block.
+    # A core-created Sales Invoice therefore outlived the Customer it pins, which is
+    # why Customers leaked with "You can disable this Address instead of deleting
+    # it": the invoice's `customer_address` still referenced the Address (#328).
+    DRAIN_PRIORITY_BY_DOCTYPE = {
+        # Transaction documents first: they reference parties and addresses.
+        "Sales Invoice": 6,
+        "Payment Entry": 6,
+        "Journal Entry": 6,
+        "Bank Transaction": 6,
+        "Direct Debit Batch": 6,
+        # Then the domain records.
+        "Membership": 5,
+        "Member": 5,
+        "Volunteer": 4,
+        "Donation": 4,
+        "SEPA Mandate": 4,
+        # Parties and their contact records last -- everything above may point here.
+        "Customer": 3,
+        "Address": 3,
+        "Contact": 3,
+    }
+
+    @classmethod
+    def _drain_priority_for(cls, doctype):
+        """Drain priority for a record tracked without one. Higher drains first."""
+        return cls.DRAIN_PRIORITY_BY_DOCTYPE.get(doctype, 0)
+
+    def _remove_drained_record(self, doctype, name):
+        """Delete one record, cancelling it first if it is submitted.
+
+        `frappe.model.delete_doc` runs `check_permission_and_not_submitted(doc)`
+        BEFORE its `if not force:` guard, so `force=True` does NOT bypass the
+        submitted check -- a submitted document simply cannot be force-deleted.
+        Cancelling first is the only route, and it is also what removes the
+        derived ledger rows (GL Entry, Payment Ledger Entry). Deleting the parent
+        without cancelling would strand those, which is itself a leak: a stranded
+        Payment Ledger Entry is what made a later Sales Invoice undeletable (#328).
+        """
+        if not frappe.db.exists(doctype, name):
+            return
+
+        # `is_submittable`, NOT `docstatus == 1` alone. The framework gate is
+        # `meta.is_submittable and docstatus.is_submitted()`, and plenty of rows carry
+        # docstatus=1 on a NON-submittable doctype -- erpnext calls `gle.submit()` on
+        # GL Entry (general_ledger.py:436), which is `is_submittable = 0`. Cancelling
+        # those raises ("Individual GL Entry cannot be cancelled"), turning a delete
+        # that previously succeeded into a leak. Child rows inherit docstatus from
+        # their parent too, and would be put through a needless cancel/save cycle.
+        if (
+            frappe.get_meta(doctype).is_submittable
+            and frappe.db.get_value(doctype, name, "docstatus") == 1
+        ):
+            doc = frappe.get_doc(doctype, name)
+            doc.flags.ignore_permissions = True
+            doc.flags.ignore_links = True
+
+            # `_save` writes docstatus=2 BEFORE run_post_save_methods() fires on_cancel
+            # and check_no_back_links_exist(). Without a savepoint, a failure part-way
+            # leaves a COMMITTED, cancelled, undeleted record whose on_cancel side
+            # effects already ran -- strictly worse than the submitted leak it
+            # replaces, because erpnext's cancel mutates OTHER documents. Roll back to
+            # pre-cancel and let the caller record an ordinary leak instead.
+            savepoint = f"drain_{frappe.generate_hash(length=8)}"
+            frappe.db.savepoint(savepoint)
+            try:
+                doc.cancel()
+            except Exception:
+                try:
+                    frappe.db.rollback(save_point=savepoint)
+                except Exception:
+                    # The savepoint is gone -- an inner commit dropped it, or a
+                    # deadlock rolled the whole transaction back (MySQL 1305). Letting
+                    # THAT propagate would replace the real cancel failure, and
+                    # `_record_leak` stores str(exception): the recorded reason would
+                    # become "SAVEPOINT ... does not exist", which is untriageable and
+                    # defeats the point of recording it at all (#328).
+                    pass
+                raise
+
+        frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
 
     def setUp(self):
         super().setUp()
@@ -2092,6 +2264,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         def _capturing_db_insert(doc, *args, **kwargs):
             result = orig(doc, *args, **kwargs)
+            if _insert_capture_suspended:
+                # A shared, process-wide fixture is being built. See
+                # suspend_insert_capture() for why claiming these rows is wrong.
+                return result
             try:
                 if doc.doctype and doc.name:
                     captured.append((doc.doctype, doc.name))
@@ -2140,12 +2316,16 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             logger.warning(f"Captured-insert drain pre-rollback failed (skipping): {e}")
             return
 
+        # Cleanup must not depend on whichever user the test finished as. At least
+        # one controller refuses deletion based on `frappe.session.user`, and a test
+        # that calls set_user() without restoring would otherwise drain as that user.
+        # Not restored afterwards: tearDown is ending, and setUp re-asserts it (#328).
+        frappe.set_user("Administrator")
+
         delete_failures = 0
         for doctype, name in ordered:
             try:
-                if not frappe.db.exists(doctype, name):
-                    continue
-                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                self._remove_drained_record(doctype, name)
             except frappe.DoesNotExistError:
                 pass
             except Exception as delete_error:
@@ -2420,7 +2600,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 if key in skip:
                     continue
                 if key not in tracked:
-                    tracked[key] = 0
+                    # NOT 0: see DRAIN_PRIORITY_BY_DOCTYPE. Defaulting core records
+                    # to 0 drained transaction documents after the parties they pin.
+                    tracked[key] = self._drain_priority_for(d["doctype"])
 
         unique = [(dt, nm, prio) for (dt, nm), prio in tracked.items()]
 
@@ -2441,12 +2623,18 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 core.created_records = []
             return
 
+        # Same reason as the captured-insert drain: do not inherit the test's user.
+        frappe.set_user("Administrator")
+
         delete_failures = 0
         for doctype, name, _prio in unique:
+            if doctype in self.DRAIN_EXEMPT_DOCTYPES:
+                # Consulted here too. It used to be checked only by the
+                # captured-insert drain, so exempting a doctype silenced one drain
+                # and left this one retrying it every teardown (#328).
+                continue
             try:
-                if not frappe.db.exists(doctype, name):
-                    continue
-                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                self._remove_drained_record(doctype, name)
             except frappe.DoesNotExistError:
                 pass
             except Exception as e:
@@ -4493,7 +4681,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         invoice = frappe.get_doc(invoice_data)
         invoice.insert()
-        self._track_test_document("Sales Invoice", invoice.name, priority=4)
+        # 6, matching DRAIN_PRIORITY_BY_DOCTYPE. At 4 this sat BELOW Member (5), so the
+        # Member was deleted while its invoice still existed -- and
+        # MemberCleanupService.handle_member_deletion only deletes the Customer when the
+        # Member has no Sales Invoice, so the Customer survived with its Address pinned.
+        # That is the inversion this drain ordering exists to prevent.
+        self._track_test_document("Sales Invoice", invoice.name, priority=6)
 
         # Update grand_total and outstanding_amount manually for testing
         # This simulates overdue invoices with specific amounts
@@ -4510,6 +4703,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         return invoice
 
+    @shared_fixture
     def _get_or_create_income_account(self, company):
         """Get or create a basic income account for testing"""
         account_name = f"Test Sales Income - {company}"
@@ -4773,6 +4967,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         frappe.local.test_company_name = company
         return company
 
+    @shared_fixture
     def _ensure_company_chart_of_accounts(self, company_name):
         """
         Ensure the test company has a Chart of Accounts initialized.
@@ -4900,6 +5095,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             if hasattr(frappe.local.flags, "ignore_root_company_validation"):
                 del frappe.local.flags.ignore_root_company_validation
 
+    @shared_fixture
     def _ensure_company_defaults(self, company_name):
         """
         Ensure company has default receivable, payable accounts, cost center, and round off account.
@@ -4939,6 +5135,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Ensure cost center exists and is set as default
         self._ensure_company_cost_center(company_name)
 
+    @shared_fixture
     def _ensure_company_cost_center(self, company_name):
         """
         Ensure company has a cost center configured.
@@ -5128,6 +5325,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             # Clear the stored original to prevent double-restore
             delattr(frappe.local, "_original_verenigingen_settings")
 
+    @shared_fixture
     def _get_or_create_cost_center(self, company):
         """Get or create a Main cost center for testing"""
         # Check for existing Main cost center
@@ -5831,7 +6029,11 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 payment_entry.append("references", ref)
 
         payment_entry.insert()
-        self._track_test_document("Payment Entry", payment_entry.name, priority=4)
+        # 6, matching DRAIN_PRIORITY_BY_DOCTYPE -- the same inversion as Sales
+        # Invoice above. MemberCleanupService.handle_member_deletion keeps the
+        # Customer when the Member still has EITHER a Sales Invoice OR a Payment
+        # Entry, so fixing only the invoice half left the Customer pinned.
+        self._track_test_document("Payment Entry", payment_entry.name, priority=6)
 
         # Submit if requested
         if kwargs.get("submit", False):
@@ -6282,6 +6484,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         else:
             return frappe.get_doc("Customer", customer_name)
 
+    @shared_fixture
     def _ensure_test_bank_account(self, company):
         """Internal method to ensure test bank account exists for a company"""
         account_name = f"Test Bank - {company}"
@@ -6326,7 +6529,7 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             }
         )
         bank_account.insert(ignore_permissions=True)
-        self.factory.track_document("Account", bank_account.name, priority=1)
+        self.factory.track_document("Account", bank_account.name, priority=-1)
         return bank_account.name
 
     # Bridge methods to specialized factories
