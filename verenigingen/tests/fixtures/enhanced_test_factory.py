@@ -1917,13 +1917,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             "SEPA Operation Audit Log",
             "SEPA Batch Upload Log",
             "Mollie Audit Log",
-            # Ledger derivatives. These are NOT independently removable -- ERPNext
-            # refuses ("Individual GL Entry cannot be cancelled. Please cancel
-            # related transaction.") because they belong to their parent voucher and
-            # are removed when it is cancelled. Draining them directly can only ever
-            # fail, so the parent is the only correct handle (#328).
-            "GL Entry",
-            "Payment Ledger Entry",
+            # NOT exempt: GL Entry / Payment Ledger Entry. An earlier revision of this
+            # change exempted them after they showed up as leaks -- but that was
+            # self-inflicted. Both are `is_submittable = 0` while erpnext gives them
+            # `docstatus = 1` (`gle.submit()`, erpnext/accounts/general_ledger.py:436),
+            # so a cancel-first check keyed on docstatus alone tried to cancel them and
+            # hit "Individual GL Entry cannot be cancelled". Force-deleting them works
+            # and always did. `_remove_drained_record` gates on `is_submittable` now,
+            # so exempting them would only hide rows the drain can genuinely remove.
         }
     )
 
@@ -1970,10 +1971,36 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         """
         if not frappe.db.exists(doctype, name):
             return
-        if frappe.db.get_value(doctype, name, "docstatus") == 1:
+
+        # `is_submittable`, NOT `docstatus == 1` alone. The framework gate is
+        # `meta.is_submittable and docstatus.is_submitted()`, and plenty of rows carry
+        # docstatus=1 on a NON-submittable doctype -- erpnext calls `gle.submit()` on
+        # GL Entry (general_ledger.py:436), which is `is_submittable = 0`. Cancelling
+        # those raises ("Individual GL Entry cannot be cancelled"), turning a delete
+        # that previously succeeded into a leak. Child rows inherit docstatus from
+        # their parent too, and would be put through a needless cancel/save cycle.
+        if (
+            frappe.get_meta(doctype).is_submittable
+            and frappe.db.get_value(doctype, name, "docstatus") == 1
+        ):
             doc = frappe.get_doc(doctype, name)
             doc.flags.ignore_permissions = True
-            doc.cancel()
+            doc.flags.ignore_links = True
+
+            # `_save` writes docstatus=2 BEFORE run_post_save_methods() fires on_cancel
+            # and check_no_back_links_exist(). Without a savepoint, a failure part-way
+            # leaves a COMMITTED, cancelled, undeleted record whose on_cancel side
+            # effects already ran -- strictly worse than the submitted leak it
+            # replaces, because erpnext's cancel mutates OTHER documents. Roll back to
+            # pre-cancel and let the caller record an ordinary leak instead.
+            savepoint = f"drain_{frappe.generate_hash(length=8)}"
+            frappe.db.savepoint(savepoint)
+            try:
+                doc.cancel()
+            except Exception:
+                frappe.db.rollback(save_point=savepoint)
+                raise
+
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
 
     def setUp(self):
@@ -4573,7 +4600,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         invoice = frappe.get_doc(invoice_data)
         invoice.insert()
-        self._track_test_document("Sales Invoice", invoice.name, priority=4)
+        # 6, matching DRAIN_PRIORITY_BY_DOCTYPE. At 4 this sat BELOW Member (5), so the
+        # Member was deleted while its invoice still existed -- and
+        # MemberCleanupService.handle_member_deletion only deletes the Customer when the
+        # Member has no Sales Invoice, so the Customer survived with its Address pinned.
+        # That is the inversion this drain ordering exists to prevent.
+        self._track_test_document("Sales Invoice", invoice.name, priority=6)
 
         # Update grand_total and outstanding_amount manually for testing
         # This simulates overdue invoices with specific amounts

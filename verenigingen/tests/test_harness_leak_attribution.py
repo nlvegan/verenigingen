@@ -154,30 +154,44 @@ class DrainSkipsUndeletableByDesignTest(unittest.TestCase):
     (#328).
     """
 
-    def test_both_drains_honour_the_exemption_set(self):
-        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+    def test_the_tracked_drain_skips_an_exempt_doctype(self):
+        """Behavioural: asserting the source merely mentions the set is not enough.
 
-        source = inspect.getsource(EnhancedTestCase._drain_tracked_documents)
-        self.assertIn(
-            "DRAIN_EXEMPT_DOCTYPES",
-            source,
-            "_drain_tracked_documents deletes without checking the exemption set, so "
-            "adding a doctype to it silences only the captured-insert drain (#328)",
+        An earlier version of this test checked `inspect.getsource(...)` for the
+        constant's name. It passed with the fix fully reverted, because the name
+        still appeared in a comment.
+        """
+        removed = []
+
+        probe = _probe()
+        probe.factory = _FakeFactory(
+            created_documents=[
+                {"doctype": "Mollie Audit Log", "name": "zz-audit", "priority": 5},
+                {"doctype": "Customer", "name": "zz-cust", "priority": 3},
+            ]
+        )
+        probe._remove_drained_record = lambda doctype, name: removed.append(doctype)
+
+        probe._drain_tracked_documents()
+
+        self.assertEqual(
+            ["Customer"],
+            removed,
+            "a doctype whose controller refuses deletion must not be retried by the "
+            "tracked drain either",
         )
 
-    def test_ledger_derivatives_are_exempt(self):
-        """GL Entry and Payment Ledger Entry have no independent existence.
+    def test_ledger_derivatives_are_NOT_exempt(self):
+        """They are force-deletable, and were only ever blocked by our own bug.
 
-        ERPNext refuses to cancel them individually ("Individual GL Entry cannot
-        be cancelled. Please cancel related transaction.") because they belong to
-        their parent voucher. Draining them directly can only fail; cancelling the
-        parent is what removes them. Measured: exempting these took one module
-        from 21 leaks to 2 (#328).
+        Both are `is_submittable = 0` with `docstatus = 1`, so a cancel-first check
+        that keys on docstatus alone tries to cancel them and fails. Exempting them
+        would hide rows the drain can genuinely remove.
         """
         from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
         for doctype in ("GL Entry", "Payment Ledger Entry"):
-            self.assertIn(doctype, EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES)
+            self.assertNotIn(doctype, EnhancedTestCase.DRAIN_EXEMPT_DOCTYPES)
 
     def test_the_unconditional_refusers_are_exempt(self):
         from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -284,7 +298,7 @@ class CoreFactoryRecordsAreOrderedTest(unittest.TestCase):
     def test_an_unknown_doctype_still_gets_a_priority(self):
         from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-        self.assertIsInstance(EnhancedTestCase._drain_priority_for("Some Unknown DocType"), int)
+        self.assertEqual(0, EnhancedTestCase._drain_priority_for("Some Unknown DocType"))
 
 
 class DrainRunsAsAdministratorTest(unittest.TestCase):
@@ -298,14 +312,31 @@ class DrainRunsAsAdministratorTest(unittest.TestCase):
     def tearDown(self):
         frappe.set_user("Administrator")
 
-    def test_the_drain_restores_administrator(self):
-        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+    def setUp(self):
+        """Leave the session as a non-Administrator, the way a real test can."""
+        self._original_user = frappe.session.user
+        frappe.set_user("Guest")
 
-        source = inspect.getsource(EnhancedTestCase._drain_captured_inserts)
-        self.assertIn(
-            'set_user("Administrator")',
-            source,
-            "the drain must not depend on the session user the test left behind",
+    def tearDown(self):
+        frappe.set_user(self._original_user)
+
+    def test_the_drain_switches_to_administrator(self):
+        """Behavioural, and named for what the code does: it switches, not restores.
+
+        The previous version asserted the literal `set_user("Administrator")`
+        appeared in the source. That passed with the call deleted, as long as the
+        string survived in a comment -- it could not fail for its stated reason.
+        """
+        probe = _probe()
+        probe._captured_inserts = [("Territory", "zz-does-not-exist")]
+
+        self.assertNotEqual("Administrator", frappe.session.user, "precondition")
+        probe._drain_captured_inserts()
+
+        self.assertEqual(
+            "Administrator",
+            frappe.session.user,
+            "the drain must not inherit the session user the test finished as",
         )
 
 
