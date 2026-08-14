@@ -23,8 +23,15 @@ the script says so loudly instead of quietly lying.
 
 USAGE (needs the bench venv python, and any site that has the app installed)
 
-    cd ~/frappe-bench
-    ./env/bin/python apps/verenigingen/scripts/testing/show_test_shards.py            # summary
+RUN IT FROM `<bench>/sites`, as the bench CLI does. Importing `parallel_test_runner`
+pulls in `frappe.testing`, which opens a log file at the RELATIVE path
+`../logs/frappe.testing.log` (frappe/utils/logger.py) -- so from anywhere else it either
+writes into an unrelated `logs/` dir or dies with FileNotFoundError before this script
+runs a line of its own. It cost a CI run to learn: from `~/frappe-bench` it silently
+worked on a box that happened to have `~/logs`, and failed on the runner that did not.
+
+    cd ~/frappe-bench/sites
+    ../env/bin/python ../apps/verenigingen/scripts/testing/show_test_shards.py         # summary
     ./env/bin/python .../show_test_shards.py --shard 3                                # list a shard
     ./env/bin/python .../show_test_shards.py --find test_sales_invoice_hooks          # locate a file
     ./env/bin/python .../show_test_shards.py --first                                  # per-shard first file
