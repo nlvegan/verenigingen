@@ -50,6 +50,7 @@ Without that, running the script from a worktree still reports the INSTALLED tre
 import argparse
 import json
 import os
+import random
 import sys
 
 
@@ -131,6 +132,50 @@ def _frappe_timings_key(file_name: str) -> str | None:
     return ".".join(after.split("/")[1:])[: -len(".py")]
 
 
+def seeded_split(tests: list[list[str]], weights: list, chunk_count: int, seed) -> list[list[list[str]]]:
+    """Partition test files across shards by SEED instead of by weight (#328).
+
+    CI's `split_by_weight` is LPT -- heaviest file into the lightest bin, then each
+    shard sorted alphabetically -- and therefore a pure function of the weights. Every
+    PR draws the same co-tenancy, so a latent collision surfaces only when some
+    unrelated edit re-packs the bins and drops a polluter next to its victim. This
+    replaces that determinism with a *recorded* one: the seed picks the layout, and
+    passing the same seed back reproduces it exactly.
+
+    Two things are permuted, because order-dependence has two halves -- who your
+    neighbours are, and who ran before you:
+
+      * placement: files are offered in seeded-random order, each to the currently
+        lightest bin (rather than heaviest-first)
+      * execution order WITHIN each shard, which CI leaves alphabetical
+
+    The cost is balance. Random-order greedy can exceed the mean by as much as the last
+    file a bin accepted, where LPT holds a spread near 1.0 -- acceptable for a nightly
+    chaos run, and `--seed` prints the achieved spread so it is visible rather than
+    assumed.
+
+    Files are sorted by path before shuffling on purpose: the layout then depends only
+    on (file set, seed), not on the order `get_all_tests` happened to walk the tree. A
+    seed that reproduced a layout on one machine and not another would be no seed at
+    all.
+    """
+    rng = random.Random(seed)
+
+    order = sorted(range(len(tests)), key=lambda i: "/".join(tests[i]))
+    rng.shuffle(order)
+
+    chunks: list[list[list[str]]] = [[] for _ in range(chunk_count)]
+    chunk_weights = [0.0] * chunk_count
+    for i in order:
+        lightest = min(range(chunk_count), key=lambda bin_no: chunk_weights[bin_no])
+        chunks[lightest].append(tests[i])
+        chunk_weights[lightest] += weights[i]
+
+    for chunk in chunks:
+        rng.shuffle(chunk)
+    return chunks
+
+
 def _measured_coverage(ptr, tests: list[list[str]]) -> tuple[int, int]:
     """How many test files frappe will actually find a MEASURED weight for.
 
@@ -172,6 +217,12 @@ def main() -> int:
     ap.add_argument("--first", action="store_true", help="show the first file of every shard")
     ap.add_argument("--modules-for", type=int, help="emit a shard's dotted modules, comma-separated")
     ap.add_argument("--bench-root", help="override bench autodetection")
+    ap.add_argument(
+        "--seed",
+        help="CHAOS MODE: permute shard membership AND intra-shard order by this seed "
+        "instead of using CI's weight-determined layout. Pass the same seed to replay a "
+        "layout exactly (#328). Without it, the output is CI's own split, unchanged.",
+    )
     args = ap.parse_args()
 
     bench_root = _bench_root(args.bench_root)
@@ -201,7 +252,10 @@ def main() -> int:
 
     tests = ptr.get_all_tests(args.app)
     weights = [ptr.ParallelTestRunner.get_test_weight(t) for t in tests]
-    chunks = ptr.split_by_weight(tests, weights, chunk_count=args.total)
+    if args.seed is None:
+        chunks = ptr.split_by_weight(tests, weights, chunk_count=args.total)
+    else:
+        chunks = seeded_split(tests, weights, args.total, args.seed)
     weight_of = {"/".join(t): w for t, w in zip(tests, weights, strict=True)}
     measured, total_files = _measured_coverage(ptr, tests)
 
@@ -269,6 +323,8 @@ def main() -> int:
         return 0
 
     print(f"app={args.app} site={site} shards={args.total} patched={patched}")
+    if args.seed is not None:
+        print(f"CHAOS layout, seed={args.seed} -- NOT the layout CI runs; replay with --seed {args.seed}")
     print(
         f"measured weights: {measured}/{total_files} files"
         + ("" if measured else "  <-- NONE, see warning above")
