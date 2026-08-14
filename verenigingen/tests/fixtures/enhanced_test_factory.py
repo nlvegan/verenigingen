@@ -2378,25 +2378,13 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         if not rows:
             return
 
-        from verenigingen.tests.utils.leak_guard import (
-            fail_on_test_leak_enabled,
-            format_leak_failure,
-            format_leak_lines,
-        )
+        from verenigingen.tests.utils.leak_guard import report_leaks
 
         test_id = (
             f"{type(self).__module__}.{type(self).__name__}."
             f"{getattr(self, '_testMethodName', '?')}"
         )
-
-        # Always emit the machine-readable lines, including in failing mode: the
-        # ratchet script parses stdout, and a run that fails still needs its
-        # inventory recorded.
-        for line in format_leak_lines(rows, test_id):
-            print(line)
-
-        if fail_on_test_leak_enabled():
-            raise AssertionError(format_leak_failure(rows, test_id))
+        report_leaks(rows, test_id)
 
     def _restore_throttle_user_limit(self):
         """Undo the setUp override of conf["throttle_user_limit"].

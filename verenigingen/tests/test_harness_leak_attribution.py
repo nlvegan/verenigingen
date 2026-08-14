@@ -13,6 +13,8 @@ damage the responsible test has finished and the evidence is a row in a table
 nobody is looking at (#328).
 """
 
+import contextlib
+import io
 import os
 import pathlib
 import types
@@ -653,11 +655,26 @@ class LeakCheckReportingTest(unittest.TestCase):
         else:
             os.environ[self.ENV] = self._orig
 
+    @staticmethod
+    @contextlib.contextmanager
+    def _swallow_stdout():
+        """Keep these fabricated rows out of the shard log.
+
+        `_finalize_leak_check` PRINTS, and `scripts/testing/check_test_leaks.py`
+        greps the shard log for exactly those lines. Left uncaptured, the
+        `Territory::zz-x boom` invented here is indistinguishable from a real leak
+        and this module carries a permanent, fictional entry in the baseline --
+        a ratchet measuring its own test data.
+        """
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            yield buffer
+
     def test_it_raises_when_the_flag_is_set(self):
         probe = _probe()
         probe._leaked_records = [{"doctype": "Territory", "name": "zz-x", "error": "boom"}]
         os.environ[self.ENV] = "1"
-        with self.assertRaises(AssertionError) as caught:
+        with self._swallow_stdout(), self.assertRaises(AssertionError) as caught:
             probe._finalize_leak_check()
         self.assertIn("zz-x", str(caught.exception))
 
@@ -665,12 +682,99 @@ class LeakCheckReportingTest(unittest.TestCase):
         probe = _probe()
         probe._leaked_records = [{"doctype": "Territory", "name": "zz-x", "error": "boom"}]
         os.environ.pop(self.ENV, None)
-        probe._finalize_leak_check()  # must not raise
+        with self._swallow_stdout() as out:
+            probe._finalize_leak_check()  # must not raise
+        self.assertIn("TEST-LEAK", out.getvalue(), "warning mode still has to report")
 
     def test_no_leaks_is_silent(self):
         probe = _probe()
         os.environ[self.ENV] = "1"
-        probe._finalize_leak_check()  # must not raise
+        with self._swallow_stdout() as out:
+            probe._finalize_leak_check()  # must not raise
+        self.assertEqual("", out.getvalue())
+
+
+class VereningingenBaseReportsLeaksTest(unittest.TestCase):
+    """The OTHER test base has to report leaks in the same machine-readable form.
+
+    `VereningingenTestCase` is not a subclass of `EnhancedTestCase` -- it is a
+    parallel base (ErrorLogGuardMixin, FrappeTestCase) carrying ~450 test classes.
+    It already knows which tracked documents it failed to delete: it records
+    `cleanup_status == "failed"` with the error, and prints a "CLEANUP SUMMARY"
+    block for a human. The ratchet greps for `TEST-LEAK`, so every one of those
+    leaks was invisible to it -- a gate reading only the other base would report a
+    clean suite while half of it leaked.
+    """
+
+    def setUp(self):
+        self.suffix = frappe.generate_hash(length=6)
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _probe_case(self):
+        """A real VereningingenTestCase whose tracked Territory cannot be deleted.
+
+        `runTest` rather than `test_*`: unittest's loader collects names starting
+        with "test", so this class runs only when this test drives it -- but it
+        runs the REAL setUp/tearDown lifecycle, which is the point. Asserting on
+        `_finalize_leak_check()` alone would pass with the tearDown wiring absent.
+        """
+        from verenigingen.tests.utils.base import VereningingenTestCase
+
+        outer = self
+
+        class _LeakingCase(VereningingenTestCase):
+            def runTest(self):
+                parent = frappe.get_doc(
+                    {
+                        "doctype": "Territory",
+                        "territory_name": f"zzbase-parent-{outer.suffix}",
+                        "parent_territory": "All Territories",
+                        "is_group": 1,
+                    }
+                ).insert()
+                outer.created.append(("Territory", parent.name))
+                self.track_doc("Territory", parent.name)
+
+                child = frappe.get_doc(
+                    {
+                        "doctype": "Territory",
+                        "territory_name": f"zzbase-child-{outer.suffix}",
+                        "parent_territory": parent.name,
+                    }
+                ).insert()
+                # Untracked on purpose: the parent must still be held when cleanup
+                # reaches it, or there is no leak to report.
+                outer.created.append(("Territory", child.name))
+                frappe.db.commit()
+                outer.leaked_name = parent.name
+
+        return _LeakingCase("runTest")
+
+    def test_a_tracked_document_it_could_not_delete_is_reported_as_a_leak(self):
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self._probe_case().run(unittest.TestResult())
+
+        # One substring, not two assertions: `_report_cleanup_summary` also prints the
+        # name, so separate checks could be satisfied by two different lines.
+        self.assertIn(
+            f"TEST-LEAK {type(self).__module__}",
+            buf.getvalue(),
+            "this base's undeletable documents must be reported in the same "
+            "machine-readable form as EnhancedTestCase's, or the ratchet cannot see them",
+        )
+        self.assertRegex(buf.getvalue(), rf"TEST-LEAK \S+ Territory::{self.leaked_name}\b")
 
 
 if __name__ == "__main__":

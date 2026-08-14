@@ -142,6 +142,22 @@ jobs:
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
             --baseline "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/verenigingen/tests/known_test_failures.txt"
 
+      - name: Gate on test leaks
+        # Reads the SAME captured output. A test that leaves a record behind does not
+        # fail; a later test in this shard collides with it and fails instead, naming
+        # neither the record nor the test that produced it. The baseline lets the
+        # existing debt stand while forbidding new leaks.
+        #
+        # A failure in the step above would otherwise skip this one, so a leak
+        # regression arriving alongside a test failure would surface a whole CI cycle
+        # later. The two gates answer different questions. `!cancelled()` rather than
+        # `always()`, so a cancelled job does not run it and report a missing log.
+        if: ${{ !cancelled() }}
+        run: |
+          python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_test_leaks.py" \
+            --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
+            --baseline "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/verenigingen/tests/known_test_leaks.txt"
+
       - name: Upload Coverage to Codecov
         # frappe's run-parallel-tests --with-coverage writes coverage.xml under
         # sites/ (the bench CLI runs frappe commands with cwd=sites/, so
