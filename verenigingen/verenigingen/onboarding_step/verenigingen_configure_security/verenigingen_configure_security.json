@@ -1,5 +1,5 @@
 {
-  "action": "Go to Settings",
+  "action": "Update Settings",
   "action_label": "Configure Security Settings",
   "creation": "2025-07-29 00:00:00.000000",
   "description": "Configure critical security settings to ensure proper data access control, audit compliance, and permission management for your association.",
@@ -15,7 +15,6 @@
   "modified_by": "Administrator",
   "name": "Verenigingen-Configure-Security",
   "owner": "Administrator",
-  "path": "#workspace/settings",
   "reference_document": "System Settings",
   "show_form_tour": 0,
   "show_full_form": 0,
