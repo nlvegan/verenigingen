@@ -56,20 +56,20 @@ membership *and* execution order within a shard — where CI's own split is a pu
 function of the weights and therefore identical on every PR. `chaos-shards.yml` runs it
 nightly, report-only.
 
-Seed **20260814**, shard 6:
+Seed **20260814** found **two** order-dependent modules in the eight shards checked
+before handoff. Both fail in-suite and **pass solo**, which is the collision-victim
+classification the detector exists to make:
 
-```
-verenigingen.tests.backend.unit.services.test_payment_history_service
-  .TestPaymentCoverageService.test_get_coverage_from_schedule_found
-```
+| shard | finding | solo |
+|---|---|---|
+| 6 | `tests.backend.unit.services.test_payment_history_service.TestPaymentCoverageService.test_get_coverage_from_schedule_found` (1 failure) | 22 tests, 0 failures |
+| 7 | `tests.backend.comprehensive.test_reconciliation_edge_cases` — 4 errors across `TestDuplicatePaymentDetection` and `TestPartialPaymentReconciliation` | 30 tests, 0 errors |
 
-fails in-suite and **passes solo** (22 tests, 0 failures) — a collision victim, which is
-the classification the detector exists to make. Shards 4, 6 and 10 verified so far;
-4 and 10 clean at 2029 and 2014 tests.
+The other six checked shards were clean (2, 3, 4, 9, 10, 12 — 1597 to 2290 tests each).
 
-**Replay is proven, not asserted.** CI's `chaos_modules_N.txt` for shards 4, 6 and 10 is
-byte-identical to lists generated locally from the same seed — same members *and* same
-order. Recipe:
+**Replay is proven, not asserted.** CI's `chaos_modules_N.txt` was byte-identical to
+lists generated locally from the same seed — same members *and* same order — for
+**8 of 8** shards checked. Recipe:
 
 ```bash
 cd ~/frappe-bench/sites
@@ -144,10 +144,12 @@ double-run risk is real and is documented instead.
 
 ## Next
 
-1. **The shard-6 finding above.** It is reproducible today: replay seed 20260814 and
-   bisect the prefix with `order_dependence_detector.py` to name the polluter.
-2. **The remaining shards of run 31782223549** were still finishing at handoff — 9 of 12.
-   Artifacts carry `chaos_modules_N.txt` / `chaos_result_N.json` per shard.
+1. **The two findings above.** Both are reproducible today: replay seed 20260814 for
+   shard 6 or 7 and bisect the prefix with `order_dependence_detector.py` to name the
+   polluter. Neither has been triaged beyond "passes solo, fails in-suite".
+2. **The remaining shards of run 31782223549** were still finishing at handoff — 8 of 12
+   collected. Artifacts carry `chaos_modules_N.txt` / `chaos_result_N.json` per shard,
+   for 14 days.
 3. **#328 mechanism 2** (isolation diff: run each module alone *and* in-suite; the two
    directions are different bugs) is the last unbuilt mechanism.
 4. **#308's remaining borrow sites** — 35 `get_all`/`get_list("Company", limit=1)` in the
