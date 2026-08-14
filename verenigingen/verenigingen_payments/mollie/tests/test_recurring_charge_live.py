@@ -1,8 +1,12 @@
-"""End-to-end recurring charge against the real Mollie test API.
+"""A recurring charge that really settles, against the real Mollie test API.
 
-This is the one test where a payment ACTUALLY OCCURS. Everything else in the
-Mollie suite either fakes the client or stops at subscription setup, so the
-"money actually moved and we handled it" path had no coverage at all.
+Scope, stated precisely: this proves the *charge mechanism* end to end -- a
+mandate is created, a recurring payment is charged against it, and it reaches
+``paid``. It does NOT prove the app handles a paid recurring charge, because the
+app does not yet handle one: ``SubscriptionService._process_membership_subscription_payment``
+is a stub that returns a literal dict ("This would integrate with existing
+membership payment processing"). Asserting against that stub would be asserting
+against constants, so this module deliberately does not.
 
 Why this works without a browser or a credit card
 -------------------------------------------------
@@ -15,16 +19,26 @@ Recurring payments are the exception. They have no checkout (they run without th
 customer), so Mollie attaches a ``changePaymentState`` link to them in test mode
 precisely so you can settle them yourself. That link is an ordinary HTML form --
 a ``_formtoken`` and a ``final_state`` radio -- so a plain HTTP POST drives the
-payment to ``paid``. Verified: the payment flips from ``pending`` to ``paid``
-within about a second.
+payment to whichever final state you post. Posting ``paid`` lands in about a
+second. (The account history shows ``failed`` payments from this module too;
+those are deliberate mutation runs that posted ``final_state=failed`` to prove
+these tests bite, not flakiness.)
 
-That also makes this test exercise the instrument the app actually uses. The
+That also makes this exercise the instrument the app actually uses. The
 production recurring path is SEPA-mandate based (``payment_gateways.py`` passes
 ``consumerAccount``, the member's IBAN); the app never touches credit cards.
 
-Hygiene: every Mollie object created here is torn down in tearDown. The suite
-skips entirely without ``mollie_test_secret_key``, so CI never reaches the
-network.
+Hygiene, stated honestly
+------------------------
+Customers and mandates ARE torn down. **Payments are not, and cannot be** -- a
+settled Mollie payment is not deletable through any API. So every run of this
+module leaves permanent payment records on the shared Mollie test account (two,
+at time of writing). That is the standing cost of testing a real charge; it is
+accepted deliberately rather than hidden. Runs cannot collide -- each creates its
+own customer and tears down only its own ids.
+
+The suite skips entirely without ``mollie_test_secret_key``, so CI never reaches
+the network. With a key present but no network, it ERRORS rather than skipping.
 """
 
 import re
@@ -32,6 +46,8 @@ import time
 from datetime import datetime, timezone
 
 import requests
+
+import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
@@ -61,24 +77,35 @@ class TestRecurringChargeLive(EnhancedTestCase):
         self._customer_ids = []
 
     def tearDown(self):
+        # A swallowed failure here leaks a customer + mandate on a SHARED account
+        # with no signal at all, so every failure is logged rather than passed.
         for customer_id in getattr(self, "_customer_ids", []):
             try:
                 customer_obj = self.sdk.customers.get(customer_id)
                 for mandate in customer_obj.mandates.list():
                     try:
                         customer_obj.mandates.delete(mandate.id)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        frappe.logger().warning(
+                            f"Mollie test cleanup: could not delete mandate {mandate.id} "
+                            f"on customer {customer_id}: {e}"
+                        )
                 self.sdk.customers.delete(customer_id)
-            except Exception:
-                pass
+            except Exception as e:
+                frappe.logger().warning(
+                    f"Mollie test cleanup: leaked customer {customer_id} on the shared "
+                    f"Mollie test account: {e}"
+                )
         super().tearDown()
 
     # --- helpers -------------------------------------------------------------
 
     def _customer_with_mandate(self):
+        # Unique per run: a fixed name/email makes any leaked customer
+        # indistinguishable from earlier runs' leaks.
+        token = frappe.generate_hash(length=8)
         customer = self.sdk.customers.create(
-            {"name": "Recurring Charge Test", "email": "recurring-charge@example.org"}
+            {"name": f"Recurring Charge Test {token}", "email": f"recurring-charge-{token}@example.org"}
         )
         self._customer_ids.append(customer.id)
         customer_obj = self.sdk.customers.get(customer.id)
@@ -132,7 +159,13 @@ class TestRecurringChargeLive(EnhancedTestCase):
     # --- tests ---------------------------------------------------------------
 
     def test_recurring_charge_actually_settles_to_paid(self):
-        """The charge itself: a real recurring payment that really becomes paid."""
+        """The charge itself: a real recurring payment that really becomes paid.
+
+        This validates the scaffold rather than this repo's code -- almost nothing
+        of `verenigingen` runs here. It earns its place by being the thing that
+        proves the settle mechanism works, which the test below depends on; if
+        Mollie changes the test-mode flow, this is what says so.
+        """
         customer_obj, mandate_id = self._customer_with_mandate()
 
         payment = customer_obj.payments.create(
@@ -152,38 +185,12 @@ class TestRecurringChargeLive(EnhancedTestCase):
         self.assertTrue(settled.is_paid())
         self.assertEqual(settled.amount["value"], "12.34")
 
-    def test_app_processes_a_genuinely_paid_recurring_charge(self):
-        """The app's handler, fed a charge that really happened.
-
-        process_subscription_payment refuses anything not `paid`, so before this
-        test nothing exercised it against a payment Mollie had actually settled --
-        only against fakes asserting they were paid.
-        """
-        customer_obj, mandate_id = self._customer_with_mandate()
-
-        payment = customer_obj.payments.create(
-            {
-                "amount": {"currency": "EUR", "value": "25.00"},
-                "description": "Recurring dues charge",
-                "sequenceType": "recurring",
-                "mandateId": mandate_id,
-                "metadata": {"subscription_type": "membership_dues"},
-            }
-        )
-        settled = self._settle_to_paid(payment)
-        self.assertEqual(settled.status, "paid")
-
-        result = SubscriptionService(self.client).process_subscription_payment(settled.id)
-
-        self.assertEqual(result["type"], "membership_subscription")
-        self.assertEqual(result["amount"], 25.0)
-        self.assertTrue(result["processed"])
-
     def test_handler_rejects_a_charge_that_did_not_settle(self):
-        """The negative half: an unsettled recurring payment must be refused.
+        """An unsettled recurring payment must be refused by the app.
 
-        Without this, test_app_processes_a_genuinely_paid_recurring_charge would
-        still pass if the paid-status guard were deleted.
+        This one DOES exercise production code -- the paid-status guard in
+        process_subscription_payment -- against a real Mollie payment that is
+        genuinely still pending, rather than a fake asserting it is.
         """
         from verenigingen.verenigingen_payments.mollie.exceptions import MollieIntegrationError
 
