@@ -614,7 +614,13 @@ class PublicDonationService(StatelessService):
                     {
                         "donor_email": form_data.get("email", ""),
                         "donor_name": f"{form_data.get('first_name', '')} {form_data.get('last_name', '')}".strip(),
-                        "subscription_interval": form_data.get("recurring_interval", "1 month"),
+                        # donate.html posts `subscription_interval` (the hidden input the
+                        # frequency buttons write). Reading only `recurring_interval` --
+                        # a key nothing sends -- meant every recurring donation fell to
+                        # the "1 month" default, so a quarterly or annual donor was
+                        # billed monthly. Same precedence as line 210.
+                        "subscription_interval": form_data.get("subscription_interval")
+                        or form_data.get("recurring_interval", "1 month"),
                         "locale": "nl_NL",
                     }
                 )

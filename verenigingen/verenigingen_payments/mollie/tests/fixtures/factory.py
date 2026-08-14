@@ -56,7 +56,7 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
         self.realistic_amounts = [15.00, 25.00, 35.00, 50.00, 75.00, 100.00, 150.00]
 
         # Common payment intervals
-        self.subscription_intervals = ["1 month", "3 months", "6 months", "1 year"]
+        self.subscription_intervals = ["1 month", "3 months", "6 months", "12 months"]
 
     def generate_mollie_customer_id(self) -> str:
         """Generate realistic Mollie customer ID (14 chars after cst_)"""

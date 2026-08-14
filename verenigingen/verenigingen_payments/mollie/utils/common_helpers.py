@@ -175,6 +175,49 @@ def convert_frequency_to_mollie_interval(frequency: str) -> str:
     return result
 
 
+# Mollie counts subscription intervals in days, weeks and months. There is no year
+# unit: "1 year" comes back 422 "The interval unit is invalid", as does "2 years".
+# Measured against the Mollie test API -- a customer with a real directdebit mandate,
+# one subscription create per candidate, all cancelled afterwards -- because a probe
+# WITHOUT a mandate proves nothing: "no suitable mandates found" is checked before the
+# interval is, so every candidate including nonsense returns an identical 422.
+# An annual subscription is "12 months". (tests/contracts/mollie-contracts.json carries
+# a near-identical pattern, but nothing loads that file, and it admits "0 months" --
+# it is documentation, not the authority for this grammar.)
+MOLLIE_INTERVAL_PATTERN = re.compile(r"^[1-9][0-9]* (day|days|week|weeks|month|months)$")
+
+
+def is_valid_mollie_interval(interval: Any) -> bool:
+    """True if Mollie's subscription API will accept this interval string."""
+    if not isinstance(interval, str):
+        return False
+
+    return bool(MOLLIE_INTERVAL_PATTERN.match(interval.strip()))
+
+
+def validate_mollie_interval(interval: Any, context: str = "") -> str:
+    """Return the interval, or throw if Mollie would refuse it.
+
+    Deliberately throws rather than falling back to a default. The failure this
+    guards is silent by construction: an interval Mollie refuses surfaces only as
+    a 422 inside a broad except that writes an Error Log, so substituting a
+    "sensible" default here would bill someone on the wrong schedule instead --
+    the louder failure is the safer one.
+    """
+    if is_valid_mollie_interval(interval):
+        return interval.strip()
+
+    where = f" ({context})" if context else ""
+    frappe.throw(
+        _(
+            "Mollie will not accept the subscription interval {0}{1}. Intervals are "
+            "counted in days, weeks or months -- an annual subscription must be "
+            "expressed as '12 months', not '1 year'."
+        ).format(frappe.bold(interval if interval else repr(interval)), where),
+        title=_("Invalid subscription interval"),
+    )
+
+
 def is_long_interval(interval: str) -> bool:
     """
     Check if a Mollie interval is quarterly or longer.
