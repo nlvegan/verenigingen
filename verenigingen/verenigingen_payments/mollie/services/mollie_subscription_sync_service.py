@@ -560,13 +560,16 @@ class MollieSubscriptionSyncService:
             amount = dues_schedule.dues_rate if dues_schedule else 0
 
         else:
-            # Fallback for other amendment types
-            dues_schedule = self._get_membership_dues_schedule(membership.member)
-            amount = dues_schedule.dues_rate if dues_schedule else 0
-            interval = (
-                BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(dues_schedule.billing_frequency, "1 month")
-                if dues_schedule
-                else "1 month"
+            # No silent fallback. This used to bill the member's full dues rate for
+            # any amendment type without pricing rules of its own -- Suspension,
+            # Reactivation, Plan Change. sync_subscription_for_amendment now refuses
+            # those before they reach here (REPRICING_AMENDMENT_TYPES), so this
+            # branch is unreachable in production; raising keeps that frozenset the
+            # single source of truth instead of letting a second, softer answer
+            # drift away from it.
+            raise MollieIntegrationError(
+                f"Amendment type {amendment_doc.amendment_type!r} has no subscription "
+                f"pricing rules; it must not reach _get_subscription_parameters"
             )
 
         return amount, interval
@@ -666,6 +669,15 @@ class MollieSubscriptionSyncService:
         The repository also gets two details right that the hand-rolled query did
         not: it excludes templates (is_template=0), and it does not filter on a
         "Scheduled" status that is not in the doctype's Select at all.
+
+        CAUTION: the repository logs and swallows query errors, returning None --
+        so None here means "no active schedule" OR "the lookup failed", and callers
+        cannot tell them apart. That matters most in the Fee Change branch of
+        _get_subscription_parameters, where None yields interval "1 month": a
+        transient database error there re-prices an Annual member to monthly, which
+        is the exact defect this lookup was fixed to remove. The other two callers
+        fail closed (amount 0, which Mollie rejects; and a failed verification that
+        escalates to an admin).
         """
         return DuesScheduleRepository().get_active_schedule(member_id)
 

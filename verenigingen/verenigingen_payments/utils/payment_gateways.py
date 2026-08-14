@@ -550,23 +550,26 @@ class MollieGateway(PaymentGateway):
                 },
             }
 
-            # Prepare subscription data.
-            #
-            # This is a passthrough allow-list, and anything missing from it is
-            # silently rewritten to "1 month" below -- so a gap here is an
-            # overbilling bug, not a no-op.
-            #
             # Passthrough allow-list: anything missing is silently rewritten to
             # "1 month" below, so a gap here is an overbilling bug, not a no-op.
             #
-            # These are exactly the values Mollie's subscriptions API accepts,
-            # verified against the live test API. Note "1 year" is NOT one of them
-            # -- Mollie answers 422 "The interval unit is invalid" -- so an annual
-            # subscription must be expressed as "12 months".
+            # Scope is exactly what can reach this method. Both production callers
+            # -- _activate_subscription_after_first_payment and
+            # create_member_subscription -- ultimately carry a Membership Dues
+            # Schedule billing_frequency through convert_frequency_to_mollie_interval()
+            # (mollie/utils/common_helpers.py), whose output for that vocabulary is
+            # the set below. "12 months" (Annual) was missing, which downgraded every
+            # annual subscription to monthly.
             #
-            # The producer is convert_frequency_to_mollie_interval() in
-            # mollie/utils/common_helpers.py; "12 months" (Annual/Yearly) and
-            # "2 weeks" (Bi-Weekly) were both missing here.
+            # "2 weeks" is deliberately absent: it comes only from Bi-Weekly, which
+            # is Donation.recurring_frequency vocabulary, and donation subscriptions
+            # bypass this method entirely (they call customer.subscriptions.create()
+            # directly). Adding it would widen the allow-list for input that cannot
+            # arrive.
+            #
+            # "1 year" is absent because Mollie rejects it outright -- 422 "The
+            # interval unit is invalid", verified against the live test API. An
+            # annual subscription must be expressed as "12 months".
             #
             # NOT to be confused with BILLING_INTERVAL_TO_MOLLIE_FORMAT in
             # mollie_subscription_sync_service.py: that map feeds MollieClient
@@ -574,7 +577,6 @@ class MollieGateway(PaymentGateway):
             interval_mapping = {
                 "1 day": "1 day",
                 "1 week": "1 week",
-                "2 weeks": "2 weeks",
                 "1 month": "1 month",
                 "3 months": "3 months",
                 "6 months": "6 months",
@@ -2152,7 +2154,6 @@ def create_member_subscription(member_id: str, amount, interval="1 month", descr
         supported_intervals = (
             "1 day",
             "1 week",
-            "2 weeks",
             "1 month",
             "3 months",
             "6 months",

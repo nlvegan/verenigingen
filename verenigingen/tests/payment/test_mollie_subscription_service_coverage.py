@@ -507,7 +507,7 @@ class TestGetSubscriptionParameters(EnhancedTestCase):
         membership = self.create_test_membership(member_name=member.name)
         for name in frappe.get_all(
             "Membership Dues Schedule",
-            filters={"member": member.name, "status": ["in", ["Active", "Scheduled"]]},
+            filters={"member": member.name, "status": "Active"},
             pluck="name",
         ):
             frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
@@ -551,15 +551,21 @@ class TestGetSubscriptionParameters(EnhancedTestCase):
         # No dues schedule -> amount 0.
         self.assertEqual(amount, 0)
 
-    def test_unknown_amendment_type_falls_back(self):
+    def test_unknown_amendment_type_refuses_to_guess(self):
+        """An amendment type with no pricing rules must raise, not fall back.
+
+        This used to assert interval "1 month" / amount 0 -- i.e. it pinned a
+        silent fallback that, once the dues-schedule lookup was fixed, would have
+        billed the member's full rate for a Suspension. The gate in
+        sync_subscription_for_amendment keeps this unreachable in production; the
+        raise keeps REPRICING_AMENDMENT_TYPES the single source of truth.
+        """
         service = self._service()
         membership, member = self._membership()
         amendment = frappe._dict(amendment_type="Something Else")
 
-        amount, interval = service._get_subscription_parameters(amendment, membership)
-
-        self.assertEqual(interval, "1 month")
-        self.assertEqual(amount, 0)
+        with self.assertRaises(MollieIntegrationError):
+            service._get_subscription_parameters(amendment, membership)
 
 
 class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
@@ -576,8 +582,11 @@ class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
     * BILLING_INTERVAL_TO_MOLLIE_FORMAT was keyed on "Annually"/"Semi-Annually",
       but the Select vocabulary is "Annual"/"Semi-Annual", and Weekly/Daily were
       absent entirely -- so 5 of the 7 options silently fell back to "1 month".
-      Live data is 1087 Annual / 563 Quarterly / 10 Monthly, so this fires as soon
-      as the lookup above starts returning real rows.
+      Of the schedules this path can actually reach (is_template=0), live data is
+      35 Annual / 560 Quarterly / 0 Monthly, so the mapping fix bites on the 35
+      Annual ones the moment the lookup above starts returning real rows.
+      (A raw count over the whole table reads 1087/563/10, but 1052 of those
+      Annual rows are templates, which get_active_schedule filters out.)
     """
 
     def _service(self):
@@ -767,10 +776,11 @@ class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
                     result = payment_gateways.create_member_subscription(
                         member.name, 25.0, interval=emitted
                     )
-                self.assertNotIn(
-                    "Unsupported subscription interval",
-                    str(result.get("message", "")),
-                    f"{frequency} -> {emitted!r} is rejected by the endpoint",
+                self.assertEqual(
+                    result["status"],
+                    "success",
+                    f"{frequency} -> {emitted!r} was not accepted by the endpoint: "
+                    f"{result.get('message')}",
                 )
 
     # --- helpers for the two tests above -------------------------------------
@@ -919,6 +929,11 @@ class TestVerifySubscriptionAmount(EnhancedTestCase):
 
         # Expected differs from Mollie's 25.00 and there is genuinely no dues
         # schedule to rescue it on retry.
+        self.assertIsNone(
+            service._get_membership_dues_schedule(member.name),
+            "premise: this member must genuinely have no findable schedule",
+        )
+
         result = service._verify_subscription_amount(member, membership, "sub_1", 99.0)
 
         self.assertFalse(result["verified"])

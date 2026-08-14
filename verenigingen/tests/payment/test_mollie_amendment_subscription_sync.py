@@ -308,7 +308,7 @@ class TestAmendmentSyncPatchPath(EnhancedTestCase):
         # an amount-only amendment really is amount-only.
         for name in frappe.get_all(
             "Membership Dues Schedule",
-            filters={"member": member.name, "status": ["in", ["Active", "Scheduled"]]},
+            filters={"member": member.name, "status": "Active"},
             pluck="name",
         ):
             frappe.db.set_value(
