@@ -56,20 +56,42 @@ membership *and* execution order within a shard — where CI's own split is a pu
 function of the weights and therefore identical on every PR. `chaos-shards.yml` runs it
 nightly, report-only.
 
-Seed **20260814** found **two** order-dependent modules in the eight shards checked
-before handoff. Both fail in-suite and **pass solo**, which is the collision-victim
-classification the detector exists to make:
+Run **31782223549**, seed **20260814**, 12 shards, **22,612 tests**: three findings, in
+nine otherwise-clean shards. All three fail in-suite and **pass solo**, which is the
+collision-victim classification the detector exists to make.
 
 | shard | finding | solo |
 |---|---|---|
 | 6 | `tests.backend.unit.services.test_payment_history_service.TestPaymentCoverageService.test_get_coverage_from_schedule_found` (1 failure) | 22 tests, 0 failures |
 | 7 | `tests.backend.comprehensive.test_reconciliation_edge_cases` — 4 errors across `TestDuplicatePaymentDetection` and `TestPartialPaymentReconciliation` | 30 tests, 0 errors |
+| 11 | `tests.e_boekhouden.test_cleanup_utils_coverage.TestCleanupListHelpersSuccess.test_cleanup_sales_invoices_deletes_seeded_si` (1 failure) | (already catalogued, see below) |
 
-The other six checked shards were clean (2, 3, 4, 9, 10, 12 — 1597 to 2290 tests each).
+**The shard-11 finding both validates the mechanism and corrects #308.** That test is one
+of the five #328 harvested and #308 root-caused — attributed there to orphaned Payment
+Ledger Entries left by
+`tests/backend/components/test_sepa_reconciliation.py:229`'s `delete_doc(..., force=True)`
+of a submitted invoice. Diagnosing it originally required recovering a historical CI
+run's logs and hand-replicating that commit's shard layout.
+
+This draw reproduced it on demand — **with `test_sepa_reconciliation` absent from the
+shard entirely.** The victim sits at position 6, so the whole candidate prefix is five
+modules:
+
+```
+1 verenigingen_payments.core.test_response_cache
+2 verenigingen_payments.mollie.tests.test_mollie_payments_debug_unit
+3 tests.backend.components.test_chapter_assignment_edge_cases
+4 tests.e_boekhouden.test_migration_pure_helpers
+5 tests.backend.components.test_membership_analytics_functionality
+```
+
+So either another module leaves the same orphan PLEs, or the cause is broader than the
+one site #308 names. Not bisected — but a five-module prefix is minutes of work against
+the hours the original diagnosis took, which is the entire point of the mechanism.
 
 **Replay is proven, not asserted.** CI's `chaos_modules_N.txt` was byte-identical to
 lists generated locally from the same seed — same members *and* same order — for
-**8 of 8** shards checked. Recipe:
+**12 of 12** shards. Recipe:
 
 ```bash
 cd ~/frappe-bench/sites
@@ -144,17 +166,18 @@ double-run risk is real and is documented instead.
 
 ## Next
 
-1. **The two findings above.** Both are reproducible today: replay seed 20260814 for
-   shard 6 or 7 and bisect the prefix with `order_dependence_detector.py` to name the
-   polluter. Neither has been triaged beyond "passes solo, fails in-suite".
-2. **The remaining shards of run 31782223549** were still finishing at handoff — 8 of 12
-   collected. Artifacts carry `chaos_modules_N.txt` / `chaos_result_N.json` per shard,
-   for 14 days.
-3. **#328 mechanism 2** (isolation diff: run each module alone *and* in-suite; the two
+1. **Bisect shard 11's five-module prefix** — the cheapest of the three, and it either
+   names a second polluter for the orphan-PLE class or widens #308's attribution.
+   Feed prefixes of `--modules-for 11` to `order_dependence_detector.py`.
+2. **Triage the shard 6 and 7 findings** the same way. Neither is catalogued anywhere
+   yet; both are reproducible from seed 20260814.
+3. **Artifacts** for run 31782223549 carry `chaos_modules_N.txt` / `chaos_result_N.json`
+   per shard, for 14 days.
+4. **#328 mechanism 2** (isolation diff: run each module alone *and* in-suite; the two
    directions are different bugs) is the last unbuilt mechanism.
-4. **#308's remaining borrow sites** — 35 `get_all`/`get_list("Company", limit=1)` in the
+5. **#308's remaining borrow sites** — 35 `get_all`/`get_list("Company", limit=1)` in the
    test tree.
-5. **`check_new_test_failures.py`'s docstring still cites a "~2,336 failing" baseline.**
+6. **`check_new_test_failures.py`'s docstring still cites a "~2,336 failing" baseline.**
    `known_test_failures.txt` now has **zero** live entries, and
    `known_test_failures_v16.txt` (2359 lines) is wired nowhere.
 
