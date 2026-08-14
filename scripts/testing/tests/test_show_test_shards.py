@@ -125,5 +125,98 @@ class FrappeTimingsKeyTest(unittest.TestCase):
         self.assertIsNone(sts._frappe_timings_key("/tmp/scratch/wt/verenigingen/tests/test_x.py"))
 
 
+class SeededSplitTest(unittest.TestCase):
+    """The chaos partition (#328 mechanism 3).
+
+    CI's own split is a pure function of the weights, so every PR draws the SAME
+    co-tenancy and latent collisions surface only when an unrelated edit re-packs the
+    bins. This permutes deliberately, and the seed is what makes a red draw
+    reproducible -- so "same seed, same partition" is the property the whole mechanism
+    rests on.
+    """
+
+    def _corpus(self, count=120):
+        tests = [["", "apps", "app", "pkg", "tests", f"test_{i:03}.py"] for i in range(count)]
+        weights = [1 + (i % 7) for i in range(count)]
+        return tests, weights
+
+    def test_the_same_seed_gives_the_same_partition(self):
+        tests, weights = self._corpus()
+        self.assertEqual(
+            sts.seeded_split(tests, weights, 12, 4711),
+            sts.seeded_split(tests, weights, 12, 4711),
+        )
+
+    def test_a_different_seed_gives_a_different_partition(self):
+        """The test a no-op seed would fail."""
+        tests, weights = self._corpus()
+        self.assertNotEqual(
+            sts.seeded_split(tests, weights, 12, 4711),
+            sts.seeded_split(tests, weights, 12, 1234),
+        )
+
+    def test_a_different_seed_moves_files_BETWEEN_shards(self):
+        """Membership, not just order -- and the two are separately breakable.
+
+        Without this, dropping the placement shuffle entirely still passes
+        `test_a_different_seed_gives_a_different_partition`, because the intra-shard
+        shuffle alone makes the lists differ. The whole point is new NEIGHBOURS.
+        """
+        tests, weights = self._corpus()
+        one = {frozenset(tuple(t) for t in chunk) for chunk in sts.seeded_split(tests, weights, 12, 4711)}
+        two = {frozenset(tuple(t) for t in chunk) for chunk in sts.seeded_split(tests, weights, 12, 1234)}
+        self.assertNotEqual(one, two)
+
+    def test_it_loses_nothing_and_duplicates_nothing(self):
+        tests, weights = self._corpus()
+        chunks = sts.seeded_split(tests, weights, 12, 99)
+        flat = [t for chunk in chunks for t in chunk]
+        self.assertEqual(len(tests), len(flat))
+        self.assertEqual(sorted(map(tuple, tests)), sorted(map(tuple, flat)))
+
+    def test_it_returns_exactly_the_requested_number_of_shards(self):
+        tests, weights = self._corpus()
+        self.assertEqual(12, len(sts.seeded_split(tests, weights, 12, 99)))
+
+    def test_no_shard_overshoots_the_target_by_more_than_one_file(self):
+        """Random-order greedy trades LPT's balance for varied co-tenancy.
+
+        The bound is what makes that trade acceptable: placing each file into the
+        lightest bin means a bin can only exceed the mean by the last file it took.
+        """
+        tests, weights = self._corpus()
+        chunks = sts.seeded_split(tests, weights, 12, 7)
+        by_path = {"/".join(t): w for t, w in zip(tests, weights, strict=True)}
+        totals = [sum(by_path["/".join(t)] for t in chunk) for chunk in chunks]
+        self.assertLessEqual(max(totals), sum(weights) / 12 + max(weights))
+
+    def test_execution_order_inside_a_shard_is_permuted_too(self):
+        """Co-tenancy is only half of order-dependence.
+
+        CI sorts each shard alphabetically, so "B only passes when A ran first" is
+        stable there. If this returned sorted chunks it would find nothing CI does not.
+        """
+        tests, weights = self._corpus()
+        chunks = sts.seeded_split(tests, weights, 12, 7)
+        self.assertTrue(
+            any(chunk != sorted(chunk) for chunk in chunks),
+            "every shard came back in sorted order, so the seed did not permute order",
+        )
+
+    def test_the_partition_does_not_depend_on_the_input_order(self):
+        """Replay has to survive frappe walking the tree in a different order.
+
+        Otherwise a seed reproduces a layout only on the machine that drew it.
+        """
+        tests, weights = self._corpus()
+        pairs = list(zip(tests, weights, strict=True))[::-1]
+        reversed_tests = [t for t, _ in pairs]
+        reversed_weights = [w for _, w in pairs]
+        self.assertEqual(
+            sts.seeded_split(tests, weights, 12, 4711),
+            sts.seeded_split(reversed_tests, reversed_weights, 12, 4711),
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

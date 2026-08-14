@@ -1,0 +1,192 @@
+name: Chaos Shards
+
+# Deliberately shuffled shard layouts, so order-dependence is FOUND rather than
+# stumbled into (#328 mechanism 3).
+#
+# CI's own split is a pure function of the test weights, so every PR draws the same
+# co-tenancy. Latent collisions therefore surface only when an unrelated edit re-packs
+# the bins -- which is how #291, #326 and #330 each reddened code they never touched.
+# This draws a different layout on purpose and PRINTS THE SEED, so a red draw can be
+# replayed exactly instead of reconstructed from job logs afterwards.
+#
+# REPORT ONLY, BY DESIGN. Order-dependence is pre-existing debt; failing a PR on a
+# random draw would block unrelated work on someone else's bug. The leak ratchet on the
+# real PR runs (check_test_leaks.py) is the gate; this is the telescope.
+
+on:
+  schedule:
+    # 03:17 UTC. Off the hour on purpose -- the top of the hour is when every other
+    # cron on GitHub's shared runners fires.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Seed to replay a previous layout (blank = derive from the run id)'
+        required: false
+        type: string
+      total-shards:
+        description: 'Shard count'
+        required: false
+        default: '12'
+        type: string
+
+concurrency:
+  group: chaos-shards
+  cancel-in-progress: false
+
+jobs:
+  pick-seed:
+    name: Pick seed
+    runs-on: ubuntu-latest
+    outputs:
+      seed: ${{ steps.pick.outputs.seed }}
+      indices: ${{ steps.pick.outputs.indices }}
+      total: ${{ steps.pick.outputs.total }}
+    steps:
+      - id: pick
+        run: |
+          SEED="${{ inputs.seed }}"
+          # The run id is already unique per run and is visible in the URL, so a
+          # scheduled run needs no other source of entropy -- and `Math.random`-style
+          # entropy would make the seed unrecoverable if the summary were lost.
+          [ -n "$SEED" ] || SEED="${{ github.run_id }}"
+          TOTAL="${{ inputs.total-shards }}"
+          [ -n "$TOTAL" ] || TOTAL=12
+          echo "seed=${SEED}" >> $GITHUB_OUTPUT
+          echo "total=${TOTAL}" >> $GITHUB_OUTPUT
+          echo "indices=[$(seq -s ',' 1 ${TOTAL})]" >> $GITHUB_OUTPUT
+          {
+            echo "## Chaos shard run"
+            echo
+            echo "**Seed \`${SEED}\`** — replay this exact layout with"
+            echo '```'
+            echo "gh workflow run chaos-shards.yml -f seed=${SEED}"
+            echo '```'
+            echo "or locally:"
+            echo '```'
+            echo "./env/bin/python apps/verenigingen/scripts/testing/show_test_shards.py --seed ${SEED} --shard N"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+
+  chaos:
+    name: Chaos ${{ matrix.index }} (seed ${{ needs.pick-seed.outputs.seed }})
+    needs: pick-seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        index: ${{ fromJSON(needs.pick-seed.outputs.indices) }}
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: db_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      # Ports match frappe-bench's generated redis URLs; see _base-server-tests.yml
+      # for why these are services rather than a backgrounded `bench start`.
+      redis-cache:
+        image: redis:alpine
+        ports:
+          - 13000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+      redis-queue:
+        image: redis:alpine
+        ports:
+          - 11000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+      smtp:
+        image: rnwood/smtp4dev:v3
+        ports:
+          - 2525:25
+          - 3000:80
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup
+
+      - name: Compute this shard's shuffled module list
+        id: modules
+        run: |
+          set -o pipefail
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          # show_test_shards imports frappe's OWN get_all_tests/get_test_weight, so the
+          # file set and weights are the real ones; only the partition is ours.
+          MODULES=$(python3 "${GITHUB_WORKSPACE}/apps/verenigingen/scripts/testing/show_test_shards.py" \
+            --bench-root "${GITHUB_WORKSPACE}" \
+            --site test_site \
+            --total ${{ needs.pick-seed.outputs.total }} \
+            --seed "${{ needs.pick-seed.outputs.seed }}" \
+            --modules-for ${{ matrix.index }})
+          if [ -z "$MODULES" ]; then
+            echo "::error::empty module list for shard ${{ matrix.index }} -- the partition failed"
+            exit 1
+          fi
+          echo "$MODULES" > "${GITHUB_WORKSPACE}/chaos_modules_${{ matrix.index }}.txt"
+          echo "count=$(echo "$MODULES" | tr ',' '\n' | wc -l)" >> $GITHUB_OUTPUT
+
+      - name: Run the shuffled shard
+        id: run
+        # Report only: a red draw must not fail the job, or a fortnight of unrelated
+        # PRs gets a red nightly nobody reads.
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          # cwd must be the bench's sites/ dir: the runner re-inits frappe with the
+          # default sites_path=".", exactly as the bench CLI does.
+          cd "${GITHUB_WORKSPACE}/sites"
+          python3 "${GITHUB_WORKSPACE}/apps/verenigingen/scripts/testing/order_dependence_detector.py" \
+            --site test_site \
+            --modules "$(cat "${GITHUB_WORKSPACE}/chaos_modules_${{ matrix.index }}.txt")" \
+            --json-out "${GITHUB_WORKSPACE}/chaos_result_${{ matrix.index }}.json" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/chaos_output_${{ matrix.index }}.txt"
+
+      - name: Summarise
+        # Never fails. The findings are the output; the exit code is not the signal.
+        if: ${{ !cancelled() }}
+        run: |
+          SEED="${{ needs.pick-seed.outputs.seed }}"
+          SUMMARISE="${GITHUB_WORKSPACE}/apps/verenigingen/scripts/testing/summarise_chaos_result.py"
+          {
+            echo "### Shard ${{ matrix.index }} — seed \`${SEED}\`"
+            echo
+            echo "${{ steps.modules.outputs.count }} modules in this shard."
+            echo
+            python3 "$SUMMARISE" "${GITHUB_WORKSPACE}/chaos_result_${{ matrix.index }}.json"
+            echo
+            echo "Replay: \`gh workflow run chaos-shards.yml -f seed=${SEED}\`"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-${{ needs.pick-seed.outputs.seed }}-shard-${{ matrix.index }}
+          path: |
+            chaos_output_${{ matrix.index }}.txt
+            chaos_result_${{ matrix.index }}.json
+            chaos_modules_${{ matrix.index }}.txt
+          if-no-files-found: warn
+          retention-days: 14
