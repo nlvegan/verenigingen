@@ -1266,7 +1266,7 @@
  "verenigingen.verenigingen_payments.mollie.tests.test_payment_webhook_db_helpers": 8,
  "verenigingen.verenigingen_payments.mollie.tests.test_payment_webhook_helpers_unit": 22,
  "verenigingen.verenigingen_payments.mollie.tests.test_payment_webhook_sweep": 6,
- "verenigingen.verenigingen_payments.mollie.tests.test_recurring_charge_live": 9,
+ "verenigingen.verenigingen_payments.mollie.tests.test_recurring_charge_live": 1,
  "verenigingen.verenigingen_payments.mollie.tests.test_refund_chargeback": 4,
  "verenigingen.verenigingen_payments.mollie.tests.test_refund_chargeback_integration": 4,
  "verenigingen.verenigingen_payments.mollie.tests.test_settlement_bank_transaction_processor_unit": 10,

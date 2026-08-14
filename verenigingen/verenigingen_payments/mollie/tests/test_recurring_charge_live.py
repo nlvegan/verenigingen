@@ -38,7 +38,10 @@ accepted deliberately rather than hidden. Runs cannot collide -- each creates it
 own customer and tears down only its own ids.
 
 The suite skips entirely without ``mollie_test_secret_key``, so CI never reaches
-the network. With a key present but no network, it ERRORS rather than skipping.
+the network. Note this bench DOES carry that key in common_site_config.json, so a
+local ``bench run-tests --app verenigingen`` charges the shared account too -- use
+``scripts/testing/run_without_credentials.sh`` to see what CI sees. With a key
+present but no network, this module ERRORS rather than skipping.
 """
 
 import re
@@ -78,7 +81,12 @@ class TestRecurringChargeLive(EnhancedTestCase):
 
     def tearDown(self):
         # A swallowed failure here leaks a customer + mandate on a SHARED account
-        # with no signal at all, so every failure is logged rather than passed.
+        # with no signal at all, so every failure is reported.
+        #
+        # .error() rather than .warning() deliberately: a bare frappe.logger()
+        # defaults to level ERROR under `bench run-tests` (WARNING only on a dev
+        # server), so a .warning() here would be discarded and the "fix" would be
+        # decorative. A leak on a shared account is an error anyway.
         for customer_id in getattr(self, "_customer_ids", []):
             try:
                 customer_obj = self.sdk.customers.get(customer_id)
@@ -86,13 +94,13 @@ class TestRecurringChargeLive(EnhancedTestCase):
                     try:
                         customer_obj.mandates.delete(mandate.id)
                     except Exception as e:
-                        frappe.logger().warning(
+                        frappe.logger().error(
                             f"Mollie test cleanup: could not delete mandate {mandate.id} "
                             f"on customer {customer_id}: {e}"
                         )
                 self.sdk.customers.delete(customer_id)
             except Exception as e:
-                frappe.logger().warning(
+                frappe.logger().error(
                     f"Mollie test cleanup: leaked customer {customer_id} on the shared "
                     f"Mollie test account: {e}"
                 )
