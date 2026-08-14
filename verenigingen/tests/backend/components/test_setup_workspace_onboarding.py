@@ -54,11 +54,15 @@ class TestSetupMembershipApplicationSystem(FrappeTestCase):
 
 
 class TestReinstallOnboarding(FrappeTestCase):
-    """reinstall_onboarding() — rebuilds the Module Onboarding doc + 6 steps."""
+    """reinstall_onboarding() — rebuilds the Module Onboarding doc + 7 steps."""
 
-    # The 6 steps this function is expected to create, in order.
+    # The 7 steps this function is expected to create, in order. This list must
+    # stay in step with the on-disk module_onboarding fixture: the seed used to
+    # omit Verenigingen-Configure-Security, so running it against a site dropped
+    # that step from the flow and left the Onboarding Step doc orphaned.
     EXPECTED_STEP_NAMES = [
         "Verenigingen-Setup-Settings",
+        "Verenigingen-Configure-Security",
         "Verenigingen-Create-Member",
         "Verenigingen-Create-Membership-Type",
         "Verenigingen-Create-Membership",
@@ -66,14 +70,18 @@ class TestReinstallOnboarding(FrappeTestCase):
         "Verenigingen-Create-Volunteer",
     ]
 
-    def test_reinstall_creates_module_onboarding_with_six_steps(self):
+    def test_reinstall_creates_module_onboarding_with_all_steps(self):
         result = setup_mod.reinstall_onboarding()
         self.assertTrue(result["success"], result.get("message"))
-        self.assertEqual(result["steps_created"], 6)
+        self.assertEqual(result["steps_created"], len(self.EXPECTED_STEP_NAMES))
 
         self.assertTrue(frappe.db.exists("Module Onboarding", "Verenigingen"))
         mo = frappe.get_doc("Module Onboarding", "Verenigingen")
-        self.assertEqual(len(mo.steps), 6, "Module Onboarding must carry exactly 6 step references")
+        self.assertEqual(
+            len(mo.steps),
+            len(self.EXPECTED_STEP_NAMES),
+            "Module Onboarding must carry a reference for every seeded step",
+        )
 
         actual_step_refs = [row.step for row in mo.steps]
         self.assertEqual(actual_step_refs, self.EXPECTED_STEP_NAMES)
@@ -188,6 +196,7 @@ class TestReinstallOnboarding(FrappeTestCase):
         setup_mod.reinstall_onboarding()
         expected_refs = {
             "Verenigingen-Setup-Settings": "Verenigingen Settings",
+            "Verenigingen-Configure-Security": "System Settings",
             "Verenigingen-Create-Member": "Member",
             "Verenigingen-Create-Membership-Type": "Membership Type",
             "Verenigingen-Create-Membership": "Membership",
@@ -203,20 +212,20 @@ class TestReinstallOnboarding(FrappeTestCase):
             )
 
     def test_reinstall_is_idempotent(self):
-        # First call establishes the doc; second must rebuild to the same 6 steps
+        # First call establishes the doc; second must rebuild to the same steps
         # without growing the Onboarding Step table.
         setup_mod.reinstall_onboarding()
         steps_before = frappe.db.count("Onboarding Step")
         result = setup_mod.reinstall_onboarding()
         steps_after = frappe.db.count("Onboarding Step")
-        self.assertEqual(result["steps_created"], 6)
+        self.assertEqual(result["steps_created"], len(self.EXPECTED_STEP_NAMES))
         self.assertEqual(
             steps_before,
             steps_after,
             "re-running reinstall must not duplicate Onboarding Step documents",
         )
         mo = frappe.get_doc("Module Onboarding", "Verenigingen")
-        self.assertEqual(len(mo.steps), 6)
+        self.assertEqual(len(mo.steps), len(self.EXPECTED_STEP_NAMES))
 
 
 class TestInstallAndLinkOnboarding(FrappeTestCase):

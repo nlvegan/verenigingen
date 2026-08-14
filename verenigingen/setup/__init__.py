@@ -2161,6 +2161,25 @@ def reinstall_onboarding():
                 "validate_action": 1,
             },
             {
+                "name": "Verenigingen-Configure-Security",
+                "title": "Configure Security Settings",
+                # This step used to carry "Go to Settings", which is not one of
+                # the Select options Onboarding Step accepts. A plain insert
+                # throws on it; a fixture import stores it verbatim (in_import
+                # suppresses Select validation), which is how it survived. The
+                # fixture now matches this value.
+                "action": "Update Settings",
+                "action_label": "Configure Security Settings",
+                "description": "Configure critical security settings to ensure proper data access control, audit compliance, and permission management for your association.",
+                "is_complete": 0,
+                "is_mandatory": 1,
+                "is_skipped": 0,
+                "reference_document": "System Settings",
+                "show_form_tour": 0,
+                "show_full_form": 0,
+                "validate_action": 1,
+            },
+            {
                 "name": "Verenigingen-Create-Member",
                 "title": "Create Member",
                 "action": "Create Entry",
