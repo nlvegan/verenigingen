@@ -1029,7 +1029,15 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
 
     def test_create_member_subscription_rejects_unsupported_interval(self):
         """An interval the gateway does not support is rejected outright,
-        rather than being silently coerced to monthly billing."""
+        rather than being silently coerced to monthly billing.
+
+        The example used to be "12 months", which inverted the intent: Mollie
+        accepts "12 months" and it is the only way to express an annual
+        subscription, so this pinned the endpoint's refusal of the one interval an
+        Annual dues schedule produces. "1 year" is the genuinely unsupported one --
+        Mollie answers 422 "The interval unit is invalid" (verified against the
+        live test API).
+        """
         member = self._make_member()
         frappe.db.set_value("Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False)
 
@@ -1037,7 +1045,7 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             create_member_subscription,
         )
 
-        result = create_member_subscription(member.name, 15.0, interval="12 months")
+        result = create_member_subscription(member.name, 15.0, interval="1 year")
 
         self.assertEqual(result["status"], "error")
         self.assertIn("Unsupported", result["message"])

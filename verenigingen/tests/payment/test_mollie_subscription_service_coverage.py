@@ -492,7 +492,7 @@ class TestGetSubscriptionParameters(EnhancedTestCase):
     def _membership(self):
         """A membership whose member genuinely has NO findable dues schedule.
 
-        Membership.after_insert creates an Active schedule, so these fallback tests
+        Membership.on_submit creates an Active schedule, so these fallback tests
         only ever passed because _get_membership_dues_schedule filtered on
         docstatus=1 and could never match anything. Cancel the auto-created row so
         the no-schedule path is exercised for a real reason.
@@ -592,7 +592,7 @@ class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
             birth_date="1990-01-01",
         )
         membership = self.create_test_membership(member_name=member.name)
-        # Membership.after_insert already created an Active schedule, and production
+        # Membership.on_submit already created an Active schedule, and production
         # allows only one per member -- so the factory REUSES that row and ignores the
         # frequency/rate asked for here. Set them on the returned doc instead.
         schedule = self.create_test_dues_schedule(
@@ -706,33 +706,158 @@ class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
                     f"{interval} has no correct Mollie interval mapping",
                 )
 
-    def test_the_two_interval_maps_compose_without_loss(self):
-        """MollieGateway.create_subscription must accept what this service produces.
+    def test_gateway_passes_through_every_interval_a_dues_schedule_can_emit(self):
+        """MollieGateway.create_subscription must not downgrade its own inputs.
 
-        That gateway re-maps the interval through its own passthrough allow-list
-        and silently rewrites anything missing to "1 month". A value this service
-        emits that the gateway does not list would be an overbilling bug -- an
-        annual subscription quietly charged monthly -- so the two maps have to
-        compose. Read from the source rather than restated, so adding an interval
-        in one place and forgetting the other fails here.
+        That method re-maps the interval through a passthrough allow-list and
+        silently rewrites anything missing to "1 month" -- an annual subscription
+        quietly billed monthly. This drives the real gateway for every billing
+        frequency the Select allows, capturing the payload handed to the payment
+        service, and asserts the interval survives unchanged.
+
+        Behavioural on purpose: an earlier version of this test read the allow-list
+        out of the function's source with a regex, which both asserted a property
+        that does not exist and would have rotted the moment the literal moved.
+
+        (BILLING_INTERVAL_TO_MOLLIE_FORMAT is deliberately NOT checked here: it
+        feeds MollieClient directly and never reaches this gateway method.)
         """
-        import inspect
-        import re
+        from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+            convert_frequency_to_mollie_interval,
+        )
+
+        member = self._member_for_gateway()
+        for frequency in self._concrete_billing_frequencies():
+            emitted = convert_frequency_to_mollie_interval(frequency)
+            with self.subTest(frequency=frequency, emitted=emitted):
+                sent = self._interval_reaching_mollie(member, emitted)
+                self.assertEqual(
+                    sent,
+                    emitted,
+                    f"{frequency} -> {emitted!r} but the gateway sent {sent!r}",
+                )
+
+    def test_whitelisted_endpoint_accepts_every_interval_a_dues_schedule_can_emit(self):
+        """create_member_subscription must not reject what the gateway handles.
+
+        The endpoint validates its `interval` parameter against its own tuple and
+        returns an "Unsupported subscription interval" error otherwise. That tuple
+        omitted "12 months" -- what an Annual schedule produces -- so an annual
+        subscription was refused before it ever reached Mollie.
+        """
+        from unittest.mock import patch as _patch
+
+        from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+            convert_frequency_to_mollie_interval,
+        )
+        from verenigingen.verenigingen_payments.utils import payment_gateways
+
+        member = self._member_for_gateway()
+        for frequency in self._concrete_billing_frequencies():
+            emitted = convert_frequency_to_mollie_interval(frequency)
+            with self.subTest(frequency=frequency, emitted=emitted):
+                # Stub the gateway: the interval check runs before it is reached,
+                # so this isolates the validation without touching Mollie.
+                fake = SimpleNamespace(
+                    create_subscription=lambda m, d: {"status": "success", "subscription_id": "sub_x"}
+                )
+                with _patch.object(
+                    payment_gateways.PaymentGatewayFactory, "get_gateway", return_value=fake
+                ):
+                    result = payment_gateways.create_member_subscription(
+                        member.name, 25.0, interval=emitted
+                    )
+                self.assertNotIn(
+                    "Unsupported subscription interval",
+                    str(result.get("message", "")),
+                    f"{frequency} -> {emitted!r} is rejected by the endpoint",
+                )
+
+    # --- helpers for the two tests above -------------------------------------
+
+    def test_non_repricing_amendment_types_never_reach_mollie(self):
+        """Suspension / Reactivation / Plan Change must not re-price a subscription.
+
+        They fall through _get_subscription_parameters' else branch, which has no
+        pricing rules and returns the member's full dues rate. That was harmless
+        only while the dues-schedule lookup was broken and always yielded EUR 0
+        (which Mollie rejects); with the lookup working, a Suspension would
+        re-create the subscription at full price. Asserted against the live Select
+        so a new amendment type has to be classified deliberately.
+        """
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            REPRICING_AMENDMENT_TYPES,
+        )
+
+        options = [
+            o
+            for o in frappe.get_meta("Contribution Amendment Request")
+            .get_field("amendment_type")
+            .options.split("\n")
+            if o.strip()
+        ]
+        self.assertTrue(REPRICING_AMENDMENT_TYPES.issubset(options), "stale repricing type name")
+
+        service = MollieSubscriptionSyncService(client=_FakeMollieClient())
+        for amendment_type in [o for o in options if o not in REPRICING_AMENDMENT_TYPES]:
+            with self.subTest(amendment_type=amendment_type):
+                result = service.sync_subscription_for_amendment(
+                    frappe._dict(name="AMEND-X", amendment_type=amendment_type)
+                )
+                self.assertEqual(result["status"], "skipped")
+                self.assertEqual(result["reason"], "amendment_type_not_repricing")
+
+    def _concrete_billing_frequencies(self):
+        """Every billing_frequency the live Select allows, except Custom.
+
+        Custom carries its own number/unit fields and has no single interval.
+        """
+        return [
+            o
+            for o in frappe.get_meta("Membership Dues Schedule")
+            .get_field("billing_frequency")
+            .options.split("\n")
+            if o.strip() and o != "Custom"
+        ]
+
+    def _member_for_gateway(self):
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Gw",
+            last_name=f"Interval{token}",
+            email=f"gw-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value(
+            "Member", member.name, "mollie_customer_id", "cst_GWTEST", update_modified=False
+        )
+        member.reload()
+        return member
+
+    def _interval_reaching_mollie(self, member, interval):
+        """Run the real gateway and return the interval it actually sent."""
+        from unittest.mock import patch as _patch
 
         from verenigingen.verenigingen_payments.utils import payment_gateways
 
-        source = inspect.getsource(payment_gateways.MollieGateway.create_subscription)
-        block = re.search(r"interval_mapping = \{(.*?)\}", source, re.S)
-        self.assertIsNotNone(block, "interval_mapping literal not found in create_subscription")
-        accepted = set(re.findall(r'"([^"]+)"\s*:', block.group(1)))
+        captured = {}
 
-        produced = set(BILLING_INTERVAL_TO_MOLLIE_FORMAT.values())
-        self.assertEqual(
-            produced - accepted,
-            set(),
-            "MollieGateway.create_subscription silently downgrades these to '1 month': "
-            f"{sorted(produced - accepted)}",
-        )
+        def _capture(self_, customer_data, subscription_data):
+            captured.update(subscription_data)
+            return {
+                "customer_id": "cst_GWTEST",
+                "subscription_id": "sub_GWTEST",
+                "subscription_status": "active",
+                "next_payment_date": None,
+            }
+
+        gateway = payment_gateways.MollieGateway("Default")
+        with _patch.object(
+            payment_gateways.CompletePaymentService, "create_customer_subscription", _capture
+        ):
+            gateway.create_subscription(member, {"amount": 25.0, "interval": interval})
+        self.assertIn("interval", captured, "gateway never called the payment service")
+        return captured["interval"]
 
 
 class TestVerifySubscriptionAmount(EnhancedTestCase):
@@ -759,15 +884,56 @@ class TestVerifySubscriptionAmount(EnhancedTestCase):
         self.assertTrue(result["verified"])
         self.assertEqual(result["mollie_amount"], 25.0)
 
+    def _cancel_auto_schedules(self, member_name):
+        """Membership.on_submit creates an Active schedule; cancel it.
+
+        Without this, "no dues schedule" is not true and the retry branch below
+        runs for real -- this test used to pass only because the lookup was broken
+        and returned None for everyone.
+        """
+        for name in frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "status": "Active"},
+            pluck="name",
+        ):
+            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
+
     def test_amount_mismatch_no_schedule_fails(self):
         member = self._member()
         membership = self.create_test_membership(member_name=member.name)
+        self._cancel_auto_schedules(member.name)
         client = _FakeMollieClient(subscription=_sub(value="25.00"))
         service = MollieSubscriptionSyncService(client=client)
 
-        # Expected differs from Mollie's 25.00 and there is no dues schedule to
-        # rescue it on retry.
+        # Expected differs from Mollie's 25.00 and there is genuinely no dues
+        # schedule to rescue it on retry.
         result = service._verify_subscription_amount(member, membership, "sub_1", 99.0)
 
         self.assertFalse(result["verified"])
         self.assertIn("mismatch", result["message"].lower())
+
+    def test_amount_mismatch_is_rescued_when_the_schedule_agrees_with_mollie(self):
+        """The retry-succeeds branch, which this change brought to life.
+
+        _verify_subscription_amount re-reads the dues schedule on a mismatch and
+        flips to verified when the schedule agrees with Mollie. That branch was
+        unreachable while the lookup always returned None, so nothing covered it --
+        yet it is the branch that suppresses the admin mismatch escalation.
+        """
+        member = self._member()
+        membership = self.create_test_membership(member_name=member.name)
+        self._cancel_auto_schedules(member.name)
+        schedule = self.create_test_dues_schedule(member=member.name, amount=120.0, frequency="Monthly")
+        # The factory reuses the auto-created row, so set the rate explicitly.
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, "status", "Active")
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, "dues_rate", 25.0)
+
+        client = _FakeMollieClient(subscription=_sub(value="25.00"))
+        service = MollieSubscriptionSyncService(client=client)
+
+        # Caller's expectation (99.0) is stale; the schedule says 25.00, which is
+        # what Mollie holds -> the retry must rescue it.
+        result = service._verify_subscription_amount(member, membership, "sub_1", 99.0)
+
+        self.assertTrue(result["verified"], f"retry should have rescued this: {result}")
+        self.assertEqual(result["mollie_amount"], 25.0)

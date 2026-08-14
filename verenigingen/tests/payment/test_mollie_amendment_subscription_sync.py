@@ -299,7 +299,7 @@ class TestAmendmentSyncPatchPath(EnhancedTestCase):
         frappe.db.set_value("Member", member.name, values, update_modified=False)
         member.reload()
         membership = self.create_test_membership(member_name=member.name)
-        # Membership.after_insert creates an ANNUAL dues schedule, while every fake
+        # Membership.on_submit creates an ANNUAL dues schedule, while every fake
         # live subscription in this class is "1 month". That combination is not
         # amount-only: the service correctly cancels and replaces on an interval
         # change, so these tests would assert the wrong path. They only ever passed
