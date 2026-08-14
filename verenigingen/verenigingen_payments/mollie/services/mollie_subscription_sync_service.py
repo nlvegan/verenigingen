@@ -10,6 +10,8 @@ from typing import Dict, Optional, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
+
 from ..core.client import MollieClient
 from ..exceptions import MollieIntegrationError
 from ..utils.amount_helpers import extract_amount_float
@@ -21,13 +23,37 @@ from .subscription_service import SubscriptionService
 # currency step) is a genuine mismatch; anything below is float noise.
 AMOUNT_MATCH_TOLERANCE = 0.005
 
-# Billing interval mapping to Mollie format
+# Billing interval mapping to Mollie format.
+#
+# Two doctypes feed this map and they do NOT share a vocabulary:
+#   * Membership Dues Schedule.billing_frequency -> Daily/Weekly/Monthly/
+#     Quarterly/Semi-Annual/Annual/Custom
+#   * Contribution Amendment Request.new_billing_interval -> Monthly/Quarterly/
+#     Annually  (the older "-ly" spelling)
+# The map originally carried only the "-ly" spellings, so every Annual and
+# Semi-Annual dues schedule missed and silently defaulted to "1 month". Both
+# spellings are listed here deliberately; keep them in step with the two Select
+# fields (test_every_concrete_billing_frequency_maps enforces this).
+#
+# "Custom" is intentionally absent: it carries its own custom_frequency_number /
+# custom_frequency_unit fields and has no single fixed interval.
 BILLING_INTERVAL_TO_MOLLIE_FORMAT = {
+    "Daily": "1 day",
+    "Weekly": "1 week",
     "Monthly": "1 month",
     "Quarterly": "3 months",
+    "Semi-Annual": "6 months",
+    "Annual": "12 months",
     "Semi-Annually": "6 months",
     "Annually": "12 months",
 }
+
+# Amendment types that carry a well-defined new amount AND interval, and may
+# therefore re-price a live Mollie subscription. The remaining Select options
+# (Plan Change, Suspension, Reactivation) have no pricing rules in
+# _get_subscription_parameters and must not reach it -- see the gate in
+# sync_subscription_for_amendment.
+REPRICING_AMENDMENT_TYPES = frozenset({"Fee Change", "Billing Interval Change", "Membership Type Change"})
 
 
 class MollieSubscriptionSyncService:
@@ -56,6 +82,24 @@ class MollieSubscriptionSyncService:
         frappe.logger().info(f"🔄 Starting Mollie subscription sync for amendment {amendment_doc.name}")
 
         try:
+            # Only amendment types with a defined new amount+interval may re-price a
+            # live subscription. Suspension / Reactivation / Plan Change fall through
+            # _get_subscription_parameters' else branch, which has no rules of its own
+            # and would bill the member's full dues rate. That branch used to be
+            # harmless only because the dues-schedule lookup was broken and always
+            # produced EUR 0, which Mollie rejects; now that the lookup works, a
+            # Suspension would re-create the subscription at full price.
+            if amendment_doc.amendment_type not in REPRICING_AMENDMENT_TYPES:
+                frappe.logger().info(
+                    f"⚠️ Amendment {amendment_doc.name} is a "
+                    f"{amendment_doc.amendment_type}; not a repricing type, skipping sync"
+                )
+                return {
+                    "status": "skipped",
+                    "reason": "amendment_type_not_repricing",
+                    "message": f"{amendment_doc.amendment_type} does not re-price a subscription",
+                }
+
             # Get membership and member
             membership = frappe.get_doc("Membership", amendment_doc.membership)
             member = frappe.get_doc("Member", membership.member)
@@ -516,13 +560,16 @@ class MollieSubscriptionSyncService:
             amount = dues_schedule.dues_rate if dues_schedule else 0
 
         else:
-            # Fallback for other amendment types
-            dues_schedule = self._get_membership_dues_schedule(membership.member)
-            amount = dues_schedule.dues_rate if dues_schedule else 0
-            interval = (
-                BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(dues_schedule.billing_frequency, "1 month")
-                if dues_schedule
-                else "1 month"
+            # No silent fallback. This used to bill the member's full dues rate for
+            # any amendment type without pricing rules of its own -- Suspension,
+            # Reactivation, Plan Change. sync_subscription_for_amendment now refuses
+            # those before they reach here (REPRICING_AMENDMENT_TYPES), so this
+            # branch is unreachable in production; raising keeps that frozenset the
+            # single source of truth instead of letting a second, softer answer
+            # drift away from it.
+            raise MollieIntegrationError(
+                f"Amendment type {amendment_doc.amendment_type!r} has no subscription "
+                f"pricing rules; it must not reach _get_subscription_parameters"
             )
 
         return amount, interval
@@ -610,18 +657,29 @@ class MollieSubscriptionSyncService:
         }
 
     def _get_membership_dues_schedule(self, member_id: str):
-        """Get active membership dues schedule for member."""
-        schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member_id, "docstatus": 1, "status": ["in", ["Active", "Scheduled"]]},
-            fields=["name", "dues_rate", "billing_frequency"],
-            order_by="creation desc",
-            limit=1,
-        )
+        """Get the member's active dues schedule (a ScheduleInfo, or None).
 
-        if schedules:
-            return frappe.get_doc("Membership Dues Schedule", schedules[0].name)
-        return None
+        Delegates to DuesScheduleRepository, which is the canonical implementation
+        of this query. This method used to filter on docstatus=1; Membership Dues
+        Schedule is not submittable, so every row is docstatus=0 and that matched
+        nothing at all -- the lookup returned None for every member, which billed
+        Billing Interval Changes at EUR 0 and ignored the member's real interval on
+        a Fee Change.
+
+        The repository also gets two details right that the hand-rolled query did
+        not: it excludes templates (is_template=0), and it does not filter on a
+        "Scheduled" status that is not in the doctype's Select at all.
+
+        CAUTION: the repository logs and swallows query errors, returning None --
+        so None here means "no active schedule" OR "the lookup failed", and callers
+        cannot tell them apart. That matters most in the Fee Change branch of
+        _get_subscription_parameters, where None yields interval "1 month": a
+        transient database error there re-prices an Annual member to monthly, which
+        is the exact defect this lookup was fixed to remove. The other two callers
+        fail closed (amount 0, which Mollie rejects; and a failed verification that
+        escalates to an admin).
+        """
+        return DuesScheduleRepository().get_active_schedule(member_id)
 
     def _get_webhook_url(self) -> str:
         """Canonical subscription webhook URL (Mollie Settings owns it)."""
