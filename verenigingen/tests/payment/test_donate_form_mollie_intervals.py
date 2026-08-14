@@ -4,13 +4,20 @@ Every subscription interval the public donation form can emit must be one Mollie
 Target: verenigingen/templates/pages/donate.html (the "Recurring" frequency buttons
 and the subscription_interval hidden input).
 
-Why a test at all: the value those buttons write travels as-is into Mollie payment
-metadata and then into customer.subscriptions.create() -- see
-_activate_direct_subscription_after_first_payment and
-_activate_donation_subscription_after_first_payment in
-verenigingen_payments/utils/payment_gateways.py. Neither call site validates it, and
-both wrap the API call in a broad except that only writes an Error Log, so an interval
-Mollie refuses fails silently: the donor pays once and no subscription is ever created.
+Why a test at all: the value those buttons write ends up in Mollie payment metadata and
+then in the subscription Mollie creates. The chain is
+    donate.html
+      -> templates/pages/donate.submit_donation
+      -> PublicDonationService.process_mollie_payment  (services/donation/)
+      -> CompletePaymentService.create_recurring_donation_payment
+      -> payment metadata -> Mollie
+so an interval Mollie refuses would fail at the far end, where CompletePaymentService
+now rejects it up front instead. Guarding the near end as well is cheap and catches the
+mistake where it is introduced -- someone adding a frequency button.
+
+This test does NOT prove the value survives the chain; test_donate_page_mollie.py
+::test_the_donors_chosen_frequency_reaches_the_payment_service does that, and was
+written because it did not survive it.
 
 The accepted grammar was measured against the live Mollie test API rather than read off
 the docs (a customer with a real directdebit mandate, one subscription create per
@@ -34,8 +41,13 @@ from pathlib import Path
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-# Units Mollie accepts, verified as above. Deliberately excludes year/years.
-MOLLIE_INTERVAL = re.compile(r"^[1-9][0-9]* (day|days|week|weeks|month|months)$")
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+    is_valid_mollie_interval,
+)
+
+# Deliberately the production predicate rather than a second copy of the grammar:
+# a private regex here could drift from the one the gateway enforces and leave both
+# suites green while the template and the API disagreed.
 
 DONATE_HTML = (
     Path(frappe.get_app_path("verenigingen")) / "templates" / "pages" / "donate.html"
@@ -72,7 +84,11 @@ class TestDonateFormMollieIntervals(FrappeTestCase):
         onclick, data_attr, default = _intervals_offered_by_the_donate_form()
 
         self.assertEqual(
-            len(onclick), 4, f"expected 4 frequency buttons in donate.html, found {sorted(onclick)}"
+            len(onclick),
+            4,
+            f"expected 4 frequency buttons in donate.html, found {sorted(onclick)}. "
+            f"If you added or removed one deliberately, update this count -- it is here "
+            f"so a markup change cannot silently empty the set the next test checks.",
         )
         self.assertEqual(onclick, data_attr, "onclick argument and data-interval disagree")
         self.assertEqual(len(default), 1, "expected exactly one subscription_interval hidden input")
@@ -82,12 +98,11 @@ class TestDonateFormMollieIntervals(FrappeTestCase):
 
         for interval in sorted(onclick | data_attr | default):
             with self.subTest(interval=interval):
-                self.assertRegex(
-                    interval,
-                    MOLLIE_INTERVAL,
+                self.assertTrue(
+                    is_valid_mollie_interval(interval),
                     f"donate.html offers {interval!r}, which Mollie rejects with 422 "
-                    f'"The interval unit is invalid" -- the donor would pay once and '
-                    f"never be subscribed. Annual must be spelled '12 months'.",
+                    f'"The interval unit is invalid". Annual must be spelled '
+                    f"'12 months'.",
                 )
 
     def test_an_annual_option_is_still_offered(self):

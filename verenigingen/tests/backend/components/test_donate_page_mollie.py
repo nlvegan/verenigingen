@@ -344,6 +344,35 @@ class TestDonatePageMollie(EnhancedTestCase):
         self.assertEqual(result["status"], "subscription_redirect_required")
         self.assertEqual(_FakeCompletePaymentService.last_method, "recurring")
 
+    def test_the_donors_chosen_frequency_reaches_the_payment_service(self):
+        """The form posts `subscription_interval`; the recurring branch must forward it.
+
+        It read `recurring_interval` instead -- a key no template or script sends
+        (repo-wide it appears only here and in this file's older tests). Every
+        recurring donation was therefore created with the "1 month" default whatever
+        the donor picked, so a quarterly or annual donor was billed monthly and
+        nothing anywhere reported it.
+        """
+        donor, donation = self._make_draft_mollie_donation()
+
+        form_data = frappe._dict(
+            {
+                "donor_email": donor.donor_email,
+                "donor_name": donor.donor_name,
+                "donation_status": "Recurring",
+                # The key donate.html's hidden input actually posts.
+                "subscription_interval": "3 months",
+            }
+        )
+        with patch(_CPS_PATH, _FakeCompletePaymentService):
+            get_public_donation_service().process_mollie_payment(donation, form_data)
+
+        self.assertEqual(
+            _FakeCompletePaymentService.last_form_data["subscription_interval"],
+            "3 months",
+            "the donor's chosen frequency must survive the hop to the payment service",
+        )
+
     def test_process_mollie_payment_service_exception_returns_error_dict(self):
         """A raising service is caught and converted to a user-facing error dict."""
         donor, donation = self._make_draft_mollie_donation()

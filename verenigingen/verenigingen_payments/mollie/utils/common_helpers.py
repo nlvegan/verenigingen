@@ -181,8 +181,9 @@ def convert_frequency_to_mollie_interval(frequency: str) -> str:
 # one subscription create per candidate, all cancelled afterwards -- because a probe
 # WITHOUT a mandate proves nothing: "no suitable mandates found" is checked before the
 # interval is, so every candidate including nonsense returns an identical 422.
-# An annual subscription is "12 months". Same grammar as the `interval` pattern in
-# tests/contracts/mollie-contracts.json.
+# An annual subscription is "12 months". (tests/contracts/mollie-contracts.json carries
+# a near-identical pattern, but nothing loads that file, and it admits "0 months" --
+# it is documentation, not the authority for this grammar.)
 MOLLIE_INTERVAL_PATTERN = re.compile(r"^[1-9][0-9]* (day|days|week|weeks|month|months)$")
 
 

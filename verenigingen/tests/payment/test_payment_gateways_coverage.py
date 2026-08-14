@@ -458,9 +458,11 @@ class TestSubscriptionActivationSuccess(EnhancedTestCase):
     def test_direct_subscription_refuses_an_interval_mollie_rejects(self):
         """An interval Mollie refuses must be caught here, not sent and swallowed.
 
-        Both this helper and its caller wrap everything in a broad except that
-        only writes an Error Log, so a 422 from Mollie is invisible. Catching it
-        before the call at least names the cause.
+        A 422 from Mollie lands in this helper's own broad except, which writes an
+        Error Log and returns an error dict; the caller stuffs that dict into a
+        webhook response nobody reads. Catching it before the call names the actual
+        cause instead of a generic API failure -- and still writes an Error Log,
+        which is the only place either failure is visible at all.
         """
         customer = _StubCustomer()
         gw = _bare_gateway(client=_StubClient(customers=_StubCustomers(customer=customer)))

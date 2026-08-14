@@ -27,9 +27,11 @@ from ..utils.common_helpers import (
     format_mollie_amount,
     format_mollie_amount_string,
     get_member_by_customer_id,
+    is_valid_mollie_interval,
     merge_metadata_safely,
     mollie_signature_date,
     validate_mollie_amount,
+    validate_mollie_interval,
 )
 from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 
@@ -140,11 +142,20 @@ class CompletePaymentService:
             payment_data["customerId"] = customer_result["customer_id"]
             payment_data["sequenceType"] = "first"  # This creates the mandate
 
-            # Add subscription metadata like legacy system
+            # Add subscription metadata like legacy system.
+            #
+            # Validated here because this is the live producer for public recurring
+            # donations, and it runs before the payment exists -- the webhook-side
+            # subscription creation happens after the donor has already been charged,
+            # where refusing can no longer protect anyone.
+            subscription_interval = validate_mollie_interval(
+                form_data.get("subscription_interval", "1 month"),
+                context=f"donation {donation_doc.name}",
+            )
             payment_data["metadata"].update(
                 {
                     "subscription_setup": "true",
-                    "subscription_interval": form_data.get("subscription_interval", "1 month"),
+                    "subscription_interval": subscription_interval,
                     "subscription_amount": format_mollie_amount_string(donation_doc.amount),
                     "customer_id": customer_result["customer_id"],
                 }
@@ -673,18 +684,14 @@ class CompletePaymentService:
             raise MollieValidationError(f"Invalid interval format: {interval}")
 
     def _is_valid_interval(self, interval: str) -> bool:
-        """Validate subscription interval format."""
-        valid_units = ["day", "days", "week", "weeks", "month", "months"]
-        parts = interval.lower().split()
+        """Validate subscription interval format.
 
-        if len(parts) != 2:
-            return False
-
-        try:
-            int(parts[0])  # Number part
-            return parts[1] in valid_units  # Unit part
-        except ValueError:
-            return False
+        Delegates so there is one grammar for one API. This used to be a separate
+        implementation that accepted "0 months" and "-1 months" (both refused by
+        Mollie) -- two divergent notions of "valid" for the same endpoint is the
+        shape of defect this whole change is about.
+        """
+        return is_valid_mollie_interval(interval)
 
     def _prepare_payment_data(self, donation_doc: Any, form_data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare payment data for Mollie API."""

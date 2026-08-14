@@ -198,12 +198,16 @@ class MollieGateway(PaymentGateway):
 
                 # Add subscription metadata for webhook processing.
                 #
-                # Validated here, before the payment exists, because this is the only
-                # point in the chain where refusing is visible to the donor. The
-                # webhook-side activation helpers run after the first payment has
-                # already been taken, and both they and their caller swallow into an
-                # Error Log -- so an interval Mollie refuses there costs the donor a
-                # charge and produces no subscription and no visible error.
+                # Validated before the payment exists, so a refusal costs the donor
+                # nothing. The throw does not reach the donor verbatim -- process_payment's
+                # own except turns it into the generic "Payment setup failed", with the
+                # specific interval in the Error Log -- but no payment is created, which
+                # is the part that matters.
+                #
+                # Note this method is NOT the public donation form's path: donate.html
+                # reaches Mollie through CompletePaymentService, which validates the same
+                # value at its own metadata write. This branch serves the mollie_checkout
+                # guest endpoint and PaymentService.create_recurring_first_payment.
                 subscription_interval = validate_mollie_interval(
                     form_data.get("subscription_interval", "1 month"),
                     context=f"donation {donation.name}",
@@ -1358,12 +1362,18 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             )
 
         # Named here rather than left to Mollie's 422, which arrives inside the broad
-        # except below and reads as a generic API failure.
+        # except below and reads as a generic API failure. The log_error is not
+        # decoration: create_error_response only builds a dict, and the returned dict
+        # goes into a webhook response nobody stores -- without this the failure would
+        # be quieter after this guard than it was before it.
         if not is_valid_mollie_interval(subscription_interval):
-            return create_error_response(
+            message = (
                 f"Mollie will not accept subscription interval '{subscription_interval}' "
-                f"(payment {payment.id}); an annual subscription must be '12 months'",
-                {"reason": "invalid_interval", "interval": subscription_interval},
+                f"(payment {payment.id}); an annual subscription must be '12 months'"
+            )
+            frappe.log_error(message, "Mollie Direct Subscription Creation")
+            return create_error_response(
+                message, {"reason": "invalid_interval", "interval": subscription_interval}
             )
 
         # Get customer ID from payment
@@ -1464,15 +1474,16 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         ) or convert_frequency_to_mollie_interval(donation.get("recurring_frequency"))
 
         # The metadata branch is unvalidated input (it comes from the checkout form);
-        # the converter branch cannot produce an invalid value. Named here rather than
-        # left to Mollie's 422, which the broad except below turns into a generic
-        # "subscription creation failed".
+        # the converter branch cannot produce an invalid value. Logged for the same
+        # reason as the direct-subscription guard above: the returned dict alone would
+        # be quieter than the 422 it replaces.
         if not is_valid_mollie_interval(interval):
-            return create_error_response(
+            message = (
                 f"Mollie will not accept subscription interval '{interval}' for donation "
-                f"{donation_id}; an annual subscription must be '12 months'",
-                {"reason": "invalid_interval", "interval": interval},
+                f"{donation_id}; an annual subscription must be '12 months'"
             )
+            frappe.log_error(message, "Mollie Donation Subscription Creation")
+            return create_error_response(message, {"reason": "invalid_interval", "interval": interval})
 
         subscription_data = {
             "amount": format_mollie_amount(donation.amount),

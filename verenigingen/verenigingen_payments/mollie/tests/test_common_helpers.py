@@ -634,6 +634,10 @@ class TestMollieIntervalValidation(FrappeTestCase):
     def test_validate_passes_a_good_interval_through_unchanged(self):
         self.assertEqual(validate_mollie_interval("3 months"), "3 months")
 
+    def test_validate_returns_the_trimmed_interval(self):
+        """Surrounding whitespace is stripped rather than sent to Mollie verbatim."""
+        self.assertEqual(validate_mollie_interval("  3 months  "), "3 months")
+
 
 def run_tests():
     """Helper function to run tests from console"""
