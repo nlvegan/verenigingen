@@ -29,7 +29,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-from verenigingen.verenigingen_payments.mollie.tests.fixtures.test_factory import MollieTestCase
+from verenigingen.verenigingen_payments.mollie.tests.fixtures.factory import MollieTestCase
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     _process_subscription_payment
 )

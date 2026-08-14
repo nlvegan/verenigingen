@@ -90,7 +90,7 @@ class MollieTestOrchestrator:
                 'files': [
                     'test_mollie_edge_cases_integration.py',
                     'unit/test_mollie_bulk_transaction_core_functionality.py',
-                    'test_mollie_api_data_factory.py'
+                    'mollie_api_data_factory.py'
                 ]
             },
             'utilities': {
