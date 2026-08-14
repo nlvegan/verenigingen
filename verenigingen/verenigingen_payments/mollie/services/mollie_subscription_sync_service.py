@@ -21,10 +21,27 @@ from .subscription_service import SubscriptionService
 # currency step) is a genuine mismatch; anything below is float noise.
 AMOUNT_MATCH_TOLERANCE = 0.005
 
-# Billing interval mapping to Mollie format
+# Billing interval mapping to Mollie format.
+#
+# Two doctypes feed this map and they do NOT share a vocabulary:
+#   * Membership Dues Schedule.billing_frequency -> Daily/Weekly/Monthly/
+#     Quarterly/Semi-Annual/Annual/Custom
+#   * Contribution Amendment Request.new_billing_interval -> Monthly/Quarterly/
+#     Annually  (the older "-ly" spelling)
+# The map originally carried only the "-ly" spellings, so every Annual and
+# Semi-Annual dues schedule missed and silently defaulted to "1 month". Both
+# spellings are listed here deliberately; keep them in step with the two Select
+# fields (test_every_concrete_billing_frequency_maps enforces this).
+#
+# "Custom" is intentionally absent: it carries its own custom_frequency_number /
+# custom_frequency_unit fields and has no single fixed interval.
 BILLING_INTERVAL_TO_MOLLIE_FORMAT = {
+    "Daily": "1 day",
+    "Weekly": "1 week",
     "Monthly": "1 month",
     "Quarterly": "3 months",
+    "Semi-Annual": "6 months",
+    "Annual": "12 months",
     "Semi-Annually": "6 months",
     "Annually": "12 months",
 }
@@ -610,10 +627,16 @@ class MollieSubscriptionSyncService:
         }
 
     def _get_membership_dues_schedule(self, member_id: str):
-        """Get active membership dues schedule for member."""
+        """Get active membership dues schedule for member.
+
+        No docstatus filter: Membership Dues Schedule is not submittable, so every
+        row is docstatus=0 and filtering on docstatus=1 matched nothing at all --
+        this returned None for every member, which billed Billing Interval Changes
+        at EUR 0 and ignored the member's real interval on a Fee Change.
+        """
         schedules = frappe.get_all(
             "Membership Dues Schedule",
-            filters={"member": member_id, "docstatus": 1, "status": ["in", ["Active", "Scheduled"]]},
+            filters={"member": member_id, "status": ["in", ["Active", "Scheduled"]]},
             fields=["name", "dues_rate", "billing_frequency"],
             order_by="creation desc",
             limit=1,

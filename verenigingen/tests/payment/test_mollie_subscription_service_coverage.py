@@ -28,6 +28,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.exceptions import MollieIntegrationError
 from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+    BILLING_INTERVAL_TO_MOLLIE_FORMAT,
     MollieSubscriptionSyncService,
 )
 from verenigingen.verenigingen_payments.mollie.services.subscription_service import SubscriptionService
@@ -489,6 +490,13 @@ class TestGetSubscriptionParameters(EnhancedTestCase):
         return MollieSubscriptionSyncService(client=_FakeMollieClient())
 
     def _membership(self):
+        """A membership whose member genuinely has NO findable dues schedule.
+
+        Membership.after_insert creates an Active schedule, so these fallback tests
+        only ever passed because _get_membership_dues_schedule filtered on
+        docstatus=1 and could never match anything. Cancel the auto-created row so
+        the no-schedule path is exercised for a real reason.
+        """
         token = frappe.generate_hash(length=8)
         member = self.create_test_member(
             first_name="Param",
@@ -496,7 +504,14 @@ class TestGetSubscriptionParameters(EnhancedTestCase):
             email=f"param-{token}@example.com",
             birth_date="1990-01-01",
         )
-        return self.create_test_membership(member_name=member.name), member
+        membership = self.create_test_membership(member_name=member.name)
+        for name in frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name, "status": ["in", ["Active", "Scheduled"]]},
+            pluck="name",
+        ):
+            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
+        return membership, member
 
     def test_fee_change_keeps_interval_default_when_no_schedule(self):
         service = self._service()
@@ -545,6 +560,179 @@ class TestGetSubscriptionParameters(EnhancedTestCase):
 
         self.assertEqual(interval, "1 month")
         self.assertEqual(amount, 0)
+
+
+class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
+    """The WITH-a-dues-schedule path of _get_subscription_parameters.
+
+    The class above only ever exercises members that have NO dues schedule, so
+    both of these defects were invisible to it:
+
+    * _get_membership_dues_schedule filtered on docstatus=1, but Membership Dues
+      Schedule is not submittable (is_submittable is None) and all 1660 live rows
+      are docstatus=0 -- so the lookup returned None for every member, always.
+      Consequence: a Billing Interval Change built a EUR 0 subscription, and a Fee
+      Change ignored the member's real billing frequency.
+    * BILLING_INTERVAL_TO_MOLLIE_FORMAT was keyed on "Annually"/"Semi-Annually",
+      but the Select vocabulary is "Annual"/"Semi-Annual", and Weekly/Daily were
+      absent entirely -- so 5 of the 7 options silently fell back to "1 month".
+      Live data is 1087 Annual / 563 Quarterly / 10 Monthly, so this fires as soon
+      as the lookup above starts returning real rows.
+    """
+
+    def _service(self):
+        return MollieSubscriptionSyncService(client=_FakeMollieClient())
+
+    def _member_with_schedule(self, frequency, dues_rate=25.0):
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Sched",
+            last_name=f"Param{token}",
+            email=f"sched-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        membership = self.create_test_membership(member_name=member.name)
+        # Membership.after_insert already created an Active schedule, and production
+        # allows only one per member -- so the factory REUSES that row and ignores the
+        # frequency/rate asked for here. Set them on the returned doc instead.
+        schedule = self.create_test_dues_schedule(
+            member=member.name, amount=dues_rate, frequency=frequency
+        )
+        schedule.billing_frequency = frequency
+        schedule.dues_rate = dues_rate
+        schedule.save()
+        return membership, member, schedule
+
+    def test_lookup_finds_the_unsubmitted_schedule(self):
+        service = self._service()
+        membership, member, schedule = self._member_with_schedule("Quarterly", dues_rate=120.0)
+
+        # Guard the premise: the row really is docstatus=0.
+        self.assertEqual(frappe.db.get_value("Membership Dues Schedule", schedule.name, "docstatus"), 0)
+
+        found = service._get_membership_dues_schedule(member.name)
+
+        self.assertIsNotNone(found, "a docstatus=0 dues schedule must be found")
+        self.assertEqual(found.name, schedule.name)
+
+    def test_fee_change_uses_the_members_real_interval(self):
+        service = self._service()
+        membership, member, schedule = self._member_with_schedule("Quarterly", dues_rate=120.0)
+        amendment = frappe._dict(amendment_type="Fee Change", requested_amount=42.0)
+
+        amount, interval = service._get_subscription_parameters(amendment, membership)
+
+        self.assertEqual(amount, 42.0)
+        self.assertEqual(interval, "3 months", "a Quarterly member must not be billed monthly")
+
+    def test_billing_interval_change_uses_the_schedule_amount(self):
+        service = self._service()
+        membership, member, schedule = self._member_with_schedule("Monthly", dues_rate=155.5)
+        amendment = frappe._dict(
+            amendment_type="Billing Interval Change", new_billing_interval="Quarterly"
+        )
+
+        amount, interval = service._get_subscription_parameters(amendment, membership)
+
+        self.assertEqual(interval, "3 months")
+        self.assertEqual(amount, 155.5, "must bill the real dues rate, not EUR 0")
+
+    def test_every_concrete_billing_frequency_maps(self):
+        """Table-driven over the REAL Select vocabulary, read from the doctype.
+
+        Reading the options from meta rather than hardcoding them means adding a
+        new billing frequency without a Mollie mapping fails here instead of
+        silently billing that member monthly.
+        """
+        expected = {
+            "Monthly": "1 month",
+            "Quarterly": "3 months",
+            "Semi-Annual": "6 months",
+            "Annual": "12 months",
+            "Weekly": "1 week",
+            "Daily": "1 day",
+        }
+        options = [
+            o
+            for o in frappe.get_meta("Membership Dues Schedule")
+            .get_field("billing_frequency")
+            .options.split("\n")
+            if o.strip()
+        ]
+        # "Custom" carries its own number/unit fields and has no single mapping.
+        concrete = [o for o in options if o != "Custom"]
+        self.assertEqual(
+            sorted(concrete),
+            sorted(expected),
+            "the Select vocabulary changed -- update the Mollie interval mapping too",
+        )
+
+        for frequency in concrete:
+            with self.subTest(frequency=frequency):
+                self.assertEqual(
+                    BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(frequency),
+                    expected[frequency],
+                    f"{frequency} has no correct Mollie interval mapping",
+                )
+
+    def test_every_amendment_billing_interval_maps(self):
+        """The OTHER caller's vocabulary, which is not the same one.
+
+        _get_subscription_parameters feeds the same map from
+        Contribution Amendment Request.new_billing_interval, whose Select uses the
+        older "-ly" spellings (Monthly/Quarterly/Annually). Nothing guarded that,
+        so a fix aimed at the dues-schedule vocabulary could silently break this
+        caller instead.
+        """
+        expected = {"Monthly": "1 month", "Quarterly": "3 months", "Annually": "12 months"}
+        options = [
+            o
+            for o in frappe.get_meta("Contribution Amendment Request")
+            .get_field("new_billing_interval")
+            .options.split("\n")
+            if o.strip()
+        ]
+        self.assertEqual(
+            sorted(options),
+            sorted(expected),
+            "the amendment Select vocabulary changed -- update the Mollie interval mapping too",
+        )
+
+        for interval in options:
+            with self.subTest(interval=interval):
+                self.assertEqual(
+                    BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(interval),
+                    expected[interval],
+                    f"{interval} has no correct Mollie interval mapping",
+                )
+
+    def test_the_two_interval_maps_compose_without_loss(self):
+        """MollieGateway.create_subscription must accept what this service produces.
+
+        That gateway re-maps the interval through its own passthrough allow-list
+        and silently rewrites anything missing to "1 month". A value this service
+        emits that the gateway does not list would be an overbilling bug -- an
+        annual subscription quietly charged monthly -- so the two maps have to
+        compose. Read from the source rather than restated, so adding an interval
+        in one place and forgetting the other fails here.
+        """
+        import inspect
+        import re
+
+        from verenigingen.verenigingen_payments.utils import payment_gateways
+
+        source = inspect.getsource(payment_gateways.MollieGateway.create_subscription)
+        block = re.search(r"interval_mapping = \{(.*?)\}", source, re.S)
+        self.assertIsNotNone(block, "interval_mapping literal not found in create_subscription")
+        accepted = set(re.findall(r'"([^"]+)"\s*:', block.group(1)))
+
+        produced = set(BILLING_INTERVAL_TO_MOLLIE_FORMAT.values())
+        self.assertEqual(
+            produced - accepted,
+            set(),
+            "MollieGateway.create_subscription silently downgrades these to '1 month': "
+            f"{sorted(produced - accepted)}",
+        )
 
 
 class TestVerifySubscriptionAmount(EnhancedTestCase):

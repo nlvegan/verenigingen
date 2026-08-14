@@ -550,11 +550,21 @@ class MollieGateway(PaymentGateway):
                 },
             }
 
-            # Prepare subscription data
+            # Prepare subscription data.
+            #
+            # This is a passthrough allow-list, and anything missing from it is
+            # silently rewritten to "1 month" below -- so a gap here is an
+            # overbilling bug, not a no-op. It must accept every value
+            # BILLING_INTERVAL_TO_MOLLIE_FORMAT can produce; "12 months" (Annual)
+            # and the weekly/daily intervals were missing, which would have
+            # downgraded an annual subscription to monthly.
             interval_mapping = {
+                "1 day": "1 day",
+                "1 week": "1 week",
                 "1 month": "1 month",
                 "3 months": "3 months",
                 "6 months": "6 months",
+                "12 months": "12 months",
                 "1 year": "1 year",
             }
 
