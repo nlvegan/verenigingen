@@ -52,8 +52,13 @@ class TestMemberSubscriptionEndpoints(EnhancedTestCase):
     def test_create_subscription_rejects_unsupported_interval(self):
         member = self.create_test_member(first_name="BadInterval")
         frappe.db.set_value("Member", member.name, "mollie_customer_id", "cst_2")
+        # "2 weeks" used to be the example here, but Mollie accepts it and
+        # convert_frequency_to_mollie_interval emits it for a Bi-Weekly schedule,
+        # so this was pinning the refusal of a valid interval. "1 year" is the
+        # genuinely unsupported one: Mollie answers 422 "The interval unit is
+        # invalid" (verified against the live test API).
         result = pg.create_member_subscription(
-            member_id=member.name, amount=25.0, interval="2 weeks"
+            member_id=member.name, amount=25.0, interval="1 year"
         )
         self.assertEqual(result["status"], "error")
         self.assertIn("Unsupported subscription interval", result["message"])

@@ -835,7 +835,15 @@ class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
         return member
 
     def _interval_reaching_mollie(self, member, interval):
-        """Run the real gateway and return the interval it actually sent."""
+        """Run the real create_subscription body and return the interval it sent.
+
+        The gateway is built with __new__ and given a stub `settings` rather than
+        constructed normally: MollieGateway.__init__ loads Mollie Settings and
+        throws "Mollie test secret key not configured" wherever no key exists --
+        which is every CI runner. The method under test is create_subscription,
+        not the constructor, so this keeps the test running everywhere instead of
+        silently skipping exactly where it matters.
+        """
         from unittest.mock import patch as _patch
 
         from verenigingen.verenigingen_payments.utils import payment_gateways
@@ -851,7 +859,11 @@ class TestSubscriptionParametersWithDuesSchedule(EnhancedTestCase):
                 "next_payment_date": None,
             }
 
-        gateway = payment_gateways.MollieGateway("Default")
+        gateway = payment_gateways.MollieGateway.__new__(payment_gateways.MollieGateway)
+        gateway.settings = SimpleNamespace(
+            enable_subscriptions=1,
+            get_subscription_webhook_url=lambda: "https://example.org/hook",
+        )
         with _patch.object(
             payment_gateways.CompletePaymentService, "create_customer_subscription", _capture
         ):
