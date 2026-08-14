@@ -71,7 +71,9 @@ def report_leaks(rows, test_id: str) -> None:
         return
 
     for line in format_leak_lines(rows, test_id):
-        print(line)
+        # flush per line: stdout and stderr share one pipe under CI's `2>&1 | tee`,
+        # and a full buffer can otherwise flush mid-line.
+        print(line, flush=True)
 
     if fail_on_test_leak_enabled():
         raise AssertionError(format_leak_failure(rows, test_id))

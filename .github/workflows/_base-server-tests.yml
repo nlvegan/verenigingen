@@ -147,6 +147,12 @@ jobs:
         # fail; a later test in this shard collides with it and fails instead, naming
         # neither the record nor the test that produced it. The baseline lets the
         # existing debt stand while forbidding new leaks.
+        #
+        # A failure in the step above would otherwise skip this one, so a leak
+        # regression arriving alongside a test failure would surface a whole CI cycle
+        # later. The two gates answer different questions. `!cancelled()` rather than
+        # `always()`, so a cancelled job does not run it and report a missing log.
+        if: ${{ !cancelled() }}
         run: |
           python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_test_leaks.py" \
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \

@@ -766,13 +766,15 @@ class VereningingenBaseReportsLeaksTest(unittest.TestCase):
         with redirect_stdout(buf):
             self._probe_case().run(unittest.TestResult())
 
+        # One substring, not two assertions: `_report_cleanup_summary` also prints the
+        # name, so separate checks could be satisfied by two different lines.
         self.assertIn(
-            f"TEST-LEAK ",
+            f"TEST-LEAK {type(self).__module__}",
             buf.getvalue(),
             "this base's undeletable documents must be reported in the same "
             "machine-readable form as EnhancedTestCase's, or the ratchet cannot see them",
         )
-        self.assertIn(self.leaked_name, buf.getvalue())
+        self.assertRegex(buf.getvalue(), rf"TEST-LEAK \S+ Territory::{self.leaked_name}\b")
 
 
 if __name__ == "__main__":

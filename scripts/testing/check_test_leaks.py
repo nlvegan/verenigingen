@@ -69,23 +69,36 @@ class Leak(NamedTuple):
     detail: str
 
 
-def extract_leaks(text: str) -> list:
+def extract_leaks(text: str, on_unparseable=None) -> list:
     """Every distinct leaked record in the log, in the order it was reported.
 
-    Distinct, because under VERENIGINGEN_FAIL_ON_TEST_LEAK the same record is both
-    printed and echoed inside the AssertionError -- counting it twice would report a
-    regression that is really one leak reported in two places.
+    Distinct on (test id, record): under VERENIGINGEN_FAIL_ON_TEST_LEAK the same
+    record is printed AND echoed inside the AssertionError, and counting that twice
+    reports a regression that is one leak seen in two places. Keying on the test id
+    alone would be far worse -- it would drop every record after the first that a
+    single test leaks, which is the normal shape (a Member and its Membership).
     """
     clean = _ANSI.sub("", text)
     leaks = []
     seen = set()
     for match in _LEAK.finditer(clean):
         test_id = match.group(1)
+        module = test_id.rsplit(".", 2)[0]
+        # A cut inside the id still matches a SHORTER dotted path, and rsplit would
+        # then name a package rather than a module ("verenigingen.tests.payment").
+        # That is never in the baseline, so it would fail an unrelated PR while
+        # naming something that does not exist. Frappe only collects `test_*.py`,
+        # so a real module's last component always starts with `test_`; anything
+        # else is a truncated line, and dropping it beats inventing a module.
+        if not module.rsplit(".", 1)[-1].startswith("test_"):
+            if on_unparseable:
+                on_unparseable(match.group(0))
+            continue
         detail = (match.group(2) or "").strip()
         if (test_id, detail) in seen:
             continue
         seen.add((test_id, detail))
-        leaks.append(Leak(test_id=test_id, module=test_id.rsplit(".", 2)[0], detail=detail))
+        leaks.append(Leak(test_id=test_id, module=module, detail=detail))
     return leaks
 
 
@@ -107,15 +120,36 @@ def run_completed(text: str) -> bool:
     return bool(_SENTINEL.search(_ANSI.sub("", text)))
 
 
+class BaselineError(Exception):
+    """The baseline file is unusable -- a usage error, not a leak regression."""
+
+
 def load_baseline(path: Path) -> dict:
-    """`<module> <count>` per line; `#` comments and blanks ignored."""
+    """`<module> <count>` per line; `#` comments and blanks ignored.
+
+    Raises rather than letting a bad line become an exit-1: exit 1 means "this
+    change leaks more", and a malformed baseline must never be able to say that.
+    A duplicate entry is refused outright -- last-wins would let someone APPEND
+    `mod 9` beneath `mod 1` and silently raise a ratchet that is supposed to be
+    incapable of rising.
+    """
     baseline = {}
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         module, _, count = line.rpartition(" ")
-        baseline[module.strip()] = int(count)
+        module = module.strip()
+        try:
+            parsed = int(count)
+        except ValueError:
+            raise BaselineError(f"{path}:{number}: expected '<module> <count>', got {raw!r}")
+        if module in baseline:
+            raise BaselineError(
+                f"{path}:{number}: '{module}' is listed twice "
+                f"({baseline[module]} and {parsed}). Edit the existing entry."
+            )
+        baseline[module] = parsed
     return baseline
 
 
@@ -146,8 +180,26 @@ def main(argv=None) -> int:
         return 2
 
     text = results_path.read_text(encoding="utf-8", errors="replace")
-    leaks = extract_leaks(text)
+    unparseable = []
+    leaks = extract_leaks(text, on_unparseable=unparseable.append)
     observed = count_by_module(leaks)
+
+    incomplete = not run_completed(text)
+    if incomplete:
+        print(
+            "::error::End-of-run sentinel ('Tests: N, Failing: N, Errors: N') not found -- "
+            "the run did not complete (killed/hung shard or truncated log), so 'no leaks' "
+            "would be an artefact of the log ending early. Re-run the job.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if unparseable:
+        # Not fatal: each is a leak we could not attribute, so the count is a floor.
+        print(
+            f"::warning::{len(unparseable)} TEST-LEAK line(s) were truncated mid-identifier "
+            f"and skipped, e.g. {unparseable[0]!r}"
+        )
 
     if args.emit_baseline:
         for module, count in sorted(observed.items()):
@@ -158,15 +210,10 @@ def main(argv=None) -> int:
     if not baseline_path.exists():
         print(f"::error::baseline file not found: {baseline_path}", file=sys.stderr)
         return 2
-    baseline = load_baseline(baseline_path)
-
-    if not run_completed(text):
-        print(
-            "::error::End-of-run sentinel ('Tests: N, Failing: N, Errors: N') not found -- "
-            "the run did not complete (killed/hung shard or truncated log), so 'no leaks' "
-            "would be an artefact of the log ending early. Re-run the job.",
-            file=sys.stderr,
-        )
+    try:
+        baseline = load_baseline(baseline_path)
+    except BaselineError as error:
+        print(f"::error::{error}", file=sys.stderr)
         return 2
 
     # A module that leaked obviously ran, even if its header was swallowed.
@@ -200,6 +247,9 @@ def main(argv=None) -> int:
             "Make the test own and release what it creates; see "
             "verenigingen/tests/utils/leak_guard.py. Run the module with "
             "VERENIGINGEN_FAIL_ON_TEST_LEAK=1 to fail at the leak instead of here."
+            "\n\nA leak can also be timing-dependent -- cleanup gives up after three "
+            "QueryTimeoutError retries (tests/utils/base.py) -- so if this names a module "
+            "your change did not touch, re-run the job before digging."
         )
         if args.update:
             print("::error::--update refuses to raise a baseline; nothing written.")

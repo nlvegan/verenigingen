@@ -3,12 +3,18 @@
 
 Pure-Python (no bench/site needed): the gate reads a text log and a baseline file.
 
-The log fixtures below are BYTE-FAITHFUL to what `bench run-parallel-tests` actually
-emits -- captured from a real run (a Territory whose child was created with capture
-suspended, so the drain cannot delete the parent). The leak line arrives indented and
-prefixed with frappe's `U+25B9` stdout marker, NOT at column 0, and the class header
-that tells us which module ran is a bare dotted path on its own line. A parser written
-against an imagined format passes its own tests and reads zero leaks in CI.
+The log fixtures below are captured from real runs, and the two runners disagree about
+the leak line's shape:
+
+  bench run-tests          "       ▹  TEST-LEAK ..."   indented, U+25B9 marker
+  bench run-parallel-tests "TEST-LEAK ..."             column 0, unprefixed
+
+The marker comes from `TestResult.buffer`, which `frappe/testing/runner.py` sets and
+`frappe/parallel_test_runner.py` does not. **The gate only ever reads the second form**
+(verified against run 31750139376's shard logs); the first is kept because it is what a
+developer sees locally. Both are covered, and the pattern stays unanchored so neither
+depends on the other. A parser written against an imagined format passes its own tests
+and reads zero leaks in CI.
 
 Run with:  python -m pytest this_file.py
 """
@@ -51,9 +57,44 @@ class ExtractLeaksTest(unittest.TestCase):
         leaks = ctl.extract_leaks(_log(LEAK_LINE))
         self.assertIn("Territory::zzprobe-parent-10125d", leaks[0].detail)
 
+    def test_the_column_zero_form_the_parallel_runner_emits(self):
+        """The form that actually reaches the gate.
+
+        `▹` is added by `TestResult.buffer`, which `bench run-tests` sets and
+        `parallel_test_runner` does NOT -- so in CI the line arrives at column 0,
+        unprefixed. Verified against run 31750139376's shard logs.
+        """
+        bare = LEAK_LINE.split("▹  ")[1]
+        self.assertEqual("T", bare[0], "this fixture must start at column 0")
+        self.assertEqual(1, len(ctl.extract_leaks(_log(bare))))
+
     def test_ansi_colour_codes_do_not_hide_a_leak(self):
-        coloured = "   \x1b[33m ▹ \x1b[0m " + LEAK_LINE.split("▹  ")[1]
-        self.assertEqual(1, len(ctl.extract_leaks(_log(coloured))))
+        """The escape has to sit INSIDE the matched region.
+
+        Putting it before the marker tests nothing: the pattern is unanchored, so
+        it matches from `TEST-LEAK` onward and never sees the escape.
+        """
+        coloured = (
+            "   ▹  TEST-LEAK \x1b[31mverenigingen.tests.test_a.ClassA.test_one\x1b[0m "
+            "Territory::zz-1 Cannot delete"
+        )
+        leaks = ctl.extract_leaks(_log(coloured))
+        self.assertEqual(1, len(leaks))
+        self.assertEqual("verenigingen.tests.test_a", leaks[0].module)
+
+    def test_a_line_truncated_inside_the_test_id_is_not_attributed_to_an_invented_module(self):
+        """Dropping a leak beats inventing a module.
+
+        A cut inside the id still matches a shorter dotted path, and rsplit would
+        then name `verenigingen.tests.payment` -- not a module, never in the
+        baseline, so `1 > 0` fails an unrelated PR while naming something that
+        does not exist.
+        """
+        for truncated in (
+            "  ▹  TEST-LEAK verenigingen.tests.payment.test_dues_validation.TestDuesValidation",
+            "  ▹  TEST-LEAK verenigingen.tests.fo",
+        ):
+            self.assertEqual([], ctl.extract_leaks(_log(truncated)), truncated)
 
     def test_a_doctype_with_spaces_survives_parsing(self):
         line = (
@@ -96,6 +137,17 @@ class CountByModuleTest(unittest.TestCase):
         counts = ctl.count_by_module(ctl.extract_leaks(_log(LEAK_LINE, second)))
         self.assertEqual({"verenigingen.tests.test_a": 2}, counts)
 
+    def test_two_records_leaked_by_the_SAME_test_count_twice(self):
+        """The production shape: one test leaves a Member and its Membership.
+
+        Pins the dedupe key to (test_id, record). Keyed on test_id alone, every
+        record after the first would vanish -- an under-count, in a gate whose
+        whole job is to notice when the number goes up.
+        """
+        second = LEAK_LINE.replace("Territory::zzprobe-parent-10125d", "Territory::zzprobe-other-99")
+        counts = ctl.count_by_module(ctl.extract_leaks(_log(LEAK_LINE, second)))
+        self.assertEqual({"verenigingen.tests.test_a": 2}, counts)
+
 
 class ModulesThatRanTest(unittest.TestCase):
     """Scope. A shard log covers ~110 of 1315 modules; the rest simply did not run."""
@@ -110,6 +162,16 @@ class ModulesThatRanTest(unittest.TestCase):
 
     def test_indented_result_lines_are_not_class_headers(self):
         ran = ctl.modules_that_ran(_log("   ✔  test_something — ok", SENTINEL))
+        self.assertEqual(set(), ran)
+
+    def test_a_dotted_path_with_trailing_content_is_not_a_class_header(self):
+        """Pins "and nothing else on the line".
+
+        A merged line (stdout and stderr share the pipe) is not evidence that the
+        class ran, and treating it as such widens --update's scope to modules this
+        shard cannot speak for.
+        """
+        ran = ctl.modules_that_ran(_log("verenigingen.tests.test_a.ClassA (0.5s)", SENTINEL))
         self.assertEqual(set(), ran)
 
 
@@ -246,6 +308,29 @@ class GateTest(unittest.TestCase):
             )
         self.assertEqual(0, rc)
         self.assertIn("verenigingen.tests.test_a 1", buf.getvalue())
+
+    def test_a_malformed_baseline_line_is_a_usage_error_not_a_regression(self):
+        """Exit 1 means "this PR leaks more". A broken baseline must not say that."""
+        rc = self._run(_log("verenigingen.tests.test_a.ClassA", SENTINEL), "bogus_line_without_count\n")
+        self.assertEqual(2, rc)
+
+    def test_a_duplicated_baseline_entry_is_refused(self):
+        """Last-wins would let an appended line RAISE the ratchet silently.
+
+        This file is hand-edited; appending `mod 9` under an existing `mod 1` is
+        exactly how a ratchet dies, and it is the one edit the gate exists to
+        forbid.
+        """
+        rc = self._run(
+            _log("verenigingen.tests.test_a.ClassA", LEAK_LINE, SENTINEL),
+            "verenigingen.tests.test_a 0\nverenigingen.tests.test_a 9\n",
+        )
+        self.assertEqual(2, rc)
+
+    def test_emit_baseline_refuses_a_run_that_did_not_finish(self):
+        """Seeding from a truncated log bakes in an under-count."""
+        rc = ctl.main(["--results", self._write("run.log", _log(LEAK_LINE)), "--emit-baseline"])
+        self.assertEqual(2, rc)
 
     def test_a_missing_results_file_is_a_usage_error(self):
         rc = ctl.main(["--results", str(self.dir / "nope.log"), "--baseline", self._write("b.txt", "")])

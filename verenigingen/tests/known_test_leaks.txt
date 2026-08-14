@@ -19,10 +19,29 @@
 # all 12 shards complete. Measured on CI's fresh per-shard sites, not on a bench
 # whose test sites carry committed state (#308).
 #
-# What this does NOT cover: an orphan whose parent deleted cleanly. The instrument
-# reports records the drain FAILED to delete, so ledger rows outliving a deleted
-# voucher are invisible here -- zero GL Entry leaks are reported below, yet orphan
-# GL Entries with a reused voucher_no broke a test in this very run.
+# What this does NOT cover -- read before treating a clean run as "no leaks":
+#
+#  1. An orphan whose parent deleted cleanly. The instrument reports records the drain
+#     FAILED to delete, so ledger rows outliving a deleted voucher are invisible here:
+#     zero GL Entry leaks are listed below, yet orphan GL Entries with a reused
+#     voucher_no broke a test in this very run.
+#
+#  2. Roughly a third of the suite's test classes. Only EnhancedTestCase (1735) and
+#     VereningingenTestCase (453) report; plain unittest.TestCase (562) and raw
+#     FrappeTestCase (388) do not -- and plain unittest.TestCase has no rollback at
+#     all, so it is the likeliest leaker of the four. Three further classes override
+#     tearDown without calling super(), so their check never runs:
+#     tests/security/test_auth_hooks_critical_security.py:23,
+#     tests/backend/performance/test_performance_edge_cases.py:83,
+#     tests/backend/components/test_sepa_reconciliation.py:210.
+#
+#  3. A module whose TestCase classes are imported by ANOTHER module runs in two
+#     shards, and each shard sees a partial count (leaks are attributed to the
+#     DEFINING module). Four such imports exist today; none of those modules leaks,
+#     so this is latent. If one starts to, do not --update it from a single shard.
+#
+# Note: --update rewrites this file with all comments hoisted to the top, so a note
+# attached to a specific entry will not stay attached to it.
 verenigingen.services.billing.test_bulk_invoice_generation_service 1
 verenigingen.services.billing.test_invoice_management 1
 verenigingen.tests.api.test_dues_invoice_workflow 7
