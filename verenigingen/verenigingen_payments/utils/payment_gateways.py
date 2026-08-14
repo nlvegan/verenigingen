@@ -28,7 +28,9 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     get_member_by_customer_id,
     get_member_by_subscription_id,
     get_members_by_customer,
+    is_valid_mollie_interval,
     log_mollie_error,
+    validate_mollie_interval,
 )
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
@@ -194,8 +196,18 @@ class MollieGateway(PaymentGateway):
                 payment_data["sequenceType"] = "first"
                 frappe.logger().info("🎯 Added sequenceType: 'first' for subscription setup")
 
-                # Add subscription metadata for webhook processing
-                subscription_interval = form_data.get("subscription_interval", "1 month")
+                # Add subscription metadata for webhook processing.
+                #
+                # Validated here, before the payment exists, because this is the only
+                # point in the chain where refusing is visible to the donor. The
+                # webhook-side activation helpers run after the first payment has
+                # already been taken, and both they and their caller swallow into an
+                # Error Log -- so an interval Mollie refuses there costs the donor a
+                # charge and produces no subscription and no visible error.
+                subscription_interval = validate_mollie_interval(
+                    form_data.get("subscription_interval", "1 month"),
+                    context=f"donation {donation.name}",
+                )
                 payment_data["metadata"].update(
                     {
                         "subscription_setup": "true",
@@ -1345,6 +1357,15 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
                 "Missing subscription details in payment metadata", {"reason": "missing_subscription_details"}
             )
 
+        # Named here rather than left to Mollie's 422, which arrives inside the broad
+        # except below and reads as a generic API failure.
+        if not is_valid_mollie_interval(subscription_interval):
+            return create_error_response(
+                f"Mollie will not accept subscription interval '{subscription_interval}' "
+                f"(payment {payment.id}); an annual subscription must be '12 months'",
+                {"reason": "invalid_interval", "interval": subscription_interval},
+            )
+
         # Get customer ID from payment
         customer_id = payment.customer_id
         if not customer_id:
@@ -1441,6 +1462,17 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         interval = (payment.metadata or {}).get(
             "subscription_interval"
         ) or convert_frequency_to_mollie_interval(donation.get("recurring_frequency"))
+
+        # The metadata branch is unvalidated input (it comes from the checkout form);
+        # the converter branch cannot produce an invalid value. Named here rather than
+        # left to Mollie's 422, which the broad except below turns into a generic
+        # "subscription creation failed".
+        if not is_valid_mollie_interval(interval):
+            return create_error_response(
+                f"Mollie will not accept subscription interval '{interval}' for donation "
+                f"{donation_id}; an annual subscription must be '12 months'",
+                {"reason": "invalid_interval", "interval": interval},
+            )
 
         subscription_data = {
             "amount": format_mollie_amount(donation.amount),

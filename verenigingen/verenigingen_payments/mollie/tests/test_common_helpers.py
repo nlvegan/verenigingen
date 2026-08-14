@@ -18,6 +18,7 @@ Following Enhanced Test Factory patterns with proper field validation.
 import unittest
 from decimal import Decimal
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -32,7 +33,9 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     get_members_by_customer,
     get_mollie_currency,
     is_long_interval,
+    is_valid_mollie_interval,
     validate_mollie_amount,
+    validate_mollie_interval,
 )
 
 
@@ -586,6 +589,50 @@ class TestMollieUtilityIntegration(EnhancedTestCase):
         # Verify protection
         self.assertEqual(success_response["status"], "success")  # Not overridden to "pending"
         self.assertEqual(success_response["payment_id"], "tr_123")  # Other data preserved
+
+
+class TestMollieIntervalValidation(FrappeTestCase):
+    """The interval grammar Mollie actually enforces.
+
+    Measured against the Mollie test API (a customer with a real directdebit
+    mandate, one subscription create per candidate, all cancelled afterwards),
+    not read off the docs. Units are day / week / month only; "1 year" is
+    refused with 422 "The interval unit is invalid".
+    """
+
+    ACCEPTED = [
+        "1 day",
+        "7 days",
+        "14 days",
+        "1 week",
+        "2 weeks",
+        "1 month",
+        "3 months",
+        "6 months",
+        "12 months",
+    ]
+    REFUSED = ["1 year", "2 years", "0 months", "banana", "", "   ", "month", "3", None]
+
+    def test_accepts_every_interval_mollie_returned_201_for(self):
+        for interval in self.ACCEPTED:
+            with self.subTest(interval=interval):
+                self.assertTrue(is_valid_mollie_interval(interval))
+
+    def test_refuses_every_interval_mollie_returned_422_for(self):
+        for interval in self.REFUSED:
+            with self.subTest(interval=interval):
+                self.assertFalse(is_valid_mollie_interval(interval))
+
+    def test_validate_throws_on_a_year_unit_and_says_what_to_use_instead(self):
+        with self.assertRaises(frappe.ValidationError) as cm:
+            validate_mollie_interval("1 year")
+
+        message = str(cm.exception)
+        self.assertIn("1 year", message)
+        self.assertIn("12 months", message, "the error must name the working spelling")
+
+    def test_validate_passes_a_good_interval_through_unchanged(self):
+        self.assertEqual(validate_mollie_interval("3 months"), "3 months")
 
 
 def run_tests():

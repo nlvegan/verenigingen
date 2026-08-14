@@ -98,11 +98,15 @@ class _StubSubscription:
 class _StubSubscriptions:
     def __init__(self, sub=None):
         self._sub = sub or _StubSubscription()
+        # Recorded so a test can assert Mollie was never reached at all, not
+        # merely that the call failed.
+        self.last_create_data = None
 
     def get(self, subscription_id):
         return self._sub
 
     def create(self, data=None):
+        self.last_create_data = data
         return self._sub
 
 
@@ -216,6 +220,28 @@ class TestMollieProcessPayment(EnhancedTestCase):
         self.assertEqual(sent["customerId"], "cst_99")
         self.assertEqual(sent["metadata"]["subscription_setup"], "true")
         self.assertEqual(sent["metadata"]["subscription_interval"], "3 months")
+
+    def test_process_payment_refuses_a_subscription_interval_mollie_rejects(self):
+        """No money before a subscription that cannot be created.
+
+        This is the only place in the chain where refusing is visible to the
+        donor: the webhook-side activation helpers run after the first payment
+        has already been taken, and every layer above them swallows. Here the
+        donor gets a failed payment setup instead of a charge plus silence.
+        """
+        donation = self._donation(amount=20.0)
+        gw = _bare_gateway(client=_StubClient(payments=_CreatePayments(created=_StubPayment())))
+
+        result = gw.process_payment(
+            donation,
+            {"subscription_setup": True, "subscription_interval": "1 year"},
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIsNone(
+            gw.client.payments.last_create_data,
+            "no Mollie payment may be created for a subscription that cannot exist",
+        )
 
     def test_process_payment_error_branch(self):
         donation = self._donation()
@@ -428,6 +454,59 @@ class TestSubscriptionActivationSuccess(EnhancedTestCase):
         # The subscription id is persisted on the donation that owns the field.
         donation.reload()
         self.assertEqual(donation.mollie_subscription_id, "sub_stub")
+
+    def test_direct_subscription_refuses_an_interval_mollie_rejects(self):
+        """An interval Mollie refuses must be caught here, not sent and swallowed.
+
+        Both this helper and its caller wrap everything in a broad except that
+        only writes an Error Log, so a 422 from Mollie is invisible. Catching it
+        before the call at least names the cause.
+        """
+        customer = _StubCustomer()
+        gw = _bare_gateway(client=_StubClient(customers=_StubCustomers(customer=customer)))
+        payment = _StubPayment(
+            id="tr_bad_interval",
+            customer_id="cst_direct",
+            metadata={
+                "subscription_setup": "true",
+                "subscription_interval": "1 year",
+                "subscription_amount": "10.00",
+                "subscription_currency": "EUR",
+            },
+        )
+
+        result = pg._activate_direct_subscription_after_first_payment(gw, payment)
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("1 year", result["message"])
+        self.assertIsNone(
+            customer.subscriptions.last_create_data,
+            "the invalid interval must never reach Mollie",
+        )
+
+    def test_donation_subscription_refuses_an_interval_mollie_rejects(self):
+        donor = self.create_test_donor(donor_name="Annual Interval Donor")
+        donation = self.create_test_donation(
+            amount=30.0, mode_of_payment="Bank Transfer", donor=donor.name, paid=0
+        )
+
+        customer = _StubCustomer()
+        gw = _bare_gateway(client=_StubClient(customers=_StubCustomers(customer=customer)))
+        payment = _StubPayment(
+            customer_id="cst_donation",
+            metadata={"donation_id": donation.name, "subscription_interval": "1 year"},
+        )
+
+        result = pg._activate_donation_subscription_after_first_payment(gw, payment)
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("1 year", result["message"])
+        self.assertIsNone(
+            customer.subscriptions.last_create_data,
+            "the invalid interval must never reach Mollie",
+        )
+        donation.reload()
+        self.assertFalse(donation.mollie_subscription_id)
 
     def test_activate_donation_subscription_falls_back_to_donation_customer(self):
         """When the payment has no customer_id, the donation's mollie_customer_id
