@@ -119,7 +119,9 @@ function getFrequencyDisplayText(interval) {
 			return 'Quarterly';
 		case '6 months':
 			return 'Semi-annually';
-		case '1 year':
+		// "12 months", not "1 year": Mollie's interval grammar has no year unit
+		// (422 "The interval unit is invalid"), so the form never emits one.
+		case '12 months':
 			return 'Annually';
 		default:
 			return `Every ${interval}`;

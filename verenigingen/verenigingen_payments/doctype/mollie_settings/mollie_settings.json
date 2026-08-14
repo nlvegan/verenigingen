@@ -132,7 +132,7 @@
    "fieldname": "default_subscription_interval",
    "fieldtype": "Select",
    "label": "Default Subscription Interval",
-   "options": "1 day\n7 days\n14 days\n1 month\n3 months\n6 months\n1 year"
+   "options": "1 day\n7 days\n14 days\n1 month\n3 months\n6 months\n12 months"
   },
   {
    "default": "Membership dues for {member_name}",

@@ -123,7 +123,7 @@ Test Mode: ✓ (Enable for initial testing)
 
 ```
 Enable Subscriptions: ✓
-Default Subscription Interval: 1 month (options: 1 day, 7 days, 14 days, 1 month, 3 months, 6 months, 1 year)
+Default Subscription Interval: 1 month (options: 1 day, 7 days, 14 days, 1 month, 3 months, 6 months, 12 months)
 Subscription Description Template: Membership dues for {member_name}
 Quarterly/Yearly Payment Months: [e.g. 1,4,7,10 for quarterly]
 Payment Day of Month: [1-28, day of month for subscription charges]
@@ -644,7 +644,7 @@ A: Yes, but this requires cancelling the current subscription and creating a new
 A: Mollie will retry webhook delivery multiple times over several days. If all retries fail, you can manually process payments by checking the Mollie dashboard and creating Payment Entries in ERPNext.
 
 **Q: How do we handle members who want to pay annually instead of monthly?**
-A: Update their Membership Dues Schedule to "Yearly" frequency, cancel their current Mollie subscription, and create a new subscription with "1 year" interval.
+A: Update their Membership Dues Schedule to "Yearly" frequency, cancel their current Mollie subscription, and create a new subscription with "12 months" interval. Mollie counts in days, weeks and months only -- "1 year" is rejected with 422 "The interval unit is invalid".
 
 **Q: Can we customize the payment description that members see?**
 A: Yes, modify the "Subscription Description Template" in Mollie Settings. Use `{member_name}` as a placeholder for dynamic member names.
@@ -705,7 +705,7 @@ redirect_url: Custom redirect URL after payment (optional)
 enable_subscriptions: Allow subscription creation (boolean)
 testing_webhook_url: Webhook URL for test mode (auto-generated)
 live_webhook_url: Webhook URL for production (auto-generated)
-default_subscription_interval: Default billing frequency (1 day, 7 days, 14 days, 1 month, 3 months, 6 months, 1 year)
+default_subscription_interval: Default billing frequency (1 day, 7 days, 14 days, 1 month, 3 months, 6 months, 12 months). Note: no code currently reads this field.
 subscription_description_template: Template for subscription descriptions
 quarterly_yearly_payment_months: Months for quarterly/yearly payment scheduling
 payment_day_of_month: Day of month for subscription charges

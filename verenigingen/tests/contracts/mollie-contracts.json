@@ -131,7 +131,7 @@
           "interval": {
             "type": "string",
             "pattern": "^[0-9]+ (day|week|month)s?$",
-            "examples": ["1 month", "3 months", "1 year"]
+            "examples": ["1 month", "3 months", "12 months"]
           },
           "description": {
             "type": "string",
