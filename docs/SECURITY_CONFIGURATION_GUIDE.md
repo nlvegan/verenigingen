@@ -117,18 +117,9 @@ bench --site [your-site] run-tests --app verenigingen --module verenigingen.test
 
 ## API Endpoints for Configuration Validation
 
-The system provides API endpoints to help validate security configuration:
+The system provides an API endpoint to help validate security configuration:
 
 ```javascript
-// Get security configuration guide
-frappe.call({
-  method:
-    "verenigingen.verenigingen.onboarding_step.verenigingen_configure_security.verenigingen_configure_security.get_security_configuration_guide",
-  callback: function (r) {
-    console.log(r.message); // Complete security checklist
-  },
-});
-
 // Validate current security configuration
 frappe.call({
   method:
