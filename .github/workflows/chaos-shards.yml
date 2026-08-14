@@ -131,6 +131,12 @@ jobs:
         run: |
           set -o pipefail
           source ${GITHUB_WORKSPACE}/env/bin/activate
+          # cwd must be the bench's sites/ dir, exactly as in the step below: importing
+          # parallel_test_runner pulls in frappe.testing, which opens
+          # `../logs/frappe.testing.log` -- a RELATIVE path (frappe/utils/logger.py). From
+          # $GITHUB_WORKSPACE that resolves one level too high and raises
+          # FileNotFoundError before this script runs at all.
+          cd "${GITHUB_WORKSPACE}/sites"
           # show_test_shards imports frappe's OWN get_all_tests/get_test_weight, so the
           # file set and weights are the real ones; only the partition is ours.
           MODULES=$(python3 "${GITHUB_WORKSPACE}/apps/verenigingen/scripts/testing/show_test_shards.py" \
