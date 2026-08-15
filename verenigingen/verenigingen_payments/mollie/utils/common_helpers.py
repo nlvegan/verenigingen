@@ -829,3 +829,44 @@ def merge_metadata_safely(
                 result[key] = value
 
     return result
+
+
+def read_payment_field(payment: Any, snake_case: str, camel_case: Optional[str] = None) -> Any:
+    """Read one field from a Mollie payment, whichever shape it arrived in.
+
+    Three shapes reach this code and they are not interchangeable:
+
+    * ``mollie.api.objects.payment.Payment`` -- a ``dict`` SUBCLASS whose keys are
+      camelCase and whose properties are snake_case;
+    * the normalised snake_case dict ``_fetch_payment_from_mollie`` builds;
+    * plain camelCase JSON straight from the API (captured fixtures).
+
+    ``hasattr({...}, "subscription_id")`` is False, so an attribute-only reader
+    returns nothing for two of the three -- the defect this replaces. Returns
+    None when the field is absent in every shape.
+    """
+    camel_case = camel_case or snake_case
+
+    if isinstance(payment, dict):
+        for key in (snake_case, camel_case):
+            if key in payment:
+                return payment[key]
+        return None
+
+    value = getattr(payment, snake_case, None)
+    if value is None:
+        value = getattr(payment, camel_case, None)
+    return value
+
+
+def read_payment_metadata(payment: Any) -> Dict[str, Any]:
+    """A Mollie payment's metadata, always as a dict.
+
+    Mollie copies a subscription's metadata onto every charge it generates --
+    including copying nothing. A subscription with no metadata yields
+    ``metadata: null`` on its charges (measured: sub_5euSBaLzqF), and metadata is
+    free-form, so a caller cannot assume a mapping. Anything that is not a dict
+    becomes ``{}``.
+    """
+    metadata = read_payment_field(payment, "metadata")
+    return metadata if isinstance(metadata, dict) else {}
