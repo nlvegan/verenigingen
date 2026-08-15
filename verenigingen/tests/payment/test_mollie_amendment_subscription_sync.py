@@ -68,7 +68,7 @@ class _FakeSubscriptions:
     def __init__(self, sdk):
         self._sdk = sdk
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         self._sdk.subscriptions_created.append(data)
         return _FakeSubscription(mandate_id=(data or {}).get("mandateId"))
 

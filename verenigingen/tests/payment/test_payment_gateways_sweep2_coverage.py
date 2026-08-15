@@ -105,7 +105,7 @@ class _Payments:
         self._raise_on_get = raise_on_get
         self.last_create_data = None
 
-    def create(self, data):
+    def create(self, data=None, idempotency_key="", **params):
         self.last_create_data = data
         return self._created
 
@@ -125,7 +125,7 @@ class _Subscriptions:
         self._sub = sub or _Subscription()
         self._raise_on_create = raise_on_create
 
-    def create(self, data=None):
+    def create(self, data=None, idempotency_key="", **params):
         if self._raise_on_create:
             raise self._raise_on_create
         return self._sub
