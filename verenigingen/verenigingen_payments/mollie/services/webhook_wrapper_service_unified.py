@@ -443,6 +443,45 @@ class UnifiedWebhookWrapperService:
                     f"Falling back to donation processor"
                 )
 
+            # A recurring donation charge has no Donation yet, and STEP 1 below
+            # is keyed on Donation.payment_id -- it would ask about a record that
+            # does not exist. Materialise it first, then FALL THROUGH: the charge
+            # now carries its own payment_id, so everything below works on it
+            # unchanged.
+            #
+            # Do not return from here. check_payment_processing_state is also the
+            # only discovery of pending refunds and chargebacks on this webhook
+            # (Mollie signals a refund by re-posting the same payment id), so an
+            # early return would strand every refund of every recurring charge
+            # while first payments kept theirs. Issue #345.
+            try:
+                from .recurring_donation_charge import (
+                    RecurringChargeOriginMissing,
+                    ensure_donation_for_recurring_charge,
+                )
+
+                # self._fetch_payment_from_mollie rather than the `payment` bound
+                # inside the classification try: that name is unbound when
+                # classification raised, and the branch must still run in that
+                # case. The normalised dict is a shape read_payment_field
+                # handles. Costs one extra API call, on the charge path only.
+                charge_donation = ensure_donation_for_recurring_charge(
+                    self._fetch_payment_from_mollie(payment_id)
+                )
+                if charge_donation:
+                    self.logger.info(f"💶 Recurring charge {payment_id} booked to donation {charge_donation}")
+            except RecurringChargeOriginMissing as e:
+                # Money received and unattributable. Report failure so Mollie
+                # re-delivers rather than swallowing it into a 200.
+                duration = time.time() - start_time
+                record_operation_performance("unified_webhook_processing", duration, False)
+                return {
+                    "status": "error",
+                    "message": str(e),
+                    "payment_id": payment_id,
+                    "duration_seconds": duration,
+                }
+
             # STEP 1: UNIFIED IDEMPOTENCY CHECK - single source of truth
             self.logger.info(f"🔍 STEP 1: Unified idempotency check for {payment_id}")
             processing_state = self.idempotency_manager.check_payment_processing_state(

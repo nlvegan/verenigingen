@@ -31,6 +31,12 @@ from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_
 
 _SERVICE = "verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge"
 
+# EUR company: the donation Journal Entry posts single-currency, and ERPNext's
+# JE / Bank Transaction validation requires the account currency to match the
+# company currency. Matches test_donation_subscription_activation.py, whose
+# setUpClass/setUp arrangement the wiring class below copies.
+COMPANY = "_Test Company 2"
+
 # `None` is a meaningful subscription_id in _charge() -- it is how "this payment
 # has no subscription" is expressed -- so the default cannot be None.
 _UNSET = object()
@@ -592,3 +598,331 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         agreement.reload()
         self.assertEqual(agreement.donations_count, 1)
         self.assertEqual(float(agreement.total_donated), 25.00)
+
+
+class _FakeRecurringPayment(dict):
+    """A subscription charge in the shape a real one arrives in.
+
+    A real ``mollie.api.objects.Payment`` subclasses dict with camelCase keys,
+    and ``_fetch_payment_from_mollie`` branches on ``isinstance(payment, dict)``
+    -- so production takes the camelCase branch. A plain object would exercise
+    the branch production never takes and leave the camelCase key names covered
+    by nothing. Attributes are kept too, because the classifier and the
+    idempotency manager read by attribute.
+    """
+
+    def __init__(self, payment_id, origin_name, subscription_id, first_payment_id, refunds=()):
+        metadata = {"donation_id": origin_name, "payment_id": first_payment_id}
+        super().__init__(
+            {
+                "id": payment_id,
+                "status": "paid",
+                "amount": {"value": "25.00", "currency": "EUR"},
+                "description": f"Recurring donation {origin_name}",
+                "createdAt": "2026-08-01T00:10:00+00:00",
+                "paidAt": "2026-08-03T09:00:00+00:00",
+                "method": "directdebit",
+                "metadata": metadata,
+                "sequenceType": "recurring",
+                "customerId": "cst_wire",
+                "mandateId": "mdt_wire",
+                "subscriptionId": subscription_id,
+            }
+        )
+        self.id = payment_id
+        self.status = "paid"
+        self.amount = {"value": "25.00", "currency": "EUR"}
+        self.description = f"Recurring donation {origin_name}"
+        self.created_at = "2026-08-01T00:10:00+00:00"
+        self.paid_at = "2026-08-03T09:00:00+00:00"
+        self.method = "directdebit"
+        self.metadata = metadata
+        self.sequence_type = "recurring"
+        self.customer_id = "cst_wire"
+        self.mandate_id = "mdt_wire"
+        self.subscription_id = subscription_id
+        self.refunds = SimpleNamespace(list=lambda: {"_embedded": {"refunds": list(refunds)}})
+        self.chargebacks = SimpleNamespace(list=lambda: [])
+
+
+class _FakeClient:
+    def __init__(self, payment):
+        self.payments = SimpleNamespace(get=lambda pid: payment)
+
+    def set_api_key(self, _key):
+        return None
+
+
+class TestRecurringChargeWebhookWiring(EnhancedTestCase):
+    """The charge must book AND keep the refund discovery it falls through to."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._orig_company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        cls._orig_donation_account = frappe.db.get_single_value(
+            "Verenigingen Settings", "unrestricted_donation_account"
+        )
+        cls._orig_ms_clearing = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
+        cls._orig_ms_bank = frappe.db.get_single_value("Mollie Settings", "mollie_bank_account")
+        # setUp forces test_mode=1; without capturing it here the flag leaks to
+        # every co-tenant class in the same CI shard.
+        cls._orig_ms_test_mode = frappe.db.get_single_value("Mollie Settings", "test_mode")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "unrestricted_donation_account", cls._orig_donation_account
+        )
+        frappe.db.set_single_value("Verenigingen Settings", "company", cls._orig_company)
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", cls._orig_ms_clearing)
+        frappe.db.set_single_value("Mollie Settings", "mollie_bank_account", cls._orig_ms_bank)
+        frappe.db.set_single_value("Mollie Settings", "test_mode", cls._orig_ms_test_mode)
+        frappe.db.commit()
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            MollieConfigurationService,
+        )
+
+        MollieConfigurationService.clear_cache()
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        frappe.db.set_single_value("Verenigingen Settings", "company", COMPANY)
+        clearing_account = self._setup_mollie_clearing_account()
+        self._setup_mollie_bank_account(clearing_account)
+        self._setup_donation_income_account()
+        self._setup_mollie_settings(clearing_account)
+        self.ensure_mode_of_payment("iDEAL")
+        self.ensure_mode_of_payment("SEPA Direct Debit")
+        # payment_id is UNIQUE on Donation, so a fixed literal left behind by an
+        # interrupted run would make this class fail forever on that site. Every
+        # Mollie id below carries a per-test suffix, and the subscription id does
+        # too so the subscription fallback cannot join to another test's origin.
+        self.tag = frappe.generate_hash(length=8)
+        self.subscription_id = f"sub_wire_{self.tag}"
+        self.first_payment_id = f"tr_the_first_one_{self.tag}"
+
+    # --- fixtures -------------------------------------------------------------------
+
+    def _setup_mollie_clearing_account(self):
+        name = frappe.get_value(
+            "Account", {"company": COMPANY, "account_name": "Mollie Clearing Subact Test"}, "name"
+        )
+        if name:
+            return name
+        parent = frappe.get_value(
+            "Account", {"company": COMPANY, "account_type": "Bank", "is_group": 1}, "name"
+        ) or frappe.get_value("Account", {"company": COMPANY, "is_group": 1}, "name")
+        acct = frappe.new_doc("Account")
+        acct.account_name = "Mollie Clearing Subact Test"
+        acct.company = COMPANY
+        acct.parent_account = parent
+        acct.account_type = "Bank"
+        acct.account_currency = frappe.get_value("Company", COMPANY, "default_currency")
+        acct.insert(ignore_permissions=True)
+        return acct.name
+
+    def _setup_mollie_bank_account(self, gl_account):
+        existing = frappe.get_value("Bank Account", {"account": gl_account}, "name")
+        if existing:
+            return existing
+        bank_name = frappe.get_value("Bank", {}, "name")
+        if not bank_name:
+            bank = frappe.new_doc("Bank")
+            bank.bank_name = "Subact Test Bank"
+            bank.insert(ignore_permissions=True)
+            bank_name = bank.name
+        ba = frappe.new_doc("Bank Account")
+        ba.account_name = "Mollie Subact Test"
+        ba.bank = bank_name
+        ba.account = gl_account
+        ba.company = COMPANY
+        ba.is_company_account = 1
+        ba.insert(ignore_permissions=True)
+        return ba.name
+
+    def _setup_donation_income_account(self):
+        name = frappe.get_value(
+            "Account", {"company": COMPANY, "account_name": "Donation Income Subact Test"}, "name"
+        )
+        if not name:
+            parent = frappe.get_value(
+                "Account", {"company": COMPANY, "root_type": "Income", "is_group": 1}, "name"
+            )
+            acct = frappe.new_doc("Account")
+            acct.account_name = "Donation Income Subact Test"
+            acct.company = COMPANY
+            acct.parent_account = parent
+            acct.account_type = "Income Account"
+            acct.account_currency = frappe.get_value("Company", COMPANY, "default_currency")
+            acct.insert(ignore_permissions=True)
+            name = acct.name
+        frappe.db.set_single_value("Verenigingen Settings", "unrestricted_donation_account", name)
+        return name
+
+    def _setup_mollie_settings(self, clearing_account):
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", clearing_account)
+        frappe.db.set_single_value("Mollie Settings", "mollie_bank_account", clearing_account)
+        frappe.db.set_single_value("Mollie Settings", "test_mode", 1)
+        from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+            MollieConfigurationService,
+        )
+
+        MollieConfigurationService.clear_cache()
+
+    def _setup_donor(self):
+        # self.factory.create_test_donor() does not exist on EnhancedTestCase's
+        # factory (EnhancedTestDataFactory); build the donor the way the classes
+        # above and test_donation_subscription_activation.py do.
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = f"Wire Donor {frappe.generate_hash(length=6)}"
+        donor.donor_email = f"wire.{frappe.generate_hash(length=6)}@example.org"
+        donor.donor_type = "Individual"
+        donor.preferred_communication_method = "Email"
+        donor.flags.ignore_validate = True
+        donor.insert(ignore_permissions=True)
+        self.track_test_record("Donor", donor.name)
+        return donor.name
+
+    def _setup_origin(self):
+        origin = frappe.get_doc(
+            {
+                "doctype": "Donation",
+                "donor": self._setup_donor(),
+                "company": COMPANY,
+                "donation_date": "2026-07-01",
+                "amount": 25,
+                "mode_of_payment": "iDEAL",
+                "status": "Recurring",
+                "paid": 1,
+                "payment_id": self.first_payment_id,
+                "mollie_subscription_id": self.subscription_id,
+                "mollie_customer_id": "cst_wire",
+                "recurring_frequency": "Monthly",
+            }
+        ).insert()
+        self.track_test_record("Donation", origin.name)
+        return origin
+
+    def _charge(self, payment_id, origin_name, subscription_id=None, refunds=()):
+        return _FakeRecurringPayment(
+            payment_id,
+            origin_name,
+            subscription_id or self.subscription_id,
+            self.first_payment_id,
+            refunds=refunds,
+        )
+
+    def _deliver(self, payment):
+        """Drive the real webhook service with Mollie faked at the HTTP boundary."""
+        client = _FakeClient(payment)
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
+            ".MollieSettings.get_mollie_client",
+            return_value=client,
+        ), patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
+            ".MollieSettings.get_api_key",
+            return_value="test_dummy_key_for_tests",
+        ), patch("mollie.api.client.Client", return_value=client), patch(
+            "verenigingen.verenigingen_payments.mollie.core.client.MollieClient.sdk_client",
+            new_callable=lambda: property(lambda self: client),
+        ):
+            with self.set_user("Administrator"):
+                return UnifiedWebhookWrapperService().process_payment_webhook(payment["id"], {})
+
+    # --- tests ------------------------------------------------------------------------
+
+    def test_a_recurring_charge_books_end_to_end(self):
+        origin = self._setup_origin()
+        charge_payment_id = f"tr_wire_1_{self.tag}"
+        result = self._deliver(self._charge(charge_payment_id, origin.name))
+
+        self.assertEqual(result["status"], "success", result.get("message"))
+        charge_name = frappe.db.get_value("Donation", {"payment_id": charge_payment_id}, "name")
+        self.assertTrue(charge_name, "the charge produced no Donation")
+        charge = frappe.get_doc("Donation", charge_name)
+        self.assertEqual(charge.recurring_origin_donation, origin.name)
+        self.assertTrue(charge.journal_entry, "the charge produced no Journal Entry")
+
+    def test_the_charge_branch_does_not_skip_the_refund_check(self):
+        """The regression this task exists to prevent.
+
+        check_payment_processing_state is the ONLY discovery of pending refunds
+        and chargebacks on this webhook. Returning from the charge branch would
+        strand every refund of every recurring charge. What is asserted is that
+        the refund was SEEN -- the refund id has to come back out of the state
+        object -- not merely that the manager was called: the latter is a claim
+        about the call, and this task is about what the call discovers.
+        """
+        origin = self._setup_origin()
+        refund_id = f"re_wire_{self.tag}"
+        payment = self._charge(
+            f"tr_wire_2_{self.tag}",
+            origin.name,
+            refunds=[
+                {
+                    "id": refund_id,
+                    "status": "refunded",
+                    "amount": {"value": "25.00", "currency": "EUR"},
+                    "createdAt": "2026-08-05T09:00:00+00:00",
+                }
+            ],
+        )
+
+        seen = {}
+        real_check = UnifiedWebhookWrapperService().idempotency_manager.check_payment_processing_state
+
+        def _spy(payment_id, **kwargs):
+            state = real_check(payment_id, **kwargs)
+            seen["pending_refunds"] = list(state.pending_refunds)
+            return state
+
+        with patch.object(
+            UnifiedWebhookWrapperService().idempotency_manager.__class__,
+            "check_payment_processing_state",
+            side_effect=lambda payment_id, **kw: _spy(payment_id, **kw),
+            autospec=False,
+        ):
+            self._deliver(payment)
+
+        self.assertIn("pending_refunds", seen, "control never reached the refund/chargeback discovery")
+        self.assertIn(
+            refund_id,
+            [r.get("refund_id") for r in seen["pending_refunds"]],
+            "the charge's refund was never discovered -- an early return would strand it",
+        )
+
+    def test_an_unattributable_charge_returns_an_error_so_mollie_retries(self):
+        # No origin donation exists for this subscription.
+        orphan_subscription = f"sub_orphan_{self.tag}"
+        # severity="error" makes MollieAuditLogger mirror the row into Error Log.
+        self.expectErrorLog("recurring_charge_origin_missing")
+        result = self._deliver(
+            self._charge(
+                f"tr_wire_3_{self.tag}",
+                "Assoc-Dnt-nope",
+                subscription_id=orphan_subscription,
+            )
+        )
+        self.assertEqual(result["status"], "error")
+        self.assertIn(orphan_subscription, result["message"])
+
+    def test_a_first_payment_is_untouched_by_the_new_branch(self):
+        """Control. Without it, the tests above pass even if the branch swallowed
+        every payment: a first payment must still take the #346 path."""
+        origin = self._setup_origin()
+        first = self._charge(self.first_payment_id, origin.name)
+        first["sequenceType"] = "first"
+        first.sequence_type = "first"
+        first["subscriptionId"] = None
+        first.subscription_id = None
+
+        result = self._deliver(first)
+
+        self.assertNotEqual(result["status"], "error", result.get("message"))
+        self.assertFalse(
+            frappe.db.exists("Donation", {"recurring_origin_donation": origin.name}),
+            "a first payment must not spawn a charge donation",
+        )
