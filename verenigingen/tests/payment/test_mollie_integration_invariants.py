@@ -784,6 +784,10 @@ CANONICAL_MOLLIE_PAYMENT = {
     "sequenceType": "first",
     "customerId": "cst_INVARIANTTEST",
     "subscriptionId": "sub_INVARIANTTEST",
+    # Carried so the branch-parity tests below compare a VALUE and not two Nones:
+    # without it, a dict branch that mistakenly read "mandate_id" instead of
+    # "mandateId" would agree with the object branch on None and pass.
+    "mandateId": "mdt_INVARIANTTEST",
     "metadata": {"donation_id": "DON-INVARIANT", "subscription_setup": "true"},
 }
 
@@ -817,6 +821,7 @@ def _object_style_payment():
         sequence_type=CANONICAL_MOLLIE_PAYMENT["sequenceType"],
         customer_id=CANONICAL_MOLLIE_PAYMENT["customerId"],
         subscription_id=CANONICAL_MOLLIE_PAYMENT["subscriptionId"],
+        mandate_id=CANONICAL_MOLLIE_PAYMENT["mandateId"],
         metadata=dict(CANONICAL_MOLLIE_PAYMENT["metadata"]),
     )
 
@@ -933,6 +938,10 @@ class TestNormalisedPaymentDictContract(EnhancedTestCase):
         self.assertEqual(normalised["sequence_type"], "first")
         self.assertEqual(normalised["customer_id"], "cst_INVARIANTTEST")
         self.assertEqual(normalised["subscription_id"], "sub_INVARIANTTEST")
+        # Same defect, found later: a recurring charge's Donation stores
+        # mollie_mandate_id, and this dict is what the webhook hands the booking
+        # path, so the missing key made it None on every charge.
+        self.assertEqual(normalised["mandate_id"], "mdt_INVARIANTTEST")
         self.assertEqual(normalised["paid_at"], "2025-04-10T09:00:05+00:00")
         self.assertEqual(normalised["created_at"], "2025-04-10T09:00:00+00:00")
         self.assertEqual(normalised["amount"], {"value": "25.00", "currency": "EUR"})

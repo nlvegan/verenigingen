@@ -12,15 +12,24 @@ Run with:
       --module verenigingen.tests.payment.test_recurring_donation_charge
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement import (
+    PeriodicDonationAgreement,
+)
 from verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge import (
     RecurringChargeOriginMissing,
     ensure_donation_for_recurring_charge,
 )
+from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
+    UnifiedWebhookWrapperService,
+)
+
+_SERVICE = "verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge"
 
 # `None` is a meaningful subscription_id in _charge() -- it is how "this payment
 # has no subscription" is expressed -- so the default cannot be None.
@@ -210,6 +219,41 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         payload.update(overrides)
         return payload
 
+    def _audit_rows(self, event_type, payment_id):
+        """Audit rows of `event_type` naming THIS charge.
+
+        Filtering on the description prefix _audit() writes matters: payment_id
+        is per-test unique, so a leftover row from another test or an earlier
+        run cannot satisfy the assertion. A bare count of the table would.
+        """
+        return frappe.get_all(
+            "Mollie Audit Log",
+            filters={"event_type": event_type, "description": ["like", f"[{payment_id}]%"]},
+            pluck="name",
+        )
+
+    def _normalised(self, payload):
+        """`payload` put through the REAL _fetch_payment_from_mollie.
+
+        Not a hand-copied snake_case dict: the point is that whatever the
+        normaliser emits is what the webhook hands the service, so the two have
+        to be exercised together or they drift. Only the HTTP boundary is faked.
+        """
+        from mollie.api.objects.payment import Payment
+
+        service = object.__new__(UnifiedWebhookWrapperService)
+        service.logger = frappe.logger("test_recurring_donation_charge")
+        service._debug_mode = False
+        client = SimpleNamespace(
+            payments=SimpleNamespace(get=lambda payment_id: Payment(dict(payload), None))
+        )
+        with patch(
+            "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings."
+            "MollieSettings.get_mollie_client",
+            return_value=client,
+        ):
+            return service._fetch_payment_from_mollie(payload["id"])
+
     # --- what it declines to touch -------------------------------------------------
 
     def test_first_payment_is_not_a_charge(self):
@@ -224,15 +268,19 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         charge = self._charge(origin.name, status="pending")
         self.assertIsNone(ensure_donation_for_recurring_charge(charge))
         self.assertFalse(frappe.db.exists("Donation", {"payment_id": charge["id"]}))
+        # CONTROL for the next test: 'pending' is the normal case and must NOT
+        # audit, or "a failed charge is audited" would be true of every charge.
+        self.assertEqual(self._audit_rows("recurring_charge_not_paid", charge["id"]), [])
 
     def test_failed_charge_creates_nothing_but_is_audited(self):
         origin = self._setup_origin()
         charge = self._charge(origin.name, status="failed")
-        before = frappe.db.count("Mollie Audit Log")
         self.assertIsNone(ensure_donation_for_recurring_charge(charge))
         self.assertFalse(frappe.db.exists("Donation", {"payment_id": charge["id"]}))
-        self.assertGreater(
-            frappe.db.count("Mollie Audit Log"), before, "a failed charge must leave a trace"
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_not_paid", charge["id"])),
+            1,
+            "a failed charge must leave a trace naming that charge",
         )
 
     # --- the happy path -------------------------------------------------------------
@@ -253,16 +301,41 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
     def test_mode_of_payment_reflects_the_charge_not_the_origin(self):
         # The origin was iDEAL; the charge is always a direct debit.
         origin = self._setup_origin(mode_of_payment="iDEAL")
-        charge = frappe.get_doc(
-            "Donation", ensure_donation_for_recurring_charge(self._charge(origin.name))
-        )
+        payload = self._charge(origin.name)
+        charge = frappe.get_doc("Donation", ensure_donation_for_recurring_charge(payload))
         self.assertEqual(charge.mode_of_payment, "SEPA Direct Debit")
+        # CONTROL for the fallback test below.
+        self.assertEqual(
+            self._audit_rows("recurring_charge_mode_of_payment_missing", payload["id"]), []
+        )
+
+    def test_a_missing_mode_of_payment_falls_back_but_says_so(self):
+        """The fallback is right, its silence was not.
+
+        If the mapped Mode of Payment is absent from a site, every charge is
+        labelled with the origin's method -- iDEAL or a card -- when it was a
+        direct debit. Booking anyway beats refusing money already collected, but
+        mislabelling every charge forever with no trace does not.
+        """
+        origin = self._setup_origin(mode_of_payment="iDEAL")
+        payload = self._charge(origin.name)
+        with patch.dict(
+            f"{_SERVICE}._METHOD_TO_MODE_OF_PAYMENT",
+            {"directdebit": f"Absent Mode {frappe.generate_hash(length=6)}"},
+            clear=True,
+        ):
+            charge = frappe.get_doc("Donation", ensure_donation_for_recurring_charge(payload))
+        self.assertEqual(charge.mode_of_payment, "iDEAL", "must still book, labelled from the origin")
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_mode_of_payment_missing", payload["id"])), 1
+        )
 
     def test_designation_fields_are_carried_over(self):
         origin = self._setup_origin(
             donation_purpose_type="Chapter",
             chapter_reference=self.factory.create_test_chapter().name,
             fund_designation="Sanctuary fund",
+            donation_purpose="Feed the residents",
         )
         charge = frappe.get_doc(
             "Donation", ensure_donation_for_recurring_charge(self._charge(origin.name))
@@ -270,6 +343,9 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         self.assertEqual(charge.donation_purpose_type, "Chapter")
         self.assertEqual(charge.chapter_reference, origin.chapter_reference)
         self.assertEqual(charge.fund_designation, "Sanctuary fund")
+        # donation_history_manager copies this into the donor's history entry,
+        # so a charge that drops it shows a blank purpose beside its origin.
+        self.assertEqual(charge.donation_purpose, "Feed the residents")
 
     def test_campaign_recorded_only_in_notes_still_validates(self):
         # validate_donation_purpose accepts purpose_type Campaign without a
@@ -287,6 +363,25 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         origin = self._setup_origin()
         name = ensure_donation_for_recurring_charge(self._charge(origin_name=None))
         self.assertEqual(frappe.get_doc("Donation", name).recurring_origin_donation, origin.name)
+
+    def test_the_shape_the_webhook_actually_hands_over_carries_the_mandate(self):
+        """Every other test here uses raw camelCase. The webhook does not.
+
+        It normalises through _fetch_payment_from_mollie first, and that
+        hand-written whitelist emitted no mandate_id at all -- so
+        mollie_mandate_id was None on every charge booked in production while
+        this suite was green. Driving the real normaliser is what closes it.
+        """
+        origin = self._setup_origin()
+        normalised = self._normalised(self._charge(origin.name))
+        self.assertIn(
+            "mandate_id", normalised, "CONTROL: the normaliser does not emit the key at all"
+        )
+        charge = frappe.get_doc("Donation", ensure_donation_for_recurring_charge(normalised))
+        self.assertEqual(charge.mollie_mandate_id, "mdt_book")
+        self.assertEqual(charge.mollie_customer_id, "cst_book")
+        self.assertEqual(charge.mollie_subscription_id, self.subscription_id)
+        self.assertEqual(charge.recurring_origin_donation, origin.name)
 
     # --- idempotency ----------------------------------------------------------------
 
@@ -331,10 +426,69 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         agreement = self._setup_agreement(donor)
         origin = self._setup_origin(donor=donor, periodic_donation_agreement=agreement.name)
         frappe.db.set_value("Periodic Donation Agreement", agreement.name, "status", "Cancelled")
-        charge = frappe.get_doc(
-            "Donation", ensure_donation_for_recurring_charge(self._charge(origin.name))
-        )
+        payload = self._charge(origin.name)
+        charge = frappe.get_doc("Donation", ensure_donation_for_recurring_charge(payload))
         self.assertFalse(charge.periodic_donation_agreement)
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_agreement_inactive", payload["id"])),
+            1,
+            "dropping the link silently is the failure mode; it must be recorded",
+        )
+
+    def test_a_failed_agreement_link_is_audited_and_keeps_the_booking(self):
+        """A linkage failure must never cost us a charge already collected.
+
+        The realistic production cause is the rate limiter: the whitelisted
+        link_donation carries @high_security_api(FINANCIAL), capped by Critical
+        Operation Rule at 100 calls / 3600s scoped per_user, and a monthly
+        billing run arrives as one service user. The service calls the
+        undecorated add_donation_link precisely to stay out of that bucket --
+        which cannot be asserted here, because rate_limit_engine returns allowed
+        unconditionally under frappe.flags.in_test. What IS asserted is the
+        behaviour when the append fails for any reason at all.
+        """
+        donor = self._setup_donor()
+        agreement = self._setup_agreement(donor)
+        origin = self._setup_origin(donor=donor, periodic_donation_agreement=agreement.name)
+        payload = self._charge(origin.name)
+
+        # severity="error" mirrors the audit row into Error Log.
+        self.expectErrorLog("recurring_charge_agreement_link")
+        with patch.object(
+            PeriodicDonationAgreement,
+            "add_donation_link",
+            side_effect=frappe.PermissionError("Rate limit exceeded"),
+        ):
+            name = ensure_donation_for_recurring_charge(payload)
+
+        charge = frappe.get_doc("Donation", name)
+        self.assertEqual(charge.payment_id, payload["id"], "the charge is still booked")
+        self.assertEqual(charge.paid, 1)
+        self.assertEqual(
+            len(self._audit_rows("recurring_charge_agreement_link_error", payload["id"])),
+            1,
+            "a lost link is silent otherwise -- total_donated just stops moving",
+        )
+
+    def test_the_service_does_not_go_through_the_rate_limited_entry_point(self):
+        """link_donation is whitelisted, decorated and rate-limited; the plain
+        method beside it is not. Reaching the agreement through the decorated
+        spelling would consume an interactive per_user bucket on a server-side
+        path, so pin which one the service calls.
+        """
+        donor = self._setup_donor()
+        agreement = self._setup_agreement(donor)
+        origin = self._setup_origin(donor=donor, periodic_donation_agreement=agreement.name)
+
+        with patch.object(
+            PeriodicDonationAgreement, "link_donation", autospec=True
+        ) as decorated, patch.object(
+            PeriodicDonationAgreement, "add_donation_link", autospec=True
+        ) as plain:
+            ensure_donation_for_recurring_charge(self._charge(origin.name))
+
+        self.assertEqual(plain.call_count, 1)
+        decorated.assert_not_called()
 
     # --- the agreement total, which is the whole reason for Donation-per-charge ---
 
@@ -342,10 +496,10 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         """The justification for the data model, asserted rather than assumed.
 
         update_donation_tracking sums the agreement's `donations` child table,
-        and only link_donation appends to it -- setting
-        Donation.periodic_donation_agreement does not. link_donation has no
-        production callers, so if the service does not call it this number never
-        moves and a Donation per charge buys nothing.
+        and appending to that table is the only thing that moves it -- setting
+        Donation.periodic_donation_agreement does not. So if the service does
+        not append, this number never moves and a Donation per charge buys
+        nothing over a payment child row.
         """
         donor = self._setup_donor()
         agreement = self._setup_agreement(donor)

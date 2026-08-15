@@ -320,7 +320,38 @@ class PeriodicDonationAgreement(Document):
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
     def link_donation(self, donation_name: str):
-        """Link a donation to this agreement"""
+        """Link a donation to this agreement (interactive entry point).
+
+        Thin delegate. The decorators are the point of this method: they gate
+        the desk button and the whitelisted API against an authenticated user
+        and an interactive rate-limit bucket. Server-side callers must use
+        ``add_donation_link`` instead -- see its docstring.
+
+        ``@frappe.whitelist()`` stays OUTERMOST: Frappe matches whitelisted
+        methods by object identity, so a security decorator wrapping first
+        yields "Method Not Allowed".
+        """
+        return self.add_donation_link(donation_name)
+
+    def add_donation_link(self, donation_name: str):
+        """Append a donation to this agreement's ``donations`` table.
+
+        The undecorated body, so a server-side caller does not consume an
+        interactive rate-limit bucket. ``link_donation`` carries
+        ``@high_security_api(FINANCIAL)``, and Critical Operation Rule
+        ``link_donation`` caps it at 100 calls / 3600s scoped ``per_user``. The
+        Mollie webhook books a recurring charge per donor per period from a
+        single service user, so one monthly billing run of more than 100 charges
+        in an hour would start raising VPermissionError partway through -- and
+        the caller there records the failure rather than throwing, so the
+        agreement's total_donated would silently stop moving for the remainder.
+        Redelivery would not repair it either: the charge donation already
+        exists by then, so the booking path early-exits before the link.
+
+        The rate limit is invisible under test (``rate_limit_engine`` returns
+        allowed unconditionally when ``frappe.flags.in_test``), which is why it
+        has to be reasoned about here rather than caught by a test.
+        """
         donation = frappe.get_doc("Donation", donation_name)
 
         # Verify donor matches

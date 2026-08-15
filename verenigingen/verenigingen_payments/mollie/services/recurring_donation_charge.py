@@ -42,6 +42,10 @@ _INHERITED_FIELDS = (
     "chapter_reference",
     "specific_goal_description",
     "fund_designation",
+    # Read by donation_history_manager._update_entry_fields / _build_entry_dict,
+    # which copy it into the donor's history entry. Left out, every charge shows
+    # a blank purpose beside an origin that has one.
+    "donation_purpose",
     # Load-bearing, not cosmetic: validate_donation_purpose accepts
     # purpose_type "Campaign" without a campaign link only when "Campaign:"
     # appears here.
@@ -176,14 +180,14 @@ def _charge_values(payment, origin, payment_id: str, subscription_id: str) -> Di
         ),
         "paid": 1,
         "status": "Recurring",
-        "mode_of_payment": _mode_of_payment(payment, origin),
+        "mode_of_payment": _mode_of_payment(payment, origin, payment_id),
     }
     for fieldname in _INHERITED_FIELDS:
         values[fieldname] = origin.get(fieldname)
 
-    # periodic_donation_agreement is deliberately NOT set here. link_donation()
-    # sets it, and doing it that way is what keeps the agreement's total_donated
-    # correct -- see _link_to_agreement.
+    # periodic_donation_agreement is deliberately NOT set here.
+    # add_donation_link() sets it, and doing it that way is what keeps the
+    # agreement's total_donated correct -- see _link_to_agreement.
     return values
 
 
@@ -191,11 +195,18 @@ def _link_to_agreement(charge_name: str, origin, payment_id: str) -> None:
     """Register the charge with the origin's periodic agreement, if it has one.
 
     This call is load-bearing, not bookkeeping. ``update_donation_tracking``
-    sums the agreement's ``donations`` child table, and only ``link_donation``
-    ever appends to it -- setting ``Donation.periodic_donation_agreement``
-    directly does not. ``link_donation`` has no production callers today, so
-    without this the agreement's ``total_donated`` stays at whatever it was, and
+    sums the agreement's ``donations`` child table, and appending to that table
+    is the only thing that moves it -- setting
+    ``Donation.periodic_donation_agreement`` directly does not. Without this
+    call the agreement's ``total_donated`` stays at whatever it was, and
     Donation-per-charge buys nothing over a payment child row.
+
+    ``add_donation_link``, not ``link_donation``: the whitelisted spelling
+    carries ``@high_security_api(FINANCIAL)``, whose Critical Operation Rule
+    caps it at 100 calls / 3600s ``per_user``. A billing run of more than 100
+    charges in an hour arrives here as one service user and would start being
+    refused partway through -- silently, because the except below records
+    rather than raises. See ``add_donation_link``'s docstring.
 
     Never fatal. The money is already booked by the time this runs; a linkage
     problem is reported, not thrown.
@@ -225,7 +236,7 @@ def _link_to_agreement(charge_name: str, origin, payment_id: str) -> None:
         return
 
     try:
-        frappe.get_doc("Periodic Donation Agreement", agreement).link_donation(charge_name)
+        frappe.get_doc("Periodic Donation Agreement", agreement).add_donation_link(charge_name)
     except Exception as e:
         _audit(
             payment_id,
@@ -236,14 +247,29 @@ def _link_to_agreement(charge_name: str, origin, payment_id: str) -> None:
         )
 
 
-def _mode_of_payment(payment, origin) -> str:
+def _mode_of_payment(payment, origin, payment_id: str = None) -> str:
     """A Mode of Payment that exists, for a Donation field that is mandatory."""
-    mapped = _METHOD_TO_MODE_OF_PAYMENT.get(read_payment_field(payment, "method"))
+    method = read_payment_field(payment, "method")
+    mapped = _METHOD_TO_MODE_OF_PAYMENT.get(method)
     if mapped and frappe.db.exists("Mode of Payment", mapped):
         return mapped
+
+    fallback = origin.get("mode_of_payment")
+    if mapped:
+        # The mapping was right and the Mode of Payment is simply missing from
+        # this site. Falling back is still better than refusing to book, but it
+        # mislabels the charge as the origin's method (iDEAL, a card) when it was
+        # a direct debit -- silently, and on every charge. Say so.
+        _audit(
+            payment_id,
+            "recurring_charge_mode_of_payment_missing",
+            f"Mode of Payment '{mapped}' does not exist; charge labelled '{fallback}' from the origin",
+            {"mollie_method": method, "expected_mode_of_payment": mapped, "used": fallback},
+            severity="warning",
+        )
     # Deliberately not donation.create_mode_of_payment(), which would insert a
     # Mode of Payment literally named "directdebit" as a side effect of a webhook.
-    return origin.get("mode_of_payment")
+    return fallback
 
 
 def _audit(payment_id, event_type, description, details, severity="info"):

@@ -1173,6 +1173,11 @@ class UnifiedWebhookWrapperService:
                     "sequence_type": payment.get("sequenceType") or payment.get("sequence_type"),
                     "customer_id": payment.get("customerId") or payment.get("customer_id"),
                     "subscription_id": payment.get("subscriptionId") or payment.get("subscription_id"),
+                    # Same omission, same shape of bug: a recurring charge's
+                    # Donation records mollie_mandate_id, and this dict is what
+                    # the webhook hands the booking path, so without it every
+                    # charge booked from a webhook stored None for the mandate.
+                    "mandate_id": payment.get("mandateId") or payment.get("mandate_id"),
                 }
             else:
                 # Handle object format
@@ -1197,6 +1202,7 @@ class UnifiedWebhookWrapperService:
                     "sequence_type": getattr(payment, "sequence_type", None),
                     "customer_id": getattr(payment, "customer_id", None),
                     "subscription_id": getattr(payment, "subscription_id", None),
+                    "mandate_id": getattr(payment, "mandate_id", None),
                 }
         except Exception as e:
             self.logger.error(f"Failed to fetch payment {payment_id} from Mollie: {e}")
