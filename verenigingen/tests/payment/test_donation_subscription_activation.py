@@ -63,54 +63,75 @@ class _FakeSubscriptionsResource:
     """Records every subscriptions.create() call so the test can assert on the
     payload the production code sent to Mollie.
 
-    Honours ``idempotency_key`` the way Mollie does -- a repeat of a key already
-    seen returns the ORIGINAL subscription instead of creating another (measured
-    against the Mollie test API: same key + identical payload -> same id, one
-    subscription; different keys -> two). Without this the fake would be more
-    forgiving than the real API and could never expose a double-create.
+    Honours ``idempotency_key`` the way Mollie does, INCLUDING ITS EXPIRY.
+    A repeat of a key still in cache returns the ORIGINAL subscription instead of
+    creating another (measured: same key + identical payload -> same id, one
+    subscription; different keys -> two). But Mollie states *"Keys older than 1
+    hour will be removed from our cache"*, while its webhook retry ladder runs 26
+    hours (T+0, 1m, 3m, 7m, 15m, 31m, 1h, 2h, 4h, 26h) -- so attempts 8-10 arrive
+    with no key protection at all.
+
+    Tests model the eviction by clearing ``seen_idempotency_keys`` between two
+    deliveries, while ``_live`` -- the subscriptions Mollie actually holds --
+    survives, exactly as it does in reality. A fake whose key cache never expired
+    would be more forgiving than the real API in the one dimension that matters
+    -- time -- and would report the durable guard as working when it is not.
     """
 
-    def __init__(self, recorder, seen_keys, *, fail_after_create=None):
+    def __init__(self, recorder, seen_keys, *, fail_after_create=None, live=None):
         self._recorder = recorder
         self._seen_keys = seen_keys
         self._fail_after_create = fail_after_create
+        # Every subscription that exists at Mollie, keyed by id -- what
+        # subscriptions.list() returns. Survives key expiry, as the real thing does.
+        self._live = live if live is not None else {}
+
+    def list(self):
+        return list(self._live.values())
 
     def create(self, data=None, idempotency_key="", **kwargs):
         payload = data if data is not None else kwargs
         if idempotency_key and idempotency_key in self._seen_keys:
             existing = self._seen_keys[idempotency_key]
-            return SimpleNamespace(id=existing, status="active")
+            return self._live[existing]
 
         subscription_id = f"sub_FAKE{len(self._recorder) + 1:04d}"
         self._recorder.append({"id": subscription_id, "data": payload, "key": idempotency_key})
+        created = SimpleNamespace(
+            id=subscription_id, status="active", metadata=(payload or {}).get("metadata") or {}
+        )
+        self._live[subscription_id] = created
         if idempotency_key:
             self._seen_keys[idempotency_key] = subscription_id
 
         if self._fail_after_create:
             # Mollie committed the subscription; the response never arrived.
             raise self._fail_after_create
-        return SimpleNamespace(id=subscription_id, status="active")
+        return created
 
 
 class _FakeCustomer:
-    def __init__(self, customer_id, recorder, seen_keys, fail_after_create=None):
+    def __init__(self, customer_id, recorder, seen_keys, fail_after_create=None, live=None):
         self.id = customer_id
         self.subscriptions = _FakeSubscriptionsResource(
-            recorder, seen_keys, fail_after_create=fail_after_create
+            recorder, seen_keys, fail_after_create=fail_after_create, live=live
         )
 
 
 class _FakeCustomersResource:
-    def __init__(self, recorder, seen_keys, fail_after_create=None):
+    def __init__(self, recorder, seen_keys, fail_after_create=None, live=None):
         self._recorder = recorder
         # Shared across every _FakeCustomer this resource hands out, so an
         # Idempotency-Key survives the customers.get() that each webhook
         # delivery performs -- exactly as it does at Mollie.
         self._seen_keys = seen_keys
         self._fail_after_create = fail_after_create
+        self._live = live if live is not None else {}
 
     def get(self, customer_id):
-        return _FakeCustomer(customer_id, self._recorder, self._seen_keys, self._fail_after_create)
+        return _FakeCustomer(
+            customer_id, self._recorder, self._seen_keys, self._fail_after_create, self._live
+        )
 
 
 class _FakePayment(dict):
@@ -190,11 +211,14 @@ class _FakePayment(dict):
 
 
 class _FakeSDKClient:
-    def __init__(self, payment, recorder, seen_keys=None, fail_after_create=None):
+    def __init__(self, payment, recorder, seen_keys=None, fail_after_create=None, live=None):
         self._payment = payment
         self.payments = SimpleNamespace(get=lambda pid: self._payment)
         self.customers = _FakeCustomersResource(
-            recorder, seen_keys if seen_keys is not None else {}, fail_after_create
+            recorder,
+            seen_keys if seen_keys is not None else {},
+            fail_after_create,
+            live if live is not None else {},
         )
 
     def set_api_key(self, _key):
@@ -251,6 +275,9 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         self.created_subscriptions = []
         # Mollie remembers Idempotency-Keys across requests; so does the fake.
         self.seen_idempotency_keys = {}
+        # Subscriptions that exist at Mollie. Unlike the key cache these never
+        # expire, which is what the durable guard relies on.
+        self.live_subscriptions = {}
 
     # ------------------------------------------------------------------ setup
     def _setup_mollie_clearing_account(self):
@@ -362,7 +389,12 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
         self.assertIsInstance(
             fake_payment, dict, "the fake must be a dict subclass, like a real Mollie Payment"
         )
-        fake_sdk = sdk or _FakeSDKClient(fake_payment, self.created_subscriptions, self.seen_idempotency_keys)
+        fake_sdk = sdk or _FakeSDKClient(
+            fake_payment,
+            self.created_subscriptions,
+            self.seen_idempotency_keys,
+            live=self.live_subscriptions,
+        )
         fake_sdk._payment = fake_payment
         fake_sdk.payments = SimpleNamespace(get=lambda pid: fake_payment)
         with (
@@ -491,7 +523,9 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             def get(self, customer_id):
                 raise ConnectionError("Mollie API unavailable")
 
-        sdk = _FakeSDKClient(None, self.created_subscriptions, self.seen_idempotency_keys)
+        sdk = _FakeSDKClient(
+            None, self.created_subscriptions, self.seen_idempotency_keys, live=self.live_subscriptions
+        )
         sdk.customers = _ExplodingCustomers()
 
         # The Error Logs below are the point of this test, not a side effect:
@@ -536,6 +570,7 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             self.created_subscriptions,
             self.seen_idempotency_keys,
             fail_after_create=ConnectionError("connection reset after create"),
+            live=self.live_subscriptions,
         )
         first = self._run_webhook(sdk=sdk1)
         self.assertEqual(len(self.created_subscriptions), 1, "Mollie did create one")
@@ -558,6 +593,63 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             frappe.db.get_value("Donation", self.donation_name, "mollie_subscription_id"),
             self.created_subscriptions[0]["id"],
             "The retry must adopt and record the subscription Mollie already had",
+        )
+
+    def test_late_retry_after_the_idempotency_key_expires_does_not_duplicate(self):
+        """The failure the Idempotency-Key alone CANNOT prevent.
+
+        Mollie caches idempotency keys for one hour ("Keys older than 1 hour will
+        be removed from our cache"), but retries a failing webhook for twenty-six
+        (T+0, 1m, 3m, 7m, 15m, 31m, 1h, 2h, 4h, 26h). Attempts 8, 9 and 10 arrive
+        with the key already evicted -- and they are exactly the attempts a
+        prolonged failure reaches.
+
+        Scenario: Mollie commits the subscription, the response is lost, nothing
+        is recorded locally, and the retry lands after the key has expired. The
+        local `mollie_subscription_id` guard reads NULL because there was never
+        anything to write, so only a lookup of what Mollie already holds can stop
+        a second subscription -- and a second subscription charges this donor
+        every period, forever, with just one of the two visible here.
+        """
+        self.expectErrorLog(
+            "Mollie Direct Subscription Creation",
+            "Mollie Donation Subscription Activation",
+        )
+
+        sdk1 = _FakeSDKClient(
+            None,
+            self.created_subscriptions,
+            self.seen_idempotency_keys,
+            fail_after_create=ConnectionError("connection reset after create"),
+            live=self.live_subscriptions,
+        )
+        first = self._run_webhook(sdk=sdk1)
+        self.assertEqual(first["status"], "error")
+        self.assertEqual(len(self.created_subscriptions), 1, "Mollie did create one")
+        self.assertFalse(
+            frappe.db.get_value("Donation", self.donation_name, "mollie_subscription_id"),
+            "Precondition: nothing recorded locally, so the DB guard is blind",
+        )
+
+        # T+2h: Mollie has evicted the key. The subscription it created is still
+        # there -- key caches expire, subscriptions do not.
+        self.seen_idempotency_keys.clear()
+        self.assertTrue(self.live_subscriptions, "the subscription must still exist at Mollie")
+
+        second = self._run_webhook()
+
+        self.assertEqual(
+            len(self.created_subscriptions),
+            1,
+            "A retry after the idempotency key expired must not create a second "
+            "subscription -- the donor would be charged twice every period. "
+            f"got {[s['id'] for s in self.created_subscriptions]}",
+        )
+        self.assertEqual(second["status"], "success")
+        self.assertEqual(
+            frappe.db.get_value("Donation", self.donation_name, "mollie_subscription_id"),
+            self.created_subscriptions[0]["id"],
+            "The retry must adopt the subscription Mollie already holds",
         )
 
     def test_the_create_carries_a_key_derived_from_the_payment(self):

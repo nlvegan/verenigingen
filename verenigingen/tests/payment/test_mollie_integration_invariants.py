@@ -58,7 +58,9 @@ Run with:
 
 import ast
 import os
+import re
 import unittest
+from collections import Counter
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -162,7 +164,20 @@ _MOLLIE_RESOURCES = frozenset(
 
 # An idempotency key that is regenerated per call is worse than useless: it looks
 # like protection and provides none. These are the ways to accidentally write one.
-_NON_DETERMINISTIC_MARKERS = ("uuid", "random", "generate_hash", "token_hex", "time(", "now(")
+_NON_DETERMINISTIC_MARKERS = (
+    "uuid",
+    "random",
+    "generate_hash",
+    "token_hex",
+    "token_urlsafe",
+    "time(",
+    "now(",
+    # frappe's clock helpers do not end in "now(" -- nowdate()/now_datetime()
+    # would have slipped past a "now(" substring check.
+    "nowdate",
+    "now_datetime",
+    "today(",
+)
 
 # ---------------------------------------------------------------------------
 # THE RATCHET.
@@ -173,13 +188,18 @@ _NON_DETERMINISTIC_MARKERS = ("uuid", "random", "generate_hash", "token_hex", "t
 # of these fails ``test_the_unkeyed_ratchet_has_not_rotted`` until it is removed
 # from the list, so the list cannot silently drift out of date either.
 #
+# Mapped site -> allowed COUNT, not a bare set: the site key is
+# (file, function, resource), so a second unkeyed create inside an
+# already-listed function would otherwise collapse into the same entry and
+# escape the ratchet entirely.
+#
 # The two donation-subscription creates in payment_gateways.py are absent
 # because they ARE keyed (``donsub-``/``donagr-`` + payment id, #345) -- the
 # retry-safety of those two is asserted behaviourally in
 # test_donation_subscription_activation.py, and their key *shape* is pinned by
 # ``test_keyed_creates_use_a_deterministic_key`` below.
 # ---------------------------------------------------------------------------
-KNOWN_UNKEYED_MOLLIE_CREATES = frozenset(
+_KNOWN_UNKEYED_SITES = frozenset(
     {
         ("api/mollie_payment.py", "update_mollie_bank_account", "mandates"),
         ("services/mollie_debug_service.py", "create_mandate", "mandates"),
@@ -198,11 +218,35 @@ KNOWN_UNKEYED_MOLLIE_CREATES = frozenset(
     }
 )
 
+# Each listed site allows exactly ONE unkeyed create. Spelled out as counts so a
+# SECOND unkeyed create added inside an already-listed function cannot hide behind
+# the first: the site key is (file, function, resource), so both would collapse to
+# one entry under set membership. `test_each_ratcheted_site_has_exactly_one_call`
+# keeps this derivation honest.
+KNOWN_UNKEYED_MOLLIE_CREATES = {site: 1 for site in _KNOWN_UNKEYED_SITES}
+
 
 class _MollieCreateVisitor(_EnclosingFunctionVisitor):
     def __init__(self, rel):
         super().__init__(rel)
         self.calls = []
+        # Local assignments seen so far, so a key passed as a bare name can be
+        # resolved to what it actually holds. Without this,
+        # `key = str(uuid.uuid4()); ...create(idempotency_key=key)` reads as a
+        # clean identifier and sails through the very check meant to catch it.
+        self._assigned = {}
+
+    def visit_Assign(self, node):
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            self._assigned[node.targets[0].id] = node.value
+        self.generic_visit(node)
+
+    def _resolve(self, value):
+        """Follow a bare name to its assigned expression (one hop is enough in
+        practice; a chain of aliases is not a pattern this codebase uses)."""
+        if isinstance(value, ast.Name) and value.id in self._assigned:
+            return self._assigned[value.id], True
+        return value, False
 
     def visit_Call(self, node):
         func = node.func
@@ -212,15 +256,24 @@ class _MollieCreateVisitor(_EnclosingFunctionVisitor):
             and isinstance(func.value, ast.Attribute)
             and func.value.attr in _MOLLIE_RESOURCES
         ):
-            key = None
+            key = resolved_from = None
+            is_constant = False
             for keyword in node.keywords:
                 if keyword.arg == "idempotency_key":
-                    key = ast.unparse(keyword.value)
+                    value, was_resolved = self._resolve(keyword.value)
+                    key = ast.unparse(value)
+                    resolved_from = ast.unparse(keyword.value) if was_resolved else None
+                    # A literal is the only genuinely constant case, and it is
+                    # exact -- unlike "does it contain a brace", which fails a
+                    # perfectly good `_make_key(payment)` helper.
+                    is_constant = isinstance(value, ast.Constant)
             self.calls.append(
                 SimpleNamespace(
                     site=(self.rel, self.where, func.value.attr),
                     lineno=node.lineno,
                     idempotency_key=key,
+                    idempotency_key_is_constant=is_constant,
+                    idempotency_key_resolved_from=resolved_from,
                 )
             )
         self.generic_visit(node)
@@ -283,8 +336,24 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
         means the donor is charged twice every period, forever, with only one of
         the two visible to this system.
         """
-        unkeyed = {call.site for call in self.calls if not call.idempotency_key}
-        new = unkeyed - KNOWN_UNKEYED_MOLLIE_CREATES
+        # Counted, not set-membership: the site key is (file, function, resource),
+        # so a SECOND unkeyed create added inside an already-ratcheted function
+        # would collapse into the same site and vanish. Counting makes the ratchet
+        # bite per call rather than per function.
+        counts = Counter(call.site for call in self.calls if not call.idempotency_key)
+        grown = {site: n for site, n in counts.items() if n > KNOWN_UNKEYED_MOLLIE_CREATES.get(site, 0)}
+        self.assertEqual(
+            grown,
+            {},
+            "More unkeyed Mollie create(s) than the ratchet allows at:\n"
+            + "\n".join(
+                f"  {site[0]} in {site[1]}() -> {site[2]}.create(...): "
+                f"{n} unkeyed, ratchet allows {KNOWN_UNKEYED_MOLLIE_CREATES.get(site, 0)}"
+                for site, n in sorted(grown.items())
+            )
+            + "\n",
+        )
+        new = set(counts) - set(KNOWN_UNKEYED_MOLLIE_CREATES)
         self.assertEqual(
             new,
             set(),
@@ -302,6 +371,23 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
             "KNOWN_UNKEYED_MOLLIE_CREATES with a reason.",
         )
 
+    def test_each_ratcheted_site_has_exactly_one_call(self):
+        """The counted ratchet is derived as one-per-site; prove that holds.
+
+        If a listed function ever genuinely contains two unkeyed creates, this
+        goes red and the count must be written out explicitly -- rather than the
+        derivation quietly licensing an extra one.
+        """
+        counts = Counter(call.site for call in self.calls if not call.idempotency_key)
+        multiples = {site: n for site, n in counts.items() if n > 1}
+        self.assertEqual(
+            multiples,
+            {},
+            "These call sites hold more than one unkeyed create, so the "
+            "one-per-site derivation of KNOWN_UNKEYED_MOLLIE_CREATES no longer "
+            f"describes the code: {sorted(multiples.items())}",
+        )
+
     def test_the_unkeyed_ratchet_has_not_rotted(self):
         """Every entry in the ratchet must still be a real unkeyed call site.
 
@@ -309,7 +395,7 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
         describing the code, which is how allowlists lose their meaning.
         """
         unkeyed = {call.site for call in self.calls if not call.idempotency_key}
-        stale = KNOWN_UNKEYED_MOLLIE_CREATES - unkeyed
+        stale = set(KNOWN_UNKEYED_MOLLIE_CREATES) - unkeyed
         self.assertEqual(
             stale,
             set(),
@@ -328,20 +414,25 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
             if not call.idempotency_key:
                 continue
             expression = call.idempotency_key
+            via = (
+                f" (passed as {call.idempotency_key_resolved_from}, which holds this)"
+                if call.idempotency_key_resolved_from
+                else ""
+            )
             with self.subTest(site=call.site):
                 offenders = [m for m in _NON_DETERMINISTIC_MARKERS if m in expression]
                 self.assertEqual(
                     offenders,
                     [],
-                    f"{call.site[0]}:{call.lineno} passes idempotency_key={expression}, "
+                    f"{call.site[0]}:{call.lineno} passes idempotency_key={expression}{via}, "
                     f"which is regenerated per call ({offenders}). A per-call key is "
                     "indistinguishable from no key at all: a retry after a lost "
                     "response still creates a duplicate.",
                 )
-                self.assertTrue(
-                    "{" in expression or expression.isidentifier(),
+                self.assertFalse(
+                    call.idempotency_key_is_constant,
                     f"{call.site[0]}:{call.lineno} passes a constant "
-                    f"idempotency_key={expression}. A constant is shared by every "
+                    f"idempotency_key={expression}{via}. A constant is shared by every "
                     "payment, so the FIRST donor's subscription would be returned "
                     "to all later ones. It must be derived from the payment.",
                 )
@@ -514,10 +605,12 @@ class TestMollieResourceStubsMatchTheSdk(unittest.TestCase):
 # #341 (``subscription_interval``) and #343 crossed. Measured on this branch the
 # check yields three orphans and no false positives, so it is ratchetable.
 #
-# ``form_data`` -- the other #341 surface -- is deliberately NOT scanned: its
-# writer is an HTML template and a JS bundle, so a Python-only scan cannot see
-# the writers and would report every key. The donate form's keys are pinned
-# behaviourally instead, in test_donate_form_mollie_intervals.py.
+# ``form_data`` -- the ORIGINAL #341 surface -- is scanned too, by
+# ``TestDonateFormKeysHaveWriters`` below. Its writers are not Python, but they
+# are plain files in this repo: ``name="..."`` attributes in donate.html and
+# ``formData.X`` / ``getElementById('X')`` in donation_form.js. "The writer is
+# not Python" is a reason the scan cannot be AST-only, not a reason it cannot
+# exist -- and this is the boundary that actually shipped the bug.
 # ---------------------------------------------------------------------------
 
 KNOWN_ORPHAN_METADATA_READS = {
@@ -893,10 +986,10 @@ class TestNormalisedPaymentDictContract(EnhancedTestCase):
         extracted from the source, so it cannot go stale.
         """
         produced = set(self._normalise(_real_sdk_payment()))
-        # The class also assigns payment_data["subscription_id"] after creating a
-        # subscription; a key the class writes itself is legitimately its own
-        # producer.
-        produced |= {"subscription_id"}
+        # No hand-carved exemptions here. `subscription_id` IS produced by the
+        # normaliser (that was the #343 fix); adding it manually would keep this
+        # test green if someone removed it again -- re-opening the exact hole the
+        # test exists to close, in the module that argues exemptions rot.
         readers = _payment_data_reader_keys()
         self.assertTrue(
             readers,
@@ -919,15 +1012,207 @@ class TestNormalisedPaymentDictContract(EnhancedTestCase):
 
 
 # ===========================================================================
+# 4b. The donate form's own string-key boundary -- the original #341 surface
+# ===========================================================================
+DONATE_TEMPLATE = os.path.join(PACKAGE_ROOT, "templates", "pages", "donate.html")
+DONATE_JS = os.path.join(PACKAGE_ROOT, "public", "js", "donation_form.js")
+DONATION_READER_FILES = (
+    os.path.join(PACKAGE_ROOT, "services", "donation", "public_donation_service.py"),
+    os.path.join(PACKAGE_ROOT, "templates", "pages", "donate.py"),
+)
+
+# Keys the server reads from form_data that the browser is not expected to post:
+# the service synthesises them internally before handing form_data onward.
+FORM_DATA_NOT_POSTED_BY_THE_BROWSER = frozenset(
+    {
+        # built by process_mollie_payment / process_payment_method themselves
+        "amount",
+        "currency",
+        "return_url",
+        "description",
+        "donor_email",
+        "donor_name",
+        "locale",
+        "metadata",
+        "method",
+        "sequenceType",
+        "subscription_interval",
+        "success_url",
+        "cancel_url",
+    }
+)
+
+# The known orphan. Ratcheted rather than fixed here because removing a reader is
+# a behaviour change, not a test change -- see #341.
+KNOWN_ORPHAN_FORM_DATA_READS = {
+    # #341: the donate form posts `subscription_interval`; nothing anywhere
+    # posts `recurring_interval`. The fix for #341 put it behind an `or` rather
+    # than deleting it, so the dead read is still here.
+    "recurring_interval": "services/donation/public_donation_service.py:210,623",
+    # These three are read as FALLBACKS behind the key the form really posts
+    # (donor_email / donor_name). Reading them alone was a live bug -- the Mollie
+    # customer got an empty email and an empty name on every recurring donation --
+    # fixed in this branch; the fallback is kept for non-form callers of the
+    # public submit_donation endpoint.
+    "email": "fallback behind donor_email",
+    "first_name": "fallback behind donor_name",
+    "last_name": "fallback behind donor_name",
+    # Read by the PaymentHook (non-Mollie) branch, which serves SEPA/Bank
+    # Transfer. donate.html does not collect them today, so those branches are
+    # unreachable FROM THIS FORM -- but submit_donation is a public endpoint and
+    # other callers may supply them. Listed rather than deleted for that reason.
+    "donor_iban": "PaymentHook payer_info (SEPA); not collected by donate.html",
+    "account_holder": "PaymentHook payer_info (SEPA); not collected by donate.html",
+    "is_recurring": "PaymentHook recurring flag; the form posts donation_status instead",
+    "payment_method_preference": "Mollie method hint; not collected by donate.html",
+    "anbi_agreement_number": "ANBI fields; not collected by donate.html",
+    "anbi_agreement_date": "ANBI fields; not collected by donate.html",
+}
+
+
+def _read_text(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _donate_form_writers():
+    """Keys the browser actually posts, read from the two files that post them.
+
+    Not AST-parseable, which is exactly why this boundary went unchecked and
+    why #341 shipped. A regex over two known files is cruder than an AST walk
+    and still strictly better than no check at all.
+    """
+    writers = set()
+    template = _read_text(DONATE_TEMPLATE)
+    writers |= set(re.findall(r"""\bname=["']([A-Za-z_][\w]*)["']""", template))
+    writers |= set(re.findall(r"""\bid=["']([A-Za-z_][\w]*)["']""", template))
+    js = _read_text(DONATE_JS)
+    writers |= set(re.findall(r"""formData\.([A-Za-z_][\w]*)""", js))
+    writers |= set(re.findall(r"""formData\[["']([A-Za-z_][\w]*)["']\]""", js))
+    writers |= set(re.findall(r"""getElementById\(["']([A-Za-z_][\w]*)["']\)""", js))
+    writers |= set(re.findall(r"""["']([A-Za-z_][\w]*)["']\s*:""", js))
+    return writers
+
+
+class _FormDataReadVisitor(_EnclosingFunctionVisitor):
+    """Collect ``form_data.get("key")`` / ``form_data["key"]`` reads."""
+
+    def __init__(self, rel):
+        super().__init__(rel)
+        self.reads = {}
+
+    def _record(self, key, lineno):
+        self.reads.setdefault(key, []).append(f"{self.rel}:{lineno}")
+
+    def visit_Call(self, node):
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "get"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "form_data"
+            and node.args
+        ):
+            key = _const_str(node.args[0])
+            if key:
+                self._record(key, node.lineno)
+        self.generic_visit(node)
+
+    def visit_Subscript(self, node):
+        if isinstance(node.value, ast.Name) and node.value.id == "form_data":
+            key = _const_str(node.slice)
+            if key:
+                self._record(key, node.lineno)
+        self.generic_visit(node)
+
+
+class TestDonateFormKeysHaveWriters(unittest.TestCase):
+    """Defect class 4, applied to the boundary that actually shipped the bug.
+
+    #341: ``form_data["recurring_interval"]`` had two readers and zero writers,
+    because the form posts ``subscription_interval``. Every recurring donation
+    was billed monthly whatever the donor chose. No compiler, validator or test
+    saw it -- a reviewer did.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.writers = _donate_form_writers()
+        cls.reads = {}
+        for path in DONATION_READER_FILES:
+            rel = os.path.relpath(path, PACKAGE_ROOT).replace(os.sep, "/")
+            visitor = _FormDataReadVisitor(rel)
+            visitor.visit(_parse(path))
+            for key, sites in visitor.reads.items():
+                cls.reads.setdefault(key, []).extend(sites)
+
+    def test_the_scanner_sees_both_ends_of_the_boundary(self):
+        """CONTROL. Pin the key from #341 itself: the one the form really posts
+        and the server really reads. If either half of the scan silently found
+        nothing, the orphan test below would be vacuous."""
+        self.assertIn(
+            "subscription_interval",
+            self.writers,
+            f"Scanner found no writer for subscription_interval in donate.html / "
+            f"donation_form.js; writers={sorted(self.writers)[:40]}",
+        )
+        self.assertIn(
+            "subscription_interval",
+            self.reads,
+            f"Scanner found no form_data reader for subscription_interval; " f"readers={sorted(self.reads)}",
+        )
+
+    def test_no_new_form_data_key_is_read_without_a_writer(self):
+        orphans = {
+            key: sites
+            for key, sites in self.reads.items()
+            if key not in self.writers and key not in FORM_DATA_NOT_POSTED_BY_THE_BROWSER
+        }
+        new = set(orphans) - set(KNOWN_ORPHAN_FORM_DATA_READS)
+        self.assertEqual(
+            new,
+            set(),
+            "The donation code reads form_data key(s) that nothing in donate.html "
+            "or donation_form.js ever posts:\n"
+            + "\n".join(f"  {key!r} read at {orphans[key]}" for key in sorted(new))
+            + "\n\nEvery such reader is permanently dead -- the value is always the "
+            "default. This is #341 exactly: a string key crossing the browser/server "
+            "boundary has no compiler. Either post the key, or delete the reader.",
+        )
+
+    def test_the_form_data_orphan_ratchet_has_not_rotted(self):
+        fixed = {key for key in KNOWN_ORPHAN_FORM_DATA_READS if key in self.writers or key not in self.reads}
+        self.assertEqual(
+            fixed,
+            set(),
+            "KNOWN_ORPHAN_FORM_DATA_READS lists key(s) that now have a writer, or "
+            f"are no longer read: {sorted(fixed)}. Remove them so the ratchet keeps "
+            "describing the code.",
+        )
+
+
+# ===========================================================================
 # 5. Unconditional network calls on a path that needs none
 # ===========================================================================
+class _MollieWasTouched(BaseException):
+    """Deliberately NOT an Exception subclass.
+
+    This codebase's recurring defect is over-broad handlers. If the sentinel
+    raised `AssertionError`, a newly added `_fetch_payment_from_mollie()` wrapped
+    in the `try/except Exception: log; continue` this repo is full of would
+    swallow it and leave the test green -- the invariant would report success
+    precisely when it had been violated. Deriving from BaseException makes it
+    unswallowable by any handler short of a bare `except:`.
+    """
+
+
 class _ExplodingMollieClient:
     """Any attempt to reach Mollie from this path is a defect, so make it loud."""
 
     MESSAGE = "_handle_fully_processed_payment must not fetch the payment from Mollie"
 
     def __getattr__(self, name):
-        raise AssertionError(f"{self.MESSAGE} (tried to use client.{name})")
+        raise _MollieWasTouched(f"{self.MESSAGE} (tried to use client.{name})")
 
 
 class TestFullyProcessedPathDoesNotFetch(EnhancedTestCase):
@@ -1144,7 +1429,10 @@ class TestFullyProcessedPathDoesNotFetch(EnhancedTestCase):
             "MollieSettings.get_mollie_client",
             return_value=_ExplodingMollieClient(),
         ):
-            with self.assertRaises(Exception) as caught:
+            # BaseException, not Exception: _fetch_payment_from_mollie wraps
+            # failures in MolliePaymentError, but the sentinel is deliberately
+            # unswallowable, so catch the broadest thing.
+            with self.assertRaises(BaseException) as caught:
                 self.service._fetch_payment_from_mollie(self.payment_id)
         self.assertIn(
             _ExplodingMollieClient.MESSAGE,

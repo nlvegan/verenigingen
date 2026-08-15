@@ -1334,6 +1334,52 @@ def retry_failed_subscription_activations():
         return {"error": str(e)}
 
 
+def _payment_anchor_date(payment):
+    """The date a subscription's start date is computed from, fixed per payment.
+
+    Must not be "today": see the startDate comment in
+    _activate_direct_subscription_after_first_payment. Returns None -- meaning
+    "no anchor, fall back to the clock" -- only when the payment carries no
+    timestamp at all, which is the pre-existing behaviour and no worse than it.
+
+    A timestamp that is present but unparseable is NOT caught here. Mollie
+    always sends ISO 8601, so that would be a real anomaly, and the caller
+    already turns it into a logged, classified activation failure. Swallowing it
+    into a silent clock fallback would reintroduce exactly the
+    non-determinism this function exists to remove.
+    """
+    stamp = getattr(payment, "paid_at", None) or getattr(payment, "created_at", None)
+    if not stamp:
+        return None
+    return frappe.utils.getdate(stamp)
+
+
+def _find_subscription_for_payment(customer, payment_id):
+    """Return the subscription this payment already created at Mollie, if any.
+
+    The durable half of the duplicate guard. Every subscription these helpers
+    create carries ``metadata.payment_id``; unlike an idempotency key (cached by
+    Mollie for one hour, against a webhook retry ladder that runs twenty-six)
+    that fingerprint never expires.
+
+    Returns None when nothing matches, and also when the lookup itself fails --
+    a listing error must not stop a first-time donor subscribing. The
+    idempotency key still covers the common, fast retry in that case.
+    """
+    try:
+        for subscription in customer.subscriptions.list():
+            metadata = getattr(subscription, "metadata", None) or {}
+            if isinstance(metadata, dict) and metadata.get("payment_id") == payment_id:
+                return subscription
+    except Exception as e:
+        frappe.log_error(
+            f"Could not list existing subscriptions for payment {payment_id} "
+            f"while checking for a duplicate: {e}",
+            "Mollie Direct Subscription Creation",
+        )
+    return None
+
+
 def _activate_direct_subscription_after_first_payment(gateway, payment):
     """
     Create Mollie subscription directly from payment metadata (no donation agreement needed)
@@ -1395,10 +1441,20 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             },
         }
 
-        # For quarterly/yearly subscriptions, calculate optimal start date
+        # For quarterly/yearly subscriptions, calculate optimal start date.
+        #
+        # Anchored to the PAYMENT, not to the clock. Mollie rejects a reused
+        # idempotency key whose parameters differ ("400 Bad Request", documented),
+        # so every attempt for one payment must build a byte-identical payload.
+        # A clock-derived start date does not: two webhook deliveries straddling
+        # the day that `anchor + 2 months` crosses a configured payment month would
+        # send different startDates, and Mollie would 400 the retry instead of
+        # replaying it -- turning the guard below into its opposite.
         if subscription_interval in ["3 months", "6 months", "12 months"]:
             mollie_settings = frappe.get_single("Mollie Settings")
-            calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead=2)
+            calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(
+                min_months_ahead=2, anchor=_payment_anchor_date(payment)
+            )
             if calculated_start:
                 subscription_data["startDate"] = calculated_start
                 frappe.logger().info(
@@ -1406,23 +1462,35 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
                     f"(interval: {subscription_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
                 )
 
-        # Create subscription using Mollie API directly.
-        #
-        # The idempotency key is load-bearing, not hygiene. Creating a subscription is
-        # a non-idempotent remote write: if Mollie commits it but the response is lost
-        # (timeout/reset) no local record exists, so any retry -- ours, or Mollie's
-        # webhook re-delivery -- creates a SECOND subscription and charges the donor
-        # twice every period, forever, with only one of the two recorded here. The SDK
-        # defaults this to a fresh uuid4() per call, which gives no cross-retry
-        # protection at all; keying it to the payment makes a repeat return the
-        # original subscription. Measured against Mollie: same key + identical payload
-        # -> same subscription id, one subscription; different keys -> two.
-        # Mollie 400s a reused key with different parameters or on a different URL, so
-        # subscription_data must stay deterministic for a given payment.
         customer = gateway.client.customers.get(customer_id)
-        subscription = customer.subscriptions.create(
-            data=subscription_data, idempotency_key=f"donsub-{payment.id}"
-        )
+
+        # DURABLE duplicate guard, checked before creating anything.
+        #
+        # The idempotency key below is only a fast path: Mollie caches keys for
+        # ONE HOUR ("Keys older than 1 hour will be removed from our cache"),
+        # while its webhook retry ladder runs TWENTY-SIX hours over 10 attempts
+        # (T+0, 1m, 3m, 7m, 15m, 31m, 1h, 2h, 4h, 26h). Attempts 8-10 therefore
+        # arrive with no idempotency protection at all -- and those are precisely
+        # the attempts a prolonged failure reaches. If Mollie committed the
+        # subscription but we never recorded it (lost response, then a failing
+        # local write), a late retry would create a second one and charge the
+        # donor every period, forever.
+        #
+        # The subscriptions we create carry `metadata.payment_id`, which never
+        # expires, so ask Mollie what already exists for this payment instead of
+        # trusting a cache with a TTL.
+        existing = _find_subscription_for_payment(customer, payment.id)
+        if existing is not None:
+            frappe.logger().info(
+                f"Mollie already has subscription {existing.id} for payment {payment.id}; adopting it"
+            )
+            subscription = existing
+        else:
+            # Same key + identical payload returns the original subscription and
+            # creates only one; different keys create two (measured against Mollie).
+            subscription = customer.subscriptions.create(
+                data=subscription_data, idempotency_key=f"donsub-{payment.id}"
+            )
 
         frappe.logger().info(
             f"Successfully created direct subscription {subscription.id} for payment {payment.id}"
