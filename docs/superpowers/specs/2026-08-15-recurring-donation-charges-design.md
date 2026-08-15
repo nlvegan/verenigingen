@@ -53,10 +53,19 @@ Against the Mollie **test** API, read-only, on existing subscriptions in the acc
 
 A recurring charge creates its own `Donation`, not a `Donation Payment` child row on the original.
 
-The reason that survives inspection is `PeriodicDonationAgreement.update_donation_tracking`
-(`periodic_donation_agreement.py:123-139`): it sums the agreement's `donations` child table, which
-`link_donation` populates one row per **Donation**, with no docstatus filter. On a payments-child
-model `total_donated` would freeze at the first charge.
+The reason that survives inspection is the `Periodic Donation Agreement` model:
+`update_donation_tracking` (`periodic_donation_agreement.py:123-139`) sums the agreement's
+`donations` child table, and `link_donation` (`:322-354`) populates it one row per **Donation**,
+with no docstatus filter. A gift is a Donation linked into the agreement; nothing anywhere
+aggregates `Donation Payment` child rows.
+
+State that precisely, because it is weaker than it first looks: **`link_donation` has no production
+callers today** — only tests, fixtures, and a whitelisted API with none. So `total_donated` is not
+currently maintained by anything, and the honest claim is not "the existing consumer would break"
+but "the domain model already represents a gift as a Donation, and the payments-child model has no
+consumer at all." Making the number correct therefore requires this design to **call
+`link_donation` itself** — see change 2 step (e). Without that call, Donation-per-charge buys
+nothing here that the child-row model would not.
 
 Two arguments made earlier for this decision do **not** hold and are recorded here so they are not
 repeated: `anbi_operations.get_anbi_statistics` (`:444`, `:460`) and the `donation_summary` report
