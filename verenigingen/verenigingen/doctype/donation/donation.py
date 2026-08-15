@@ -73,6 +73,16 @@ from verenigingen.utils.security.api_security_framework import (
 
 class Donation(Document):
     def validate(self):
+        # MariaDB permits many NULLs in a unique index but only one ''. Most
+        # donations have no Mollie payment at all, so an empty payment_id must
+        # be absent, not blank, or the second manually entered donation would
+        # collide with the first. Frappe leaves the column NULL only when the
+        # field is absent from the document; an explicitly assigned '' is
+        # persisted verbatim (measured), which is what this guards against.
+        # See patches/v2_2/enforce_unique_donation_payment_id.
+        if not self.payment_id:
+            self.payment_id = None
+
         if not self.donor or not frappe.db.exists("Donor", self.donor):
             # for web forms
             user_type = frappe.db.get_value("User", frappe.session.user, "user_type")
