@@ -65,7 +65,18 @@ def _make_service(idempotency_manager=None):
 
 
 def _persist_donation(payment_id, with_payment_row=False):
-    """Create a real draft Donation (Donation is not submittable)."""
+    """Create a real draft Donation (Donation is not submittable).
+
+    Drops any donation already holding this payment_id first. The services under
+    test here commit (that is what "_atomic" means), which defeats the
+    rollback() in tearDown, so these rows outlive the run. That was harmless
+    until payment_id became unique (#345): the leaked row now makes the NEXT run
+    of this module fail with a duplicate-key error, so the module has to clear
+    its own path rather than assume a clean table.
+    """
+    for stale in frappe.get_all("Donation", filters={"payment_id": payment_id}, pluck="name"):
+        frappe.delete_doc("Donation", stale, force=True, ignore_permissions=True, delete_permanently=True)
+
     donor = frappe.new_doc("Donor")
     donor.donor_name = "Gap Test Donor"
     donor.donor_type = "Individual"

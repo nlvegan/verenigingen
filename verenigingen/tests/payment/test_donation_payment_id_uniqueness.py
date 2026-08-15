@@ -86,9 +86,14 @@ class TestDonationPaymentIdUniqueness(EnhancedTestCase):
         self.assertTrue(rows, "no unique index on Donation.payment_id — has the schema sync run?")
 
     def test_a_second_donation_with_the_same_payment_id_is_rejected(self):
-        self._donation(payment_id="tr_uniqueness_probe").insert()
+        # Randomised, not a fixed literal: payment_id is now unique site-wide, so
+        # a hard-coded probe left behind by one interrupted run would make this
+        # test error permanently on that site -- and would collide with any other
+        # module using the same literal in the same shard.
+        probe = f"tr_uniqueness_probe_{frappe.generate_hash(length=8)}"
+        self._donation(payment_id=probe).insert()
         with self.assertRaises(Exception) as caught:
-            self._donation(payment_id="tr_uniqueness_probe").insert()
+            self._donation(payment_id=probe).insert()
         self.assertTrue(
             frappe.db.is_duplicate_entry(caught.exception)
             or isinstance(caught.exception, frappe.UniqueValidationError),

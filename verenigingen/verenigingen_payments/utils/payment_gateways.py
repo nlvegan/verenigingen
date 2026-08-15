@@ -477,8 +477,12 @@ class MollieGateway(PaymentGateway):
             dict: New payment result
         """
         try:
-            # Clear old payment ID
-            donation.db_set("payment_id", "")
+            # Clear old payment ID. None, not "": payment_id is unique, and
+            # db_set goes through neither validate() nor get_valid_dict(), so ""
+            # would be written verbatim -- and MariaDB permits many NULLs under a
+            # unique index but only one "". Two donations whose payments were
+            # recreated would otherwise collide on the empty string.
+            donation.db_set("payment_id", None)
             if hasattr(donation, "payment_status"):
                 donation.db_set("payment_status", "")
 
@@ -2389,8 +2393,15 @@ def manual_payment_confirmation(donation_id, payment_reference: str, notes=None)
         # "Not allowed to change ... after submission". Use db_set — the
         # canonical pattern in this controller (cf. Donation.on_payment_authorized
         # -> self.db_set("paid", 1)) — which persists regardless of docstatus.
-        donation.db_set("paid", 1)
+        # payment_id BEFORE paid, deliberately. payment_reference is
+        # operator-supplied and payment_id is unique, so a reference already
+        # recorded on another donation raises 1062 here. In the other order the
+        # duplicate aborts *after* paid=1 is written: MariaDB does not roll the
+        # transaction back on 1062, the except-branch below returns
+        # success: False without undoing anything, and the request's own commit
+        # then lands paid=1 on a donation the caller was told had failed.
         donation.db_set("payment_id", payment_reference)
+        donation.db_set("paid", 1)
 
         if notes:
             donation.add_comment("Comment", f"Manual payment confirmation: {notes}")
@@ -2402,6 +2413,18 @@ def manual_payment_confirmation(donation_id, payment_reference: str, notes=None)
         return {"success": True, "message": "Payment confirmed successfully"}
 
     except Exception as e:
+        if frappe.db.is_duplicate_entry(e):
+            # Say which donation already owns the reference; the raw 1062 names
+            # only the index. Nothing has been written at this point.
+            owner = frappe.db.get_value(
+                "Donation", {"payment_id": payment_reference, "name": ("!=", donation_id)}, "name"
+            )
+            message = _("Payment reference {0} is already recorded on donation {1}.").format(
+                payment_reference, owner or _("another donation")
+            )
+            frappe.log_error(f"Manual payment confirmation duplicate: {message}", "Payment Confirmation")
+            return {"success": False, "message": message}
+
         frappe.log_error(f"Manual payment confirmation error: {str(e)}", "Payment Confirmation")
         return {"success": False, "message": str(e)}
 

@@ -18,9 +18,12 @@ would never reach a new site -- and CI builds its site with `reinstall` plus
 v2_1/add_mollie_payment_entry_unique_index is what that mistake looks like:
 its index exists on no deployment on this bench.
 
-Running before the sync also turns a failure into a diagnosis. If duplicates
-survived into the sync, it would die on a raw MySQL 1062 naming nothing an
-operator can act on.
+Running before the sync also turns a halt into a resolution. The sync does not
+fail obscurely -- mariadb/schema.py catches the 1062 and throws "payment_id
+field cannot be set as unique in tabDonation, as there are non-unique existing
+values" -- but that names only the field and the table, never the offending
+donations, and it stops the migration dead. This patch names each one and
+clears it, so migrate completes.
 
 Two data steps, in order:
 
@@ -88,9 +91,11 @@ def _resolve_duplicates() -> int:
         )
         keeper, losers = names[0].name, [n.name for n in names[1:]]
         for name in losers:
-            # Comment first: if the UPDATE fails, the record of what was there
-            # still exists. print() rather than logger().warning(), which writes
-            # nothing under bench run-tests.
+            # Comment before the clear. Not for crash-safety -- insert() does not
+            # commit, so a later failure rolls the Comment back with it -- but so
+            # the two always agree: there is no ordering in which a payment_id is
+            # cleared and its Comment is missing. print() rather than
+            # logger().warning(), which writes nothing under bench run-tests.
             print(f"  {name}: clearing payment_id {row.payment_id} (kept on {keeper})")
             frappe.get_doc(
                 {
