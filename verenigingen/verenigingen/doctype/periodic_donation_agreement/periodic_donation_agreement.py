@@ -351,6 +351,18 @@ class PeriodicDonationAgreement(Document):
         The rate limit is invisible under test (``rate_limit_engine`` returns
         allowed unconditionally when ``frappe.flags.in_test``), which is why it
         has to be reasoned about here rather than caught by a test.
+
+        DEPLOYMENT NOTE: the ``self.save()`` below runs under normal permissions
+        on purpose -- widening a financial doctype would be the wrong trade. The
+        Mollie webhook is not Guest here: ``webhook_security.py`` calls
+        ``frappe.set_user(webhook_user)`` before dispatch, so this executes as
+        the configured service user. That user therefore needs **write on
+        Periodic Donation Agreement** (on veg11 it has it via ``Accounts
+        User``). Nothing in code or tests enforces that, so a deployment which
+        provisions a leaner webhook user will see the link fail -- and the
+        caller records rather than raises, so it will show up as a
+        ``recurring_charge_agreement_link_error`` audit row and a
+        ``total_donated`` that stops moving, not as an exception.
         """
         donation = frappe.get_doc("Donation", donation_name)
 

@@ -330,6 +330,27 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
             len(self._audit_rows("recurring_charge_mode_of_payment_missing", payload["id"])), 1
         )
 
+    def test_an_unmapped_mollie_method_falls_back_but_says_so(self):
+        """The likelier half of the same fallback, and the one that was silent.
+
+        _METHOD_TO_MODE_OF_PAYMENT only knows 'directdebit'. A card mandate
+        charges 'creditcard', so it never reaches the mapping at all -- and the
+        audit used to fire only when the mapping HAD matched, which is the case
+        that needs a missing Mode of Payment on top. So the commonest
+        mislabelling was the one nothing recorded.
+        """
+        origin = self._setup_origin(mode_of_payment="iDEAL")
+        payload = self._charge(origin.name, method="creditcard")
+        charge = frappe.get_doc("Donation", ensure_donation_for_recurring_charge(payload))
+        self.assertEqual(charge.mode_of_payment, "iDEAL", "must still book, labelled from the origin")
+        rows = self._audit_rows("recurring_charge_mode_of_payment_missing", payload["id"])
+        self.assertEqual(len(rows), 1)
+        self.assertIn(
+            "creditcard",
+            frappe.db.get_value("Mollie Audit Log", rows[0], "description"),
+            "the row has to name the method, or it cannot be acted on",
+        )
+
     def test_designation_fields_are_carried_over(self):
         origin = self._setup_origin(
             donation_purpose_type="Chapter",
@@ -489,6 +510,52 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
 
         self.assertEqual(plain.call_count, 1)
         decorated.assert_not_called()
+
+    def test_the_two_entry_points_keep_the_decorators_that_make_them_different(self):
+        """The property, not the call-site spelling.
+
+        The test above pins WHICH method the service calls. It stays green if
+        someone puts @high_security_api on add_donation_link, or adds a Critical
+        Operation Rule row named after it -- reintroducing the bug at the other
+        end. This pins the two halves that actually matter.
+
+        `x in frappe.whitelisted` is not a proxy for the property: it is
+        literally the membership test frappe.is_whitelisted() performs before
+        dispatch.
+
+        It is NOT a decorator-ORDER assertion, though it looks like one.
+        Measured: swapping link_donation to @high_security_api outermost leaves
+        this test green, because
+        security.frappe_whitelist_adapter.register_wrapper_in_whitelist() adds
+        the security wrapper to frappe.whitelisted whenever the function it
+        wrapped was already whitelisted. That adapter exists precisely to defuse
+        the "Method Not Allowed" trap, and for this decorator family it does. So
+        do not read a green run here as proof the order is right -- read it as
+        proof link_donation is still reachable over HTTP at all. The control for
+        that is deleting @frappe.whitelist(), which does turn this red.
+        """
+        self.assertIn(
+            PeriodicDonationAgreement.link_donation,
+            frappe.whitelisted,
+            "link_donation is no longer dispatchable over HTTP, and both the desk button "
+            "(periodic_donation_agreement.js posts method: 'link_donation') and "
+            "api.periodic_donation_operations.link_donation_to_agreement reach it that way. "
+            "Extracting add_donation_link must not cost the interactive entry point its "
+            "@frappe.whitelist().",
+        )
+        self.assertNotIn(
+            PeriodicDonationAgreement.add_donation_link,
+            frappe.whitelisted,
+            "add_donation_link must NOT be whitelisted: it exists so a server-side caller can "
+            "append to the agreement without an interactive rate-limit bucket or the COR's "
+            "required_roles.",
+        )
+        self.assertFalse(
+            hasattr(PeriodicDonationAgreement.add_donation_link, "__wrapped__"),
+            "add_donation_link is wrapped by a decorator. It must stay undecorated -- a wrapper "
+            "here is how the rate limit and the role gate come back. (Control: link_donation IS "
+            f"wrapped: {hasattr(PeriodicDonationAgreement.link_donation, '__wrapped__')}.)",
+        )
 
     # --- the agreement total, which is the whole reason for Donation-per-charge ---
 

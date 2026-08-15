@@ -247,26 +247,34 @@ def _link_to_agreement(charge_name: str, origin, payment_id: str) -> None:
         )
 
 
-def _mode_of_payment(payment, origin, payment_id: str = None) -> str:
+def _mode_of_payment(payment, origin, payment_id: str) -> str:
     """A Mode of Payment that exists, for a Donation field that is mandatory."""
     method = read_payment_field(payment, "method")
     mapped = _METHOD_TO_MODE_OF_PAYMENT.get(method)
     if mapped and frappe.db.exists("Mode of Payment", mapped):
         return mapped
 
+    # Both routes here mislabel the charge: it gets recorded with the mode the
+    # donor first paid by -- iDEAL, a card -- rather than the mode Mollie
+    # actually charged. Booking anyway beats refusing money already collected,
+    # but doing it silently on every charge is how the mislabelling survives.
+    #
+    # The unmapped route is the likelier of the two and used to be the silent
+    # one: a card mandate charges `creditcard`, not `directdebit`, so it never
+    # reaches the mapping at all.
     fallback = origin.get("mode_of_payment")
-    if mapped:
-        # The mapping was right and the Mode of Payment is simply missing from
-        # this site. Falling back is still better than refusing to book, but it
-        # mislabels the charge as the origin's method (iDEAL, a card) when it was
-        # a direct debit -- silently, and on every charge. Say so.
-        _audit(
-            payment_id,
-            "recurring_charge_mode_of_payment_missing",
-            f"Mode of Payment '{mapped}' does not exist; charge labelled '{fallback}' from the origin",
-            {"mollie_method": method, "expected_mode_of_payment": mapped, "used": fallback},
-            severity="warning",
-        )
+    reason = (
+        f"Mode of Payment '{mapped}' does not exist on this site"
+        if mapped
+        else f"Mollie method '{method}' has no Mode of Payment mapping"
+    )
+    _audit(
+        payment_id,
+        "recurring_charge_mode_of_payment_missing",
+        f"{reason}; charge labelled '{fallback}' from the origin",
+        {"mollie_method": method, "expected_mode_of_payment": mapped, "used": fallback},
+        severity="warning",
+    )
     # Deliberately not donation.create_mode_of_payment(), which would insert a
     # Mode of Payment literally named "directdebit" as a side effect of a webhook.
     return fallback
