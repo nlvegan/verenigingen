@@ -105,9 +105,21 @@ once, but two Donation rows mean two donor-history rows and — because `link_do
 Donation name — **`total_donated` on the agreement doubles for that period**.
 
 The repo has done this before (`Volunteer.member`, #268) and the shape is known: the JSON flag
-plus a `pre_model_sync` patch that normalises `''` → `NULL` (non-Mollie donations have an empty
-`payment_id`, and MariaDB treats `''` as a value but `NULL` as absent) and **throws** on any
-duplicate it cannot resolve rather than deleting rows.
+plus a `pre_model_sync` patch. Two steps:
+
+1. Normalise `''` → `NULL`. Non-Mollie donations have an empty `payment_id` and MariaDB treats
+   `''` as a value but `NULL` as absent, so without this the constraint would reject the second
+   manually-entered donation. On veg11 this is 55 of 60 rows.
+2. Resolve remaining duplicates automatically: the earliest-created row keeps its `payment_id`,
+   the later ones have theirs cleared. **No row is ever deleted** and no other field is touched;
+   each affected donation gets a comment recording the value removed, and the patch logs a
+   summary of every change. veg11 has exactly one duplicate pair
+   (`test_donation_payment_123`), evidently test data; production incidence is unknown from this
+   bench.
+
+The alternative — throwing and halting migrate for a human — was considered and not taken. The
+risk accepted is that a production migrate silently rewrites a financial record's payment id;
+the mitigations above are what keep that recoverable.
 
 ### D5 — emails
 
@@ -125,6 +137,11 @@ the existing `mollie_bulk_payment_discovery` admin page — which today counts e
 
 Accepted risk of the split: between A and B, a booking that fails past Mollie's 26-hour retry
 ladder is not recovered automatically. A's failure paths therefore have to be loud (see F5).
+
+A repairs nothing retroactively, and does not need to: there are no donation subscriptions live at
+Mollie today (confirmed by Foppe — the regression stopped subscription creation, which is #343).
+Every subscription A's fix applies to is one it creates itself, with a `webhookUrl` from the
+start. Repairing pre-existing subscriptions belongs to B along with the rest of recovery.
 
 ## Changes
 
