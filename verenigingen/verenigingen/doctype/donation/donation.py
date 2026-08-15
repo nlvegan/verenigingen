@@ -276,6 +276,15 @@ class Donation(Document):
 
     def after_insert(self):
         """Called after donation is created"""
+        # A donation created from a Mollie subscription charge is not a new
+        # donation from the donor's point of view -- they were thanked when they
+        # set the subscription up. The per-period receipt is
+        # send_payment_confirmation_email, which on_update still sends. Guarding
+        # on the field rather than a flag means no future insert path can
+        # forget it.
+        if self.recurring_origin_donation:
+            return
+
         # Send confirmation email for new donations using EmailService
         frappe.enqueue(
             "verenigingen.verenigingen.doctype.donation.donation.send_donation_confirmation_email",
@@ -395,13 +404,15 @@ def get_anbi_donations_for_reporting(from_date, to_date):
 def generate_anbi_agreement_number():
     """Generate next ANBI agreement number"""
     # Get the latest ANBI agreement number
-    latest = frappe.db.sql("""
+    latest = frappe.db.sql(
+        """
         SELECT anbi_agreement_number
         FROM `tabDonation`
         WHERE anbi_agreement_number IS NOT NULL
         ORDER BY creation DESC
         LIMIT 1
-    """)
+    """
+    )
 
     if latest and latest[0][0]:
         try:
