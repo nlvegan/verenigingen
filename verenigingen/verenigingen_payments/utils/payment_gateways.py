@@ -1406,9 +1406,23 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
                     f"(interval: {subscription_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
                 )
 
-        # Create subscription using Mollie API directly
+        # Create subscription using Mollie API directly.
+        #
+        # The idempotency key is load-bearing, not hygiene. Creating a subscription is
+        # a non-idempotent remote write: if Mollie commits it but the response is lost
+        # (timeout/reset) no local record exists, so any retry -- ours, or Mollie's
+        # webhook re-delivery -- creates a SECOND subscription and charges the donor
+        # twice every period, forever, with only one of the two recorded here. The SDK
+        # defaults this to a fresh uuid4() per call, which gives no cross-retry
+        # protection at all; keying it to the payment makes a repeat return the
+        # original subscription. Measured against Mollie: same key + identical payload
+        # -> same subscription id, one subscription; different keys -> two.
+        # Mollie 400s a reused key with different parameters or on a different URL, so
+        # subscription_data must stay deterministic for a given payment.
         customer = gateway.client.customers.get(customer_id)
-        subscription = customer.subscriptions.create(data=subscription_data)
+        subscription = customer.subscriptions.create(
+            data=subscription_data, idempotency_key=f"donsub-{payment.id}"
+        )
 
         frappe.logger().info(
             f"Successfully created direct subscription {subscription.id} for payment {payment.id}"
@@ -1496,9 +1510,13 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             },
         }
 
-        # Create subscription using Mollie API directly
+        # Create subscription using Mollie API directly. Idempotency key keyed to the
+        # payment for the same reason as the direct path above: a lost response on a
+        # non-idempotent remote create would otherwise double-subscribe the donor.
         customer = gateway.client.customers.get(customer_id)
-        subscription = customer.subscriptions.create(data=subscription_data)
+        subscription = customer.subscriptions.create(
+            data=subscription_data, idempotency_key=f"donagr-{payment.id}"
+        )
 
         # Persist the subscription id on the donation (the doctype that owns the field)
         donation.db_set("mollie_subscription_id", subscription.id)

@@ -8,6 +8,7 @@ payment processing state across all webhook code paths.
 
 import json
 import time
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import frappe
@@ -553,6 +554,17 @@ class UnifiedWebhookWrapperService:
                 donation, payment_id, processing_state.payment_history_missing
             )
 
+        # NOTE: subscription activation is deliberately NOT retried here.
+        # This branch cannot be reached for a donation today -- is_fully_processed()
+        # keys off a submitted Payment Entry that the Bank Transaction + Journal
+        # Entry architecture never creates (issue #344) -- so every re-delivery
+        # lands on the new-payment path, where activation IS retried. Wiring it in
+        # here would cost an unconditional _fetch_payment_from_mollie() on a path
+        # that needs no payment data and whose refund/chargeback handling would
+        # then break on any Mollie fetch failure, in exchange for a benefit that
+        # only materialises once #344 is fixed. #344 carries the note to wire
+        # activation in at that point.
+
         # Handle any pending chargebacks
         chargeback_results = []
         if processing_state.has_pending_chargebacks():
@@ -657,16 +669,21 @@ class UnifiedWebhookWrapperService:
             journal_entry_name = financial_result.get("journal_entry_name")
             bank_transaction_name = financial_result.get("bank_transaction_name")
 
-            # Step 3: Update donation status and metadata
+            # Step 3: Create the Mollie subscription this first payment set up.
+            # Runs BEFORE the status update so _update_donation_status sees the
+            # subscription id and can mark the donation Recurring.
+            activation = self._activate_donation_subscription(donation, payment_data)
+
+            # Step 4: Update donation status and metadata
             self._update_donation_status(donation, payment_data)
 
-            # Step 4: Update donation payment history (atomic)
+            # Step 5: Update donation payment history (atomic)
             self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name)
 
-            # Step 5: Update Donor record (subscription IDs, donor_history)
+            # Step 6: Update Donor record (subscription IDs, donor_history)
             self._update_donor_record(donation, payment_data)
 
-            # Step 6: Update Member payment history (for ALL donations)
+            # Step 7: Update Member payment history (for ALL donations)
             self._update_member_payment_history(donation, payment_data, journal_entry_name)
 
             # Check for pending refunds even during new payment processing
@@ -694,6 +711,23 @@ class UnifiedWebhookWrapperService:
                     result["refund_failures"] = failed_refunds
                     self.logger.warning(
                         f"⚠️ {len(failed_refunds)} refunds failed during new payment processing"
+                    )
+
+            if activation:
+                result["subscription_activation"] = activation
+                # A recurring donor whose subscription was not created is the
+                # whole of issue #343, and there is no sweep that would find them
+                # later. Report failure so Mollie re-delivers on its own retry
+                # schedule -- safe because the Bank Transaction and Journal Entry
+                # creators are idempotent per payment id, and activation itself
+                # is guarded against creating a second subscription. Permanent
+                # refusals (a bad interval, missing metadata) are excluded: a
+                # retry would produce the identical refusal.
+                if activation.get("status") == "error" and not activation.get("permanent"):
+                    result["status"] = "error"
+                    result["message"] = (
+                        f"Payment {payment_id} recorded, but creating the Mollie subscription "
+                        f"failed: {activation.get('message')}"
                     )
 
             duration = time.time() - start_time
@@ -781,6 +815,14 @@ class UnifiedWebhookWrapperService:
                         results.append("Journal Entry creation failed (partial)")
                 else:
                     results.append("Financial entries creation failed")
+
+            # NOTE: subscription activation is deliberately NOT called here.
+            # This branch is currently unreachable -- needs_payment_processing()
+            # is `not is_fully_processed()`, so process_payment_webhook's else
+            # can never be taken -- and if it is ever revived, activation would
+            # need the same ordering guarantee it has in the new-payment path
+            # (it must precede _update_donation_status, which only runs here when
+            # "donation_status" is among the missing components).
 
             if "donation_status" in missing_components:
                 self._update_donation_status(donation, payment_data)
@@ -1123,6 +1165,14 @@ class UnifiedWebhookWrapperService:
                     "created_at": payment.get("createdAt") or payment.get("created_at"),
                     "paid_at": payment.get("paidAt") or payment.get("paid_at"),
                     "method": payment.get("method"),
+                    # Mollie names these camelCase; every reader downstream asks
+                    # for snake_case. Omitting them made three readers dead:
+                    # the donation Recurring/One-time stamp, Donor.
+                    # mollie_subscription_id, and the donor history entry type
+                    # all silently saw None on every payment. See issue #343.
+                    "sequence_type": payment.get("sequenceType") or payment.get("sequence_type"),
+                    "customer_id": payment.get("customerId") or payment.get("customer_id"),
+                    "subscription_id": payment.get("subscriptionId") or payment.get("subscription_id"),
                 }
             else:
                 # Handle object format
@@ -1143,6 +1193,10 @@ class UnifiedWebhookWrapperService:
                     "created_at": getattr(payment, "created_at", None),
                     "paid_at": getattr(payment, "paid_at", None),
                     "method": getattr(payment, "method", None),
+                    # See the dict branch above (issue #343).
+                    "sequence_type": getattr(payment, "sequence_type", None),
+                    "customer_id": getattr(payment, "customer_id", None),
+                    "subscription_id": getattr(payment, "subscription_id", None),
                 }
         except Exception as e:
             self.logger.error(f"Failed to fetch payment {payment_id} from Mollie: {e}")
@@ -1151,6 +1205,182 @@ class UnifiedWebhookWrapperService:
                 payment_id=payment_id,
                 original_error=e,
             ) from e
+
+    def _activate_donation_subscription(self, donation, payment_data):
+        """Create the Mollie subscription that this first payment set up.
+
+        Mollie does not create subscriptions on its own: a ``sequenceType:
+        "first"`` payment only establishes the mandate, and the merchant must
+        then call the subscriptions API (Mollie's recurring guide). The donation
+        flow defers that call to webhook time, stamping the payment with
+        ``subscription_setup``/``subscription_interval``/``subscription_amount``
+        -- so this is the step that turns a recurring donor's first charge into
+        an actual recurring donation.
+
+        It has to live on THIS webhook because this is the one Mollie can reach.
+        The member-dues webhook that used to own the call
+        (``payment_gateways.mollie_subscription_webhook``) is not guest-
+        accessible, only accepts a ``sub_`` id where Mollie posts ``id=tr_...``,
+        and gates on a Customer->Member lookup plus an unpaid Sales Invoice that
+        a donor -- who need not be a member at all -- can never satisfy. Issue #343.
+
+        Returns None when this is not a recurring first payment at all, and
+        otherwise one of ``success`` / ``skipped`` / ``error`` so the caller can
+        tell "nothing to do" from "tried and failed".
+
+        Mollie charges the first subscription payment one interval after the
+        start date, not on it -- measured against the API, with a future
+        startDate as the control -- so leaving startDate unset for monthly
+        intervals does NOT double-charge the donor on signup day.
+        """
+        # Bound before the try so the failure log below can name a subscription
+        # Mollie has already created -- without it, a local write that fails
+        # after a successful create leaves a donor being charged on a
+        # subscription no log and no record identifies.
+        created_subscription_id = None
+        try:
+            if payment_data.get("sequence_type") != "first":
+                return None
+
+            metadata = payment_data.get("metadata") or {}
+            if metadata.get("subscription_setup") != "true":
+                return None
+
+            # Guarded here rather than at the call site so no future caller can
+            # subscribe a donor off a failed/expired/canceled payment.
+            if payment_data.get("status") != "paid":
+                return None
+
+            # Cheap short-circuit for the common retry. It is NOT the real
+            # duplicate guard: this read cannot close the window where Mollie
+            # created the subscription but the response was lost, because nothing
+            # local was written in that case. The actual protection is the
+            # deterministic Idempotency-Key on the create itself (see
+            # _activate_direct_subscription_after_first_payment) -- which is also
+            # why no row lock is taken here: holding a transaction open across a
+            # gateway round-trip would extend the tabSeries lock this request
+            # already holds, for no correctness gain.
+            existing = frappe.db.get_value("Donation", donation.name, "mollie_subscription_id")
+            if existing:
+                # Re-publish for the steps that run after this one: without it
+                # _update_donation_status sees no subscription and stamps the
+                # donation back to "One-time" on every retry, undoing the first
+                # delivery's work.
+                payment_data["subscription_id"] = existing
+                self.logger.info(
+                    f"Donation {donation.name} already has Mollie subscription {existing}, "
+                    "skipping activation"
+                )
+                return {"status": "skipped", "reason": "already_subscribed", "subscription_id": existing}
+
+            # Reuse the existing builder rather than growing a second grammar for
+            # the same Mollie call. It reads only .metadata/.id/.customer_id off
+            # the payment and reaches the SDK through gateway.client, so the
+            # normalised dict is adapted to that shape here.
+            from verenigingen.verenigingen_payments.utils.payment_gateways import (
+                _activate_direct_subscription_after_first_payment,
+            )
+
+            mollie_client = frappe.get_single("Mollie Settings").get_mollie_client()
+            result = _activate_direct_subscription_after_first_payment(
+                SimpleNamespace(client=mollie_client),
+                SimpleNamespace(
+                    metadata=metadata,
+                    id=payment_data.get("id"),
+                    # Same fallback as _update_donor_record: the producer writes
+                    # the customer id into metadata too, so a regression in the
+                    # camelCase plumbing does not silently turn every recurring
+                    # donation into a "missing_customer_id" refusal.
+                    customer_id=payment_data.get("customer_id") or metadata.get("customer_id"),
+                ),
+            )
+
+            if result and result.get("status") == "success":
+                subscription_id = created_subscription_id = result["subscription_id"]
+
+                # The builder links the subscription onto the Donation via the
+                # metadata's donation_id. Link it here too, from the donation we
+                # already resolved: without this a payment whose metadata lacks
+                # donation_id would create a subscription that is never recorded,
+                # and the idempotency guard above -- which reads exactly this
+                # field -- would let a webhook retry create a second one.
+                # The builder's own write is wrapped in a bare `except: pass`, so
+                # this is the only reliable link. Commit it immediately: the id is
+                # otherwise only persisted by a later, unrelated step, and if that
+                # step fails Mollie is charging a donor on a subscription no record
+                # names (CLAUDE.md transaction pattern 1).
+                frappe.db.set_value("Donation", donation.name, "mollie_subscription_id", subscription_id)
+                frappe.db.commit()
+
+                # The steps after this read the subscription off payment_data
+                # (donation Recurring/One-time stamp, Donor.mollie_subscription_id,
+                # donor history entry type). Mollie only sets subscriptionId on
+                # payments a subscription generated, which a first payment by
+                # definition is not, so it is set here instead -- this donation
+                # is recurring from now on.
+                payment_data["subscription_id"] = subscription_id
+                self.logger.info(
+                    f"Created Mollie subscription {subscription_id} for donation {donation.name}"
+                )
+                return result
+
+            # The builder's own "skipped" is not a failure -- it means the payment
+            # never asked for a subscription. Switch on its status explicitly
+            # rather than treating everything that is not "success" as an error,
+            # which would turn a skip into a permanent 500 retry loop.
+            if (result or {}).get("status") == "skipped":
+                return {"status": "skipped", "reason": (result or {}).get("reason")}
+
+            # create_error_response only builds a dict -- nothing raises and
+            # nothing stores this result, so without logging here a failed
+            # activation would be completely silent.
+            frappe.log_error(
+                f"Subscription activation did not succeed for donation {donation.name} "
+                f"(payment {payment_data.get('id')}): {result}",
+                "Mollie Donation Subscription Activation",
+            )
+            # Only refusals we can NAME are permanent; anything else is retried.
+            #
+            # The builder collapses every internal failure -- including a dropped
+            # connection -- into a generic error dict, so the exception type is
+            # not visible here and unclassifiable failures have to be guessed.
+            # Guessing "retry" is the right guess now that the create carries a
+            # deterministic Idempotency-Key: a re-delivery cannot double-charge
+            # the donor, it can only re-attempt, and it is the one case that
+            # recovers the worst failure mode there is -- Mollie created the
+            # subscription but the response was lost, so nothing local recorded
+            # it. Without a retry that donor holds a subscription this system
+            # cannot see. The cost of guessing wrong is a bounded number of
+            # re-deliveries that refuse identically.
+            reason = (result or {}).get("reason")
+            return {
+                "status": "error",
+                "permanent": reason
+                in ("invalid_interval", "missing_subscription_details", "missing_customer_id"),
+                "reason": reason,
+                "message": (result or {}).get("message") or f"activation failed: {result}",
+            }
+
+        except Exception as e:
+            # A failed subscription must not roll back a payment the donor has
+            # already made -- the money is banked either way. Retryable for the
+            # same reason as above: the Idempotency-Key makes re-delivery safe,
+            # and it is what recovers a create that succeeded at Mollie while the
+            # response was lost. Either way the donation stays queryable as an
+            # unfulfilled recurring intent -- see _update_donation_status.
+            frappe.log_error(
+                f"Error activating donation subscription for {donation.name} "
+                f"(payment {payment_data.get('id')}, "
+                f"subscription created at Mollie: {created_subscription_id}): {e}\n"
+                f"{frappe.get_traceback()}",
+                "Mollie Donation Subscription Activation",
+            )
+            return {
+                "status": "error",
+                "permanent": False,
+                "subscription_id": created_subscription_id,
+                "message": str(e),
+            }
 
     def _update_donation_status(self, donation, payment_data):
         """Update donation status based on payment data."""
@@ -1168,10 +1398,15 @@ class UnifiedWebhookWrapperService:
                 donation.payment_status = "Completed"
 
             # Determine if this is recurring (simple check for now)
-            subscription_id = payment_data.get("subscription_id") or payment_data.get("metadata", {}).get(
-                "subscription_id"
-            )
-            if subscription_id:
+            metadata = payment_data.get("metadata") or {}
+            subscription_id = payment_data.get("subscription_id") or metadata.get("subscription_id")
+            # A donor who asked for a recurring donation stays recorded as one even
+            # if creating the subscription failed. Otherwise the failure is
+            # invisible: "Recurring with no subscription id" is the only query that
+            # can find donors owed a subscription, and stamping them One-time makes
+            # that query return nothing -- which is exactly the invisibility of #343.
+            intended_recurring = metadata.get("subscription_setup") == "true"
+            if subscription_id or intended_recurring:
                 donation.status = "Recurring"
                 self.logger.info(f"✅ Set donation {donation.name} status to Recurring")
             else:
