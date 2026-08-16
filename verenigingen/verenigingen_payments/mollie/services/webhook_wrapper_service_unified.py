@@ -454,33 +454,50 @@ class UnifiedWebhookWrapperService:
             # (Mollie signals a refund by re-posting the same payment id), so an
             # early return would strand every refund of every recurring charge
             # while first payments kept theirs. Issue #345.
-            try:
-                from .recurring_donation_charge import (
-                    RecurringChargeOriginMissing,
-                    ensure_donation_for_recurring_charge,
-                )
+            from .recurring_donation_charge import (
+                RecurringChargeOriginMissing,
+                ensure_donation_for_recurring_charge,
+            )
 
-                # self._fetch_payment_from_mollie rather than the `payment` bound
-                # inside the classification try: that name is unbound when
-                # classification raised, and the branch must still run in that
-                # case. The normalised dict is a shape read_payment_field
-                # handles. Costs one extra API call, on the charge path only.
-                charge_donation = ensure_donation_for_recurring_charge(
-                    self._fetch_payment_from_mollie(payment_id)
-                )
-                if charge_donation:
-                    self.logger.info(f"💶 Recurring charge {payment_id} booked to donation {charge_donation}")
-            except RecurringChargeOriginMissing as e:
-                # Money received and unattributable. Report failure so Mollie
-                # re-delivers rather than swallowing it into a 200.
-                duration = time.time() - start_time
-                record_operation_performance("unified_webhook_processing", duration, False)
-                return {
-                    "status": "error",
-                    "message": str(e),
-                    "payment_id": payment_id,
-                    "duration_seconds": duration,
-                }
+            # self._fetch_payment_from_mollie rather than the `payment` bound
+            # inside the classification try: that name is unbound when
+            # classification raised, and the branch must still run in that case.
+            # The normalised dict is a shape read_payment_field handles.
+            #
+            # The cost is one extra Mollie GET on EVERY donation / unknown /
+            # classification-failed webhook, not just on charges: the argument is
+            # evaluated before the service can decline. That is the price of not
+            # trusting a `payment` that may be unbound, and it is why the fetch is
+            # guarded below rather than left to the outer handler.
+            try:
+                charge_payment = self._fetch_payment_from_mollie(payment_id)
+            except MolliePaymentError as fetch_error:
+                # Mollie is unreachable. STEP 1's include_mollie_api check hits the
+                # same outage and returns 503 + Retry-After, which is the designed
+                # degradation; do not pre-empt it with a generic 500. Not a
+                # swallow: Mollie re-delivers either way, and the charge is booked
+                # on the retry.
+                self.logger.error(f"Charge fetch for {payment_id} failed, deferring to STEP 1: {fetch_error}")
+                charge_payment = None
+
+            if charge_payment is not None:
+                try:
+                    charge_donation = ensure_donation_for_recurring_charge(charge_payment)
+                    if charge_donation:
+                        self.logger.info(
+                            f"💶 Recurring charge {payment_id} booked to donation {charge_donation}"
+                        )
+                except RecurringChargeOriginMissing as e:
+                    # Money received and unattributable. Report failure so Mollie
+                    # re-delivers rather than swallowing it into a 200.
+                    duration = time.time() - start_time
+                    record_operation_performance("unified_webhook_processing", duration, False)
+                    return {
+                        "status": "error",
+                        "message": str(e),
+                        "payment_id": payment_id,
+                        "duration_seconds": duration,
+                    }
 
             # STEP 1: UNIFIED IDEMPOTENCY CHECK - single source of truth
             self.logger.info(f"🔍 STEP 1: Unified idempotency check for {payment_id}")

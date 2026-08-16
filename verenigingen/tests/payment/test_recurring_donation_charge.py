@@ -16,14 +16,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from mollie.api.error import RequestError
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement import (
     PeriodicDonationAgreement,
 )
 from verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge import (
     RecurringChargeOriginMissing,
     ensure_donation_for_recurring_charge,
+)
+from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
+    UnifiedIdempotencyManager,
 )
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
@@ -611,7 +615,9 @@ class _FakeRecurringPayment(dict):
     idempotency manager read by attribute.
     """
 
-    def __init__(self, payment_id, origin_name, subscription_id, first_payment_id, refunds=()):
+    def __init__(
+        self, payment_id, origin_name, subscription_id, first_payment_id, customer_id, mandate_id, refunds=()
+    ):
         metadata = {"donation_id": origin_name, "payment_id": first_payment_id}
         super().__init__(
             {
@@ -624,8 +630,8 @@ class _FakeRecurringPayment(dict):
                 "method": "directdebit",
                 "metadata": metadata,
                 "sequenceType": "recurring",
-                "customerId": "cst_wire",
-                "mandateId": "mdt_wire",
+                "customerId": customer_id,
+                "mandateId": mandate_id,
                 "subscriptionId": subscription_id,
             }
         )
@@ -638,8 +644,8 @@ class _FakeRecurringPayment(dict):
         self.method = "directdebit"
         self.metadata = metadata
         self.sequence_type = "recurring"
-        self.customer_id = "cst_wire"
-        self.mandate_id = "mdt_wire"
+        self.customer_id = customer_id
+        self.mandate_id = mandate_id
         self.subscription_id = subscription_id
         self.refunds = SimpleNamespace(list=lambda: {"_embedded": {"refunds": list(refunds)}})
         self.chargebacks = SimpleNamespace(list=lambda: [])
@@ -648,6 +654,26 @@ class _FakeRecurringPayment(dict):
 class _FakeClient:
     def __init__(self, payment):
         self.payments = SimpleNamespace(get=lambda pid: payment)
+
+    def set_api_key(self, _key):
+        return None
+
+
+class _UnreachableClient:
+    """Mollie is down: every payments.get raises, as the SDK does on an outage.
+
+    Faked at the SDK boundary rather than by patching
+    ``_fetch_payment_from_mollie``, so the real normaliser is what converts the
+    failure into MolliePaymentError and the real STEP 1 is what has to survive
+    it.
+    """
+
+    def __init__(self, error_message="Mollie is unreachable"):
+        self._error_message = error_message
+        self.payments = SimpleNamespace(get=self._boom)
+
+    def _boom(self, _payment_id):
+        raise RequestError(self._error_message)
 
     def set_api_key(self, _key):
         return None
@@ -702,9 +728,12 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         self.tag = frappe.generate_hash(length=8)
         self.subscription_id = f"sub_wire_{self.tag}"
         self.first_payment_id = f"tr_the_first_one_{self.tag}"
+        self.customer_id = f"cst_wire_{self.tag}"
+        self.mandate_id = f"mdt_wire_{self.tag}"
 
     # --- fixtures -------------------------------------------------------------------
 
+    @shared_fixture
     def _setup_mollie_clearing_account(self):
         name = frappe.get_value(
             "Account", {"company": COMPANY, "account_name": "Mollie Clearing Subact Test"}, "name"
@@ -723,6 +752,7 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         acct.insert(ignore_permissions=True)
         return acct.name
 
+    @shared_fixture
     def _setup_mollie_bank_account(self, gl_account):
         existing = frappe.get_value("Bank Account", {"account": gl_account}, "name")
         if existing:
@@ -742,6 +772,7 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         ba.insert(ignore_permissions=True)
         return ba.name
 
+    @shared_fixture
     def _setup_donation_income_account(self):
         name = frappe.get_value(
             "Account", {"company": COMPANY, "account_name": "Donation Income Subact Test"}, "name"
@@ -798,7 +829,7 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
                 "paid": 1,
                 "payment_id": self.first_payment_id,
                 "mollie_subscription_id": self.subscription_id,
-                "mollie_customer_id": "cst_wire",
+                "mollie_customer_id": self.customer_id,
                 "recurring_frequency": "Monthly",
             }
         ).insert()
@@ -811,12 +842,16 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             origin_name,
             subscription_id or self.subscription_id,
             self.first_payment_id,
+            self.customer_id,
+            self.mandate_id,
             refunds=refunds,
         )
 
     def _deliver(self, payment):
         """Drive the real webhook service with Mollie faked at the HTTP boundary."""
-        client = _FakeClient(payment)
+        return self._deliver_with_client(_FakeClient(payment), payment["id"])
+
+    def _deliver_with_client(self, client, payment_id):
         with patch(
             "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings"
             ".MollieSettings.get_mollie_client",
@@ -830,9 +865,36 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             new_callable=lambda: property(lambda self: client),
         ):
             with self.set_user("Administrator"):
-                return UnifiedWebhookWrapperService().process_payment_webhook(payment["id"], {})
+                return UnifiedWebhookWrapperService().process_payment_webhook(payment_id, {})
 
     # --- tests ------------------------------------------------------------------------
+
+    def test_an_unreachable_mollie_keeps_the_503_degradation(self):
+        """The charge fetch must not pre-empt STEP 1's designed degradation.
+
+        The fetch feeding ensure_donation_for_recurring_charge is UNCONDITIONAL
+        -- its argument is evaluated before the service can decline -- so it
+        runs on every donation / unknown / classification-failed webhook, not
+        only on charges. Letting MolliePaymentError escape it therefore turned
+        the whole webhook's Mollie-outage behaviour from `service_unavailable`
+        + HTTP 503 + Retry-After (webhook_wrapper_service_unified.py's block
+        labelled "CRITICAL FIX") into a bare 500 with a generic message, for
+        every payment. Mollie backs off on a 503; a 500 it just retries.
+
+        This is the sibling invariants module's defect class 5, "unconditional
+        network calls on paths that do not need them", one level above where
+        TestFullyProcessedPathDoesNotFetch guards.
+        """
+        payment_id = f"tr_outage_{self.tag}"
+        result = self._deliver_with_client(_UnreachableClient(), payment_id)
+
+        self.assertEqual(
+            result["status"],
+            "service_unavailable",
+            f"the Mollie outage must reach STEP 1's 503 branch, not the outer handler: {result}",
+        )
+        self.assertEqual(frappe.local.response.http_status_code, 503)
+        self.assertEqual(frappe.local.response["Retry-After"], "60")
 
     def test_a_recurring_charge_books_end_to_end(self):
         origin = self._setup_origin()
@@ -872,7 +934,7 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         )
 
         seen = {}
-        real_check = UnifiedWebhookWrapperService().idempotency_manager.check_payment_processing_state
+        real_check = UnifiedIdempotencyManager().check_payment_processing_state
 
         def _spy(payment_id, **kwargs):
             state = real_check(payment_id, **kwargs)
@@ -880,7 +942,7 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             return state
 
         with patch.object(
-            UnifiedWebhookWrapperService().idempotency_manager.__class__,
+            UnifiedIdempotencyManager,
             "check_payment_processing_state",
             side_effect=lambda payment_id, **kw: _spy(payment_id, **kw),
             autospec=False,
@@ -907,21 +969,50 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             )
         )
         self.assertEqual(result["status"], "error")
-        self.assertIn(orphan_subscription, result["message"])
+        # The EXACT message, not a substring. Deleting the `except
+        # RecurringChargeOriginMissing` clause lets the outer handler produce
+        # "Webhook processing failed: No donation found for Mollie subscription
+        # sub_orphan_...", which satisfies both a status check and a substring
+        # check -- so a looser assertion here would pass through the removal of
+        # the very clause this test exists to pin.
+        self.assertEqual(
+            result["message"],
+            f"No donation found for Mollie subscription {orphan_subscription}",
+        )
 
     def test_a_first_payment_is_untouched_by_the_new_branch(self):
-        """Control. Without it, the tests above pass even if the branch swallowed
-        every payment: a first payment must still take the #346 path."""
+        """Control: the sequence_type guard, and nothing else, must stop this.
+
+        Arranged so that guard is the ONLY thing standing between the payment
+        and a spurious charge donation:
+
+        - the id is NOT any Donation's payment_id, so the service's
+          `_donation_for_charge()` short-circuit cannot return early on its
+          behalf (the earlier version of this test reused the origin's own
+          payment_id and was defeated by exactly that);
+        - `subscriptionId` is left SET, so the `if not subscription_id` guard
+          cannot cover for a deleted `sequence_type` guard either;
+        - `metadata.donation_id` still names the origin, so if the branch did
+          run it would find an origin and successfully book a charge.
+
+        Delete `if read_payment_field(...) != "recurring": return None` from the
+        service and this goes red on both assertions.
+        """
         origin = self._setup_origin()
-        first = self._charge(self.first_payment_id, origin.name)
+        unbooked = f"tr_first_unbooked_{self.tag}"
+        first = self._charge(unbooked, origin.name)
         first["sequenceType"] = "first"
         first.sequence_type = "first"
-        first["subscriptionId"] = None
-        first.subscription_id = None
 
         result = self._deliver(first)
 
-        self.assertNotEqual(result["status"], "error", result.get("message"))
+        # The specific outcome, not merely "not an error": the payment falls
+        # through to the pre-existing donation path, which looks up Donation by
+        # payment_id, finds none, and says so. That message belongs to the #346
+        # path -- the new branch never produces it. `assertNotEqual(status,
+        # "error")` was satisfied by "skipped" too, and so said very little.
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["message"], f"No donation found for payment {unbooked}")
         self.assertFalse(
             frappe.db.exists("Donation", {"recurring_origin_donation": origin.name}),
             "a first payment must not spawn a charge donation",
