@@ -1431,11 +1431,20 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
         if not customer_id:
             return create_error_response("No customer ID found in payment", {"reason": "missing_customer_id"})
 
+        mollie_settings = frappe.get_single("Mollie Settings")
+
         # Create subscription data
         subscription_data = {
             "amount": {"currency": subscription_currency, "value": subscription_amount},
             "interval": subscription_interval,  # Use original format from metadata
             "description": f"Recurring donation {donation_id}" if donation_id else "Recurring donation",
+            # Without this Mollie charges the donor every period and announces it
+            # to nobody -- issue #345. Deliberately get_webhook_url(), the
+            # guest-reachable payment webhook, NOT get_subscription_webhook_url():
+            # that one is the member-dues endpoint, which is not allow_guest,
+            # only accepts a sub_ id where Mollie posts id=tr_..., and gates on a
+            # Member plus an unpaid Sales Invoice a donor need not have (#343).
+            "webhookUrl": mollie_settings.get_webhook_url(),
             "metadata": {
                 "payment_id": payment.id,
                 "donation_id": donation_id,
@@ -1455,7 +1464,6 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
         # send different startDates, and Mollie would 400 the retry instead of
         # replaying it -- turning the guard below into its opposite.
         if subscription_interval in ["3 months", "6 months", "12 months"]:
-            mollie_settings = frappe.get_single("Mollie Settings")
             calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(
                 min_months_ahead=2, anchor=_payment_anchor_date(payment)
             )
@@ -1575,10 +1583,16 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             "amount": format_mollie_amount(donation.amount),
             "interval": interval,
             "description": f"Recurring donation - {donation.donation_purpose_type}",
+            # The guest-reachable payment webhook, for the reasons spelled out in
+            # _activate_direct_subscription_after_first_payment above (#345/#343).
+            "webhookUrl": frappe.get_single("Mollie Settings").get_webhook_url(),
             "metadata": {
                 "donation_id": donation_id,
                 "donor_id": donation.donor,
                 "purpose": donation.donation_purpose_type,
+                # The fingerprint the durable guard below matches on. Unlike an
+                # idempotency key it never expires.
+                "payment_id": payment.id,
             },
         }
 
@@ -1586,9 +1600,22 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         # payment for the same reason as the direct path above: a lost response on a
         # non-idempotent remote create would otherwise double-subscribe the donor.
         customer = gateway.client.customers.get(customer_id)
-        subscription = customer.subscriptions.create(
-            data=subscription_data, idempotency_key=f"donagr-{payment.id}"
-        )
+
+        # Same durable guard as the direct path: Mollie caches idempotency keys
+        # for one hour against a webhook retry ladder that runs twenty-six, so
+        # attempts 8-10 arrive unprotected. metadata.payment_id never expires.
+        # Adding a payload field (webhookUrl, above) widens the window where a
+        # mid-ladder deploy changes the payload, which makes the key less
+        # reliable still.
+        subscription = _find_subscription_for_payment(customer, payment.id)
+        if subscription is not None:
+            frappe.logger().info(
+                f"Mollie already has subscription {subscription.id} for payment {payment.id}; adopting it"
+            )
+        else:
+            subscription = customer.subscriptions.create(
+                data=subscription_data, idempotency_key=f"donagr-{payment.id}"
+            )
 
         # Persist the subscription id on the donation (the doctype that owns the field)
         donation.db_set("mollie_subscription_id", subscription.id)

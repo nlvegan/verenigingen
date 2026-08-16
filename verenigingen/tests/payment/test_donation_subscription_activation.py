@@ -700,3 +700,152 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             "activation failed, so a follow-up sweep can find them",
         )
         self.assertFalse(frappe.db.get_value("Donation", self.donation_name, "mollie_subscription_id"))
+
+
+class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
+    """Without a webhookUrl Mollie charges the donor and tells nobody. Issue #345.
+
+    Measured: every subscription in the Mollie test account created by
+    ``_activate_direct_subscription_after_first_payment`` carries
+    ``webhookUrl: None``.
+
+    The URL must be ``get_webhook_url()`` -- the guest-reachable payment webhook
+    (``mollie/api/webhooks.py::mollie_payment_webhook``) -- and explicitly not
+    ``get_subscription_webhook_url()``: that endpoint is the member-dues machine,
+    unreachable for a donation on three independent counts (#343).
+    """
+
+    # ------------------------------------------------------------------ setup
+    def _setup_donor(self):
+        """EnhancedTestCase's factory has no donor helper; build one inline."""
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = f"Hook Donor {frappe.generate_hash(length=6)}"
+        donor.donor_email = f"hook.{frappe.generate_hash(length=6)}@example.org"
+        donor.donor_type = "Individual"
+        donor.preferred_communication_method = "Email"
+        donor.flags.ignore_validate = True
+        donor.insert(ignore_permissions=True)
+        self.track_test_record("Donor", donor.name)
+        return donor.name
+
+    def _setup_recurring_donation(self):
+        """A Donation configured the way the donation-agreement helper reads it."""
+        donation = frappe.new_doc("Donation")
+        donation.donor = self._setup_donor()
+        donation.donation_date = frappe.utils.nowdate()
+        donation.amount = 50
+        donation.mode_of_payment = "Mollie"
+        donation.status = "Recurring"
+        donation.recurring_frequency = "Monthly"
+        donation.mollie_customer_id = "cst_FAKECUSTOMER"
+        # payment_id is UNIQUE -- never a literal.
+        donation.payment_id = f"tr_{frappe.generate_hash(length=12)}"
+        donation.flags.ignore_validate = True
+        donation.insert(ignore_permissions=True)
+        self.track_test_record("Donation", donation.name)
+        return donation.name
+
+    def _setup_gateway(self, recorder, seen_keys, live):
+        return SimpleNamespace(
+            client=SimpleNamespace(customers=_FakeCustomersResource(recorder, seen_keys, None, live))
+        )
+
+    def _create_direct_subscription(self, recorder, seen_keys, live):
+        """Run _activate_direct_subscription_after_first_payment against the fakes."""
+        from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+        payment = _FakePayment(
+            f"tr_{frappe.generate_hash(length=12)}",
+            "50.00",
+            f"Assoc-Dnt-{frappe.generate_hash(length=6)}",
+            sequence_type="first",
+            subscription_setup=True,
+        )
+        return pg._activate_direct_subscription_after_first_payment(
+            self._setup_gateway(recorder, seen_keys, live), payment
+        )
+
+    # ------------------------------------------------------------------ tests
+    def test_direct_subscription_payload_carries_the_payment_webhook(self):
+        recorder, seen_keys, live = [], {}, {}
+        result = self._create_direct_subscription(recorder, seen_keys, live)
+
+        self.assertEqual(result["status"], "success", result.get("message"))
+        self.assertEqual(len(recorder), 1)
+        self.assertEqual(
+            recorder[0]["data"].get("webhookUrl"),
+            frappe.get_single("Mollie Settings").get_webhook_url(),
+            "Mollie has nowhere to announce this subscription's charges",
+        )
+
+    def test_direct_subscription_payload_does_not_use_the_subscription_webhook(self):
+        # get_subscription_webhook_url() is the member-dues endpoint: not
+        # allow_guest (measured 403), only accepts a sub_ id where Mollie posts
+        # id=tr_..., and gates on a Member plus an unpaid Sales Invoice a donor
+        # need not have (#343). Pointing subscriptions there looks like a fix and
+        # delivers nothing.
+        recorder, seen_keys, live = [], {}, {}
+        self._create_direct_subscription(recorder, seen_keys, live)
+
+        settings = frappe.get_single("Mollie Settings")
+        self.assertEqual(len(recorder), 1)
+        self.assertNotEqual(recorder[0]["data"].get("webhookUrl"), settings.get_subscription_webhook_url())
+
+    def test_donation_agreement_subscription_payload_carries_it_too(self):
+        from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+        donation_name = self._setup_recurring_donation()
+        recorder, seen_keys, live = [], {}, {}
+        payment = _FakePayment(
+            f"tr_{frappe.generate_hash(length=12)}",
+            "50.00",
+            donation_name,
+            sequence_type="first",
+            subscription_setup=True,
+        )
+
+        result = pg._activate_donation_subscription_after_first_payment(
+            self._setup_gateway(recorder, seen_keys, live), payment
+        )
+
+        self.assertEqual(result["status"], "success", result.get("message"))
+        self.assertEqual(len(recorder), 1)
+        self.assertEqual(
+            recorder[0]["data"].get("webhookUrl"),
+            frappe.get_single("Mollie Settings").get_webhook_url(),
+        )
+
+    def test_donation_agreement_helper_adopts_an_existing_subscription(self):
+        """The durable guard, tested across idempotency-key expiry.
+
+        Mollie caches keys for one hour against a retry ladder that runs
+        twenty-six, so attempts 8-10 arrive unprotected. Clearing seen_keys while
+        `live` survives is exactly that: a fake whose key cache never expires
+        would report this guard as working when it is not.
+        """
+        from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+        donation_name = self._setup_recurring_donation()
+        recorder, seen_keys, live = [], {}, {}
+        payment = _FakePayment(
+            f"tr_{frappe.generate_hash(length=12)}",
+            "50.00",
+            donation_name,
+            sequence_type="first",
+            subscription_setup=True,
+        )
+
+        def _deliver():
+            return pg._activate_donation_subscription_after_first_payment(
+                self._setup_gateway(recorder, seen_keys, live), payment
+            )
+
+        first = _deliver()
+        self.assertEqual(first["status"], "success", first.get("message"))
+        seen_keys.clear()  # the key cache expires; the subscription does not
+        self.assertTrue(live, "the subscription must still exist at Mollie")
+        second = _deliver()
+        self.assertEqual(second["status"], "success", second.get("message"))
+
+        self.assertEqual(first["subscription_id"], second["subscription_id"])
+        self.assertEqual(len(recorder), 1, "a late retry created a second subscription")
