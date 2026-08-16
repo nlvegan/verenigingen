@@ -44,6 +44,15 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
         frappe.conf["developer_mode"] = 1
         # Ensure fee adjustment is enabled with predictable limits so the
         # can_member_adjust_fee / submit paths behave deterministically.
+        # NOTE: only max_fee_adjustments_per_year and maximum_fee_multiplier are real
+        # fields on Verenigingen Settings. enable_member_fee_adjustment and
+        # adjustment_reason_required do NOT exist on the doctype (see issue for the
+        # phantom fee-adjustment settings) -- assigning them here sets a throwaway
+        # Python attribute that save() discards, and get_fee_adjustment_settings()
+        # resolves them via getattr() defaults instead. These two lines are kept
+        # because those defaults (1 and 1) are what this suite wants, but they are
+        # documentation, not configuration. Do not add a *read* of either field: that
+        # raises AttributeError.
         settings = frappe.get_single("Verenigingen Settings")
         settings.enable_member_fee_adjustment = 1
         settings.max_fee_adjustments_per_year = 2
