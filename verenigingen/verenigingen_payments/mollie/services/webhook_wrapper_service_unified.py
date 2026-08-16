@@ -722,6 +722,23 @@ class UnifiedWebhookWrapperService:
                     "payment_id": payment_id,
                 }
 
+            # A partial result is TRUTHY: the Bank Transaction landed and the
+            # Journal Entry did not. Letting it through returns 200, Mollie never
+            # re-delivers, and the donor is debited against half a booking.
+            # Reported as an error so the delivery is retried -- both creators are
+            # idempotent per payment id, so a retry completes the missing half
+            # rather than duplicating the finished one.
+            if financial_result.get("partial_success"):
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Payment {payment_id} recorded a Bank Transaction "
+                        f"({financial_result.get('bank_transaction_name')}) but no Journal Entry"
+                    ),
+                    "payment_id": payment_id,
+                    "bank_transaction": financial_result.get("bank_transaction_name"),
+                }
+
             journal_entry_name = financial_result.get("journal_entry_name")
             bank_transaction_name = financial_result.get("bank_transaction_name")
 
@@ -856,6 +873,13 @@ class UnifiedWebhookWrapperService:
             # Process missing components based on unified state
             results = []
             journal_entry_name = None
+            # A Bank Transaction with no Journal Entry is half a booking, not a
+            # completed component -- the same defect as in
+            # _handle_new_payment_processing. Tracked separately from `results`
+            # because "Journal Entry creation failed (partial)" being a non-empty
+            # string does not make `results` falsy, so it could not fail the
+            # overall status on its own.
+            financial_entries_incomplete = False
 
             if "financial_entries" in missing_components:
                 # Create Bank Transaction + Journal Entry using new architecture
@@ -869,8 +893,10 @@ class UnifiedWebhookWrapperService:
                         journal_entry_name = financial_result.get("journal_entry_name")
                     else:
                         results.append("Journal Entry creation failed (partial)")
+                        financial_entries_incomplete = True
                 else:
                     results.append("Financial entries creation failed")
+                    financial_entries_incomplete = True
 
             # NOTE: subscription activation is deliberately NOT called here.
             # This branch is currently unreachable -- needs_payment_processing()
@@ -918,7 +944,7 @@ class UnifiedWebhookWrapperService:
                     results.append(f"Backfilled {refund_history_count} refund payment history entries")
 
             result = {
-                "status": "success" if results else "error",
+                "status": "success" if results and not financial_entries_incomplete else "error",
                 "message": f"Partial processing completed: {', '.join(results)}",
                 "payment_id": payment_id,
                 "components_processed": results,

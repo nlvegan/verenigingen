@@ -1017,3 +1017,72 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             frappe.db.exists("Donation", {"recurring_origin_donation": origin.name}),
             "a first payment must not spawn a charge donation",
         )
+
+    # --- a half-booking must not report success --------------------------------------
+
+    def test_a_journal_entry_failure_is_not_reported_as_success(self):
+        """A Bank Transaction with no Journal Entry is half a booking.
+
+        _create_donation_financial_entries returns a TRUTHY dict for it, so the
+        `if not financial_result` guard lets it through. Mollie would get a 200
+        and never re-deliver, leaving the donor debited against half an entry.
+        """
+        origin = self._setup_origin()
+        partial = {
+            "bank_transaction_name": "BT-partial",
+            "journal_entry_name": None,
+            "partial_success": True,
+        }
+        with patch.object(
+            UnifiedWebhookWrapperService, "_create_donation_financial_entries", return_value=partial
+        ):
+            result = self._deliver(self._charge(f"tr_wire_4_{self.tag}", origin.name))
+
+        self.assertEqual(result["status"], "error", "a missing Journal Entry must fail the webhook")
+        self.assertIn("journal", result["message"].lower())
+
+    def test_a_complete_booking_is_still_reported_as_success(self):
+        """Control. Without it the assertion above passes even if every webhook
+        started returning an error."""
+        origin = self._setup_origin()
+        result = self._deliver(self._charge(f"tr_wire_5_{self.tag}", origin.name))
+        self.assertEqual(result["status"], "success", result.get("message"))
+
+    def test_redelivery_after_a_journal_entry_failure_completes_the_booking(self):
+        """The other half of the guarantee: the error must be recoverable.
+
+        Failing the first delivery is only correct if the retry finishes the job.
+        The charge donation already exists by then, so this exercises the path
+        that must resume rather than create -- and asserts on the Journal Entry,
+        not on the status, because 'no second donation' and 'the ledger is whole'
+        are different claims.
+        """
+        origin = self._setup_origin()
+        payment_id = f"tr_wire_6_{self.tag}"
+        payment = self._charge(payment_id, origin.name)
+        partial = {
+            "bank_transaction_name": "BT-partial",
+            "journal_entry_name": None,
+            "partial_success": True,
+        }
+
+        with patch.object(
+            UnifiedWebhookWrapperService, "_create_donation_financial_entries", return_value=partial
+        ):
+            self._deliver(payment)
+
+        charge_name = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
+        self.assertTrue(charge_name)
+        self.assertFalse(frappe.db.get_value("Donation", charge_name, "journal_entry"))
+
+        self._deliver(payment)  # Mollie re-delivers; nothing is faked this time
+
+        self.assertEqual(
+            frappe.db.count("Donation", {"payment_id": payment_id}),
+            1,
+            "the retry created a second donation",
+        )
+        self.assertTrue(
+            frappe.db.get_value("Donation", charge_name, "journal_entry"),
+            "the retry did not complete the Journal Entry",
+        )
