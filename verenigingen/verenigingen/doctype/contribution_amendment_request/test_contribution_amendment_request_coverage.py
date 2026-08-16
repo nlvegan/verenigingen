@@ -194,20 +194,35 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
 
     # ------------------------------------------------------------------ validate_amount_changes (Fee Change)
 
+    # The amount guards in validate_amount_changes all raise the SAME exception
+    # type, and the minimum-fee guard catches almost anything the others would.
+    # A message-blind assertRaises therefore passes on the wrong guard: removing
+    # the ">0" check left both zero-amount tests GREEN, because 0 is also below
+    # the minimum fee. Assert the message so each test can only pass on its own
+    # guard.
+
     def test_zero_requested_amount_throws(self):
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as cm:
             self._make(requested_amount=0).insert()
+        self.assertIn("must be greater than 0", str(cm.exception))
 
     def test_negative_requested_amount_throws(self):
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as cm:
             self._make(requested_amount=-10).insert()
+        self.assertIn("must be greater than 0", str(cm.exception))
 
     def test_same_as_current_amount_throws(self):
         # validate_amount_changes runs before set_current_details on creation, so
         # the "same as current" guard only fires when current_amount is already
         # populated. Provide it explicitly to exercise that branch.
-        with self.assertRaises(frappe.ValidationError):
-            self._make(requested_amount=20.0, current_amount=20.0).insert()
+        #
+        # The amount must also clear the minimum fee: at 20.0 (below the 30.0
+        # minimum for this fixture) the minimum-fee guard fired instead, and the
+        # test passed even with the same-amount guard removed.
+        same = self._minimum_fee() + 25.0
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._make(requested_amount=same, current_amount=same).insert()
+        self.assertIn("same as current amount", str(cm.exception))
 
     def test_below_minimum_fee_throws(self):
         """A fee below max(30% of base, EUR5) is rejected. Request just under the
