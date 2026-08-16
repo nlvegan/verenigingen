@@ -44,10 +44,15 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
         frappe.conf["developer_mode"] = 1
         # Ensure fee adjustment is enabled with predictable limits so the
         # can_member_adjust_fee / submit paths behave deterministically.
+        # enable_member_fee_adjustment / max_fee_adjustments_per_year /
+        # maximum_fee_multiplier are real Verenigingen Settings fields, so these
+        # assignments persist. adjustment_reason_required is NOT a field and is not
+        # assigned here: it is the module constant
+        # membership_adjustment.ADJUSTMENT_REASON_REQUIRED (issue #356). Assigning a
+        # nonexistent field would be a silent no-op that save() discards.
         settings = frappe.get_single("Verenigingen Settings")
         settings.enable_member_fee_adjustment = 1
         settings.max_fee_adjustments_per_year = 2
-        settings.adjustment_reason_required = 1
         settings.maximum_fee_multiplier = 10
         settings.save(ignore_permissions=True)
         frappe.db.commit()
@@ -69,6 +74,11 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
                     "email": email,
                     "first_name": first_name,
                     "last_name": last_name,
+                    # User.username is UNIQUE and Frappe derives it from first_name,
+                    # so every user here would claim "adj" and the second insert in a
+                    # run dies on "Duplicate entry 'adj' for key 'username'". Pin it
+                    # to the already-unique local part of the email instead.
+                    "username": email.split("@")[0],
                     "send_welcome_email": 0,
                     "roles": [{"role": "Verenigingen Member"}],
                 }
@@ -340,16 +350,24 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
             frappe.set_user(original_user)
 
     def test_submit_fee_adjustment_reason_required_throws(self):
-        """adjustment_reason_required=1 + blank reason is rejected."""
+        """ADJUSTMENT_REASON_REQUIRED + a blank reason is rejected.
+
+        The amount must clear the minimum-fee check, which runs earlier in
+        submit_fee_adjustment_request: the previous version of this test passed
+        25.0 against a fixture whose minimum resolves to 30, so it was really
+        asserting the minimum-fee throw and would have stayed green with the
+        reason check deleted. Assert on the message so the throw is attributable.
+        """
         member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
         original_user = frappe.session.user
         try:
             frappe.set_user(email)
-            with self.assertRaises(frappe.ValidationError):
-                # Valid different amount, but empty reason.
-                membership_adjustment.submit_fee_adjustment_request(new_amount=25.0, reason="   ")
+            with self.assertRaises(frappe.ValidationError) as raised:
+                # Valid different amount, comfortably above the minimum, but empty reason.
+                membership_adjustment.submit_fee_adjustment_request(new_amount=75.0, reason="   ")
         finally:
             frappe.set_user(original_user)
+        self.assertIn("reason", str(raised.exception).lower())
 
     def test_submit_fee_adjustment_past_effective_date_throws(self):
         """An effective_date in the past is rejected."""
@@ -365,6 +383,108 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
                 )
         finally:
             frappe.set_user(original_user)
+
+    # ---- enable_member_fee_adjustment kill switch -----------------------
+
+    def _ensure_fee_adjustment_setting(self, value):
+        """Persist enable_member_fee_adjustment, restoring the old value after.
+
+        Restores via addCleanup rather than tearDown: cleanups run after the
+        base-class teardown drain, which has been observed to discard restores
+        made in tearDown.
+        """
+        previous = frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment")
+
+        def _restore_setting():
+            settings = frappe.get_single("Verenigingen Settings")
+            settings.enable_member_fee_adjustment = previous
+            settings.save(ignore_permissions=True)
+            frappe.db.commit()
+
+        self.addCleanup(_restore_setting)
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.enable_member_fee_adjustment = value
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_disabling_member_fee_adjustment_blocks_the_portal_endpoint(self):
+        """The kill switch: enable_member_fee_adjustment=0 stops a member
+        submitting a fee change through the real portal endpoint.
+
+        This is the property that did not hold while the setting was a phantom
+        field: assigning it was a silent no-op that save() discarded, so
+        get_fee_adjustment_settings() always fell back to the getattr default 1
+        and can_member_adjust_fee() could never refuse.
+
+        Control: test_disabling_is_what_blocks_it_not_the_fixture below runs the
+        identical call with the flag at 1 and gets an amendment.
+        """
+        member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
+        self._ensure_fee_adjustment_setting(0)
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            with self.assertRaises(frappe.ValidationError) as raised:
+                membership_adjustment.submit_fee_adjustment_request(
+                    new_amount=75.0, reason="should never be accepted"
+                )
+        finally:
+            frappe.set_user(original_user)
+        self.assertIn("not enabled", str(raised.exception))
+
+        # No amendment may have been created by the refused call.
+        self.assertEqual(
+            frappe.db.count(
+                "Contribution Amendment Request",
+                filters={"member": member.name, "amendment_type": "Fee Change"},
+            ),
+            0,
+        )
+
+        # Guard against the silent-no-op trap that hid this bug: prove the 0
+        # actually reached the database rather than a throwaway Python attribute.
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment"), 0
+        )
+
+    def test_disabling_is_what_blocks_it_not_the_fixture(self):
+        """CONTROL for the test above: with the flag explicitly at 1 the very same
+        call succeeds, so the refusal is attributable to the setting alone."""
+        member, email, _mt, _membership = self._member_with_active_membership(minimum_amount=10.0)
+        self._ensure_fee_adjustment_setting(1)
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            result = membership_adjustment.submit_fee_adjustment_request(
+                new_amount=75.0, reason="accepted while the switch is on"
+            )
+        finally:
+            frappe.set_user(original_user)
+        self.assertTrue(result.get("success"), msg=result)
+        self.assertIn("amendment_id", result)
+
+    def test_enable_member_fee_adjustment_is_a_real_persisted_field(self):
+        """Regression guard for the phantom-field class itself.
+
+        A nonexistent field assigns silently and save() drops it, so a plain
+        round-trip through the database is what distinguishes a real field from
+        a throwaway attribute.
+        """
+        meta = frappe.get_meta("Verenigingen Settings")
+        field = meta.get_field("enable_member_fee_adjustment")
+        self.assertIsNotNone(field, "enable_member_fee_adjustment is not on Verenigingen Settings")
+        self.assertEqual(field.fieldtype, "Check")
+
+        self._ensure_fee_adjustment_setting(0)
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment"), 0
+        )
+        self._ensure_fee_adjustment_setting(1)
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "enable_member_fee_adjustment"), 1
+        )
 
     # ---- submit_membership_type_change_request --------------------------
 
