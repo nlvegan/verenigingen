@@ -74,6 +74,11 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
                     "email": email,
                     "first_name": first_name,
                     "last_name": last_name,
+                    # User.username is UNIQUE and Frappe derives it from first_name,
+                    # so every user here would claim "adj" and the second insert in a
+                    # run dies on "Duplicate entry 'adj' for key 'username'". Pin it
+                    # to the already-unique local part of the email instead.
+                    "username": email.split("@")[0],
                     "send_welcome_email": 0,
                     "roles": [{"role": "Verenigingen Member"}],
                 }
