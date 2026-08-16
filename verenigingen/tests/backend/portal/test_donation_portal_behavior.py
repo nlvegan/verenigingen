@@ -167,23 +167,32 @@ class TestDonationPortalBehavior(EnhancedTestCase):
 
     def test_is_recurring_donation_active(self):
         """A Recurring-status, non-Mollie donation is reported active."""
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
+            get_recurring_donation_state,
+        )
 
-        self.assertTrue(is_recurring_donation_active(self.test_donation.name))
+        self.assertEqual(
+            get_recurring_donation_state(self.test_donation.name), RECURRING_STATE_ACTIVE
+        )
 
     def test_cancel_own_donation_happy_path(self):
         """A member cancels their own recurring donation via the portal.
 
         Cancellation is recorded via recurring_cancelled_date (the Donation status
         enum has no "Cancelled" value); status stays "Recurring" and
-        is_recurring_donation_active() then reports the donation inactive.
+        get_recurring_donation_state() then reports the donation inactive.
         """
         from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
+            RECURRING_STATE_INACTIVE,
             cancel_recurring_donation,
-            is_recurring_donation_active,
+            get_recurring_donation_state,
         )
 
-        self.assertTrue(is_recurring_donation_active(self.test_donation.name))
+        self.assertEqual(
+            get_recurring_donation_state(self.test_donation.name), RECURRING_STATE_ACTIVE
+        )
 
         current_user = frappe.session.user
         try:
@@ -199,7 +208,9 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         self.assertEqual(self.test_donation.recurring_cancelled_date, getdate(today()))
         # Status is unchanged (no invalid value) but the donation is now inactive.
         self.assertEqual(self.test_donation.status, "Recurring")
-        self.assertFalse(is_recurring_donation_active(self.test_donation.name))
+        self.assertEqual(
+            get_recurring_donation_state(self.test_donation.name), RECURRING_STATE_INACTIVE
+        )
 
     def test_cancel_rejects_foreign_donation(self):
         """The portal must refuse to cancel a donation owned by another donor."""
