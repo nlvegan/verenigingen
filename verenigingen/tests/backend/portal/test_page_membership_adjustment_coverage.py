@@ -11,7 +11,8 @@ and test_membership_type_change_integration) does NOT exercise:
   - get_member_fee_history: returns a combined list (dues schedules + amendment
     requests), capped at 10, newest first.
   - get_minimum_fee: quarterly branch + student-status branch.
-  - can_member_adjust_fee: happy (enabled, under limit) + max-reached branch.
+  - can_member_adjust_fee: happy (enabled, under limit), max-reached branch, and
+    the 365-day rolling window's exclusion side (stale requests do not count).
   - submit_fee_adjustment_request: HAPPY PATH (creates an amendment), same-amount
     no_change short-circuit, above-maximum throw, reason-required throw,
     effective-date-in-the-past throw.
@@ -26,7 +27,7 @@ get_fee_calculation_info, _calculate_type_change_effective_date.
 """
 
 import frappe
-from frappe.utils import add_days, now_datetime, today
+from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.templates.pages import membership_adjustment
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -223,6 +224,62 @@ class TestMembershipAdjustmentCoverage(EnhancedTestCase):
         ok, msg = membership_adjustment.can_member_adjust_fee(member_doc, settings)
         self.assertFalse(ok)
         self.assertIn("maximum", msg.lower())
+
+    def test_fee_adjustments_older_than_365_days_do_not_count(self):
+        """ROLLING WINDOW, exclusion side: member-requested Fee Changes created
+        more than 365 days ago must NOT count toward the per-year cap.
+
+        Both layers filter on `creation >= today - 365`: can_member_adjust_fee
+        here, and ContributionAmendmentRequest.validate_adjustment_frequency in
+        the doctype. Dropping either filter turns the cap into a lifetime limit
+        and permanently locks members out of self-service.
+
+        Control: test_can_member_adjust_fee_max_reached seeds the SAME two
+        requests without backdating and asserts they DO block, so a pass here is
+        only possible because of the age filter.
+        """
+        member, email, _mt, membership = self._member_with_active_membership(minimum_amount=10.0)
+        # Seed exactly the cap (max_fee_adjustments_per_year=2, set in setUp).
+        stale_creation = add_days(now_datetime(), -400)
+        for i in range(2):
+            req = self._make_amendment_request(
+                member=member.name,
+                membership=membership.name,
+                amendment_type="Fee Change",
+                current_amount=50.0,
+                requested_amount=50.0 + (i + 1),
+                reason=f"stale bump {i}",
+                status="Applied",
+                requested_by_member=1,
+                effective_date=today(),
+            )
+            frappe.db.set_value(
+                "Contribution Amendment Request",
+                req.name,
+                "creation",
+                stale_creation,
+                update_modified=False,
+            )
+            # The backdate is the whole premise; a silent no-op would make this
+            # test fail for the wrong reason.
+            self.assertLess(
+                getdate(frappe.db.get_value("Contribution Amendment Request", req.name, "creation")),
+                getdate(add_days(today(), -365)),
+            )
+        frappe.db.commit()
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(email)
+            result = membership_adjustment.submit_fee_adjustment_request(
+                new_amount=75.0, reason="third adjustment; the earlier two are out of the window"
+            )
+        finally:
+            frappe.set_user(original_user)
+        self.assertTrue(result.get("success"), msg=result)
+        car = frappe.get_doc("Contribution Amendment Request", result["amendment_id"])
+        self.assertEqual(car.member, member.name)
+        self.assertEqual(car.status, "Pending Approval")
 
     # ---- get_member_fee_history -----------------------------------------
 
