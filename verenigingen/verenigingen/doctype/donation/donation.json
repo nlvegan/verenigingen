@@ -248,7 +248,7 @@
    "fieldtype": "Date",
    "label": "Recurring Cancelled Date",
    "depends_on": "eval:doc.status=='Recurring'",
-   "description": "Date the recurring donation was cancelled by the donor. Tracked separately from status (which has no Cancelled value); is_recurring_donation_active() treats a recurring donation as inactive once this date is reached.",
+   "description": "Date the recurring donation was cancelled by the donor. Tracked separately from status (which has no Cancelled value); get_recurring_donation_state() reports the donation active while this date is still in the future and inactive once it is reached.",
    "read_only": 1
   },
   {

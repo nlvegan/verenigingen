@@ -22,6 +22,14 @@ from verenigingen.utils.security.api_security_framework import (
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
+# Tri-state result of get_recurring_donation_state(). UNKNOWN means the state could
+# NOT be established -- typically because Mollie was unreachable -- and is
+# deliberately not the same answer as INACTIVE: collapsing the two hides a healthy
+# recurring donation from the donor's portal, where it reads as "already cancelled".
+RECURRING_STATE_ACTIVE = "active"
+RECURRING_STATE_INACTIVE = "inactive"
+RECURRING_STATE_UNKNOWN = "unknown"
+
 
 def get_context(context):
     """Get context for manage donations page"""
@@ -70,8 +78,9 @@ def get_donation_summary(member_name):
                 total_donated += flt(donation.amount)
 
             if donation.status == "Recurring":
-                # Check if this recurring donation is still active
-                if is_recurring_donation_active(donation.name):
+                # Count everything not CONFIRMED inactive, so this counter agrees
+                # with the list get_recurring_donations() renders next to it.
+                if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE:
                     active_recurring += 1
 
         return {
@@ -114,17 +123,23 @@ def get_recurring_donations(member_name):
             order_by="donation_date desc",
         )
 
-        # Enrich with subscription status for Mollie donations
+        # Enrich with subscription status for Mollie donations. This runs as its own
+        # pass: it used to share the filtering loop below, so a donation the filter
+        # skipped lost its Mollie fields too and rendered as "Unknown" with no
+        # update/cancel buttons.
         for donation in recurring_donations:
             if donation.mollie_subscription_id:
                 subscription_info = get_mollie_subscription_info(donation.mollie_subscription_id)
                 donation.update(subscription_info)
 
-            # Only return active recurring donations
-            if not is_recurring_donation_active(donation.name):
-                recurring_donations.remove(donation)
-
-        return recurring_donations
+        # Drop only donations CONFIRMED inactive, into a NEW list: removing from the
+        # list being iterated makes the iterator skip the next element, which then
+        # escaped both the enrichment above and this filter entirely.
+        return [
+            donation
+            for donation in recurring_donations
+            if get_recurring_donation_state(donation.name) != RECURRING_STATE_INACTIVE
+        ]
 
     except Exception as e:
         frappe.log_error(f"Error getting recurring donations: {str(e)}", "Manage Donations")
@@ -159,26 +174,52 @@ def get_recent_donations(member_name, limit=10):
         return []
 
 
-def is_recurring_donation_active(donation_name):
-    """Check if a recurring donation is still active"""
+def get_recurring_donation_state(donation_name):
+    """Determine whether a recurring donation is still active.
+
+    Returns one of RECURRING_STATE_ACTIVE / RECURRING_STATE_INACTIVE /
+    RECURRING_STATE_UNKNOWN. UNKNOWN means the answer depended on Mollie and Mollie
+    could not supply it; callers must treat it as "not confirmed inactive" and keep
+    showing the donation, never as a cancellation.
+    """
     try:
         donation = frappe.get_doc("Donation", donation_name)
 
-        # If it has a Mollie subscription, check subscription status
+        # If it has a Mollie subscription, Mollie is the authority on its status.
         if donation.mollie_subscription_id:
-            subscription_info = get_mollie_subscription_info(donation.mollie_subscription_id)
-            return subscription_info.get("subscription_status") == "active"
+            status = get_mollie_subscription_info(donation.mollie_subscription_id).get("subscription_status")
+            if status == "active":
+                return RECURRING_STATE_ACTIVE
+            if not status or status == "unknown":
+                # get_mollie_subscription_info() reports "unknown" when the API call
+                # failed and no local fallback was available -- an outage, not a
+                # cancellation.
+                return RECURRING_STATE_UNKNOWN
+            return RECURRING_STATE_INACTIVE
 
         # For non-Mollie recurring donations, check if there are recent payments
         # and no explicit cancellation date
         if hasattr(donation, "recurring_cancelled_date") and donation.recurring_cancelled_date:
-            return DateRangeValidator.is_date_in_future(donation.recurring_cancelled_date)
+            if DateRangeValidator.is_date_in_future(donation.recurring_cancelled_date):
+                return RECURRING_STATE_ACTIVE
+            return RECURRING_STATE_INACTIVE
 
         # Default to active if it's a recurring donation without cancellation info
-        return donation.status == "Recurring"
+        return RECURRING_STATE_ACTIVE if donation.status == "Recurring" else RECURRING_STATE_INACTIVE
 
-    except Exception:
-        return False
+    except frappe.DoesNotExistError:
+        # A donation that does not exist is definitively not an active one.
+        return RECURRING_STATE_INACTIVE
+
+    except Exception as e:
+        # Any other failure is an inconclusive answer, not a cancellation. Returning
+        # "inactive" here is what made a transient Mollie failure read to the donor
+        # as "already cancelled", with nothing logged to explain it afterwards.
+        frappe.log_error(
+            f"Could not determine state of recurring donation {donation_name}: {str(e)}",
+            "Manage Donations",
+        )
+        return RECURRING_STATE_UNKNOWN
 
 
 def get_mollie_subscription_info(subscription_id):
@@ -282,8 +323,10 @@ def cancel_recurring_donation():
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
 
-        # Verify it's currently active
-        if not is_recurring_donation_active(donation_id):
+        # Refuse only when the donation is CONFIRMED inactive. If its state could not
+        # be determined (Mollie unreachable) let the cancellation proceed: the Mollie
+        # call below then fails with its own real error instead of this misleading one.
+        if get_recurring_donation_state(donation_id) == RECURRING_STATE_INACTIVE:
             frappe.throw(_("This recurring donation is already cancelled or inactive"))
 
         # Handle Mollie subscription cancellation
@@ -313,7 +356,7 @@ def cancel_recurring_donation():
 
         # Mark the recurring donation cancelled. The Donation status enum has no
         # "Cancelled" value; cancellation is tracked via recurring_cancelled_date,
-        # which is_recurring_donation_active() honours. Status stays "Recurring".
+        # which get_recurring_donation_state() honours. Status stays "Recurring".
         # Use db_set (not save) to write ONLY this field: ownership is already
         # verified, db_set bypasses the Donation write DocPerm a plain member lacks,
         # and it avoids persisting the whole in-memory document.
@@ -372,8 +415,9 @@ def update_recurring_donation():
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
 
-        # Verify it's currently active
-        if not is_recurring_donation_active(donation_id):
+        # Refuse only when the donation is CONFIRMED inactive; an undeterminable
+        # state must not masquerade as a cancellation (see cancel_recurring_donation).
+        if get_recurring_donation_state(donation_id) == RECURRING_STATE_INACTIVE:
             frappe.throw(_("This recurring donation is not active"))
 
         old_amount = flt(donation.amount)

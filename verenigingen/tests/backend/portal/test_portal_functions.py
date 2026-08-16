@@ -12,7 +12,7 @@ behavior:
   member from the session user, so the caller must be the donation's
   owner (matched via donor_email == member.email).
 - Cancellation is tracked via the recurring_cancelled_date field, not a
-  status change; is_recurring_donation_active() honours it.
+  status change; get_recurring_donation_state() honours it.
 """
 
 import frappe
@@ -85,13 +85,14 @@ class TestPortalFunctions(EnhancedTestCase):
     def test_cancel_recurring_donation_function(self):
         """cancel_recurring_donation records a cancellation date for the owner."""
         from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
             cancel_recurring_donation,
-            is_recurring_donation_active,
+            get_recurring_donation_state,
         )
 
         donation = self.create_test_recurring_donation()
         self.assertEqual(donation.status, "Recurring")
-        self.assertTrue(is_recurring_donation_active(donation.name))
+        self.assertEqual(get_recurring_donation_state(donation.name), RECURRING_STATE_ACTIVE)
 
         with self.as_user(self.portal_user):
             frappe.form_dict = frappe._dict({"donation_id": donation.name})
