@@ -349,11 +349,12 @@ class DonationDonorService(StatelessService):
         # it raises an OperationalError (1054 Unknown column). Paid-ness is
         # recorded on the boolean ``paid`` field instead, so we select and
         # filter on that.
-        # WHY no docstatus filter: Donation is not submittable, so every row stays
-        # at docstatus 0 and a ``docstatus = 1`` filter returned nothing (#350).
+        # WHY ``docstatus < 2`` and not ``= 1``: Donation is not submittable, so
+        # every row stays at docstatus 0 and ``= 1`` returned nothing (#350).
+        # Cancelled rows still have to be excluded from the donor's totals.
         donations = frappe.get_all(
             "Donation",
-            filters={"donor": donor_name},
+            filters={"donor": donor_name, "docstatus": ["<", 2]},
             fields=["name", "amount", "donation_date", "paid", "donation_purpose_type"],
         )
 

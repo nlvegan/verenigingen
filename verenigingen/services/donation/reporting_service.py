@@ -23,12 +23,17 @@ Migration Status: ✅ COMPLETE (2025-11-24)
 - Type-safe error handling with metadata
 - All high_security_api decorations preserved
 
-NO DOCSTATUS FILTERS
-====================
-Donation is not submittable (its DocType JSON has no ``is_submittable``), so every
-row stays at docstatus 0 for its whole life. Every query below used to carry a
-``docstatus = 1`` predicate, which meant they all returned nothing on every
-deployment. See issue #350 — do not reintroduce those predicates.
+DOCSTATUS PREDICATES: ``< 2``, NEVER ``= 1``
+============================================
+Donation is not submittable (its DocType JSON has no ``is_submittable``), so a
+donation created by any normal path stays at docstatus 0 for its whole life.
+Every query below used to carry a ``docstatus = 1`` predicate, which meant they
+all returned nothing on every deployment (issue #350).
+
+The fix is ``docstatus < 2``, not removal. Nothing guards ``Document._submit()``
+or ``._cancel()`` on a non-submittable doctype, so both docstatus 1 and
+docstatus 2 rows do exist in the wild; cancelled donations must stay out of
+these totals.
 
 See: docs/patterns/OPERATION_RESULT_PATTERN.md
 """
@@ -75,6 +80,7 @@ class DonationReportingService(StatelessService):
             filters={
                 "anbi_agreement_number": ["is", "set"],
                 "donation_date": ["between", [from_date, to_date]],
+                "docstatus": ["<", 2],
             },
             # NOTE: the Donation DocType has no ``donation_type`` column —
             # selecting it raised an OperationalError (1054 Unknown column),
@@ -117,7 +123,11 @@ class DonationReportingService(StatelessService):
         if not DocumentExistenceValidator.check_document_exists("Chapter", chapter):
             frappe.throw(_("Chapter {0} does not exist").format(chapter))
 
-        filters = {"chapter_reference": chapter, "donation_purpose_type": "Chapter"}
+        filters = {
+            "chapter_reference": chapter,
+            "donation_purpose_type": "Chapter",
+            "docstatus": ["<", 2],
+        }
 
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
@@ -160,7 +170,11 @@ class DonationReportingService(StatelessService):
         Returns:
             Dictionary with donations list and summary totals
         """
-        filters = {"campaign": campaign, "donation_purpose_type": "Campaign"}
+        filters = {
+            "campaign": campaign,
+            "donation_purpose_type": "Campaign",
+            "docstatus": ["<", 2],
+        }
 
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
@@ -202,7 +216,7 @@ class DonationReportingService(StatelessService):
         Returns:
             Dictionary with summary data by purpose type
         """
-        filters = {}
+        filters = {"docstatus": ["<", 2]}
 
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
@@ -270,7 +284,7 @@ class DonationReportingService(StatelessService):
         Returns:
             Dictionary with accounting summary and GL entries
         """
-        filters = {"paid": 1}
+        filters = {"paid": 1, "docstatus": ["<", 2]}
 
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
@@ -331,14 +345,11 @@ class DonationReportingService(StatelessService):
         Returns:
             Dictionary with detailed donation allocation report
         """
-        filters = {}
-
-        if chapter:
-            filters["chapter_reference"] = chapter
-            filters["donation_purpose_type"] = "Chapter"
-
-        if from_date and to_date:
-            filters["donation_date"] = ["between", [from_date, to_date]]
+        # NOTE: this method used to build an ORM ``filters`` dict here and then
+        # never use it — the query below is raw SQL. Mutation testing for #350
+        # found it: both mutants of its docstatus predicate survived, because
+        # nothing reads the dict. Removed rather than left to rot as a second,
+        # silently-diverging copy of the WHERE clause.
 
         # Use SQL to join donor data efficiently (avoids N+1 query)
         donations = frappe.db.sql(
@@ -357,7 +368,7 @@ class DonationReportingService(StatelessService):
                 don.donor_email
             FROM `tabDonation` d
             LEFT JOIN `tabDonor` don ON d.donor = don.name
-            WHERE 1 = 1
+            WHERE d.docstatus < 2
                 {chapter_filter}
                 {date_filter}
             ORDER BY d.donation_date DESC

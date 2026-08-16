@@ -7,13 +7,16 @@ service-oriented architecture.
 
 All methods are read-only queries — no transaction management needed.
 
-NO DOCSTATUS FILTERS
-====================
+DOCSTATUS PREDICATES: ``< 2``, NEVER ``= 1``
+============================================
 Neither Donation nor Periodic Donation Agreement is submittable (neither DocType
-JSON carries ``is_submittable``), so every row of both stays at docstatus 0.
-Every query below used to carry a ``docstatus = 1`` predicate, so the entire
-dashboard rendered zeros on every deployment. See issue #350 — do not
-reintroduce those predicates.
+JSON carries ``is_submittable``), so rows of both stay at docstatus 0. Every
+query below used to carry a ``docstatus = 1`` predicate, so the entire dashboard
+rendered zeros on every deployment (issue #350).
+
+The fix is ``docstatus < 2``, not removal: nothing guards ``Document._submit()``
+or ``._cancel()`` on a non-submittable doctype, so cancelled rows exist and must
+stay out of these figures.
 """
 
 from typing import Any, Dict, List, Optional
@@ -63,6 +66,7 @@ class DonationDashboardService(StatelessService):
                 COUNT(*) as count
             FROM `tabDonation`
             WHERE paid = 1
+            AND docstatus < 2
             AND donation_date BETWEEN %s AND %s
         """,
             (year_start, year_end),
@@ -83,6 +87,7 @@ class DonationDashboardService(StatelessService):
                 SUM(CASE WHEN status = 'Active' THEN annual_amount ELSE 0 END) as total_annual_amount,
                 COUNT(CASE WHEN status = 'Active' AND end_date <= %s THEN 1 END) as expiring_soon_count
             FROM `tabPeriodic Donation Agreement`
+            WHERE docstatus < 2
         """,
             (add_days(today(), 90),),
             as_dict=1,
@@ -106,7 +111,7 @@ class DonationDashboardService(StatelessService):
             FROM `tabDonor` donor
             WHERE donor.name IN (
                 SELECT DISTINCT d.donor FROM `tabDonation` d
-                WHERE d.paid = 1
+                WHERE d.paid = 1 AND d.docstatus < 2
             )
         """,
             as_dict=1,
@@ -132,6 +137,7 @@ class DonationDashboardService(StatelessService):
                 SUM(amount) as total_amount
             FROM `tabDonation`
             WHERE paid = 1
+            AND docstatus < 2
             AND donation_date BETWEEN %s AND %s
             AND (belastingdienst_reportable = 1 OR amount >= %s)
         """,
@@ -160,6 +166,7 @@ class DonationDashboardService(StatelessService):
             LEFT JOIN `tabDonor` donor ON d.donor = donor.name
             LEFT JOIN `tabPeriodic Donation Agreement` pda ON d.periodic_donation_agreement = pda.name
             WHERE d.paid = 1
+            AND d.docstatus < 2
             ORDER BY d.donation_date DESC
             LIMIT 10
         """,
@@ -179,6 +186,7 @@ class DonationDashboardService(StatelessService):
                 DATEDIFF(end_date, %s) as days_remaining
             FROM `tabPeriodic Donation Agreement`
             WHERE status = 'Active'
+            AND docstatus < 2
             AND end_date <= %s
             ORDER BY end_date ASC
             LIMIT 10
@@ -196,6 +204,7 @@ class DonationDashboardService(StatelessService):
                 COUNT(*) as count
             FROM `tabDonation`
             WHERE paid = 1
+            AND docstatus < 2
             AND YEAR(donation_date) = %s
             GROUP BY MONTH(donation_date)
             ORDER BY MONTH(donation_date)
@@ -229,6 +238,7 @@ class DonationDashboardService(StatelessService):
                 COUNT(*) as count
             FROM `tabPeriodic Donation Agreement`
             WHERE status = 'Active'
+            AND docstatus < 2
             GROUP BY anbi_eligible
         """,
             as_dict=1,
