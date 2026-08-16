@@ -32,6 +32,7 @@ Run with:
 
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import urlparse
 
 import frappe
 
@@ -78,13 +79,18 @@ class _FakeSubscriptionsResource:
     -- time -- and would report the durable guard as working when it is not.
     """
 
-    def __init__(self, recorder, seen_keys, *, fail_after_create=None, live=None):
+    def __init__(self, recorder, seen_keys, *, fail_after_create=None, live=None, create_status="active"):
         self._recorder = recorder
         self._seen_keys = seen_keys
         self._fail_after_create = fail_after_create
         # Every subscription that exists at Mollie, keyed by id -- what
         # subscriptions.list() returns. Survives key expiry, as the real thing does.
         self._live = live if live is not None else {}
+        # Mollie's list endpoint returns terminal subscriptions alongside live
+        # ones (measured read-only: all five on cst_9yahc9xjkb are `canceled`),
+        # so the fake must be able to hold one. A fake that only ever produces
+        # `active` cannot express the state where adopting is the WRONG answer.
+        self._create_status = create_status
 
     def list(self):
         return list(self._live.values())
@@ -98,7 +104,9 @@ class _FakeSubscriptionsResource:
         subscription_id = f"sub_FAKE{len(self._recorder) + 1:04d}"
         self._recorder.append({"id": subscription_id, "data": payload, "key": idempotency_key})
         created = SimpleNamespace(
-            id=subscription_id, status="active", metadata=(payload or {}).get("metadata") or {}
+            id=subscription_id,
+            status=self._create_status,
+            metadata=(payload or {}).get("metadata") or {},
         )
         self._live[subscription_id] = created
         if idempotency_key:
@@ -111,15 +119,21 @@ class _FakeSubscriptionsResource:
 
 
 class _FakeCustomer:
-    def __init__(self, customer_id, recorder, seen_keys, fail_after_create=None, live=None):
+    def __init__(
+        self, customer_id, recorder, seen_keys, fail_after_create=None, live=None, create_status="active"
+    ):
         self.id = customer_id
         self.subscriptions = _FakeSubscriptionsResource(
-            recorder, seen_keys, fail_after_create=fail_after_create, live=live
+            recorder,
+            seen_keys,
+            fail_after_create=fail_after_create,
+            live=live,
+            create_status=create_status,
         )
 
 
 class _FakeCustomersResource:
-    def __init__(self, recorder, seen_keys, fail_after_create=None, live=None):
+    def __init__(self, recorder, seen_keys, fail_after_create=None, live=None, create_status="active"):
         self._recorder = recorder
         # Shared across every _FakeCustomer this resource hands out, so an
         # Idempotency-Key survives the customers.get() that each webhook
@@ -127,10 +141,16 @@ class _FakeCustomersResource:
         self._seen_keys = seen_keys
         self._fail_after_create = fail_after_create
         self._live = live if live is not None else {}
+        self._create_status = create_status
 
     def get(self, customer_id):
         return _FakeCustomer(
-            customer_id, self._recorder, self._seen_keys, self._fail_after_create, self._live
+            customer_id,
+            self._recorder,
+            self._seen_keys,
+            self._fail_after_create,
+            self._live,
+            self._create_status,
         )
 
 
@@ -745,9 +765,11 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
         self.track_test_record("Donation", donation.name)
         return donation.name
 
-    def _setup_gateway(self, recorder, seen_keys, live):
+    def _setup_gateway(self, recorder, seen_keys, live, create_status="active"):
         return SimpleNamespace(
-            client=SimpleNamespace(customers=_FakeCustomersResource(recorder, seen_keys, None, live))
+            client=SimpleNamespace(
+                customers=_FakeCustomersResource(recorder, seen_keys, None, live, create_status)
+            )
         )
 
     def _create_direct_subscription(self, recorder, seen_keys, live):
@@ -778,18 +800,36 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
             "Mollie has nowhere to announce this subscription's charges",
         )
 
-    def test_direct_subscription_payload_does_not_use_the_subscription_webhook(self):
-        # get_subscription_webhook_url() is the member-dues endpoint: not
-        # allow_guest (measured 403), only accepts a sub_ id where Mollie posts
-        # id=tr_..., and gates on a Member plus an unpaid Sales Invoice a donor
-        # need not have (#343). Pointing subscriptions there looks like a fix and
-        # delivers nothing.
+    def test_the_webhook_the_payload_carries_is_guest_reachable(self):
+        """The property that actually matters: Mollie can POST to it at all.
+
+        This replaces an assertNotEqual against get_subscription_webhook_url(),
+        which was logically implied by the sibling test above in every state and
+        so had no red state of its own.
+
+        Mollie authenticates nothing -- it just POSTs ``id=tr_...`` -- so a
+        webhookUrl on an endpoint that is not ``allow_guest`` answers 403 and the
+        charge is announced to nobody. Measured on test_site_1:
+        ``mollie_payment_webhook`` IS in ``frappe.guest_methods``;
+        ``mollie_subscription_webhook`` (the member-dues endpoint, #343) is NOT.
+
+        Red under the Step 7 mutation, and red if anyone ever repoints
+        get_webhook_url() at a non-guest endpoint.
+        """
         recorder, seen_keys, live = [], {}, {}
         self._create_direct_subscription(recorder, seen_keys, live)
 
-        settings = frappe.get_single("Mollie Settings")
         self.assertEqual(len(recorder), 1)
-        self.assertNotEqual(recorder[0]["data"].get("webhookUrl"), settings.get_subscription_webhook_url())
+        url = recorder[0]["data"].get("webhookUrl")
+        self.assertIsNotNone(url, "Mollie has nowhere to announce this subscription's charges")
+
+        dotted = urlparse(url).path.split("/api/method/", 1)[1]
+        self.assertIn(
+            frappe.get_attr(dotted),
+            frappe.guest_methods,
+            f"{dotted} is not allow_guest; Mollie's unauthenticated POST would get a 403 "
+            "and the charge would never be announced",
+        )
 
     def test_donation_agreement_subscription_payload_carries_it_too(self):
         from verenigingen.verenigingen_payments.utils import payment_gateways as pg
@@ -815,13 +855,17 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
             frappe.get_single("Mollie Settings").get_webhook_url(),
         )
 
-    def test_donation_agreement_helper_adopts_an_existing_subscription(self):
-        """The durable guard, tested across idempotency-key expiry.
+    def _deliver_donation_agreement_twice(self, create_status):
+        """Two deliveries straddling idempotency-key expiry.
 
         Mollie caches keys for one hour against a retry ladder that runs
         twenty-six, so attempts 8-10 arrive unprotected. Clearing seen_keys while
         `live` survives is exactly that: a fake whose key cache never expires
-        would report this guard as working when it is not.
+        would report the durable guard as working when it is not.
+
+        ``create_status`` is the status Mollie holds the first subscription in.
+        It is the ONLY difference between the two tests below, which is what
+        makes them a discriminating pair rather than two assertions.
         """
         from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 
@@ -837,15 +881,49 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
 
         def _deliver():
             return pg._activate_donation_subscription_after_first_payment(
-                self._setup_gateway(recorder, seen_keys, live), payment
+                self._setup_gateway(recorder, seen_keys, live, create_status), payment
             )
 
         first = _deliver()
         self.assertEqual(first["status"], "success", first.get("message"))
+        self.assertEqual(len(recorder), 1, "the first delivery must create exactly one")
+
         seen_keys.clear()  # the key cache expires; the subscription does not
         self.assertTrue(live, "the subscription must still exist at Mollie")
+        self.assertEqual(
+            [s.status for s in live.values()],
+            [create_status],
+            "precondition: Mollie holds the subscription in the status under test",
+        )
+
         second = _deliver()
         self.assertEqual(second["status"], "success", second.get("message"))
+        return first, second, recorder
+
+    def test_donation_agreement_helper_adopts_an_existing_subscription(self):
+        """CONTROL for the canceled case below: a LIVE subscription is adopted."""
+        first, second, recorder = self._deliver_donation_agreement_twice("active")
 
         self.assertEqual(first["subscription_id"], second["subscription_id"])
         self.assertEqual(len(recorder), 1, "a late retry created a second subscription")
+
+    def test_a_canceled_subscription_is_not_adopted(self):
+        """Adopting a canceled subscription records the donation as subscribed to
+        something Mollie will never charge.
+
+        Mollie's list endpoint returns canceled subscriptions alongside live ones
+        (measured read-only: all five on cst_9yahc9xjkb are `canceled`), so an
+        unfiltered guard will match one. It would then write that id to
+        Donation.mollie_subscription_id and return status "success" -- silently,
+        with no retry left to repair it. That is precisely the failure this
+        branch exists to eliminate, so the guard must decline and create instead.
+        """
+        first, second, recorder = self._deliver_donation_agreement_twice("canceled")
+
+        self.assertNotEqual(
+            first["subscription_id"],
+            second["subscription_id"],
+            "a canceled subscription was adopted; the donor is recorded as subscribed "
+            "to something Mollie will never charge",
+        )
+        self.assertEqual(len(recorder), 2, "the retry must create a live subscription, not adopt a dead one")

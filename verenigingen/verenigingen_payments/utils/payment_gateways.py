@@ -1358,30 +1358,108 @@ def _payment_anchor_date(payment):
     return frappe.utils.getdate(stamp)
 
 
-def _find_subscription_for_payment(customer, payment_id):
-    """Return the subscription this payment already created at Mollie, if any.
+# Mollie subscription statuses from which no further charge can ever come
+# (mollie.api.objects.Subscription defines active / pending / canceled /
+# suspended / completed). `suspended` is deliberately NOT here: Mollie suspends
+# on an invalid mandate and resumes when a new one arrives, so it can still
+# charge and a second subscription alongside it would double-bill the donor.
+_TERMINAL_SUBSCRIPTION_STATUSES = frozenset({"canceled", "completed"})
+
+
+def _find_subscription_for_payment(customer, payment_id, log_category):
+    """Return the LIVE subscription this payment already created at Mollie, if any.
 
     The durable half of the duplicate guard. Every subscription these helpers
     create carries ``metadata.payment_id``; unlike an idempotency key (cached by
     Mollie for one hour, against a webhook retry ladder that runs twenty-six)
     that fingerprint never expires.
 
+    A terminal subscription is not a match. Mollie's list endpoint returns
+    canceled subscriptions alongside live ones (measured read-only against the
+    test account: all five subscriptions on ``cst_9yahc9xjkb`` are ``canceled``
+    and every one is listed). Adopting a canceled subscription would write its id
+    to ``Donation.mollie_subscription_id`` and report success, leaving the
+    donation recorded as subscribed against something Mollie will never charge --
+    silently, with no retry left to repair it.
+
     Returns None when nothing matches, and also when the lookup itself fails --
     a listing error must not stop a first-time donor subscribing. The
     idempotency key still covers the common, fast retry in that case.
+
+    Args:
+        customer: Mollie customer object
+        payment_id: the payment whose fingerprint to match
+        log_category: Error Log category for a listing failure. Passed in rather
+            than hardcoded so the failure is grepable under the category the
+            calling helper uses for everything else.
     """
     try:
         for subscription in customer.subscriptions.list():
             metadata = getattr(subscription, "metadata", None) or {}
-            if isinstance(metadata, dict) and metadata.get("payment_id") == payment_id:
-                return subscription
+            if not isinstance(metadata, dict) or metadata.get("payment_id") != payment_id:
+                continue
+            status = getattr(subscription, "status", None)
+            if status in _TERMINAL_SUBSCRIPTION_STATUSES:
+                frappe.logger().info(
+                    f"Mollie subscription {getattr(subscription, 'id', '?')} matches payment "
+                    f"{payment_id} but is {status}; it will never charge again, so it is not adopted"
+                )
+                continue
+            return subscription
     except Exception as e:
         frappe.log_error(
             f"Could not list existing subscriptions for payment {payment_id} "
             f"while checking for a duplicate: {e}",
-            "Mollie Direct Subscription Creation",
+            log_category,
         )
     return None
+
+
+def _get_or_create_subscription(customer, payment_id, subscription_data, key_prefix, log_category):
+    """Adopt the live subscription this payment already has at Mollie, or create it.
+
+    DURABLE duplicate guard, checked before creating anything.
+
+    The idempotency key is only a fast path: Mollie caches keys for ONE HOUR
+    ("Keys older than 1 hour will be removed from our cache"), while its webhook
+    retry ladder runs TWENTY-SIX hours over 10 attempts (T+0, 1m, 3m, 7m, 15m,
+    31m, 1h, 2h, 4h, 26h). Attempts 8-10 therefore arrive with no idempotency
+    protection at all -- and those are precisely the attempts a prolonged failure
+    reaches. If Mollie committed the subscription but we never recorded it (lost
+    response, then a failing local write), a late retry would create a second one
+    and charge the donor every period, forever.
+
+    The subscriptions we create carry ``metadata.payment_id``, which never
+    expires, so ask Mollie what already exists for this payment instead of
+    trusting a cache with a TTL.
+
+    Args:
+        customer: Mollie customer object
+        payment_id: the payment being activated
+        subscription_data: the payload to create, if nothing exists yet
+        key_prefix: idempotency-key namespace for the calling helper
+        log_category: Error Log category for the calling helper
+
+    Returns:
+        The Mollie subscription object, whether adopted or created.
+    """
+    existing = _find_subscription_for_payment(customer, payment_id, log_category)
+    if existing is not None:
+        # NOT a create. Logged distinctly so an incident reader is not told a
+        # subscription was created when one was merely found.
+        frappe.logger().info(
+            f"Adopted the Mollie subscription {existing.id} that payment {payment_id} "
+            "already had; nothing was created"
+        )
+        return existing
+
+    # Same key + identical payload returns the original subscription and creates
+    # only one; different keys create two (measured against Mollie).
+    subscription = customer.subscriptions.create(
+        data=subscription_data, idempotency_key=f"{key_prefix}-{payment_id}"
+    )
+    frappe.logger().info(f"Created Mollie subscription {subscription.id} for payment {payment_id}")
+    return subscription
 
 
 def _activate_direct_subscription_after_first_payment(gateway, payment):
@@ -1475,37 +1553,12 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
                 )
 
         customer = gateway.client.customers.get(customer_id)
-
-        # DURABLE duplicate guard, checked before creating anything.
-        #
-        # The idempotency key below is only a fast path: Mollie caches keys for
-        # ONE HOUR ("Keys older than 1 hour will be removed from our cache"),
-        # while its webhook retry ladder runs TWENTY-SIX hours over 10 attempts
-        # (T+0, 1m, 3m, 7m, 15m, 31m, 1h, 2h, 4h, 26h). Attempts 8-10 therefore
-        # arrive with no idempotency protection at all -- and those are precisely
-        # the attempts a prolonged failure reaches. If Mollie committed the
-        # subscription but we never recorded it (lost response, then a failing
-        # local write), a late retry would create a second one and charge the
-        # donor every period, forever.
-        #
-        # The subscriptions we create carry `metadata.payment_id`, which never
-        # expires, so ask Mollie what already exists for this payment instead of
-        # trusting a cache with a TTL.
-        existing = _find_subscription_for_payment(customer, payment.id)
-        if existing is not None:
-            frappe.logger().info(
-                f"Mollie already has subscription {existing.id} for payment {payment.id}; adopting it"
-            )
-            subscription = existing
-        else:
-            # Same key + identical payload returns the original subscription and
-            # creates only one; different keys create two (measured against Mollie).
-            subscription = customer.subscriptions.create(
-                data=subscription_data, idempotency_key=f"donsub-{payment.id}"
-            )
-
-        frappe.logger().info(
-            f"Successfully created direct subscription {subscription.id} for payment {payment.id}"
+        subscription = _get_or_create_subscription(
+            customer,
+            payment.id,
+            subscription_data,
+            "donsub",
+            "Mollie Direct Subscription Creation",
         )
 
         # Update donation with subscription ID if donation exists
@@ -1579,50 +1632,44 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             frappe.log_error(message, "Mollie Donation Subscription Creation")
             return create_error_response(message, {"reason": "invalid_interval", "interval": interval})
 
+        mollie_settings = frappe.get_single("Mollie Settings")
+
         subscription_data = {
             "amount": format_mollie_amount(donation.amount),
             "interval": interval,
             "description": f"Recurring donation - {donation.donation_purpose_type}",
             # The guest-reachable payment webhook, for the reasons spelled out in
             # _activate_direct_subscription_after_first_payment above (#345/#343).
-            "webhookUrl": frappe.get_single("Mollie Settings").get_webhook_url(),
+            "webhookUrl": mollie_settings.get_webhook_url(),
             "metadata": {
                 "donation_id": donation_id,
                 "donor_id": donation.donor,
                 "purpose": donation.donation_purpose_type,
-                # The fingerprint the durable guard below matches on. Unlike an
+                # Marks which helper built this subscription, so it can be told
+                # apart in the Mollie account from the direct path's
+                # `created_from: "direct_subscription"`.
+                "created_from": "donation_agreement",
+                # The fingerprint the durable guard matches on. Unlike an
                 # idempotency key it never expires.
                 "payment_id": payment.id,
             },
         }
 
-        # Create subscription using Mollie API directly. Idempotency key keyed to the
-        # payment for the same reason as the direct path above: a lost response on a
-        # non-idempotent remote create would otherwise double-subscribe the donor.
         customer = gateway.client.customers.get(customer_id)
-
-        # Same durable guard as the direct path: Mollie caches idempotency keys
-        # for one hour against a webhook retry ladder that runs twenty-six, so
-        # attempts 8-10 arrive unprotected. metadata.payment_id never expires.
-        # Adding a payload field (webhookUrl, above) widens the window where a
-        # mid-ladder deploy changes the payload, which makes the key less
-        # reliable still.
-        subscription = _find_subscription_for_payment(customer, payment.id)
-        if subscription is not None:
-            frappe.logger().info(
-                f"Mollie already has subscription {subscription.id} for payment {payment.id}; adopting it"
-            )
-        else:
-            subscription = customer.subscriptions.create(
-                data=subscription_data, idempotency_key=f"donagr-{payment.id}"
-            )
+        subscription = _get_or_create_subscription(
+            customer,
+            payment.id,
+            subscription_data,
+            "donagr",
+            "Mollie Donation Subscription Creation",
+        )
 
         # Persist the subscription id on the donation (the doctype that owns the field)
         donation.db_set("mollie_subscription_id", subscription.id)
 
-        frappe.logger().info(
-            f"Successfully created subscription {subscription.id} for donation {donation.name}"
-        )
+        # Deliberately does not say "created": _get_or_create_subscription may have
+        # adopted one, and it logs which of the two happened.
+        frappe.logger().info(f"Donation {donation.name} is subscribed as {subscription.id}")
 
         return {
             "status": "success",

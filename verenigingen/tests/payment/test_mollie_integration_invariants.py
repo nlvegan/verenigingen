@@ -303,17 +303,21 @@ class TestMollieRemoteCreatesAreIdempotent(unittest.TestCase):
     def test_the_scanner_actually_finds_the_known_call_sites(self):
         """CONTROL. A scan that silently matches nothing would make every other
         test in this class pass vacuously -- the exact failure the repo's
-        verification rules call out. Pin the two keyed donation sites by name."""
+        verification rules call out. Pin the keyed donation site by name.
+
+        This used to pin two sites, one in each of
+        ``_activate_direct_subscription_after_first_payment`` and
+        ``_activate_donation_subscription_after_first_payment``. Both now route
+        through the extracted ``_get_or_create_subscription``, so there is one
+        keyed create where there were two -- the coverage did not shrink, the
+        duplication did. If that extraction is ever unwound back into two call
+        sites, this control goes red and forces a conscious update.
+        """
         keyed = {call.site for call in self.calls if call.idempotency_key}
         expected = {
             (
                 "verenigingen_payments/utils/payment_gateways.py",
-                "_activate_direct_subscription_after_first_payment",
-                "subscriptions",
-            ),
-            (
-                "verenigingen_payments/utils/payment_gateways.py",
-                "_activate_donation_subscription_after_first_payment",
+                "_get_or_create_subscription",
                 "subscriptions",
             ),
         }
