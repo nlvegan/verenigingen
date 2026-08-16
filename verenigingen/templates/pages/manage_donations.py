@@ -114,17 +114,19 @@ def get_recurring_donations(member_name):
             order_by="donation_date desc",
         )
 
-        # Enrich with subscription status for Mollie donations
+        # Enrich with subscription status for Mollie donations. This runs as its own
+        # pass: it used to share the filtering loop below, so a donation the filter
+        # skipped lost its Mollie fields too and rendered as "Unknown" with no
+        # update/cancel buttons.
         for donation in recurring_donations:
             if donation.mollie_subscription_id:
                 subscription_info = get_mollie_subscription_info(donation.mollie_subscription_id)
                 donation.update(subscription_info)
 
-            # Only return active recurring donations
-            if not is_recurring_donation_active(donation.name):
-                recurring_donations.remove(donation)
-
-        return recurring_donations
+        # Only return active recurring donations, into a NEW list: removing from the
+        # list being iterated makes the iterator skip the next element, which then
+        # escaped both the enrichment above and this filter entirely.
+        return [donation for donation in recurring_donations if is_recurring_donation_active(donation.name)]
 
     except Exception as e:
         frappe.log_error(f"Error getting recurring donations: {str(e)}", "Manage Donations")

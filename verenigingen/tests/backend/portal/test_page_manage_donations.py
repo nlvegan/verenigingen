@@ -10,7 +10,7 @@ no-member / success), and the cancel/update input-validation guards.
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -65,12 +65,14 @@ class TestPageManageDonations(EnhancedTestCase):
             ).insert(ignore_permissions=True)
         return email
 
-    def _make_donation(self, *, status="One-time", amount=20.0, paid=0, recurring_freq=None):
+    def _make_donation(
+        self, *, status="One-time", amount=20.0, paid=0, recurring_freq=None, donation_date=None
+    ):
         data = {
             "doctype": "Donation",
             "donor": self.donor.name,
             "donor_email": self.email,
-            "donation_date": today(),
+            "donation_date": donation_date or today(),
             "amount": amount,
             "mode_of_payment": "Credit Card",
             "status": status,
@@ -81,6 +83,27 @@ class TestPageManageDonations(EnhancedTestCase):
             data["recurring_frequency"] = recurring_freq
         doc = frappe.get_doc(data)
         doc.insert(ignore_permissions=True)
+        return doc
+
+    def _make_recurring(self, *, amount, days_ago=0, cancelled=False, mollie_subscription_id=None):
+        """Insert a Recurring donation.
+
+        ``days_ago`` drives donation_date, which get_recurring_donations orders by
+        (desc) -- the POSITION of a donation in that list is what makes the
+        mutate-while-iterating bug of #348 observable, so it must be pinned.
+        """
+        doc = self._make_donation(
+            status="Recurring",
+            amount=amount,
+            recurring_freq="Monthly",
+            donation_date=add_days(today(), -days_ago),
+        )
+        if mollie_subscription_id:
+            doc.db_set("mollie_subscription_id", mollie_subscription_id)
+        if cancelled:
+            # A cancellation date in the past is the deterministic, Mollie-free way
+            # to make a recurring donation confirmed-inactive.
+            doc.db_set("recurring_cancelled_date", "2000-01-01")
         return doc
 
     # ----- helpers -----------------------------------------------------
@@ -122,6 +145,26 @@ class TestPageManageDonations(EnhancedTestCase):
         self.assertEqual(len(recurring), 1)
         self.assertEqual(recurring[0].amount, 8.0)
         self.assertEqual(recurring[0].recurring_frequency, "Monthly")
+
+    # ----- #348: the filter must not mutate the list it iterates ---------
+
+    def test_recurring_list_drops_every_confirmed_inactive_donation(self):
+        """Two cancelled recurring donations in a row must BOTH be dropped.
+
+        Regression for #348: the filter removed from the list it was iterating, so
+        the element right after a removed one was never examined -- a cancelled
+        donation directly following another cancelled one stayed in the donor's
+        "Active Recurring Donations" list.
+        """
+        from verenigingen.templates.pages.manage_donations import get_recurring_donations
+
+        self._make_recurring(amount=10.0, days_ago=0, cancelled=True)
+        self._make_recurring(amount=20.0, days_ago=1, cancelled=True)
+        active = self._make_recurring(amount=30.0, days_ago=2)
+
+        result = get_recurring_donations(self.member.name)
+
+        self.assertEqual([d.name for d in result], [active.name])
 
     def test_is_recurring_active_true_for_recurring(self):
         from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
