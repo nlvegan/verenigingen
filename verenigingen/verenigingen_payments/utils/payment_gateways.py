@@ -1360,9 +1360,16 @@ def _payment_anchor_date(payment):
 
 # Mollie subscription statuses from which no further charge can ever come
 # (mollie.api.objects.Subscription defines active / pending / canceled /
-# suspended / completed). `suspended` is deliberately NOT here: Mollie suspends
-# on an invalid mandate and resumes when a new one arrives, so it can still
-# charge and a second subscription alongside it would double-bill the donor.
+# suspended / completed). The two exclusions are deliberate and both matter:
+#
+#   `suspended` -- Mollie suspends on an invalid mandate and resumes when a new
+#       one arrives, so it can still charge.
+#   `pending`   -- "waiting for a valid mandate", which is the NORMAL state of a
+#       subscription just created against a first payment. That is exactly when
+#       these helpers fire, so treating it as terminal would duplicate on the
+#       happy path, not on an edge case.
+#
+# Adding either to this set double-bills the donor.
 _TERMINAL_SUBSCRIPTION_STATUSES = frozenset({"canceled", "completed"})
 
 
@@ -1394,6 +1401,9 @@ def _find_subscription_for_payment(customer, payment_id, log_category):
             calling helper uses for everything else.
     """
     try:
+        # Filtered client-side because it cannot be filtered server-side: Mollie
+        # rejects a `status` query parameter on this endpoint outright
+        # (measured: 'Non-existent query parameter "status"').
         for subscription in customer.subscriptions.list():
             metadata = getattr(subscription, "metadata", None) or {}
             if not isinstance(metadata, dict) or metadata.get("payment_id") != payment_id:
@@ -1415,7 +1425,7 @@ def _find_subscription_for_payment(customer, payment_id, log_category):
     return None
 
 
-def _get_or_create_subscription(customer, payment_id, subscription_data, key_prefix, log_category):
+def _get_or_create_subscription(customer, payment_id, subscription_data, *, key_prefix, log_category):
     """Adopt the live subscription this payment already has at Mollie, or create it.
 
     DURABLE duplicate guard, checked before creating anything.
@@ -1440,16 +1450,23 @@ def _get_or_create_subscription(customer, payment_id, subscription_data, key_pre
         key_prefix: idempotency-key namespace for the calling helper
         log_category: Error Log category for the calling helper
 
+    ``key_prefix`` and ``log_category`` are keyword-only on purpose. They are
+    both bare strings, so transposing them positionally would be silent: the
+    idempotency key would become ``"Mollie Direct Subscription Creation-tr_x"``
+    and the Error Log category ``"donsub"``, and nothing would raise.
+
     Returns:
         The Mollie subscription object, whether adopted or created.
     """
     existing = _find_subscription_for_payment(customer, payment_id, log_category)
     if existing is not None:
         # NOT a create. Logged distinctly so an incident reader is not told a
-        # subscription was created when one was merely found.
+        # subscription was created when one was merely found. `key_prefix` names
+        # which activation helper ran -- both route through here, so without it
+        # the two paths are indistinguishable in an incident.
         frappe.logger().info(
-            f"Adopted the Mollie subscription {existing.id} that payment {payment_id} "
-            "already had; nothing was created"
+            f"[{key_prefix}] Adopted the Mollie subscription {existing.id} that payment "
+            f"{payment_id} already had; nothing was created"
         )
         return existing
 
@@ -1458,7 +1475,9 @@ def _get_or_create_subscription(customer, payment_id, subscription_data, key_pre
     subscription = customer.subscriptions.create(
         data=subscription_data, idempotency_key=f"{key_prefix}-{payment_id}"
     )
-    frappe.logger().info(f"Created Mollie subscription {subscription.id} for payment {payment_id}")
+    frappe.logger().info(
+        f"[{key_prefix}] Created Mollie subscription {subscription.id} for payment {payment_id}"
+    )
     return subscription
 
 
@@ -1557,8 +1576,8 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             customer,
             payment.id,
             subscription_data,
-            "donsub",
-            "Mollie Direct Subscription Creation",
+            key_prefix="donsub",
+            log_category="Mollie Direct Subscription Creation",
         )
 
         # Update donation with subscription ID if donation exists
@@ -1660,8 +1679,8 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             customer,
             payment.id,
             subscription_data,
-            "donagr",
-            "Mollie Donation Subscription Creation",
+            key_prefix="donagr",
+            log_category="Mollie Donation Subscription Creation",
         )
 
         # Persist the subscription id on the donation (the doctype that owns the field)

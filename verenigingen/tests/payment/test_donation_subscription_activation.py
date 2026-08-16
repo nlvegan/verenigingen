@@ -79,7 +79,16 @@ class _FakeSubscriptionsResource:
     -- time -- and would report the durable guard as working when it is not.
     """
 
-    def __init__(self, recorder, seen_keys, *, fail_after_create=None, live=None, create_status="active"):
+    def __init__(
+        self,
+        recorder,
+        seen_keys,
+        *,
+        fail_after_create=None,
+        live=None,
+        create_status="active",
+        list_raises=None,
+    ):
         self._recorder = recorder
         self._seen_keys = seen_keys
         self._fail_after_create = fail_after_create
@@ -91,8 +100,13 @@ class _FakeSubscriptionsResource:
         # so the fake must be able to hold one. A fake that only ever produces
         # `active` cannot express the state where adopting is the WRONG answer.
         self._create_status = create_status
+        # Without this, _find_subscription_for_payment's except branch is dead in
+        # the whole suite and its Error Log category is pinned by nothing.
+        self._list_raises = list_raises
 
     def list(self):
+        if self._list_raises:
+            raise self._list_raises
         return list(self._live.values())
 
     def create(self, data=None, idempotency_key="", **kwargs):
@@ -120,7 +134,14 @@ class _FakeSubscriptionsResource:
 
 class _FakeCustomer:
     def __init__(
-        self, customer_id, recorder, seen_keys, fail_after_create=None, live=None, create_status="active"
+        self,
+        customer_id,
+        recorder,
+        seen_keys,
+        fail_after_create=None,
+        live=None,
+        create_status="active",
+        list_raises=None,
     ):
         self.id = customer_id
         self.subscriptions = _FakeSubscriptionsResource(
@@ -129,11 +150,20 @@ class _FakeCustomer:
             fail_after_create=fail_after_create,
             live=live,
             create_status=create_status,
+            list_raises=list_raises,
         )
 
 
 class _FakeCustomersResource:
-    def __init__(self, recorder, seen_keys, fail_after_create=None, live=None, create_status="active"):
+    def __init__(
+        self,
+        recorder,
+        seen_keys,
+        fail_after_create=None,
+        live=None,
+        create_status="active",
+        list_raises=None,
+    ):
         self._recorder = recorder
         # Shared across every _FakeCustomer this resource hands out, so an
         # Idempotency-Key survives the customers.get() that each webhook
@@ -142,6 +172,7 @@ class _FakeCustomersResource:
         self._fail_after_create = fail_after_create
         self._live = live if live is not None else {}
         self._create_status = create_status
+        self._list_raises = list_raises
 
     def get(self, customer_id):
         return _FakeCustomer(
@@ -151,6 +182,7 @@ class _FakeCustomersResource:
             self._fail_after_create,
             self._live,
             self._create_status,
+            self._list_raises,
         )
 
 
@@ -765,10 +797,10 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
         self.track_test_record("Donation", donation.name)
         return donation.name
 
-    def _setup_gateway(self, recorder, seen_keys, live, create_status="active"):
+    def _setup_gateway(self, recorder, seen_keys, live, create_status="active", list_raises=None):
         return SimpleNamespace(
             client=SimpleNamespace(
-                customers=_FakeCustomersResource(recorder, seen_keys, None, live, create_status)
+                customers=_FakeCustomersResource(recorder, seen_keys, None, live, create_status, list_raises)
             )
         )
 
@@ -824,6 +856,11 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
         self.assertIsNotNone(url, "Mollie has nowhere to announce this subscription's charges")
 
         dotted = urlparse(url).path.split("/api/method/", 1)[1]
+        # frappe.get_attr(dotted) is evaluated BEFORE frappe.guest_methods is
+        # read, and resolving it imports the module, which runs the
+        # @frappe.whitelist(allow_guest=True) decorator that registers the
+        # function. So this cannot pass or fail on import ordering. Do not
+        # "simplify" it by hoisting the lookup out of the assertIn call.
         self.assertIn(
             frappe.get_attr(dotted),
             frappe.guest_methods,
@@ -854,18 +891,22 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
             recorder[0]["data"].get("webhookUrl"),
             frappe.get_single("Mollie Settings").get_webhook_url(),
         )
+        # The direct site has this assertion; this one did not. A uuid4 (the SDK
+        # default) or any per-call value would let a retry duplicate while the
+        # suite stayed green.
+        self.assertEqual(
+            recorder[0]["key"],
+            f"donagr-{payment.id}",
+            "The Idempotency-Key must be derived from the payment id",
+        )
 
-    def _deliver_donation_agreement_twice(self, create_status):
-        """Two deliveries straddling idempotency-key expiry.
+    def test_donation_agreement_helper_adopts_an_existing_subscription(self):
+        """The durable guard across idempotency-key expiry.
 
         Mollie caches keys for one hour against a retry ladder that runs
         twenty-six, so attempts 8-10 arrive unprotected. Clearing seen_keys while
         `live` survives is exactly that: a fake whose key cache never expires
         would report the durable guard as working when it is not.
-
-        ``create_status`` is the status Mollie holds the first subscription in.
-        It is the ONLY difference between the two tests below, which is what
-        makes them a discriminating pair rather than two assertions.
         """
         from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 
@@ -881,7 +922,7 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
 
         def _deliver():
             return pg._activate_donation_subscription_after_first_payment(
-                self._setup_gateway(recorder, seen_keys, live, create_status), payment
+                self._setup_gateway(recorder, seen_keys, live), payment
             )
 
         first = _deliver()
@@ -890,40 +931,136 @@ class TestSubscriptionCarriesAReachableWebhook(EnhancedTestCase):
 
         seen_keys.clear()  # the key cache expires; the subscription does not
         self.assertTrue(live, "the subscription must still exist at Mollie")
-        self.assertEqual(
-            [s.status for s in live.values()],
-            [create_status],
-            "precondition: Mollie holds the subscription in the status under test",
-        )
 
         second = _deliver()
         self.assertEqual(second["status"], "success", second.get("message"))
-        return first, second, recorder
-
-    def test_donation_agreement_helper_adopts_an_existing_subscription(self):
-        """CONTROL for the canceled case below: a LIVE subscription is adopted."""
-        first, second, recorder = self._deliver_donation_agreement_twice("active")
-
         self.assertEqual(first["subscription_id"], second["subscription_id"])
         self.assertEqual(len(recorder), 1, "a late retry created a second subscription")
+
+    def _deliver_against_a_seeded_subscription(self, seeded_status):
+        """One delivery against a subscription Mollie ALREADY holds for this payment.
+
+        ``seeded_status`` is the status of that pre-existing subscription and is
+        the ONLY difference between the two tests below -- what makes them a
+        discriminating pair rather than two assertions. Anything the helper
+        creates is created ``active``, so a message about creating a live
+        subscription stays true of the fake.
+        """
+        from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+        donation_name = self._setup_recurring_donation()
+        recorder, seen_keys, live = [], {}, {}
+        payment = _FakePayment(
+            f"tr_{frappe.generate_hash(length=12)}",
+            "50.00",
+            donation_name,
+            sequence_type="first",
+            subscription_setup=True,
+        )
+
+        seeded_id = f"sub_SEEDED{frappe.generate_hash(length=6)}"
+        live[seeded_id] = SimpleNamespace(
+            id=seeded_id,
+            status=seeded_status,
+            metadata={"payment_id": payment.id},
+        )
+
+        result = pg._activate_donation_subscription_after_first_payment(
+            self._setup_gateway(recorder, seen_keys, live), payment
+        )
+        self.assertEqual(result["status"], "success", result.get("message"))
+        return result, recorder, donation_name, seeded_id
+
+    def test_a_seeded_active_subscription_is_adopted(self):
+        """CONTROL for the canceled case below: a LIVE subscription IS adopted."""
+        result, recorder, donation_name, seeded_id = self._deliver_against_a_seeded_subscription("active")
+
+        self.assertEqual(recorder, [], "an adoptable subscription existed; nothing should be created")
+        self.assertEqual(result["subscription_id"], seeded_id)
+        self.assertEqual(
+            frappe.db.get_value("Donation", donation_name, "mollie_subscription_id"),
+            seeded_id,
+            "the adopted subscription must be the one recorded on the donation",
+        )
 
     def test_a_canceled_subscription_is_not_adopted(self):
         """Adopting a canceled subscription records the donation as subscribed to
         something Mollie will never charge.
 
         Mollie's list endpoint returns canceled subscriptions alongside live ones
-        (measured read-only: all five on cst_9yahc9xjkb are `canceled`), so an
-        unfiltered guard will match one. It would then write that id to
-        Donation.mollie_subscription_id and return status "success" -- silently,
-        with no retry left to repair it. That is precisely the failure this
-        branch exists to eliminate, so the guard must decline and create instead.
+        (measured read-only: all five on cst_9yahc9xjkb are `canceled`), and it
+        rejects a server-side `status` filter, so an unfiltered guard will match
+        one. It would then write that id to Donation.mollie_subscription_id and
+        return status "success" -- silently, with no retry left to repair it.
+        That is precisely the failure this branch exists to eliminate, so the
+        guard must decline and create a live subscription instead.
         """
-        first, second, recorder = self._deliver_donation_agreement_twice("canceled")
+        result, recorder, donation_name, seeded_id = self._deliver_against_a_seeded_subscription("canceled")
 
-        self.assertNotEqual(
-            first["subscription_id"],
-            second["subscription_id"],
-            "a canceled subscription was adopted; the donor is recorded as subscribed "
-            "to something Mollie will never charge",
+        self.assertEqual(len(recorder), 1, "the guard must create a live subscription, not adopt a dead one")
+        created_id = recorder[0]["id"]
+        self.assertNotEqual(result["subscription_id"], seeded_id, "the canceled subscription was adopted")
+        self.assertEqual(result["subscription_id"], created_id)
+
+        # The stated harm, asserted directly rather than by proxy: the donation
+        # must not be left pointing at a subscription Mollie will never charge.
+        self.assertEqual(
+            frappe.db.get_value("Donation", donation_name, "mollie_subscription_id"),
+            created_id,
+            "the donation is recorded as subscribed to a canceled subscription; "
+            "Mollie will never charge it and nothing will ever notice",
         )
-        self.assertEqual(len(recorder), 2, "the retry must create a live subscription, not adopt a dead one")
+
+    def test_a_listing_failure_is_logged_under_the_calling_helpers_category(self):
+        """_find_subscription_for_payment used to hardcode the DIRECT category.
+
+        A listing failure on the donation-agreement path was therefore filed
+        under "Mollie Direct Subscription Creation" -- invisible to anyone
+        grepping Error Log by the category the rest of that helper uses. Nothing
+        pinned that, because the fake's list() could not fail: the except branch
+        was dead in the whole suite under either category.
+
+        The documented behaviour is also asserted here: a listing failure must
+        NOT stop a first-time donor subscribing, so the create still happens.
+        """
+        from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+        self.expectErrorLog("Mollie Donation Subscription Creation")
+
+        donation_name = self._setup_recurring_donation()
+        recorder, seen_keys, live = [], {}, {}
+        payment = _FakePayment(
+            f"tr_{frappe.generate_hash(length=12)}",
+            "50.00",
+            donation_name,
+            sequence_type="first",
+            subscription_setup=True,
+        )
+
+        started = frappe.utils.now()
+        result = pg._activate_donation_subscription_after_first_payment(
+            self._setup_gateway(
+                recorder, seen_keys, live, list_raises=ConnectionError("Mollie API unavailable while listing")
+            ),
+            payment,
+        )
+
+        self.assertEqual(result["status"], "success", result.get("message"))
+        self.assertEqual(len(recorder), 1, "a listing failure must not stop a first-time donor subscribing")
+
+        # frappe.log_error(message, title) puts the category in whichever field
+        # its title/message swap-detection picks, so match across both rather
+        # than pinning one.
+        rows = frappe.get_all("Error Log", filters={"creation": [">=", started]}, fields=["method", "error"])
+        blob = " ".join(f"{r.method} {r.error}" for r in rows if payment.id in f"{r.method} {r.error}")
+        self.assertIn(
+            "Mollie Donation Subscription Creation",
+            blob,
+            "the listing failure was not filed under the donation-agreement category",
+        )
+        # The discriminating half: this is what the old hardcoded category did.
+        self.assertNotIn(
+            "Mollie Direct Subscription Creation",
+            blob,
+            "the donation-agreement path filed its listing failure under the DIRECT category",
+        )
