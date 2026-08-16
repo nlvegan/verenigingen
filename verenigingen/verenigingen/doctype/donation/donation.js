@@ -79,7 +79,10 @@ frappe.ui.form.on('Donation', {
 	 * // Shows "Create Payment Entry" button for submitted unpaid donations
 	 */
 	refresh(frm) {
-		if (frm.doc.docstatus === 1 && !frm.doc.paid) {
+		// Donation is not submittable (no is_submittable in its DocType JSON), so
+		// docstatus is always 0 — gating on docstatus === 1 hid this button on
+		// every donation that ever existed (#350). Gate on "saved and unpaid".
+		if (!frm.is_new() && !frm.doc.paid) {
 			frm.add_custom_button(__('Create Payment Entry'), () => {
 				frm.events.make_payment_entry(frm);
 			});

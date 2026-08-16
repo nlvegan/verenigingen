@@ -122,9 +122,12 @@ class DonationCampaign(Document):
     @standard_api(operation_type=OperationType.MEMBER_DATA)
     def get_recent_donations(self, limit=10):
         """Get recent donations for this campaign"""
+        # WHY no docstatus filter: Donation is not submittable (no is_submittable in
+        # its DocType JSON), so every row stays at docstatus 0 and the old
+        # ``docstatus = 1`` predicate made every campaign look donation-free (#350).
         donations = frappe.get_all(
             "Donation",
-            filters={"campaign": self.name, "paid": 1, "docstatus": 1},
+            filters={"campaign": self.name, "paid": 1},
             fields=["name", "donor", "amount", "donation_date"],
             order_by="donation_date desc",
             limit=limit,
@@ -152,7 +155,6 @@ class DonationCampaign(Document):
             INNER JOIN `tabDonor` dn ON d.donor = dn.name
             WHERE d.campaign = %s
                 AND d.paid = 1
-                AND d.docstatus = 1
                 AND d.anonymous = 0
             GROUP BY d.donor
             ORDER BY total_amount DESC
@@ -289,7 +291,7 @@ class DonationCampaign(Document):
         )
 
         # Also get donations for this campaign
-        donation_filters = {"campaign": self.name, "docstatus": 1, "paid": 1}
+        donation_filters = {"campaign": self.name, "paid": 1}
         if from_date and to_date:
             donation_filters["donation_date"] = ["between", [from_date, to_date]]
 

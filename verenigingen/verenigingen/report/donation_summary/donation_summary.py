@@ -47,7 +47,10 @@ def get_columns():
 def get_data(filters):
     conditions = get_conditions(filters)
 
-    # Get donation data with donor information
+    # Get donation data with donor information.
+    # WHY no docstatus filter: Donation is not submittable (no is_submittable in
+    # its DocType JSON), so every row stays at docstatus 0. The old
+    # "AND d.docstatus = 1" made this report empty on every deployment (#350).
     donation_data = frappe.db.sql(
         """
         SELECT
@@ -69,7 +72,6 @@ def get_data(filters):
         FROM `tabDonation` d
         INNER JOIN `tabDonor` donor ON d.donor = donor.name
         WHERE d.paid = 1
-        AND d.docstatus = 1
         {conditions}
         GROUP BY d.donor
         ORDER BY total_donations DESC

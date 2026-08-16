@@ -216,10 +216,11 @@ function link_donation_dialog(frm) {
 		method: 'frappe.client.get_list',
 		args: {
 			doctype: 'Donation',
+			// No docstatus filter: Donation is not submittable, so every donation
+			// sits at docstatus 0 and this list was always empty (#350).
 			filters: {
 				donor: frm.doc.donor,
-				periodic_donation_agreement: ['is', 'not set'],
-				docstatus: 1
+				periodic_donation_agreement: ['is', 'not set']
 			},
 			fields: ['name', 'donation_date', 'amount', 'mode_of_payment'],
 			limit_page_length: 100

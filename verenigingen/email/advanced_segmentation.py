@@ -276,7 +276,6 @@ class AdvancedSegmentationManager:
                     EXISTS (
                         SELECT 1 FROM `tabDonation` d
                         WHERE d.donor = m.name
-                        AND d.docstatus = 1
                     )
                 """
                 )
@@ -286,7 +285,6 @@ class AdvancedSegmentationManager:
                     NOT EXISTS (
                         SELECT 1 FROM `tabDonation` d
                         WHERE d.donor = m.name
-                        AND d.docstatus = 1
                     )
                 """
                 )
@@ -553,7 +551,7 @@ class AdvancedSegmentationManager:
                         COUNT(CASE WHEN m.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_members,
                         COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = m.name AND v.status = 'Active') THEN 1 END) as volunteers,
                         COUNT(CASE WHEN m.birth_date IS NOT NULL AND m.birth_date > DATE_SUB(CURDATE(), INTERVAL 35 YEAR) THEN 1 END) as young_members,
-                        COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name AND d.docstatus = 1) THEN 1 END) as donors
+                        COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name) THEN 1 END) as donors
                     FROM `tabMember` m
                     INNER JOIN `tabChapter Member` cm ON cm.member = m.name
                     WHERE cm.parent = %(chapter)s
@@ -572,7 +570,7 @@ class AdvancedSegmentationManager:
                         COUNT(CASE WHEN m.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_members,
                         COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabVolunteer` v WHERE v.member = m.name AND v.status = 'Active') THEN 1 END) as volunteers,
                         COUNT(CASE WHEN m.birth_date IS NOT NULL AND m.birth_date > DATE_SUB(CURDATE(), INTERVAL 35 YEAR) THEN 1 END) as young_members,
-                        COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name AND d.docstatus = 1) THEN 1 END) as donors
+                        COUNT(CASE WHEN EXISTS (SELECT 1 FROM `tabDonation` d WHERE d.donor = m.name) THEN 1 END) as donors
                     FROM `tabMember` m
                     WHERE m.status = 'Active'
                         AND m.accepts_optional_communications = 1

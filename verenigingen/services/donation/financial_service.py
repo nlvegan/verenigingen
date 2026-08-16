@@ -166,9 +166,11 @@ class DonationFinancialService(StatelessService):
         # reconcile API on every call. ``company`` was never used in the report
         # below, so it is simply dropped. Mirrors the schema fix in
         # donor_service.get_donor_summary for the same DocType.
+        # WHY no docstatus filter: Donation is not submittable, so every row stays
+        # at docstatus 0 and a ``docstatus = 1`` filter reconciled nothing (#350).
         donations = frappe.get_all(
             "Donation",
-            filters={"paid": 1, "docstatus": 1},
+            filters={"paid": 1},
             fields=["name", "amount", "donation_date"],
         )
 
