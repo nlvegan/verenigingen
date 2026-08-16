@@ -66,7 +66,7 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
             mode.insert()
         return name
 
-    def _make_paid_donation(self, campaign_name, donor, amount, anonymous=0):
+    def _make_paid_donation(self, campaign_name, donor, amount, anonymous=0, cancelled=False):
         donation = frappe.new_doc("Donation")
         donation.donor = donor.name
         donation.amount = amount
@@ -78,6 +78,11 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         donation.anonymous = anonymous
         with patch("frappe.sendmail"):
             donation.insert()
+        if cancelled:
+            # Donation is not submittable, so .cancel() is not a supported route;
+            # this is how a docstatus-2 Donation actually comes into existence.
+            frappe.db.set_value("Donation", donation.name, "docstatus", 2, update_modified=False)
+            donation.reload()
         return donation
 
     # ------------------------------------------------------------------
@@ -190,8 +195,13 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         campaign = self._make_campaign()
         donor = self._make_donor()
         donation = self._make_paid_donation(campaign.name, donor, 100)
+        self._make_paid_donation(campaign.name, donor, 60, cancelled=True)
         result = campaign.get_recent_donations()
-        self.assertEqual([row.name for row in result], [donation.name])
+        self.assertEqual(
+            [row.name for row in result],
+            [donation.name],
+            "expected exactly the live donation: the cancelled one must be excluded",
+        )
         self.assertEqual(result[0].amount, 100)
 
     def test_get_top_donors_aggregates_the_campaign_donation(self):
@@ -200,9 +210,12 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         donor = self._make_donor()
         self._make_paid_donation(campaign.name, donor, 100)
         self._make_paid_donation(campaign.name, donor, 40)
+        self._make_paid_donation(campaign.name, donor, 75, cancelled=True)
         result = campaign.get_top_donors()
         self.assertEqual([row.donor for row in result], [donor.name])
-        self.assertEqual(float(result[0].total_amount), 140.0)
+        self.assertEqual(
+            float(result[0].total_amount), 140.0, "the cancelled donation leaked into the donor total"
+        )
         self.assertEqual(result[0].donation_count, 2)
 
     # ------------------------------------------------------------------
@@ -302,13 +315,18 @@ class TestDonationCampaignCoverage(EnhancedTestCase):
         campaign = self._make_campaign()
         donor = self._make_donor()
         donation = self._make_paid_donation(campaign.name, donor, 250)
+        self._make_paid_donation(campaign.name, donor, 125, cancelled=True)
         # Precondition: the dimension value is set, so the has_field-guarded branch
         # is actually exercised (otherwise the fix path is never reached).
         self.assertTrue(campaign.accounting_dimension_value)
         with self.assertNoErrorLog():
             entries = campaign.get_accounting_entries()
         self.assertIsInstance(entries["gl_entries"], list)
-        self.assertEqual([row.name for row in entries["donations"]], [donation.name])
+        self.assertEqual(
+            [row.name for row in entries["donations"]],
+            [donation.name],
+            "expected exactly the live donation: the cancelled one must be excluded",
+        )
         self.assertEqual(float(entries["total_income"]), 250.0)
 
     # ------------------------------------------------------------------
