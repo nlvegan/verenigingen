@@ -58,7 +58,7 @@ def get_donation_summary(member_name):
         donations = frappe.get_all(
             "Donation",
             filters={"donor_email": member.email},
-            fields=["name", "amount", "status", "paid", "donation_date"],
+            fields=["name", "amount", "status", "paid", "donation_date", "recurring_origin_donation"],
         )
 
         total_donated = 0
@@ -69,7 +69,11 @@ def get_donation_summary(member_name):
             if donation.paid:
                 total_donated += flt(donation.amount)
 
-            if donation.status == "Recurring":
+            # A charge donation (recurring_origin_donation set) is a past
+            # payment under the origin's subscription, not a subscription of
+            # its own -- same distinction get_recurring_donations makes, so
+            # this count matches the list rendered below it on the page.
+            if donation.status == "Recurring" and not donation.recurring_origin_donation:
                 # Check if this recurring donation is still active
                 if is_recurring_donation_active(donation.name):
                     active_recurring += 1
@@ -100,6 +104,10 @@ def get_recurring_donations(member_name):
             filters={
                 "donor_email": member.email,
                 "status": "Recurring",
+                # A donation created from a subscription charge is a past gift,
+                # not a standing arrangement the donor can cancel. Without this
+                # a monthly donor accumulates one identical row per charge.
+                "recurring_origin_donation": ["is", "not set"],
             },
             fields=[
                 "name",

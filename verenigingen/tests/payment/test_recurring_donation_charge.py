@@ -1086,3 +1086,144 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
             frappe.db.get_value("Donation", charge_name, "journal_entry"),
             "the retry did not complete the Journal Entry",
         )
+
+
+class TestDonorPortalRecurringList(EnhancedTestCase):
+    """Keep charge donations out of the donor portal's subscription list.
+
+    Charge donations carry status='Recurring' too (they are what STEP 3/4 of
+    #345 books), so without a discriminator between an origin donation and the
+    charges it spawned, the donor portal would accumulate one identical row --
+    each with its own Cancel button -- per charge, and make two live Mollie
+    calls per row for what is a single subscription.
+
+    get_donation_summary's active_recurring count has the identical defect:
+    it also iterates every status='Recurring' row and would show "4 Active
+    Recurring" directly above a list (fixed by the same change) showing only
+    one subscription card. Both are covered here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # "iDEAL" and "SEPA Direct Debit" are not app fixtures; Donation.mode_of_payment
+        # is a required Link, so a site without them fails these inserts outright.
+        self.ensure_mode_of_payment("iDEAL")
+        self.ensure_mode_of_payment("SEPA Direct Debit")
+        # payment_id is UNIQUE on Donation; every id below carries a per-test
+        # suffix so a leftover row from an interrupted run cannot collide.
+        self.tag = frappe.generate_hash(length=8)
+
+    # --- fixtures -------------------------------------------------------------------
+
+    def _setup_donor(self, email):
+        # self.factory.create_test_donor() does not exist on EnhancedTestCase's
+        # factory (EnhancedTestDataFactory); build the donor the way the classes
+        # above and test_donation_subscription_activation.py do.
+        donor = frappe.new_doc("Donor")
+        donor.donor_name = f"Portal Donor {frappe.generate_hash(length=6)}"
+        donor.donor_email = email
+        donor.donor_type = "Individual"
+        donor.preferred_communication_method = "Email"
+        donor.flags.ignore_validate = True
+        donor.insert(ignore_permissions=True)
+        self.track_test_record("Donor", donor.name)
+        return donor.name
+
+    def _setup_member(self):
+        email = f"portalrec.{frappe.generate_hash(length=8)}@example.com"
+        member = self.create_test_member(first_name="Portal", last_name="Recurring", email=email)
+        # The factory may uniquify the email for isolation; read the stored
+        # value back so the donor built below matches what get_recurring_donations
+        # and get_donation_summary query by (donor_email == member.email).
+        return frappe.get_doc("Member", member.name)
+
+    def _setup_origin_and_charges(self, member_email, charge_count=3):
+        """One subscription: an origin donation plus `charge_count` charges."""
+        donor_name = self._setup_donor(member_email)
+        origin = frappe.get_doc(
+            {
+                "doctype": "Donation",
+                "donor": donor_name,
+                "donor_email": member_email,
+                "donation_date": "2026-06-01",
+                "amount": 25,
+                "mode_of_payment": "iDEAL",
+                "status": "Recurring",
+                "paid": 1,
+                "payment_id": f"tr_portal_origin_{self.tag}",
+                "mollie_subscription_id": f"sub_portal_{self.tag}",
+            }
+        ).insert()
+        self.track_test_record("Donation", origin.name)
+        for i in range(charge_count):
+            charge = frappe.get_doc(
+                {
+                    "doctype": "Donation",
+                    "donor": donor_name,
+                    "donor_email": member_email,
+                    "donation_date": f"2026-{7 + i:02d}-01",
+                    "amount": 25,
+                    "mode_of_payment": "SEPA Direct Debit",
+                    "status": "Recurring",
+                    "paid": 1,
+                    "payment_id": f"tr_portal_charge_{i}_{self.tag}",
+                    "mollie_subscription_id": f"sub_portal_{self.tag}",
+                    "recurring_origin_donation": origin.name,
+                }
+            ).insert()
+            self.track_test_record("Donation", charge.name)
+        return origin
+
+    # --- tests ------------------------------------------------------------------------
+
+    def test_three_charges_show_as_one_recurring_donation(self):
+        from verenigingen.templates.pages.manage_donations import get_recurring_donations
+
+        member = self._setup_member()
+        origin = self._setup_origin_and_charges(member.email)
+
+        # get_recurring_donations calls Mollie per row (directly, and again via
+        # is_recurring_donation_active); patch that boundary so this does not
+        # depend on the gateway.
+        with patch(
+            "verenigingen.templates.pages.manage_donations.get_mollie_subscription_info",
+            return_value={
+                "subscription_status": "active",
+                "next_payment_date": None,
+                "cancelled_date": None,
+            },
+        ):
+            rows = get_recurring_donations(member.name)
+
+        self.assertEqual(
+            [r["name"] for r in rows],
+            [origin.name],
+            "the portal must show the subscription once, not once per charge",
+        )
+
+    def test_summary_counts_the_subscription_once_too(self):
+        from verenigingen.templates.pages.manage_donations import get_donation_summary
+
+        member = self._setup_member()
+        self._setup_origin_and_charges(member.email)
+
+        with patch(
+            "verenigingen.templates.pages.manage_donations.get_mollie_subscription_info",
+            return_value={
+                "subscription_status": "active",
+                "next_payment_date": None,
+                "cancelled_date": None,
+            },
+        ):
+            summary = get_donation_summary(member.name)
+
+        self.assertEqual(
+            summary["active_recurring"],
+            1,
+            "one subscription, not one row per charge",
+        )
+        # Every charge is still a real gift: total_donations/total_donated
+        # must count all four rows (origin + 3 charges), not collapse them --
+        # this discriminator is only for the "how many subscriptions" count.
+        self.assertEqual(summary["total_donations"], 4)
+        self.assertEqual(summary["total_donated"], 100.0)
