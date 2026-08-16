@@ -165,7 +165,7 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         other_donation.reload()
         self.assertEqual(other_donation.amount, 50.0)
 
-    def test_is_recurring_donation_active(self):
+    def test_recurring_donation_state_is_active(self):
         """A Recurring-status, non-Mollie donation is reported active."""
         from verenigingen.templates.pages.manage_donations import (
             RECURRING_STATE_ACTIVE,
