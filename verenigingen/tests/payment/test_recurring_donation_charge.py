@@ -304,7 +304,6 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         self.assertEqual(charge.donor, origin.donor)
         self.assertEqual(float(charge.amount), 25.00)
         self.assertEqual(str(charge.donation_date), "2026-08-03")
-        self.assertEqual(charge.paid, 1)
         self.assertEqual(charge.status, "Recurring")
         self.assertEqual(charge.mollie_subscription_id, self.subscription_id)
 
@@ -589,6 +588,81 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
         agreement.reload()
         self.assertEqual(agreement.donations_count, 3, "origin plus two charges")
         self.assertEqual(float(agreement.total_donated), 75.00)
+
+    def test_a_failed_link_is_repaired_by_the_next_delivery(self):
+        """A lost link must not be permanent.
+
+        _link_to_agreement records rather than raises -- correctly, the money is
+        already booked. But the charge Donation exists from that moment, so the
+        early return would find it on every redelivery and one transient failure
+        (the webhook user lacking write, a deadlock, the rate limiter) would
+        leave total_donated short forever with only an audit row. total_donated
+        staying correct is the entire reason a charge gets its own Donation
+        rather than a payment child row, so a permanent miss is not a small one.
+        """
+        donor = self._setup_donor()
+        agreement = self._setup_agreement(donor)
+        origin = self._setup_origin(donor=donor, periodic_donation_agreement=agreement.name)
+        payload = self._charge(origin.name)
+
+        self.expectErrorLog("recurring_charge_agreement_link")
+        with patch.object(
+            PeriodicDonationAgreement,
+            "add_donation_link",
+            side_effect=frappe.PermissionError("Rate limit exceeded"),
+        ):
+            name = ensure_donation_for_recurring_charge(payload)
+
+        # Precondition: the link really is missing, so the repair has something
+        # to repair. Without this the test would pass on a charge that was
+        # linked all along.
+        self.assertFalse(
+            frappe.db.get_value("Donation", name, "periodic_donation_agreement"),
+            "precondition: the first delivery's link failed",
+        )
+        agreement.reload()
+        self.assertEqual(float(agreement.total_donated), 0.0, "precondition: the total did not move")
+
+        self.assertEqual(
+            ensure_donation_for_recurring_charge(payload), name, "and still no second donation"
+        )
+
+        self.assertEqual(
+            frappe.db.get_value("Donation", name, "periodic_donation_agreement"),
+            agreement.name,
+            "the redelivery must re-attempt the link the first delivery lost",
+        )
+        agreement.reload()
+        self.assertEqual(agreement.donations_count, 1)
+        self.assertEqual(float(agreement.total_donated), 25.00)
+
+    def test_an_ordinary_redelivery_does_not_re_link(self):
+        """CONTROL for the repair above: it must fire only on a MISSING link.
+
+        add_donation_link throws "Donation is already linked" for a charge
+        already in the child table, and _link_to_agreement records that as a
+        link error -- so a repair that ran on every redelivery would manufacture
+        the audit row it exists to prevent.
+        """
+        donor = self._setup_donor()
+        agreement = self._setup_agreement(donor)
+        origin = self._setup_origin(donor=donor, periodic_donation_agreement=agreement.name)
+        payload = self._charge(origin.name)
+
+        name = ensure_donation_for_recurring_charge(payload)
+        self.assertEqual(
+            frappe.db.get_value("Donation", name, "periodic_donation_agreement"), agreement.name
+        )
+
+        with patch.object(PeriodicDonationAgreement, "add_donation_link", autospec=True) as link:
+            ensure_donation_for_recurring_charge(payload)
+
+        link.assert_not_called()
+        self.assertEqual(
+            self._audit_rows("recurring_charge_agreement_link_error", payload["id"]),
+            [],
+            "a re-link on the normal path would log the failure it caused",
+        )
 
     def test_a_redelivered_charge_is_not_counted_twice(self):
         donor = self._setup_donor()

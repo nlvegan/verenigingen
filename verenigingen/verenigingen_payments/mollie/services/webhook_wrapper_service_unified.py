@@ -1440,11 +1440,23 @@ class UnifiedWebhookWrapperService:
             # it. Without a retry that donor holds a subscription this system
             # cannot see. The cost of guessing wrong is a bounded number of
             # re-deliveries that refuse identically.
+            #
+            # The two *_bad_request / *_key_conflict names come from
+            # payment_gateways._permanent_refusal_reason: Mollie answered 400, so
+            # the request as sent is unacceptable and every redelivery sends the
+            # identical request. Retrying one runs the full 10-attempt / 26-hour
+            # ladder against a refusal that cannot change.
             reason = (result or {}).get("reason")
             return {
                 "status": "error",
                 "permanent": reason
-                in ("invalid_interval", "missing_subscription_details", "missing_customer_id"),
+                in (
+                    "invalid_interval",
+                    "missing_subscription_details",
+                    "missing_customer_id",
+                    "idempotency_key_conflict",
+                    "mollie_bad_request",
+                ),
                 "reason": reason,
                 "message": (result or {}).get("message") or f"activation failed: {result}",
             }

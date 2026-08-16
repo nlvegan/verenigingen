@@ -52,14 +52,31 @@ class TestDonationPaymentIdUniqueness(EnhancedTestCase):
         stored = frappe.db.sql("SELECT payment_id FROM `tabDonation` WHERE name = %s", donation.name)[0][0]
         self.assertIsNone(stored, "an empty payment_id must be NULL or the unique index blocks it")
 
-    def test_an_explicitly_blank_payment_id_is_normalised_to_null(self):
-        # Frappe leaves a field NULL only when the key is absent from the
-        # document; an explicitly assigned '' is persisted verbatim (measured).
-        # validate() must turn it into None, or the second such donation
-        # collides under the unique index.
+    def test_validate_normalises_an_explicitly_blank_payment_id_in_memory(self):
+        """What Donation.validate()'s normalisation hunk actually adds.
+
+        The earlier version of this test asserted the STORED value was NULL and
+        credited validate() for it. That claim is false: base_document.py:566-568
+        maps '' -> None for any field the meta marks unique, so the row is NULL
+        with the validate() hunk deleted. The test passed either way.
+
+        What the hunk does add is the in-memory document: after validate(), the
+        object a caller still holds reads None rather than '', so a subsequent
+        db_set/save round-trip cannot re-introduce ''. The framework guarantee is
+        pinned separately below, as a framework guarantee.
+        """
+        donation = self._donation(payment_id="")
+        donation.insert()
+        self.assertIsNone(donation.payment_id, "validate() must blank '' on the in-memory document")
+
+    def test_the_framework_stores_a_blank_unique_field_as_null(self):
+        # Not this branch's doing: base_document.py:566-568 maps '' -> None for
+        # any `unique` field, which is what keeps a second payment_id-less
+        # donation from colliding. Pinned because the whole NULL-vs-'' design
+        # rests on it, not because our code implements it.
         donation = self._donation(payment_id="").insert()
         stored = frappe.db.sql("SELECT payment_id FROM `tabDonation` WHERE name = %s", donation.name)[0][0]
-        self.assertIsNone(stored, "an explicitly blank payment_id must be normalised to NULL")
+        self.assertIsNone(stored, "an explicitly blank payment_id must be stored as NULL")
 
     def test_many_donations_may_have_no_payment_id(self):
         # The case the constraint must NOT break: manually entered donations.
@@ -73,17 +90,39 @@ class TestDonationPaymentIdUniqueness(EnhancedTestCase):
         )
 
     def test_the_unique_index_exists(self):
+        # seq_in_index = 1 plus a one-column count, not merely "some unique index
+        # touches this column": a composite UNIQUE (payment_id, donor) would
+        # satisfy the looser query while permitting exactly the duplicate charge
+        # this constraint exists to block.
         rows = frappe.db.sql(
             """
-            SELECT index_name, non_unique
+            SELECT index_name
             FROM information_schema.statistics
             WHERE table_schema = DATABASE()
               AND table_name = 'tabDonation'
               AND column_name = 'payment_id'
               AND non_unique = 0
+              AND seq_in_index = 1
             """
         )
-        self.assertTrue(rows, "no unique index on Donation.payment_id — has the schema sync run?")
+        self.assertTrue(rows, "no unique index led by Donation.payment_id — has the schema sync run?")
+        widths = frappe.db.sql(
+            """
+            SELECT index_name, COUNT(*)
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = 'tabDonation'
+              AND index_name IN (%s)
+            GROUP BY index_name
+            """
+            % ", ".join(["%s"] * len(rows)),
+            tuple(row[0] for row in rows),
+        )
+        self.assertTrue(
+            any(width == 1 for _name, width in widths),
+            f"the unique index on payment_id is composite ({widths}); a composite one constrains "
+            "the pair, not the charge id, so two donations could still share a payment_id",
+        )
 
     def test_a_second_donation_with_the_same_payment_id_is_rejected(self):
         # Randomised, not a fixed literal: payment_id is now unique site-wide, so

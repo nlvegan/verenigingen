@@ -345,8 +345,9 @@ class PeriodicDonationAgreement(Document):
         in an hour would start raising VPermissionError partway through -- and
         the caller there records the failure rather than throwing, so the
         agreement's total_donated would silently stop moving for the remainder.
-        Redelivery would not repair it either: the charge donation already
-        exists by then, so the booking path early-exits before the link.
+        A redelivery does re-attempt the link (recurring_donation_charge.
+        _repair_agreement_link), but only if Mollie re-delivers that charge --
+        which it will not once the webhook has answered 200.
 
         The rate limit is invisible under test (``rate_limit_engine`` returns
         allowed unconditionally when ``frappe.flags.in_test``), which is why it

@@ -35,6 +35,7 @@ from unittest.mock import patch
 from urllib.parse import urlparse
 
 import frappe
+from mollie.api.error import BadRequestError
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
@@ -77,6 +78,11 @@ class _FakeSubscriptionsResource:
     survives, exactly as it does in reality. A fake whose key cache never expired
     would be more forgiving than the real API in the one dimension that matters
     -- time -- and would report the durable guard as working when it is not.
+
+    It also 400s a reused key whose PAYLOAD differs, which is the other way the
+    real API is less forgiving than a naive cache. Without that, the
+    mid-ladder-payload-change hazard the production comments argue in prose was
+    tested by nothing.
     """
 
     def __init__(
@@ -112,7 +118,22 @@ class _FakeSubscriptionsResource:
     def create(self, data=None, idempotency_key="", **kwargs):
         payload = data if data is not None else kwargs
         if idempotency_key and idempotency_key in self._seen_keys:
-            existing = self._seen_keys[idempotency_key]
+            existing, cached_payload = self._seen_keys[idempotency_key]
+            if cached_payload != payload:
+                # Mollie replays a key only for the request it first saw; a reused
+                # key whose parameters differ is answered 400 (documented, and
+                # cited by _get_or_create_subscription's own comments -- NOT
+                # re-measured here, the probe needs a live account). The `detail`
+                # wording is illustrative: production classifies on the 400 status
+                # via the exception class, never on this text.
+                raise BadRequestError(
+                    {
+                        "status": 400,
+                        "title": "Bad Request",
+                        "detail": "Idempotency key already used with different request parameters",
+                    },
+                    idempotency_key=idempotency_key,
+                )
             return self._live[existing]
 
         subscription_id = f"sub_FAKE{len(self._recorder) + 1:04d}"
@@ -124,7 +145,9 @@ class _FakeSubscriptionsResource:
         )
         self._live[subscription_id] = created
         if idempotency_key:
-            self._seen_keys[idempotency_key] = subscription_id
+            # The payload is stored alongside the id: a key replay is only a
+            # replay when the request is the same one.
+            self._seen_keys[idempotency_key] = (subscription_id, payload)
 
         if self._fail_after_create:
             # Mollie committed the subscription; the response never arrived.
@@ -751,6 +774,67 @@ class TestDonationSubscriptionActivation(EnhancedTestCase):
             "A donor who asked for a recurring donation stays Recurring even when "
             "activation failed, so a follow-up sweep can find them",
         )
+        self.assertFalse(frappe.db.get_value("Donation", self.donation_name, "mollie_subscription_id"))
+
+    def test_a_reused_idempotency_key_with_a_changed_payload_is_not_retried(self):
+        """The design requirement that reached no task (design.md:173).
+
+        Mollie 400s a reused Idempotency-Key whose parameters differ. That is
+        exactly what a deploy landing mid-ladder produces: attempt 1 sent the
+        old payload, attempt 5 sends one carrying webhookUrl, under the same
+        deterministic key ``donsub-<payment id>``. The 400 used to fall into the
+        broad except and return an error dict with NO reason, and an
+        unrecognised reason is treated as retryable -- so Mollie would run the
+        remaining attempts of its 10-attempt / 26-hour ladder against a refusal
+        that is identical every time.
+
+        The setup below is the one case the durable guard cannot cover: Mollie
+        holds the key from the earlier attempt, and the subscription it created
+        carries no ``metadata.payment_id`` fingerprint, so
+        _find_subscription_for_payment cannot adopt it and the create is reached.
+
+        Control lives one test up the file: test_transient_activation_failure_
+        asks_mollie_to_retry drives a ConnectionError through the same code and
+        gets permanent=False, so "everything is permanent now" would be caught.
+        """
+        self.expectErrorLog(
+            "Mollie Direct Subscription Creation",
+            "Mollie Donation Subscription Activation",
+        )
+
+        # An earlier attempt in this same ladder, before the deploy: the key is
+        # in Mollie's cache against a payload that had no webhookUrl, and the
+        # subscription it produced carries no payment_id fingerprint.
+        stale = SimpleNamespace(id="sub_PREDEPLOY", status="active", metadata={})
+        self.live_subscriptions["sub_PREDEPLOY"] = stale
+        self.seen_idempotency_keys[f"donsub-{self.payment_id}"] = (
+            "sub_PREDEPLOY",
+            {"interval": "3 months", "description": "an older payload"},
+        )
+
+        result = self._run_webhook(interval="3 months")
+
+        self.assertEqual(
+            self.created_subscriptions, [], "the 400 means Mollie created nothing on this attempt"
+        )
+        activation = result.get("subscription_activation", {})
+        self.assertEqual(
+            activation.get("reason"),
+            "idempotency_key_conflict",
+            f"the 400 must be named, or it cannot be classified: {result}",
+        )
+        self.assertIs(
+            activation.get("permanent"),
+            True,
+            "a 400 is refused identically on every redelivery; retrying it burns the ladder",
+        )
+        self.assertEqual(
+            result["status"],
+            "success",
+            f"the payment is recorded and Mollie must NOT be asked to re-deliver; got {result}",
+        )
+        # Same reasoning as the invalid-interval test: the donor stays findable.
+        self.assertEqual(frappe.db.get_value("Donation", self.donation_name, "status"), "Recurring")
         self.assertFalse(frappe.db.get_value("Donation", self.donation_name, "mollie_subscription_id"))
 
 

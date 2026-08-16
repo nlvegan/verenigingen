@@ -1425,6 +1425,32 @@ def _find_subscription_for_payment(customer, payment_id, log_category):
     return None
 
 
+def _permanent_refusal_reason(error):
+    """Name a Mollie refusal a webhook redelivery cannot get past, else None.
+
+    A Mollie 400 says the request as sent is unacceptable. Every redelivery in
+    the retry ladder sends the identical request, so it is refused identically
+    -- ten attempts over twenty-six hours buying nothing but Error Log noise.
+    Without a name here the reason is absent from the error dict, and
+    ``_activate_donation_subscription``'s permanent-reason list treats an
+    unrecognised reason as retryable.
+
+    The 400 this path exists to survive is a reused Idempotency-Key whose
+    payload changed -- see ``_get_or_create_subscription``, and the design note
+    at docs/superpowers/specs/2026-08-15-recurring-donation-charges-design.md.
+    It is named apart from any other 400 because only a keyed request carries
+    the key back on the error: the SDK copies it from the failing request
+    (``ResponseError.factory(result, idempotency_key)``), and a GET sends none.
+    Neither name changes the classification -- both are permanent -- so a 400
+    from somewhere else is still handled correctly, just under the other name.
+    """
+    from mollie.api.error import BadRequestError
+
+    if not isinstance(error, BadRequestError):
+        return None
+    return "idempotency_key_conflict" if getattr(error, "idempotency_key", "") else "mollie_bad_request"
+
+
 def _get_or_create_subscription(customer, payment_id, subscription_data, *, key_prefix, log_category):
     """Adopt the live subscription this payment already has at Mollie, or create it.
 
@@ -1602,7 +1628,8 @@ def _activate_direct_subscription_after_first_payment(gateway, payment):
             f"Error creating direct subscription after first payment: {str(e)}",
             "Mollie Direct Subscription Creation",
         )
-        return create_error_response(str(e))
+        reason = _permanent_refusal_reason(e)
+        return create_error_response(str(e), {"reason": reason} if reason else None)
 
 
 def _activate_donation_subscription_after_first_payment(gateway, payment):
@@ -1702,7 +1729,8 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
             f"Error creating donation subscription after first payment: {str(e)}",
             "Mollie Donation Subscription Creation",
         )
-        return create_error_response(str(e))
+        reason = _permanent_refusal_reason(e)
+        return create_error_response(str(e), {"reason": reason} if reason else None)
 
 
 @frappe.whitelist()

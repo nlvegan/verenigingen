@@ -286,6 +286,16 @@ def cancel_recurring_donation():
         if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only cancel your own donations"))
 
+        # A charge donation satisfies every other gate below: it carries
+        # status="Recurring" and the SAME mollie_subscription_id, so the liveness
+        # check asks Mollie about the real subscription and gets "active".
+        # Cancelling it would stamp recurring_cancelled_date on one past payment
+        # and leave the subscription charging. The donor is handed these ids --
+        # send_payment_confirmation_email puts the charge's document name in its
+        # context every period -- so this is reachable without guessing.
+        if donation.recurring_origin_donation:
+            frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
+
         # Verify it's a recurring donation
         if donation.status != "Recurring":
             frappe.throw(_("This is not a recurring donation"))
@@ -375,6 +385,17 @@ def update_recurring_donation():
         # an anonymous / email-less donation ("" == "").
         if not donation.donor_email or not member.email or donation.donor_email != member.email:
             frappe.throw(_("You can only update your own donations"))
+
+        # A charge donation passes every other gate below (status "Recurring",
+        # the origin's mollie_subscription_id, so the liveness check reports the
+        # real subscription as active), and the db_set at the end of this
+        # function does NOT check whether the row is already booked. Updating one
+        # would rewrite the historical amount of a settled record -- the Journal
+        # Entry, the GL and the agreement's child row would keep the real figure
+        # while the Donation claimed another. The donor is handed these ids:
+        # send_payment_confirmation_email carries the charge's document name.
+        if donation.recurring_origin_donation:
+            frappe.throw(_("This is a past charge, not the recurring donation. Use the subscription itself."))
 
         # Verify it's a recurring donation
         if donation.status != "Recurring":

@@ -97,6 +97,9 @@ def ensure_donation_for_recurring_charge(payment: Any) -> Optional[str]:
 
     existing = _donation_for_charge(payment_id)
     if existing:
+        # Not an unconditional short-circuit: a link that failed on an earlier
+        # delivery is repaired here or never. See _repair_agreement_link.
+        _repair_agreement_link(existing, payment_id)
         return existing
 
     origin = DonationLookup().find_for_subscription_payment(payment_id, payment=payment)
@@ -120,17 +123,57 @@ def _donation_for_charge(payment_id: str) -> Optional[str]:
     return frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
 
 
+def _repair_agreement_link(charge_name: str, payment_id: str) -> None:
+    """Re-attempt an agreement link that failed on an earlier delivery.
+
+    ``_link_to_agreement`` records a failure rather than raising -- correctly,
+    since the money is already booked. But the charge Donation exists by then,
+    so every redelivery finds it and returns, and one transient failure (the
+    webhook user lacking write, a deadlock, a rate limit) would leave the
+    agreement's ``total_donated`` permanently short with only an audit row.
+    ``total_donated`` staying correct is the entire reason a charge gets its own
+    Donation instead of a payment child row, so the repair belongs on the path
+    Mollie already re-drives.
+
+    Only runs when the charge carries no agreement while its origin does, so an
+    ordinary redelivery still short-circuits. ``add_donation_link`` throws
+    "Donation is already linked" on a charge that IS in the child table, which
+    would be recorded as a link error -- hence the narrow condition rather than
+    relying on that throw.
+    """
+    charge = frappe.db.get_value(
+        "Donation",
+        charge_name,
+        ["periodic_donation_agreement", "recurring_origin_donation"],
+        as_dict=True,
+    )
+    if not charge or charge.periodic_donation_agreement or not charge.recurring_origin_donation:
+        return
+
+    origin = frappe.db.get_value(
+        "Donation", charge.recurring_origin_donation, ["name", "periodic_donation_agreement"], as_dict=True
+    )
+    if not origin or not origin.periodic_donation_agreement:
+        return
+
+    _link_to_agreement(charge_name, origin, payment_id)
+
+
 def _insert_charge_donation(payment, origin, payment_id: str, subscription_id: str) -> str:
     charge = frappe.new_doc("Donation")
     charge.update(_charge_values(payment, origin, payment_id, subscription_id))
 
     try:
-        # Security: runs from the Mollie webhook, which is authenticated by HMAC
-        # signature before this is reached and executes as Guest. There is no
-        # user to hold a Donation:create permission, and refusing to record a
-        # charge Mollie has already collected is the failure this issue is about.
-        # Every field written here comes from the verified payment or from the
-        # origin donation, never from a request body.
+        # Runs from the Mollie webhook, authenticated before this is reached.
+        # NOT as Guest -- webhook_security.py:93 calls
+        # frappe.set_user(webhook_user), so this executes as the configured
+        # service user (see add_donation_link's docstring, which relies on the
+        # same fact). Every field written here comes from the verified payment
+        # or from the origin donation, never from a request body.
+        #
+        # Security: ignore_permissions because nothing guarantees that service
+        # user holds Donation:create, and refusing to record a charge Mollie
+        # has already collected is the failure this issue is about.
         charge.insert(ignore_permissions=True)
     except Exception as e:
         # The unique constraint on payment_id is the real concurrency guard, which
