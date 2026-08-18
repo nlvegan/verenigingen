@@ -896,13 +896,20 @@ class UnifiedWebhookWrapperService:
 
         parsed_date = self._parse_reversal_date(reversal_date)
 
-        # Take the currency from the account we are booking against rather than
-        # hardcoding EUR. ERPNext rejects a Bank Transaction whose currency differs
-        # from its Bank Account's, and a hardcoded literal is invisible until it
-        # meets a company that is not in that currency.
-        currency = frappe.db.get_value("Bank Account", config["bank_account"], "account_currency") or (
-            frappe.db.get_value("Company", config["company"], "default_currency")
-        )
+        # Take the currency from the GL account we are booking against rather than
+        # hardcoding EUR: ERPNext rejects a Bank Transaction whose currency differs
+        # from its account's, and a hardcoded literal is invisible until it meets a
+        # company that is not in that currency.
+        #
+        # Resolve it the way ERPNext does -- Bank Account -> Account.account_currency
+        # (bank_transaction.py:69). `Bank Account` itself has NO account_currency
+        # field, so reading one off it raises OperationalError 1054 rather than
+        # returning a falsy value, and no `or` fallback can rescue that.
+        currency = None
+        gl_account = frappe.db.get_value("Bank Account", config["bank_account"], "account")
+        if gl_account:
+            currency = frappe.db.get_value("Account", gl_account, "account_currency")
+        currency = currency or frappe.db.get_value("Company", config["company"], "default_currency")
 
         bank_transaction_name = bt_creator.create_from_dict(
             transaction_data={
