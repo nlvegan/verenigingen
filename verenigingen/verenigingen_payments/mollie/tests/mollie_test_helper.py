@@ -366,9 +366,11 @@ def _ensure_mollie_clearing_configuration(company: str) -> None:
     if not frappe.db.get_value("Bank Account", {"account": gl_account}, "name"):
         bank = frappe.db.get_value("Bank", {}, "name")
         if not bank:
-            bank = frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"}).insert(
-                ignore_permissions=True
-            ).name
+            bank = (
+                frappe.get_doc({"doctype": "Bank", "bank_name": "Mollie Test Bank"})
+                .insert(ignore_permissions=True)
+                .name
+            )
         frappe.get_doc(
             {
                 "doctype": "Bank Account",
@@ -389,9 +391,7 @@ def _ensure_mollie_clearing_configuration(company: str) -> None:
     # "Mollie" account than the one the config service reports. Only correct it
     # when it is actually inconsistent, so an already-valid setup is left alone.
     configured = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
-    configured_company = (
-        frappe.db.get_value("Account", configured, "company") if configured else None
-    )
+    configured_company = frappe.db.get_value("Account", configured, "company") if configured else None
     if configured_company != company:
         frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", gl_account)
         _invalidate_mollie_settings_cache()
