@@ -350,6 +350,13 @@ def cancel_recurring_donation():
                 frappe.log_error(
                     "Mollie integration not available for subscription cancellation", "Manage Donations"
                 )
+            except frappe.ValidationError:
+                # The "Failed to cancel Mollie subscription" throw above is deliberate and
+                # already carries Mollie's reason. The handler below would catch it and
+                # re-wrap it as an "Error cancelling..." message, so the donor saw the
+                # reason twice, relabelled as an unexpected error.
+                raise
+
             except Exception as e:
                 frappe.log_error(f"Error cancelling Mollie subscription: {str(e)}", "Manage Donations")
                 frappe.throw(_("Error cancelling Mollie subscription: {0}").format(str(e)))
@@ -372,6 +379,14 @@ def cancel_recurring_donation():
             "message": _("Recurring donation cancelled successfully"),
             "donation_id": donation_id,
         }
+
+    except (frappe.ValidationError, frappe.PermissionError):
+        # Every refusal above is a deliberate, translated frappe.throw. Letting the
+        # blanket handler below catch them replaced all of them with one catch-all
+        # sentence, so the donor was never told what actually went wrong and the
+        # guards were indistinguishable from outside the endpoint. Both classes are
+        # needed: frappe.PermissionError does NOT subclass frappe.ValidationError.
+        raise
 
     except Exception as e:
         frappe.log_error(f"Recurring donation cancellation error: {str(e)}", "Manage Donations")
@@ -444,6 +459,11 @@ def update_recurring_donation():
                     "Mollie integration not available for subscription update", "Manage Donations"
                 )
                 frappe.throw(_("Mollie subscription update not available. Please contact support."))
+            except frappe.ValidationError:
+                # See cancel_recurring_donation: the deliberate "Failed to update Mollie
+                # subscription" throw above must not be re-wrapped by the handler below.
+                raise
+
             except Exception as e:
                 frappe.log_error(f"Error updating Mollie subscription: {str(e)}", "Manage Donations")
                 frappe.throw(_("Error updating Mollie subscription: {0}").format(str(e)))
@@ -466,6 +486,11 @@ def update_recurring_donation():
             "old_amount": old_amount,
             "new_amount": new_amount,
         }
+
+    except (frappe.ValidationError, frappe.PermissionError):
+        # See cancel_recurring_donation: the endpoint's own refusals must reach the
+        # donor unchanged instead of being genericised by the handler below.
+        raise
 
     except Exception as e:
         frappe.log_error(f"Recurring donation update error: {str(e)}", "Manage Donations")
