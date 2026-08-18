@@ -5,6 +5,7 @@ Tests using the Enhanced Test Factory to validate service infrastructure
 components with realistic business data and proper field validation.
 """
 
+import contextlib
 import time
 from unittest.mock import patch
 
@@ -395,3 +396,36 @@ class ServiceFieldValidatorFailureTests(EnhancedTestCase):
         )
         # A subsequent healthy call must succeed rather than replay the failure.
         self.assertTrue(validator.get_doctype_meta("Member"))
+
+    def test_a_transient_field_lookup_failure_does_not_stick(self):
+        """One failed lookup must not disable field validation for the whole process.
+
+        `get_valid_fields` used to write `set()` into `_field_cache` on failure.
+        The validator is a module-level singleton, so that empty set outlived the
+        outage: every later call short-circuited on the cache and reported EVERY
+        field as invalid, which makes `BaseDataService.safe_query` raise.
+        """
+        validator = self._validator()
+
+        with patch.object(frappe, "get_meta", side_effect=RuntimeError("database is down")):
+            # Tolerate either shape of failure -- this test is about what happens
+            # AFTER the outage, not about how the outage is reported.
+            with contextlib.suppress(RuntimeError):
+                validator.get_valid_fields("Member")
+
+        # frappe.get_meta is healthy again from here on.
+        recovered = validator.get_valid_fields("Member")
+        self.assertIn(
+            "email",
+            recovered,
+            "the failed lookup was cached, so field validation stays broken for this DocType",
+        )
+
+    def test_field_lookup_failure_raises_instead_of_returning_an_empty_set(self):
+        """`set()` is indistinguishable from "this DocType has no fields"."""
+        validator = self._validator()
+        with patch.object(frappe, "get_meta", side_effect=RuntimeError("database is down")):
+            with self.assertRaises(RuntimeError):
+                validator.get_valid_fields("Member")
+
+        self.assertNotIn("fields_Member", validator._field_cache)

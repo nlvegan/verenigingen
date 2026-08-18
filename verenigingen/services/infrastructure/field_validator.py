@@ -150,9 +150,14 @@ class ServiceFieldValidator:
             return valid_fields
 
         except Exception as e:
+            # Do NOT cache the failure, and do not return an empty set: `set()` is
+            # the "this DocType has no fields" answer, so every later check reports
+            # every field invalid and `safe_query` raises. Cached, that verdict
+            # outlives the outage for the life of the process. Same shape as
+            # get_doctype_meta above; validate_fields turns the raise into a result
+            # that names the real cause.
             self.logger.warning(f"Could not get fields for DocType {doctype}: {str(e)}")
-            self._field_cache[cache_key] = set()
-            return set()
+            raise
 
     def validate_query_fields(self, doctype: str, query_dict: Dict) -> Dict[str, Any]:
         """Validate fields used in a query dictionary.
