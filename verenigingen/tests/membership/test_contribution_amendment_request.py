@@ -296,8 +296,14 @@ class TestContributionAmendmentRequest(VereningingenTestCase):
     # ------------------------------------------------------------------ validate_amount_changes guards
 
     def test_amendment_rejects_zero_requested_amount(self):
-        with self.assertRaises(frappe.ValidationError):
+        # Assert the message, not just the exception type: every guard in
+        # validate_amount_changes raises the same frappe.ValidationError, and the
+        # minimum-fee guard catches low amounts last. Without this assertion the
+        # test stayed green with the "> 0" guard deleted. No input can isolate
+        # that guard, since any amount <= 0 is also below the minimum fee (#363).
+        with self.assertRaises(frappe.ValidationError) as raised:
             self._insert_amendment(requested_amount=0)
+        self.assertIn("must be greater than 0", str(raised.exception))
 
     def test_amendment_rejects_same_amount(self):
         # current_amount comes from the active dues schedule; requesting exactly
