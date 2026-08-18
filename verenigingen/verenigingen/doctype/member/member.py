@@ -460,10 +460,36 @@ class Member(
         if not self.customer and self.email:
             # Lazy import to avoid circular dependency
             from verenigingen.services.customer_handling_service import CustomerHandlingService
+            from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
-            customer_name = CustomerHandlingService().create_customer_for_member(
-                self, suppress_messages=False
-            )
+            try:
+                customer_name = CustomerHandlingService().create_customer_for_member(
+                    self, suppress_messages=False
+                )
+            except Exception as error:
+                # A failed Customer must not take the Member with it. A member
+                # without one is a supported, repairable state here: customer is not
+                # reqd, an email-less member never gets one at all, and the form
+                # offers a "Create Customer" button whenever member.customer is
+                # empty. Aborting the insert instead loses the member outright.
+                #
+                # The reason is re-surfaced rather than swallowed - the service
+                # raises deliberate frappe.throw() messages ("Insufficient
+                # permissions to create Customer") that the user needs to see.
+                if isinstance(getattr(error, "original_error", None) or error, NON_RESUMABLE_DB_ERRORS):
+                    # 1213/1205: the server has already destroyed the transaction, so
+                    # keeping the Member would name a row that no longer exists.
+                    raise
+                frappe.log_error(
+                    message=f"Member {self.name} inserted without a Customer: {error}",
+                    title="Member customer creation failed",
+                )
+                frappe.msgprint(
+                    _("The member was saved, but no customer record could be created: {0}").format(error),
+                    title=_("Customer not created"),
+                    indicator="orange",
+                )
+                return
             if customer_name:
                 self.customer = customer_name
                 # Security: Direct db_set required in after_insert hook.
