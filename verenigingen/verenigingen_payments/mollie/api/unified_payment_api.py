@@ -395,6 +395,23 @@ def handle_refund_webhook():
         refund_amount = safe_extract_amount(webhook_data)
         refund_date = safe_extract_date(webhook_data)
 
+        # This refund may already have been booked by the payment-webhook sweep as a
+        # Bank Transaction + Journal Entry. Report that as idempotent success: a
+        # non-2xx here would make Mollie redeliver (~10 times over 26h) something
+        # that is already correctly booked.
+        from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
+
+        reversal_key = build_reversal_key(ids["payment_id"], "refund", ids["refund_id"])
+        already_booked = find_booked_reversal(reversal_key)
+        if already_booked:
+            return standardized_webhook_response(
+                "success",
+                f"Refund {ids['refund_id']} already booked as {already_booked[0]} {already_booked[1]}",
+                payment_id=ids["payment_id"],
+                refund_id=ids["refund_id"],
+                idempotent=True,
+            )
+
         # Create refund Payment Entry
         refund_pe = create_refund_payment_entry(
             donation_doc=donation_doc,

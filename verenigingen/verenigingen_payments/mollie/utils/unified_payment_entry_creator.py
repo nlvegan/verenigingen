@@ -55,6 +55,22 @@ def create_unified_payment_entry(
         # Build reference number with suffix for refunds
         reference_no = mollie_payment_id + reference_suffix
 
+        # A reversal may already have been booked as a DIFFERENT artefact under this
+        # same key -- the payment-webhook sweep books Bank Transaction + Journal
+        # Entry, this route books a Payment Entry. The check below only ever looked
+        # at Payment Entry, so a refund already booked as a Journal Entry was booked
+        # a second time here (#370). Only reversals are affected: a forward payment
+        # is not booked by two routes.
+        if payment_type == "Pay":
+            from .reversal_idempotency import find_booked_reversal
+
+            already = find_booked_reversal(reference_no)
+            if already:
+                frappe.logger().info(
+                    f"⚠️ Reversal {reference_no} already booked as {already[0]} {already[1]} - not booking again"
+                )
+                return None
+
         # Check if Payment Entry already exists (UNIFIED IDEMPOTENCY)
         existing_pe = frappe.db.get_value(
             "Payment Entry",
