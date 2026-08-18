@@ -49,3 +49,78 @@ def find_booked_reversal(reversal_key: str) -> Optional[Tuple[str, str]]:
             return doctype, existing
 
     return None
+
+
+# --------------------------------------------------------------------------
+# What did the FORWARD payment book?
+# --------------------------------------------------------------------------
+#
+# The reversal path used to ask "is there a Payment Entry for this payment?" and
+# treat "no" as "the payment does not exist". Donations book a Journal Entry, so
+# that question answered "no" for every donation and the endpoint reported
+# "original payment not found" (#370).
+#
+# It also used to decide the payment's TYPE by re-running PaymentClassifier over
+# the Mollie payment object. That is not stable over time: the donation forward
+# path overwrites Donor.mollie_subscription_id / mollie_customer_id on every
+# webhook, Member.mollie_subscription_id is cleared on cancellation and
+# overwritten on re-subscription, and the keyword rule reads editable settings.
+# Chargeback windows run months, so a reversal could classify differently from
+# the booking it is meant to reverse. What was booked is already a recorded fact;
+# read that instead of re-deriving it.
+
+#: More than one type appears to have booked this payment.
+AMBIGUOUS = "ambiguous"
+
+
+def find_booked_payment(payment_id: str) -> Optional[Tuple[str, str, str]]:
+    """What did the forward payment book? ``(payment_type, doctype, name)`` or None.
+
+    ``payment_type`` is ``"donation"``, ``"dues"``, or :data:`AMBIGUOUS`.
+    ``doctype``/``name`` identify the artefact that booked it.
+
+    Submitted only, deliberately: a draft forward booking is not a payment. This
+    is the opposite of :func:`find_booked_reversal`, which counts drafts because
+    it is answering "is a booking already in flight?".
+
+    **The Donation record decides donation-ness, not the artefact shape.** Today a
+    donation books a Journal Entry and dues book a Payment Entry, so it is
+    tempting to read the type straight off the doctype -- but donations booked as
+    Payment Entries exist (that was the older donation flow, and the refund /
+    chargeback integration fixtures still build one). Reading the artefact alone
+    misfiles such a donation as dues and reverses it against a membership
+    invoice that money never paid. So: ask whether a Donation claims this
+    payment, then ask what booked it.
+    """
+    if not payment_id:
+        return None
+
+    donation = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
+    journal_entry = frappe.db.get_value("Journal Entry", {"cheque_no": payment_id, "docstatus": 1}, "name")
+    payment_entry = frappe.db.get_value(
+        "Payment Entry",
+        {"reference_no": payment_id, "payment_type": "Receive", "docstatus": 1},
+        "name",
+    )
+
+    if donation:
+        # A donation booked as BOTH is genuinely ambiguous: we cannot tell which
+        # one carries the money without guessing, and guessing is how this bug
+        # class started.
+        if journal_entry and payment_entry:
+            return (AMBIGUOUS, "Journal Entry", journal_entry)
+        if journal_entry:
+            return ("donation", "Journal Entry", journal_entry)
+        if payment_entry:
+            return ("donation", "Payment Entry", payment_entry)
+        return None
+
+    if payment_entry:
+        return ("dues", "Payment Entry", payment_entry)
+    if journal_entry:
+        # A donation-shaped booking with no Donation behind it. Report it as a
+        # donation so the caller hits its orphaned-booking branch and says so,
+        # rather than silently treating it as dues.
+        return ("donation", "Journal Entry", journal_entry)
+
+    return None

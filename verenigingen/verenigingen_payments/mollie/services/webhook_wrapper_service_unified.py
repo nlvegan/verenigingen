@@ -851,6 +851,92 @@ class UnifiedWebhookWrapperService:
                 "duration_seconds": duration,
             }
 
+    def _book_donation_reversal(
+        self,
+        donation_doc,
+        payment_id: str,
+        reversal_type: str,
+        reversal_id: str,
+        amount: float,
+        reversal_date: Optional[str],
+        description: str,
+    ) -> Optional[str]:
+        """Book a donation reversal the way the forward donation path books: BT + JE.
+
+        The reversal must mirror the artefact the forward payment created. A
+        donation is booked as a Journal Entry, so reversing it with a Payment Entry
+        left the income reversed by a different mechanism than it was recognised by,
+        and made the two reversal routes mutually invisible (#370).
+
+        Returns the Journal Entry name, or None on failure.
+        """
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
+        )
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
+
+        from ..utils.reversal_idempotency import build_reversal_key
+
+        reference = build_reversal_key(payment_id, reversal_type, reversal_id)
+        bt_creator = get_bank_transaction_creator()
+        config = bt_creator.get_mollie_bank_account_config()
+        if config.get("error"):
+            self.logger.error(f"❌ Mollie config error for {reversal_type}: {config['error']}")
+            return None
+
+        party_type = party = bank_party_name = None
+        if donation_doc.donor:
+            donor = frappe.db.get_value("Donor", donation_doc.donor, ["donor_name", "customer"], as_dict=True)
+            if donor:
+                bank_party_name = donor.get("donor_name")
+                if donor.get("customer"):
+                    party_type, party = "Customer", donor.get("customer")
+
+        parsed_date = self._parse_reversal_date(reversal_date)
+
+        bank_transaction_name = bt_creator.create_from_dict(
+            transaction_data={
+                "date": parsed_date,
+                "amount": -float(amount),  # withdrawal: money leaves the clearing account
+                "currency": "EUR",
+                "reference_number": reference,
+                "description": f"Mollie {reversal_type.capitalize()}: {donation_doc.name} | {reversal_id}",
+                "party_type": party_type,
+                "party": party,
+                "bank_party_name": bank_party_name,
+            },
+            bank_account=config["bank_account"],
+            company=config["company"],
+            source_type=f"Mollie {reversal_type.capitalize()}",
+        )
+        if not bank_transaction_name:
+            self.logger.error(f"❌ Failed to create Bank Transaction for {reversal_type} {reversal_id}")
+            return None
+
+        return get_donation_refund_journal_entry_creator().create_refund_journal_entry(
+            refund_id=reversal_id,
+            refund_amount=amount,
+            refund_date=reversal_date,
+            donation_doc=donation_doc,
+            original_payment_id=payment_id,
+            bank_transaction_name=bank_transaction_name,
+            reversal_type=reversal_type,
+        )
+
+    @staticmethod
+    def _parse_reversal_date(reversal_date):
+        """Mollie sends ISO strings; downstream wants a date."""
+        if isinstance(reversal_date, str):
+            try:
+                from dateutil import parser
+
+                return parser.parse(reversal_date).date()
+            except (ValueError, TypeError, ImportError):
+                return frappe.utils.getdate()
+        return reversal_date or frappe.utils.getdate()
+
     def process_reversal_webhook(
         self,
         payment_id: str,
@@ -905,25 +991,54 @@ class UnifiedWebhookWrapperService:
                 f"🔄 Processing {reversal_type} webhook for {reversal_id} (payment: {payment_id})"
             )
 
-            # Check unified state first
-            processing_state = self.idempotency_manager.check_payment_processing_state(payment_id)
+            # What did the forward payment actually book? Do NOT re-classify the
+            # Mollie payment: the forward path mutates the classifier's own inputs
+            # (Donor.mollie_subscription_id / mollie_customer_id are overwritten on
+            # every webhook), and chargeback windows run months, so a reversal could
+            # classify differently from the booking it is meant to reverse. What was
+            # booked is a recorded fact -- read it (#370).
+            from ..utils.reversal_idempotency import (
+                AMBIGUOUS,
+                build_reversal_key,
+                find_booked_payment,
+                find_booked_reversal,
+            )
 
-            if not processing_state.payment_entry_exists:
+            booked = find_booked_payment(payment_id)
+
+            if not booked:
                 return {
                     "status": "error",
-                    "message": f"Cannot process {reversal_type} - original payment {payment_id} not found",
+                    "message": f"Cannot process {reversal_type} - original payment {payment_id} not booked",
                     "payment_id": payment_id,
                     f"{reversal_type}_id": reversal_id,
                 }
 
-            # Check if this specific reversal is already processed (type-specific check)
-            # Build reference_no pattern that includes reversal type for proper collision prevention
-            reference_pattern = f"{payment_id}_{reversal_type}_{reversal_id}"
-            existing_reversal = frappe.db.get_value(
-                "Payment Entry",
-                {"payment_type": "Pay", "reference_no": reference_pattern, "docstatus": 1},
-                "name",
-            )
+            booked_type, booked_doctype, booked_name = booked
+
+            if booked_type == AMBIGUOUS:
+                # Both a Journal Entry and a Payment Entry claim this payment. Refuse
+                # rather than guess: silently preferring one artefact is what produced
+                # this class of bug. Loud, and 2xx so Mollie stops redelivering.
+                message = (
+                    f"Cannot process {reversal_type} - payment {payment_id} is booked as more than "
+                    f"one artefact; refusing to guess which to reverse"
+                )
+                self.logger.error(message)
+                frappe.log_error(message, "Mollie Reversal Ambiguous Booking")
+                return {
+                    "status": "ignored",
+                    "message": message,
+                    "payment_id": payment_id,
+                    f"{reversal_type}_id": reversal_id,
+                }
+
+            # Has this reversal already been booked -- as ANY artefact? The routes
+            # book different doctypes under one key, so a Payment-Entry-only check
+            # could not see a Journal Entry the sweep had already written.
+            reference_pattern = build_reversal_key(payment_id, reversal_type, reversal_id)
+            existing = find_booked_reversal(reference_pattern)
+            existing_reversal = existing[1] if existing else None
 
             if existing_reversal:
                 self.logger.info(
@@ -938,16 +1053,7 @@ class UnifiedWebhookWrapperService:
                     "idempotent": True,
                 }
 
-            # Process the reversal using unified approach
-            from ..utils.unified_payment_entry_creator import create_unified_payment_entry
             from ..utils.webhook_utilities import get_donation_by_payment_id, standardized_webhook_response
-
-            # Find donation using utility
-            donation_doc = get_donation_by_payment_id(payment_id)
-            if not donation_doc:
-                return standardized_webhook_response(
-                    "ignored", f"Original donation not found for payment {payment_id}", payment_id=payment_id
-                )
 
             # Build description based on reversal type
             if reversal_type == "chargeback" and reason:
@@ -956,15 +1062,54 @@ class UnifiedWebhookWrapperService:
             else:
                 description = f"{reversal_type.capitalize()} {reversal_id} of €{amount:.2f}"
 
-            # Create reversal Payment Entry using unified creator
-            reversal_pe = create_unified_payment_entry(
-                donation_doc=donation_doc,
-                mollie_payment_id=payment_id,
-                amount=amount,
-                payment_type="Pay",  # Reversals are outgoing
-                reference_suffix=f"_{reversal_type}_{reversal_id}",
-                refund_date=reversal_date,
-                description=description,
+            donation_doc = None
+            reversal_ref_doctype = None
+            reversal_ref_name = None
+
+            if booked_type == "donation":
+                donation_doc = get_donation_by_payment_id(payment_id)
+                if not donation_doc:
+                    # The forward Journal Entry exists but its Donation does not --
+                    # inconsistent state, not a routine miss. Say so.
+                    message = (
+                        f"Payment {payment_id} is booked as {booked_doctype} {booked_name} but its "
+                        f"Donation could not be found"
+                    )
+                    self.logger.error(message)
+                    frappe.log_error(message, "Mollie Reversal Orphaned Booking")
+                    return standardized_webhook_response("ignored", message, payment_id=payment_id)
+
+                reversal_ref_name = self._book_donation_reversal(
+                    donation_doc=donation_doc,
+                    payment_id=payment_id,
+                    reversal_type=reversal_type,
+                    reversal_id=reversal_id,
+                    amount=amount,
+                    reversal_date=reversal_date,
+                    description=description,
+                )
+                reversal_ref_doctype = "Journal Entry"
+            else:
+                # Dues reverse against a Sales Invoice, which needs a Journal Entry
+                # referencing that invoice so its outstanding amount is restored -- a
+                # reversing Payment Entry cannot be allocated to a settled invoice.
+                # Not yet implemented; report it as such rather than as "payment not
+                # found", which is what sent this whole class of bug unnoticed.
+                message = (
+                    f"Reversal of a {booked_type} payment is not implemented "
+                    f"(payment {payment_id} booked as {booked_doctype} {booked_name})"
+                )
+                self.logger.error(message)
+                frappe.log_error(message, "Mollie Reversal Not Implemented")
+                return {
+                    "status": "not_implemented",
+                    "message": message,
+                    "payment_id": payment_id,
+                    f"{reversal_type}_id": reversal_id,
+                }
+
+            reversal_pe = (
+                frappe.get_doc(reversal_ref_doctype, reversal_ref_name) if reversal_ref_name else None
             )
 
             # Update donation payment history for reversals
@@ -988,17 +1133,21 @@ class UnifiedWebhookWrapperService:
                     # Allow modifying submitted document
                     donation_doc.flags.ignore_validate_update_after_submit = True
 
-                    donation_doc.append(
-                        "payments",
-                        {
-                            "payment_entry": reversal_pe.name,
-                            "amount": -float(amount),  # Negative for reversals
-                            "payment_date": parsed_date,
-                            "mollie_payment_id": reversal_id,  # Store reversal ID
-                            "payment_status": "Refunded" if reversal_type == "refund" else "Chargeback",
-                            "payment_method": "Mollie",
-                        },
-                    )
+                    history_row = {
+                        "amount": -float(amount),  # Negative for reversals
+                        "payment_date": parsed_date,
+                        "mollie_payment_id": reversal_id,  # Store reversal ID
+                        "payment_status": "Refunded" if reversal_type == "refund" else "Chargeback",
+                        "payment_method": "Mollie",
+                    }
+                    # Donation Payment carries BOTH a payment_entry and a journal_entry
+                    # link. Record the artefact actually booked: putting a Journal Entry
+                    # name into payment_entry (a Link to Payment Entry) is a broken link.
+                    if reversal_ref_doctype == "Journal Entry":
+                        history_row["journal_entry"] = reversal_ref_name
+                    else:
+                        history_row["payment_entry"] = reversal_ref_name
+                    donation_doc.append("payments", history_row)
                     donation_doc.save()
                     self.logger.info(f"✅ Updated payment history with {reversal_type} entry")
                 except Exception as hist_err:
@@ -1012,15 +1161,16 @@ class UnifiedWebhookWrapperService:
             if reversal_pe:
                 result = standardized_webhook_response(
                     "success",
-                    f"{reversal_type.capitalize()} Payment Entry created: {reversal_pe.name}",
-                    payment_entry_id=reversal_pe.name,
+                    f"{reversal_type.capitalize()} {reversal_ref_doctype} created: {reversal_ref_name}",
+                    payment_entry_id=reversal_ref_name,
+                    reversal_doctype=reversal_ref_doctype,
                     payment_id=payment_id,
                 )
                 result[f"{reversal_type}_id"] = reversal_id
             else:
                 result = standardized_webhook_response(
                     "error",
-                    f"Failed to create {reversal_type} Payment Entry",
+                    f"Failed to book {reversal_type} for payment {payment_id}",
                     payment_id=payment_id,
                 )
                 result[f"{reversal_type}_id"] = reversal_id

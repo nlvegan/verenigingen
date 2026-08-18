@@ -63,23 +63,33 @@ class DonationRefundJournalEntryCreator:
         donation_doc: Any,
         original_payment_id: str,
         bank_transaction_name: Optional[str] = None,
+        reversal_type: str = "refund",
     ) -> Optional[str]:
         """
-        Create Journal Entry for a Mollie refund.
+        Create Journal Entry for a Mollie reversal (refund or chargeback).
 
         Args:
-            refund_id: Mollie refund ID (e.g., re_xxxxx)
-            refund_amount: Refund amount (positive number)
-            refund_date: Date of the refund (ISO format string or None)
+            refund_id: Mollie reversal ID (e.g., re_xxxxx / chb_xxxxx)
+            refund_amount: Reversal amount (positive number)
+            refund_date: Date of the reversal (ISO format string or None)
             donation_doc: The Donation document
             original_payment_id: Original Mollie payment ID (e.g., tr_xxxxx)
             bank_transaction_name: Optional Bank Transaction to link
+            reversal_type: "refund" (default) or "chargeback". This lands in the
+                reference key, so a chargeback is not filed under a refund key --
+                which would make the two collide on one payment and hide one of
+                them from the idempotency lookup.
 
         Returns:
             Journal Entry name if created, None on failure
         """
-        # Build reference number that includes both original payment and refund ID
-        reference_number = f"{original_payment_id}_refund_{refund_id}"
+        # Build reference number that includes both original payment and reversal ID.
+        # Shared with every other reversal route so they agree on one key (#370).
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
+            build_reversal_key,
+        )
+
+        reference_number = build_reversal_key(original_payment_id, reversal_type, refund_id)
 
         # Idempotency check - avoid duplicate Journal Entries
         existing_je = self._check_existing_by_reference(reference_number)
