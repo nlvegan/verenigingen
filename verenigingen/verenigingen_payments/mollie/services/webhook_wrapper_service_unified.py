@@ -896,11 +896,19 @@ class UnifiedWebhookWrapperService:
 
         parsed_date = self._parse_reversal_date(reversal_date)
 
+        # Take the currency from the account we are booking against rather than
+        # hardcoding EUR. ERPNext rejects a Bank Transaction whose currency differs
+        # from its Bank Account's, and a hardcoded literal is invisible until it
+        # meets a company that is not in that currency.
+        currency = frappe.db.get_value("Bank Account", config["bank_account"], "account_currency") or (
+            frappe.db.get_value("Company", config["company"], "default_currency")
+        )
+
         bank_transaction_name = bt_creator.create_from_dict(
             transaction_data={
                 "date": parsed_date,
                 "amount": -float(amount),  # withdrawal: money leaves the clearing account
-                "currency": "EUR",
+                "currency": currency,
                 "reference_number": reference,
                 "description": f"Mollie {reversal_type.capitalize()}: {donation_doc.name} | {reversal_id}",
                 "party_type": party_type,

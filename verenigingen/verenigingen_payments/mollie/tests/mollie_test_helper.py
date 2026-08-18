@@ -394,3 +394,20 @@ def _ensure_mollie_clearing_configuration(company: str) -> None:
     )
     if configured_company != company:
         frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", gl_account)
+        _invalidate_mollie_settings_cache()
+
+
+def _invalidate_mollie_settings_cache() -> None:
+    """Writing the Single is not enough -- the config service caches it.
+
+    MollieConfigurationService keeps Mollie Settings in frappe.cache() under
+    ``mollie_settings_cache`` with a TTL, so a value written here stays invisible
+    to get_clearing_account() for the rest of the process and the caller keeps
+    resolving the OLD account. That is silent: nothing errors, the reversal just
+    fails to book against an account belonging to another company.
+    """
+    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+        MollieConfigurationService,
+    )
+
+    MollieConfigurationService.clear_cache()
