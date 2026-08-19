@@ -360,21 +360,47 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         self._setup_test_data()
         
     def _ensure_test_company(self):
-        """Ensure test company exists"""
-        company_name = "TEST-Payment-Integration-Company"
+        """Ensure this class's OWN test company exists.
+
+        It used to build ``TEST-Payment-Integration-Company``, which belongs to
+        ``verenigingen/tests/support/sepa_test_company.py`` and is depended on by
+        every SEPA and payment test. Two owners, one name, and they disagree about
+        what the company is:
+
+        * ``sepa_test_company._build_and_verify`` builds it inside
+          ``suspend_insert_capture()`` -- so ERPNext's chart of accounts is marked as
+          shared fixture data and the drain leaves it alone -- and then **verifies**
+          it, refusing loudly rather than handing back a company that cannot back a
+          Sales Invoice.
+        * this method built it with a plain ``insert()``, wiring up only Debtors and
+          Creditors, and every account it adds below is likewise unsuspended.
+
+        So whichever ran first decided the company's shape, and when this one won the
+        race the harness's captured-insert drain claimed the whole chart as one
+        test's property and deleted it at that test's teardown. Every later class
+        calling ``get_eur_test_company()`` then died in ``setUpClass`` with
+        "default_income_account is not set; no is_group Bank account ...". Latent and
+        order-dependent: it only bites when a SEPA/payment module lands in the same
+        CI shard, which shard re-packing can arrange at any time.
+
+        Its sibling class in this file already uses its own company
+        (``TEST-EBoekhouden-Integration-Company``). This one now does too, so nothing
+        it creates or drains can reach a company it does not own.
+        """
+        company_name = "TEST-EB-Payment-Company"
 
         if not frappe.db.exists("Company", company_name):
             # First create the company without default accounts
             company = frappe.new_doc("Company")
             company.company_name = company_name
-            company.abbr = "TPIC"
+            company.abbr = "TEBPC"
             company.default_currency = "EUR"
             company.country = "Netherlands"
             company.insert()
 
             # Now create the accounts (company must exist first for parent account creation)
-            receivable_account = self._create_test_account("Debtors - TPIC", "Receivable", company_name)
-            payable_account = self._create_test_account("Creditors - TPIC", "Payable", company_name)
+            receivable_account = self._create_test_account("Debtors", "Receivable", company_name)
+            payable_account = self._create_test_account("Creditors", "Payable", company_name)
 
             # Update company with default accounts
             company.default_receivable_account = receivable_account
@@ -488,8 +514,8 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         """Setup test customers, suppliers, invoices, and bank accounts"""
         # Create test bank accounts with unique names
         seq = self.factory.get_next_sequence('bank_account')
-        self.test_bank_account = self._create_test_account(f"TEST Bank {seq} - TPIC", "Bank")
-        self.triodos_account = self._create_test_account(f"10440 - Triodos {seq} - TPIC", "Bank")
+        self.test_bank_account = self._create_test_account(f"TEST Bank {seq}", "Bank")
+        self.triodos_account = self._create_test_account(f"10440 - Triodos {seq}", "Bank")
 
         # Create income/expense accounts for items
         self._setup_item_accounts()
@@ -514,11 +540,11 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         """Setup income and expense accounts for test items"""
         # Create income account for sales
         self.test_income_account = self._create_test_account(
-            "TEST Sales Income - TPIC", "Income Account", root_type="Income"
+            "TEST Sales Income", "Income Account", root_type="Income"
         )
         # Create expense account for purchases
         self.test_expense_account = self._create_test_account(
-            "TEST Cost of Goods - TPIC", "Cost of Goods Sold", root_type="Expense"
+            "TEST Cost of Goods", "Cost of Goods Sold", root_type="Expense"
         )
 
     def _create_test_item(self):
