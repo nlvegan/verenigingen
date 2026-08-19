@@ -29,13 +29,32 @@ from typing import Dict, List, Optional, Any
 import frappe
 from frappe.utils import flt, getdate, nowdate, add_days, now_datetime
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 from verenigingen.e_boekhouden.utils.security_helper import (
     migration_context, validate_and_insert, validate_and_save, has_migration_permission,
     batch_insert, cleanup_context, log_migration_activity
 )
 from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
 import unittest
+
+
+def _no_group_account(company: str, root_type: str) -> RuntimeError:
+    """The company has no chart of accounts, and no test here can build one.
+
+    Every ``_get_or_create_parent_account`` below used to answer this case by inserting
+    a root account of its own. That could never work: ``Account.parent_account`` is
+    ``reqd=1``, so the branch only ever raised ``[Account, TEST Income Root - TEBPC]:
+    parent_account`` -- four frames away from the company that was actually broken, and
+    naming an account nobody wrote. ERPNext builds the roots itself on company insert,
+    so a company reaching here was built while some account of its own still existed:
+    ``Company.on_update`` skips ``create_default_accounts()`` in that case and the
+    company comes out empty. Say that, rather than failing at a symptom.
+    """
+    return RuntimeError(
+        f"{company} has no is_group {root_type} account to parent test accounts under. "
+        f"Its chart of accounts is missing -- the company was built while an account of "
+        f"its own already existed, so Company.on_update skipped create_default_accounts()."
+    )
 
 
 class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
@@ -51,6 +70,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         self.test_company = self._ensure_test_company()
         self.test_user = self._create_test_user_with_roles()
         
+    @shared_fixture
     def _ensure_test_company(self):
         """Ensure test company exists with proper setup"""
         company_name = "TEST-EBoekhouden-Integration-Company"
@@ -114,15 +134,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         if parent:
             return parent
 
-        # Create a root account if none exists
-        root_account = frappe.new_doc("Account")
-        root_account.account_name = f"TEST {root_type} Root"
-        root_account.company = company
-        root_account.root_type = root_type
-        root_account.report_type = "Balance Sheet" if root_type in ["Asset", "Liability", "Equity"] else "Profit and Loss"
-        root_account.is_group = 1
-        root_account.insert()
-        return root_account.name
+        raise _no_group_account(company, root_type)
 
     def _create_valid_test_account(self, account_name: str, company: str, account_type: str = "",
                                     is_group: int = 0, root_type: str = "Asset") -> "frappe.Document":
@@ -359,6 +371,7 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         self.handler = PaymentEntryHandler(company=self.test_company)
         self._setup_test_data()
         
+    @shared_fixture
     def _ensure_test_company(self):
         """Ensure this class's OWN test company exists.
 
@@ -386,6 +399,20 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         Its sibling class in this file already uses its own company
         (``TEST-EBoekhouden-Integration-Company``). This one now does too, so nothing
         it creates or drains can reach a company it does not own.
+
+        Owning the name is only half of it, which is why this is ``@shared_fixture``.
+        A company built lazily from inside a test body belongs to that test as far as
+        the captured-insert drain is concerned, chart of accounts and all. This class
+        posts a Payment Entry against its own bank account, so that account's delete
+        fails at teardown ("Account with existing transaction can not be deleted") and
+        its ancestors' deletes fail with it -- leaving orphans behind while the rest of
+        the chart goes. The next test rebuilds the Company and gets *no* chart, because
+        ``Company.on_update`` skips ``create_default_accounts()`` when any account for
+        that company already exists. Measured on a clean site: four errors and two
+        leaked accounts against a baseline of one. Declaring the build shared keeps the
+        company and its chart out of the drain, exactly as ``sepa_test_company`` does;
+        the throwaway accounts each test adds *within* it are still drained, which is
+        correct.
         """
         company_name = "TEST-EB-Payment-Company"
 
@@ -500,15 +527,7 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         if parent:
             return parent
 
-        # Create a root account if none exists
-        root_account = frappe.new_doc("Account")
-        root_account.account_name = f"TEST {root_type} Root"
-        root_account.company = company
-        root_account.root_type = root_type
-        root_account.report_type = "Balance Sheet" if root_type in ["Asset", "Liability", "Equity"] else "Profit and Loss"
-        root_account.is_group = 1
-        root_account.insert()
-        return root_account.name
+        raise _no_group_account(company, root_type)
         
     def _setup_test_data(self):
         """Setup test customers, suppliers, invoices, and bank accounts"""
@@ -1014,6 +1033,7 @@ class TestMigrationPipelineIntegration(EnhancedTestCase):
         self.test_company = self._ensure_test_company()
         self._setup_migration_prerequisites()
         
+    @shared_fixture
     def _ensure_test_company(self):
         """Ensure test company exists"""
         company_name = "TEST-Migration-Pipeline-Company"
@@ -1078,14 +1098,7 @@ class TestMigrationPipelineIntegration(EnhancedTestCase):
         if parent:
             return parent
 
-        root_account = frappe.new_doc("Account")
-        root_account.account_name = f"TEST {root_type} Root"
-        root_account.company = company
-        root_account.root_type = root_type
-        root_account.report_type = "Balance Sheet" if root_type in ["Asset", "Liability", "Equity"] else "Profit and Loss"
-        root_account.is_group = 1
-        root_account.insert()
-        return root_account.name
+        raise _no_group_account(company, root_type)
 
     def _create_valid_test_account(self, account_name: str, company: str, account_type: str = "",
                                     is_group: int = 0, root_type: str = "Asset") -> "frappe.Document":
@@ -1309,6 +1322,7 @@ class TestDataIntegrityAndEdgeCases(EnhancedTestCase):
         super().setUp()
         self.test_company = self._ensure_test_company()
         
+    @shared_fixture
     def _ensure_test_company(self):
         """Ensure test company exists"""
         company_name = "TEST-Data-Integrity-Company" 
@@ -1342,14 +1356,7 @@ class TestDataIntegrityAndEdgeCases(EnhancedTestCase):
         if parent:
             return parent
 
-        root_account = frappe.new_doc("Account")
-        root_account.account_name = f"TEST {root_type} Root"
-        root_account.company = company
-        root_account.root_type = root_type
-        root_account.report_type = "Balance Sheet" if root_type in ["Asset", "Liability", "Equity"] else "Profit and Loss"
-        root_account.is_group = 1
-        root_account.insert()
-        return root_account.name
+        raise _no_group_account(company, root_type)
 
     def _create_valid_test_account(self, account_name: str, company: str, account_type: str = "",
                                     is_group: int = 0, root_type: str = "Asset") -> "frappe.Document":
@@ -1515,6 +1522,7 @@ class TestPerformanceAndScalability(EnhancedTestCase):
         super().setUp()
         self.test_company = self._ensure_test_company()
         
+    @shared_fixture
     def _ensure_test_company(self):
         """Ensure test company exists (collision-safe).
 
@@ -1560,14 +1568,7 @@ class TestPerformanceAndScalability(EnhancedTestCase):
         if parent:
             return parent
 
-        root_account = frappe.new_doc("Account")
-        root_account.account_name = f"TEST {root_type} Root"
-        root_account.company = company
-        root_account.root_type = root_type
-        root_account.report_type = "Balance Sheet" if root_type in ["Asset", "Liability", "Equity"] else "Profit and Loss"
-        root_account.is_group = 1
-        root_account.insert()
-        return root_account.name
+        raise _no_group_account(company, root_type)
 
     def _create_valid_test_account(self, account_name: str, company: str, account_type: str = "",
                                     is_group: int = 0, root_type: str = "Asset") -> "frappe.Document":
@@ -1841,6 +1842,56 @@ def setup_comprehensive_test_data():
     # This would be called by test setup methods
     # Implementation would create realistic test data
     pass
+
+
+class TestCompanyFixturesAreDeclaredShared(unittest.TestCase):
+    """Every company in this module is shared master data, not one test's property.
+
+    Each class here get-or-creates its company lazily, from inside whichever test runs
+    first. Without ``@shared_fixture`` the captured-insert drain claims the Company and
+    the ~100 accounts ERPNext builds with it, and deletes them at that one test's
+    teardown. Where a test has posted against one of those accounts the delete fails and
+    leaves orphans, and the next rebuild then gets no chart at all -- ``Company.on_update``
+    only calls ``create_default_accounts()`` when the company has no accounts. Observed as
+    four ``[Account, TEST Income Root - TEBPC]: parent_account`` errors and a leak-gate
+    failure on CI shard 3 (#386).
+
+    ``functools.wraps`` leaves ``__wrapped__`` behind, so this sees the decorator itself
+    rather than trusting a comment.
+    """
+
+    def test_every_ensure_test_company_is_declared_shared(self):
+        for cls in (
+            TestEBoekhoudenSecurityIntegration,
+            TestPaymentProcessingIntegration,
+            TestMigrationPipelineIntegration,
+            TestDataIntegrityAndEdgeCases,
+            TestPerformanceAndScalability,
+        ):
+            method = cls._ensure_test_company
+            self.assertTrue(
+                hasattr(method, "__wrapped__"),
+                f"{cls.__name__}._ensure_test_company builds a Company and its chart of "
+                f"accounts -- shared master data -- so it must be @shared_fixture, or the "
+                f"captured-insert drain will claim the whole chart for one test",
+            )
+
+    def test_a_company_without_a_chart_says_so(self):
+        """The "no group account" path must name the company, not an invented account.
+
+        ``_get_or_create_parent_account`` reads only its two arguments, so it can be
+        exercised without building anything. Before this it tried to insert a root
+        account and died on ``Account.parent_account`` being reqd=1, reporting an
+        account name that appears nowhere in the codebase or the database.
+        """
+        with self.assertRaises(RuntimeError) as caught:
+            TestPaymentProcessingIntegration._get_or_create_parent_account(
+                None, "TEST-Company-That-Does-Not-Exist", "Income"
+            )
+
+        message = str(caught.exception)
+        self.assertIn("TEST-Company-That-Does-Not-Exist", message)
+        self.assertIn("Income", message)
 
 
 if __name__ == "__main__":
