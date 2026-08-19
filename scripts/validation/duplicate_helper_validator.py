@@ -56,6 +56,14 @@ PRUNE_DIRS = {"node_modules", ".git", "__pycache__", "worktrees", ".claude", "ar
 CLONE_RATIO = 0.90
 
 
+def _rel(path: str) -> str:
+    """Repo-relative, so output is the same wherever the checkout lives."""
+    try:
+        return str(Path(path).resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def _iter_python_files(root: str):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in PRUNE_DIRS]
@@ -136,7 +144,7 @@ def clone_families(root: str = None):
                 if ratio >= CLONE_RATIO:
                     clones += 1
         if exact + clones:
-            dirs = sorted({os.path.dirname(p) for p, _ in copies})
+            dirs = sorted({os.path.dirname(_rel(p)) for p, _ in copies})
             families.append((exact + clones, len(copies), exact, round(best, 2), name, dirs))
     families.sort(key=lambda f: (-f[0], -f[1]))
     return families
@@ -226,7 +234,7 @@ def main() -> int:
             known = baseline.get(name, 0)
             where = [p for p, _ in _by_name(str(REPO_ROOT / SCAN_ROOT))[name]]
             print(f"\n{name}  (now in {count} files, baseline {known})")
-            for p in sorted(where):
+            for p in sorted(_rel(x) for x in where):
                 print(f"  {p}")
         print(
             "\nA copy-pasted helper is where a fix goes to die: the next person fixes one\n"
