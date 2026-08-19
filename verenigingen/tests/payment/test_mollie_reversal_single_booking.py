@@ -57,6 +57,9 @@ from verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creat
     create_refund_payment_entry,
     create_unified_payment_entry,
 )
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+    get_bank_transaction_creator,
+)
 
 
 def _clear_mollie_config_cache():
@@ -500,46 +503,104 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
             "find_booked_reversal counts docstatus != 2, so it would answer "
             "'already processed' to every redelivery of a refund that never reached the ledger",
         )
+        live = frappe.get_all(
+            "Bank Transaction",
+            filters={"reference_number": key, "docstatus": ["!=", 2]},
+            pluck="name",
+        )
         self.assertFalse(
-            frappe.get_all("Bank Transaction", filters={"reference_number": key}, pluck="name"),
-            "the Journal Entry did not post, so its Bank Transaction must be withdrawn",
+            live,
+            "the Journal Entry did not post, so its Bank Transaction must be withdrawn -- "
+            f"a live row here is a phantom withdrawal on the clearing account: {live}",
         )
 
-    def test_withdrawing_a_bank_transaction_cancels_before_deleting(self):
+    def test_the_sweep_also_reverses_in_kind_not_always_with_a_journal_entry(self):
+        """The payment-webhook sweep must dispatch on the forward artefact too.
+
+        `process_reversal_webhook` was taught to mirror the forward booking, but
+        `_process_pending_refunds` -- the route the **payment webhook** actually
+        takes, via `_handle_fully_processed_payment` / `_handle_new_payment_processing`
+        -- was only taught idempotency, and still books Bank Transaction + Journal
+        Entry unconditionally.
+
+        For a donation forward-booked as a Payment Entry that produces exactly the
+        posting the dispatch fix exists to prevent: income debited that this payment
+        never recognised, and the receivable it *did* clear left cleared. Which
+        artefact you end up with is a race between this route and the refund
+        webhook, and this one's is wrong.
+
+        Booking once is not the same as booking correctly. `find_booked_reversal`
+        gives the first; only dispatch gives the second.
+        """
+        forward = create_unified_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            amount=100.0,
+            payment_type="Receive",
+        )
+        self.assertIsNotNone(forward, "forward Payment Entry not booked - fixture problem")
+
+        refund_id = f"re_sweep_{frappe.generate_hash(length=8)}"
+        key = f"{self.payment_id}_refund_{refund_id}"
+
+        results = UnifiedWebhookWrapperService()._process_pending_refunds(
+            self.donation,
+            self.payment_id,
+            [{"refund_id": refund_id, "amount": 100.0, "refund_date": today()}],
+        )
+        self.assertTrue(results, "the sweep should report what it did")
+
+        jes = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        pes = frappe.get_all(
+            "Payment Entry", filters={"reference_no": key, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        self.assertEqual(
+            (len(pes), len(jes)),
+            (1, 0),
+            "the sweep reversed a Payment-Entry-booked donation with a Journal Entry: "
+            f"Payment Entries={pes}, Journal Entries={jes}. That debits income the "
+            "forward payment never recognised and leaves the receivable it cleared "
+            "still cleared (#370).",
+        )
+
+    def test_withdrawing_a_bank_transaction_cancels_it_and_frees_its_reference(self):
         """The compensating write when a reversal's Journal Entry never arrives.
 
         The booker writes the Bank Transaction first, so a Journal Entry failure
-        would otherwise leave a phantom withdrawal on the clearing account -- an
-        unreconciled bank line for money that was never booked out.
+        would otherwise leave a phantom withdrawal on the clearing account.
 
-        This is not covered by a savepoint, and cannot be: the reconciliation step
-        calls ``frappe.db.commit()``, and a commit destroys every open savepoint,
-        so releasing it afterwards raises ``(1305, 'SAVEPOINT ... does not exist')``
-        which then *replaces* the real error. Measured, not assumed. So the undo is
-        a real compensating write, and this pins the part of it that is easy to get
-        wrong: ``frappe.model.delete_doc`` runs ``check_permission_and_not_submitted``
-        *before* its ``if not force:`` guard, so ``force=True`` alone will not remove
-        a submitted Bank Transaction. It has to be cancelled first.
+        Cancelled, not deleted. ``frappe.model.delete_doc`` runs
+        ``check_permission_and_not_submitted`` *before* its ``if not force:`` guard,
+        so ``force=True`` cannot remove a submitted document anyway -- and a cancelled
+        row is auditable where a deleted one is not. What matters is that the
+        reference is free again, so the next delivery books rather than adopting a
+        withdrawal that was explicitly undone.
 
-        SCOPE: this covers the compensating write itself. Driving a real Journal
-        Entry failure end-to-end through ``process_reversal_webhook`` is NOT
-        covered here -- see the PR body.
+        SCOPE: this covers the compensating write itself. The end-to-end path is
+        covered by the group-account test above.
         """
         reference = f"tr_withdraw_{frappe.generate_hash(length=8)}_refund_re_x"
         bt = self._make_withdrawal_bank_transaction(100.0, reference, self.bank_account)
         self.assertEqual(
             frappe.db.get_value("Bank Transaction", bt, "docstatus"),
             1,
-            "the fixture must be submitted, or this proves nothing about the force=True trap",
+            "the fixture must be submitted, or this proves nothing",
         )
 
         UnifiedWebhookWrapperService()._withdraw_bank_transaction(bt)
 
-        self.assertFalse(
-            frappe.db.exists("Bank Transaction", bt),
-            f"Bank Transaction {bt} survived withdrawal; a submitted document cannot be "
-            "force-deleted without being cancelled first, so it would be left behind as a "
-            "phantom withdrawal on the clearing account",
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", bt, "docstatus"),
+            2,
+            f"Bank Transaction {bt} was not cancelled, so it remains a phantom withdrawal",
+        )
+        self.assertIsNone(
+            get_bank_transaction_creator()._check_existing_by_reference(reference),
+            "a cancelled Bank Transaction must not be adopted by the next delivery -- "
+            "the Journal Entry would then reconcile against a cancelled document, and "
+            "that failure is swallowed",
         )
 
 

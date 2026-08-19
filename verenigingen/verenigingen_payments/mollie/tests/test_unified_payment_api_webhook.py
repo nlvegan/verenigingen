@@ -235,6 +235,59 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         self.assertEqual(captured.get("reversal_type"), "refund")
         self.assertEqual(captured.get("amount"), 12.50)
 
+    def test_a_booking_failure_returns_500_so_mollie_retries(self):
+        """The freed reversal key is worth nothing if nothing comes back to use it.
+
+        On a booking failure the reversal key is deliberately released, so the
+        refund can be retried. Mollie only retries on 5xx. Returning the service's
+        error dict with a 200 told Mollie the refund was handled, and the sweep is
+        then the only remaining route.
+        """
+        payload = (
+            '{"resource":"refund","id":"re_fail_1","payment_id":"tr_fail_1",'
+            '"amount":{"value":"5.00","currency":"EUR"}}'
+        )
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_reversal_webhook=lambda **kw: {"status": "error", "message": "Failed to book refund"}
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_refund_webhook()
+
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(frappe.local.response.http_status_code, 500)
+
+    def test_an_ignored_result_stays_2xx(self):
+        """Control: redelivering something we deliberately ignored changes nothing.
+
+        Without this, setting 500 unconditionally on any non-success would satisfy
+        the test above while making Mollie retry ~10 times for a refund that will be
+        ignored identically every time.
+        """
+        payload = (
+            '{"resource":"refund","id":"re_ign_1","payment_id":"tr_ign_1",'
+            '"amount":{"value":"5.00","currency":"EUR"}}'
+        )
+        SVC = (
+            "verenigingen.verenigingen_payments.mollie.services."
+            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
+        )
+        fake = types.SimpleNamespace(
+            process_reversal_webhook=lambda **kw: {"status": "ignored", "message": "nothing to do"}
+        )
+        with install_fake_request(payload):
+            with patch(AUTH_PATH):
+                with patch(SVC, return_value=fake):
+                    out = unified_payment_api.handle_refund_webhook()
+
+        self.assertEqual(out["status"], "ignored")
+        self.assertNotEqual(frappe.local.response.get("http_status_code"), 500)
+
 
 class TestHandleChargebackWebhook(EnhancedTestCase):
     def setUp(self):

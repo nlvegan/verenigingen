@@ -271,7 +271,10 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         r = results[0]
         self.assertEqual(r["status"], "success")
         self.assertEqual(r["refund_id"], "re_success")
-        self.assertEqual(r["bank_transaction"], "BT-REFUND-STUB")
+        # The sweep now delegates to the same booker `process_reversal_webhook` uses,
+        # so the result names the artefact that was booked rather than the two steps
+        # one particular artefact happens to take (#370).
+        self.assertEqual(r["reversal_doctype"], "Journal Entry")
         self.assertEqual(r["journal_entry"], je_name)
         self.assertEqual(r["amount"], 5.0)
 
@@ -309,14 +312,17 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["status"], "error")
         self.assertEqual(results[0]["refund_id"], "re_btfail")
-        self.assertIn("Bank Transaction", results[0]["message"])
+        # The message no longer names the failing STEP -- the booker owns those, and
+        # which steps a reversal takes now depends on the forward artefact.
+        self.assertIn("Failed to book refund", results[0]["message"])
+        self.assertIn("re_btfail", results[0]["message"])
         # JE creator never reached, nothing marked, no history row
         self.assertEqual(je.create_calls, [])
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)
 
-    def test_journal_entry_failure_yields_error_with_bank_transaction(self):
+    def test_journal_entry_failure_yields_an_error_and_no_history(self):
         donation = self._make_submitted_donation()
         bt = _FakeBTCreator({"bank_account": self._bank_account(), "company": self.company})
         je = _FakeRefundJECreator(None)  # JE creation fails
@@ -329,8 +335,8 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["status"], "error")
         self.assertEqual(results[0]["refund_id"], "re_jefail")
-        self.assertEqual(results[0]["bank_transaction"], "BT-REFUND-STUB")
-        self.assertIn("Journal Entry", results[0]["message"])
+        self.assertIn("Failed to book refund", results[0]["message"])
+        self.assertIn("re_jefail", results[0]["message"])
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)

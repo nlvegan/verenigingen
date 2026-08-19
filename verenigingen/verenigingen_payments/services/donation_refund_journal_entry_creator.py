@@ -344,24 +344,27 @@ class DonationRefundJournalEntryCreator:
         This used to log "(draft)" and ``return je.name`` anyway, so the caller's
         "did I get a name back?" success test read a failed posting as success.
 
-        Two things make that worse than a wrong status code:
+        The entry is **not** a draft. Frappe's ``Document.save()`` runs
+        ``db_update()`` before ``run_post_save_methods()``, and ``on_submit`` is what
+        posts to the ledger -- so a submit that throws leaves ``docstatus=1`` already
+        written, and ``secure_document_operation`` catches the error without rolling
+        back. ERPNext validates each GL row in ``GLEntry.on_update``, i.e. *after*
+        inserting it, so the ledger can be left one-sided.
 
-        * The entry is **not** a draft. Frappe's ``Document.save()`` runs
-          ``db_update()`` before ``run_post_save_methods()``, and ``on_submit`` is
-          what posts to the ledger -- so a submit that throws leaves ``docstatus=1``
-          already written, and ``secure_document_operation`` catches the error
-          without rolling back. ERPNext validates each GL row in
-          ``GLEntry.on_update``, i.e. *after* inserting it, so the ledger can be
-          left one-sided.
-        * ``find_booked_reversal`` counts anything with ``docstatus != 2``. Left in
-          place, the unposted entry claims the reversal key and every one of
-          Mollie's redeliveries answers "already processed" -- the refund reported
-          done, permanently, having never reached the ledger.
+        That matters beyond a wrong status code: :func:`find_booked_reversal` counts
+        anything with ``docstatus != 2``, so left in place the unposted entry claims
+        the reversal key and every one of Mollie's redeliveries answers "already
+        processed" -- the refund reported done, permanently, having never reached the
+        ledger.
 
-        So the entry is cancelled (which frees the key, since only ``docstatus=2``
-        is ignored) and removed. Failure to clean up is logged and swallowed: the
-        booking has already failed and been reported, and raising here would
-        replace the real reason with a less useful one.
+        **Cancelled, not deleted.** Cancelling is what frees the key (only
+        ``docstatus=2`` is ignored) and it leaves an auditable record of a posting
+        that was attempted and failed. Deleting was tried and is worse in both
+        directions: when ``cancel()`` itself raises -- which it does in the case this
+        is most likely to see, a bad account, because ``on_cancel`` re-posts the
+        reversal GL row into the same validation -- the delete never runs anyway; and
+        when it does run, ``Accounts Settings.delete_linked_ledger_entries`` defaults
+        to 0, so the GL rows survive their voucher as orphans. Measured, not assumed.
         """
         error_msg = ", ".join(submit_result.errors) if submit_result.errors else "Unknown error"
         message = (
@@ -375,15 +378,22 @@ class DonationRefundJournalEntryCreator:
             je = frappe.get_doc("Journal Entry", je_name)
             if je.docstatus == 1:
                 je.cancel()
-            frappe.delete_doc("Journal Entry", je_name, force=True)
-        except Exception as cleanup_error:  # failed-write-ok: best-effort, caller already fails
+        except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
             frappe.logger().error(
-                f"Could not remove unposted Refund Journal Entry {je_name}: {cleanup_error}"
+                f"Could not cancel unposted Refund Journal Entry {je_name}: {cleanup_error}"
             )
+
+        # Report what is actually true, which is not always what was attempted:
+        # ``cancel()`` can raise and STILL leave docstatus=2 behind, by the same
+        # write-before-hooks ordering described above. Only a re-read can tell the
+        # operator whether the key is free.
+        docstatus = frappe.db.get_value("Journal Entry", je_name, "docstatus")
+        if docstatus != 2:
             frappe.log_error(
-                f"Unposted Refund Journal Entry {je_name} was left behind and still claims its "
-                f"reversal key, so redeliveries will report it as already processed: {cleanup_error}",
-                "Donation Refund Journal Entry Cleanup Failed",
+                f"Unposted Refund Journal Entry {je_name} is at docstatus={docstatus} and still "
+                f"claims reversal key {frappe.db.get_value('Journal Entry', je_name, 'cheque_no')!r}. "
+                f"Redeliveries of this refund will report it as already processed. Cancel it by hand.",
+                "Donation Refund Journal Entry Still Claims Its Key",
             )
         return None
 

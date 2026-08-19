@@ -35,6 +35,24 @@ from ..utils.monitoring import record_operation_performance
 # TODO: Reimplement needed functionality using UnifiedIdempotencyManager
 
 
+def _reversal_history_row(doctype: str, name: str, amount: float, payment_date, reversal_id: str) -> dict:
+    """One Donation Payment row for a booked reversal.
+
+    `Donation Payment` carries BOTH a `payment_entry` and a `journal_entry` Link, so
+    the artefact that was actually booked decides which one is filled. Putting a
+    Journal Entry name into `payment_entry` is a broken link, not a near miss.
+    """
+    row = {
+        "amount": -float(amount),  # negative: this is a reversal
+        "payment_date": payment_date,
+        "mollie_payment_id": reversal_id,
+        "payment_status": "Refunded",
+        "payment_method": "Mollie",
+    }
+    row["journal_entry" if doctype == "Journal Entry" else "payment_entry"] = name
+    return row
+
+
 class UnifiedWebhookWrapperService:
     """
     UNIFIED webhook wrapper using UnifiedIdempotencyManager.
@@ -87,30 +105,34 @@ class UnifiedWebhookWrapperService:
             get_donation_refund_journal_entry_creator,
         )
 
-        from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
+        from ..utils.reversal_idempotency import (
+            AMBIGUOUS,
+            build_reversal_key,
+            find_booked_payment,
+            find_booked_reversal,
+        )
 
-        bt_creator = get_bank_transaction_creator()
-        je_creator = get_donation_refund_journal_entry_creator()
-
-        # Get Mollie config for bank account
-        config = bt_creator.get_mollie_bank_account_config()
+        # Fail fast on a misconfigured site rather than once per refund. The booker
+        # re-reads this itself; checking here keeps the "all refunds" error shape.
+        config = get_bank_transaction_creator().get_mollie_bank_account_config()
         if config.get("error"):
             self.logger.error(f"❌ Mollie config error for refunds: {config['error']}")
             return [{"status": "error", "refund_id": "all", "message": config["error"]}]
 
-        refund_currency = self._resolve_bank_currency(config)
-
-        # Get party info for Bank Transaction (Customer linked to Donor)
-        party_type = None
-        party = None
-        bank_party_name = None
-        if donation.donor:
-            donor_doc = frappe.db.get_value("Donor", donation.donor, ["donor_name", "customer"], as_dict=True)
-            if donor_doc:
-                bank_party_name = donor_doc.get("donor_name")
-                if donor_doc.get("customer"):
-                    party_type = "Customer"
-                    party = donor_doc.get("customer")
+        # What did the forward payment book? Asked once, outside the loop: every
+        # refund here belongs to the same payment.
+        booked = find_booked_payment(payment_id)
+        if booked and booked[0] == AMBIGUOUS:
+            message = (
+                f"Payment {payment_id} is booked as more than one artefact; refusing to "
+                f"guess which to reverse"
+            )
+            self.logger.error(message)
+            frappe.log_error(message, "Mollie Reversal Ambiguous Booking")
+            return [{"status": "error", "refund_id": "all", "message": message}]
+        # No forward booking found: fall back to the donation path's own artefact, a
+        # Journal Entry. This method is only ever called with a Donation in hand.
+        forward_doctype = booked[1] if booked else "Journal Entry"
 
         # Collect all payment history entries first (don't save in loop)
         payment_history_entries = []
@@ -151,6 +173,18 @@ class UnifiedWebhookWrapperService:
                         f"⏭️ Refund {refund_id} already booked as "
                         f"{already_booked[0]} {already_booked[1]} - skipping"
                     )
+                    # Still collect the history row. Before this guard existed the
+                    # creators returned their existing artefacts and the batch filter
+                    # below added any missing row -- that was the only self-heal for
+                    # the history save this method deliberately swallows, and
+                    # _update_missing_payment_history cannot substitute (it is built
+                    # from a Payment-Entry-only query, so a JE-booked refund is never
+                    # in it). Skipping the booking must not skip the repair.
+                    payment_history_entries.append(
+                        _reversal_history_row(
+                            already_booked[0], already_booked[1], refund_amount, parsed_date, refund_id
+                        )
+                    )
                     refund_results.append(
                         {
                             "status": "already_processed",
@@ -162,85 +196,62 @@ class UnifiedWebhookWrapperService:
                     )
                     continue
 
-                # Step 1: Create Bank Transaction (withdrawal)
-                self.logger.info(f"  Creating Bank Transaction for refund {refund_id}...")
-                bank_transaction_name = bt_creator.create_from_dict(
-                    transaction_data={
-                        "date": parsed_date,
-                        "amount": -float(refund_amount),  # Negative for withdrawal
-                        "currency": refund_currency,
-                        "reference_number": refund_reference,
-                        "description": f"Mollie Refund: {donation.name} | Refund ID: {refund_id}",
-                        "party_type": party_type,
-                        "party": party,
-                        "bank_party_name": bank_party_name,
-                    },
-                    bank_account=config["bank_account"],
-                    company=config["company"],
-                    source_type="Mollie Refund",
-                )
-
-                if not bank_transaction_name:
-                    self.logger.error(f"❌ Failed to create Bank Transaction for refund {refund_id}")
-                    refund_results.append(
-                        {
-                            "status": "error",
-                            "refund_id": refund_id,
-                            "message": "Failed to create Bank Transaction",
-                        }
-                    )
-                    continue
-
-                self.logger.info(f"✅ Created Bank Transaction: {bank_transaction_name}")
-
-                # Step 2: Create Journal Entry (reverses donation income)
-                self.logger.info(f"  Creating Journal Entry for refund {refund_id}...")
-                journal_entry_name = je_creator.create_refund_journal_entry(
-                    refund_id=refund_id,
-                    refund_amount=refund_amount,
-                    refund_date=refund_date,
+                # Book it the same way process_reversal_webhook does, so the
+                # reversal mirrors the artefact the FORWARD payment created.
+                #
+                # This route used to book Bank Transaction + Journal Entry
+                # unconditionally. For a donation forward-booked as a Payment Entry
+                # that debits income the payment never recognised and leaves the
+                # receivable it cleared still cleared -- the exact posting the
+                # dispatch fix exists to prevent. Booking once is not the same as
+                # booking correctly; find_booked_reversal gives the first, only
+                # dispatch gives the second (#370).
+                booking = self._book_donation_reversal(
                     donation_doc=donation,
-                    original_payment_id=payment_id,
-                    bank_transaction_name=bank_transaction_name,
+                    payment_id=payment_id,
+                    reversal_type="refund",
+                    reversal_id=refund_id,
+                    amount=refund_amount,
+                    reversal_date=refund_date,
+                    description=f"Refund {refund_id} of EUR {float(refund_amount):.2f}",
+                    forward_doctype=forward_doctype,
                 )
 
-                if not journal_entry_name:
-                    self.logger.error(f"❌ Failed to create Journal Entry for refund {refund_id}")
+                if not booking:
+                    self.logger.error(f"❌ Failed to book refund {refund_id}")
                     refund_results.append(
                         {
                             "status": "error",
                             "refund_id": refund_id,
-                            "bank_transaction": bank_transaction_name,
-                            "message": "Failed to create Journal Entry",
+                            "message": f"Failed to book refund {refund_id}",
                         }
                     )
                     continue
 
-                self.logger.info(f"✅ Created Journal Entry: {journal_entry_name}")
+                reversal_doctype, reversal_name = booking
+                self.logger.info(f"✅ Booked refund as {reversal_doctype} {reversal_name}")
 
-                # Collect payment history entry (don't save yet)
+                # Collect payment history entry (don't save yet). Donation Payment
+                # carries BOTH links; record the artefact actually booked.
                 payment_history_entries.append(
-                    {
-                        "journal_entry": journal_entry_name,  # Link to Journal Entry
-                        "amount": -float(refund_amount),  # Negative for refunds
-                        "payment_date": parsed_date,
-                        "mollie_payment_id": refund_id,  # Store refund ID for idempotency
-                        "payment_status": "Refunded",
-                        "payment_method": "Mollie",
-                    }
+                    _reversal_history_row(
+                        reversal_doctype, reversal_name, refund_amount, parsed_date, refund_id
+                    )
                 )
 
                 refund_results.append(
                     {
                         "status": "success",
                         "refund_id": refund_id,
-                        "bank_transaction": bank_transaction_name,
-                        "journal_entry": journal_entry_name,
+                        "reversal_doctype": reversal_doctype,
+                        "journal_entry"
+                        if reversal_doctype == "Journal Entry"
+                        else "payment_entry": (reversal_name),
                         "amount": refund_amount,
                     }
                 )
-                # Mark as processed in unified manager (use JE name for tracking)
-                self.idempotency_manager.mark_refund_processed(payment_id, refund_id, journal_entry_name)
+                # Mark as processed in unified manager
+                self.idempotency_manager.mark_refund_processed(payment_id, refund_id, reversal_name)
 
             except Exception as e:
                 self.logger.error(f"Failed to process pending refund {pending_refund.get('refund_id')}: {e}")
@@ -1106,25 +1117,33 @@ class UnifiedWebhookWrapperService:
     def _withdraw_bank_transaction(self, bank_transaction_name: str) -> None:
         """Undo a Bank Transaction whose Journal Entry never arrived.
 
-        Cancel before delete: ``frappe.model.delete_doc`` runs
-        ``check_permission_and_not_submitted`` *before* its ``if not force:``
-        guard, so ``force=True`` does not get a submitted document deleted.
+        Cancelled, not deleted, for the same reasons as
+        :meth:`DonationRefundJournalEntryCreator._discard_unposted_journal_entry`:
+        ``frappe.model.delete_doc`` runs ``check_permission_and_not_submitted``
+        *before* its ``if not force:`` guard, so ``force=True`` cannot remove a
+        submitted document anyway, and a cancelled row is auditable.
 
-        Failure here is logged and swallowed deliberately: the reversal has
-        already failed and been reported, and raising a second error over the
-        cleanup would replace the real reason with a less useful one. The leftover
-        row is recorded so it can be found.
+        A leftover here is not harmless. ``BankTransactionCreator``'s existence check
+        does **not** filter ``docstatus``, so a surviving cancelled Bank Transaction
+        is returned on the next delivery, the Journal Entry is then reconciled
+        against a cancelled document, and that failure is swallowed one level down --
+        a booked reversal with no bank line and nothing said. So the outcome is
+        re-read and reported rather than assumed.
         """
         try:
             bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
             if bt.docstatus == 1:
                 bt.cancel()
-            frappe.delete_doc("Bank Transaction", bank_transaction_name, force=True)
-        except Exception as cleanup_error:  # failed-write-ok: best-effort, caller already fails
+        except Exception as cleanup_error:  # failed-write-ok: reported-elsewhere
+            self.logger.error(f"Could not cancel Bank Transaction {bank_transaction_name}: {cleanup_error}")
+
+        docstatus = frappe.db.get_value("Bank Transaction", bank_transaction_name, "docstatus")
+        if docstatus != 2:
             message = (
-                f"Bank Transaction {bank_transaction_name} was left behind after its "
-                f"Journal Entry failed and could not be withdrawn: {cleanup_error}. "
-                f"It is an unreconciled withdrawal for money that was never booked out."
+                f"Bank Transaction {bank_transaction_name} is at docstatus={docstatus} after its "
+                f"Journal Entry failed. It is an unreconciled withdrawal for money that was never "
+                f"booked out, and because the creator's existence check ignores docstatus it will "
+                f"be adopted by the next delivery of this reversal. Cancel it by hand."
             )
             self.logger.error(f"❌ {message}")
             frappe.log_error(message, "Mollie Reversal Cleanup Failed")

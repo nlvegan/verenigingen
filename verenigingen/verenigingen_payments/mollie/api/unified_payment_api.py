@@ -410,7 +410,16 @@ def handle_refund_webhook():
             reversal_date=refund_date,
         )
 
-        frappe.logger().info("✅ Refund webhook processed successfully")
+        # A booking failure must not go out as 200. Mollie retries on 5xx (~10 times
+        # over 26h), and that redelivery is the only second chance this refund gets:
+        # the reversal key is deliberately freed when a booking fails, which is worth
+        # nothing if nothing ever comes back to use it. `ignored` and
+        # `not_implemented` stay 2xx on purpose -- redelivering those changes nothing.
+        if result.get("status") == "error":
+            frappe.response.http_status_code = 500
+            frappe.logger().error(f"❌ Refund webhook could not book: {result.get('message')}")
+        else:
+            frappe.logger().info("✅ Refund webhook processed successfully")
         return result
 
     except WebhookRateLimitExceeded as e:
