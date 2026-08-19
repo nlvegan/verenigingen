@@ -265,25 +265,53 @@ def get_minimum_fee(member, membership_type, membership=None):
     return max(base_minimum, template_minimum, flt(membership_type.minimum_amount or 0), 5.0)
 
 
+# Policy constants for the self-service fee-adjustment form. These are NOT
+# Verenigingen Settings fields; they are deliberately fixed here so the code
+# stops implying a configuration surface that does not exist (issue #356).
+#
+# ADJUSTMENT_REASON_REQUIRED: a member must justify a dues change. Requiring the
+# reason is the safer default and no operational scenario has ever needed it
+# flipped at runtime, so it stays a constant rather than becoming a settings
+# field nobody asked for.
+#
+# REQUIRE_APPROVAL_FOR_*: these two describe what the portal TELLS the member
+# about approval routing (membership_adjustment.html renders one bullet per
+# flag). They do not decide anything: routing is decided by the C1 guard in
+# ContributionAmendmentRequest.before_insert, which forces EVERY member
+# self-service request to "Pending Approval". Do not delete them without also
+# fixing the template -- see issue #356.
+ADJUSTMENT_REASON_REQUIRED = 1
+REQUIRE_APPROVAL_FOR_INCREASES = 0
+REQUIRE_APPROVAL_FOR_DECREASES = 1
+
+
 def get_fee_adjustment_settings():
     """Get fee adjustment settings from Verenigingen Settings"""
+    policy = {
+        "require_approval_for_increases": REQUIRE_APPROVAL_FOR_INCREASES,
+        "require_approval_for_decreases": REQUIRE_APPROVAL_FOR_DECREASES,
+        "adjustment_reason_required": ADJUSTMENT_REASON_REQUIRED,
+    }
     try:
         settings = frappe.get_single("Verenigingen Settings")
+        # Read directly, no getattr default: this is a real Check field now, and a
+        # getattr fallback here is precisely what silently swallowed an
+        # administrator's "off" before. Measured on a Single whose tabSingles row
+        # predates the field (absent row and stored NULL both tested): the doctype
+        # default 1 is applied, while an explicit stored 0 survives -- so an
+        # upgraded site stays enabled and the kill switch still works.
         return {
-            "enable_member_fee_adjustment": getattr(settings, "enable_member_fee_adjustment", 1),
+            "enable_member_fee_adjustment": settings.enable_member_fee_adjustment,
             "max_adjustments_per_year": getattr(settings, "max_fee_adjustments_per_year", 2),
-            "require_approval_for_increases": getattr(settings, "require_approval_for_increases", 0),
-            "require_approval_for_decreases": getattr(settings, "require_approval_for_decreases", 1),
-            "adjustment_reason_required": getattr(settings, "adjustment_reason_required", 1),
+            **policy,
         }
     except Exception:
-        # Default settings if Verenigingen Settings doesn't exist or lacks fields
+        # Verenigingen Settings is unreadable; fall back to the permissive
+        # defaults so the portal degrades to its documented behaviour.
         return {
             "enable_member_fee_adjustment": 1,
             "max_adjustments_per_year": 2,
-            "require_approval_for_increases": 0,
-            "require_approval_for_decreases": 1,
-            "adjustment_reason_required": 1,
+            **policy,
         }
 
 

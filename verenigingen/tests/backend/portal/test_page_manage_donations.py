@@ -5,12 +5,16 @@ Coverage-extension tests for the manage-donations portal page
 The cancel/update happy + foreign-owner paths are already covered by
 test_portal_functions.py and test_donation_portal_behavior.py. This module
 covers the OTHER branches: get_context assembly, the summary/recurring/recent
-helpers, is_recurring_donation_active variants, get_donation_stats (guest /
+helpers, get_recurring_donation_state variants, get_donation_stats (guest /
 no-member / success), and the cancel/update input-validation guards.
+
+It also carries the regression tests for #348 (the recurring filter used to mutate
+the list it iterated) and #349 (an undeterminable Mollie status used to collapse to
+"inactive" and silently drop the donation from the donor's portal).
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -65,12 +69,14 @@ class TestPageManageDonations(EnhancedTestCase):
             ).insert(ignore_permissions=True)
         return email
 
-    def _make_donation(self, *, status="One-time", amount=20.0, paid=0, recurring_freq=None):
+    def _make_donation(
+        self, *, status="One-time", amount=20.0, paid=0, recurring_freq=None, donation_date=None
+    ):
         data = {
             "doctype": "Donation",
             "donor": self.donor.name,
             "donor_email": self.email,
-            "donation_date": today(),
+            "donation_date": donation_date or today(),
             "amount": amount,
             "mode_of_payment": "Credit Card",
             "status": status,
@@ -82,6 +88,38 @@ class TestPageManageDonations(EnhancedTestCase):
         doc = frappe.get_doc(data)
         doc.insert(ignore_permissions=True)
         return doc
+
+    def _make_recurring(self, *, amount, days_ago=0, cancelled=False, mollie_subscription_id=None):
+        """Insert a Recurring donation.
+
+        ``days_ago`` drives donation_date, which get_recurring_donations orders by
+        (desc) -- the POSITION of a donation in that list is what makes the
+        mutate-while-iterating bug of #348 observable, so it must be pinned.
+        """
+        doc = self._make_donation(
+            status="Recurring",
+            amount=amount,
+            recurring_freq="Monthly",
+            donation_date=add_days(today(), -days_ago),
+        )
+        if mollie_subscription_id:
+            doc.db_set("mollie_subscription_id", mollie_subscription_id)
+        if cancelled:
+            # A cancellation date in the past is the deterministic, Mollie-free way
+            # to make a recurring donation confirmed-inactive.
+            doc.db_set("recurring_cancelled_date", "2000-01-01")
+        return doc
+
+    def _unresolvable_subscription_id(self):
+        """A Mollie subscription id no Member carries.
+
+        get_mollie_subscription_info() then cannot resolve a customer, fails, finds
+        no local fallback row and reports subscription_status "unknown" -- exactly
+        the value a real Mollie outage produces, and without any network call, so
+        the test behaves identically on a bench with Mollie credentials and on CI
+        without them.
+        """
+        return f"sub_{frappe.generate_hash()[:12]}"
 
     # ----- helpers -----------------------------------------------------
 
@@ -123,30 +161,157 @@ class TestPageManageDonations(EnhancedTestCase):
         self.assertEqual(recurring[0].amount, 8.0)
         self.assertEqual(recurring[0].recurring_frequency, "Monthly")
 
+    # ----- #348: the filter must not mutate the list it iterates ---------
+
+    def test_recurring_list_drops_every_confirmed_inactive_donation(self):
+        """Two cancelled recurring donations in a row must BOTH be dropped.
+
+        Regression for #348: the filter removed from the list it was iterating, so
+        the element right after a removed one was never examined -- a cancelled
+        donation directly following another cancelled one stayed in the donor's
+        "Active Recurring Donations" list.
+        """
+        from verenigingen.templates.pages.manage_donations import get_recurring_donations
+
+        self._make_recurring(amount=10.0, days_ago=0, cancelled=True)
+        self._make_recurring(amount=20.0, days_ago=1, cancelled=True)
+        active = self._make_recurring(amount=30.0, days_ago=2)
+
+        result = get_recurring_donations(self.member.name)
+
+        self.assertEqual([d.name for d in result], [active.name])
+
+    def test_recurring_list_enriches_donation_following_a_dropped_one(self):
+        """The donation after a dropped one must still receive its Mollie fields.
+
+        Regression for #348: enrichment and the active-check shared one loop, so
+        the element the iterator skipped lost its subscription_status as well --
+        the portal then rendered a live subscription as "Unknown" with no
+        update/cancel buttons.
+        """
+        from verenigingen.templates.pages.manage_donations import get_recurring_donations
+
+        # get_mollie_subscription_info logs its failed lookup before falling back.
+        self.expectErrorLog("Manage Donations")
+
+        self._make_recurring(amount=10.0, days_ago=0, cancelled=True)
+        mollie = self._make_recurring(
+            amount=25.0, days_ago=1, mollie_subscription_id=self._unresolvable_subscription_id()
+        )
+
+        result = get_recurring_donations(self.member.name)
+
+        self.assertEqual([d.name for d in result], [mollie.name])
+        self.assertIn("subscription_status", result[0])
+
+    # ----- #349: "could not determine" is not "inactive" -----------------
+
+    def test_undeterminable_mollie_status_keeps_donation_in_portal(self):
+        """A donation whose Mollie status cannot be established stays listed.
+
+        Regression for #349: an unresolvable/unreachable Mollie subscription used to
+        read as "not active", and the donor's healthy recurring donation vanished
+        from the portal as if it had been cancelled.
+        """
+        from verenigingen.templates.pages.manage_donations import get_recurring_donations
+
+        self.expectErrorLog("Manage Donations")
+
+        donation = self._make_recurring(
+            amount=15.0, mollie_subscription_id=self._unresolvable_subscription_id()
+        )
+
+        result = get_recurring_donations(self.member.name)
+
+        self.assertEqual([d.name for d in result], [donation.name])
+        # The template renders this as the (red) "Unknown" status and hides the
+        # action buttons -- "status unavailable", not "gone".
+        self.assertEqual(result[0].subscription_status, "unknown")
+
+    def test_undeterminable_mollie_status_counts_as_active_recurring(self):
+        """The summary counter must agree with the list it summarises."""
+        from verenigingen.templates.pages.manage_donations import get_donation_summary
+
+        self.expectErrorLog("Manage Donations")
+
+        self._make_recurring(amount=15.0, mollie_subscription_id=self._unresolvable_subscription_id())
+
+        summary = get_donation_summary(self.member.name)
+
+        self.assertEqual(summary["active_recurring"], 1)
+
+    def test_state_is_unknown_and_logged_when_lookup_raises(self):
+        """A raising Mollie lookup yields UNKNOWN and leaves a trace.
+
+        Regression for #349: the bare ``except Exception: return False`` turned a
+        transient outage into "inactive" and logged nothing at all.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.templates.pages import manage_donations
+
+        donation = self._make_recurring(amount=12.0, mollie_subscription_id="sub_unreachable")
+        self.expectErrorLog("Manage Donations")
+
+        # Patch our own Mollie wrapper (not business logic, and no network call) to
+        # simulate the outage the real API raises on.
+        with patch.object(
+            manage_donations,
+            "get_mollie_subscription_info",
+            side_effect=ConnectionError("Mollie unreachable"),
+        ):
+            state = manage_donations.get_recurring_donation_state(donation.name)
+
+        self.assertEqual(state, manage_donations.RECURRING_STATE_UNKNOWN)
+
+        # This module calls frappe.log_error(message, title), i.e. positionally
+        # swapped against frappe's (title, message) signature -- so the message
+        # lands in Error Log.method and the title in Error Log.error.
+        logged = frappe.get_all(
+            "Error Log", filters={"method": ["like", f"%{donation.name}%"]}, fields=["method", "error"]
+        )
+        self.assertTrue(
+            any("Mollie unreachable" in f"{row.method}\n{row.error}" for row in logged),
+            f"the swallowed exception was not logged (rows naming the donation: {len(logged)})",
+        )
+
+    def test_state_is_inactive_for_missing_donation(self):
+        """A donation that does not exist is definitively inactive, not unknown."""
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_INACTIVE,
+            get_recurring_donation_state,
+        )
+
+        self.assertEqual(get_recurring_donation_state("Nonexistent-Donation-XYZ"), RECURRING_STATE_INACTIVE)
+
     def test_is_recurring_active_true_for_recurring(self):
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
+            get_recurring_donation_state,
+        )
 
         donation = self._make_donation(status="Recurring", recurring_freq="Monthly")
-        self.assertTrue(is_recurring_donation_active(donation.name))
+        self.assertEqual(get_recurring_donation_state(donation.name), RECURRING_STATE_ACTIVE)
 
     def test_is_recurring_active_false_for_one_time(self):
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_INACTIVE,
+            get_recurring_donation_state,
+        )
 
         donation = self._make_donation(status="One-time")
-        self.assertFalse(is_recurring_donation_active(donation.name))
-
-    def test_is_recurring_active_false_for_missing_donation(self):
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
-
-        self.assertFalse(is_recurring_donation_active("Nonexistent-Donation-XYZ"))
+        self.assertEqual(get_recurring_donation_state(donation.name), RECURRING_STATE_INACTIVE)
 
     def test_is_recurring_active_false_after_cancellation_date(self):
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_INACTIVE,
+            get_recurring_donation_state,
+        )
 
         donation = self._make_donation(status="Recurring", recurring_freq="Monthly")
         # A past cancellation date marks it inactive.
         donation.db_set("recurring_cancelled_date", "2000-01-01")
-        self.assertFalse(is_recurring_donation_active(donation.name))
+        self.assertEqual(get_recurring_donation_state(donation.name), RECURRING_STATE_INACTIVE)
 
     # ----- get_context -------------------------------------------------
 

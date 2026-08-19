@@ -216,10 +216,13 @@ function link_donation_dialog(frm) {
 		method: 'frappe.client.get_list',
 		args: {
 			doctype: 'Donation',
+			// Donation is not submittable, so every donation sits at docstatus 0
+			// and the old `docstatus: 1` made this picker permanently empty
+			// (#350). `< 2` keeps cancelled donations out of it.
 			filters: {
 				donor: frm.doc.donor,
 				periodic_donation_agreement: ['is', 'not set'],
-				docstatus: 1
+				docstatus: ['<', 2]
 			},
 			fields: ['name', 'donation_date', 'amount', 'mode_of_payment'],
 			limit_page_length: 100

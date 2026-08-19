@@ -9,7 +9,7 @@ uncovered branches:
 
 - get_donation_summary / get_recurring_donations / get_recent_donations
   exception path (missing member -> logged error, safe default returned)
-- is_recurring_donation_active future-cancellation-date branch
+- get_recurring_donation_state future-cancellation-date branch
 - get_donation_stats guest / no-member error returns (decorator allows the
   body to run as a non-guest member)
 - cancel/update foreign-ownership rejection + already-cancelled guard
@@ -157,15 +157,18 @@ class TestPageManageDonationsCoverage(EnhancedTestCase):
         self.assertEqual(summary["total_donations"], 1)
         self.assertEqual(summary["total_donated"], 40.0)
 
-    # ----- is_recurring_donation_active future-date branch -------------
+    # ----- get_recurring_donation_state future-date branch -------------
 
     def test_is_recurring_active_true_with_future_cancellation_date(self):
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
+            get_recurring_donation_state,
+        )
 
         donation = self._make_donation(status="Recurring", recurring_freq="Monthly")
         # A FUTURE cancellation date means the subscription is still active until then.
         donation.db_set("recurring_cancelled_date", add_days(today(), 30))
-        self.assertTrue(is_recurring_donation_active(donation.name))
+        self.assertEqual(get_recurring_donation_state(donation.name), RECURRING_STATE_ACTIVE)
 
     # ----- get_donation_stats body branches ----------------------------
 
@@ -240,7 +243,7 @@ class TestPageManageDonationsCoverage(EnhancedTestCase):
         from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
 
         donation = self._make_donation(status="Recurring", amount=14.0, recurring_freq="Monthly")
-        # Mark it cancelled in the past -> is_recurring_donation_active() is False.
+        # Mark it cancelled in the past -> the state is RECURRING_STATE_INACTIVE.
         donation.db_set("recurring_cancelled_date", "2000-01-01")
         self.expectErrorLog("Manage Donations")
         with self.as_user(self.user):

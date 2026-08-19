@@ -92,16 +92,20 @@ class TestDonationPortalBehavior(EnhancedTestCase):
                 user.add_roles(self._MEMBER_ROLE)
         return email
 
-    def _create_recurring_donation(self, amount):
-        """Insert a Recurring-status Donation linked to the test donor."""
+    def _create_recurring_donation(self, amount, status="Recurring", donor=None):
+        """Insert a Donation linked to a donor (the test donor unless given).
+
+        `status` is the Donation *type* (One-time / Promised / Recurring), which is
+        what the portal endpoints' "is this recurring?" guard reads.
+        """
         donation = frappe.get_doc({
             "doctype": "Donation",
-            "donor": self.test_donor.name,
+            "donor": donor or self.test_donor.name,
             # amount and mode_of_payment are mandatory on Donation
             "amount": amount,
             "mode_of_payment": "Credit Card",
             "company": frappe.get_list("Company", limit=1)[0].name,
-            "status": "Recurring",
+            "status": status,
             "payment_method": "Credit Card",
             "donation_date": today(),
         })
@@ -154,7 +158,6 @@ class TestDonationPortalBehavior(EnhancedTestCase):
             frappe.form_dict = frappe._dict(
                 donation_id=other_donation.name, new_amount=99.0
             )
-            # Endpoint wraps failures and re-raises a generic ValidationError.
             with self.assertRaises(frappe.ValidationError):
                 update_recurring_donation()
         finally:
@@ -165,25 +168,34 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         other_donation.reload()
         self.assertEqual(other_donation.amount, 50.0)
 
-    def test_is_recurring_donation_active(self):
+    def test_recurring_donation_state_is_active(self):
         """A Recurring-status, non-Mollie donation is reported active."""
-        from verenigingen.templates.pages.manage_donations import is_recurring_donation_active
+        from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
+            get_recurring_donation_state,
+        )
 
-        self.assertTrue(is_recurring_donation_active(self.test_donation.name))
+        self.assertEqual(
+            get_recurring_donation_state(self.test_donation.name), RECURRING_STATE_ACTIVE
+        )
 
     def test_cancel_own_donation_happy_path(self):
         """A member cancels their own recurring donation via the portal.
 
         Cancellation is recorded via recurring_cancelled_date (the Donation status
         enum has no "Cancelled" value); status stays "Recurring" and
-        is_recurring_donation_active() then reports the donation inactive.
+        get_recurring_donation_state() then reports the donation inactive.
         """
         from verenigingen.templates.pages.manage_donations import (
+            RECURRING_STATE_ACTIVE,
+            RECURRING_STATE_INACTIVE,
             cancel_recurring_donation,
-            is_recurring_donation_active,
+            get_recurring_donation_state,
         )
 
-        self.assertTrue(is_recurring_donation_active(self.test_donation.name))
+        self.assertEqual(
+            get_recurring_donation_state(self.test_donation.name), RECURRING_STATE_ACTIVE
+        )
 
         current_user = frappe.session.user
         try:
@@ -199,7 +211,9 @@ class TestDonationPortalBehavior(EnhancedTestCase):
         self.assertEqual(self.test_donation.recurring_cancelled_date, getdate(today()))
         # Status is unchanged (no invalid value) but the donation is now inactive.
         self.assertEqual(self.test_donation.status, "Recurring")
-        self.assertFalse(is_recurring_donation_active(self.test_donation.name))
+        self.assertEqual(
+            get_recurring_donation_state(self.test_donation.name), RECURRING_STATE_INACTIVE
+        )
 
     def test_cancel_rejects_foreign_donation(self):
         """The portal must refuse to cancel a donation owned by another donor."""
@@ -229,3 +243,82 @@ class TestDonationPortalBehavior(EnhancedTestCase):
 
         foreign_donation.reload()
         self.assertEqual(foreign_donation.status, "Recurring")
+
+    # ------------------------------------------------------------------
+    # A refusal must say WHICH guard refused.
+    #
+    # Both endpoints wrap their whole body in `except Exception`, which also
+    # catches their OWN frappe.throw()s. Every specific, translated refusal was
+    # therefore replaced by one catch-all sentence, so the distinct refusal
+    # reasons were indistinguishable from outside the endpoint (#359).
+    # ------------------------------------------------------------------
+
+    #: Substring of the catch-all sentence each endpoint used to raise instead.
+    GENERIC_CANCEL_TEXT = "An error occurred while cancelling"
+    GENERIC_UPDATE_TEXT = "An error occurred while updating"
+
+    def _refusal_message(self, endpoint, **form_data):
+        """Call `endpoint` as the member user; return the message it refused with."""
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(self.member_user)
+            frappe.form_dict = frappe._dict(**form_data)
+            with self.assertRaises(frappe.ValidationError) as raised:
+                endpoint()
+        finally:
+            frappe.form_dict = frappe._dict()
+            frappe.set_user(current_user)
+        return str(raised.exception)
+
+    def test_cancel_refusals_name_their_own_reason(self):
+        """Each cancel guard reports its own message, not one catch-all sentence."""
+        from verenigingen.templates.pages.manage_donations import cancel_recurring_donation
+
+        stranger = self.create_test_donor(donor_email="stranger-cancel@example.com")
+        foreign = self._create_recurring_donation(30.0, donor=stranger.name)
+        own_one_time = self._create_recurring_donation(30.0, status="One-time")
+
+        missing_id = self._refusal_message(cancel_recurring_donation)
+        not_mine = self._refusal_message(cancel_recurring_donation, donation_id=foreign.name)
+        not_recurring = self._refusal_message(
+            cancel_recurring_donation, donation_id=own_one_time.name
+        )
+
+        self.assertIn("Donation ID is required", missing_id)
+        self.assertIn("You can only cancel your own donations", not_mine)
+        self.assertIn("This is not a recurring donation", not_recurring)
+
+        for message in (missing_id, not_mine, not_recurring):
+            self.assertNotIn(self.GENERIC_CANCEL_TEXT, message)
+
+        # Three guards, three distinguishable answers.
+        self.assertEqual(len({missing_id, not_mine, not_recurring}), 3)
+
+    def test_update_refusals_name_their_own_reason(self):
+        """Each update guard reports its own message, not one catch-all sentence."""
+        from verenigingen.templates.pages.manage_donations import update_recurring_donation
+
+        stranger = self.create_test_donor(donor_email="stranger-update@example.com")
+        foreign = self._create_recurring_donation(30.0, donor=stranger.name)
+        own_one_time = self._create_recurring_donation(30.0, status="One-time")
+
+        missing_id = self._refusal_message(update_recurring_donation, new_amount=10.0)
+        bad_amount = self._refusal_message(
+            update_recurring_donation, donation_id=self.test_donation.name, new_amount=0
+        )
+        not_mine = self._refusal_message(
+            update_recurring_donation, donation_id=foreign.name, new_amount=10.0
+        )
+        not_recurring = self._refusal_message(
+            update_recurring_donation, donation_id=own_one_time.name, new_amount=10.0
+        )
+
+        self.assertIn("Donation ID is required", missing_id)
+        self.assertIn("Amount must be greater than zero", bad_amount)
+        self.assertIn("You can only update your own donations", not_mine)
+        self.assertIn("This is not a recurring donation", not_recurring)
+
+        for message in (missing_id, bad_amount, not_mine, not_recurring):
+            self.assertNotIn(self.GENERIC_UPDATE_TEXT, message)
+
+        self.assertEqual(len({missing_id, bad_amount, not_mine, not_recurring}), 4)

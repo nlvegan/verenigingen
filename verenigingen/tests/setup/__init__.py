@@ -4,6 +4,7 @@ Test setup hooks for Verenigingen app.
 This module provides the before_tests hook that ensures ERPNext test fixtures
 (Company, etc.) are created before our tests run.
 """
+
 import frappe
 
 from verenigingen.tests.harness_logger import get_harness_logger
@@ -236,6 +237,95 @@ def before_tests():
     # spurious failure (#309, #314).
     _seed_default_team_roles()
 
+    # Last, so it sees the fully seeded site and cannot report a link that one of
+    # the seeders above was about to create.
+    report_stale_single_links()
+
+
+def find_stale_single_links():
+    """Return this app's Single doctype Link fields whose target no longer exists.
+
+    A Single's values live in `tabSingles` and are never rolled back, so one bad
+    write outlives every test and every run. Nothing validates them in the
+    meantime: the harness configures Singles with `frappe.db.set_value(...)`,
+    which writes straight to the table and skips the document validation chain.
+    The rot therefore stays invisible until some unrelated code path does a real
+    `settings.save()` -- at which point Frappe validates EVERY link field at once
+    and throws naming all of them together, in whatever test happened to trigger
+    the save.
+
+    That is how `test_site_5` came to fail 19/19 in setUp with a single
+    LinkValidationError naming three fields, on develop as much as on any branch.
+    The tests were fine; the site was stale. Read as a code failure, it cost a
+    wrong diagnosis before the control run showed develop failing identically.
+
+    Returns a list of dicts: doctype, fieldname, target_doctype, value.
+    """
+    problems = []
+    for doctype in _app_single_doctypes():
+        for df in frappe.get_meta(doctype).get_link_fields():
+            target_doctype = df.options
+            # Skip Dynamic Link-ish rows and links to doctypes an optional app owns.
+            if not target_doctype or not frappe.db.exists("DocType", target_doctype):
+                continue
+            value = frappe.db.get_single_value(doctype, df.fieldname)
+            if not value:
+                continue
+            if not frappe.db.exists(target_doctype, value):
+                problems.append(
+                    {
+                        "doctype": doctype,
+                        "fieldname": df.fieldname,
+                        "target_doctype": target_doctype,
+                        "value": value,
+                    }
+                )
+    return problems
+
+
+def _app_single_doctypes():
+    """Single doctypes owned by this app, resolved through their Module Def."""
+    singles = frappe.get_all("DocType", filters={"issingle": 1}, fields=["name", "module"])
+    return sorted(
+        d.name for d in singles if frappe.db.get_value("Module Def", d.module, "app_name") == "verenigingen"
+    )
+
+
+def report_stale_single_links():
+    """Print any stale Single links found, prominently. Deliberately does NOT raise.
+
+    Raising was the first instinct and is wrong here, on measured grounds: two of
+    the five local test sites already carry a dangling link in a Single this app
+    owns (`Verenigingen Payments Settings.webhook_user` on one, `E-Boekhouden
+    Settings.default_company` on another), and neither prevents its site from
+    running. A guard that threw would have reddened both immediately, and CI's
+    state is unmeasured -- a false throw here fails all twelve shards at bootstrap.
+
+    The defect being addressed is misattribution, not the stale value itself. A
+    named list at the top of the run turns "19 identical errors, cause unknown"
+    into one line naming the site's actual problem. Promote to a raise only with
+    evidence from a real CI run that the healthy state is genuinely empty.
+
+    `print` rather than `frappe.logger()`: bare loggers default to level ERROR
+    under `bench run-tests`, so a `.warning()` here would write nothing at all.
+    The harness captures stdout.
+    """
+    problems = find_stale_single_links()
+    if not problems:
+        return problems
+
+    print("=" * 78)
+    print(f"STALE SINGLE LINKS on site '{frappe.local.site}' -- {len(problems)} found")
+    print("These point at records that do not exist. They are NOT caused by your")
+    print("branch. Any code path that does a real .save() on one of these Singles")
+    print("will throw LinkValidationError naming every bad field at once, in")
+    print("whatever unrelated test triggers the save.")
+    for p in problems:
+        print(f"  {p['doctype']}.{p['fieldname']} -> {p['target_doctype']} '{p['value']}' MISSING")
+    print("Fix the site (clear or repoint the field); do not chase the test.")
+    print("=" * 78)
+    return problems
+
 
 def ensure_member_test_masters():
     """Idempotently seed the master records member-domain tests depend on.
@@ -441,9 +531,7 @@ def ensure_test_fiscal_year_for_all_companies():
         ensure_fiscal_year_exists,
     )
 
-    company = frappe.defaults.get_global_default("company") or frappe.db.get_value(
-        "Company", {}, "name"
-    )
+    company = frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
     fy_name = ensure_fiscal_year_exists(today(), company)
     # Drop any single-company restriction so the current FY covers every
     # company the tests use (multi-company tests post against _Test Company 2).
@@ -569,9 +657,7 @@ def _seed_verenigingen_test_system_user():
     if current != test_user_email:
         # set_single_value writes the Singles row directly without firing
         # validate (which would trip on other reqd fields on a fresh site).
-        frappe.db.set_single_value(
-            "Verenigingen Settings", "creation_user", test_user_email
-        )
+        frappe.db.set_single_value("Verenigingen Settings", "creation_user", test_user_email)
         frappe.db.commit()
 
         # "It did not raise" is not evidence the write took. `set_single_value`
@@ -611,9 +697,8 @@ def _seed_verenigingen_test_system_user():
     # path. Keep the heal scoped to the field the chapter resolver prefers.
     configured_company = frappe.db.get_single_value("Verenigingen Settings", "company")
     if not configured_company or not frappe.db.exists("Company", configured_company):
-        company = (
-            frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
-            or frappe.db.get_value("Company", {}, "name")
+        company = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name") or frappe.db.get_value(
+            "Company", {}, "name"
         )
         if company:
             frappe.db.set_single_value("Verenigingen Settings", "company", company)
@@ -661,9 +746,7 @@ def _seed_default_leaf_customer_group():
     """
     leaf = frappe.db.get_value(
         "Customer Group", {"name": "Individual", "is_group": 0}, "name"
-    ) or frappe.db.get_value(
-        "Customer Group", {"is_group": 0}, "name", order_by="name asc"
-    )
+    ) or frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name asc")
 
     if not leaf:
         # No leaf exists — create "Individual" under the root.
@@ -681,9 +764,7 @@ def _seed_default_leaf_customer_group():
         leaf = group.name
         frappe.db.commit()
 
-    current_single = frappe.db.get_single_value(
-        "Selling Settings", "customer_group"
-    )
+    current_single = frappe.db.get_single_value("Selling Settings", "customer_group")
     current_default = frappe.db.get_default("customer_group")
     needs_commit = False
     if current_single != leaf:
