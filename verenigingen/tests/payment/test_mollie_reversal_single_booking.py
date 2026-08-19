@@ -16,6 +16,13 @@ Entry. The two routes agree on the key and disagree on the doctype (#370).
 This is NOT gated by the ``payment_entry_exists`` precondition that blocks
 ``process_reversal_webhook``: ``handle_refund_webhook`` never calls it.
 
+**``handle_refund_webhook`` no longer books anything itself** -- it parses and
+delegates to ``process_reversal_webhook``, so the artefact now follows the forward
+booking rather than the route. The direct calls to ``create_refund_payment_entry``
+below therefore no longer stand in for that endpoint; they exercise the guard
+*inside* ``create_unified_payment_entry``, which is still reachable from the older
+donation flow and is what stops the second booking at the last line of defence.
+
 **The defect is symmetric, and closing one direction does not close the other.**
 ``_process_pending_refunds`` has no reversal-idempotency check of its own at all.
 It is protected only by accident: ``_check_refund_processing_state`` builds
@@ -171,7 +178,7 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
         self.assertEqual(len(jes), 1, "expected exactly one JE from the sweep route")
         self.assertEqual(len(pes), 0, "sweep route should not create a Payment Entry")
 
-        # --- route 2: the same refund arrives at handle_refund_webhook, which calls this
+        # --- route 2: the Payment-Entry booker, the last line of defence
         create_refund_payment_entry(
             donation_doc=self.donation,
             mollie_payment_id=self.payment_id,
@@ -229,8 +236,8 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
         ``_process_pending_refunds`` never asks whether this reversal is already
         booked. Its Bank-Transaction and Journal-Entry creators each dedupe on
         their own doctype, and ``_check_refund_processing_state`` looks only at
-        Payment Entry -- so a Payment Entry booked by ``handle_refund_webhook``
-        is invisible to every layer, and the sweep books BT + JE on top of it.
+        Payment Entry -- so a Payment Entry booked by the older donation flow is
+        invisible to every layer, and the sweep books BT + JE on top of it.
         """
         key = f"{self.payment_id}_refund_{self.refund_id}"
 
