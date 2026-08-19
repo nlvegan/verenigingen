@@ -183,6 +183,84 @@ jobs:
         fi
         echo "Baseline did not grow."
 
+  # Same shape as the swallowed-exception ratchet above, and for the same reason:
+  # the pre-commit hook can be skipped (`git commit -n`, `SKIP=`), and it only ever
+  # sees the files in one change. That is how this rule died the first time -- 40
+  # files on develop failed it while every push stayed green, until someone merged
+  # develop into a branch and inherited findings their code never wrote.
+  test-quality-ratchet:
+    name: 🚨 Test Quality Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, tokenize, argparse, pathlib) by design: no bench, no site,
+    # no dependency install.
+    - name: Unit-test the enforcer itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_test_quality_enforcer.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/test_quality_enforcer.py
+
+    - name: Baseline is in sync with the tree
+      run: |
+        python scripts/validation/test_quality_enforcer.py --update-baseline
+        if ! git diff --quiet -- scripts/validation/test_quality_baseline.txt; then
+          echo "::error file=scripts/validation/test_quality_baseline.txt::Baseline is out of sync with the tree."
+          echo "Regenerate it and commit the result:"
+          echo "    python scripts/validation/test_quality_enforcer.py --update-baseline"
+          echo ""
+          echo "Drift (committed vs regenerated):"
+          git --no-pager diff -- scripts/validation/test_quality_baseline.txt
+          exit 1
+        fi
+        echo "Baseline matches the tree."
+
+    # The step above cannot catch the abuse that actually defeats this gate:
+    # regenerating the baseline so a NEW violation is recorded rather than fixed.
+    # That leaves baseline and tree perfectly in sync, and the ratchet green. The
+    # only signal is that the baseline GREW, which is legitimate solely when the
+    # enforcer's own detection rules changed in the same PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/test_quality_baseline.txt
+        VALIDATOR=scripts/validation/test_quality_enforcer.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Enforcer changed in this PR, so a larger baseline is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline violations: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without an enforcer change."
+          echo "A new test-quality violation was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
   fast-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 5
