@@ -20,6 +20,12 @@ This has produced real defects:
 
 WHY A ``try``/``except`` IS NOT A CHECK
 ---------------------------------------
+For the failure this rule is about, nothing is raised, so nothing is caught. (Three
+things *do* still raise and are outside the try in ``secure_document_operation``:
+``validate_justification``, the ``bypass_validations`` role gate, and a re-raised
+``NON_RESUMABLE_DB_ERROR``. A handler is live for those -- and dead for the ordinary
+write failure this rule exists to catch.)
+
 Every discard this rule was written for had exception-handling wrapped around it:
 
 ===============================================  ===========================================
@@ -38,17 +44,48 @@ WHAT IS FLAGGED
 A call to ``secure_document_operation(...)`` where the result is never examined:
 
 1. **DISCARDED** -- the call is a bare expression statement; the result is gone.
-2. **UNCHECKED** -- the result is assigned to a name whose ``.success`` is never
-   read anywhere in the enclosing function.
+2. **UNCHECKED** -- the result is assigned to a target (``result``, ``self.result``,
+   or an annotated assignment) whose ``.success`` is never read in the enclosing
+   function, and which is not returned.
+3. **TRUTHINESS** -- the call is used directly as a condition, e.g.
+   ``if secure_document_operation(...):``. This one always passes:
+   ``SecureOperationResult`` defines no ``__bool__``, so every instance is truthy
+   and the branch is taken whether the write succeeded or not.
 
 WHAT IS NOT FLAGGED
 -------------------
-* ``return secure_document_operation(...)`` -- the result is handed to the
-  caller, and responsibility with it.
+* ``return secure_document_operation(...)``, and a result that is assigned and then
+  returned -- both hand the result to the caller, and the responsibility with it.
 * Any result whose ``.success`` is read, however the failure is then handled.
   This rule is about *looking*, not about what you do next; a branch that looks
   and deliberately continues is the sibling failed-write rule's business.
 * Test files. They stub, spy and provoke failures on purpose.
+
+Known gaps, by design -- there is no cross-function analysis, so these are reported
+even though a human would call them handled: ``getattr(result, "success")``, and
+passing the result to a helper that checks it. Use the pragma for those.
+
+HOW TO ACT ON A FINDING
+-----------------------
+Reading ``.success`` is the requirement; what to do next depends on what the failed
+write costs. Roughly:
+
+===================================================  ==================================
+if the write is...                                   then
+===================================================  ==================================
+irreversible, security-relevant, or the thing the    **raise**. A revocation that
+caller's contract promises (access revocation,       silently did not happen is worse
+posting money)                                       than a loud failure.
+something the caller could act on or report          **return an explicit failure** the
+                                                     caller reads -- a result object, a
+                                                     falsy return, an error dict.
+genuinely best-effort (audit trail, comment,         **log with the consequence named**
+notification, cleanup after an already-failed        and mark the call with the pragma
+operation)                                           below.
+===================================================  ==================================
+
+When unsure, prefer returning a failure over raising: it keeps the contract
+consistent with the surrounding code, which is mostly result-object style.
 
 OPT-OUT
 -------
@@ -56,9 +93,11 @@ A genuinely best-effort write says so on the call line or the line above::
 
     secure_document_operation(...)  # secure-op-ok: best-effort
 
-Accepted reasons: ``best-effort``, ``caller-verifies``, ``false-positive``.
-Prefer checking ``.success`` and logging -- an opt-out records a decision, it
-does not make the failure visible.
+The reason is required and must be one of ``best-effort``, ``caller-verifies``,
+``false-positive`` -- an unrecognised or missing reason is itself reported, so the
+pragma records a decision rather than waving the rule away. Prefer checking
+``.success`` and logging; an opt-out documents a choice, it does not make the
+failure visible.
 
 NO BASELINE, DELIBERATELY
 -------------------------
@@ -83,6 +122,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCAN_ROOTS = ("verenigingen",)
 FUNC_NAME = "secure_document_operation"
+_FUNC_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef)
 OPT_OUT = "secure-op-ok:"
 VALID_REASONS = ("best-effort", "caller-verifies", "false-positive")
 
@@ -100,12 +140,17 @@ def _is_target_call(node: ast.AST) -> bool:
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == FUNC_NAME
 
 
-def _opted_out(lines: list[str], lineno: int) -> bool:
-    """An opt-out on the call line, or on the line above it."""
+def _opt_out_reason(lines: list[str], lineno: int):
+    """The pragma's reason, if one is present on the call line or the line above.
+
+    Returns None when there is no pragma at all, otherwise the (possibly empty or
+    invalid) reason text. The caller distinguishes the three cases -- an unpoliced
+    pragma is the only way a rule with no baseline can quietly die.
+    """
     for idx in (lineno - 1, lineno - 2):
         if 0 <= idx < len(lines) and OPT_OUT in lines[idx]:
-            return True
-    return False
+            return lines[idx].split(OPT_OUT, 1)[1].strip()
+    return None
 
 
 def scan_file(path: pathlib.Path) -> list[Finding]:
@@ -132,54 +177,99 @@ def scan_file(path: pathlib.Path) -> list[Finding]:
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
 
-        # Which calls are bare statements, and which are assigned to a name?
+        # Only this function's own body. ast.walk descends into nested defs, and the
+        # outer walk visits those separately, so without this every finding inside a
+        # nested function was reported twice -- once against each enclosing name.
+        inner = {
+            id(d) for n in ast.walk(fn) if isinstance(n, _FUNC_TYPES) and n is not fn for d in ast.walk(n)
+        }
+        nodes = [n for n in ast.walk(fn) if id(n) not in inner]
+
         discarded: list[ast.Call] = []
-        assigned: dict[str, int] = {}
-        for node in ast.walk(fn):
+        truthiness: list[ast.Call] = []
+        assigned: dict[str, int] = {}  # target expression -> lineno
+        consumed: set[ast.Call] = set()
+
+        for node in nodes:
             if isinstance(node, ast.Expr) and _is_target_call(node.value):
                 discarded.append(node.value)
-            elif isinstance(node, ast.Assign) and _is_target_call(node.value):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        assigned[target.id] = node.value.lineno
-            # `return secure_document_operation(...)` hands the result upward.
+                consumed.add(node.value)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)) and _is_target_call(node.value):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    # `result`, and `self.result` -- a service-class shape the
+                    # Name-only check used to miss entirely.
+                    if isinstance(target, (ast.Name, ast.Attribute)):
+                        assigned[ast.unparse(target)] = node.value.lineno
+                consumed.add(node.value)
+            elif isinstance(node, ast.Return) and _is_target_call(node.value):
+                consumed.add(node.value)  # handed to the caller
 
-        if not discarded and not assigned:
+        # Used directly as a condition. SecureOperationResult defines no __bool__,
+        # so this is unconditionally true -- it reads as a check and is not one.
+        for node in nodes:
+            tests = []
+            if isinstance(node, (ast.If, ast.While)):
+                tests.append(node.test)
+            elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+                tests.append(node.operand)
+            elif isinstance(node, ast.BoolOp):
+                tests.extend(node.values)
+            for test in tests:
+                if _is_target_call(test) and test not in consumed:
+                    truthiness.append(test)
+                    consumed.add(test)
+
+        if not discarded and not assigned and not truthiness:
             continue
 
-        checked = {
-            node.value.id
-            for node in ast.walk(fn)
-            if isinstance(node, ast.Attribute)
-            and node.attr == "success"
-            and isinstance(node.value, ast.Name)
-            and node.value.id in assigned
-        }
+        # `.success` read on the target, and targets that are returned (handing the
+        # result, and the responsibility, to the caller).
+        checked, handed_off = set(), set()
+        for node in nodes:
+            if isinstance(node, ast.Attribute) and node.attr == "success":
+                owner = ast.unparse(node.value)
+                if owner in assigned:
+                    checked.add(owner)
+            elif isinstance(node, ast.Return) and node.value is not None:
+                returned = ast.unparse(node.value)
+                if returned in assigned:
+                    handed_off.add(returned)
+
+        def _record(lineno: int, kind: str, detail: str) -> None:
+            reason = _opt_out_reason(lines, lineno)
+            if reason is None:
+                findings.append(Finding(rel, lineno, fn.name, kind, detail))
+            elif reason not in VALID_REASONS:
+                shown = repr(reason) if reason else "no reason at all"
+                findings.append(
+                    Finding(
+                        rel,
+                        lineno,
+                        fn.name,
+                        "BAD_OPT_OUT",
+                        f"{shown} is not an accepted reason; use one of " f"{', '.join(VALID_REASONS)}",
+                    )
+                )
 
         for call in discarded:
-            if _opted_out(lines, call.lineno):
-                continue
-            findings.append(
-                Finding(
-                    rel,
-                    call.lineno,
-                    fn.name,
-                    "DISCARDED",
-                    "the result is thrown away, so a failed write is invisible here",
-                )
+            _record(
+                call.lineno,
+                "DISCARDED",
+                "the result is thrown away, so a failed write is invisible here",
             )
-        for name, lineno in sorted(assigned.items()):
-            if name in checked or _opted_out(lines, lineno):
-                continue
-            findings.append(
-                Finding(
-                    rel,
-                    lineno,
-                    fn.name,
-                    "UNCHECKED",
-                    f"'{name}.success' is never read",
-                )
+        for call in truthiness:
+            _record(
+                call.lineno,
+                "TRUTHINESS",
+                "used directly as a condition, but SecureOperationResult defines no "
+                "__bool__ -- this is always true whether the write succeeded or not; "
+                "assign it and test '.success'",
             )
+        for target, lineno in sorted(assigned.items()):
+            if target in checked or target in handed_off:
+                continue
+            _record(lineno, "UNCHECKED", f"'{target}.success' is never read")
 
     return findings
 
