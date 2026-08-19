@@ -317,18 +317,16 @@ class DonationRefundJournalEntryCreator:
                 allow_system_user=True,
             )
 
-            if submit_result.success:
-                frappe.logger().info(
-                    f"Created and submitted Refund Journal Entry {je.name} for donation {donation_name}"
-                )
+            if not submit_result.success:
+                return self._discard_unposted_journal_entry(je.name, submit_result, donation_name)
 
-                # Reconcile Bank Transaction with this Journal Entry
-                if bank_transaction_name:
-                    self._reconcile_bank_transaction(bank_transaction_name, je.name, flt(amount))
-            else:
-                frappe.logger().info(
-                    f"Created Refund Journal Entry {je.name} (draft) for donation {donation_name}"
-                )
+            frappe.logger().info(
+                f"Created and submitted Refund Journal Entry {je.name} for donation {donation_name}"
+            )
+
+            # Reconcile Bank Transaction with this Journal Entry
+            if bank_transaction_name:
+                self._reconcile_bank_transaction(bank_transaction_name, je.name, flt(amount))
 
             return je.name
 
@@ -339,6 +337,55 @@ class DonationRefundJournalEntryCreator:
                 "Donation Refund Journal Entry Error",
             )
             return None
+
+    def _discard_unposted_journal_entry(self, je_name: str, submit_result, donation_name: str) -> None:
+        """A Journal Entry whose submit failed is not a booking. Always returns None.
+
+        This used to log "(draft)" and ``return je.name`` anyway, so the caller's
+        "did I get a name back?" success test read a failed posting as success.
+
+        Two things make that worse than a wrong status code:
+
+        * The entry is **not** a draft. Frappe's ``Document.save()`` runs
+          ``db_update()`` before ``run_post_save_methods()``, and ``on_submit`` is
+          what posts to the ledger -- so a submit that throws leaves ``docstatus=1``
+          already written, and ``secure_document_operation`` catches the error
+          without rolling back. ERPNext validates each GL row in
+          ``GLEntry.on_update``, i.e. *after* inserting it, so the ledger can be
+          left one-sided.
+        * ``find_booked_reversal`` counts anything with ``docstatus != 2``. Left in
+          place, the unposted entry claims the reversal key and every one of
+          Mollie's redeliveries answers "already processed" -- the refund reported
+          done, permanently, having never reached the ledger.
+
+        So the entry is cancelled (which frees the key, since only ``docstatus=2``
+        is ignored) and removed. Failure to clean up is logged and swallowed: the
+        booking has already failed and been reported, and raising here would
+        replace the real reason with a less useful one.
+        """
+        error_msg = ", ".join(submit_result.errors) if submit_result.errors else "Unknown error"
+        message = (
+            f"Refund Journal Entry {je_name} for donation {donation_name} could not be "
+            f"submitted and did not post to the ledger: {error_msg}"
+        )
+        frappe.logger().error(message)
+        frappe.log_error(message, "Donation Refund Journal Entry Not Posted")
+
+        try:
+            je = frappe.get_doc("Journal Entry", je_name)
+            if je.docstatus == 1:
+                je.cancel()
+            frappe.delete_doc("Journal Entry", je_name, force=True)
+        except Exception as cleanup_error:
+            frappe.logger().error(
+                f"Could not remove unposted Refund Journal Entry {je_name}: {cleanup_error}"
+            )
+            frappe.log_error(
+                f"Unposted Refund Journal Entry {je_name} was left behind and still claims its "
+                f"reversal key, so redeliveries will report it as already processed: {cleanup_error}",
+                "Donation Refund Journal Entry Cleanup Failed",
+            )
+        return None
 
     def _reconcile_bank_transaction(
         self,

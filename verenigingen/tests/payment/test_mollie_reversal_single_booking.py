@@ -441,6 +441,70 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.assertIn("AC04", remark, f"Mollie reason code dropped from the entry: {remark!r}")
         self.assertIn("Account closed", remark, f"Mollie reason text dropped: {remark!r}")
 
+    def test_a_reversal_whose_journal_entry_did_not_post_is_not_reported_as_success(self):
+        """A submit that throws still leaves docstatus=1. Success needs a posted ledger.
+
+        Frappe's ``Document.save()`` runs ``db_update()`` **before**
+        ``run_post_save_methods()``, and ``on_submit`` is what triggers GL posting.
+        So a Journal Entry whose submit raises is already at ``docstatus=1`` in the
+        database -- and ``secure_document_operation`` catches the error without
+        rolling back (``secure_operations.py:966-985``). The creator then logged
+        "(draft)" (it is not a draft) and returned ``je.name`` regardless, so the
+        caller's "did I get a name?" success test read a failed posting as success.
+
+        That is not merely a wrong status. ``find_booked_reversal`` counts anything
+        with ``docstatus != 2``, so the unposted entry claims the reversal key and
+        every one of Mollie's ~10 redeliveries answers "already processed". The
+        refund is reported done, permanently, having never reached the ledger.
+
+        The failure is injected with a **group** income account, which ERPNext
+        rejects in ``GLEntry.on_update`` -- after the GL row is inserted, which is
+        exactly why this state arises at all.
+        """
+        group_income = frappe.get_value(
+            "Account", {"company": COMPANY, "root_type": "Income", "is_group": 1}, "name"
+        )
+        self.assertTrue(group_income, "need a group income account to make the posting fail")
+
+        previous = frappe.db.get_single_value("Verenigingen Settings", "unrestricted_donation_account")
+        frappe.db.set_single_value("Verenigingen Settings", "unrestricted_donation_account", group_income)
+        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+        self.addCleanup(frappe.clear_document_cache, "Verenigingen Settings", "Verenigingen Settings")
+        self.addCleanup(
+            frappe.db.set_single_value,
+            "Verenigingen Settings",
+            "unrestricted_donation_account",
+            previous,
+        )
+
+        self._make_forward_journal_entry()
+        refund_id = f"re_unposted_{frappe.generate_hash(length=8)}"
+        key = f"{self.payment_id}_refund_{refund_id}"
+
+        result = UnifiedWebhookWrapperService().process_reversal_webhook(
+            payment_id=self.payment_id,
+            reversal_id=refund_id,
+            amount=100.0,
+            reversal_type="refund",
+            reversal_date=today(),
+        )
+
+        self.assertNotEqual(
+            result.get("status"),
+            "success",
+            f"the ledger was never posted, so this is not a success: {result}",
+        )
+        self.assertFalse(
+            frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name"),
+            "an unposted Journal Entry must not be left claiming the reversal key -- "
+            "find_booked_reversal counts docstatus != 2, so it would answer "
+            "'already processed' to every redelivery of a refund that never reached the ledger",
+        )
+        self.assertFalse(
+            frappe.get_all("Bank Transaction", filters={"reference_number": key}, pluck="name"),
+            "the Journal Entry did not post, so its Bank Transaction must be withdrawn",
+        )
+
     def test_withdrawing_a_bank_transaction_cancels_before_deleting(self):
         """The compensating write when a reversal's Journal Entry never arrives.
 
