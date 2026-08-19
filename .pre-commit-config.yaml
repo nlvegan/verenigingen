@@ -303,6 +303,32 @@ repos:
         verbose: true
         exclude: '^(scripts/validation/archived/|scripts/validation/tests/|verenigingen/tests/)'
 
+      - id: secure-operation-result-validator
+        name: 🔐 Unchecked secure_document_operation Result
+        description: >-
+          `secure_document_operation` does NOT raise when a write fails — it catches
+          the exception and returns `success=False`. A caller that ignores the return
+          value is told nothing and carries on as if the row was written. Every
+          instance found so far had exception handling wrapped around it that could
+          never fire, because nothing is raised: a reversal Journal Entry that never
+          reached the ledger was reported as a completed refund and then claimed the
+          idempotency key forever (#379), the same shape on the forward path makes a
+          donation impossible to reverse (#381), and an access REVOCATION left the
+          user holding the role profile while reporting it removed. Flags DISCARDED
+          (result thrown away) and UNCHECKED (`.success` never read); `return
+          secure_document_operation(...)` is fine, since the caller gets the result.
+          Genuinely best-effort writes should still read `.success` and log, then mark
+          the call `# secure-op-ok: best-effort|caller-verifies|false-positive`.
+          NO BASELINE, deliberately: the full sweep of all 218 non-test call sites
+          found exactly three violations and all three are fixed, so this starts at
+          zero and any hit is a real regression rather than inherited debt.
+        entry: python scripts/validation/secure_operation_result_validator.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/.*\.py$'
+        stages: [pre-commit]
+        exclude: '^verenigingen/tests/'
+
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
         description: Check for usage of deprecated functions using Codanna

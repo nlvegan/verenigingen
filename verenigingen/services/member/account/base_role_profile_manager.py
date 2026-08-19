@@ -569,15 +569,34 @@ class BaseRoleProfileManager(ABC):
 
         Handles both the Frappe v16 role_profiles child table (canonical) and the
         deprecated role_profile_name Link field for v15 compatibility.
+
+        Raises if the save fails, because this is an access **revocation**: a
+        silent failure leaves the user holding the profile while the caller reports
+        it removed. The one caller sits inside a try/except that turns this into a
+        failure response, which is the correct outcome and could not happen while
+        the result was discarded -- secure_document_operation returns
+        ``success=False`` rather than raising, so the handler never fired.
+
+        That matters here specifically. The caller's comment records that this path
+        once "claimed the profile was removed while leaving it assigned", and the
+        fix was to call this method -- which then re-introduced the same
+        reported-state-versus-reality gap one layer down.
         """
         user_doc = frappe.get_doc("User", user)
         _remove_single_role_profile(user_doc, role_profile)
-        secure_document_operation(
+        strip_result = secure_document_operation(
             operation="save",
             doc=user_doc,
             justification=f"Remove role profile '{role_profile}' from user {user} - role profile management for organizational access control",
             required_permissions=["User:write"],
         )
+        if not strip_result.success:
+            error_msg = "; ".join(strip_result.errors) if strip_result.errors else "Unknown error"
+            frappe.throw(
+                _("Failed to remove role profile '{0}' from user {1}: {2}").format(
+                    role_profile, user, error_msg
+                )
+            )
 
     def bulk_assign_role_profiles(self, entity_name: str) -> Dict[str, Any]:
         """
