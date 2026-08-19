@@ -16,6 +16,16 @@ Entry. The two routes agree on the key and disagree on the doctype (#370).
 This is NOT gated by the ``payment_entry_exists`` precondition that blocks
 ``process_reversal_webhook``: ``handle_refund_webhook`` never calls it.
 
+**The defect is symmetric, and closing one direction does not close the other.**
+``_process_pending_refunds`` has no reversal-idempotency check of its own at all.
+It is protected only by accident: ``_check_refund_processing_state`` builds
+``pending_refunds`` from a **Payment-Entry-only** query, so a refund the sweep
+itself booked as a Journal Entry is reported pending on every sweep, and the
+duplicate is absorbed one layer down by the Bank-Transaction and Journal-Entry
+creators, which each dedupe on their own key. Two blind checks covering each
+other's blind spots -- and neither can see a *Payment Entry*. So when the refund
+webhook wins the race, the sweep books BT + JE on top of the Payment Entry.
+
 Run:
     bench --site test_site_1 run-tests --app verenigingen \\
         --module verenigingen.tests.payment.test_mollie_reversal_single_booking
@@ -29,9 +39,20 @@ from verenigingen.tests.services.test_donation_refund_journal_entry_creator_cove
     COMPANY,
     _RefundFixtureMixin,
 )
+from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
+    UnifiedWebhookWrapperService,
+)
 from verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator import (
     create_refund_payment_entry,
 )
+
+
+def _clear_mollie_config_cache():
+    from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+        MollieConfigurationService,
+    )
+
+    MollieConfigurationService.clear_cache()
 
 
 class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
@@ -82,6 +103,17 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
             frappe.db.set_single_value("Verenigingen Settings", field, value)
         self.addCleanup(self._restore_vs)
 
+        # The sweep route books through get_mollie_bank_account_config(), which
+        # reads Mollie Settings -- a Single shared with every co-tenant in the
+        # shard. Point it at this test's clearing account and put it back
+        # afterwards. MollieConfigurationService caches the Single in
+        # frappe.cache() with a TTL, so the write is invisible to the caller for
+        # the rest of the process unless the cache is dropped as well.
+        self._prev_clearing = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self.clearing_account)
+        _clear_mollie_config_cache()
+        self.addCleanup(self._restore_mollie_settings)
+
         self.donor = self._make_donor()
         donor_doc = frappe.get_doc("Donor", self.donor)
         donor_doc.get_or_create_customer()
@@ -91,6 +123,11 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
         self.donation = self._make_donation(self.donor, 100.0)
         frappe.db.set_value("Donation", self.donation.name, "payment_id", self.payment_id)
         self.donation.payment_id = self.payment_id
+
+    def _restore_mollie_settings(self):
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self._prev_clearing)
+        frappe.db.commit()
+        _clear_mollie_config_cache()
 
     def _restore_vs(self):
         for field, value in self._restore_settings.items():
@@ -148,3 +185,80 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
             "The Payment-Entry route's idempotency check looks only at Payment Entry, "
             "so it cannot see the Journal Entry the sweep already wrote (#370).",
         )
+
+    def test_a_refund_with_no_prior_booking_does_create_a_payment_entry(self):
+        """Control for the test above, and it is load-bearing.
+
+        ``create_unified_payment_entry`` is wrapped end-to-end in
+        ``except Exception: return None``. Without this control, the
+        book-exactly-once assertion above passes just as happily when the Payment
+        Entry route is *dead* -- a fixture problem, a missing account, any
+        unrelated failure -- as when the new guard is doing its job. A test that
+        cannot tell "the guard stopped it" from "it was never going to work"
+        measures nothing.
+        """
+        key = f"{self.payment_id}_refund_{self.refund_id}"
+        jes, pes = self._artefacts_for(key)
+        self.assertEqual((len(jes), len(pes)), (0, 0), "nothing should be booked yet")
+
+        pe = create_refund_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            refund_id=self.refund_id,
+            refund_amount=100.0,
+            refund_date=today(),
+        )
+
+        self.assertIsNotNone(
+            pe,
+            "the Payment Entry route did not book with nothing in its way, so the "
+            "book-exactly-once test proves nothing about the guard",
+        )
+        jes, pes = self._artefacts_for(key)
+        self.assertEqual(len(pes), 1, f"expected exactly one Payment Entry, got {pes}")
+        self.assertEqual(len(jes), 0, f"the Payment Entry route should not book a JE, got {jes}")
+
+    def test_refund_booked_as_payment_entry_is_not_booked_again_by_the_sweep(self):
+        """The other direction: the refund webhook wins, then the sweep runs.
+
+        ``_process_pending_refunds`` never asks whether this reversal is already
+        booked. Its Bank-Transaction and Journal-Entry creators each dedupe on
+        their own doctype, and ``_check_refund_processing_state`` looks only at
+        Payment Entry -- so a Payment Entry booked by ``handle_refund_webhook``
+        is invisible to every layer, and the sweep books BT + JE on top of it.
+        """
+        key = f"{self.payment_id}_refund_{self.refund_id}"
+
+        # --- route 2 first: the refund webhook books a Payment Entry
+        pe = create_refund_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            refund_id=self.refund_id,
+            refund_amount=100.0,
+            refund_date=today(),
+        )
+        self.assertIsNotNone(pe, "refund webhook route did not book - fixture problem, not the defect")
+
+        jes, pes = self._artefacts_for(key)
+        self.assertEqual(len(pes), 1, "expected exactly one Payment Entry from the refund webhook")
+        self.assertEqual(len(jes), 0, "the refund webhook route should not create a Journal Entry")
+
+        # --- route 1: the payment-webhook sweep now processes the same refund as pending
+        results = UnifiedWebhookWrapperService()._process_pending_refunds(
+            self.donation,
+            self.payment_id,
+            [{"refund_id": self.refund_id, "amount": 100.0, "refund_date": today()}],
+        )
+
+        jes, pes = self._artefacts_for(key)
+        total = len(jes) + len(pes)
+        self.assertEqual(
+            total,
+            1,
+            "the same refund was booked twice under one key "
+            f"{key!r}: Journal Entries={jes}, Payment Entries={pes}. "
+            "_process_pending_refunds has no reversal-idempotency check of its own; "
+            "it must ask find_booked_reversal, which sees every artefact rather than "
+            "one doctype (#370).",
+        )
+        self.assertTrue(results, "the sweep should report what it did, not return silently")

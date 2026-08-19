@@ -87,6 +87,8 @@ class UnifiedWebhookWrapperService:
             get_donation_refund_journal_entry_creator,
         )
 
+        from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
+
         bt_creator = get_bank_transaction_creator()
         je_creator = get_donation_refund_journal_entry_creator()
 
@@ -95,6 +97,8 @@ class UnifiedWebhookWrapperService:
         if config.get("error"):
             self.logger.error(f"❌ Mollie config error for refunds: {config['error']}")
             return [{"status": "error", "refund_id": "all", "message": config["error"]}]
+
+        refund_currency = self._resolve_bank_currency(config)
 
         # Get party info for Bank Transaction (Customer linked to Donor)
         party_type = None
@@ -129,8 +133,34 @@ class UnifiedWebhookWrapperService:
                 elif not parsed_date:
                     parsed_date = frappe.utils.getdate()
 
-                # Build unique reference number for this refund
-                refund_reference = f"{payment_id}_refund_{refund_id}"
+                # Build unique reference number for this refund -- the one key every
+                # reversal route agrees on.
+                refund_reference = build_reversal_key(payment_id, "refund", refund_id)
+
+                # Has this refund already been booked, as ANY artefact? Without this
+                # the sweep is protected only by accident: the Bank-Transaction and
+                # Journal-Entry creators each dedupe on their own doctype, and
+                # _check_refund_processing_state builds pending_refunds from a
+                # Payment-Entry-only query -- so a refund the *refund webhook* booked
+                # as a Payment Entry is invisible to every layer here, and the sweep
+                # books BT + JE on top of it (#370). Two blind checks covering each
+                # other's blind spots is not a guard.
+                already_booked = find_booked_reversal(refund_reference)
+                if already_booked:
+                    self.logger.info(
+                        f"⏭️ Refund {refund_id} already booked as "
+                        f"{already_booked[0]} {already_booked[1]} - skipping"
+                    )
+                    refund_results.append(
+                        {
+                            "status": "already_processed",
+                            "refund_id": refund_id,
+                            "reversal_doctype": already_booked[0],
+                            "reversal_name": already_booked[1],
+                            "idempotent": True,
+                        }
+                    )
+                    continue
 
                 # Step 1: Create Bank Transaction (withdrawal)
                 self.logger.info(f"  Creating Bank Transaction for refund {refund_id}...")
@@ -138,7 +168,7 @@ class UnifiedWebhookWrapperService:
                     transaction_data={
                         "date": parsed_date,
                         "amount": -float(refund_amount),  # Negative for withdrawal
-                        "currency": "EUR",
+                        "currency": refund_currency,
                         "reference_number": refund_reference,
                         "description": f"Mollie Refund: {donation.name} | Refund ID: {refund_id}",
                         "party_type": party_type,
@@ -896,20 +926,7 @@ class UnifiedWebhookWrapperService:
 
         parsed_date = self._parse_reversal_date(reversal_date)
 
-        # Take the currency from the GL account we are booking against rather than
-        # hardcoding EUR: ERPNext rejects a Bank Transaction whose currency differs
-        # from its account's, and a hardcoded literal is invisible until it meets a
-        # company that is not in that currency.
-        #
-        # Resolve it the way ERPNext does -- Bank Account -> Account.account_currency
-        # (bank_transaction.py:69). `Bank Account` itself has NO account_currency
-        # field, so reading one off it raises OperationalError 1054 rather than
-        # returning a falsy value, and no `or` fallback can rescue that.
-        currency = None
-        gl_account = frappe.db.get_value("Bank Account", config["bank_account"], "account")
-        if gl_account:
-            currency = frappe.db.get_value("Account", gl_account, "account_currency")
-        currency = currency or frappe.db.get_value("Company", config["company"], "default_currency")
+        currency = self._resolve_bank_currency(config)
 
         bank_transaction_name = bt_creator.create_from_dict(
             transaction_data={
@@ -939,6 +956,26 @@ class UnifiedWebhookWrapperService:
             bank_transaction_name=bank_transaction_name,
             reversal_type=reversal_type,
         )
+
+    @staticmethod
+    def _resolve_bank_currency(config: dict) -> Optional[str]:
+        """Currency of the account we are booking against -- never a hardcoded literal.
+
+        ERPNext rejects a Bank Transaction whose currency differs from its
+        account's, and a hardcoded "EUR" is invisible until it meets a company
+        that is not in that currency.
+
+        Resolved the way ERPNext itself does it: Bank Account -> Account.
+        ``account_currency`` (``bank_transaction.py:69``). ``Bank Account`` has NO
+        ``account_currency`` field of its own, so reading one off it raises
+        OperationalError 1054 rather than returning a falsy value -- no ``or``
+        fallback beside it can rescue that.
+        """
+        currency = None
+        gl_account = frappe.db.get_value("Bank Account", config["bank_account"], "account")
+        if gl_account:
+            currency = frappe.db.get_value("Account", gl_account, "account_currency")
+        return currency or frappe.db.get_value("Company", config["company"], "default_currency")
 
     @staticmethod
     def _parse_reversal_date(reversal_date):
