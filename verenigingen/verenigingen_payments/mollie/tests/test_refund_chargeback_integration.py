@@ -361,7 +361,18 @@ class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
         print("✅ Payment history idempotency test passed - duplicate entries prevented")
 
     def test_refund_without_original_payment_fails(self):
-        """Test that refund webhook fails gracefully if original payment doesn't exist."""
+        """Test that refund webhook fails gracefully if original payment isn't booked.
+
+        The refusal says **not booked**, not "not found", and the distinction is the
+        whole of #370. The old wording claimed knowledge the code did not have: it
+        was produced by a Payment-Entry-only lookup, so a donation correctly booked
+        as a Journal Entry was reported as a payment that did not exist. The check
+        reads bookings, so the message states what was actually checked.
+
+        The payment id is asserted too -- an operator reading this in a log needs to
+        know *which* payment, and a bare substring match on a stock phrase would
+        pass on a message about some other payment entirely.
+        """
         refund_data = {
             "id": "re_orphan_refund",
             "amount": {"value": "10.00", "currency": "EUR"},
@@ -374,7 +385,15 @@ class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
 
         # Should return error
         self.assertEqual(result["status"], "error")
-        self.assertIn("not found", result["message"].lower())
+        message = result["message"].lower()
+        self.assertIn("not booked", message)
+        self.assertIn("tr_nonexistent_payment", message)
+        self.assertNotIn(
+            "not found",
+            message,
+            "'not found' is the claim this endpoint cannot make: it checked bookings, "
+            "not whether the payment exists at Mollie (#370)",
+        )
 
         print("✅ Orphan refund handling test passed")
 

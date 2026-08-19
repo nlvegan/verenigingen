@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.tests.fixtures.enhanced_test_factory import shared_fixture
 from verenigingen.verenigingen_payments.mollie.utils.amount_helpers import extract_amount_float
 
 
@@ -292,6 +293,7 @@ def ensure_mollie_test_credentials() -> bool:
     return True
 
 
+@shared_fixture
 def ensure_mollie_reversal_accounts() -> None:
     """
     Ensure the master data the unified payment-entry creator needs to build refund/
@@ -315,6 +317,16 @@ def ensure_mollie_reversal_accounts() -> None:
     Without them a reversal fails outright, which is correct behaviour on a
     misconfigured site but makes these tests exercise the error path instead of
     the money path (#370).
+
+    ``@shared_fixture`` because this is SHARED master data built LAZILY, from
+    inside whichever test runs first. Without it the captured-insert drain claims
+    the Bank and Bank Account and deletes them at that one test's teardown -- while
+    the ``Mollie Settings.mollie_clearing_account`` write below is committed and
+    **survives**. The next co-tenant in the shard then inherits Mollie Settings
+    pointing at a clearing account whose Bank Account no longer exists, which is
+    strictly worse than the misconfiguration this function exists to repair.
+    Marking it at the build site is the rule (CLAUDE.md): the set of doctypes a
+    fixture touches is not stable, the place it is built is.
     """
     company = frappe.db.get_single_value(
         "Verenigingen Settings", "company"
