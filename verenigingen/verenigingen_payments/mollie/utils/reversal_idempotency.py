@@ -103,12 +103,16 @@ def find_booked_payment(payment_id: str) -> Optional[Tuple[str, str, str]]:
         "name",
     )
 
+    # Booked as BOTH is genuinely ambiguous: we cannot tell which one carries the
+    # money without guessing, and guessing is how this bug class started. This is
+    # checked BEFORE asking whether a Donation exists -- ambiguity is a property of
+    # the bookings, not of the Donation. Behind the `if donation:` split it let the
+    # no-Donation case fall through to "prefer the Payment Entry, call it dues",
+    # which is precisely the behaviour this branch exists to prevent.
+    if journal_entry and payment_entry:
+        return (AMBIGUOUS, "Journal Entry", journal_entry)
+
     if donation:
-        # A donation booked as BOTH is genuinely ambiguous: we cannot tell which
-        # one carries the money without guessing, and guessing is how this bug
-        # class started.
-        if journal_entry and payment_entry:
-            return (AMBIGUOUS, "Journal Entry", journal_entry)
         if journal_entry:
             return ("donation", "Journal Entry", journal_entry)
         if payment_entry:

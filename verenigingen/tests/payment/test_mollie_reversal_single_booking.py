@@ -42,8 +42,13 @@ from verenigingen.tests.services.test_donation_refund_journal_entry_creator_cove
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
 )
+from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
+    AMBIGUOUS,
+    find_booked_payment,
+)
 from verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator import (
     create_refund_payment_entry,
+    create_unified_payment_entry,
 )
 
 
@@ -262,3 +267,259 @@ class TestMollieReversalBooksOnce(_RefundFixtureMixin, EnhancedTestCase):
             "one doctype (#370).",
         )
         self.assertTrue(results, "the sweep should report what it did, not return silently")
+
+
+class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCase):
+    """A reversal must reverse what the forward payment actually posted.
+
+    ``_book_donation_reversal``'s own docstring says "the reversal must mirror the
+    artefact the forward payment created" -- but it derives that artefact,
+    discards it, and books Bank Transaction + Journal Entry unconditionally.
+
+    The two forward artefacts post different things:
+
+    ==================  =====================================  ======================
+    forward booking     GL posting                             recognises income?
+    ==================  =====================================  ======================
+    Journal Entry       Dr Mollie Clearing / Cr Donation Inc.  yes
+    Payment Entry (Rcv) Dr Mollie Bank / Cr Receivable         **no**
+    ==================  =====================================  ======================
+
+    So reversing a Payment-Entry-booked donation with a Journal Entry debits
+    income that this payment never recognised, and leaves the receivable it *did*
+    clear still cleared. Donations booked as Payment Entries are not
+    hypothetical: that was the older donation flow.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.ensure_mode_of_payment("Mollie", "Bank")
+        self.ensure_mode_of_payment("Mollie Refund", "Bank")
+        self.clearing_account = self._ensure_clearing_account()
+        self.income_account = self._ensure_income_account()
+        self.bank_account = self._ensure_bank_account(self.clearing_account)
+
+        self.receivable = frappe.get_value(
+            "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        self._restore_settings = {}
+        for field, value in (
+            ("company", COMPANY),
+            ("donation_receivable_account", self.receivable),
+        ):
+            self._restore_settings[field] = frappe.db.get_single_value("Verenigingen Settings", field)
+            frappe.db.set_single_value("Verenigingen Settings", field, value)
+        self.addCleanup(self._restore_vs)
+
+        self._prev_clearing = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self.clearing_account)
+        _clear_mollie_config_cache()
+        self.addCleanup(self._restore_mollie_settings)
+
+        self.donor = self._make_donor()
+        frappe.get_doc("Donor", self.donor).get_or_create_customer()
+        self.payment_id = f"tr_mirror_{frappe.generate_hash(length=8)}"
+        self.donation = self._make_donation(self.donor, 100.0)
+        frappe.db.set_value("Donation", self.donation.name, "payment_id", self.payment_id)
+        self.donation.payment_id = self.payment_id
+
+    def _restore_vs(self):
+        for field, value in self._restore_settings.items():
+            frappe.db.set_single_value("Verenigingen Settings", field, value)
+        frappe.db.commit()
+
+    def _restore_mollie_settings(self):
+        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", self._prev_clearing)
+        frappe.db.commit()
+        _clear_mollie_config_cache()
+
+    def test_a_donation_booked_as_a_payment_entry_is_reversed_by_a_payment_entry(self):
+        """The older donation flow booked a Receive PE. Reverse it in kind."""
+        forward = create_unified_payment_entry(
+            donation_doc=self.donation,
+            mollie_payment_id=self.payment_id,
+            amount=100.0,
+            payment_type="Receive",
+        )
+        self.assertIsNotNone(forward, "forward Payment Entry not booked - fixture problem, not the defect")
+
+        booked = find_booked_payment(self.payment_id)
+        self.assertEqual(
+            booked,
+            ("donation", "Payment Entry", forward.name),
+            "the forward artefact should be derived as a donation booked as a Payment Entry",
+        )
+
+        refund_id = f"re_mirror_{frappe.generate_hash(length=8)}"
+        result = UnifiedWebhookWrapperService().process_reversal_webhook(
+            payment_id=self.payment_id,
+            reversal_id=refund_id,
+            amount=100.0,
+            reversal_type="refund",
+            reversal_date=today(),
+        )
+        self.assertEqual(result.get("status"), "success", f"reversal did not book: {result}")
+
+        key = f"{self.payment_id}_refund_{refund_id}"
+        jes = frappe.get_all(
+            "Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        pes = frappe.get_all(
+            "Payment Entry", filters={"reference_no": key, "docstatus": ["!=", 2]}, pluck="name"
+        )
+        self.assertEqual(
+            (len(pes), len(jes)),
+            (1, 0),
+            "a donation booked as a Payment Entry must be reversed by a Payment Entry, not a "
+            f"Journal Entry that debits income the forward payment never recognised. "
+            f"Payment Entries={pes}, Journal Entries={jes}",
+        )
+
+    def _make_forward_journal_entry(self):
+        """A forward donation booking: Dr Mollie Clearing / Cr Donation Income."""
+        je = frappe.new_doc("Journal Entry")
+        je.voucher_type = "Journal Entry"
+        je.company = COMPANY
+        je.posting_date = today()
+        je.cheque_no = self.payment_id
+        je.cheque_date = today()
+        je.user_remark = "forward donation booking"
+        cost_center = frappe.get_value("Company", COMPANY, "cost_center")
+        for account, debit, credit in (
+            (self.clearing_account, 100.0, 0),
+            (self.income_account, 0, 100.0),
+        ):
+            je.append(
+                "accounts",
+                {
+                    "account": account,
+                    "debit_in_account_currency": debit,
+                    "credit_in_account_currency": credit,
+                    "cost_center": cost_center,
+                },
+            )
+        je.insert(ignore_permissions=True)
+        je.submit()
+        self.track_test_record("Journal Entry", je.name)
+        return je.name
+
+    def test_a_chargeback_is_narrated_as_a_chargeback_and_carries_its_reason(self):
+        """A chargeback filed under its own key but described as a REFUND is still unreadable.
+
+        ``reversal_type`` reached the reference key and stopped there: every
+        narration string was hardcoded to "REFUND". And ``description`` -- which is
+        where the Mollie reason code and text arrive, the single most useful thing
+        on a chargeback -- was accepted by the booker and never read.
+        """
+        self._make_forward_journal_entry()
+        chargeback_id = f"chb_{frappe.generate_hash(length=8)}"
+
+        result = UnifiedWebhookWrapperService().process_reversal_webhook(
+            payment_id=self.payment_id,
+            reversal_id=chargeback_id,
+            amount=100.0,
+            reversal_type="chargeback",
+            reversal_date=today(),
+            reason={"code": "AC04", "description": "Account closed"},
+        )
+        self.assertEqual(result.get("status"), "success", f"chargeback did not book: {result}")
+
+        key = f"{self.payment_id}_chargeback_{chargeback_id}"
+        je_name = frappe.db.get_value("Journal Entry", {"cheque_no": key, "docstatus": ["!=", 2]}, "name")
+        self.assertTrue(je_name, f"no Journal Entry booked under {key!r}")
+        remark = frappe.db.get_value("Journal Entry", je_name, "user_remark") or ""
+
+        self.assertIn("CHARGEBACK", remark, f"chargeback narrated as something else: {remark!r}")
+        self.assertNotIn("REFUND", remark, f"chargeback narrated as a refund: {remark!r}")
+        self.assertIn("AC04", remark, f"Mollie reason code dropped from the entry: {remark!r}")
+        self.assertIn("Account closed", remark, f"Mollie reason text dropped: {remark!r}")
+
+
+class TestFindBookedPaymentAmbiguity(_RefundFixtureMixin, EnhancedTestCase):
+    """Ambiguity must be refused whether or not a Donation exists.
+
+    ``find_booked_payment`` refuses to guess when a Donation is present and both a
+    Journal Entry and a Payment Entry claim the payment -- but with no Donation it
+    falls through to ``if payment_entry: return ("dues", ...)``, silently
+    preferring one artefact. That is the exact behaviour the AMBIGUOUS branch
+    exists to prevent, and it misfiles the reversal as dues.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.ensure_mode_of_payment("Mollie", "Bank")
+        self.clearing_account = self._ensure_clearing_account()
+        self.income_account = self._ensure_income_account()
+        self.cost_center = frappe.get_value("Company", COMPANY, "cost_center")
+        self.receivable = frappe.get_value(
+            "Account", {"company": COMPANY, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        self.donor = self._make_donor()
+        self.customer = frappe.get_doc("Donor", self.donor).get_or_create_customer()
+
+    def _make_submitted_journal_entry(self, payment_id):
+        """A forward donation booking: Dr Mollie Clearing / Cr Donation Income."""
+        je = frappe.new_doc("Journal Entry")
+        je.voucher_type = "Journal Entry"
+        je.company = COMPANY
+        je.posting_date = today()
+        je.cheque_no = payment_id
+        je.cheque_date = today()
+        je.user_remark = "forward donation booking (ambiguity fixture)"
+        for account, debit, credit in (
+            (self.clearing_account, 100.0, 0),
+            (self.income_account, 0, 100.0),
+        ):
+            je.append(
+                "accounts",
+                {
+                    "account": account,
+                    "debit_in_account_currency": debit,
+                    "credit_in_account_currency": credit,
+                    "cost_center": self.cost_center,
+                },
+            )
+        je.insert(ignore_permissions=True)
+        je.submit()
+        self.track_test_record("Journal Entry", je.name)
+        return je.name
+
+    def _make_submitted_receive_payment_entry(self, payment_id):
+        """A forward donation booking by the older flow: Dr Bank / Cr Receivable."""
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Receive"
+        pe.posting_date = today()
+        pe.company = COMPANY
+        pe.party_type = "Customer"
+        pe.party = self.customer
+        pe.paid_amount = 100.0
+        pe.received_amount = 100.0
+        pe.reference_no = payment_id
+        pe.reference_date = today()
+        pe.paid_from = self.receivable
+        pe.paid_to = self.clearing_account
+        pe.cost_center = self.cost_center
+        pe.insert(ignore_permissions=True)
+        pe.submit()
+        self.track_test_record("Payment Entry", pe.name)
+        return pe.name
+
+    def test_both_artefacts_without_a_donation_are_ambiguous_not_dues(self):
+        payment_id = f"tr_amb_{frappe.generate_hash(length=8)}"
+        self.assertFalse(
+            frappe.db.exists("Donation", {"payment_id": payment_id}),
+            "this test is about the no-Donation path",
+        )
+
+        je = self._make_submitted_journal_entry(payment_id)
+        pe = self._make_submitted_receive_payment_entry(payment_id)
+
+        booked = find_booked_payment(payment_id)
+        self.assertIsNotNone(booked, "both artefacts exist, so something is booked")
+        self.assertEqual(
+            booked[0],
+            AMBIGUOUS,
+            f"payment {payment_id} is booked as both Journal Entry {je} and Payment Entry {pe}; "
+            f"reporting {booked[0]!r} picks one artefact by falling through, which is what the "
+            "AMBIGUOUS branch exists to prevent",
+        )

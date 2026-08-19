@@ -8,7 +8,7 @@ payment processing state across all webhook code paths.
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import frappe
 
@@ -890,16 +890,87 @@ class UnifiedWebhookWrapperService:
         amount: float,
         reversal_date: Optional[str],
         description: str,
-    ) -> Optional[str]:
-        """Book a donation reversal the way the forward donation path books: BT + JE.
+        forward_doctype: str,
+    ) -> Optional[Tuple[str, str]]:
+        """Book a donation reversal mirroring the artefact the forward payment created.
 
-        The reversal must mirror the artefact the forward payment created. A
-        donation is booked as a Journal Entry, so reversing it with a Payment Entry
-        left the income reversed by a different mechanism than it was recognised by,
-        and made the two reversal routes mutually invisible (#370).
+        Returns ``(doctype, name)`` of the reversal booking, or None on failure.
 
-        Returns the Journal Entry name, or None on failure.
+        The two forward artefacts do not post the same thing, so one reversal
+        shape cannot serve both:
+
+        ==========================  =====================================
+        forward booking             GL posting
+        ==========================  =====================================
+        Journal Entry               Dr Mollie Clearing / Cr Donation Income
+        Payment Entry ("Receive")   Dr Mollie Bank / Cr Receivable
+        ==========================  =====================================
+
+        Only the Journal Entry recognises income. Reversing a Payment-Entry-booked
+        donation with a Journal Entry would debit income this payment never
+        recognised and leave the receivable it *did* clear still cleared.
+        Donations booked as Payment Entries are not hypothetical -- that was the
+        older donation flow (#370).
+
+        Note this reversing Payment Entry carries no invoice ``references``, so the
+        "cannot allocate against a settled invoice" limit that rules a reversing
+        Payment Entry out for *dues* does not apply here.
         """
+        if forward_doctype == "Payment Entry":
+            return self._book_donation_reversal_as_payment_entry(
+                donation_doc=donation_doc,
+                payment_id=payment_id,
+                reversal_type=reversal_type,
+                reversal_id=reversal_id,
+                amount=amount,
+                reversal_date=reversal_date,
+                description=description,
+            )
+        return self._book_donation_reversal_as_journal_entry(
+            donation_doc=donation_doc,
+            payment_id=payment_id,
+            reversal_type=reversal_type,
+            reversal_id=reversal_id,
+            amount=amount,
+            reversal_date=reversal_date,
+            description=description,
+        )
+
+    @staticmethod
+    def _book_donation_reversal_as_payment_entry(
+        donation_doc,
+        payment_id: str,
+        reversal_type: str,
+        reversal_id: str,
+        amount: float,
+        reversal_date: Optional[str],
+        description: str,
+    ) -> Optional[Tuple[str, str]]:
+        """Reverse a Payment-Entry-booked donation in kind: Dr Bank / Cr Receivable."""
+        from ..utils.unified_payment_entry_creator import create_unified_payment_entry
+
+        pe = create_unified_payment_entry(
+            donation_doc=donation_doc,
+            mollie_payment_id=payment_id,
+            amount=amount,
+            payment_type="Pay",
+            reference_suffix=f"_{reversal_type}_{reversal_id}",
+            refund_date=reversal_date,
+            description=description,
+        )
+        return ("Payment Entry", pe.name) if pe else None
+
+    def _book_donation_reversal_as_journal_entry(
+        self,
+        donation_doc,
+        payment_id: str,
+        reversal_type: str,
+        reversal_id: str,
+        amount: float,
+        reversal_date: Optional[str],
+        description: str,
+    ) -> Optional[Tuple[str, str]]:
+        """Reverse a Journal-Entry-booked donation the way it was booked: BT + JE."""
         from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
             get_bank_transaction_creator,
         )
@@ -947,7 +1018,7 @@ class UnifiedWebhookWrapperService:
             self.logger.error(f"❌ Failed to create Bank Transaction for {reversal_type} {reversal_id}")
             return None
 
-        return get_donation_refund_journal_entry_creator().create_refund_journal_entry(
+        journal_entry_name = get_donation_refund_journal_entry_creator().create_refund_journal_entry(
             refund_id=reversal_id,
             refund_amount=amount,
             refund_date=reversal_date,
@@ -955,7 +1026,9 @@ class UnifiedWebhookWrapperService:
             original_payment_id=payment_id,
             bank_transaction_name=bank_transaction_name,
             reversal_type=reversal_type,
+            description=description,
         )
+        return ("Journal Entry", journal_entry_name) if journal_entry_name else None
 
     @staticmethod
     def _resolve_bank_currency(config: dict) -> Optional[str]:
@@ -1131,7 +1204,7 @@ class UnifiedWebhookWrapperService:
                     frappe.log_error(message, "Mollie Reversal Orphaned Booking")
                     return standardized_webhook_response("ignored", message, payment_id=payment_id)
 
-                reversal_ref_name = self._book_donation_reversal(
+                booking = self._book_donation_reversal(
                     donation_doc=donation_doc,
                     payment_id=payment_id,
                     reversal_type=reversal_type,
@@ -1139,8 +1212,10 @@ class UnifiedWebhookWrapperService:
                     amount=amount,
                     reversal_date=reversal_date,
                     description=description,
+                    forward_doctype=booked_doctype,
                 )
-                reversal_ref_doctype = "Journal Entry"
+                if booking:
+                    reversal_ref_doctype, reversal_ref_name = booking
             else:
                 # Dues reverse against a Sales Invoice, which needs a Journal Entry
                 # referencing that invoice so its outstanding amount is restored -- a

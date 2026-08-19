@@ -64,6 +64,7 @@ class DonationRefundJournalEntryCreator:
         original_payment_id: str,
         bank_transaction_name: Optional[str] = None,
         reversal_type: str = "refund",
+        description: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create Journal Entry for a Mollie reversal (refund or chargeback).
@@ -78,7 +79,12 @@ class DonationRefundJournalEntryCreator:
             reversal_type: "refund" (default) or "chargeback". This lands in the
                 reference key, so a chargeback is not filed under a refund key --
                 which would make the two collide on one payment and hide one of
-                them from the idempotency lookup.
+                them from the idempotency lookup. It also lands in the narration:
+                a chargeback filed under a reference key of its own but described
+                as a "REFUND" is still unreadable to whoever reconciles it.
+            description: Caller-built detail, for a chargeback the Mollie reason
+                code and text. Recorded in the remark; a chargeback's reason is
+                the single most useful thing on the entry and was being dropped.
 
         Returns:
             Journal Entry name if created, None on failure
@@ -143,6 +149,8 @@ class DonationRefundJournalEntryCreator:
             income_account=config["income_account"],
             cost_center=config.get("cost_center"),
             bank_transaction_name=bank_transaction_name,
+            reversal_type=reversal_type,
+            description=description,
         )
 
     def _check_existing_by_reference(self, reference_number: str) -> Optional[str]:
@@ -228,6 +236,8 @@ class DonationRefundJournalEntryCreator:
         income_account: str,
         cost_center: Optional[str] = None,
         bank_transaction_name: Optional[str] = None,
+        reversal_type: str = "refund",
+        description: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create and submit refund Journal Entry using secure operations framework.
@@ -237,12 +247,17 @@ class DonationRefundJournalEntryCreator:
             Credit: Mollie Clearing Account (money leaves the clearing account)
         """
         try:
-            # Build remark
-            remark_parts = [f"Donation REFUND: {donation_name}"]
+            # Build remark. Say which kind of reversal this is: a chargeback and a
+            # refund are different events to whoever reconciles the account, and
+            # both were being narrated as "REFUND".
+            label = reversal_type.upper()
+            remark_parts = [f"Donation {label}: {donation_name}"]
             if donor_name:
                 remark_parts.append(f"Donor: {donor_name}")
-            remark_parts.append(f"Refund ID: {refund_id}")
+            remark_parts.append(f"{reversal_type.capitalize()} ID: {refund_id}")
             remark_parts.append(f"Original Payment: {original_payment_id}")
+            if description:
+                remark_parts.append(description)
             user_remark = " | ".join(remark_parts)
 
             # Create Journal Entry
@@ -259,7 +274,7 @@ class DonationRefundJournalEntryCreator:
                 "account": income_account,
                 "debit_in_account_currency": flt(amount),
                 "credit_in_account_currency": 0,
-                "user_remark": f"Donation refund: {donation_name} | Refund: {refund_id}",
+                "user_remark": f"Donation {reversal_type}: {donation_name} | {reversal_type.capitalize()}: {refund_id}",
             }
             if cost_center:
                 debit_entry["cost_center"] = cost_center
@@ -270,7 +285,7 @@ class DonationRefundJournalEntryCreator:
                 "account": clearing_account,
                 "debit_in_account_currency": 0,
                 "credit_in_account_currency": flt(amount),
-                "user_remark": f"Refund paid out: {donation_name}"
+                "user_remark": f"{reversal_type.capitalize()} paid out: {donation_name}"
                 + (f" | Donor: {donor_name}" if donor_name else ""),
             }
             if cost_center:
