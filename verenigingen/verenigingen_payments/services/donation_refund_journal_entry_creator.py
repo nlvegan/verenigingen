@@ -376,7 +376,7 @@ class DonationRefundJournalEntryCreator:
             if je.docstatus == 1:
                 je.cancel()
             frappe.delete_doc("Journal Entry", je_name, force=True)
-        except Exception as cleanup_error:
+        except Exception as cleanup_error:  # failed-write-ok: best-effort, caller already fails
             frappe.logger().error(
                 f"Could not remove unposted Refund Journal Entry {je_name}: {cleanup_error}"
             )

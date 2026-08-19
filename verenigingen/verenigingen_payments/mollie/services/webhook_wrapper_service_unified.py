@@ -1120,7 +1120,7 @@ class UnifiedWebhookWrapperService:
             if bt.docstatus == 1:
                 bt.cancel()
             frappe.delete_doc("Bank Transaction", bank_transaction_name, force=True)
-        except Exception as cleanup_error:
+        except Exception as cleanup_error:  # failed-write-ok: best-effort, caller already fails
             message = (
                 f"Bank Transaction {bank_transaction_name} was left behind after its "
                 f"Journal Entry failed and could not be withdrawn: {cleanup_error}. "
