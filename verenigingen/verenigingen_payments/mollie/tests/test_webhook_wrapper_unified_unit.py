@@ -118,34 +118,62 @@ class TestReversalValidation(WebhookTestBase):
         self.assertEqual(result["refund_id"], "re_1")
 
     def test_already_processed_reversal_is_idempotent(self):
-        # Original payment exists...
-        self.service.idempotency_manager.check_payment_processing_state = lambda payment_id, **k: _FakeState(
-            payment_entry_exists=True
+        """A reversal already booked as ANY artefact is reported idempotent.
+
+        Rewritten for the contract introduced by #370. It used to stub
+        ``payment_entry_exists = True`` and patch ``frappe.db.get_value``
+        *globally*, intercepting on ``reference_no == "<pid>_refund_<rid>"``. Both
+        halves are now wrong:
+
+        * The gate no longer asks the idempotency manager whether a payment entry
+          exists. It reads what was actually booked, because a donation books a
+          Journal Entry and the old question answered "no" for every one of them.
+        * The global ``get_value`` patch now serves **two** different lookups --
+          the forward-booking lookup keyed on the payment id, and the reversal
+          lookup keyed on the compound reference. Answering only the second left
+          the first falling through to the real database, so the service correctly
+          reported the payment as unbooked and the test failed for a reason that
+          had nothing to do with idempotency.
+
+        Patched at the seam the service actually consults, rather than at the
+        database. Real-document coverage of the same path lives in
+        ``test_webhook_wrapper_unified_sweep`` and
+        ``test_mollie_reversal_single_booking``; this suite is deliberately
+        fixture-free.
+        """
+        import verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency as ri
+
+        reference = "tr_done_refund_re_done"
+        seen = {}
+
+        def fake_find_booked_payment(payment_id):
+            seen["payment_id"] = payment_id
+            return ("donation", "Journal Entry", "ACC-JV-FORWARD")
+
+        def fake_find_booked_reversal(key):
+            seen["reversal_key"] = key
+            return ("Journal Entry", "ACC-JV-REVERSAL-EXISTING") if key == reference else None
+
+        orig_payment, orig_reversal = ri.find_booked_payment, ri.find_booked_reversal
+        ri.find_booked_payment = fake_find_booked_payment
+        ri.find_booked_reversal = fake_find_booked_reversal
+        self.addCleanup(lambda: setattr(ri, "find_booked_payment", orig_payment))
+        self.addCleanup(lambda: setattr(ri, "find_booked_reversal", orig_reversal))
+
+        result = self.service.process_reversal_webhook(
+            payment_id="tr_done",
+            reversal_id="re_done",
+            amount=5.0,
+            reversal_type="refund",
         )
-        # ...and a reversal Payment Entry with the compound reference already exists.
-        ref = "tr_done_refund_re_done"
-        original = frappe.db.get_value
-
-        def fake_get_value(doctype, filters, *args, **kwargs):
-            if doctype == "Payment Entry" and isinstance(filters, dict):
-                if filters.get("reference_no") == ref:
-                    return "PE-REVERSAL-EXISTING"
-            return original(doctype, filters, *args, **kwargs)
-
-        frappe.db.get_value = fake_get_value
-        try:
-            result = self.service.process_reversal_webhook(
-                payment_id="tr_done",
-                reversal_id="re_done",
-                amount=5.0,
-                reversal_type="refund",
-            )
-        finally:
-            frappe.db.get_value = original
 
         self.assertEqual(result["status"], "success")
         self.assertTrue(result["idempotent"])
-        self.assertEqual(result["existing_reference"], "PE-REVERSAL-EXISTING")
+        self.assertEqual(result["existing_reference"], "ACC-JV-REVERSAL-EXISTING")
+        # The two lookups are distinct, and each got the key it is keyed on. The
+        # old test could not have caught them being confused.
+        self.assertEqual(seen.get("payment_id"), "tr_done")
+        self.assertEqual(seen.get("reversal_key"), reference)
 
 
 class TestRefundChargebackDelegation(WebhookTestBase):

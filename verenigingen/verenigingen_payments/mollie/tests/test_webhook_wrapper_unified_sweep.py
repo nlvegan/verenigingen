@@ -46,12 +46,6 @@ from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_
 )
 
 
-class _OrigStateExists:
-    """Minimal idempotency-state stand-in reporting the original payment exists."""
-
-    payment_entry_exists = True
-
-
 class _FakeBTCreator:
     """Stand-in for the Bank Transaction creator boundary.
 
@@ -145,7 +139,7 @@ class WrapperSweepBase(EnhancedTestCase):
             "name",
         )
 
-    def _make_submitted_journal_entry(self):
+    def _make_submitted_journal_entry(self, payment_id=None):
         """Create a link-valid submitted Journal Entry.
 
         The donation payment-history row stores ``journal_entry`` as a Link to
@@ -156,11 +150,59 @@ class WrapperSweepBase(EnhancedTestCase):
         je.voucher_type = "Journal Entry"
         je.company = self.company
         je.posting_date = today()
+        if payment_id:
+            je.cheque_no = payment_id
+            je.cheque_date = today()
+            # A cheque_no gives global search something to index, which calls
+            # JournalEntry.get_title() -> self.accounts[0]. Without a row that is an
+            # IndexError at insert, not a validation message.
+            je.append(
+                "accounts",
+                {
+                    "account": self._bank_account(),
+                    "debit_in_account_currency": 25.0,
+                    "credit_in_account_currency": 0,
+                },
+            )
         je.flags.ignore_validate = True
         je.flags.ignore_mandatory = True
         je.insert(ignore_permissions=True, ignore_mandatory=True)
         frappe.db.set_value("Journal Entry", je.name, "docstatus", 1, update_modified=False)
         return je.name
+
+    def _make_forward_payment_entry(self, payment_id=None):
+        """The artefact the FORWARD payment left behind: a submitted "Receive" PE.
+
+        `process_reversal_webhook` no longer asks the idempotency manager whether a
+        payment entry exists; it reads what was actually booked, because that is a
+        recorded fact and the classifier's inputs are not stable over a months-long
+        chargeback window (#370). So these tests need a real forward booking rather
+        than a stub reporting one.
+
+        A "Receive" Payment Entry is used because it is what the older donation flow
+        booked, and because the reversal then mirrors it as a Payment Entry -- which
+        is the contract the assertions below were already written against.
+        """
+        receivable = frappe.db.get_value(
+            "Account",
+            {"company": self.company, "account_type": "Receivable", "is_group": 0},
+            "name",
+        )
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Receive"
+        pe.company = self.company
+        pe.posting_date = today()
+        pe.paid_amount = 25.0
+        pe.received_amount = 25.0
+        pe.reference_no = payment_id or self.pid
+        pe.reference_date = today()
+        pe.paid_from = receivable
+        pe.paid_to = self._bank_account()
+        pe.flags.ignore_validate = True
+        pe.flags.ignore_mandatory = True
+        pe.insert(ignore_permissions=True, ignore_mandatory=True)
+        frappe.db.set_value("Payment Entry", pe.name, "docstatus", 1, update_modified=False)
+        return pe.name
 
     def _make_submitted_payment_entry(self):
         receivable = frappe.db.get_value(
@@ -321,11 +363,6 @@ class TestProcessPendingRefundsSuccess(WrapperSweepBase):
 # process_reversal_webhook — SUCCESS paths (refund + chargeback)
 # =============================================================================
 class TestProcessReversalWebhookSuccess(WrapperSweepBase):
-    def _stub_existing_payment(self):
-        self.service.idempotency_manager.check_payment_processing_state = (
-            lambda payment_id, **k: _OrigStateExists()
-        )
-
     def _stub_pe_creator(self, return_value):
         import verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator as upe_mod
 
@@ -342,8 +379,8 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
     def test_refund_creates_history_row_and_marks_processed(self):
         donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
         pe = self._make_submitted_payment_entry()
-        self._stub_existing_payment()
         captured = self._stub_pe_creator(pe)
         marks = self._spy_mark_refund()
 
@@ -377,8 +414,8 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
     def test_chargeback_with_reason_builds_description_and_status(self):
         donation = self._make_submitted_donation()
+        self._make_forward_payment_entry()
         pe = self._make_submitted_payment_entry()
-        self._stub_existing_payment()
         captured = self._stub_pe_creator(pe)
         marks = self._spy_mark_chargeback()
 
@@ -405,28 +442,51 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
         self.assertEqual(marks, [(self.pid, "cb_rev", pe.name)])
 
-    def test_donation_not_found_returns_ignored(self):
-        # Original payment exists per idempotency, but no Donation carries this id.
-        self._stub_existing_payment()
+    def test_a_booking_whose_donation_is_missing_is_refused_as_inconsistent(self):
+        """A forward Journal Entry exists but no Donation claims the payment.
+
+        This used to be reached by stubbing `payment_entry_exists = True` while no
+        Donation carried the id, and was reported as a routine "not found". It is
+        now reached by booking a real forward Journal Entry, and it is no longer
+        routine: something posted money against this payment and the record that
+        should explain it is gone. That is inconsistent state, so it is refused
+        loudly and named as such rather than filed under the same "not found" the
+        endpoint returns for a payment it has simply never seen.
+
+        Still `ignored` rather than `error`: the reversal cannot proceed, but
+        redelivering it ~10 times over 26 hours will not make the Donation reappear.
+        """
+        orphan_pid = f"tr_orphan_{frappe.generate_hash(length=12)}"
+        je_name = self._make_submitted_journal_entry(payment_id=orphan_pid)
+        self.assertFalse(
+            frappe.db.exists("Donation", {"payment_id": orphan_pid}),
+            "this test is about a booking with no Donation behind it",
+        )
         captured = self._stub_pe_creator("PE-NOT-CREATED")
         marks = self._spy_mark_refund()
 
         result = self.service.process_reversal_webhook(
-            payment_id="tr_no_donation_xyz",
+            payment_id=orphan_pid,
             reversal_id="re_none",
             amount=3.0,
             reversal_type="refund",
         )
 
         self.assertEqual(result["status"], "ignored")
-        self.assertIn("not found", result["message"])
+        self.assertIn(je_name, result["message"], "the refusal must name the booking it found")
+        self.assertIn("Donation", result["message"])
+        self.assertNotIn(
+            "not booked",
+            result["message"],
+            "something IS booked here -- reporting it as unbooked is the mislabelling #370 is about",
+        )
         # Creator never called, nothing marked.
         self.assertEqual(captured, {})
         self.assertEqual(marks, [])
 
     def test_pe_creation_failure_yields_error_and_no_history(self):
         donation = self._make_submitted_donation()
-        self._stub_existing_payment()
+        self._make_forward_payment_entry()
         self._stub_pe_creator(None)  # unified creator returns no PE
         marks = self._spy_mark_refund()
 
@@ -439,7 +499,10 @@ class TestProcessReversalWebhookSuccess(WrapperSweepBase):
 
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["refund_id"], "re_fail")
-        self.assertIn("Failed to create", result["message"])
+        # The message no longer names a Payment Entry: the artefact a reversal books
+        # follows the forward booking, so the failure is reported as "failed to book".
+        self.assertIn("Failed to book refund", result["message"])
+        self.assertIn(self.pid, result["message"])
         self.assertEqual(marks, [])
         donation.reload()
         self.assertEqual(len(donation.payments or []), 0)

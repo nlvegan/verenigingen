@@ -34,26 +34,30 @@ from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_mana
 )
 
 
-def _no_existing_reversal_pe():
-    """Patch frappe.db.get_value so the reversal-PE existence lookup returns None
-    but every *other* get_value (used by donation.save validation) is left intact.
+def _booked(forward=("donation", "Payment Entry", "PE-FORWARD-001"), reversal=None):
+    """Patch what the reversal path asks about existing bookings.
 
-    The reversal check passes a dict filter containing payment_type == "Pay"; we
-    intercept only that shape and delegate everything else to the real method.
+    `process_reversal_webhook` no longer asks the idempotency manager whether a
+    Payment Entry exists -- that question answered "no" for every donation, since
+    donations book a Journal Entry (#370). It reads what was actually booked.
+
+    These used to be driven by patching `frappe.db.get_value` wholesale. That is
+    no longer workable: the path now makes **two** differently-keyed lookups (the
+    forward booking, keyed on the payment id; the reversal, keyed on the compound
+    reference), and a single blanket return value answers both with the same
+    nonsense. Patching the two named functions says exactly which question is
+    being answered, and leaves the real `get_value` alone for donation.save().
+
+    `forward` is what `find_booked_payment` returns; `reversal` is what
+    `find_booked_reversal` returns (None = not yet booked).
     """
-    real_get_value = frappe.db.get_value
+    import verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency as ri
 
-    def side_effect(doctype, filters=None, *args, **kwargs):
-        if (
-            doctype == "Payment Entry"
-            and isinstance(filters, dict)
-            and filters.get("payment_type") == "Pay"
-            and "reference_no" in filters
-        ):
-            return None
-        return real_get_value(doctype, filters, *args, **kwargs)
-
-    return patch.object(frappe.db, "get_value", side_effect=side_effect)
+    return patch.multiple(
+        ri,
+        find_booked_payment=lambda payment_id: forward,
+        find_booked_reversal=lambda key: reversal,
+    )
 
 
 def _make_service(idempotency_manager=None):
@@ -107,31 +111,35 @@ class TestProcessReversalWebhookIdempotency(FrappeTestCase):
         frappe.db.rollback()
 
     def test_already_processed_returns_idempotent(self):
-        state = PaymentIdempotencyCheckResult("tr_idem")
-        state.payment_entry_exists = True
-        self.svc.idempotency_manager.check_payment_processing_state.return_value = state
-
-        # frappe.db.get_value for the existing reversal PE -> simulate found.
-        with patch.object(frappe.db, "get_value", return_value="PE-EXISTING-001"):
+        """A reversal already booked as ANY artefact short-circuits."""
+        with _booked(reversal=("Payment Entry", "PE-EXISTING-001")):
             result = self.svc.process_reversal_webhook("tr_idem", "re_idem", 10.0, "refund")
 
         self.assertEqual(result["status"], "success")
         self.assertTrue(result["idempotent"])
         self.assertEqual(result["existing_reference"], "PE-EXISTING-001")
 
-    def test_donation_not_found_returns_ignored(self):
-        state = PaymentIdempotencyCheckResult("tr_nodon")
-        state.payment_entry_exists = True
-        self.svc.idempotency_manager.check_payment_processing_state.return_value = state
+    def test_booking_without_its_donation_is_ignored_and_named(self):
+        """Something posted money against this payment, and the Donation is gone.
 
-        # No existing reversal PE, and get_donation_by_payment_id returns None.
-        with patch.object(frappe.db, "get_value", return_value=None), patch(
-            "verenigingen.verenigingen_payments.mollie.utils.webhook_utilities.get_donation_by_payment_id",
-            return_value=None,
+        Previously this was "payment exists per the idempotency manager, no
+        Donation" and was reported with the same "not found" used for a payment
+        never seen. It is now reached through a real forward booking and refused as
+        inconsistent state, naming the artefact -- the mislabelling that hid this
+        whole bug class is exactly this kind of shared, uninformative wording.
+        """
+        with (
+            _booked(forward=("donation", "Journal Entry", "ACC-JV-ORPHAN")),
+            patch(
+                "verenigingen.verenigingen_payments.mollie.utils.webhook_utilities.get_donation_by_payment_id",
+                return_value=None,
+            ),
         ):
             result = self.svc.process_reversal_webhook("tr_nodon", "re_x", 10.0, "refund")
 
         self.assertEqual(result["status"], "ignored")
+        self.assertIn("ACC-JV-ORPHAN", result["message"])
+        self.assertIn("Donation", result["message"])
 
 
 class TestProcessReversalWebhookSuccess(FrappeTestCase):
@@ -145,19 +153,21 @@ class TestProcessReversalWebhookSuccess(FrappeTestCase):
         frappe.db.rollback()
 
     def test_refund_creates_pe_and_marks_processed(self):
-        state = PaymentIdempotencyCheckResult("tr_rev_success")
-        state.payment_entry_exists = True
-        self.svc.idempotency_manager.check_payment_processing_state.return_value = state
         donation_doc = frappe.get_doc("Donation", self.donation_name)
 
         fake_pe = SimpleNamespace(name="PE-REV-001")
 
-        with _no_existing_reversal_pe(), patch(
-            "verenigingen.verenigingen_payments.mollie.utils.webhook_utilities.get_donation_by_payment_id",
-            return_value=donation_doc,
-        ), patch(
-            "verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator.create_unified_payment_entry",
-            return_value=fake_pe,
+        # Forward-booked as a Payment Entry, so the reversal mirrors it as one.
+        with (
+            _booked(),
+            patch(
+                "verenigingen.verenigingen_payments.mollie.utils.webhook_utilities.get_donation_by_payment_id",
+                return_value=donation_doc,
+            ),
+            patch(
+                "verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator.create_unified_payment_entry",
+                return_value=fake_pe,
+            ),
         ):
             result = self.svc.process_reversal_webhook(
                 "tr_rev_success", "re_succ", 10.0, "refund", reversal_date="2026-01-15"
@@ -178,19 +188,20 @@ class TestProcessReversalWebhookSuccess(FrappeTestCase):
         self.assertEqual(rev_rows[0].payment_status, "Refunded")
 
     def test_chargeback_marks_chargeback_processed(self):
-        state = PaymentIdempotencyCheckResult("tr_rev_success")
-        state.payment_entry_exists = True
-        self.svc.idempotency_manager.check_payment_processing_state.return_value = state
         donation_doc = frappe.get_doc("Donation", self.donation_name)
 
         fake_pe = SimpleNamespace(name="PE-CHB-001")
 
-        with _no_existing_reversal_pe(), patch(
-            "verenigingen.verenigingen_payments.mollie.utils.webhook_utilities.get_donation_by_payment_id",
-            return_value=donation_doc,
-        ), patch(
-            "verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator.create_unified_payment_entry",
-            return_value=fake_pe,
+        with (
+            _booked(),
+            patch(
+                "verenigingen.verenigingen_payments.mollie.utils.webhook_utilities.get_donation_by_payment_id",
+                return_value=donation_doc,
+            ),
+            patch(
+                "verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator.create_unified_payment_entry",
+                return_value=fake_pe,
+            ),
         ):
             result = self.svc.process_reversal_webhook(
                 "tr_rev_success",
@@ -317,8 +328,14 @@ class TestFetchPaymentFromMollie(FrappeTestCase):
 
     def test_object_without_amount_defaults_zero(self):
         payment = SimpleNamespace(
-            id="tr_noamt", status="open", amount=None, description=None,
-            metadata=None, created_at=None, paid_at=None, method=None,
+            id="tr_noamt",
+            status="open",
+            amount=None,
+            description=None,
+            metadata=None,
+            created_at=None,
+            paid_at=None,
+            method=None,
         )
         with self._patch_client(payment):
             result = self.svc._fetch_payment_from_mollie("tr_noamt")
@@ -414,10 +431,13 @@ class TestProcessPaymentWebhookRouting(FrappeTestCase):
 
         mock_router = MagicMock()
         mock_router.fetch_payment.side_effect = Exception("classify boom")
-        with patch(
-            "verenigingen.verenigingen_payments.mollie.services.payment_type_router.get_payment_router",
-            return_value=mock_router,
-        ), patch.object(wws, "find_donation_for_payment_by_id", return_value=None):
+        with (
+            patch(
+                "verenigingen.verenigingen_payments.mollie.services.payment_type_router.get_payment_router",
+                return_value=mock_router,
+            ),
+            patch.object(wws, "find_donation_for_payment_by_id", return_value=None),
+        ):
             result = self.svc.process_payment_webhook(self.payment_id, {})
 
         self.assertEqual(result["status"], "success")
@@ -445,17 +465,16 @@ class TestHandleNewPaymentSkippedStatus(FrappeTestCase):
 
     def test_unpaid_status_skipped(self):
         state = PaymentIdempotencyCheckResult("tr_unpaid")
-        with patch.object(
-            self.svc, "_fetch_payment_from_mollie", return_value={"status": "open"}
-        ):
+        with patch.object(self.svc, "_fetch_payment_from_mollie", return_value={"status": "open"}):
             result = self.svc._handle_new_payment_processing("tr_unpaid", {}, state, 0.0)
         self.assertEqual(result["status"], "skipped")
 
     def test_paid_but_no_donation_errors(self):
         state = PaymentIdempotencyCheckResult("tr_nodonation")
-        with patch.object(
-            self.svc, "_fetch_payment_from_mollie", return_value={"status": "paid"}
-        ), patch.object(wws, "find_donation_for_payment_by_id", return_value=None):
+        with (
+            patch.object(self.svc, "_fetch_payment_from_mollie", return_value={"status": "paid"}),
+            patch.object(wws, "find_donation_for_payment_by_id", return_value=None),
+        ):
             result = self.svc._handle_new_payment_processing("tr_nodonation", {}, state, 0.0)
         self.assertEqual(result["status"], "error")
         self.assertIn("No donation found", result["message"])

@@ -1334,12 +1334,11 @@ class UnifiedWebhookWrapperService:
                     f"{reversal_type}_id": reversal_id,
                 }
 
-            reversal_pe = (
-                frappe.get_doc(reversal_ref_doctype, reversal_ref_name) if reversal_ref_name else None
-            )
-
-            # Update donation payment history for reversals
-            if reversal_pe:
+            # Update donation payment history for reversals. Keyed on the name the
+            # booker returned -- re-fetching the whole document to ask whether it
+            # exists is a wasted read, and it turned "the booker succeeded" into
+            # "frappe.get_doc raised" for anything the DB cannot hand back.
+            if reversal_ref_name:
                 try:
                     # Parse reversal date to proper format
                     parsed_date = reversal_date
@@ -1384,7 +1383,7 @@ class UnifiedWebhookWrapperService:
                     )
 
             # Create standardized result
-            if reversal_pe:
+            if reversal_ref_name:
                 result = standardized_webhook_response(
                     "success",
                     f"{reversal_type.capitalize()} {reversal_ref_doctype} created: {reversal_ref_name}",
