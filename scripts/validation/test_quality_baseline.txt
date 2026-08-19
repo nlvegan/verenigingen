@@ -1,0 +1,126 @@
+# Known test-quality violations -- the ratchet baseline for
+# scripts/validation/test_quality_enforcer.py. Format:
+#     <path>::<qualified function>::<kind>::<count>
+#
+# A change fails only if it introduces a key NOT covered here, or raises the
+# count for a key already listed. Line numbers are deliberately absent --
+# they rot on any edit above them.
+#
+# This file should only ever SHRINK. Do not regenerate it to make a new
+# finding go away; fix the test instead. The one legitimate reason it may
+# GROW is a change to the enforcer's own detection rules, which must land in
+# the same commit as the regeneration.
+#
+# UNDERSTATES the real debt: _check_all_mocks_blocked still honours an
+# unpoliced escape hatch (`# Mock justified:` / `# External service` /
+# `# Infrastructure` within 3 lines), used 361 times across 77 files. Whatever
+# those suppress is invisible here. Policing them would change these counts and
+# so must not be entangled with generating this file.
+
+scripts/validation/features/test_member_portal_fix.py::test_member_portal_expense_query::PERMISSION BYPASS::1
+verenigingen/tests/backend/business_logic/test_per_type_minimum_period.py::<module>::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_anbi_donation_summary_report.py::TestANBIDonationSummaryReport.test_agreement_type_determination::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_chapter_assignment_edge_cases.py::TestChapterAssignmentEdgeCases.test_api_permission_edge_cases::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_chapter_assignment_edge_cases.py::TestChapterAssignmentEdgeCases.test_concurrent_chapter_assignments.assign_chapter::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_chapter_dashboard.py::TestChapterDashboard.test_dashboard_permission_filtering::DATABASE MOCK::1
+verenigingen/tests/backend/components/test_chapter_expense_report_unit.py::TestChapterExpenseReport.test_get_user_accessible_chapters_admin_user::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_alert_log_permissions::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_alert_rule_permissions::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_analytics_page_access::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_export_permissions::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_goal_creation_api::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_goal_permissions::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_predictive_analytics_access::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_membership_analytics_permissions.py::TestMembershipAnalyticsPermissions.test_snapshot_permissions::PERMISSION BYPASS::1
+verenigingen/tests/backend/components/test_payment_processing_real_template_handling.py::TestPaymentProcessingRealTemplateHandling._enable_notifications::PERMISSION BYPASS::2
+verenigingen/tests/backend/comprehensive/test_chapter_membership_validation_edge_cases.py::_ensure_user._apply_role_profile::PERMISSION BYPASS::1
+verenigingen/tests/backend/integration/test_volunteer_portal_integration.py::TestVolunteerPortalIntegration.create_expense_categories::PERMISSION BYPASS::1
+verenigingen/tests/backend/portal/test_donation_portal_behavior.py::TestDonationPortalBehavior.test_cancel_rejects_foreign_donation::PERMISSION BYPASS::1
+verenigingen/tests/backend/portal/test_donation_portal_behavior.py::TestDonationPortalBehavior.test_update_rejects_foreign_donation::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_api_authentication_bypass::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_audit_trail_tampering::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_cross_organization_data_leakage::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_financial_data_isolation::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_membership_fee_manipulation::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_privilege_escalation_api_bypass::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_privilege_escalation_document_permissions::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_privilege_escalation_role_manipulation::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_sepa_mandate_manipulation::PERMISSION BYPASS::2
+verenigingen/tests/backend/security/test_security_comprehensive.py::TestSecurityComprehensive.test_volunteer_data_privacy::PERMISSION BYPASS::1
+verenigingen/tests/backend/security/test_sepa_security_validation.py::TestSEPASecurityValidation.test_notification_system_handles_permission_failures_gracefully::MOCK::1
+verenigingen/tests/backend/validation/test_field_sync_service_unit.py::TestPerformanceOptimizations.test_sync_skips_when_no_fields_changed::PERMISSION BYPASS::1
+verenigingen/tests/backend/validation/test_field_sync_service_unit.py::TestSyncFlagsAndLoopPrevention.test_sync_flag_prevents_recursive_sync::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_chapter_membership_workflow.py::TestChapterMembershipWorkflow.test_chapter_members_report_hides_pending_from_regular_users::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_chapter_membership_workflow.py::TestChapterMembershipWorkflow.test_chapter_members_report_shows_pending_to_admins::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_1_become_volunteer::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_2_complete_profile::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_4_submit_expenses::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_6_track_hours::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_7_generate_reports::PERMISSION BYPASS::1
+verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_8_deactivate_volunteer::PERMISSION BYPASS::2
+verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_document_retrieval_by_type::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_upload_date_auto_populated::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_uploaded_by_auto_populated::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_board_lifecycle_notifications.py::TestChapterBoardLifecycleNotifications._enable_chapter_notification_types::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_permissions.py::TestChapterPermissions._get_test_chapter_role::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_permissions.py::TestChapterPermissions.test_administrator_has_full_access::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_permissions.py::TestChapterPermissions.test_child_table_board_members_accessible::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_chapter_permissions.py::TestChapterPermissions.test_child_table_members_accessible::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_team_role_integration.py::TestTeamRoleIntegration.test_team_leader_system_role_assignment::PERMISSION BYPASS::1
+verenigingen/tests/chapter/test_team_role_profile_sync.py::TestSyncTeamLeadRole.test_removes_role_when_no_longer_leading::PERMISSION BYPASS::1
+verenigingen/tests/e_boekhouden/test_cost_center_creation.py::TestErrorHandlingAndEdgeCases.test_missing_company_validation::PERMISSION BYPASS::2
+verenigingen/tests/email/test_email_system_edge_cases_unit.py::TestEmailSystemEdgeCases.test_template_rendering_failures::PERMISSION BYPASS::1
+verenigingen/tests/integration/test_payment_processing_api_integration.py::TestPaymentProcessingAPIIntegration._enable_notifications::PERMISSION BYPASS::2
+verenigingen/tests/member/test_member_merge.py::TestMemberMerge.test_merge_conflict_warnings::PERMISSION BYPASS::2
+verenigingen/tests/member/test_membership_type_change.py::TestMembershipTypeChange.create_membership_type::PERMISSION BYPASS::2
+verenigingen/tests/payment/test_dues_schedule_sync.py::TestDuesScheduleSync.test_current_schedule_updates_when_status_changes::PERMISSION BYPASS::1
+verenigingen/tests/payment/test_payment_failure_email_templates.py::TestPaymentFailureEmailTemplates.create_specific_template::PERMISSION BYPASS::1
+verenigingen/tests/payment/test_payment_failure_email_templates.py::TestPaymentFailureEmailTemplates.delete_specific_template::PERMISSION BYPASS::1
+verenigingen/tests/resilience/test_error_recovery.py::_enable_mollie_backend_api::PERMISSION BYPASS::1
+verenigingen/tests/security/test_role_profile_integration.py::TestRoleProfileIntegration.test_get_user_role_profiles_security_fix::PERMISSION BYPASS::1
+verenigingen/tests/security/test_security_setup.py::TestSecurityAPIEndpoints.test_enable_csrf_protection_success::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/security/test_security_setup.py::TestSecurityAPIEndpoints.test_enable_csrf_protection_success::MOCK::1
+verenigingen/tests/security_property_tests.py::ManualPropertyTests.test_admin_tools_security_properties_manual::PERMISSION BYPASS::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_multiple_validation_errors::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_realistic_dutch_mandate_validation::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_realistic_dutch_mandate_validation::DATABASE MOCK::2
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_business_rules_active_mandate_valid::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_business_rules_exception_handling::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_business_rules_member_not_exists::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_iban_auto_format::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_iban_bic_mismatch_warning::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_iban_exception_handling::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_iban_invalid_iban::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_iban_no_bic_derivation::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_iban_valid_dutch_iban::BUSINESS LOGIC MOCK PROHIBITED::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_uniqueness_conflicting_active_mandates::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_uniqueness_duplicate_mandate_id::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_uniqueness_exception_handling::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_uniqueness_no_conflict_different_status::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_mandate_validation_service.py::TestSEPAMandateValidationService.test_validate_mandate_uniqueness_unique_mandate_id::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_payment_notifications_integration.py::TestSEPANotificationIntegration.test_payment_notification_scenarios::DATABASE MOCK::2
+verenigingen/tests/sepa/test_sepa_payment_notifications_integration.py::TestSEPANotificationIntegration.test_payment_retry_notification_scenarios::DATABASE MOCK::1
+verenigingen/tests/sepa/test_sepa_payment_notifications_integration.py::TestSEPANotificationIntegration.test_sepa_expiry_check_scheduler_integration::DATABASE MOCK::3
+verenigingen/verenigingen/doctype/chapter_join_request/test_chapter_join_request.py::TestChapterJoinRequest.test_permission_validation::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign._add_board_member::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_clear_assignments_none_to_clear::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_clear_assignments_removes_them::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_dashboard_html_populated::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_distribute_no_volunteers::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_distribute_only_assigns_unassigned::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_distribute_round_robin::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_progress_stats_counts_responses_and_progress::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_validate_dates_accepts_end_after_start::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/event_contact_campaign/test_event_contact_campaign.py::TestEventContactCampaign.test_validate_dates_rejects_end_before_start::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/performance_optimization_setup/test_performance_optimization_setup.py::TestPerformanceOptimizationSetup._force_delete_default::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_fee_adjustment_above_maximum_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_fee_adjustment_below_minimum_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_invalid_email_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_missing_region_code_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_missing_region_name_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_nonexistent_coordinator_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_region_code_invalid_chars_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_region_code_is_uppercased_and_stripped::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_region_code_too_long_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_region_code_too_short_rejected::PERMISSION BYPASS::1
+verenigingen/verenigingen/doctype/region/test_region.py::TestRegion.test_region_code_uniqueness_case_insensitive::PERMISSION BYPASS::1
