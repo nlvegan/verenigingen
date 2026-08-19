@@ -434,6 +434,43 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         self.assertIn("AC04", remark, f"Mollie reason code dropped from the entry: {remark!r}")
         self.assertIn("Account closed", remark, f"Mollie reason text dropped: {remark!r}")
 
+    def test_withdrawing_a_bank_transaction_cancels_before_deleting(self):
+        """The compensating write when a reversal's Journal Entry never arrives.
+
+        The booker writes the Bank Transaction first, so a Journal Entry failure
+        would otherwise leave a phantom withdrawal on the clearing account -- an
+        unreconciled bank line for money that was never booked out.
+
+        This is not covered by a savepoint, and cannot be: the reconciliation step
+        calls ``frappe.db.commit()``, and a commit destroys every open savepoint,
+        so releasing it afterwards raises ``(1305, 'SAVEPOINT ... does not exist')``
+        which then *replaces* the real error. Measured, not assumed. So the undo is
+        a real compensating write, and this pins the part of it that is easy to get
+        wrong: ``frappe.model.delete_doc`` runs ``check_permission_and_not_submitted``
+        *before* its ``if not force:`` guard, so ``force=True`` alone will not remove
+        a submitted Bank Transaction. It has to be cancelled first.
+
+        SCOPE: this covers the compensating write itself. Driving a real Journal
+        Entry failure end-to-end through ``process_reversal_webhook`` is NOT
+        covered here -- see the PR body.
+        """
+        reference = f"tr_withdraw_{frappe.generate_hash(length=8)}_refund_re_x"
+        bt = self._make_withdrawal_bank_transaction(100.0, reference, self.bank_account)
+        self.assertEqual(
+            frappe.db.get_value("Bank Transaction", bt, "docstatus"),
+            1,
+            "the fixture must be submitted, or this proves nothing about the force=True trap",
+        )
+
+        UnifiedWebhookWrapperService()._withdraw_bank_transaction(bt)
+
+        self.assertFalse(
+            frappe.db.exists("Bank Transaction", bt),
+            f"Bank Transaction {bt} survived withdrawal; a submitted document cannot be "
+            "force-deleted without being cancelled first, so it would be left behind as a "
+            "phantom withdrawal on the clearing account",
+        )
+
 
 class TestFindBookedPaymentAmbiguity(_RefundFixtureMixin, EnhancedTestCase):
     """Ambiguity must be refused whether or not a Donation exists.

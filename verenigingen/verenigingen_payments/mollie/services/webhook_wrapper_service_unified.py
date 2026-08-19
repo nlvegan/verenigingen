@@ -970,12 +970,23 @@ class UnifiedWebhookWrapperService:
         reversal_date: Optional[str],
         description: str,
     ) -> Optional[Tuple[str, str]]:
-        """Reverse a Journal-Entry-booked donation the way it was booked: BT + JE."""
+        """Reverse a Journal-Entry-booked donation the way it was booked: BT + JE.
+
+        The two writes are one operation. A Journal Entry failure after the Bank
+        Transaction is written leaves a phantom withdrawal on the clearing account
+        -- an unreconciled bank line for money that was never booked out, which
+        then has to be found and removed by hand.
+
+        Compensated explicitly rather than with a savepoint. A savepoint cannot
+        cover this: ``_reconcile_bank_transaction`` calls ``frappe.db.commit()``,
+        and a commit destroys every open savepoint, so releasing it afterwards
+        raises ``(1305, 'SAVEPOINT ... does not exist')`` -- which then *replaces*
+        the real error. Measured here, not assumed; it is the same trap CLAUDE.md
+        records for deadlocks. Code that commits internally cannot be wrapped in a
+        savepoint, so the rollback has to be a real compensating write.
+        """
         from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
             get_bank_transaction_creator,
-        )
-        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
-            get_donation_refund_journal_entry_creator,
         )
 
         from ..utils.reversal_idempotency import build_reversal_key
@@ -984,7 +995,12 @@ class UnifiedWebhookWrapperService:
         bt_creator = get_bank_transaction_creator()
         config = bt_creator.get_mollie_bank_account_config()
         if config.get("error"):
-            self.logger.error(f"❌ Mollie config error for {reversal_type}: {config['error']}")
+            message = (
+                f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
+                f"Mollie configuration error: {config['error']}"
+            )
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Reversal Booking Failed")
             return None
 
         party_type = party = bank_party_name = None
@@ -998,6 +1014,47 @@ class UnifiedWebhookWrapperService:
         parsed_date = self._parse_reversal_date(reversal_date)
 
         currency = self._resolve_bank_currency(config)
+
+        return self._create_reversal_bank_transaction_and_journal_entry(
+            bt_creator=bt_creator,
+            config=config,
+            donation_doc=donation_doc,
+            payment_id=payment_id,
+            reversal_type=reversal_type,
+            reversal_id=reversal_id,
+            amount=amount,
+            reversal_date=reversal_date,
+            description=description,
+            reference=reference,
+            parsed_date=parsed_date,
+            currency=currency,
+            party_type=party_type,
+            party=party,
+            bank_party_name=bank_party_name,
+        )
+
+    def _create_reversal_bank_transaction_and_journal_entry(
+        self,
+        bt_creator,
+        config,
+        donation_doc,
+        payment_id: str,
+        reversal_type: str,
+        reversal_id: str,
+        amount: float,
+        reversal_date: Optional[str],
+        description: str,
+        reference: str,
+        parsed_date,
+        currency: Optional[str],
+        party_type: Optional[str],
+        party: Optional[str],
+        bank_party_name: Optional[str],
+    ) -> Optional[Tuple[str, str]]:
+        """The two writes that must land together, or not at all."""
+        from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
+            get_donation_refund_journal_entry_creator,
+        )
 
         bank_transaction_name = bt_creator.create_from_dict(
             transaction_data={
@@ -1015,7 +1072,12 @@ class UnifiedWebhookWrapperService:
             source_type=f"Mollie {reversal_type.capitalize()}",
         )
         if not bank_transaction_name:
-            self.logger.error(f"❌ Failed to create Bank Transaction for {reversal_type} {reversal_id}")
+            message = (
+                f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
+                f"Bank Transaction creation failed"
+            )
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Reversal Booking Failed")
             return None
 
         journal_entry_name = get_donation_refund_journal_entry_creator().create_refund_journal_entry(
@@ -1028,7 +1090,44 @@ class UnifiedWebhookWrapperService:
             reversal_type=reversal_type,
             description=description,
         )
-        return ("Journal Entry", journal_entry_name) if journal_entry_name else None
+        if not journal_entry_name:
+            message = (
+                f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
+                f"Journal Entry creation failed after Bank Transaction {bank_transaction_name}; "
+                f"withdrawing the Bank Transaction"
+            )
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Reversal Booking Failed")
+            self._withdraw_bank_transaction(bank_transaction_name)
+            return None
+
+        return ("Journal Entry", journal_entry_name)
+
+    def _withdraw_bank_transaction(self, bank_transaction_name: str) -> None:
+        """Undo a Bank Transaction whose Journal Entry never arrived.
+
+        Cancel before delete: ``frappe.model.delete_doc`` runs
+        ``check_permission_and_not_submitted`` *before* its ``if not force:``
+        guard, so ``force=True`` does not get a submitted document deleted.
+
+        Failure here is logged and swallowed deliberately: the reversal has
+        already failed and been reported, and raising a second error over the
+        cleanup would replace the real reason with a less useful one. The leftover
+        row is recorded so it can be found.
+        """
+        try:
+            bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
+            if bt.docstatus == 1:
+                bt.cancel()
+            frappe.delete_doc("Bank Transaction", bank_transaction_name, force=True)
+        except Exception as cleanup_error:
+            message = (
+                f"Bank Transaction {bank_transaction_name} was left behind after its "
+                f"Journal Entry failed and could not be withdrawn: {cleanup_error}. "
+                f"It is an unreconciled withdrawal for money that was never booked out."
+            )
+            self.logger.error(f"❌ {message}")
+            frappe.log_error(message, "Mollie Reversal Cleanup Failed")
 
     @staticmethod
     def _resolve_bank_currency(config: dict) -> Optional[str]:
