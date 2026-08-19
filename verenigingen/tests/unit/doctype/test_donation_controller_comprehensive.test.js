@@ -2,9 +2,18 @@
 /**
  * @fileoverview Comprehensive Donation Controller Tests
  *
- * Tests the Donation DocType JavaScript controller, focusing on payment entry workflows,
- * UI button management, and financial integration features using the centralized
- * controller testing infrastructure.
+ * Tests the Donation DocType JavaScript controller.
+ *
+ * This suite used to exercise a "Create Payment Entry" button. That button was a
+ * fossil of the ERPNext Non Profit module, where Donation was submittable and
+ * settled via Payment Entry. This app's Donation has never carried
+ * `is_submittable`, so the button's `docstatus === 1` gate never fired, and
+ * donation payments post as Bank Transaction -> Journal Entry instead. Button
+ * and handler are gone.
+ *
+ * The suite now pins the negative property: the Donation form offers no Payment
+ * Entry affordance, in any document state. Reintroducing the button turns this
+ * suite red.
  *
  * @author Verenigingen Development Team
  * @version 2025-01-13
@@ -24,7 +33,7 @@ const donationConfig = {
 	doctype: 'Donation',
 	controllerPath:
 		'/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donation/donation.js',
-	expectedHandlers: ['refresh', 'make_payment_entry'],
+	expectedHandlers: ['refresh'],
 	defaultDoc: {
 		doctype: 'Donation',
 		name: 'DON-2024-TEST-001',
@@ -75,134 +84,55 @@ const donationConfig = {
 
 // Custom test suites specific to Donation controller
 const customDonationTests = {
-	'Payment Entry Workflow': (getControllerTest) => {
-		it('should show Create Payment Entry button for submitted unpaid donations', () => {
+	'No Payment Entry affordance': (getControllerTest) => {
+		it('exposes no make_payment_entry handler', () => {
 			const controllerTest = getControllerTest();
-			controllerTest.mockForm.doc.docstatus = 1; // Submitted
-			controllerTest.mockForm.doc.paid = 0; // Unpaid
 
-			// Trigger refresh event
-			controllerTest.testEvent('refresh');
-
-			// Verify payment entry button is added
-			expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalledWith(
-				expect.stringContaining('Create Payment Entry'),
-				expect.any(Function)
-			);
+			expect(controllerTest.handlers.make_payment_entry).toBeUndefined();
 		});
 
-		it('should not show Create Payment Entry button for paid donations', () => {
+		it('adds no button in any docstatus/paid combination', () => {
 			const controllerTest = getControllerTest();
-			controllerTest.mockForm.doc.docstatus = 1; // Submitted
-			controllerTest.mockForm.doc.paid = 1; // Paid
-
-			// Reset mock to check for no calls
-			controllerTest.mockForm.add_custom_button.mockClear();
-
-			// Trigger refresh event
-			controllerTest.testEvent('refresh');
-
-			// Verify payment entry button is NOT added
-			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
-		});
-
-		it('should not show Create Payment Entry button for draft donations', () => {
-			const controllerTest = getControllerTest();
-			controllerTest.mockForm.doc.docstatus = 0; // Draft
-			controllerTest.mockForm.doc.paid = 0;
-
-			// Reset mock to check for no calls
-			controllerTest.mockForm.add_custom_button.mockClear();
-
-			// Trigger refresh event
-			controllerTest.testEvent('refresh');
-
-			// Verify payment entry button is NOT added
-			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
-		});
-
-		it('should handle payment entry creation workflow', () => {
-			const controllerTest = getControllerTest();
-			controllerTest.mockForm.doc.name = 'DON-2024-07-0004';
-			controllerTest.mockForm.doc.docstatus = 1;
-			controllerTest.mockForm.doc.paid = 0;
-
-			// Mock successful payment entry creation
-			const mockPaymentEntry = {
-				doctype: 'Payment Entry',
-				name: 'PE-2024-07-0001',
-				party_type: 'Customer',
-				paid_amount: 125.0
-			};
-
-			global.frappe.call.mockImplementation(({ callback }) => {
-				if (callback) {
-					callback({ message: mockPaymentEntry });
-				}
-				return Promise.resolve({ message: mockPaymentEntry });
-			});
-
-			global.frappe.model.sync.mockReturnValue([mockPaymentEntry]);
-
-			// Trigger make_payment_entry event
-			controllerTest.testEvent('make_payment_entry');
-
-			// Verify API call was made
-			expect(global.frappe.call).toHaveBeenCalledWith({
-				method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',
-				args: {
-					dt: 'Donation',
-					dn: 'DON-2024-07-0004'
-				},
-				callback: expect.any(Function)
-			});
-
-			// Verify payment entry was synced
-			expect(global.frappe.model.sync).toHaveBeenCalledWith(mockPaymentEntry);
-
-			// Verify navigation to payment entry
-			expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'Payment Entry', 'PE-2024-07-0001');
-		});
-
-		it('should handle different donation statuses correctly', () => {
-			const controllerTest = getControllerTest();
-			const testCases = [
-				{ name: 'Draft donation', docstatus: 0, paid: 0, expectButton: false },
-				{
-					name: 'Submitted unpaid donation',
-					docstatus: 1,
-					paid: 0,
-					expectButton: true
-				},
-				{
-					name: 'Submitted paid donation',
-					docstatus: 1,
-					paid: 1,
-					expectButton: false
-				},
-				{
-					name: 'Cancelled donation',
-					docstatus: 2,
-					paid: 0,
-					expectButton: false
-				}
+			// The full matrix, including the docstatus=1 state the old button was
+			// gated on. Donation is not submittable, so 1 and 2 are only reachable
+			// by direct db writes — but the form must offer nothing in any of them.
+			const states = [
+				{ name: 'draft unpaid', docstatus: 0, paid: 0 },
+				{ name: 'draft paid', docstatus: 0, paid: 1 },
+				{ name: 'submitted unpaid', docstatus: 1, paid: 0 },
+				{ name: 'submitted paid', docstatus: 1, paid: 1 },
+				{ name: 'cancelled unpaid', docstatus: 2, paid: 0 }
 			];
 
-			testCases.forEach((testCase) => {
-				// Reset form and mock for each test case
-				controllerTest.mockForm.doc.docstatus = testCase.docstatus;
-				controllerTest.mockForm.doc.paid = testCase.paid;
+			states.forEach((state) => {
+				controllerTest.mockForm.doc.docstatus = state.docstatus;
+				controllerTest.mockForm.doc.paid = state.paid;
 				controllerTest.mockForm.add_custom_button.mockClear();
 
-				// Trigger refresh event
 				controllerTest.testEvent('refresh');
 
-				if (testCase.expectButton) {
-					expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
-				} else {
-					expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
-				}
+				expect({
+					state: state.name,
+					calls: controllerTest.mockForm.add_custom_button.mock.calls.length
+				}).toEqual({ state: state.name, calls: 0 });
 			});
+		});
+
+		it('never calls the ERPNext get_payment_entry endpoint', () => {
+			const controllerTest = getControllerTest();
+			controllerTest.mockForm.doc.docstatus = 1;
+			controllerTest.mockForm.doc.paid = 0;
+			global.frappe.call.mockClear();
+
+			controllerTest.testEvent('refresh');
+
+			// A Donation is settled as Bank Transaction -> Journal Entry. Any
+			// client-side round trip to the Payment Entry builder is a regression.
+			const methodsCalled = global.frappe.call.mock.calls.map((args) => args[0] && args[0].method);
+			expect(methodsCalled).not.toContain(
+				'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry'
+			);
+			expect(methodsCalled).toEqual([]);
 		});
 	},
 
@@ -255,92 +185,30 @@ const customDonationTests = {
 			};
 
 			// Should handle complex data without errors
+			controllerTest.mockForm.add_custom_button.mockClear();
 			expect(() => {
 				controllerTest.testEvent('refresh');
 			}).not.toThrow();
 
-			// Button should still be shown for eligible donations
-			expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
+			// ...and still offer no Payment Entry affordance
+			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
 		});
 	},
 
 	'Integration Testing': (getControllerTest) => {
-		it('should integrate properly with payment utilities API', () => {
+		it('never routes the user to a Payment Entry form', () => {
 			const controllerTest = getControllerTest();
 			controllerTest.mockForm.doc.name = 'DON-INTEGRATION-001';
 			controllerTest.mockForm.doc.docstatus = 1;
 			controllerTest.mockForm.doc.paid = 0;
+			global.frappe.set_route.mockClear();
+			global.frappe.model.sync.mockClear();
 
-			// Mock realistic payment entry response
-			const paymentResponse = {
-				doctype: 'Payment Entry',
-				name: 'PE-INTEGRATION-001',
-				party_type: 'Customer',
-				paid_amount: 300.0,
-				received_amount: 300.0,
-				reference_no: 'DON-INTEGRATION-001',
-				reference_date: '2024-07-15'
-			};
+			controllerTest.testEvent('refresh');
 
-			global.frappe.call.mockImplementation(({ callback }) => {
-				if (callback) {
-					callback({ message: paymentResponse });
-				}
-				return Promise.resolve({ message: paymentResponse });
-			});
-
-			global.frappe.model.sync.mockReturnValue([paymentResponse]);
-
-			// Trigger make_payment_entry workflow
-			controllerTest.testEvent('make_payment_entry');
-
-			// Verify correct API method called (donation.js uses ERPNext's standard
-			// payment-entry endpoint, matching the other tests in this suite)
-			expect(global.frappe.call).toHaveBeenCalledWith(
-				expect.objectContaining({
-					method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry'
-				})
-			);
-
-			// Verify correct arguments passed
-			const callArgs = global.frappe.call.mock.calls[0][0];
-			expect(callArgs.args).toEqual({
-				dt: 'Donation',
-				dn: 'DON-INTEGRATION-001'
-			});
-		});
-
-		it('should call payment entry API with correct parameters', () => {
-			const controllerTest = getControllerTest();
-			controllerTest.mockForm.doc.name = 'DON-API-001';
-			controllerTest.mockForm.doc.docstatus = 1;
-			controllerTest.mockForm.doc.paid = 0;
-
-			// Mock successful API response
-			global.frappe.call.mockImplementation(({ callback }) => {
-				if (callback) {
-					callback({
-						message: { name: 'PE-TEST-001', doctype: 'Payment Entry' }
-					});
-				}
-			});
-
-			global.frappe.model.sync.mockReturnValue([{ name: 'PE-TEST-001', doctype: 'Payment Entry' }]);
-
-			// Should execute without errors
-			expect(() => {
-				controllerTest.testEvent('make_payment_entry');
-			}).not.toThrow();
-
-			// Verify API call was made with correct parameters
-			expect(global.frappe.call).toHaveBeenCalledWith({
-				method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',
-				args: {
-					dt: 'Donation',
-					dn: 'DON-API-001'
-				},
-				callback: expect.any(Function)
-			});
+			// The deleted handler synced a Payment Entry and routed to its form.
+			expect(global.frappe.model.sync).not.toHaveBeenCalled();
+			expect(global.frappe.set_route).not.toHaveBeenCalled();
 		});
 	},
 
@@ -376,32 +244,28 @@ const customDonationTests = {
 			// Should complete within reasonable time (less than 100ms)
 			expect(executionTime).toBeLessThan(100);
 
-			// Button should be added for each refresh
-			expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
+			// ...and no refresh should have added a button
+			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
 		});
 
 		it('should maintain state consistency across multiple operations', () => {
 			const controllerTest = getControllerTest();
 
-			// Start with eligible donation
+			// Toggling paid used to flip the button on and off. Nothing should
+			// appear now, in either direction.
 			controllerTest.mockForm.doc.docstatus = 1;
 			controllerTest.mockForm.doc.paid = 0;
-
-			// First refresh - should show button
-			controllerTest.testEvent('refresh');
-			expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
-
-			// Change to paid - should not show button
-			controllerTest.mockForm.doc.paid = 1;
 			controllerTest.mockForm.add_custom_button.mockClear();
 			controllerTest.testEvent('refresh');
 			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
 
-			// Back to unpaid - should show button again
-			controllerTest.mockForm.doc.paid = 0;
-			controllerTest.mockForm.add_custom_button.mockClear();
+			controllerTest.mockForm.doc.paid = 1;
 			controllerTest.testEvent('refresh');
-			expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
+			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
+
+			controllerTest.mockForm.doc.paid = 0;
+			controllerTest.testEvent('refresh');
+			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
 		});
 	}
 };

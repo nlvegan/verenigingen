@@ -4555,7 +4555,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         return member, schedule
 
     def create_test_sales_invoice(self, customer, **kwargs):
-        """Create a sales invoice record for testing"""
+        """Create a sales invoice record for testing.
+
+        AMOUNT: pass `grand_total`. The generated line takes its rate AND amount from
+        `kwargs.get("grand_total", 100.0)` -- `rate=` and `qty=` are NOT read and are
+        silently ignored, leaving the invoice at the 100.0 default. A test that passes
+        `rate=20` and then asserts against 20 is comparing against a number the fixture
+        never produced. To control the line directly, pass a full `items` list instead.
+        """
         # Ensure test item exists
         item_code = kwargs.get("item_code", "Test Service")
         self._ensure_test_item(item_code)

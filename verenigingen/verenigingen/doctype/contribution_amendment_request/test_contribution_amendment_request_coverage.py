@@ -194,35 +194,39 @@ class TestContributionAmendmentRequestCoverage(VereningingenTestCase):
 
     # ------------------------------------------------------------------ validate_amount_changes (Fee Change)
 
-    # The amount guards in validate_amount_changes all raise the SAME exception
-    # type, and the minimum-fee guard catches almost anything the others would.
-    # A message-blind assertRaises therefore passes on the wrong guard: removing
-    # the ">0" check left both zero-amount tests GREEN, because 0 is also below
-    # the minimum fee. Assert the message so each test can only pass on its own
-    # guard.
+    # validate_amount_changes raises the SAME frappe.ValidationError from every
+    # guard, and the minimum-fee guard runs LAST as a catch-all for low amounts.
+    # So a bare assertRaises here passes on the wrong guard: with the guard under
+    # test deleted, the value simply falls through to minimum-fee and still throws.
+    # Each test below therefore asserts the MESSAGE of the guard it names.
+    #
+    # For the "> 0" guard the message assertion is not merely belt-and-braces, it
+    # is the only option: minimum_fee is max(base * 30%, EUR 5) and so is always
+    # positive, which means every amount <= 0 is also below the minimum. No input
+    # can trip "> 0" without also tripping minimum-fee (#363).
 
     def test_zero_requested_amount_throws(self):
-        with self.assertRaises(frappe.ValidationError) as cm:
+        with self.assertRaises(frappe.ValidationError) as raised:
             self._make(requested_amount=0).insert()
-        self.assertIn("must be greater than 0", str(cm.exception))
+        self.assertIn("must be greater than 0", str(raised.exception))
 
     def test_negative_requested_amount_throws(self):
-        with self.assertRaises(frappe.ValidationError) as cm:
+        with self.assertRaises(frappe.ValidationError) as raised:
             self._make(requested_amount=-10).insert()
-        self.assertIn("must be greater than 0", str(cm.exception))
+        self.assertIn("must be greater than 0", str(raised.exception))
 
     def test_same_as_current_amount_throws(self):
         # validate_amount_changes runs before set_current_details on creation, so
         # the "same as current" guard only fires when current_amount is already
         # populated. Provide it explicitly to exercise that branch.
         #
-        # The amount must also clear the minimum fee: at 20.0 (below the 30.0
-        # minimum for this fixture) the minimum-fee guard fired instead, and the
-        # test passed even with the same-amount guard removed.
-        same = self._minimum_fee() + 25.0
-        with self.assertRaises(frappe.ValidationError) as cm:
+        # The amount must also clear the minimum fee: at 20.0 against a EUR 30
+        # minimum this test passed on the minimum-fee guard instead, and stayed
+        # green when the same-as-current guard was deleted.
+        same = self._minimum_fee() + 20.0
+        with self.assertRaises(frappe.ValidationError) as raised:
             self._make(requested_amount=same, current_amount=same).insert()
-        self.assertIn("same as current amount", str(cm.exception))
+        self.assertIn("same as current amount", str(raised.exception))
 
     def test_below_minimum_fee_throws(self):
         """A fee below max(30% of base, EUR5) is rejected. Request just under the
