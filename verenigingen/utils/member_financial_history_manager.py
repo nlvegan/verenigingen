@@ -305,7 +305,7 @@ class MemberFinancialHistoryManager:
                 # transaction -- but it is longer contention than before, so a caller
                 # that loops over many members must commit per member rather than
                 # once at the end. bulk_update_payment_history does exactly that, and
-                # says so.
+                # says so. The one inner commit still left on this path is #421.
                 self.member.update_child_table(self.history_field)
                 return True
 

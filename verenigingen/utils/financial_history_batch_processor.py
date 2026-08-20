@@ -38,7 +38,7 @@ class FinancialHistoryBatchProcessor:
     and since #411 the history manager no longer commits inside it. One inner
     commit remains on a path this one reaches: Member._get_invoice_with_retry
     (payment_mixin.py:546) commits between attempts when an invoice is not yet
-    visible, deliberately, to get a fresh read view. When that retry fires the
+    visible, deliberately, to get a fresh read view -- #421. When that retry fires the
     savepoint is gone and the scoped rollback below is a no-op for anything
     already applied.
 
@@ -198,8 +198,8 @@ class FinancialHistoryBatchProcessor:
         #
         # Still not FULL per-member atomicity, despite the docstring above. The
         # history manager's own commit is gone (#411), but Member._get_invoice_with_retry
-        # (payment_mixin.py:546) commits between attempts when an invoice is not yet
-        # visible; on that path the savepoint is destroyed and the scoped rollback
+        # (payment_mixin.py:546, #421) commits between attempts when an invoice is not
+        # yet visible; on that path the savepoint is destroyed and the scoped rollback
         # below cannot undo what was already applied. The guarantee is the narrower
         # one: a failure here NEVER escalates beyond the member that caused it.
         #
@@ -324,7 +324,7 @@ class FinancialHistoryBatchProcessor:
         """Release a savepoint, tolerating one that no longer exists.
 
         Inner code can still end the transaction -- Member._get_invoice_with_retry
-        (payment_mixin.py:546) commits between attempts to get a fresh read view --
+        (payment_mixin.py:546, #421) commits between attempts to get a fresh read view --
         and MariaDB discards every savepoint when it does, so RELEASE then raises
         1305. The member's work is already durable at that point, so there is
         nothing to release.
@@ -344,7 +344,7 @@ class FinancialHistoryBatchProcessor:
             # it matters.
             frappe.logger("financial_batch").error(
                 f"savepoint {save_point} already released by an inner commit "
-                "(the invoice-retry path in payment_mixin still has one)"
+                "(the invoice-retry path in payment_mixin still has one -- #421)"
             )
 
     @staticmethod

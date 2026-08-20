@@ -23,6 +23,7 @@ Two guards, because one alone is not enough:
 
 import ast
 import inspect
+import re
 
 import frappe
 
@@ -42,6 +43,106 @@ SCOPED_METHODS = (
     "_rollback_to_savepoint",
     "_release_savepoint",
 )
+
+TRANSACTION_ENDERS = ("commit", "rollback", "begin")
+
+# SQL that ends a transaction without going through frappe.db.commit(). The guard
+# below reads `frappe.db.sql("COMMIT")` too, because an AST check that only knows
+# the method name is defeated by spelling the same thing as a string.
+_TRANSACTION_ENDING_SQL = re.compile(
+    r"^\s*(commit|rollback(?!\s+to)|start\s+transaction|begin\s*;?\s*$)", re.IGNORECASE
+)
+
+
+def _transaction_enders(tree, *, only_in=None):
+    """Every call in `tree` that can end the caller's transaction.
+
+    Written once and used by both guards below, so the two cannot drift apart --
+    the first version of this was duplicated and the copies already disagreed
+    about which evasions they caught.
+
+    Catches, each because a previous version missed it:
+
+    * ``frappe.db.commit()`` / ``rollback()`` / ``begin()`` -- begin issues START
+      TRANSACTION, which implicitly commits in MariaDB and discards every
+      savepoint (this repo's ImplicitCommitError class);
+    * the aliased ``db = frappe.db; db.commit()``;
+    * a bare name bound to the method: ``commit = frappe.db.commit; commit()``;
+    * ``getattr(frappe.db, "commit")()``;
+    * ``frappe.db.sql("COMMIT")`` and friends, where the method name never appears.
+
+    Still blind, and stated rather than implied: a commit inside a helper this
+    module calls. No AST check on one module can see that. The behavioural
+    savepoint test is what covers that direction.
+    """
+    bound = {}  # local name -> the transaction-ending method it holds
+
+    def _is_db(value):
+        return (isinstance(value, ast.Attribute) and value.attr == "db") or (
+            isinstance(value, ast.Name) and value.id in DB_ALIASES
+        )
+
+    def _method_of(node):
+        """Return the ender name this expression denotes, or None."""
+        if isinstance(node, ast.Attribute) and node.attr in TRANSACTION_ENDERS and _is_db(node.value):
+            return node.attr
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) == 2
+            and _is_db(node.args[0])
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in TRANSACTION_ENDERS
+        ):
+            return node.args[1].value
+        return None
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            held = _method_of(node.value)
+            if held:
+                bound[node.targets[0].id] = held
+
+    scopes = (
+        [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in only_in]
+        if only_in
+        else [tree]
+    )
+    for scope in scopes:
+        where = scope.name if isinstance(scope, ast.FunctionDef) else "<module>"
+        for call in ast.walk(scope):
+            if not isinstance(call, ast.Call):
+                continue
+            name = None
+            if isinstance(call.func, ast.Attribute):
+                if call.func.attr in TRANSACTION_ENDERS and _is_db(call.func.value):
+                    name = call.func.attr
+                elif call.func.attr in ("sql", "sql_ddl") and _is_db(call.func.value):
+                    first = call.args[0] if call.args else None
+                    if (
+                        isinstance(first, ast.Constant)
+                        and isinstance(first.value, str)
+                        and _TRANSACTION_ENDING_SQL.match(first.value)
+                    ):
+                        name = f'sql("{first.value.strip()[:20]}")'
+            elif isinstance(call.func, ast.Name) and call.func.id in bound:
+                name = f"{bound[call.func.id]}() via {call.func.id}"
+            else:
+                held = _method_of(call.func)
+                if held:
+                    name = f"{held}() via getattr"
+            if not name:
+                continue
+            # A SCOPED rollback is the point of the batch handlers -- but
+            # `save_point=None` is the transaction-wide path (frappe's rollback()
+            # branches on `if save_point:`), so a literal None must NOT count.
+            if name == "rollback" and any(
+                kw.arg == "save_point" and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
+                for kw in call.keywords
+            ):
+                continue
+            yield where, call.lineno, name
 
 
 class TestFinancialBatchTransactionScope(VereningingenTestCase):
@@ -96,34 +197,12 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
         if someone restored the bare rollback. This assertion is what actually pins
         the savepoint invariant.
         """
-        tree = ast.parse(inspect.getsource(batch_module))
-        offenders = []
-
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef) or node.name not in SCOPED_METHODS:
-                continue
-            for call in ast.walk(node):
-                if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
-                    continue
-                if call.func.attr not in ("commit", "rollback", "begin"):
-                    continue
-                # Receiver must look like a database handle: `frappe.db.x()` and the
-                # aliased `db = frappe.db; db.x()`, which walked past an earlier check.
-                value = call.func.value
-                is_frappe_db = isinstance(value, ast.Attribute) and value.attr == "db"
-                is_alias = isinstance(value, ast.Name) and value.id in DB_ALIASES
-                if not (is_frappe_db or is_alias):
-                    continue
-                # A scoped rollback is the point -- but `save_point=None` is the
-                # transaction-wide path (frappe's rollback() branches on `if
-                # save_point:`), so a literal None must NOT count as scoped.
-                if call.func.attr == "rollback" and any(
-                    kw.arg == "save_point"
-                    and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
-                    for kw in call.keywords
-                ):
-                    continue
-                offenders.append(f"{node.name}:{call.lineno} frappe.db.{call.func.attr}()")
+        offenders = [
+            f"{where}:{lineno} frappe.db.{name}"
+            for where, lineno, name in _transaction_enders(
+                ast.parse(inspect.getsource(batch_module)), only_in=SCOPED_METHODS
+            )
+        ]
 
         self.assertEqual(
             offenders,
@@ -248,25 +327,10 @@ class TestHistoryManagerLeavesTheTransactionAlone(VereningingenTestCase):
         ``if save_point:``, so None IS the transaction-wide path) and the aliased
         ``db = frappe.db; db.commit()``.
         """
-        tree = ast.parse(inspect.getsource(history_module))
-        offenders = []
-
-        for call in ast.walk(tree):
-            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
-                continue
-            if call.func.attr not in ("commit", "rollback", "begin"):
-                continue
-            value = call.func.value
-            is_frappe_db = isinstance(value, ast.Attribute) and value.attr == "db"
-            is_alias = isinstance(value, ast.Name) and value.id in DB_ALIASES
-            if not (is_frappe_db or is_alias):
-                continue
-            if call.func.attr == "rollback" and any(
-                kw.arg == "save_point" and not (isinstance(kw.value, ast.Constant) and kw.value.value is None)
-                for kw in call.keywords
-            ):
-                continue
-            offenders.append(f"line {call.lineno}: frappe.db.{call.func.attr}()")
+        offenders = [
+            f"line {lineno}: frappe.db.{name}"
+            for _where, lineno, name in _transaction_enders(ast.parse(inspect.getsource(history_module)))
+        ]
 
         self.assertEqual(
             offenders,
