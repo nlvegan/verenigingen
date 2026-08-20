@@ -13,16 +13,15 @@ caller too. `get_context` was deleted with the template.
 """
 
 import frappe
-from frappe import _
 
 from verenigingen.services.member.application.membership_application_service import (
     get_membership_application_service,
 )
-from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.security.api_security_framework import public_api
-from verenigingen.utils.settings_utils import populate_income_calculator_context
 
 
+@frappe.whitelist()
+@public_api
 def get_membership_type_details(membership_type_name: str):
     """Get detailed contribution options for a specific membership type."""
     if not membership_type_name:
@@ -105,8 +104,3 @@ def validate_contribution_amount(
         selected_tier=selected_tier,
         base_multiplier=base_multiplier,
     )
-
-
-# Add route configuration
-no_cache = 1
-sitemap = 0  # Don't include in sitemap

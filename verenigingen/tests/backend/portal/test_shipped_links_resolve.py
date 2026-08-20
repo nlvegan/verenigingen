@@ -10,6 +10,13 @@ Nothing has ever checked those links resolve. Eight were already dead when this
 guard was written, and deleting a page is exactly the moment a ninth is created
 — which is how this file came to exist, alongside the removal of the
 `/membership_application` page whose submit endpoint had never existed.
+
+**What this does NOT check:** that the page behind a resolving route works. The
+page removed alongside this guard resolved perfectly well and could not submit an
+application, and several routes certified here call backend methods that do not
+exist. A green run means "the route is served", not "the page does its job".
+Desk routes (`/app/...`) are outside what this can judge at all — they resolve
+through a framework redirect whatever the target doctype is.
 """
 
 import json
@@ -22,8 +29,11 @@ APP_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = APP_ROOT / "fixtures" / "custom_html_block.json"
 BASELINE = Path(__file__).with_name("shipped_dead_links.txt")
 
-# Internal hrefs only: no scheme, no fragment-only or query-only links.
-INTERNAL_HREF = re.compile(r'href="(/[^"#?]*)"')
+# Internal hrefs, single- or double-quoted: this html is admin-editable in the
+# desk and `export-fixtures` writes it back verbatim, so quoting style is not
+# ours to assume. The path stops at ? or # so a link carrying a query string
+# still resolves as its route.
+INTERNAL_HREF = re.compile(r"""href=["'](/[^"'#?]*)""")
 
 
 def shipped_links():
@@ -71,8 +81,8 @@ class TestShippedLinksResolve(EnhancedTestCase):
         self.assertEqual(
             undeclared,
             [],
-            "these links are shipped in custom_html_block.json but 404 for the "
-            "people who click them: " + ", ".join(undeclared),
+            "these links are shipped in custom_html_block.json but resolve to "
+            "NotFoundPage: " + ", ".join(undeclared),
         )
 
     def test_the_baseline_has_not_gone_stale(self):
