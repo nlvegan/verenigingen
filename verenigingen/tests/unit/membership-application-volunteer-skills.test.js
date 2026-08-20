@@ -10,9 +10,9 @@
  * The markup below mirrors what `apply_for_membership.html` renders: skills
  * are CHECKBOXES named `volunteer_skills[]` whose value is
  * `"<category>|<skill>"`, plus one page-wide `#volunteer_skill_level` select.
- * `test_page_apply_for_membership_skill_contract.py` pins that the real
- * template still renders exactly these hooks, so this file and the page
- * cannot drift apart silently.
+ * `TestPageApplyForMembership` in tests/backend/portal/test_page_portal_cluster.py
+ * checks the same hooks against the RENDERED page, and checks the category
+ * and level vocabularies against the Select options they are stored into.
  */
 
 const fs = require('fs');
@@ -95,11 +95,4 @@ describe('the page this collector reads', () => {
 			expect(template).toContain(hook);
 		}
 	);
-
-	it('gives every skill checkbox a "<category>|<skill>" value', () => {
-		const checkbox = template.match(/name="volunteer_skills\[\]"[^>]*value="([^"]+)"/);
-
-		expect(checkbox).not.toBeNull();
-		expect(checkbox[1]).toContain('|');
-	});
 });

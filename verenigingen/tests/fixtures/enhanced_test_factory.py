@@ -1182,26 +1182,27 @@ class EnhancedTestDataFactory:
         if with_volunteer_skills:
             # Deterministic skill selection
             all_skills = [
-                "Technical|Web Development",
-                "Technical|Graphic Design",
-                "Communication|Writing",
-                "Leadership|Team Leadership",
-                "Financial|Fundraising",
-                "Organizational|Event Planning",
-                "Other|Photography",
+                {"name": "Web Development", "category": "Technical"},
+                {"name": "Graphic Design", "category": "Technical"},
+                {"name": "Writing", "category": "Communication"},
+                {"name": "Team Leadership", "category": "Leadership"},
+                {"name": "Fundraising", "category": "Financial"},
+                {"name": "Event Planning", "category": "Organizational"},
+                {"name": "Photography", "category": "Other"},
             ]
 
             # Select skills deterministically based on sequence
             num_skills = (seq % 3) + 4  # 4-6 skills
             skills = all_skills[:num_skills]
+            skill_level = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"][seq % 5]
 
             volunteer_data = {
                 "interested_in_volunteering": True,
                 "volunteer_availability": ["Weekly", "Monthly", "Quarterly"][seq % 3],
                 "volunteer_experience_level": ["Beginner", "Intermediate", "Experienced"][seq % 3],
                 "volunteer_areas": ["events", "communications"],
-                "volunteer_skills": skills,
-                "volunteer_skill_level": str(((seq % 5) + 1)),  # 1-5
+                "volunteer_skills": [dict(skill, level=skill_level) for skill in skills],
+                "volunteer_skill_level": skill_level,
                 "volunteer_availability_time": "Weekends and evenings",
                 "volunteer_comments": f"Test volunteer application {seq}",
             }
@@ -7085,23 +7086,24 @@ class SecureTestDataFactory:
         }
         if with_volunteer_skills:
             all_skills = [
-                "Technical|Web Development",
-                "Technical|Graphic Design",
-                "Communication|Writing",
-                "Leadership|Team Leadership",
-                "Financial|Fundraising",
-                "Organizational|Event Planning",
-                "Other|Photography",
+                {"name": "Web Development", "category": "Technical"},
+                {"name": "Graphic Design", "category": "Technical"},
+                {"name": "Writing", "category": "Communication"},
+                {"name": "Team Leadership", "category": "Leadership"},
+                {"name": "Fundraising", "category": "Financial"},
+                {"name": "Event Planning", "category": "Organizational"},
+                {"name": "Photography", "category": "Other"},
             ]
             num_skills = (seq % 3) + 4
             skills = all_skills[:num_skills]
+            skill_level = ["1 - Beginner", "2 - Basic", "3 - Intermediate", "4 - Advanced", "5 - Expert"][seq % 5]
             volunteer_data = {
                 "interested_in_volunteering": True,
                 "volunteer_availability": ["Weekly", "Monthly", "Quarterly"][seq % 3],
                 "volunteer_experience_level": ["Beginner", "Intermediate", "Experienced"][seq % 3],
                 "volunteer_areas": ["events", "communications"],
-                "volunteer_skills": skills,
-                "volunteer_skill_level": str(((seq % 5) + 1)),
+                "volunteer_skills": [dict(skill, level=skill_level) for skill in skills],
+                "volunteer_skill_level": skill_level,
                 "volunteer_availability_time": "Weekends and evenings",
                 "volunteer_comments": f"Test volunteer application {seq}",
             }

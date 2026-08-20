@@ -266,22 +266,22 @@ class TestPageApplyForMembership(PortalPageTestBase):
         names = [c["name"] for c in cats]
         self.assertTrue(any("Technical" in n for n in names))
 
-    def test_rendered_skill_inputs_match_what_the_form_javascript_reads(self):
-        """The page is the only producer of volunteer skills, and nothing checks
-        the two ends agree.
+    def test_the_page_no_longer_renders_the_selectors_the_collector_abandoned(self):
+        """Forward guard, and it could not have caught #201.
 
-        `getVolunteerSkills()` in membership_application.js queries
-        `input[name="volunteer_skills[]"]:checked` and `#volunteer_skill_level`.
-        It once queried `.skill-row` / `skill_name[]` instead — selectors this
-        page has never rendered — so every skill an applicant ticked was dropped
-        in the browser and no volunteer record ever got one (#201).
+        The page always rendered `volunteer_skills[]`; it was the JavaScript
+        that read something else, so this assertion passes on pre-fix develop
+        too. What it does buy: the retired `.skill-row` markup cannot come back
+        without the collector coming back with it.
         """
         html = self._render_apply_page()
 
         self.assertIn('name="volunteer_skills[]"', html)
         self.assertIn('id="volunteer_skill_level"', html)
+        self.assertNotIn("skill-row", html)
+        self.assertNotIn("skill_name[]", html)
 
-    def test_every_category_and_level_the_page_offers_is_a_declared_select_option(self):
+    def test_every_category_the_page_offers_is_a_declared_select_option(self):
         """The wire values are stored straight into Volunteer Skill.
 
         `create_volunteer_from_member` coerces anything the Select does not
@@ -300,10 +300,53 @@ class TestPageApplyForMembership(PortalPageTestBase):
         self.assertTrue(categories, "page rendered no skill checkboxes to check")
         self.assertLessEqual(categories, set(get_select_options("Volunteer Skill", "skill_category")))
 
+    def test_every_proficiency_level_the_page_offers_is_a_declared_select_option(self):
+        """Separate from the category check so this one can fail on its own.
+
+        Bundled together, the category assertion failed first and nothing ever
+        demonstrated that the level assertion could fail at all.
+        """
+        from verenigingen.utils.select_options import get_select_options
+
+        html = self._render_apply_page()
+
         level_select = re.search(r'id="volunteer_skill_level".*?</select>', html, re.S)
+        self.assertIsNotNone(level_select, "page rendered no proficiency select")
         levels = {v for v in re.findall(r'<option value="([^"]*)"', level_select.group(0)) if v}
         self.assertTrue(levels, "page rendered no proficiency options to check")
         self.assertLessEqual(levels, set(get_select_options("Volunteer Skill", "proficiency_level")))
+
+    def test_an_admin_named_category_cannot_reach_the_wire_unvalidated(self):
+        """The defaults are not the only source of categories.
+
+        `Volunteer Skill Category.category_name` is free text, and its own
+        description suggests values ("Technical, Communication") that are only
+        half the Select's vocabulary. Whatever an admin types, what leaves the
+        page has to be an option the field declares.
+        """
+        from verenigingen.templates.pages.apply_for_membership import get_skill_categories
+        from verenigingen.utils.select_options import get_select_options
+
+        # A real Settings doc, mutated in memory only — this is a Single, and
+        # persisting a child row here would leak into every later test.
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.append(
+            "volunteer_skill_categories",
+            {
+                "category_name": "Technical Skills",  # the heading, not the option
+                "skills": "Web Development, Photography",
+                "is_enabled": 1,
+                "display_order": 0,
+            },
+        )
+
+        categories = get_skill_categories(settings)
+
+        self.assertTrue(categories)
+        declared = set(get_select_options("Volunteer Skill", "skill_category"))
+        self.assertLessEqual({c["skill_category"] for c in categories}, declared)
+        # The heading the visitor reads is untouched by that coercion.
+        self.assertEqual(categories[0]["name"], "Technical Skills")
 
     def _render_apply_page(self):
         from frappe.website.serve import get_response_content
