@@ -269,6 +269,31 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/validation/archived/|verenigingen/tests/)'
 
+      - id: duplicate-helper-validator
+        name: 👯 Duplicate Helper Guard (ratchet)
+        description: >-
+          Blocks a private module-level helper being copied into a SECOND file, or a
+          copy being added to one already duplicated. A copy-pasted helper is where a
+          fix goes to die: on 2026-08-19 four defects landed or nearly landed because
+          a fix was applied to one copy — with a comment explaining exactly why — while
+          its siblings kept the bug (#392, #394, #399, plus two branches independently
+          fixing the same test and colliding on merge). `_persist_eur_company` exists
+          in EIGHT files; two were fixed to stop borrowing a company by currency and a
+          third was missed. Ratcheted against
+          scripts/validation/duplicate_helper_baseline.txt (71 known names, 119
+          redundant copies) so existing code does not block commits; the baseline
+          should only ever shrink. Restricted to leading-underscore names because
+          Frappe REQUIRES `execute`/`get_context`/`run_tests` once per module, and
+          counting those buries the real signal. Run with --report for the similarity
+          view before consolidating: same name does not always mean same code.
+          Runs at pre-push, not pre-commit — it scans the whole tree (~8s), and the
+          answer cannot change from the file list of one commit.
+        entry: python scripts/validation/duplicate_helper_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: failed-write-validator
         name: 💾 Failed-Write Guard (ratchet) [advisory]
         description: >-

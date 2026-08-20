@@ -261,6 +261,80 @@ jobs:
         fi
         echo "Baseline did not grow."
 
+  # A copy-pasted helper is where a fix goes to die. On 2026-08-19 that shape
+  # produced four defects in one day -- each a fix applied to one copy, with a
+  # comment explaining why, while its siblings kept the bug (#392, #394, #399, plus
+  # two branches independently fixing the same test and colliding on merge).
+  # This does not stop the copies that already exist; it stops new ones.
+  duplicate-helper-ratchet:
+    name: 👯 Duplicate Helper Guard (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Needed by the growth check below, which diffs against the base branch.
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    # Stdlib-only (ast, difflib, argparse, pathlib): no bench, no site, no install.
+    - name: Unit-test the validator itself
+      run: python -m unittest discover -s scripts/validation/tests -p 'test_duplicate_helper_validator.py' -v
+
+    - name: Ratchet check (whole tree)
+      run: python scripts/validation/duplicate_helper_validator.py
+
+    - name: Baseline is in sync with the tree
+      run: |
+        python scripts/validation/duplicate_helper_validator.py --update-baseline
+        if ! git diff --quiet -- scripts/validation/duplicate_helper_baseline.txt; then
+          echo "::error file=scripts/validation/duplicate_helper_baseline.txt::Baseline is out of sync with the tree."
+          echo "Regenerate it and commit the result:"
+          echo "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
+          echo ""
+          git --no-pager diff -- scripts/validation/duplicate_helper_baseline.txt
+          exit 1
+        fi
+        echo "Baseline matches the tree."
+
+    # The step above cannot catch the abuse that defeats this gate: regenerating the
+    # baseline so a new copy is recorded rather than removed. That leaves baseline
+    # and tree in sync, and the ratchet green. The only signal is that the baseline
+    # GREW -- legitimate solely when the validator's own rules changed in the same PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        BASELINE=scripts/validation/duplicate_helper_baseline.txt
+        VALIDATOR=scripts/validation/duplicate_helper_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline is expected."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "helper copies: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A duplicated helper was recorded into the baseline instead of consolidated."
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
   fast-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 5
