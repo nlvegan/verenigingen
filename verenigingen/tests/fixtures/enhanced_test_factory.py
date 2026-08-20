@@ -2009,6 +2009,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         "Journal Entry": 6,
         "Bank Transaction": 6,
         "Direct Debit Batch": 6,
+        # An Expense Claim is cancelled before deletion, and the cancel posts GL
+        # against its employee as party -- so it must drain before the Employee.
+        "Expense Claim": 6,
         # Then the domain records.
         "Membership": 5,
         "Member": 5,
