@@ -46,17 +46,38 @@ concurrency:
   group: server-tests-${{ github.ref }}
   # Cancel a superseded PR run; never cancel a trunk run.
   #
-  # This suite takes about an hour. Merges into develop have landed 10-90
-  # minutes apart, so with an unconditional `true` the run that verifies the
-  # merge which just landed was killed by the next merge -- and the trunk went
-  # unverified across a whole merge burst, silently, because a cancelled run
-  # is not a failed one.
+  # What is lost without this is per-merge ATTRIBUTION, not verification. Of the
+  # last 40 develop runs, 16 concluded `cancelled`, and every one of those 16
+  # commits is a git-ancestor of a later develop commit whose run did conclude --
+  # so the trunk HEAD was always tested, as part of a superset. What you cannot
+  # do is say which merge broke it. The 08-12/13 chain is the case that matters:
+  # five merges cancelled in a row, the terminal run red, and no way to tell
+  # which of the five did it.
+  #
+  # `queue: max` is not optional here. With cancel-in-progress false, GitHub
+  # holds at most ONE pending run per group and cancels older pending ones, so
+  # gating the flag alone would trade cancelled-while-running for
+  # cancelled-while-pending and add queueing latency on top. Simulated against
+  # the real run history at the measured median duration (36.5 min, n=24 -- not
+  # the "about an hour" this comment first claimed): flag alone gives 4 still
+  # cancelled and 12 runs delayed by up to 36 min; with `queue: max`, 0.
+  #
+  # The burst case is the one to keep in mind: 6 of 39 gaps between develop runs
+  # are under a minute, and on 2026-08-16 five pushes landed in 25 seconds.
+  # Those serialise now. That is the deliberate trade -- attribution for
+  # latency -- and `queue: max` is what keeps the tail of a burst from being
+  # dropped instead of merely delayed.
   #
   # PRs are unaffected: `github.ref` is `refs/pull/<n>/merge` for pull_request
-  # events, so it never equals a trunk ref and those runs still cancel on a new
-  # push. main is included for the same reason develop is -- both are push
-  # triggers above.
+  # events, verified against this repo's own run history (PR runs on one branch
+  # cancel each other; PR and develop runs overlap without cancelling), so they
+  # never share a group with a trunk run.
+  #
+  # `main` is named because it is a push trigger above. It does not exist in this
+  # repo today, so the clause is currently inert -- kept so the workflow does not
+  # need editing if it is ever created.
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
+  queue: max
 
 permissions:
   contents: read
