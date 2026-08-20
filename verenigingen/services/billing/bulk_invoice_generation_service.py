@@ -821,6 +821,26 @@ class BulkInvoiceGenerationService(StatefulService):
                                 "Individual Invoice Payment History Update",
                             )
 
+                    # Per MEMBER, and the reason is locks, not durability (#411).
+                    #
+                    # add_or_update_entry takes `SELECT ... FROM tabMember WHERE
+                    # name = %s FOR UPDATE` on each call, and a row lock is held
+                    # until the transaction ends. The history manager's own commit
+                    # used to release it immediately; now that the manager
+                    # correctly leaves the transaction alone, committing once at
+                    # the END of this loop would accumulate an X-lock on every
+                    # member in the batch and hold them all for the whole run --
+                    # while _get_invoice_with_retry sleeps up to 6s per
+                    # not-yet-visible invoice inside that window. Any concurrent
+                    # writer to one of those members (a Mollie webhook, a portal
+                    # save, a drain job) would wait and then take a 1205, which
+                    # does NOT roll back and leaves the victim running against a
+                    # broken transaction.
+                    #
+                    # This is a scheduled job, not hook context, so committing
+                    # here is ours to do -- and it bounds the lock to one member.
+                    frappe.db.commit()
+
                     updated_count += 1
 
             except Exception as e:
@@ -828,20 +848,6 @@ class BulkInvoiceGenerationService(StatefulService):
                     f"Error updating payment history for member {member_name}: {str(e)}",
                     "Bulk Payment History Member Update",
                 )
-
-        # Durability is decided HERE, not inside the history manager (#411).
-        #
-        # This runs in a scheduled job (hooks/scheduler.py -> generate_dues_invoices)
-        # which already committed the invoices themselves further up, before calling
-        # this. Without a commit of our own the history rows would ride on the job
-        # runner's final commit -- and anything raising between here and the end of
-        # the job (coverage-gap detection, the blocked-members summary) would discard
-        # every history row while leaving the invoices they describe committed.
-        #
-        # One commit for the whole batch, not one per invoice as the manager used to
-        # do: the loop above swallows per-member and per-invoice failures, so there
-        # is no partial state to preserve mid-loop.
-        frappe.db.commit()
 
         return updated_count
 

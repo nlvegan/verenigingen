@@ -16,8 +16,6 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe.utils import now
 
-from verenigingen.utils.secure_operations import secure_document_operation
-
 
 class MemberFinancialHistoryManager:
     """
@@ -297,6 +295,17 @@ class MemberFinancialHistoryManager:
                 # -- bulk_invoice_generation_service, a scheduler job that already
                 # committed its invoices before writing history -- now commits for
                 # itself, where the decision is visible. #411.
+                #
+                # TRADE-OFF, stated because it is not free: add_or_update_entry takes
+                # `SELECT ... FOR UPDATE` on the member row, and a row lock lives
+                # until the transaction ends. That commit used to release it on the
+                # spot; without it the lock is held for the rest of the caller's
+                # request. That is the correct transactional semantic -- you cannot
+                # hold a lock for consistency AND release it early without ending the
+                # transaction -- but it is longer contention than before, so a caller
+                # that loops over many members must commit per member rather than
+                # once at the end. bulk_update_payment_history does exactly that, and
+                # says so.
                 self.member.update_child_table(self.history_field)
                 return True
 

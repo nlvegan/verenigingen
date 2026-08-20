@@ -105,7 +105,7 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
             for call in ast.walk(node):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                     continue
-                if call.func.attr not in ("commit", "rollback"):
+                if call.func.attr not in ("commit", "rollback", "begin"):
                     continue
                 # Receiver must look like a database handle: `frappe.db.x()` and the
                 # aliased `db = frappe.db; db.x()`, which walked past an earlier check.
@@ -128,7 +128,8 @@ class TestFinancialBatchTransactionScope(VereningingenTestCase):
         self.assertEqual(
             offenders,
             [],
-            "a per-member batch handler must confine itself to its savepoint: "
+            "a per-member batch handler must confine itself to its savepoint "
+            "(`begin()` counts: START TRANSACTION implicitly commits in MariaDB): "
             f"{offenders}. A transaction-wide rollback discards every other member "
             "processed in the same run and the caller's in-flight work -- and the "
             "dispatch loop swallows the exception, so the run still reports success. "
@@ -213,7 +214,10 @@ class TestHistoryManagerLeavesTheTransactionAlone(VereningingenTestCase):
         wrote = manager.add_or_update_entry(
             "ACC-SINV-HISTSCOPE-0001",
             lambda: {
-                "invoice": None,
+                # Matches entry_id: if Member Payment History.invoice ever gains a
+                # link/reqd check, a mismatched row would make update_child_table
+                # throw and this test fail for a reason unrelated to commits.
+                "invoice": "ACC-SINV-HISTSCOPE-0001",
                 "posting_date": frappe.utils.nowdate(),
                 "amount": 1.0,
                 "outstanding_amount": 0.0,
@@ -250,7 +254,7 @@ class TestHistoryManagerLeavesTheTransactionAlone(VereningingenTestCase):
         for call in ast.walk(tree):
             if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                 continue
-            if call.func.attr not in ("commit", "rollback"):
+            if call.func.attr not in ("commit", "rollback", "begin"):
                 continue
             value = call.func.value
             is_frappe_db = isinstance(value, ast.Attribute) and value.attr == "db"
@@ -268,6 +272,8 @@ class TestHistoryManagerLeavesTheTransactionAlone(VereningingenTestCase):
             offenders,
             [],
             "member_financial_history_manager must not end the caller's transaction: "
+            "(`begin()` counts -- it issues START TRANSACTION, which implicitly commits "
+            "in MariaDB and discards every savepoint, the ImplicitCommitError class) "
             f"{offenders}. It is reached from ordinary request and hook paths -- the "
             "batch queue is drained INLINE from add_invoice_to_payment_history() -- so "
             "a commit here flushes a caller's half-finished work and destroys every "

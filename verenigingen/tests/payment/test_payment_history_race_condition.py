@@ -287,14 +287,30 @@ class TestPaymentHistoryRaceCondition(EnhancedTestCase):
             posting_date=today()
         )
 
+        # _last_processed is PROCESS-global and reset_queues() does not clear it, so
+        # queue_payment_update() below drains INLINE whenever 30s have passed since
+        # some earlier test drained. That drain would run OUTSIDE the patch, leaving
+        # force_process_all() nothing to do and both assertions passing while never
+        # touching the code under test.
+        FinancialHistoryBatchProcessor._last_processed.clear()
+        FinancialHistoryBatchProcessor._last_processed["payments"] = frappe.utils.now()
+
         self.test_member.add_invoice_to_payment_history(invoice.name)
+
+        self.assertTrue(
+            FinancialHistoryBatchProcessor.get_queue_status()["payment_queue_size"],
+            "the queue was already drained before the patch was installed, so the "
+            "commit count below would be measuring nothing",
+        )
 
         commit_count = [0]
         original_commit = frappe.db.commit
 
-        def counting_commit():
+        def counting_commit(*args, **kwargs):
+            # *args/**kwargs, not (): a bare def would turn frappe.db.commit(chain=True)
+            # into a TypeError instead of counting it.
             commit_count[0] += 1
-            return original_commit()
+            return original_commit(*args, **kwargs)
 
         with patch('frappe.db.commit', side_effect=counting_commit):
             FinancialHistoryBatchProcessor.force_process_all()
