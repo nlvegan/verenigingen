@@ -70,11 +70,20 @@ class ServiceFieldValidator:
 
         except Exception as e:
             self.logger.error(f"Field validation failed: {str(e)}")
+            # invalid_fields stays EMPTY: we could not look the fields up, so we do
+            # not know that any of them are invalid. Listing them here blamed real
+            # fields for what is an infrastructure failure -- the same mislabelling
+            # this method's own message was fixed to avoid -- and a caller reading
+            # invalid_fields rather than message still got the wrong answer.
+            #
+            # It also un-broke validate_service_operation: a non-empty invalid_fields
+            # sent it into a get_field_suggestions loop that re-raises the very error
+            # this branch just converted into a result dict.
             return {
                 "success": False,
                 "message": f"Field validation error: {str(e)}",
                 "errors": [str(e)],
-                "invalid_fields": fields,
+                "invalid_fields": [],
                 "valid_fields": [],
             }
 
@@ -150,9 +159,14 @@ class ServiceFieldValidator:
             return valid_fields
 
         except Exception as e:
+            # Do NOT cache the failure, and do not return an empty set: `set()` is
+            # the "this DocType has no fields" answer, so every later check reports
+            # every field invalid and `safe_query` raises. Cached, that verdict
+            # outlives the outage for the life of the process. Same shape as
+            # get_doctype_meta above; validate_fields turns the raise into a result
+            # that names the real cause.
             self.logger.warning(f"Could not get fields for DocType {doctype}: {str(e)}")
-            self._field_cache[cache_key] = set()
-            return set()
+            raise
 
     def validate_query_fields(self, doctype: str, query_dict: Dict) -> Dict[str, Any]:
         """Validate fields used in a query dictionary.
