@@ -94,8 +94,7 @@ compares them. Claim retracted rather than machinery built to justify it.
   `input[name="terms_accepted"]`. The real defect is that acceptance is transmitted as
   `false` and read by **no** server code — a missing record, not an open door.
 - It said the newsletter preference is lost. The page captures it via
-  `#opt_out_optional_emails`, which *is* read correctly. The narrower defect is a stray
-  `newsletter_opt_in: false` that defeats `data.get("newsletter_opt_in", 1)`.
+  `#opt_out_optional_emails`, which *is* read correctly.
 
 Agent findings are leads. Both of these would have gone into a public issue as fact.
 
@@ -110,7 +109,7 @@ page — measured by the guard itself, not estimated:
 |---|---|---|---|
 | `contact_number` | `#contact_number` | `id="mobile_no"` | every applicant's phone number stored empty |
 | `additional_notes` | `#additional_notes` | `id="volunteer_comments"` | the motivation text never reached `Member.notes` |
-| `newsletter_opt_in` | `#newsletter_opt_in` | nothing | every member stored `0`, defeating the server default |
+| `newsletter_opt_in` | `#newsletter_opt_in` | nothing | **nothing is stored** — see correction below |
 | `terms`, `gdpr_consent`, `confirm_accuracy` | those ids | `name="terms_accepted"` / `name="privacy_accepted"`, no ids | consent never recorded |
 | 7 more | — | nothing | always `''` |
 
@@ -134,6 +133,28 @@ That fourth one is not decoration. Without it a parser returning `{}` makes ever
 assertion vacuously true, which is precisely the failure this file exists to prevent. Its
 first version used `str.index`, which raised with **300KB of JavaScript** in the report.
 
+## The correction I had to publish afterwards
+
+I wrote — here, in #412, and in #413's description — that `newsletter_opt_in` means "every
+member is stored `0`, defeating `data.get("newsletter_opt_in", 1)`". Both halves false.
+`DESCRIBE tabMember` says:
+
+```
+tabMember.newsletter_opt_in           ** NO COLUMN **
+tabMember.application_source          ** NO COLUMN **
+tabMember.application_source_details  ** NO COLUMN **
+tabMember.accepts_optional_communications  EXISTS
+```
+
+So `member.newsletter_opt_in = ...` at `application_helpers.py:686` is a **silent no-op**
+and nothing is stored either way. `transfer_iban` / `transfer_account_name` are likewise not
+"always empty" but read **nowhere** server-side.
+
+I reached the false version by reading the assignment rather than asking the database —
+the same class of mistake this session had just finished documenting, made while writing it
+up. `assigning-nonexistent-doc-field-is-silent-noop` was already in memory. **Reading an
+assignment tells you what the author intended; only the schema tells you what happens.**
+
 ## Traps worth carrying forward
 
 - **`tests/frontend/setup.js` stubs `global.$` as a jest.fn returning stubs, and jquery is
@@ -152,8 +173,7 @@ first version used `str.index`, which raised with **300KB of JavaScript** in the
 
 ## Open, and what each needs
 
-- **#412** — the twelve remaining fields. `newsletter_opt_in` (deleting the key changes what
-  is stored on every future member), the three consent fields (should acceptance be
+- **#412** — the twelve remaining fields. The three consent fields (should acceptance be
   persisted on `Member`?), seven fields with no control on the page, and `payment_method`
   (works via a `name`-based fallback). Plus the identical wrong ids at
   `membership_application.js:~4003` in the `BaseStep` subclasses — dead today because
